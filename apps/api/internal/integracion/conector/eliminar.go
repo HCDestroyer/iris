@@ -21,6 +21,23 @@ type EntradaEliminarConector struct {
 	origen string
 }
 
+// ConectoresEliminables cuenta lo que eliminaría POST …/conectores/eliminar-apagados.
+type ConectoresEliminables struct {
+	Cantidad int `json:"cantidad" doc:"Conectores apagados que se pueden eliminar"`
+}
+
+func nuevoContarConectoresEliminables() *auditoria.Caso[struct{}, ConectoresEliminables] {
+	return auditoria.Nuevo(auditoria.Caso[struct{}, ConectoresEliminables]{
+		Accion: "integraciones.contar_eliminables", Permiso: nucleo.PermIntegracionesEliminar, SinEmpresa: true,
+		AuditarExito: soloLecturas[ConectoresEliminables],
+		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (ConectoresEliminables, error) {
+			t.FijarEmpresa(0)
+			ids, err := conectorbd.New(t).ConectoresEliminables(ctx)
+			return ConectoresEliminables{Cantidad: len(ids)}, err
+		},
+	})
+}
+
 // ConectoresEliminados es la respuesta del lote.
 type ConectoresEliminados struct {
 	Eliminados int     `json:"eliminados"`

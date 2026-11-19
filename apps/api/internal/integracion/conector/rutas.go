@@ -106,6 +106,12 @@ func (n *Nucleo) Registrar(api huma.API) {
 		e.ID = in.ID
 		return Responder(n.EliminarConector.Ejecutar(ctx, e))
 	})
+	contar := Operacion(EtiquetaIntegraciones, "contarConectoresEliminables", http.MethodGet, "/api/v1/integraciones/conectores/eliminables",
+		"Contar los conectores apagados que se pueden eliminar", nucleo.PermIntegracionesEliminar, http.StatusOK)
+	contar.Description += " Lo que eliminaría `POST …/conectores/eliminar-apagados` (para la confirmación), sin depender de la paginación de la lista."
+	huma.Register(api, contar, func(ctx context.Context, _ *struct{}) (*Cuerpo[ConectoresEliminables], error) {
+		return Responder(n.ContarConectoresEliminables.Ejecutar(ctx, struct{}{}))
+	})
 	apagados := Operacion(EtiquetaIntegraciones, "eliminarConectoresApagados", http.MethodPost, "/api/v1/integraciones/conectores/eliminar-apagados",
 		"Eliminar todos los conectores apagados", nucleo.PermIntegracionesEliminar, http.StatusOK)
 	apagados.Description += " Los que tienen `eliminable: true` en la lista. Cada uno se audita por separado y emite `conector.eliminado` (motivo `lote`). Sin ninguno, responde `eliminados: 0`."

@@ -241,9 +241,16 @@ RETURNING *;
 
 -- name: EliminarToken :one
 -- Borrado lógico (tokens.eliminar): la fila queda para la auditoría; el hash se borra.
+-- Solo uno revocado o vencido (con la hora de la base): si no, ninguna fila.
 UPDATE nucleo.tokens_api SET eliminado_en = now(), eliminado_por = sqlc.narg(eliminado_por), hash = NULL, updated_at = now()
-WHERE id = @id AND eliminado_en IS NULL
+WHERE id = @id AND eliminado_en IS NULL AND (revocado_en IS NOT NULL OR expira_en <= now())
 RETURNING *;
+
+-- name: TokensUsadosPorConectoresActivos :many
+-- Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo).
+SELECT DISTINCT t.id::bigint AS id FROM integracion.conectores c
+CROSS JOIN LATERAL (VALUES (c.token_entregado_id), (c.reemplaza_token_id)) AS t (id)
+WHERE c.estado = 'activo' AND t.id IS NOT NULL;
 
 -- name: TokenUsadoPorConectorActivo :one
 -- Un conector activo depende del token: el iris_pat_ que Iris le entregó en el canje, o el del
@@ -532,7 +539,7 @@ RETURNING *;
 -- name: VinculosSSODeUsuario :many
 SELECT v.id, v.conector_id, c.sistema, v.usuario_externo, v.created_at
 FROM nucleo.sso_vinculos v JOIN integracion.conectores c ON c.id = v.conector_id
-WHERE v.usuario_id = @usuario_id ORDER BY v.id;
+WHERE v.usuario_id = @usuario_id AND c.eliminado_en IS NULL ORDER BY v.id;
 
 -- name: VinculoSSOParaBorrar :one
 SELECT * FROM nucleo.sso_vinculos WHERE id = @id AND usuario_id = @usuario_id FOR UPDATE;

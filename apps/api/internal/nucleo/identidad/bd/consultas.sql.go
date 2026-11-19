@@ -914,7 +914,7 @@ func (q *Queries) EditarEmpresa(ctx context.Context, arg EditarEmpresaParams) (N
 
 const eliminarToken = `-- name: EliminarToken :one
 UPDATE nucleo.tokens_api SET eliminado_en = now(), eliminado_por = $1, hash = NULL, updated_at = now()
-WHERE id = $2 AND eliminado_en IS NULL
+WHERE id = $2 AND eliminado_en IS NULL AND (revocado_en IS NOT NULL OR expira_en <= now())
 RETURNING id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at, eliminado_en, eliminado_por
 `
 
@@ -924,6 +924,7 @@ type EliminarTokenParams struct {
 }
 
 // Borrado lógico (tokens.eliminar): la fila queda para la auditoría; el hash se borra.
+// Solo uno revocado o vencido (con la hora de la base): si no, ninguna fila.
 func (q *Queries) EliminarToken(ctx context.Context, arg EliminarTokenParams) (NucleoTokensApi, error) {
 	row := q.db.QueryRow(ctx, eliminarToken, arg.EliminadoPor, arg.ID)
 	var i NucleoTokensApi
@@ -3049,6 +3050,33 @@ func (q *Queries) TokensEliminables(ctx context.Context, arg TokensEliminablesPa
 	return items, nil
 }
 
+const tokensUsadosPorConectoresActivos = `-- name: TokensUsadosPorConectoresActivos :many
+SELECT DISTINCT t.id::bigint AS id FROM integracion.conectores c
+CROSS JOIN LATERAL (VALUES (c.token_entregado_id), (c.reemplaza_token_id)) AS t (id)
+WHERE c.estado = 'activo' AND t.id IS NOT NULL
+`
+
+// Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo).
+func (q *Queries) TokensUsadosPorConectoresActivos(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, tokensUsadosPorConectoresActivos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const tomarAccesoPortal = `-- name: TomarAccesoPortal :one
 UPDATE nucleo.portal_accesos
 SET usado_en = now(), updated_at = now()
@@ -3490,7 +3518,7 @@ func (q *Queries) VinculoSSOParaBorrar(ctx context.Context, arg VinculoSSOParaBo
 const vinculosSSODeUsuario = `-- name: VinculosSSODeUsuario :many
 SELECT v.id, v.conector_id, c.sistema, v.usuario_externo, v.created_at
 FROM nucleo.sso_vinculos v JOIN integracion.conectores c ON c.id = v.conector_id
-WHERE v.usuario_id = $1 ORDER BY v.id
+WHERE v.usuario_id = $1 AND c.eliminado_en IS NULL ORDER BY v.id
 `
 
 type VinculosSSODeUsuarioRow struct {

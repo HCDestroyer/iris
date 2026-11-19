@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	comercialbd "github.com/HCDestroyer/iris/apps/api/internal/comercial/bd"
+	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -37,6 +39,35 @@ func TestEliminarConector(t *testing.T) {
 	secretoViejo := ""
 	e.argos.con(func() { secretoViejo = secretoDelCanje(e.argos.canjes[len(e.argos.canjes)-2]) })
 	ruta := func(id int64) string { return fmt.Sprintf("/api/v1/integraciones/conectores/%d/eliminar", id) }
+
+	// El iris_pat_ del conector activo y el de la reconexión sin confirmar: la lista los marca y ni
+	// «Revocar» ni «Revocar y eliminar» los tocan (cortarían Argos): 409 y el token sigue valiendo.
+	var tokenActivo int64
+	if err := e.pool.QueryRow(t.Context(), `SELECT token_entregado_id FROM integracion.conectores WHERE id = $1`, nuevo).Scan(&tokenActivo); err != nil {
+		t.Fatal(err)
+	}
+	lista := admin.pedir(http.MethodGet, "/api/v1/tokens?limit=200", nil)
+	marcados := map[int64]bool{}
+	for _, d := range lista.cuerpo["data"].([]any) {
+		m := d.(map[string]any)
+		marcados[int64(m["id"].(float64))] = m["enUsoPorConector"] == true
+	}
+	if !marcados[tokenActivo] || !marcados[tokenViejo] {
+		t.Fatalf("enUsoPorConector en la lista: %v (activo %d, viejo %d)", marcados, tokenActivo, tokenViejo)
+	}
+	for _, id := range []int64{tokenActivo, tokenViejo} {
+		admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/tokens/%d/revocar", id), map[string]any{}).problema(t, 409, "token_en_uso_por_conector")
+		admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/tokens/%d/revocar-y-eliminar", id), map[string]any{}).problema(t, 409, "token_en_uso_por_conector")
+	}
+	if r := e.leerConPat(patViejo); r.status != 200 {
+		t.Fatalf("los 409 no tocan el iris_pat_: %d", r.status)
+	}
+	if n := e.contar(`SELECT count(*) FROM nucleo.tokens_api WHERE id = ANY($1) AND revocado_en IS NULL AND eliminado_en IS NULL`, []int64{tokenActivo, tokenViejo}); n != 2 {
+		t.Fatalf("los 409 no revocan ni eliminan: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'token.revocado' AND (payload->>'token_id')::bigint = ANY($1)`, []int64{tokenActivo, tokenViejo}); n != 0 {
+		t.Fatalf("token.revocado tras un 409: %d", n)
+	}
 
 	// Un token revocado que un conector activo usa (el del activo, aquí revocado a mano) no se elimina.
 	var tokenNuevo int64
@@ -77,6 +108,19 @@ func TestEliminarConector(t *testing.T) {
 	if esta, eliminable := enLista(t, admin, viejo); !esta || !eliminable {
 		t.Fatal("el apagado libre sale en la lista como eliminable")
 	}
+	cuenta := admin.pedir(http.MethodGet, "/api/v1/integraciones/conectores/eliminables", nil)
+	if want := e.contar(`SELECT count(*) FROM integracion.conectores WHERE estado = 'apagado' AND eliminado_en IS NULL`); cuenta.status != 200 || cuenta.cuerpo["cantidad"] != float64(want) || want < 1 {
+		t.Fatalf("eliminables: %d %s (esperaba %d)", cuenta.status, cuenta.crudo, want)
+	}
+	// Vínculo de autologin con el conector viejo (M3): deja de listarse al eliminarlo.
+	usuarioVinculo := e.idDe(e.usuario("soporte"))
+	if _, err := e.pool.Exec(t.Context(), `INSERT INTO nucleo.sso_vinculos (conector_id, usuario_externo, usuario_id) VALUES ($1, $2, $3)`,
+		viejo, "argos-elim-"+pruebas.Unico(), usuarioVinculo); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := identidadbd.New(e.pool).VinculosSSODeUsuario(t.Context(), usuarioVinculo); err != nil || len(v) != 1 {
+		t.Fatalf("vínculo antes: %v %v", v, err)
+	}
 	r := admin.pedir(http.MethodPost, ruta(viejo), map[string]any{"motivo": "ya no sirve"})
 	if r.status != 200 || r.cuerpo["eliminadoEn"] == nil || r.cuerpo["estado"] != "apagado" {
 		t.Fatalf("eliminar: %d %s", r.status, r.crudo)
@@ -99,6 +143,14 @@ func TestEliminarConector(t *testing.T) {
 		problema(t, 401, "firma_invalida")
 	// Activarlo: 404.
 	admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", viejo), map[string]any{"version": 3}).problema(t, 404, "no_encontrado")
+
+	if v, err := identidadbd.New(e.pool).VinculosSSODeUsuario(t.Context(), usuarioVinculo); err != nil || len(v) != 0 {
+		t.Fatalf("el vínculo con un conector eliminado no se lista: %v %v", v, err)
+	}
+	// M1: revocar (worker) un iris_pat_ ya eliminado es un éxito, no un reintento eterno.
+	if err := e.ident.RevocarTokenIntegracion(pruebas.ContextoSistema(e.pool), tokenViejo, "revocacion_pendiente"); err != nil {
+		t.Fatalf("revocar un token eliminado: %v", err)
+	}
 
 	// Idempotente: otra vez 200, sin evento nuevo.
 	if r := admin.pedir(http.MethodPost, ruta(viejo), map[string]any{}); r.status != 200 {
@@ -136,6 +188,10 @@ func TestEliminarConector(t *testing.T) {
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.conectores WHERE estado = 'apagado' AND eliminado_en IS NULL`); n != 0 {
 		t.Fatalf("quedan apagados sin eliminar: %d", n)
+	}
+	// M2: eliminados todos los de Argos, comercial queda en modo sin conector ('').
+	if estado, err := comercialbd.New(e.pool).EstadoConectorArgos(t.Context()); err != nil || estado != "" {
+		t.Fatalf("EstadoConectorArgos sin conectores vivos: %q %v", estado, err)
 	}
 	// Repetir el lote: nada que hacer.
 	if r := admin.pedir(http.MethodPost, "/api/v1/integraciones/conectores/eliminar-apagados", nil); r.status != 200 || r.cuerpo["eliminados"] != float64(0) {

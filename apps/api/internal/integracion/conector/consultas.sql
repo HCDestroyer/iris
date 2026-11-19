@@ -19,7 +19,7 @@ RETURNING *;
 -- name: TokensEntregadosDeOtros :many
 -- Los iris_pat_ entregados por los demás conectores del sistema (se revocan al guardar uno nuevo).
 SELECT token_entregado_id::bigint AS token_id FROM integracion.conectores
-WHERE sistema = @sistema AND id <> @excepto AND token_entregado_id IS NOT NULL;
+WHERE sistema = @sistema AND id <> @excepto AND token_entregado_id IS NOT NULL AND eliminado_en IS NULL;
 
 -- name: ExisteConectorConBase :one
 -- El conector activo del sistema tiene ese origen (uno apagado o de un intento no cuenta).

@@ -129,10 +129,11 @@ type Nucleo struct {
 	ActivarConector    *auditoria.Caso[EntradaActivarConector, Conector]
 	DesactivarConector *auditoria.Caso[EntradaCambioConector, Conector]
 	// Borrado lógico de conectores apagados (eliminar.go).
-	EliminarConector           *auditoria.Caso[EntradaEliminarConector, Conector]
-	EliminarConectoresApagados *auditoria.Caso[struct{}, ConectoresEliminados]
-	CambiarURLPublica          *auditoria.Caso[EntradaURLPublica, Conector]
-	ObtenerEnlaces             *auditoria.Caso[struct{}, EnlacesExternos]
+	EliminarConector            *auditoria.Caso[EntradaEliminarConector, Conector]
+	EliminarConectoresApagados  *auditoria.Caso[struct{}, ConectoresEliminados]
+	ContarConectoresEliminables *auditoria.Caso[struct{}, ConectoresEliminables]
+	CambiarURLPublica           *auditoria.Caso[EntradaURLPublica, Conector]
+	ObtenerEnlaces              *auditoria.Caso[struct{}, EnlacesExternos]
 	// Reconexión sin corte (0.6.3, reconexion.go).
 	ConfirmarReemplazo *auditoria.Caso[int64, ReemplazoCerrado]
 	VencerReemplazo    *auditoria.Caso[ArgsVencerReemplazo, ReemplazoCerrado]
@@ -184,6 +185,7 @@ func Nuevo(cfg Config) *Nucleo {
 	n.DesactivarConector = nuevoDesactivarConector(n)
 	n.EliminarConector = nuevoEliminarConector(n)
 	n.EliminarConectoresApagados = nuevoEliminarConectoresApagados(n.EliminarConector)
+	n.ContarConectoresEliminables = nuevoContarConectoresEliminables()
 	n.CambiarURLPublica = nuevoCambiarURLPublica(n)
 	n.ObtenerEnlaces = nuevoObtenerEnlaces(n)
 	n.ConfirmarReemplazo = nuevoConfirmarReemplazo(n)

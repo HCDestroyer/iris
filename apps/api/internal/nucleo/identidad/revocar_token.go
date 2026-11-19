@@ -12,6 +12,9 @@ import (
 type EntradaRevocarToken struct {
 	ID     int64  `json:"-"`
 	Motivo string `json:"motivo,omitempty" maxLength:"500"`
+	// interno: lo pide el conector (RevocarTokenIntegracion), que ya apagó o reemplazó al
+	// conector; no sale de la entrada HTTP.
+	interno bool
 }
 
 func nuevoRevocarToken() *auditoria.Caso[EntradaRevocarToken, TokenAPI] {
@@ -33,6 +36,18 @@ func nuevoRevocarToken() *auditoria.Caso[EntradaRevocarToken, TokenAPI] {
 			}
 			if antes.EliminadoEn != nil {
 				return TokenAPI{}, nucleo.NoEncontrado("") // un token eliminado ya no existe para la API
+			}
+			// Revocar el iris_pat_ de un conector activo cortaría la integración: se cambia desde
+			// Integraciones (desactivar o reconectar), no aquí.
+			if !in.interno {
+				usado, err := q.TokenUsadoPorConectorActivo(ctx, in.ID)
+				if err != nil {
+					return TokenAPI{}, err
+				}
+				if usado {
+					return TokenAPI{}, nucleo.Conflicto("token_en_uso_por_conector",
+						"Lo usa la integración con Argos u Horus: revocarlo la cortaría. Cámbialo desde Integraciones (desactivar o reconectar el conector)")
+				}
 			}
 			if antes.RevocadoEn != nil {
 				return TokenAPI{}, nucleo.ReglaNegocio("token_revocado", "El token ya está revocado")

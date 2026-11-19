@@ -2,7 +2,11 @@ package identidad
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -56,12 +60,31 @@ func tokenVigente(t identidadbd.NucleoTokensApi, ahora time.Time) bool {
 	return t.RevocadoEn == nil && (t.ExpiraEn == nil || t.ExpiraEn.After(ahora))
 }
 
-// nuevoEliminarToken arma tokens.eliminar. interno: lo llama el conector al eliminar un conector
-// apagado (ya autorizado con integraciones.eliminar): no exige tokens.eliminar ni el alcance de
-// empresas, y si el token aún vale lo revoca primero (token.revocado) en la misma transacción.
-func nuevoEliminarToken(interno bool) *auditoria.Caso[EntradaEliminarToken, TokenAPI] {
+// modoEliminar distingue las tres formas de eliminar un token.
+type modoEliminar int
+
+const (
+	// eliminarManual: tokens.eliminar (POST /tokens/{id}/eliminar y el lote); uno vigente es 409.
+	eliminarManual modoEliminar = iota
+	// eliminarRevocando: tokens.revocar_y_eliminar (POST /tokens/{id}/revocar-y-eliminar), una
+	// sola transacción: si aún vale lo revoca (exige además tokens.revocar) y lo elimina.
+	eliminarRevocando
+	// eliminarInterno: lo llama el conector al eliminar un conector apagado (ya autorizado con
+	// integraciones.eliminar): sin tokens.eliminar ni alcance de empresas; si aún vale lo revoca.
+	eliminarInterno
+)
+
+// nuevoEliminarToken arma tokens.eliminar (o sus variantes, ver modoEliminar). En todas, si un
+// conector activo depende del token responde 409 token_en_uso_por_conector ANTES de tocar nada:
+// revocarlo cortaría la integración con Argos u Horus.
+func nuevoEliminarToken(modo modoEliminar) *auditoria.Caso[EntradaEliminarToken, TokenAPI] {
+	interno := modo == eliminarInterno
+	accion := "tokens.eliminar"
+	if modo == eliminarRevocando {
+		accion = "tokens.revocar_y_eliminar"
+	}
 	c := auditoria.Caso[EntradaEliminarToken, TokenAPI]{
-		Accion:     "tokens.eliminar",
+		Accion:     accion,
 		Permiso:    nucleo.PermTokensEliminar,
 		SinEmpresa: true, // administración: no es operativa
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaEliminarToken) (TokenAPI, error) {
@@ -92,14 +115,21 @@ func nuevoEliminarToken(interno bool) *auditoria.Caso[EntradaEliminarToken, Toke
 			}
 			actual := antes
 			if tokenVigente(antes, time.Now()) {
-				if !interno {
+				motivoRevocar := "conector_eliminado"
+				switch modo {
+				case eliminarManual:
 					return TokenAPI{}, nucleo.Conflicto("token_vigente", "El token aún vale: revócalo primero y luego elimínalo")
+				case eliminarRevocando:
+					if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermTokensRevocar)) {
+						return TokenAPI{}, nucleo.Prohibido("Revocar y eliminar un token vigente exige también el permiso tokens.revocar")
+					}
+					motivoRevocar = in.Motivo
 				}
 				if actual, err = q.RevocarToken(ctx, in.ID); err != nil {
 					return TokenAPI{}, err
 				}
 				t.RegistrarCambios("token", in.ID, aTokenAPI(antes), aTokenAPI(actual))
-				if err := t.Emitir("token.revocado", map[string]any{"token_id": in.ID, "usuario_id": antes.UsuarioID, "motivo": "conector_eliminado"}); err != nil {
+				if err := t.Emitir("token.revocado", map[string]any{"token_id": in.ID, "usuario_id": antes.UsuarioID, "motivo": motivoRevocar}); err != nil {
 					return TokenAPI{}, err
 				}
 			}
@@ -108,6 +138,10 @@ func nuevoEliminarToken(interno bool) *auditoria.Caso[EntradaEliminarToken, Toke
 				por = &a.ID
 			}
 			despues, err := q.EliminarToken(ctx, identidadbd.EliminarTokenParams{ID: in.ID, EliminadoPor: por})
+			if errors.Is(err, pgx.ErrNoRows) {
+				// Con la hora de la base aún no vence (la de este servidor iba adelantada).
+				return TokenAPI{}, nucleo.Conflicto("token_vigente", "El token aún vale: revócalo primero y luego elimínalo")
+			}
 			if err != nil {
 				return TokenAPI{}, err
 			}
@@ -213,4 +247,16 @@ func nuevoEliminarTokensInactivos(uno *auditoria.Caso[EntradaEliminarToken, Toke
 func (m *Modulo) EliminarTokenIntegracion(ctx context.Context, id int64) error {
 	_, err := m.eliminarTokenInterno.Ejecutar(ctx, EntradaEliminarToken{ID: id, origen: motivoEliminarConector})
 	return err
+}
+
+// marcarEnUso pone enUsoPorConector en los tokens de los que depende un conector activo.
+func marcarEnUso(ctx context.Context, q *identidadbd.Queries, tokens []TokenAPI) error {
+	ids, err := q.TokensUsadosPorConectoresActivos(ctx)
+	if err != nil {
+		return err
+	}
+	for i := range tokens {
+		tokens[i].EnUsoPorConector = slices.Contains(ids, tokens[i].ID)
+	}
+	return nil
 }

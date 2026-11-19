@@ -1326,7 +1326,7 @@ func (q *Queries) TokensEntregadosDeInactivos(ctx context.Context, arg TokensEnt
 
 const tokensEntregadosDeOtros = `-- name: TokensEntregadosDeOtros :many
 SELECT token_entregado_id::bigint AS token_id FROM integracion.conectores
-WHERE sistema = $1 AND id <> $2 AND token_entregado_id IS NOT NULL
+WHERE sistema = $1 AND id <> $2 AND token_entregado_id IS NOT NULL AND eliminado_en IS NULL
 `
 
 type TokensEntregadosDeOtrosParams struct {

@@ -294,6 +294,14 @@ func (m *Modulo) Registrar(api huma.API) {
 			e.ID = in.ID
 			return responder(m.EliminarToken.Ejecutar(ctx, e))
 		})
+	revocarEliminar := operacion("revocarYEliminarToken", http.MethodPost, "/api/v1/tokens/{id}/revocar-y-eliminar", "Revocar y eliminar un token de API", nucleo.PermTokensEliminar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	revocarEliminar.Description += " Una sola acción y una sola transacción: si el token aún vale lo revoca (exige además `tokens.revocar`; emite `token.revocado` con el motivo) y lo elimina (`token.eliminado`, motivo `manual`). Si un conector activo lo usa, 409 `token_en_uso_por_conector` sin tocar nada (revocarlo cortaría la integración: se cambia desde Integraciones). Fuera de tu alcance de empresas, 404. Ya eliminado: 200 sin evento."
+	huma.Register(api, revocarEliminar,
+		func(ctx context.Context, in *conID[EntradaEliminarToken]) (*cuerpo[TokenAPI], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(m.RevocarYEliminarToken.Ejecutar(ctx, e))
+		})
 	contarEliminables := operacion("contarTokensEliminables", http.MethodGet, "/api/v1/tokens/eliminables", "Contar los tokens revocados o vencidos que se pueden eliminar", nucleo.PermTokensEliminar, http.StatusOK)
 	contarEliminables.Description += " Lo que eliminaría `POST /api/v1/tokens/eliminar-inactivos` con el mismo filtro (para la confirmación)."
 	huma.Register(api, contarEliminables,
@@ -306,7 +314,9 @@ func (m *Modulo) Registrar(api huma.API) {
 		func(ctx context.Context, in *conClave[EntradaTokensInactivos]) (*cuerpo[TokensEliminados], error) {
 			return responder(m.EliminarTokensInactivos.Ejecutar(ctx, in.Body))
 		})
-	huma.Register(api, operacion("revocarToken", http.MethodPost, "/api/v1/tokens/{id}/revocar", "Revocar un token de API", nucleo.PermTokensRevocar, http.StatusOK, http.StatusNotFound),
+	revocar := operacion("revocarToken", http.MethodPost, "/api/v1/tokens/{id}/revocar", "Revocar un token de API", nucleo.PermTokensRevocar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	revocar.Description += " El iris_pat_ de un conector activo (`enUsoPorConector`) no se revoca aquí: 409 `token_en_uso_por_conector` (cortaría la integración; se cambia desde Integraciones)."
+	huma.Register(api, revocar,
 		func(ctx context.Context, in *conID[EntradaRevocarToken]) (*cuerpo[TokenAPI], error) {
 			e := in.Body
 			e.ID = in.ID

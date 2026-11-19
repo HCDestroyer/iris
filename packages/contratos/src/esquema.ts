@@ -1400,6 +1400,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/conectores/eliminables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Contar los conectores apagados que se pueden eliminar
+         * @description Permiso: `integraciones.eliminar`. Lo que eliminaría `POST …/conectores/eliminar-apagados` (para la confirmación), sin depender de la paginación de la lista.
+         */
+        get: operations["contarConectoresEliminables"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/conectores/eliminar-apagados": {
         parameters: {
             query?: never;
@@ -7646,9 +7666,29 @@ export interface paths {
         put?: never;
         /**
          * Revocar un token de API
-         * @description Permiso: `tokens.revocar`.
+         * @description Permiso: `tokens.revocar`. El iris_pat_ de un conector activo (`enUsoPorConector`) no se revoca aquí: 409 `token_en_uso_por_conector` (cortaría la integración; se cambia desde Integraciones).
          */
         post: operations["revocarToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/{id}/revocar-y-eliminar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revocar y eliminar un token de API
+         * @description Permiso: `tokens.eliminar`. Una sola acción y una sola transacción: si el token aún vale lo revoca (exige además `tokens.revocar`; emite `token.revocado` con el motivo) y lo elimina (`token.eliminado`, motivo `manual`). Si un conector activo lo usa, 409 `token_en_uso_por_conector` sin tocar nada (revocarlo cortaría la integración: se cambia desde Integraciones). Fuera de tu alcance de empresas, 404. Ya eliminado: 200 sin evento.
+         */
+        post: operations["revocarYEliminarToken"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9730,6 +9770,13 @@ export interface components {
             versionRemota?: string | null;
             /** @description URL a la que el otro sistema envía los webhooks */
             webhookUrl: string;
+        };
+        ConectoresEliminables: {
+            /**
+             * Format: int64
+             * @description Conectores apagados que se pueden eliminar
+             */
+            cantidad: number;
         };
         ConectoresEliminados: {
             /** Format: int64 */
@@ -18358,6 +18405,8 @@ export interface components {
              * @description Cuándo se eliminó (borrado lógico); ausente si no está eliminado
              */
             eliminadoEn?: string;
+            /** @description Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector) */
+            enUsoPorConector: boolean;
             /** Format: date-time */
             expiraEn: string | null;
             /** Format: int64 */
@@ -24551,6 +24600,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PaginaConector"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    contarConectoresEliminables: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConectoresEliminables"];
                 };
             };
             /** @description Unauthorized */
@@ -49682,6 +49787,98 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    revocarYEliminarToken: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEliminarToken"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenAPI"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

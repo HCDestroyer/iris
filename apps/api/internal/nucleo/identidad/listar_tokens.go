@@ -43,8 +43,9 @@ func nuevoListarTokens() *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[Toke
 			if err != nil {
 				return nucleo.Pagina[TokenAPI]{}, err
 			}
-			return nucleo.Paginar(filas, in.Limite(), aTokenAPI,
-				func(f identidadbd.NucleoTokensApi) []any { return []any{f.ID} }), nil
+			pagina := nucleo.Paginar(filas, in.Limite(), aTokenAPI,
+				func(f identidadbd.NucleoTokensApi) []any { return []any{f.ID} })
+			return pagina, marcarEnUso(ctx, q, pagina.Data)
 		},
 	})
 }
