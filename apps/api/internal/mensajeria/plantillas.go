@@ -154,6 +154,13 @@ func (p Plantilla) validarVariables(v map[string]string) error {
 			}
 			continue
 		}
+		if p.Codigo == "reconexion_temporal" && d.Nombre == "hasta" {
+			// El instante de Argos, con su zona (RFC 3339): nunca una hora local sin zona (§7.3).
+			if _, err := time.Parse(time.RFC3339, valor); err != nil {
+				errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: "Instante RFC 3339 con zona (2026-11-19T06:00:00Z)", Rule: "instante_con_zona"})
+			}
+			continue
+		}
 		if msg := validarFormato(d.Formato, valor); msg != "" {
 			errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: msg, Rule: d.Formato})
 		}
@@ -251,7 +258,8 @@ var zonaPlantillas = func() *time.Location {
 // Argos) va en hora de Guatemala y en llano (contrato con Argos §6.3, §7.3).
 func (p Plantilla) valor(d Variable, v map[string]string) string {
 	if p.Codigo == "reconexion_temporal" && d.Nombre == "hasta" {
-		if t, ok := parsearInstante(v[d.Nombre], time.UTC); ok {
+		// Un valor sin zona (que la validación ya rechaza) se lee en hora de Guatemala, nunca como UTC.
+		if t, ok := parsearInstante(v[d.Nombre], zonaPlantillas); ok {
 			return HastaReconexionTexto(t, zonaPlantillas)
 		}
 	}

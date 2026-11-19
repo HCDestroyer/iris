@@ -30,6 +30,9 @@ import (
 const (
 	ReconexionFueraDeHorario = argos.MotivoReconexionFueraDeHorario
 	ReconexionPendiente      = "pendiente"
+	// MaxHastaReconexion: lo más lejos que puede quedar el `hasta` de Argos (24 h por defecto, menos
+	// de 25 h con «medianoche», con margen). Uno pasado o más lejano no se cree ni se le dice al cliente.
+	MaxHastaReconexion = 49 * time.Hour
 	// MaxIntentosReconexion: llamadas a Argos por una reconexión que no responde, antes de darla por rechazada.
 	MaxIntentosReconexion = 10
 	// EsperaReintentoReconexion: lo que espera el mantenimiento antes de repetir una pendiente.
@@ -50,6 +53,8 @@ type ReconexionConv struct {
 	PromesaArgosID *int64     `json:"promesaArgosId" nullable:"true"`
 	Hasta          *time.Time `json:"hasta" nullable:"true"`
 	Repetida       bool       `json:"-"`
+	// NoVigente: repetida, pero ya terminó en Argos o pasó su `hasta` (no se anuncia otra vez).
+	NoVigente bool `json:"-"`
 }
 
 func aReconexion(f mensajeriabd.MensajeriaReconexione) ReconexionConv {
@@ -147,6 +152,8 @@ func nuevoPedirReconexion(m *Modulo) *PedirReconexion {
 			if err == nil && previa.Estado != ReconexionPendiente {
 				r := aReconexion(previa)
 				r.Repetida = true
+				// Ya terminó en Argos o venció: no se vuelve a anunciar.
+				r.NoVigente = (previa.ArgosEstado != nil && *previa.ArgosEstado != "activa") || (previa.Hasta != nil && !previa.Hasta.After(m.ahora()))
 				return previaReconexion{repetida: &r}, nil
 			}
 			if err == nil {
@@ -224,7 +231,10 @@ func (m *Modulo) aplicarReconexion(ctx context.Context, t *auditoria.Tx, q *mens
 	in finalReconexion) (ReconexionConv, error) {
 	p := mensajeriabd.ResolverReconexionParams{ID: in.fila.ID, Estado: in.estado}
 	if in.estado == "aceptada" {
-		p.PromesaArgosID, p.Hasta = &in.promesa, &in.hasta
+		p.PromesaArgosID = &in.promesa
+		if !in.hasta.IsZero() {
+			p.Hasta = &in.hasta
+		}
 	}
 	if in.detalle != "" {
 		p.Detalle = &in.detalle
@@ -288,6 +298,11 @@ func (k *PedirReconexion) pedirAArgos(ctx context.Context, rec ArgosReconexion, 
 			return fin, err
 		}
 		fin.estado, fin.detalle = "rechazada", recortar(er.Tipo, 200)
+		return fin, nil
+	}
+	if !HastaCreible(fin.hasta, k.m.ahora()) {
+		// Aceptada, pero sin una fecha creíble: no se guarda ni se le dice al cliente (pasa a una persona).
+		fin.hasta, fin.detalle = time.Time{}, "hasta_invalido"
 	}
 	return fin, nil
 }
@@ -415,4 +430,9 @@ func nuevoRegistrarVerificacion(m *Modulo) *auditoria.Caso[verificacionHecha, bo
 				"cliente_id": c.ClienteID, "resultado": in.Resultado, "origen": "asistente"})
 		},
 	})
+}
+
+// HastaCreible: el `hasta` de Argos es posterior a ahora y no más de MaxHastaReconexion después.
+func HastaCreible(hasta, ahora time.Time) bool {
+	return hasta.After(ahora) && !hasta.After(ahora.Add(MaxHastaReconexion))
 }

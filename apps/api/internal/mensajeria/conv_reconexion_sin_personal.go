@@ -203,7 +203,10 @@ type AjustesReconexion struct {
 	ArgosLoPermite bool           `json:"argosLoPermite" doc:"El Argos conectado informa contrato ≥ 0.8.0; sin eso nunca se pide sin_personal"`
 	ContratoMinimo string         `json:"contratoMinimo" doc:"El contrato con Argos que hace falta (0.8.0)"`
 	Caja           CajaReconexion `json:"caja"`
-	ActualizadoEn  *time.Time     `json:"actualizadoEn" nullable:"true"`
+	// AccionEncendida: algún perfil del asistente tiene «Reconexión temporal» encendida. Sin eso el
+	// asistente no pide ninguna reconexión, con ningún motivo.
+	AccionEncendida bool       `json:"accionEncendida" doc:"Algún perfil del asistente tiene encendida la acción reconexion_temporal"`
+	ActualizadoEn   *time.Time `json:"actualizadoEn" nullable:"true"`
 }
 
 // EntradaAjustesReconexion es POST /asistente/reconexion/actualizar.
@@ -226,6 +229,15 @@ func (m *Modulo) ajustesReconexion(ctx context.Context, q *mensajeriabd.Queries,
 		return r, err
 	}
 	r.Caja = CajaReconexion{Total: caja.Total, Disponibles: caja.Disponibles}
+	aj, err := q.AsistenteAjustes(ctx, empresa)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return r, err
+	}
+	if err == nil {
+		for _, p := range perfilesDe(aj.Perfiles) {
+			r.AccionEncendida = r.AccionEncendida || p.Acciones.ReconexionTemporal
+		}
+	}
 	return r, nil
 }
 
@@ -352,6 +364,11 @@ func nuevoReconexionArgos(m *Modulo) *auditoria.Caso[entradaPromesaArgos, promes
 				return promesaAplicada{}, err
 			}
 			motivoArgos := argos.MotivoReconexionValido(in.MotivoReconexion)
+			if in.Vence != nil && !HastaCreible(*in.Vence, m.ahora()) {
+				// Un vence pasado o demasiado lejano no se copia a `hasta`.
+				t.Anotar(map[string]any{"vence_descartado": true})
+				in.Vence = nil
+			}
 			var fin *string
 			if in.Estado == "cancelada" {
 				v := "otro"

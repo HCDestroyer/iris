@@ -56,6 +56,8 @@ type argosFalso struct {
 	reconexiones []int64
 	motivos      []string
 	errReconex   error
+	// hastaReconex: el `hasta` que responde (cero = el de siempre).
+	hastaReconex time.Time
 	// contrato080: el Argos conectado informa contrato >= 0.8.0 (acepta motivo sin_personal).
 	contrato080 bool
 	// alVerificar corre mientras «Argos» atiende el desafío; fallasPromesa: cuántas veces falla
@@ -105,6 +107,9 @@ func (f *argosFalso) PedirReconexionTemporal(_ context.Context, a argos.Atencion
 	}
 	f.reconexiones = append(f.reconexiones, comprobante)
 	f.claves = append(f.claves, clave)
+	if !f.hastaReconex.IsZero() {
+		return 900 + comprobante, f.hastaReconex, nil
+	}
 	return 900 + comprobante, time.Date(2026, 11, 6, 16, 0, 0, 0, time.UTC), nil
 }
 

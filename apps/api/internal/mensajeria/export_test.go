@@ -328,3 +328,9 @@ func RenderPlantilla(codigo string, v map[string]string) string {
 	p, _ := PlantillaPorCodigo(codigo)
 	return p.Render(v)
 }
+
+// ValidarVariablesPlantilla: la validación de §6.2 de una plantilla del catálogo.
+func ValidarVariablesPlantilla(codigo string, v map[string]string) error {
+	p, _ := PlantillaPorCodigo(codigo)
+	return p.validarVariables(v)
+}

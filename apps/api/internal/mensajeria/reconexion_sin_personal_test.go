@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -226,8 +227,9 @@ func TestReconexionSinPersonal(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := func(estado string, entrante int64, motivoFin string) []byte {
+		// Un vence a meses no es creíble: no se copia a `hasta`.
 		p := map[string]any{"promesa_id": promesa, "estado": estado, "tipo": "reconexion_temporal", "empresa_id": 1, "comprobante_id": comprobante,
-			"vence": "2026-11-06T06:00:00.000Z", "motivo_reconexion": "sin_personal", "entrante_id": entrante}
+			"vence": "2027-03-01T06:00:00.000Z", "motivo_reconexion": "sin_personal", "entrante_id": entrante}
 		if motivoFin != "" {
 			p["motivo"] = motivoFin
 		}
@@ -245,11 +247,14 @@ func TestReconexionSinPersonal(t *testing.T) {
 	if !aplicar(payload("activa", 501, "")) || aplicar(payload("activa", 501, "")) {
 		t.Fatal("promesa.creada: se aplica una sola vez")
 	}
-	if !aplicar(payload("cancelada", 502, "vencida_sin_revisar")) || aplicar(payload("activa", 503, "")) {
+	if n := x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND hasta = '2026-11-06T16:00:00Z'`, conv); n != 1 {
+		t.Fatal("un vence no creíble pisó hasta")
+	}
+	if !aplicar(payload("cancelada", 502, "comprobante_rechazado")) || aplicar(payload("activa", 503, "")) {
 		t.Fatal("promesa.cancelada: el final no lo pisa uno atrasado")
 	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND argos_estado = 'cancelada' AND argos_motivo = 'sin_personal'
-		AND argos_fin_motivo = 'vencida_sin_revisar' AND argos_entrante_id = 502`, conv); n != 1 {
+		AND argos_fin_motivo = 'comprobante_rechazado' AND argos_entrante_id = 502`, conv); n != 1 {
 		t.Fatal("la reconexión no guardó lo que dijo Argos")
 	}
 	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'reconexion.actualizada' AND payload->>'conversacion_id' = $1`, conv); n != 2 {
@@ -258,6 +263,54 @@ func TestReconexionSinPersonal(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND evento->>'tipo' = 'reconexion_actualizada'
 		AND evento->>'motivo' = 'sin_personal'`, conv); n != 2 {
 		t.Fatalf("reconexion_actualizada en el hilo: %d", n)
+	}
+	// 7. El cliente lee cómo terminó (§7.3 «Cómo termina»): el proceso de mensajería lo manda una sola
+	//    vez, dentro de la ventana, con el texto del servidor (sin montos ni hora de corte).
+	finTexto := mensajeria.TextoFinReconexion("cancelada", texto("comprobante_rechazado"))
+	avisos := func() int {
+		return x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'saliente' AND texto = $2`, conv, finTexto)
+	}
+	for range 2 {
+		if err := x.m.VencerAtascadas(x.ctx, x.bd); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if avisos() != 1 {
+		t.Fatalf("aviso del final: %d", avisos())
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND argos_aviso = 'enviado' AND argos_aviso_mensaje_id IS NOT NULL`, conv); n != 1 {
+		t.Fatal("argos_aviso")
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'reconexion.cliente_avisado' AND payload->>'conversacion_id' = $1
+		AND payload->>'aviso_cliente' = 'enviado' AND payload->>'fin' = 'comprobante_rechazado'`, conv); n != 1 {
+		t.Fatalf("reconexion.cliente_avisado: %d", n)
+	}
+	// El webhook repetido no vuelve a avisar.
+	if aplicar(payload("cancelada", 502, "comprobante_rechazado")) {
+		t.Fatal("el webhook repetido se aplicó")
+	}
+	if err := x.m.VencerAtascadas(x.ctx, x.bd); err != nil {
+		t.Fatal(err)
+	}
+	if avisos() != 1 {
+		t.Fatal("se avisó dos veces")
+	}
+	// 8. El cliente pide otra vez la reconexión de esa boleta: ya no está vigente y no se anuncia.
+	antes := len(x.delAsistente(conv))
+	x.turno(num, "wamid.b4h", "¿Me reconectan otra vez?", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("Un compañero revisa tu caso."))
+	for _, m := range x.delAsistente(conv)[antes:] {
+		if strings.Contains(textoDe(m), "vale hasta") {
+			t.Fatalf("anunció una reconexión terminada: %q", textoDe(m))
+		}
+	}
+	if n, _ := x.pedidasAArgos(); n != 1 {
+		t.Fatalf("volvió a pedir a Argos: %d", n)
+	}
+	// El caso de uso lo devuelve como repetido y ya no vigente (la herramienta no anuncia nada).
+	idConv, _ := strconv.ParseInt(conv, 10, 64)
+	x.fuerte(conv)
+	if r, err := x.m.Conv.Reconexion.Ejecutar(mensajeria.CtxAsistenteIA(x.ctx, 1), mensajeria.EntradaReconexion{ID: idConv}); err != nil || !r.Repetida || !r.NoVigente {
+		t.Fatalf("repetida: %+v %v", r, err)
 	}
 	// Una promesa normal o de otro comprobante no toca nada.
 	otra, _ := json.Marshal(map[string]any{"promesa_id": 77, "estado": "cumplida", "tipo": "promesa", "empresa_id": 1, "comprobante_id": nil, "entrante_id": 504})
@@ -294,6 +347,25 @@ func TestReconexionFueraDeHorarioConArgosNuevo(t *testing.T) {
 	ultimo := textoDe(x.delAsistente(conv)[len(x.delAsistente(conv))-1])
 	if !strings.Contains(ultimo, "vale hasta las 10:00 de la mañana del viernes 6 de noviembre") || !strings.Contains(ultimo, "pendiente de revisión") {
 		t.Fatalf("mensaje sin la marca: %q", ultimo)
+	}
+	// Argos avisa que se cumplió con la ventana de 24 h ya cerrada: no hay plantilla aprobada para los
+	// finales, así que no se manda nada (sin_aviso) y queda en el hilo.
+	var comprobante, promesa int64
+	if err := x.bd.QueryRow(x.ctx, `SELECT comprobante_id, promesa_argos_id FROM mensajeria.reconexiones WHERE conversacion_id = $1`, conv).Scan(&comprobante, &promesa); err != nil {
+		t.Fatal(err)
+	}
+	*x.reloj = x.reloj.Add(25 * time.Hour)
+	salientes := x.salientes(conv)
+	b, _ := json.Marshal(map[string]any{"promesa_id": promesa, "estado": "cumplida", "tipo": "reconexion_temporal", "empresa_id": 1, "comprobante_id": comprobante,
+		"motivo_reconexion": "fuera_de_horario", "entrante_id": 601})
+	if ok, err := x.m.AplicarPromesaArgos(x.ctx, x.bd, b); err != nil || !ok {
+		t.Fatalf("cumplida: %v %v", ok, err)
+	}
+	if err := x.m.VencerAtascadas(x.ctx, x.bd); err != nil {
+		t.Fatal(err)
+	}
+	if x.salientes(conv) != salientes || x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND argos_aviso = 'sin_aviso'`, conv) != 1 {
+		t.Fatal("con la ventana cerrada no se avisa")
 	}
 }
 
@@ -361,5 +433,103 @@ func TestReconexionNuncaHoraDeCorte(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(texto), "se corta") {
 		t.Error("la plantilla dice una hora de corte")
+	}
+}
+
+// Los finales (§7.3 «Cómo termina»): texto del servidor, sin montos ni hora de corte.
+func TestTextoFinReconexion(t *testing.T) {
+	for _, c := range []struct {
+		estado string
+		fin    *string
+		tiene  string
+	}{
+		{"cumplida", nil, "pago quedó confirmado"},
+		{"incumplida", nil, "no cubrió todo el saldo vencido"},
+		{"cancelada", texto("comprobante_rechazado"), "Caja no pudo confirmar su comprobante"},
+		{"cancelada", texto("vencida_sin_revisar"), "sigue pendiente de revisión"},
+		{"cancelada", texto("otro"), "La reconexión temporal terminó."},
+	} {
+		got := mensajeria.TextoFinReconexion(c.estado, c.fin)
+		if !strings.Contains(got, c.tiene) {
+			t.Errorf("%s: %q", c.estado, got)
+		}
+		l := strings.ToLower(got)
+		if strings.Contains(l, "medianoche") || strings.Contains(l, "se corta") || strings.ContainsAny(got, "Q$") || strings.Contains(got, ":0") {
+			t.Errorf("%s: monto u hora de corte: %q", c.estado, got)
+		}
+	}
+	if mensajeria.TextoFinReconexion("activa", nil) != "" {
+		t.Error("activa no se avisa")
+	}
+}
+
+// Seguridad: un `hasta` de Argos pasado o a más de 49 h no se cree.
+func TestHastaCreible(t *testing.T) {
+	ahora := time.Date(2026, 11, 19, 16, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		d  time.Duration
+		ok bool
+	}{{-time.Minute, false}, {0, false}, {time.Minute, true}, {24 * time.Hour, true}, {49 * time.Hour, true}, {49*time.Hour + time.Second, false}, {30 * 24 * time.Hour, false}} {
+		if got := mensajeria.HastaCreible(ahora.Add(c.d), ahora); got != c.ok {
+			t.Errorf("%v: %v", c.d, got)
+		}
+	}
+}
+
+// Seguridad: la variable `hasta` de reconexion_temporal exige RFC 3339 con zona; un valor sin zona
+// se lee en hora de Guatemala, nunca como UTC.
+func TestPlantillaReconexionZona(t *testing.T) {
+	if err := mensajeria.ValidarVariablesPlantilla("reconexion_temporal", map[string]string{"hasta": "2026-11-19T16:00:00Z"}); err != nil {
+		t.Fatalf("RFC 3339: %v", err)
+	}
+	for _, v := range []string{"2026-11-19T10:00", "2026-11-19"} {
+		if err := mensajeria.ValidarVariablesPlantilla("reconexion_temporal", map[string]string{"hasta": v}); err == nil {
+			t.Errorf("%s: aceptado sin zona", v)
+		}
+	}
+	casos := map[string]string{
+		"2026-11-19T16:00:00Z": "las 10:00 de la mañana del jueves 19 de noviembre",
+		"2026-11-19T10:00":     "las 10:00 de la mañana del jueves 19 de noviembre",
+		"2026-11-19":           "la medianoche del jueves 19 (00:00 del viernes 20)",
+	}
+	for v, want := range casos {
+		if got := mensajeria.RenderPlantilla("reconexion_temporal", map[string]string{"hasta": v}); !strings.Contains(got, want) {
+			t.Errorf("%s: %q", v, got)
+		}
+	}
+}
+
+// Seguridad: Argos acepta pero con un `hasta` no creíble → queda aceptada sin fecha, no se le dice
+// nada al cliente y la conversación pasa a una persona.
+func TestReconexionHastaNoCreible(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(map[string]any{"reconexion_temporal": true, "recibir_boleta": true}, "alta")}, "maxTurnos": 20})
+	x.argos.mu.Lock()
+	x.argos.hastaReconex = x.reloj.Add(30 * 24 * time.Hour)
+	x.argos.mu.Unlock()
+	t.Cleanup(func() {
+		x.argos.mu.Lock()
+		x.argos.hastaReconex = time.Time{}
+		x.argos.mu.Unlock()
+	})
+	conv, _ := x.conClienteArgos()
+	num := x.numeroDe(conv)
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
+	x.boletaRegistrada(conv, num)
+	x.cerrarHorario()
+	x.fuerte(conv)
+	antes := len(x.delAsistente(conv))
+	x.turno(num, "wamid.b4i", "Reconéctenme", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("Listo. {{reconexion}}"))
+	if n := x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND estado = 'aceptada' AND hasta IS NULL AND detalle = 'hasta_invalido'`, conv); n != 1 {
+		t.Fatal("la reconexión con hasta no creíble")
+	}
+	for _, m := range x.delAsistente(conv)[antes:] {
+		if strings.Contains(textoDe(m), "vale hasta") || strings.Contains(textoDe(m), "2026") {
+			t.Fatalf("dio una fecha: %q", textoDe(m))
+		}
+	}
+	if a := strings.Join(x.acciones(conv), ","); !strings.Contains(a, "reconexion_temporal:fallo") {
+		t.Fatalf("no pasó a una persona: %s", a)
 	}
 }
