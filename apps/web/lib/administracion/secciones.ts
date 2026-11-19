@@ -161,7 +161,7 @@ export const SECCIONES: readonly Seccion[] = [
     {
         href: "/administracion/tokens",
         titulo: "Tokens de API",
-        descripcion: "Accesos de integraciones y scripts: revocar y eliminar los que ya no se usan.",
+        descripcion: "Para integraciones y scripts: revocar y eliminar los que ya no se usan.",
         icono: KeyRound,
         permisos: ["tokens.ver"],
     },

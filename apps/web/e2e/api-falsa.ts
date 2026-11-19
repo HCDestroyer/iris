@@ -414,7 +414,7 @@ export type ApiFalsa = {
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
-    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "revisiones" | "autorizaciones" | "completados" | "enProceso" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
+    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "revisiones" | "eliminaciones" | "autorizaciones" | "completados" | "enProceso" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
 };
 
 const OPERATIVAS = [
@@ -1193,6 +1193,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             vinculos: sso.vinculos,
             conectores: sso.conectores,
             revisiones: sso.revisiones,
+            eliminaciones: sso.eliminaciones,
             autorizaciones: sso.autorizaciones,
             completados: sso.completados,
             enProceso: sso.enProceso,
