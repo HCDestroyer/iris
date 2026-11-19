@@ -12,6 +12,7 @@ import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cuerpoReiniciarMfa, esquemaReiniciarMfa, generarContrasenaTemporal, type DatosReiniciarMfa } from "@/lib/cuenta/esquemas";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
+import { AVISO_TOKEN_CONSERVADO } from "@/lib/tokens/presentacion";
 
 type Usuario = Schema<"Usuario">;
 
@@ -68,7 +69,10 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
             // La contraseña temporal no se vuelve a mostrar: se borra del formulario.
             formulario.reset({ motivo: "", contrasenaTemporal: "", revocarTokens: true });
             setResultado({ usuario: nuevo, revocoTokens: datos.revocarTokens });
-            avisar({ titulo: `Verificación en dos pasos de ${nuevo.nombre} reiniciada` });
+            avisar({
+                titulo: `Verificación en dos pasos de ${nuevo.nombre} reiniciada`,
+                ...(nuevo.tokensConservados > 0 ? { descripcion: AVISO_TOKEN_CONSERVADO } : {}),
+            });
             alReiniciar(nuevo);
         } catch (e) {
             clave.trasError(e);

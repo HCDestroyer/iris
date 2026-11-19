@@ -255,7 +255,7 @@ export async function simularAccesos(page: Page, usuarios: Usuario[] = [ADMIN, C
                 return problema(route, 404, "no_encontrado", "La sesión no existe, ya está cerrada o venció");
             }
             estado.sesiones = estado.sesiones.filter((s) => s.id !== id);
-            return json(route, { usuarioId: Number(cerrarUna[1]), cerradas: 1, sesiones: [id], tokensRevocados: 0 } satisfies Schema<"SesionesCerradas">);
+            return json(route, { usuarioId: Number(cerrarUna[1]), cerradas: 1, sesiones: [id], tokensRevocados: 0, tokensConservados: 0 } satisfies Schema<"SesionesCerradas">);
         }
         const cerrarTodas = /^\/api\/v1\/usuarios\/(\d+)\/cerrar-sesiones$/.exec(ruta);
         if (metodo === "POST" && cerrarTodas) {
@@ -263,7 +263,7 @@ export async function simularAccesos(page: Page, usuarios: Usuario[] = [ADMIN, C
             const ids = estado.sesiones.filter((s) => !s.actual).map((s) => s.id);
             const tokens = (cuerpo as Schema<"EntradaCerrarSesionesUsuario">).revocarTokens ? 1 : 0;
             estado.sesiones = estado.sesiones.filter((s) => s.actual);
-            return json(route, { usuarioId: Number(cerrarTodas[1]), cerradas: ids.length, sesiones: ids, tokensRevocados: tokens } satisfies Schema<"SesionesCerradas">);
+            return json(route, { usuarioId: Number(cerrarTodas[1]), cerradas: ids.length, sesiones: ids, tokensRevocados: tokens, tokensConservados: 0 } satisfies Schema<"SesionesCerradas">);
         }
 
         // Actividad de la app -------------------------------------------------------------

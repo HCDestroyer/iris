@@ -2347,11 +2347,15 @@ func (q *Queries) RevocarToken(ctx context.Context, id int64) (NucleoTokensApi, 
 }
 
 const revocarTokensDeUsuario = `-- name: RevocarTokensDeUsuario :many
-UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
-WHERE usuario_id = $1 AND revocado_en IS NULL
-RETURNING id
+UPDATE nucleo.tokens_api t SET revocado_en = now(), updated_at = now()
+WHERE t.usuario_id = $1 AND t.revocado_en IS NULL
+  AND NOT EXISTS (SELECT 1 FROM integracion.conectores c
+                  WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id))
+RETURNING t.id
 `
 
+// Nunca el de un conector activo (su iris_pat_ o el de la reconexión sin confirmar): cortaría la
+// integración; se cambia desde Integraciones (TokensDeUsuarioEnUsoPorConector los cuenta).
 func (q *Queries) RevocarTokensDeUsuario(ctx context.Context, usuarioID int64) ([]int64, error) {
 	rows, err := q.db.Query(ctx, revocarTokensDeUsuario, usuarioID)
 	if err != nil {
@@ -2999,6 +3003,21 @@ func (q *Queries) TokenVigentePorID(ctx context.Context, id int64) (TokenVigente
 	var i TokenVigentePorIDRow
 	err := row.Scan(&i.Permisos, &i.UsuarioID)
 	return i, err
+}
+
+const tokensDeUsuarioEnUsoPorConector = `-- name: TokensDeUsuarioEnUsoPorConector :one
+SELECT count(*)::integer FROM nucleo.tokens_api t
+WHERE t.usuario_id = $1 AND t.revocado_en IS NULL AND t.eliminado_en IS NULL
+  AND EXISTS (SELECT 1 FROM integracion.conectores c
+              WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id))
+`
+
+// Los tokens sin revocar del usuario que un conector activo usa (RevocarTokensDeUsuario los conserva).
+func (q *Queries) TokensDeUsuarioEnUsoPorConector(ctx context.Context, usuarioID int64) (int32, error) {
+	row := q.db.QueryRow(ctx, tokensDeUsuarioEnUsoPorConector, usuarioID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const tokensEliminables = `-- name: TokensEliminables :many

@@ -31,6 +31,9 @@ export function accionesToken(estado: EstadoToken, puedeRevocar: boolean, puedeE
     return puedeEliminar ? ["eliminar"] : [];
 }
 
+/** Aviso cuando revocar los tokens de un usuario conservó el de un conector activo. */
+export const AVISO_TOKEN_CONSERVADO = "Se conservó el token de la integración; cámbialo desde Integraciones.";
+
 /** «1 token», «3 tokens». */
 export function cuantosTokens(n: number): string {
     return n === 1 ? "1 token" : `${n} tokens`;

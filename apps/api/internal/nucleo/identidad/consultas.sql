@@ -230,9 +230,20 @@ SELECT * FROM nucleo.tokens_api WHERE id = @id;
 SELECT * FROM nucleo.tokens_api WHERE id = @id FOR UPDATE;
 
 -- name: RevocarTokensDeUsuario :many
-UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
-WHERE usuario_id = @usuario_id AND revocado_en IS NULL
-RETURNING id;
+-- Nunca el de un conector activo (su iris_pat_ o el de la reconexión sin confirmar): cortaría la
+-- integración; se cambia desde Integraciones (TokensDeUsuarioEnUsoPorConector los cuenta).
+UPDATE nucleo.tokens_api t SET revocado_en = now(), updated_at = now()
+WHERE t.usuario_id = @usuario_id AND t.revocado_en IS NULL
+  AND NOT EXISTS (SELECT 1 FROM integracion.conectores c
+                  WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id))
+RETURNING t.id;
+
+-- name: TokensDeUsuarioEnUsoPorConector :one
+-- Los tokens sin revocar del usuario que un conector activo usa (RevocarTokensDeUsuario los conserva).
+SELECT count(*)::integer FROM nucleo.tokens_api t
+WHERE t.usuario_id = @usuario_id AND t.revocado_en IS NULL AND t.eliminado_en IS NULL
+  AND EXISTS (SELECT 1 FROM integracion.conectores c
+              WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id));
 
 -- name: RevocarToken :one
 UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()

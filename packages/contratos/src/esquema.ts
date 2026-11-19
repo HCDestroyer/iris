@@ -7810,7 +7810,7 @@ export interface paths {
         put?: never;
         /**
          * Cerrar todas las sesiones de un usuario
-         * @description Permiso: `usuarios.cerrar_sesiones`. Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`. **Los tokens `iris_pat_` del usuario no son sesiones y siguen valiendo**, salvo con `revocarTokens: true` (exige además `tokens.revocar`; emite `token.revocado` por cada uno).
+         * @description Permiso: `usuarios.cerrar_sesiones`. Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`. **Los tokens `iris_pat_` del usuario no son sesiones y siguen valiendo**, salvo con `revocarTokens: true` (exige además `tokens.revocar`; emite `token.revocado` por cada uno), menos los que usa un conector activo de Argos u Horus (`tokensConservados`).
          */
         post: operations["cerrarSesionesUsuario"];
         delete?: never;
@@ -7910,7 +7910,7 @@ export interface paths {
         put?: never;
         /**
          * Reiniciar el MFA de otro usuario
-         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno) menos los que usa un conector activo (`tokensConservados`: revocarlos cortaría la integración; se cambian desde Integraciones). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["reiniciarMFAUsuario"];
         delete?: never;
@@ -14652,6 +14652,11 @@ export interface components {
             tipo: "persona" | "integracion";
             /**
              * Format: int64
+             * @description Tokens que no se revocaron porque los usa un conector activo de Argos u Horus (revocarlos cortaría la integración; se cambian desde Integraciones)
+             */
+            tokensConservados: number;
+            /**
+             * Format: int64
              * @description Tokens iris_pat_ revocados (0 con revocarTokens: false)
              */
             tokensRevocados: number;
@@ -17985,6 +17990,11 @@ export interface components {
             cerradas: number;
             /** @description Ids de las sesiones cerradas */
             sesiones: number[] | null;
+            /**
+             * Format: int64
+             * @description Con revocarTokens: tokens que se conservaron porque los usa un conector activo de Argos u Horus (revocarlos cortaría la integración; se cambian desde Integraciones)
+             */
+            tokensConservados: number;
             /**
              * Format: int64
              * @description Tokens iris_pat_ revocados (0 sin revocarTokens: los tokens siguen valiendo)
