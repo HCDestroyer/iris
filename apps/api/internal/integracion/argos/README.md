@@ -179,11 +179,16 @@ comunes de conectores); aquí queda lo propio de Argos.
   `InformarContrato` (al activar y cada 6 h); `integraciones.registrar_certificado` lo guarda en
   `integracion.argos_certificados` y, si cambió sin reconectar, emite `argos.certificado_cambiado`
   (campana `argos_certificado` a quien tiene `integraciones.conectar`). Nunca bloquea ni marca el
-  conector. Un certificado que vuelve después de otro (A → B → A) también cuenta como cambio.
+  conector. Un certificado que vuelve después de otro (A → B → A) también cuenta como cambio. Ojo: si
+  Argos alterna entre dos certificados (dos réplicas detrás de un balanceador, o una renovación a
+  medias), cada alternancia avisa; la clave del aviso (huella anterior y nueva) lo acota a un aviso por
+  par, no por llamada. Si pasa, revisa que todas las réplicas de Argos sirvan el mismo certificado.
 - **Defensas** (revisión de seguridad): zonas, routers y servicios de una empresa fuera del alcance
   del canje (`empresaEnAlcance`) no se guardan y cuentan como omitidos; un cursor de más de 512
   caracteres o una página con más filas que `limit` es una respuesta ilegible; volver a lanzar una
-  sincronización que terminó completa hace menos de 10 minutos responde 409 `sincronizacion_reciente`.
+  sincronización que terminó completa hace menos de 10 minutos responde 409 `sincronizacion_reciente`
+  (salvo que Argos haya cambiado de contrato desde entonces). Un servicio sin empresa (0 o null) también
+  se omite.
 - **Qué ve quien abre el estado:** `GET …/estado` exige `integraciones.ver` y es de la instalación,
   no de la empresa activa: un supervisor acotado a una empresa ve los nombres de todas las empresas del
   alcance del conector y los conteos globales de las instantáneas (clientes, servicios, zonas,
@@ -191,7 +196,8 @@ comunes de conectores); aquí queda lo propio de Argos.
 - **Vía de recuperación** (S5, `nucleo/identidad/crear_token.go`): el token a mano del usuario de
   integración de un conector exige `integraciones.conectar` y `empresas.todas` sin límite, vence
   (30 días por defecto, 90 como máximo), queda marcado (`tokens_api.via = 'recuperacion'`, auditoría
-  `via: recuperacion`) y se revoca al confirmarse un canje nuevo de ese usuario.
+  `via: recuperacion`) y se revoca al confirmarse un canje nuevo del mismo sistema (con los `cli` de
+  `iris integracion crear`, de todos los usuarios con el rol de ese sistema; ver `nucleo/README.md`).
 
 ## Empresa del cliente
 

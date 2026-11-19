@@ -84,6 +84,16 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			var via *string
 			if conector, err := esDeConector(ctx, q, u.ID); err != nil {
 				return TokenCreado{}, err
+			} else if conector && !esTokenDeCanje(ctx) && actor.Tipo == contexto.ActorSistema {
+				// `iris integracion crear` (acceso al servidor): marcado `cli`, sin vencimiento forzado
+				// (como mucho 365 días si se pide), y se revoca al confirmarse un canje nuevo del sistema.
+				if expira != nil && expira.After(time.Now().Add(VigenciaMaximaCLI)) {
+					return TokenCreado{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "expiraEn",
+						Message: "El token de un conector creado por consola vence como mucho en 365 días", Rule: "maximo"})
+				}
+				r := ViaCLI
+				via = &r
+				t.Anotar(map[string]any{"via": ViaCLI})
 			} else if conector && !esTokenDeCanje(ctx) && (!actor.EsUsuario() || actor.ID != u.ID) {
 				// Vía de recuperación del conector (contrato con Argos 0.8.0 §1.5, S5): queda marcada, vence
 				// (30 días por defecto, 90 como máximo) y se revoca al confirmarse un canje nuevo.
@@ -196,4 +206,6 @@ const (
 	ViaRecuperacion            = "recuperacion"
 	VigenciaRecuperacion       = 30 * 24 * time.Hour
 	VigenciaMaximaRecuperacion = 90 * 24 * time.Hour
+	ViaCLI                     = "cli"
+	VigenciaMaximaCLI          = 365 * 24 * time.Hour
 )

@@ -337,7 +337,8 @@ func TestPrimeraSincronizacion080(t *testing.T) {
 	e.usuario("lectura").pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/sincronizar", id), nil).problema(t, 403, "prohibido")
 	// Recién terminada completa: 409 sincronizacion_reciente (10 minutos).
 	admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/sincronizar", id), nil).problema(t, 409, "sincronizacion_reciente")
-	e.exec(`UPDATE integracion.argos_sincronizaciones SET terminada_en = now() - interval '11 minutes' WHERE id = $1`, r.ID)
+	// Si Argos cambió de contrato desde entonces, sí se puede volver a lanzar.
+	e.exec(`UPDATE integracion.conectores SET contrato_remoto = '0.8.1' WHERE id = $1`, id)
 	otra := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/sincronizar", id), nil)
 	if otra.status != 202 || otra.cuerpo["estado"] != "en_curso" || otra.cuerpo["origen"] != "manual" || otra.cuerpo["id"].(string) <= r.ID.String() {
 		t.Fatalf("volver a lanzar: %d %s", otra.status, otra.crudo)
@@ -527,6 +528,8 @@ func TestPrimeraSincronizacionDefensas(t *testing.T) {
 		e.argos.zonas = append(e.argos.zonas, map[string]any{"id": 9, "nombre": "Ajena", "empresa_id": 2})
 		e.argos.routers = append(e.argos.routers, map[string]any{"id": 9, "nombre": "Router ajeno", "empresa_id": 2})
 		e.argos.servicios[704] = append(e.argos.servicios[704], map[string]any{"id": 7049, "cliente_id": 704, "empresa_id": int64(2), "estado": "activo"})
+		// Sin empresa: no se atribuye a nadie y se omite.
+		e.argos.servicios[704] = append(e.argos.servicios[704], map[string]any{"id": 7048, "cliente_id": 704, "empresa_id": int64(0), "estado": "activo"})
 	})
 	_, id, _ := e.conectado()
 	r, err := e.sincronizar(id)
@@ -539,11 +542,11 @@ func TestPrimeraSincronizacionDefensas(t *testing.T) {
 	if x := etapa(r.Sincronizacion, "routers"); x.Procesados != 3 || x.Omitidos != 1 {
 		t.Fatalf("routers: %+v", x)
 	}
-	if x := etapa(r.Sincronizacion, "servicios"); x.Procesados != 4 || x.Omitidos != 1 {
+	if x := etapa(r.Sincronizacion, "servicios"); x.Procesados != 4 || x.Omitidos != 2 {
 		t.Fatalf("servicios: %+v", x)
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.argos_zonas WHERE id = 9`) + e.contar(`SELECT count(*) FROM integracion.argos_routers WHERE id = 9`) +
-		e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 7049`); n != 0 {
+		e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id IN (7048, 7049)`); n != 0 {
 		t.Fatalf("se guardaron filas fuera del alcance: %d", n)
 	}
 

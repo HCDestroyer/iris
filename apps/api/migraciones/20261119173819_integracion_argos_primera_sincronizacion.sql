@@ -74,10 +74,23 @@ INSERT INTO nucleo.permisos (codigo, descripcion) VALUES
 ON CONFLICT (codigo) DO NOTHING;
 
 -- Vía de recuperación (contrato 0.8.0 §1.5, S5): el token de la integración de un conector creado a
--- mano queda marcado, vence (30 días por defecto, 90 como máximo) y se revoca al confirmarse un canje
--- nuevo de ese usuario.
-ALTER TABLE nucleo.tokens_api ADD COLUMN via text CHECK (via IN ('recuperacion'));
-CREATE INDEX tokens_api_recuperacion_idx ON nucleo.tokens_api (usuario_id) WHERE via = 'recuperacion' AND revocado_en IS NULL;
+-- mano (recuperacion: vence a 30 días por defecto, 90 como máximo) o por consola (cli) queda marcado y se
+-- revoca al confirmarse un canje nuevo del mismo sistema.
+ALTER TABLE nucleo.tokens_api ADD COLUMN via text CHECK (via IN ('recuperacion', 'cli'));
+CREATE INDEX tokens_api_via_idx ON nucleo.tokens_api (usuario_id) WHERE via IS NOT NULL AND revocado_en IS NULL;
+
+-- Instalaciones ya conectadas (no se pueden cortar al actualizar): los tokens VIGENTES de los
+-- usuarios de integración de un conector que no son el entregado en un canje (ni el de una reconexión
+-- sin confirmar) se crearon a mano o por consola: quedan como recuperación, SIN vencimiento nuevo.
+-- Siguen valiendo hasta que se confirme un canje nuevo del mismo sistema. (Lo prueba
+-- TestMigracionMarcaRecuperacion con el bloque entre las marcas.)
+-- b7:marcar_recuperacion:inicio
+UPDATE nucleo.tokens_api t SET via = 'recuperacion'
+WHERE t.via IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now())
+    AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles r ON r.id = ur.rol_id
+        WHERE ur.usuario_id = t.usuario_id AND r.codigo IN ('integracion_argos', 'integracion_horus'))
+    AND NOT EXISTS (SELECT 1 FROM integracion.conectores c WHERE c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id);
+-- b7:marcar_recuperacion:fin
 
 -- Aviso de campana cuando cambia el certificado (notificaciones, tipo argos_certificado).
 ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
@@ -85,7 +98,7 @@ ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
     CHECK (tipo IN ('asistente_tope', 'servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_certificado'));
 
 -- +goose Down
-DROP INDEX nucleo.tokens_api_recuperacion_idx;
+DROP INDEX nucleo.tokens_api_via_idx;
 ALTER TABLE nucleo.tokens_api DROP COLUMN via;
 DELETE FROM notificaciones.avisos WHERE tipo = 'argos_certificado';
 ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;

@@ -18437,6 +18437,11 @@ export interface components {
             ultimoUso: string | null;
             /** Format: int64 */
             usuarioId: number;
+            /**
+             * @description Solo lectura. recuperacion: token de un conector creado a mano por un admin (vía de recuperación, contrato con Argos 0.8.0 §1.5); cli: creado con «iris integracion crear». Los dos se revocan al confirmarse un canje nuevo del mismo sistema. null: los demás
+             * @enum {string|null}
+             */
+            via: "recuperacion" | "cli" | null;
         };
         TokenCreado: {
             token: components["schemas"]["TokenAPI"];

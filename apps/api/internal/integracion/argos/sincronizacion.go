@@ -970,7 +970,8 @@ func (k *corrida) servicios(crudo []json.RawMessage) (guardarFilas, error) {
 		tocados := []int64{}
 		for _, s := range servicios {
 			zona, ok := zonas[s.ClienteID]
-			if !ok || lapida[s.ID] || !k.enAlcance(&s.EmpresaID) {
+			// Un servicio sin empresa (0 o null) no se atribuye a nadie: se omite.
+			if !ok || lapida[s.ID] || s.EmpresaID <= 0 || !k.enAlcance(&s.EmpresaID) {
 				continue
 			}
 			v := AServicio(s, zona)

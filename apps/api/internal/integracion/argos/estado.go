@@ -94,7 +94,7 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 					return Sincronizacion{}, errU
 				} else {
 					// Volver a lanzar una que acaba de terminar completa no aporta nada y carga a Argos.
-					if errU == nil && ultima.Estado == SincCompleta && ultima.TerminadaEn != nil {
+					if errU == nil && ultima.Estado == SincCompleta && ultima.TerminadaEn != nil && mismoTexto(ultima.ContratoRemoto, f.ContratoRemoto) {
 						ahora, err := q.RelojBD(ctx)
 						if err != nil {
 							return Sincronizacion{}, err

@@ -2943,17 +2943,26 @@ func (q *Queries) TokenVigentePorID(ctx context.Context, id int64) (TokenVigente
 	return i, err
 }
 
-const tokensRecuperacionDelUsuarioDe = `-- name: TokensRecuperacionDelUsuarioDe :many
+const tokensRecuperacionDelSistemaDe = `-- name: TokensRecuperacionDelSistemaDe :many
 SELECT r.id FROM nucleo.tokens_api r
-JOIN nucleo.tokens_api t ON t.usuario_id = r.usuario_id
-WHERE t.id = $1 AND r.id <> $1 AND r.via = 'recuperacion' AND r.revocado_en IS NULL
+WHERE r.id <> $1 AND r.via IN ('recuperacion', 'cli') AND r.revocado_en IS NULL
+    AND r.usuario_id IN (
+        SELECT ur.usuario_id FROM nucleo.usuarios_roles ur JOIN nucleo.roles ro ON ro.id = ur.rol_id
+        WHERE ro.codigo IN (
+            SELECT ro2.codigo FROM nucleo.tokens_api t
+            JOIN nucleo.usuarios_roles ur2 ON ur2.usuario_id = t.usuario_id
+            JOIN nucleo.roles ro2 ON ro2.id = ur2.rol_id
+            WHERE t.id = $1 AND ro2.codigo IN ('integracion_argos', 'integracion_horus')))
 ORDER BY r.id
+FOR UPDATE OF r
 `
 
-// Tokens de recuperación vigentes del mismo usuario de integración que el token @id (el entregado en
-// un canje que se acaba de confirmar): se revocan (contrato con Argos 0.8.0 §1.5, S5).
-func (q *Queries) TokensRecuperacionDelUsuarioDe(ctx context.Context, id int64) ([]int64, error) {
-	rows, err := q.db.Query(ctx, tokensRecuperacionDelUsuarioDe, id)
+// Tokens manuales vigentes (via recuperacion o cli) de TODOS los usuarios con el rol de integración del
+// sistema del token @id (el entregado en un canje que se acaba de confirmar: integracion_argos o
+// integracion_horus): se revocan (contrato con Argos 0.8.0 §1.5, S5). FOR UPDATE: nadie los usa a
+// medias mientras se revocan.
+func (q *Queries) TokensRecuperacionDelSistemaDe(ctx context.Context, id int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, tokensRecuperacionDelSistemaDe, id)
 	if err != nil {
 		return nil, err
 	}

@@ -212,9 +212,9 @@ func (m *Modulo) ConfirmarTokenCanje(ctx context.Context, id int64) error {
 		return nucleo.ReglaNegocio("token_entregado_vencido",
 			"El token que Iris entregó en el canje venció o se revocó: vuelve a conectar con un enlace nuevo")
 	}
-	// Contrato con Argos 0.8.0 §1.5 (S5): confirmado un canje nuevo, los tokens de recuperación de ese
-	// usuario de integración (creados a mano) dejan de valer.
-	ids, err := identidadbd.New(db).TokensRecuperacionDelUsuarioDe(ctx, id)
+	// Contrato con Argos 0.8.0 §1.5 (S5): confirmado un canje nuevo, los tokens manuales (recuperación y
+	// consola) de los usuarios de integración de ese sistema dejan de valer.
+	ids, err := identidadbd.New(db).TokensRecuperacionDelSistemaDe(ctx, id)
 	if err != nil {
 		return err
 	}
