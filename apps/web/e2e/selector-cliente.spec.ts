@@ -38,8 +38,15 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
     await expect(opcion).toContainText("6a avenida 12-40, zona 10");
     await expect(opcion).toContainText("5555 0303");
     await expect(opcion).toContainText("Cable Norte");
-    await expect(opcion).toContainText("Fibra 100 Mb/s · Activo");
-    await expect(opcion).toContainText("Radio 10 Mb/s · Suspendido");
+    // Cada servicio con su línea compacta: número, plan, estado, precio, zona e IP.
+    const lineas = opcion.getByTestId("linea-servicio");
+    await expect(lineas).toHaveCount(2);
+    await expect(lineas.first()).toContainText("Fibra 100 Mb/s");
+    await expect(lineas.first()).toContainText("Activo");
+    await expect(lineas.first()).toContainText("Q250.00 al mes");
+    await expect(lineas.nth(1)).toContainText("Radio 10 Mb/s");
+    await expect(lineas.nth(1)).toContainText("Suspendido");
+    await expect(lineas.nth(1)).toContainText("10.20.31.9");
     // La lista cabe en la pantalla (390 px en el teléfono).
     const caja = await page.getByRole("listbox", { name: "Clientes encontrados" }).boundingBox();
     const vista = page.viewportSize();
