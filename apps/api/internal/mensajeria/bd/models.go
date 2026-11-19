@@ -807,29 +807,34 @@ type IntegracionArgosRouter struct {
 }
 
 type IntegracionArgosServicio struct {
-	ID               int64
-	EmpresaID        int64
-	ClienteID        int64
-	Codigo           string
-	PlanID           *int64
-	PlanNombre       string
-	RouterID         *int64
-	RouterNombre     string
-	ZonaID           *int64
-	ZonaNombre       string
-	Ip               string
-	Direccion        string
-	Lat              *float64
-	Lon              *float64
-	Estado           string
-	SincronizadoEn   time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	UserPpp          string
-	TipoConexion     string
-	Referencia       string
-	ContactoNombre   string
-	ContactoTelefono string
+	ID                int64
+	EmpresaID         int64
+	ClienteID         int64
+	Codigo            string
+	PlanID            *int64
+	PlanNombre        string
+	RouterID          *int64
+	RouterNombre      string
+	ZonaID            *int64
+	ZonaNombre        string
+	Ip                string
+	Direccion         string
+	Lat               *float64
+	Lon               *float64
+	Estado            string
+	SincronizadoEn    time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	UserPpp           string
+	TipoConexion      string
+	Referencia        string
+	ContactoNombre    string
+	ContactoTelefono  string
+	PrecioMensual     pgtype.Numeric
+	Moneda            *string
+	PrefijoEnlaceV6   string
+	PrefijoDelegadoV6 string
+	Planta            []byte
 }
 
 type IntegracionArgosTraslado struct {

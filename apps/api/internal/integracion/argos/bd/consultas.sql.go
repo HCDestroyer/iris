@@ -1029,7 +1029,7 @@ func (q *Queries) RouterPorID(ctx context.Context, id int64) (IntegracionArgosRo
 }
 
 const servicioPorID = `-- name: ServicioPorID :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE id = $1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta FROM integracion.argos_servicios WHERE id = $1
 `
 
 func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgosServicio, error) {
@@ -1059,12 +1059,17 @@ func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgos
 		&i.Referencia,
 		&i.ContactoNombre,
 		&i.ContactoTelefono,
+		&i.PrecioMensual,
+		&i.Moneda,
+		&i.PrefijoEnlaceV6,
+		&i.PrefijoDelegadoV6,
+		&i.Planta,
 	)
 	return i, err
 }
 
 const servicioPorIP = `-- name: ServicioPorIP :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta FROM integracion.argos_servicios
 WHERE ip = $1 AND empresa_id <> 0 AND estado <> 'retirado' AND ($2::bigint = 0 OR empresa_id = $2::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1
 `
@@ -1103,12 +1108,17 @@ func (q *Queries) ServicioPorIP(ctx context.Context, arg ServicioPorIPParams) (I
 		&i.Referencia,
 		&i.ContactoNombre,
 		&i.ContactoTelefono,
+		&i.PrecioMensual,
+		&i.Moneda,
+		&i.PrefijoEnlaceV6,
+		&i.PrefijoDelegadoV6,
+		&i.Planta,
 	)
 	return i, err
 }
 
 const serviciosDeCliente = `-- name: ServiciosDeCliente :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
 `
 
 func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]IntegracionArgosServicio, error) {
@@ -1144,6 +1154,11 @@ func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]In
 			&i.Referencia,
 			&i.ContactoNombre,
 			&i.ContactoTelefono,
+			&i.PrecioMensual,
+			&i.Moneda,
+			&i.PrefijoEnlaceV6,
+			&i.PrefijoDelegadoV6,
+			&i.Planta,
 		); err != nil {
 			return nil, err
 		}
