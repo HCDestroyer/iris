@@ -291,10 +291,14 @@ func (m *Modulo) CredencialConLoVigente(ctx context.Context, bd nucleo.BD, id in
 	return err
 }
 
-// DecidirCuenta: la decisión sobre la cuenta de una boleta con lo que respondió Argos (cuentas o error).
-func DecidirCuenta(empresa int64, cuentas []argos.CuentaBancariaArgos, err error, cuenta int64) (string, error) {
-	return decidirCuenta(empresa, cuentasLeidas{cuentas: cuentas, err: err}, cuenta)
+// DecidirCuenta: la decisión sobre la cuenta de una boleta con lo que respondió Argos al releerla
+// (la cuenta o el error).
+func DecidirCuenta(empresa int64, k argos.CuentaBancariaArgos, err error, cuenta int64) (string, error) {
+	return decidirCuenta(empresa, cuentaLeida{cuenta: k, err: err}, cuenta)
 }
+
+// TaparTextoCuentas: el historial del modelo sin el texto de las cuentas (§7.8).
+var TaparTextoCuentas = taparTextoCuentas
 
 // EnviarBoleta: el despacho de una boleta (lo que hace cada corrida con cada id vencido).
 func (m *Modulo) EnviarBoleta(ctx context.Context, id uuid.UUID) error {
@@ -309,4 +313,32 @@ func FijarPlazoMedidas(d time.Duration) func() {
 	antes := plazoMedidas
 	plazoMedidas = d
 	return func() { plazoMedidas = antes }
+}
+
+// FijarTrasPrepararCuentas: corre entre armar el texto de «Enviar cuentas» y la transacción (la
+// empresa con que se armó, para simular que la conversación cambió de empresa en medio).
+func (m *Modulo) FijarTrasPrepararCuentas(f func(empresa *int64)) { m.trasPrepararCuentas = f }
+
+// TextoAutonomoConCuentas: las reglas de envío con el texto de las cuentas del turno (marca {{cuentas}}).
+func TextoAutonomoConCuentas(texto string, textoCuentas *string, verificado bool) (string, bool) {
+	t := &turnoIA{hechas: map[string]bool{}, textoCuentas: textoCuentas, verificado: verificado}
+	return validarMensajeAutonomo(t, texto)
+}
+
+// NombreCuentaModelo: cómo ve el modelo una cuenta.
+var NombreCuentaModelo = nombreCuentaModelo
+
+// TextoAutonomoConSaldo: las reglas de envío con el saldo leído en el turno (marca {{saldo}}).
+func TextoAutonomoConSaldo(texto, saldo string) (string, bool) {
+	t := &turnoIA{hechas: map[string]bool{}, saldo: &saldo, verificado: true}
+	return validarMensajeAutonomo(t, texto)
+}
+
+// SugerenciaValida: la salida del modelo pasaría como sugerencia (JSON { texto, fuentes }); si no, el motivo.
+func SugerenciaValida(json string) (bool, string) {
+	_, err := validarSalidaModelo(RespuestaIA{Texto: json}, contextoIA{catalogo: map[string]FuenteSugerencia{}}, nil, nil)
+	if err != nil {
+		return false, err.Error()
+	}
+	return true, ""
 }

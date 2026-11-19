@@ -1199,6 +1199,8 @@ func lineaHistorial(h mensajeriabd.HistorialAsistenteRow) string {
 		if h.ConSaldo {
 			crudo = reMontoQ.ReplaceAllString(crudo, "Q ***")
 		}
+		// El texto fijo de las cuentas bancarias (§7.8) vuelve al modelo sin números ni titulares.
+		crudo = taparTextoCuentas(crudo)
 		texto = neutralizarLinea(recortarIA(RedactarParaIA(crudo), 1000))
 		// El modelo no ve el documento: solo que el cliente lo envió (verificar_identidad lo toma del
 		// mensaje original, del lado del servidor).
@@ -1449,6 +1451,11 @@ func validarSalidaModelo(r RespuestaIA, ctxIA contextoIA, etiquetas []mensajeria
 	// nunca va al detalle).
 	if ContieneMonto(texto) {
 		return salidaValida{}, invalida("La sugerencia mencionaba un monto de deuda; el monto lo da el agente desde la ficha del cliente")
+	}
+	// §7.8: una sugerencia (que una persona envía con un clic) nunca trae un número de cuenta ni un
+	// número largo: las cuentas salen de Argos con «Enviar cuentas».
+	if ContieneNumeroDeCuenta(texto, nil) {
+		return salidaValida{}, invalida("La sugerencia traía un número de cuenta o un número largo; las cuentas se envían con «Enviar cuentas»")
 	}
 	v := salidaValida{texto: texto, fuentes: []FuenteSugerencia{}}
 	vistas := map[string]bool{}

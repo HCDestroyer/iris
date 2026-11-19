@@ -418,6 +418,8 @@ func TestRevisionN2Responder(t *testing.T) {
 // N3: un adjunto de otra empresa no se manda ni se registra como boleta en la conversación.
 func TestRevisionN3AdjuntoDeOtraEmpresa(t *testing.T) {
 	p := nuevoPrestamo(t)
+	// Las cuentas de «Argos» son de la empresa 2 (la de la conversación pasada).
+	p.argos.empresaCuentas = 2
 	n := numeroCliente()
 	p.clienteArgos(2, n)
 	p.webhook(p.mensajeCliente(n, "wamid.n3-"+pruebas.Unico(), `"type":"image","image":{"id":"foto-n3","mime_type":"image/jpeg"}`))
