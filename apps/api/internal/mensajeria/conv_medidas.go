@@ -44,7 +44,7 @@ func medidasImagen(mime string, cabeza []byte) medidas {
 	if err != nil || "image/"+formato != mime || cfg.Width < 1 || cfg.Height < 1 || cfg.Width > ladoMaximo || cfg.Height > ladoMaximo {
 		return medidas{}
 	}
-	w, h := int32(cfg.Width), int32(cfg.Height) //nolint:gosec // acotados por ladoMaximo
+	w, h := int32(cfg.Width), int32(cfg.Height) // acotados por ladoMaximo
 	if formato == "jpeg" && orientacionGirada(cabeza) {
 		w, h = h, w
 	}

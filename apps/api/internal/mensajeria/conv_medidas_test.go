@@ -23,7 +23,7 @@ func imagenDe(ancho, alto int) *image.RGBA {
 	im := image.NewRGBA(image.Rect(0, 0, ancho, alto))
 	for y := range alto {
 		for x := range ancho {
-			im.Set(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 120, A: 255}) //nolint:gosec // valores de prueba chicos
+			im.Set(x, y, color.RGBA{R: uint8(x), G: uint8(y), B: 120, A: 255})
 		}
 	}
 	return im
@@ -55,7 +55,7 @@ func jpegConOrientacion(t testing.TB, ancho, alto int, o uint16) []byte {
 	tiff = append(append(tiff, entrada...), 0, 0, 0, 0)
 	seg := append([]byte("Exif\x00\x00"), tiff...)
 	app1 := []byte{0xFF, 0xE1, 0, 0}
-	binary.BigEndian.PutUint16(app1[2:], uint16(len(seg)+2)) //nolint:gosec // segmento chico
+	binary.BigEndian.PutUint16(app1[2:], uint16(len(seg)+2))
 	crudo := b.Bytes()
 	return append(append(append([]byte{}, crudo[:2]...), append(app1, seg...)...), crudo[2:]...)
 }
