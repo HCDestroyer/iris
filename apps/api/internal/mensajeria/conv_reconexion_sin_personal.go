@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -407,4 +409,139 @@ func (m *Modulo) SuscribirPromesas(bus *integracion.Bus, bd nucleo.BD) {
 		_, err := m.Asistente.reconexionArgos.Ejecutar(ctxSistema(ctx, bd), in)
 		return err
 	})
+}
+
+// Aviso al cliente de cómo terminó (§7.3 «Cómo termina») ------------------------------------------
+
+// TextoFinReconexion es lo que el servidor le dice al cliente cuando Argos avisa el final de su
+// reconexión temporal. Nunca montos ni una hora de corte: el corte lo decide Argos con su plantilla.
+// "" = no se avisa (activa: el cliente ya lo supo al pedirla).
+func TextoFinReconexion(estado string, fin *string) string {
+	switch estado {
+	case "cumplida":
+		return "Su pago quedó confirmado y la reconexión temporal ya no hace falta. ¡Gracias!"
+	case "incumplida":
+		return "La reconexión temporal terminó. El pago registrado no cubrió todo el saldo vencido, así que el servicio puede volver a suspenderse. " +
+			"Si necesita ayuda, escríbanos y una persona le atiende."
+	case "cancelada":
+		switch {
+		case fin != nil && *fin == "comprobante_rechazado":
+			return "Caja no pudo confirmar su comprobante, así que la reconexión temporal terminó y el servicio puede volver a suspenderse. " +
+				"Si cree que es un error, escríbanos y una persona lo revisa."
+		case fin != nil && *fin == "vencida_sin_revisar":
+			return "La reconexión temporal terminó. Su comprobante sigue pendiente de revisión en caja: si se confirma, el servicio vuelve a activarse. " +
+				"Mientras tanto, el servicio puede volver a suspenderse."
+		default:
+			return "La reconexión temporal terminó. Si tiene dudas, escríbanos y una persona le atiende."
+		}
+	}
+	return ""
+}
+
+// uuidReconexion: el id de una reconexión (entrada del aviso de su final).
+type uuidReconexion = uuid.UUID
+
+// avisoFinReconexion: lo que se decidió con el aviso de un final.
+type avisoFinReconexion struct {
+	ID      uuid.UUID  `json:"reconexion_id"`
+	Aviso   string     `json:"aviso,omitempty"`
+	Mensaje *uuid.UUID `json:"mensaje_id,omitempty"`
+	hecho   bool
+}
+
+// nuevoAvisarFinReconexion manda (una sola vez) el aviso de cómo terminó la reconexión: solo como
+// texto dentro de la ventana de 24 h. Fuera de ella no hay una plantilla aprobada para estos finales
+// (contrato con Argos §6.3), así que no se manda nada: queda sin_aviso y el final se ve en el hilo.
+// Corre en el proceso de mensajería (mantenimiento), que es el que encola los envíos.
+func nuevoAvisarFinReconexion(m *Modulo) *auditoria.Caso[uuidReconexion, avisoFinReconexion] {
+	return auditoria.Nuevo(auditoria.Caso[uuidReconexion, avisoFinReconexion]{
+		Accion: "conversaciones.reconexion_aviso", Acceso: auditoria.Autenticado,
+		AuditarExito: func(r avisoFinReconexion) bool { return r.hecho },
+		Logica: func(ctx context.Context, t *auditoria.Tx, id uuid.UUID) (avisoFinReconexion, error) {
+			if err := soloSistema(ctx); err != nil {
+				return avisoFinReconexion{}, err
+			}
+			q := mensajeriabd.New(t)
+			f, err := q.ReconexionPorAvisar(ctx, id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return avisoFinReconexion{ID: id}, nil
+			}
+			if err != nil {
+				return avisoFinReconexion{}, err
+			}
+			c, err := q.ConversacionClienteParaActualizar(ctx, f.ConversacionID)
+			if err != nil {
+				return avisoFinReconexion{}, err
+			}
+			t.FijarEmpresa(empresaDeConv(c))
+			t.FijarEntidad("conversacion", c.ID)
+			estado := ""
+			if f.ArgosEstado != nil {
+				estado = *f.ArgosEstado
+			}
+			aviso, mensaje := AvisoBoletaSinAvis, (*uuid.UUID)(nil)
+			if texto := TextoFinReconexion(estado, f.ArgosFinMotivo); texto != "" {
+				if aviso, mensaje, err = m.avisoDentroDeVentana(ctx, t, q, &c, texto); err != nil {
+					return avisoFinReconexion{}, err
+				}
+			}
+			g, err := q.MarcarAvisoReconexion(ctx, mensajeriabd.MarcarAvisoReconexionParams{ID: f.ID, Aviso: aviso, MensajeID: pgUUID(mensaje)})
+			if err != nil {
+				return avisoFinReconexion{}, err
+			}
+			t.RegistrarCambios("reconexion", g.ID, map[string]any{"argos_aviso": "pendiente"}, map[string]any{"argos_aviso": aviso})
+			return avisoFinReconexion{ID: g.ID, Aviso: aviso, Mensaje: mensaje, hecho: true}, t.Emitir("reconexion.cliente_avisado", map[string]any{
+				"reconexion_id": g.ID, "conversacion_id": c.ID, "empresa_id": c.EmpresaID, "estado": estado, "fin": g.ArgosFinMotivo,
+				"aviso_cliente": aviso, "mensaje_id": mensaje})
+		},
+	})
+}
+
+// avisoDentroDeVentana deja un texto del servidor para el cliente si la ventana de 24 h está abierta,
+// el número sigue activo para la empresa, el cliente no se dio de baja y (en una conversación resuelta
+// de un número compartido) ninguna otra empresa está conversando con ese teléfono.
+func (m *Modulo) avisoDentroDeVentana(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion,
+	texto string) (string, *uuid.UUID, error) {
+	canal, err := q.CanalPorID(ctx, c.CanalID)
+	if err != nil {
+		return "", nil, err
+	}
+	uso, err := usoDe(ctx, q, canal, empresaDeConv(*c))
+	if err != nil {
+		return "", nil, err
+	}
+	if !canal.Activo || canal.DesconectadoEn != nil || !uso.activo {
+		return AvisoBoletaSinAvis, nil, nil
+	}
+	puede, err := m.puedeContestarBot(ctx, q, *c)
+	if err != nil || !puede {
+		return AvisoBoletaSinAvis, nil, err
+	}
+	if c.Estado == EstadoConvResuelta {
+		var pr *nucleo.Problema
+		if err := otraEmpresaConversa(ctx, q, canal.ID, empresaDeConv(*c), c.Numero); errors.As(err, &pr) {
+			return AvisoBoletaSinAvis, nil, nil
+		} else if err != nil {
+			return "", nil, err
+		}
+	}
+	msg, err := m.mensajeAutomatico(ctx, t, c, texto, "bot")
+	if err != nil {
+		return "", nil, err
+	}
+	return AvisoBoletaEnviado, &msg.ID, nil
+}
+
+// avisarFinesReconexion manda los avisos pendientes (mantenimiento del proceso de mensajería).
+func (m *Modulo) avisarFinesReconexion(ctx context.Context, bd nucleo.BD, log *slog.Logger) error {
+	ids, err := mensajeriabd.New(bd).ReconexionesPorAvisar(ctx)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := m.Asistente.avisarFinReconexion.Ejecutar(ctx, id); err != nil {
+			log.WarnContext(ctx, "mensajeria: aviso del final de una reconexión", "reconexion_id", id, "err", err)
+		}
+	}
+	return nil
 }

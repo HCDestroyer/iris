@@ -197,6 +197,8 @@ type casosAsistente struct {
 	VerReconexion   *auditoria.Caso[struct{}, AjustesReconexion]
 	FijarReconexion *auditoria.Caso[EntradaAjustesReconexion, AjustesReconexion]
 	reconexionArgos *auditoria.Caso[entradaPromesaArgos, promesaAplicada]
+	// avisarFinReconexion: el aviso al cliente de cómo terminó (§7.3 «Cómo termina»).
+	avisarFinReconexion *auditoria.Caso[uuidReconexion, avisoFinReconexion]
 
 	prepararGen    *auditoria.Caso[uuidSugerencia, generacion]
 	guardarGen     *auditoria.Caso[resultadoGeneracion, struct{}]
@@ -208,7 +210,8 @@ func nuevosCasosAsistente(m *Modulo) casosAsistente {
 	return casosAsistente{
 		VerAjustes: nuevoVerAjustesAsistente(m), FijarAjustes: nuevoFijarAjustesAsistente(m), Estado: nuevoEstadoAsistente(m),
 		VerReconexion: nuevoVerAjustesReconexion(m), FijarReconexion: nuevoFijarAjustesReconexion(m), reconexionArgos: nuevoReconexionArgos(m),
-		Probar: nuevoProbarAsistente(m), Modelos: nuevoModelosAsistente(m), Uso: nuevoUsoAsistente(m),
+		avisarFinReconexion: nuevoAvisarFinReconexion(m),
+		Probar:              nuevoProbarAsistente(m), Modelos: nuevoModelosAsistente(m), Uso: nuevoUsoAsistente(m),
 		Pedir: nuevoPedirSugerencia(m), Actual: nuevoSugerenciaActual(m), Usar: nuevoUsarSugerencia(m),
 		Descartar: nuevoDescartarSugerencia(m), Calificar: nuevoCalificarSugerencia(m), Resumen: nuevoResumirConversacion(m), VerResumen: nuevoVerResumen(m),
 		Categorias: nuevoListarCategorias(m), CrearCategoria: nuevoCrearCategoria(m), ActualizarCategoria: nuevoActualizarCategoria(m),

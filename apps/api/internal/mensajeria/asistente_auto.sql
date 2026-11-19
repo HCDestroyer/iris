@@ -431,8 +431,21 @@ FOR UPDATE;
 UPDATE mensajeria.reconexiones
 SET argos_estado = @argos_estado::text, argos_motivo = coalesce(sqlc.narg('argos_motivo'), argos_motivo),
     argos_fin_motivo = sqlc.narg('argos_fin_motivo'), argos_entrante_id = @entrante_id::bigint, argos_actualizada_en = now(),
+    argos_aviso = CASE WHEN @argos_estado::text = 'activa' THEN argos_aviso ELSE 'pendiente' END,
     hasta = CASE WHEN @argos_estado::text = 'activa' AND estado = 'aceptada' THEN coalesce(sqlc.narg('vence'), hasta) ELSE hasta END
 WHERE id = @id
   AND argos_entrante_id IS DISTINCT FROM @entrante_id::bigint
   AND (argos_estado IS NULL OR argos_estado = 'activa')
+RETURNING *;
+
+-- name: ReconexionesPorAvisar :many
+-- Finales de Argos cuyo aviso al cliente todavía no se decidió (los manda el proceso de mensajería).
+SELECT id FROM mensajeria.reconexiones WHERE argos_aviso = 'pendiente' ORDER BY argos_actualizada_en, id LIMIT 50;
+
+-- name: ReconexionPorAvisar :one
+SELECT * FROM mensajeria.reconexiones WHERE id = @id AND argos_aviso = 'pendiente' FOR UPDATE;
+
+-- name: MarcarAvisoReconexion :one
+UPDATE mensajeria.reconexiones SET argos_aviso = @aviso::text, argos_aviso_mensaje_id = sqlc.narg('mensaje_id')
+WHERE id = @id AND argos_aviso = 'pendiente'
 RETURNING *;

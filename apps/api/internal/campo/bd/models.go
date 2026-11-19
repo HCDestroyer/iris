@@ -1883,30 +1883,32 @@ type MensajeriaPromesa struct {
 }
 
 type MensajeriaReconexione struct {
-	ID                 uuid.UUID
-	EmpresaID          *int64
-	ConversacionID     int64
-	BoletaID           uuid.UUID
-	ComprobanteID      int64
-	ClienteID          int64
-	ServicioID         *int64
-	Motivo             string
-	Estado             string
-	Intentos           int32
-	ResueltaEn         *time.Time
-	PromesaArgosID     *int64
-	Hasta              *time.Time
-	Detalle            *string
-	SolicitadaPor      *int64
-	PorAsistente       bool
-	CreatedAt          time.Time
-	CajaTotal          *int32
-	CajaDisponibles    *int32
-	ArgosMotivo        *string
-	ArgosEstado        *string
-	ArgosFinMotivo     *string
-	ArgosEntranteID    *int64
-	ArgosActualizadaEn *time.Time
+	ID                  uuid.UUID
+	EmpresaID           *int64
+	ConversacionID      int64
+	BoletaID            uuid.UUID
+	ComprobanteID       int64
+	ClienteID           int64
+	ServicioID          *int64
+	Motivo              string
+	Estado              string
+	Intentos            int32
+	ResueltaEn          *time.Time
+	PromesaArgosID      *int64
+	Hasta               *time.Time
+	Detalle             *string
+	SolicitadaPor       *int64
+	PorAsistente        bool
+	CreatedAt           time.Time
+	CajaTotal           *int32
+	CajaDisponibles     *int32
+	ArgosMotivo         *string
+	ArgosEstado         *string
+	ArgosFinMotivo      *string
+	ArgosEntranteID     *int64
+	ArgosActualizadaEn  *time.Time
+	ArgosAviso          *string
+	ArgosAvisoMensajeID *uuid.UUID
 }
 
 type MensajeriaRegistrosQr struct {

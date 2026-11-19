@@ -237,6 +237,13 @@ func (m *Modulo) mantenerAsistente(ctx context.Context, bd nucleo.BD, log *slog.
 			return err
 		}
 	}
+	// Finales de reconexiones que Argos avisó (webhooks promesa.*, aplicados en el worker): el aviso
+	// al cliente sale de este proceso, que es el que encola los envíos.
+	if m.Asistente.avisarFinReconexion != nil {
+		if err := m.avisarFinesReconexion(ctx, bd, log); err != nil {
+			return err
+		}
+	}
 	return q.PurgarPedidosAsistente(ctx, m.ahora().Add(-24*time.Hour))
 }
 

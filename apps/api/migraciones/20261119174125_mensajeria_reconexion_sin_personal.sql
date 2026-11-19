@@ -27,12 +27,18 @@ ALTER TABLE mensajeria.reconexiones
     ADD COLUMN argos_estado      text CHECK (argos_estado IN ('activa', 'cumplida', 'incumplida', 'cancelada')),
     ADD COLUMN argos_fin_motivo  text CHECK (argos_fin_motivo IN ('comprobante_rechazado', 'vencida_sin_revisar', 'otro')),
     ADD COLUMN argos_entrante_id bigint,
-    ADD COLUMN argos_actualizada_en timestamptz;
+    ADD COLUMN argos_actualizada_en timestamptz,
+    -- El aviso al cliente de cómo terminó (§7.3 «Cómo termina»): pendiente hasta que el proceso de
+    -- mensajería lo manda (dentro de la ventana de 24 h) o decide no mandarlo; una vez por final.
+    ADD COLUMN argos_aviso       text CHECK (argos_aviso IN ('pendiente', 'enviado', 'sin_aviso')),
+    ADD COLUMN argos_aviso_mensaje_id uuid;
+CREATE INDEX reconexiones_por_avisar_idx ON mensajeria.reconexiones (argos_actualizada_en) WHERE argos_aviso = 'pendiente';
 
 -- +goose Down
 ALTER TABLE mensajeria.reconexiones
     DROP COLUMN caja_total, DROP COLUMN caja_disponibles, DROP COLUMN argos_motivo, DROP COLUMN argos_estado,
-    DROP COLUMN argos_fin_motivo, DROP COLUMN argos_entrante_id, DROP COLUMN argos_actualizada_en;
+    DROP COLUMN argos_fin_motivo, DROP COLUMN argos_entrante_id, DROP COLUMN argos_actualizada_en,
+    DROP COLUMN argos_aviso, DROP COLUMN argos_aviso_mensaje_id;
 DELETE FROM mensajeria.reconexiones WHERE motivo = 'sin_personal';
 ALTER TABLE mensajeria.reconexiones DROP CONSTRAINT reconexiones_motivo_check;
 ALTER TABLE mensajeria.reconexiones ADD CONSTRAINT reconexiones_motivo_check CHECK (motivo IN ('fuera_de_horario'));
