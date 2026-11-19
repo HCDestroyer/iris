@@ -4089,6 +4089,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/{id}/texto-cuentas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Texto de «Enviar cuentas» (cuentas de Argos, §7.8)
+         * @description Permiso: `conversaciones.responder`.
+         */
+        get: operations["textoCuentasConversacion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/{id}/tomar": {
         parameters: {
             query?: never;
@@ -4883,6 +4903,26 @@ export interface paths {
          * @description Permiso: `conversaciones.configurar`.
          */
         post: operations["desactivarRespuestaRapida"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/revision-cuentas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Textos con números de cuenta escritos a mano (§10.3 del contrato con Argos)
+         * @description Permiso: `conversaciones.configurar`. Manuales, respuestas rápidas y respuestas de fuera de horario activos que parecen llevar un número de cuenta bancaria. Solo avisa: las cuentas salen de Argos con «Enviar cuentas». Nunca devuelve el número.
+         */
+        get: operations["revisionCuentasMensajeria"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -10263,12 +10303,25 @@ export interface components {
             data: components["schemas"]["CuadrillaChat"][] | null;
         };
         CuentaBancaria: {
+            /** @description El nombre que la empresa le puso en Argos; puede venir vacío */
+            alias: string;
+            /** @description Nombre del banco (banco_nombre de Argos) */
             banco: string;
             /** Format: int64 */
             id: number;
             moneda: string;
+            /** @description El alias o, sin alias, el banco y los últimos 4 dígitos */
             nombre: string;
             numero: string;
+            /** @description Tiene titular: «Enviar cuentas» y el asistente se la pueden dar al cliente. Sin titular solo sirve para registrar una boleta ya depositada (§10.2, punto 14) */
+            seOfrece: boolean;
+            /**
+             * @description null si Argos no lo informó
+             * @enum {string|null}
+             */
+            tipo: "monetaria" | "ahorro" | null;
+            /** @description A nombre de quién está la cuenta; null si Argos no lo tiene */
+            titular: string | null;
         };
         CuerpoAgregarMiembro: {
             /**
@@ -12999,6 +13052,8 @@ export interface components {
         EntradaResponder: {
             /** @description Adjunto completo de esta conversación (POST /api/v1/adjuntos, entidad conversacion) */
             adjuntoId?: string;
+            /** @description «Enviar cuentas» (contrato con Argos 0.8.0 §7.8): el servidor arma el texto con las cuentas de Argos (GET /conversaciones/{id}/texto-cuentas); va sin texto, plantilla ni adjunto. 422 sin_cuentas_para_enviar si la empresa no tiene cuentas activas en quetzales con titular */
+            cuentas?: boolean;
             /** @description uuid v7 generado en el cliente: el servidor es idempotente por él */
             id: string;
             /** @description Plantilla aprobada en el número (la única opción fuera de la ventana de 24 h) */
@@ -14262,6 +14317,11 @@ export interface components {
         ListaCuentasBancarias: {
             data: components["schemas"]["CuentaBancaria"][];
             nextCursor: string | null;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó de Argos la lista de cuentas de la empresa (null si la conversación no tiene empresa)
+             */
+            sincronizadoEn: string | null;
         };
         ListaDestinatarios: {
             data: components["schemas"]["Destinatario"][];
@@ -17223,6 +17283,9 @@ export interface components {
             /** @description Hasta 5 tickets nuevos o abiertos con el SLA de resolución en riesgo o vencido; el que vence antes primero */
             urgentes: components["schemas"]["Ticket"][] | null;
         };
+        RevisionCuentas: {
+            data: components["schemas"]["TextoConCuenta"][] | null;
+        };
         Rol: {
             /** @description Un rol desactivado no da permisos ni se puede asignar */
             activo: boolean;
@@ -18055,6 +18118,44 @@ export interface components {
              * @enum {string}
              */
             tipo: "telefono" | "movil";
+        };
+        TextoConCuenta: {
+            /**
+             * Format: int64
+             * @description Id del manual, de la respuesta rápida o del número de WhatsApp
+             */
+            id: number;
+            /**
+             * @description cuenta_de_argos: trae el número de una cuenta de Argos; parece_cuenta: un número largo junto a «cuenta», «depósito» o un banco
+             * @enum {string}
+             */
+            motivo: "cuenta_de_argos" | "parece_cuenta";
+            /**
+             * @description Dónde está: un manual, una respuesta rápida o la respuesta de fuera de horario de un número
+             * @enum {string}
+             */
+            tipo: "manual" | "respuesta_rapida" | "fuera_de_horario";
+            /** @description El título del manual, el atajo de la respuesta o el nombre del número */
+            titulo: string;
+        };
+        TextoCuentasConv: {
+            /**
+             * Format: int64
+             * @description Cuántas cuentas lleva el texto
+             */
+            cuentas: number;
+            /**
+             * Format: int64
+             * @description Cuentas activas en quetzales de la empresa que no van porque Argos no tiene su titular (§10.2, punto 14): el admin lo escribe en Argos
+             */
+            sinTitular: number;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó de Argos la lista de cuentas de la empresa
+             */
+            sincronizadoEn: string | null;
+            /** @description El texto fijo con las cuentas que se le pueden dar al cliente; null si no hay ninguna */
+            texto: string | null;
         };
         Ticket: {
             /** Format: date-time */
@@ -35157,6 +35258,73 @@ export interface operations {
             };
         };
     };
+    textoCuentasConversacion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TextoCuentasConv"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     tomarConversacion: {
         parameters: {
             query?: never;
@@ -38292,6 +38460,62 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    revisionCuentasMensajeria: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevisionCuentas"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

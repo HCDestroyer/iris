@@ -69,7 +69,7 @@ function AvisoInterno() {
             </Aviso>
         );
     }
-    const textos = lectura.datos;
+    const textos = lectura.datos ?? [];
     if (textos.length === 0) return null;
     return (
         <Aviso tono="warning" titulo={tituloTextosConCuentas(textos.length)} data-testid="textos-con-cuentas">

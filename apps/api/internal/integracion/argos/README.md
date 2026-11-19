@@ -433,3 +433,31 @@ partes (ficha, ticket, orden, comercial y app de campo).
 - **Número del servicio.** `numero` (1, 2, 3…, por id, en la lista de la empresa activa): «Servicio 2»
   en el panel y en el asistente.
 - No emite ni consume eventos nuevos (la migración emite `rol.actualizado`, que ya existe).
+
+## Cuentas bancarias (contrato 0.8.0 §7.8, B5)
+
+Argos es la única fuente de las cuentas donde depositan los clientes. Iris guarda una instantánea de
+lectura (`integracion.argos_cuentas_bancarias`: `id`, `empresa_id`, `banco_id`, `banco_nombre`,
+`numero`, `alias`, `titular`, `tipo`, `moneda`, `activa`, `sincronizado_en`; nunca los campos
+contables) y nunca la edita (`cuentas_bancarias.go`).
+
+- **Carga completa** (`CargarCuentasBancarias`, job `ArgsSincronizarCuentas`, único por minuto y
+  motivo): al activar el conector y cada 6 h. `GET /cuentas-bancarias` sin `activa` (activas e
+  inactivas) y sin las cabeceras de §7.1, que son opcionales desde la 0.8.0. Con un Argos que
+  informa un contrato anterior la lista exige cabeceras de una conversación: el job no la pide
+  (`omitido: argos_anterior_080`). Lo que la lista no trae (fuera del alcance) se quita.
+  `CargaCuentasBancarias(ctx, cli)` tiene la forma del gancho `FijarCargasBancarias` de la primera
+  sincronización (B7).
+- **Al usarla** (`CuentasDeEmpresa`): si la última lista de la empresa (`argos_cuentas_lecturas`)
+  tiene más de 24 h, la relee primero (con Argos < 0.8.0, con las cabeceras de la conversación y su
+  empresa). Si Argos no responde y es vieja: `ErrCuentasViejas` y no se ofrecen.
+- **Antes de registrar una boleta** (`ReleerCuentaBancaria`): `GET /cuentas-bancarias/:id`, que
+  refresca la fila (un 403 `empresa_no_permitida` la quita). Una instantánea vieja nunca decide.
+- **Webhook `cuenta_bancaria.cambiada`** (solo a conectores ≥ 0.8.0): guardado y deduplicado como
+  los demás; el job relee `GET /cuentas-bancarias/:id` y guarda lo que dice Argos, no el payload.
+  404 confirmado: omitido `cuenta_no_encontrada`; 403: se quita (`cuenta_fuera_de_alcance`); caído:
+  el job se reintenta.
+- `EsCuentaInactiva`: el 422 `validacion` con `rule: "inactiva"` de `POST /comprobantes`.
+- **Emite** `argos.cuenta_bancaria_cambiada` (cuenta, empresa, `campos[]`, `activa`, `creada`,
+  `entrante_id` o null): con el webhook siempre; con una relectura, solo si la cuenta cambió. Nunca
+  el número ni el titular. **Consume** `cuenta_bancaria.cambiada` de Argos.
