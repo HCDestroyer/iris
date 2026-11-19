@@ -9,6 +9,10 @@ import (
 	_ "image/jpeg" // registra JPEG
 	_ "image/png"  // registra PNG
 	"log/slog"
+	"strconv"
+	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 )
@@ -123,10 +127,18 @@ func orientacionTiff(t []byte) int {
 	return 0
 }
 
-// medidasDeAdjunto lee la cabecera de una imagen ya subida (el envío del panel). Si no se puede
-// leer, el mensaje sale igual sin medidas: nunca bloquea el envío.
-func (m *Modulo) medidasDeAdjunto(ctx context.Context, a adjuntos.Adjunto) medidas {
+// plazoMedidas: lo más que se espera al almacenamiento por la cabecera de una foto al enviarla.
+var plazoMedidas = 3 * time.Second
+
+// medidasPrevias lee la cabecera de una imagen ya subida (el envío del panel), con un plazo corto y
+// antes de bloquear la conversación. El adjunto se busca con `DeEntidad` (debe ser de esta
+// conversación). Si no se puede leer o vence el plazo, sin medidas: nunca bloquea el envío.
+func (m *Modulo) medidasPrevias(ctx context.Context, q adjuntos.DBTX, id uuid.UUID, conversacion int64) medidas {
 	if m.cfg.Almacen == nil {
+		return medidas{}
+	}
+	a, err := adjuntos.DeEntidad(ctx, q, id, EntidadAdjuntosConversacion, strconv.FormatInt(conversacion, 10))
+	if err != nil || a.Estado != adjuntos.EstadoCompleto {
 		return medidas{}
 	}
 	switch a.Mime {
@@ -134,7 +146,9 @@ func (m *Modulo) medidasDeAdjunto(ctx context.Context, a adjuntos.Adjunto) medid
 	default:
 		return medidas{}
 	}
-	cabeza, err := adjuntos.Cabeza(ctx, m.cfg.Almacen, a, cabezaMedidas)
+	ctxCorto, cancelar := context.WithTimeout(ctx, plazoMedidas)
+	defer cancelar()
+	cabeza, err := adjuntos.Cabeza(ctxCorto, m.cfg.Almacen, a, cabezaMedidas)
 	if err != nil {
 		slog.WarnContext(ctx, "mensajeria: no se leyeron las medidas de la imagen", "adjunto_id", a.ID, "error", err)
 		return medidas{}

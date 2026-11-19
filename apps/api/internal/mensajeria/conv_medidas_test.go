@@ -2,15 +2,22 @@ package mensajeria_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"image"
 	"image/color"
 	"image/jpeg"
 	"image/png"
+	"io"
 	"net/http"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 )
 
 /*
@@ -72,6 +79,50 @@ func medidasDe(t *testing.T, m map[string]any) (any, any) {
 		t.Fatalf("sin adjunto: %v", m)
 	}
 	return adj["ancho"], adj["alto"]
+}
+
+// almacenLento: un almacenamiento cuyo GET se cuelga (S3 lento) mientras `lento` esté puesto.
+type almacenLento struct {
+	adjuntos.Almacen
+	lento atomic.Bool
+}
+
+func (a *almacenLento) Abrir(ctx context.Context, clave string) (io.ReadCloser, error) {
+	if a.lento.Load() {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return a.Almacen.Abrir(ctx, clave)
+}
+
+// Con el almacenamiento colgado, enviar la foto no espera más que el plazo (y nunca con la
+// conversación bloqueada): el mensaje sale igual, sin medidas.
+func TestConvMedidasConAlmacenLentoNoBloqueaElEnvio(t *testing.T) {
+	defer mensajeria.FijarPlazoMedidas(200 * time.Millisecond)()
+	var lento *almacenLento
+	b := nuevaBandeja(t, func(c *mensajeria.Config) {
+		lento = &almacenLento{Almacen: c.Almacen}
+		c.Almacen = lento
+	})
+	num := numeroCliente()
+	b.webhook(b.mensajeCliente(num, "wamid.ml1", `"type":"image","image":{"id":"medio-png","mime_type":"image/png"}`))
+	c := b.conv(num)
+	ms := b.mensajes(b.supervisor, cid(c))
+	if err := b.m.DescargarMedio(b.ctx, uuid.MustParse(ms[len(ms)-1]["id"].(string)), false); err != nil {
+		t.Fatal(err)
+	}
+	ms = b.mensajes(b.supervisor, cid(c))
+	adj := ms[len(ms)-1]["adjunto"].(map[string]any)["id"]
+	lento.lento.Store(true)
+	inicio := time.Now()
+	r := b.api(b.agente, http.MethodPost, "/conversaciones/"+cid(c)+"/mensajes", map[string]any{"id": nuevoID(), "adjuntoId": adj})
+	b.exigir(r, http.StatusCreated, "tipo", "imagen")
+	if d := time.Since(inicio); d > 3*time.Second {
+		t.Fatalf("el envío esperó al almacenamiento: %s", d)
+	}
+	if a, l := medidasDe(t, r.cuerpo); a != nil || l != nil {
+		t.Fatalf("con el almacenamiento colgado no hay medidas: %v %v", a, l)
+	}
 }
 
 func TestConvMedidasDeLaImagen(t *testing.T) {

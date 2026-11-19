@@ -153,7 +153,9 @@ func DeEntidad(ctx context.Context, q DBTX, id uuid.UUID, entidad, entidadID str
 }
 
 // Cabeza lee solo los primeros n bytes de un adjunto completo (sin fallar si pesa más): para
-// leer la cabecera de una imagen (sus medidas) sin traer el archivo entero.
+// leer la cabecera de una imagen (sus medidas) sin traer el archivo entero. En S3 pide solo ese
+// rango (`Range`). No autoriza: quien llama debe obtener el adjunto con `DeEntidad` (que comprueba
+// que es de su entidad) y haber comprobado que puede verla. Conviene llamarla con un plazo corto.
 func Cabeza(ctx context.Context, almacen Almacen, a Adjunto, n int64) ([]byte, error) {
 	if a.Estado != EstadoCompleto {
 		return nil, nucleo.Conflicto("adjunto_incompleto", "El adjunto aún no termina de subir")
@@ -161,7 +163,15 @@ func Cabeza(ctx context.Context, almacen Almacen, a Adjunto, n int64) ([]byte, e
 	if almacen == nil {
 		return nil, errors.New("adjuntos: sin almacenamiento configurado")
 	}
-	rc, err := almacen.Abrir(ctx, a.clave)
+	var (
+		rc  io.ReadCloser
+		err error
+	)
+	if parcial, ok := almacen.(AbridorInicio); ok {
+		rc, err = parcial.AbrirInicio(ctx, a.clave, n)
+	} else {
+		rc, err = almacen.Abrir(ctx, a.clave)
+	}
 	if err != nil {
 		return nil, err
 	}

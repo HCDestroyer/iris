@@ -541,6 +541,7 @@ type s3Falso struct {
 	mu       sync.Mutex
 	objetos  map[string][]byte
 	llamadas []string
+	rangos   []string // cabeceras Range recibidas
 }
 
 func (s *s3Falso) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -566,6 +567,17 @@ func (s *s3Falso) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			w.WriteHeader(http.StatusNotFound)
 			return
+		}
+		if rango := r.Header.Get("Range"); rango != "" {
+			s.rangos = append(s.rangos, rango)
+			var desde, hasta int
+			if _, err := fmt.Sscanf(rango, "bytes=%d-%d", &desde, &hasta); err == nil && desde < len(b) {
+				hasta = min(hasta, len(b)-1)
+				w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", desde, hasta, len(b)))
+				w.WriteHeader(http.StatusPartialContent)
+				_, _ = w.Write(b[desde : hasta+1])
+				return
+			}
 		}
 		_, _ = w.Write(b)
 	case http.MethodDelete:
@@ -601,6 +613,33 @@ func TestAlmacenS3(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s3.Abrir(context.Background(), "e1/prueba/"+id.String()); !errors.Is(err, adjuntos.ErrNoExiste) {
+		t.Fatal(err)
+	}
+}
+
+// La cabecera de una foto (medidas en la bandeja) se pide con Range: nunca el archivo entero.
+func TestS3AbrirInicioPideSoloElRango(t *testing.T) {
+	falso := &s3Falso{objetos: map[string][]byte{}}
+	srv := httptest.NewServer(falso)
+	t.Cleanup(srv.Close)
+	s3, err := adjuntos.NuevoS3(adjuntos.ConfigS3{Endpoint: srv.URL, Bucket: "iris-adjuntos", AccessKey: "iris", SecretKey: "secreto", EstiloRuta: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	datos := bytes.Repeat([]byte("0123456789"), 100)
+	if err := s3.Guardar(context.Background(), "e1/prueba/objeto", bytes.NewReader(datos), int64(len(datos)), "image/png", huella(datos)); err != nil {
+		t.Fatal(err)
+	}
+	rc, err := s3.AbrirInicio(context.Background(), "e1/prueba/objeto", 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(rc)
+	_ = rc.Close()
+	if !bytes.Equal(b, datos[:25]) || len(falso.rangos) != 1 || falso.rangos[0] != "bytes=0-24" {
+		t.Fatalf("rango: %q %v", b, falso.rangos)
+	}
+	if _, err := s3.AbrirInicio(context.Background(), "e1/prueba/no-existe", 25); !errors.Is(err, adjuntos.ErrNoExiste) {
 		t.Fatal(err)
 	}
 }

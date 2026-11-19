@@ -221,6 +221,13 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			case in.Plantilla == nil && in.Texto == nil && in.AdjuntoID == nil:
 				return MensajeConvEnviado{}, reglaConv("mensaje_vacio", "Escribe un texto, adjunta un archivo o elige una plantilla")
 			}
+			// Las medidas de la foto se leen ANTES de bloquear la conversación, con un plazo corto: un
+			// almacenamiento lento nunca retiene el candado. Si fallan o vencen, el mensaje sale sin ellas.
+			// (Solo se usan si después el adjunto resulta de esta conversación y se puede ver.)
+			var medidasPrevias medidas
+			if in.AdjuntoID != nil {
+				medidasPrevias = m.medidasPrevias(ctx, t, *in.AdjuntoID, in.ConversacionID)
+			}
 			q := mensajeriabd.New(t)
 			c, err := convVisible(ctx, q, a, in.ConversacionID, true)
 			if err != nil {
@@ -318,7 +325,7 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 					return MensajeConvEnviado{}, reglaConv("adjunto_no_listo", "El adjunto pesa más de 16 MB")
 				}
 				n.adjunto, n.tipo = in.AdjuntoID, tipoDeMime(adj.Mime)
-				n.medidas = m.medidasDeAdjunto(ctx, adj)
+				n.medidas = medidasPrevias
 			}
 			if in.RespuestaRapidaID != nil {
 				if _, err := q.RespuestaRapidaPorID(ctx, mensajeriabd.RespuestaRapidaPorIDParams{ID: *in.RespuestaRapidaID, Empresa: empresaDeConv(c)}); err != nil {
