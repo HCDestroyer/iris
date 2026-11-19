@@ -41,7 +41,14 @@ Subpaquetes:
   `nucleo.portal_purga` (worker, cada hora) borra las sesiones vencidas o revocadas y los tickets
   vencidos sin sesiones 30 días después. **Integraciones**
   (`integracion.go`): roles base `integracion_argos` / `integracion_horus` y
-  `iris integracion crear --sistema argosisp|horus --empresa …` (usuario + token).
+  `iris integracion crear --sistema argosisp|horus --empresa … [--expires-in <días>]` (usuario +
+  token). Tokens a mano de un conector (contrato con Argos 0.8.0 §1.5, S5; `tokens_api.via`, de solo
+  lectura en `TokenAPI`): por consola quedan `cli` (sin vencimiento salvo `--expires-in`, 1 a 365
+  días; la consola imprime si vence y cuándo); desde la API, solo un admin con
+  `integraciones.conectar` y `empresas.todas`, quedan `recuperacion` (30 días por defecto, 90 como
+  máximo). Los dos se revocan al confirmarse un canje nuevo del mismo sistema (los de todos los
+  usuarios con su rol). Al actualizar, la migración marca `recuperacion`, sin vencimiento nuevo, los
+  tokens vigentes de esos usuarios que no son el entregado por un canje: la instalación no se corta.
 - `identidad` · **historial de accesos** (`accesos.go`, tabla `nucleo.accesos`): una fila por
   inicio de sesión (éxito al quedar la sesión completa, también tras el MFA; `contrasena_erronea`,
   `mfa_fallido`, `bloqueado`, `inactivo`) y por uso de un token (como mucho una por token y hora),
@@ -98,7 +105,7 @@ guardan: repetir la clave da 409 `idempotencia_no_repetible`. Una clave abandona
 **Eventos que emite** (`identidad`, con `empresa_id` null): `usuario.creado`,
 `usuario.actualizado`, `usuario.desactivado`, `usuario.mfa_reiniciado` (`POST /usuarios/{id}/reiniciar-mfa`,
 solo admin, nunca el propio: borra el TOTP, pone una contraseña temporal que hay que cambiar con
-`POST /yo/contrasena` antes de cualquier otra cosa, cierra sesiones y revoca tokens; responde el `Usuario` con `sesionesCerradas` y `tokensRevocados`), `token.creado`, `token.revocado`; y, con la
+`POST /yo/contrasena` antes de cualquier otra cosa, cierra sesiones y revoca tokens salvo los que usa un conector activo; responde el `Usuario` con `sesionesCerradas`, `tokensRevocados` y `tokensConservados`), `token.creado`, `token.revocado`, `token.eliminado` (borrado lógico de un token revocado o vencido: `POST /tokens/{id}/eliminar`, motivo `manual`; el lote `POST /tokens/eliminar-inactivos`, motivo `lote`, con su conteo en `GET /tokens/eliminables`; y al eliminar un conector, motivo `conector`. Uno vigente responde 409 `token_vigente`, uno que usa un conector activo 409 `token_en_uso_por_conector`; el hash se borra y la lista nunca trae eliminados. `POST /tokens/{id}/revocar-y-eliminar` (acción `tokens.revocar_y_eliminar`, una transacción) **no tiene permiso propio, a propósito**: exige `tokens.eliminar` y, si el token aún vale, también `tokens.revocar`; así nadie revoca con él sin tener `tokens.revocar`. Ni revocar ni revocar y eliminar tocan el token de un conector activo (`enUsoPorConector`), y revocar todos los de un usuario (cerrar sesiones con `revocarTokens`, reiniciar MFA) lo conserva (`tokensConservados`)); y, con la
 empresa afectada, `empresa.creada`, `empresa.actualizada`, `usuario.empresa_asignada`,
 `usuario.empresa_quitada`, `empresa.datos_adoptados`; y, del autologin desde Argos (`sso.go`),
 `usuario.sso_vinculado` y `usuario.sso_desvinculado`; de accesos y roles (`accesos.go`, `roles.go`),

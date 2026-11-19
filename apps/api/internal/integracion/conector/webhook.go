@@ -117,7 +117,7 @@ func nuevoRecibirWebhook(c *Conexion) *auditoria.Caso[EntradaWebhook, WebhookRec
 				return WebhookRecibido{}, firmaInvalida("Faltan X-Webhook-Id, X-Webhook-Timestamp o X-Webhook-Signature")
 			}
 			f, err := q.ConectorPorID(ctx, in.ConectorID)
-			if esSinFilas(err) || (err == nil && f.Sistema != c.s.Nombre) {
+			if esSinFilas(err) || (err == nil && (f.Sistema != c.s.Nombre || esEliminado(f))) {
 				// Mismo error que una firma mala: no revela qué conectores existen.
 				return WebhookRecibido{}, firmaInvalida("La firma no corresponde al conector")
 			}

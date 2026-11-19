@@ -76,6 +76,9 @@ type Config struct {
 	// PlazoListaTecnicos: tope de una llamada con sinVincular, que puede leer hasta 10 páginas de
 	// Argos (15 s). Al vencer, se entrega lo leído con su nextCursor.
 	PlazoListaTecnicos time.Duration
+	// RitmoSincronizacion: pausa mínima entre dos peticiones de la primera sincronización (200 ms:
+	// como máximo 5 por segundo en total, contrato 0.8.0 §2.5).
+	RitmoSincronizacion time.Duration
 }
 
 // Modulo reúne los casos de uso del conector Argos.
@@ -89,9 +92,11 @@ type Modulo struct {
 	guardarTrasladoLeido *auditoria.Caso[argosbd.GuardarTrasladoParams, struct{}]
 	// guardarCuentas: la instantánea de cuentas bancarias (0.8.0 §7.8).
 	guardarCuentas *auditoria.Caso[lecturaCuentas, ResultadoCuentas]
-	cfg            Config
-	nucleo         *conector.Nucleo
-	conexion       *conector.Conexion
+	// cargaCuentas y cargaBancos: la instantánea de cuentas y bancos (B5); nil = solo contar.
+	cargaCuentas, cargaBancos CargaCatalogoBancario
+	cfg                       Config
+	nucleo                    *conector.Nucleo
+	conexion                  *conector.Conexion
 
 	Conectar        *conector.Conectar
 	Previsualizar   *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
@@ -119,6 +124,12 @@ type Modulo struct {
 	ListarTecnicosArgos *ListarTecnicosArgos
 	// AbrirArgos: autologin Iris → Argos (contrato 0.7.0 §1.3).
 	AbrirArgos *AbrirArgos
+	// Primera sincronización y estado de la conexión (contrato 0.8.0 §1.5 y §2.5, B7).
+	PrimeraSincronizacion  *PrimeraSincronizacion
+	InformarSincronizacion *InformarSincronizacion
+	Sincronizar            *auditoria.Caso[EntradaSincronizar, Sincronizacion]
+	EstadoConexion         *auditoria.Caso[struct{}, EstadoConexionArgos]
+	RegistrarCertificado   *auditoria.Caso[EntradaCertificado, ResultadoCertificado]
 }
 
 // Alias de los tipos comunes de conexión (el OpenAPI los publica con estos nombres).
@@ -137,6 +148,9 @@ type (
 
 // Nuevo arma el módulo: crea el núcleo de conectores y le agrega Argos.
 func Nuevo(cfg Config) *Modulo {
+	if cfg.RitmoSincronizacion <= 0 {
+		cfg.RitmoSincronizacion = 200 * time.Millisecond
+	}
 	if cfg.VigenciaInstantanea <= 0 {
 		cfg.VigenciaInstantanea = 24 * time.Hour
 	}
@@ -160,11 +174,11 @@ func Nuevo(cfg Config) *Modulo {
 			if err := cfg.Encolar(ctx, tx, ArgsSincronizarCatalogos{Motivo: MotivoActivacion}); err != nil {
 				return err
 			}
-			// 0.8.0 §7.8: primera carga de las cuentas bancarias (sin efecto con un Argos anterior).
-			if err := cfg.Encolar(ctx, tx, ArgsSincronizarCuentas{Motivo: MotivoActivacion}); err != nil {
+			if err := m.encolarInformarContrato(ctx, tx, conectorID); err != nil {
 				return err
 			}
-			return m.encolarInformarContrato(ctx, tx, conectorID)
+			// 0.8.0 §2.5: primera sincronización de un conector que nunca la tuvo.
+			return m.encolarPrimeraSincronizacion(ctx, tx, conectorID)
 		},
 		Contrato: ContratoIris, Capacidades: capacidades,
 		// 0.6.2: el canje exige el receptor de Argos (§1.3) y manda receptor_argos: true.
@@ -195,6 +209,14 @@ func Nuevo(cfg Config) *Modulo {
 	m.RevisarVersion = nuevoRevisarVersion(m)
 	m.ListarTecnicosArgos = nuevoListarTecnicosArgos(m)
 	m.AbrirArgos = nuevoAbrirArgos(m)
+	// 0.8.0 §2.5 paso 5: la primera sincronización llena la instantánea de cuentas (B5); los bancos solo
+	// se leen y se cuentan (Iris no los guarda).
+	m.FijarCargasBancarias(m.CargaCuentasBancarias, nil)
+	m.PrimeraSincronizacion = nuevaPrimeraSincronizacion(m)
+	m.InformarSincronizacion = nuevoInformarSincronizacion(m)
+	m.Sincronizar = nuevoSincronizar(m)
+	m.EstadoConexion = nuevoEstadoConexion(m)
+	m.RegistrarCertificado = nuevoRegistrarCertificado()
 	return m
 }
 

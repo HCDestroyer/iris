@@ -222,8 +222,9 @@ function Formulario({
                     <CampoContrasena form={form} portapapeles={portapapeles} />
                 ) : (
                     <Aviso tono="info" titulo="Sin contraseña">
-                        Una integración entra solo con un token de API (`POST /api/v1/tokens` con su `usuarioId`). Los conectores de Argos y Horus
-                        crean el suyo solos al conectarse.
+                        Una integración entra solo con un token de API. Los conectores de Argos y Horus crean el suyo solos al conectarse y nunca se
+                        muestra. Crear uno a mano (`POST /api/v1/tokens` con su `usuarioId`) es la vía de recuperación: solo un administrador, y queda
+                        en la auditoría.
                     </Aviso>
                 )}
             </SeccionFormulario>

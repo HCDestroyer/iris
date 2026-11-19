@@ -470,19 +470,30 @@ func accesoPortal(ctx context.Context, cfg config.Config, args []string) error {
 	return nil
 }
 
-const usoIntegracion = "uso: iris integracion crear --sistema argosisp|horus [--empresa 1,2] [--correo <correo>] [--nombre <nombre>]"
+const usoIntegracion = "uso: iris integracion crear --sistema argosisp|horus [--empresa 1,2] [--correo <correo>] [--nombre <nombre>] [--expires-in <días, 1 a 365>]"
 
 // crearIntegracion crea (o reutiliza) el usuario de tipo integración de Argos u Horus con su rol
 // base (integracion_argos, integracion_horus) y sus empresas, y emite un token iris_pat_ nuevo
 // para entregar al otro sistema. Solo con acceso a la base (actor sistema), sin pasar por admin.
+// El token queda marcado `cli` (contrato con Argos 0.8.0 §1.5): sin vencimiento salvo --expires-in
+// (días, como mucho 365) y se revoca al confirmarse un canje nuevo del mismo sistema.
 func crearIntegracion(ctx context.Context, cfg config.Config, args []string) error {
 	fs := flag.NewFlagSet("integracion crear", flag.ContinueOnError)
 	sistema := fs.String("sistema", "", "argosisp u horus")
 	empresas := fs.String("empresa", "", "ids de empresas de Argos separados por coma (obligatorio si hay empresas registradas)")
 	correo := fs.String("correo", "", "correo del usuario (por defecto integracion.<sistema>@iris.local)")
 	nombre := fs.String("nombre", "", "nombre del usuario")
+	dias := fs.Int("expires-in", 0, "días hasta que vence el token (1 a 365; 0 = sin vencimiento)")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *dias < 0 || *dias > 365 {
+		return errors.New("--expires-in: entre 1 y 365 días (0 = sin vencimiento)")
+	}
+	var expira *time.Time
+	if *dias > 0 {
+		v := time.Now().Add(time.Duration(*dias) * 24 * time.Hour)
+		expira = &v
 	}
 	if *sistema == "" {
 		return errors.New(usoIntegracion)
@@ -511,7 +522,7 @@ func crearIntegracion(ctx context.Context, cfg config.Config, args []string) err
 		return err
 	}
 	cctx := nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalConsola), pool)
-	r, err := id.PrepararIntegracion(cctx, identidad.EntradaPrepararIntegracion{Sistema: *sistema, Empresas: ids, Correo: *correo, Nombre: *nombre})
+	r, err := id.PrepararIntegracion(cctx, identidad.EntradaPrepararIntegracion{Sistema: *sistema, Empresas: ids, Correo: *correo, Nombre: *nombre, ExpiraEn: expira})
 	if err != nil {
 		return err
 	}
@@ -521,6 +532,7 @@ func crearIntegracion(ctx context.Context, cfg config.Config, args []string) err
 	}
 	fmt.Printf("Usuario de integración %s: id %d, %s, rol %s, empresas %v\n", estado, r.Usuario.ID, r.Usuario.Correo, identidad.RolesIntegracion[*sistema], r.Usuario.Empresas)
 	fmt.Printf("Token (no se vuelve a mostrar; entrégalo a %s): %s\n", *sistema, r.Token.Valor)
+	fmt.Println(textoVencimientoCLI(r.Token.Token.ExpiraEn))
 	return nil
 }
 
@@ -585,4 +597,14 @@ func semillaCampo(ctx context.Context, cfg config.Config, args []string) error {
 		fmt.Printf("Orden %s (%s) programada %s\n", o.Numero, o.Tipo, o.ProgramadaInicio.Format(time.RFC3339))
 	}
 	return err
+}
+
+// textoVencimientoCLI dice si el token de «iris integracion crear» vence y cuándo, y que se revoca al
+// confirmarse un canje nuevo del sistema (contrato con Argos 0.8.0 §1.5).
+func textoVencimientoCLI(expira *time.Time) string {
+	revoca := "Se revoca solo al confirmarse un canje nuevo de este sistema (conectar con un paso)."
+	if expira == nil {
+		return "Vencimiento: no vence. " + revoca
+	}
+	return "Vencimiento: " + expira.UTC().Format("2006-01-02 15:04") + " UTC. " + revoca
 }

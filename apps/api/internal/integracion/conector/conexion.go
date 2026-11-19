@@ -623,6 +623,9 @@ func nuevoActivarConector(n *Nucleo) *auditoria.Caso[EntradaActivarConector, Con
 			if err != nil {
 				return Conector{}, err
 			}
+			if esEliminado(antes) {
+				return Conector{}, nucleo.NoEncontrado("")
+			}
 			if err := nucleo.ExigirVersion(in.Version, antes.Version, "conector", in.ID); err != nil {
 				return Conector{}, err
 			}
@@ -739,6 +742,9 @@ func nuevoDesactivarConector(n *Nucleo) *auditoria.Caso[EntradaCambioConector, C
 			if err != nil {
 				return Conector{}, err
 			}
+			if esEliminado(antes) {
+				return Conector{}, nucleo.NoEncontrado("")
+			}
 			if err := nucleo.ExigirVersion(in.Version, antes.Version, "conector", in.ID); err != nil {
 				return Conector{}, err
 			}
@@ -782,12 +788,24 @@ func nuevoListarConectores(n *Nucleo) *auditoria.Caso[nucleo.ParamsPagina, nucle
 			if _, err := nucleo.DecodificarCursor(in.Cursor, &despues); err != nil {
 				return nucleo.Pagina[Conector]{}, err
 			}
-			filas, err := conectorbd.New(t).ListarConectores(ctx, conectorbd.ListarConectoresParams{DespuesDe: despues, Limite: int32(in.Limite() + 1)}) //nolint:gosec // ≤ 201
+			q := conectorbd.New(t)
+			filas, err := q.ListarConectores(ctx, conectorbd.ListarConectoresParams{DespuesDe: despues, Limite: int32(in.Limite() + 1)}) //nolint:gosec // ≤ 201
 			if err != nil {
 				return nucleo.Pagina[Conector]{}, err
 			}
-			return nucleo.Paginar(filas, in.Limite(), n.AConector,
-				func(f conectorbd.IntegracionConectore) []any { return []any{f.ID} }), nil
+			ids, err := q.ConectoresEliminables(ctx)
+			if err != nil {
+				return nucleo.Pagina[Conector]{}, err
+			}
+			eliminables := make(map[int64]bool, len(ids))
+			for _, id := range ids {
+				eliminables[id] = true
+			}
+			return nucleo.Paginar(filas, in.Limite(), func(f conectorbd.IntegracionConectore) Conector {
+				c := n.AConector(f)
+				c.Eliminable = eliminables[f.ID]
+				return c
+			}, func(f conectorbd.IntegracionConectore) []any { return []any{f.ID} }), nil
 		},
 	})
 }
@@ -815,6 +833,9 @@ func nuevoCambiarURLPublica(n *Nucleo) *auditoria.Caso[EntradaURLPublica, Conect
 			antes, err := q.ConectorPorIDParaActualizar(ctx, in.ID)
 			if err != nil {
 				return Conector{}, err
+			}
+			if esEliminado(antes) {
+				return Conector{}, nucleo.NoEncontrado("")
 			}
 			if err := nucleo.ExigirVersion(in.Version, antes.Version, "conector", in.ID); err != nil {
 				return Conector{}, err

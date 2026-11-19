@@ -212,7 +212,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	reiniciarMFA := operacion("reiniciarMFAUsuario", http.MethodPost, "/api/v1/usuarios/{id}/reiniciar-mfa", "Reiniciar el MFA de otro usuario", nucleo.PermUsuariosReiniciarMFA, http.StatusOK, http.StatusNotFound, http.StatusConflict)
-	reiniciarMFA.Description += " Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. " + descAdminPorEmpresa
+	reiniciarMFA.Description += " Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno) menos los que usa un conector activo (`tokensConservados`: revocarlos cortaría la integración; se cambian desde Integraciones). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. " + descAdminPorEmpresa
 	huma.Register(api, reiniciarMFA,
 		func(ctx context.Context, in *conID[EntradaReiniciarMFA]) (*cuerpo[MFAReiniciado], error) {
 			e := in.Body
@@ -279,14 +279,44 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	crearToken := operacion("crearToken", http.MethodPost, "/api/v1/tokens", "Crear un token de API", nucleo.PermTokensCrear, http.StatusCreated, http.StatusNotFound, http.StatusConflict)
-	crearToken.Description += " Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo. Desde un token, el nuevo no puede tener más permisos que el que lo crea. " + descNoRepetible
+	crearToken.Description += " Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo, `integraciones.conectar` y `empresas.todas` (403): el token de la integración de un conector (roles `integracion_argos` o `integracion_horus`) creado a mano es la **vía de recuperación** del conector (contrato con Argos 0.8.0 §1.5, S5), solo de un administrador y auditada con `via: recuperacion`, con `expiraEn` de 30 días por defecto y 90 como máximo (422 `validacion`), y se revoca al confirmarse un canje nuevo; lo normal es conectar con un paso, donde el token nunca se muestra. Desde un token, el nuevo no puede tener más permisos que el que lo crea. " + descNoRepetible
 	huma.Register(api, crearToken,
 		func(ctx context.Context, in *conClave[EntradaCrearToken]) (*cuerpo[TokenCreado], error) {
 			v, err := m.CrearToken.Ejecutar(ctx, in.Body)
 			return responderSecreto(ctx, v, err)
 		})
 
-	huma.Register(api, operacion("revocarToken", http.MethodPost, "/api/v1/tokens/{id}/revocar", "Revocar un token de API", nucleo.PermTokensRevocar, http.StatusOK, http.StatusNotFound),
+	eliminarToken := operacion("eliminarToken", http.MethodPost, "/api/v1/tokens/{id}/eliminar", "Eliminar un token de API revocado o vencido", nucleo.PermTokensEliminar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	eliminarToken.Description += " Borrado lógico: el token deja de salir en `GET /api/v1/tokens` y su hash se borra; la auditoría y el historial siguen apuntando a él. Solo uno revocado o vencido: uno que aún vale responde 409 `token_vigente` (revócalo primero). Si un conector activo lo usa (el iris_pat_ entregado a Argos u Horus), 409 `token_en_uso_por_conector`. Fuera de tu alcance de empresas, 404. Eliminarlo otra vez responde 200 con el mismo token, sin evento. Emite `token.eliminado` (motivo `manual`)."
+	huma.Register(api, eliminarToken,
+		func(ctx context.Context, in *conID[EntradaEliminarToken]) (*cuerpo[TokenAPI], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(m.EliminarToken.Ejecutar(ctx, e))
+		})
+	revocarEliminar := operacion("revocarYEliminarToken", http.MethodPost, "/api/v1/tokens/{id}/revocar-y-eliminar", "Revocar y eliminar un token de API", nucleo.PermTokensEliminar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	revocarEliminar.Description += " Una sola acción y una sola transacción: si el token aún vale lo revoca (exige además `tokens.revocar`; emite `token.revocado` con el motivo) y lo elimina (`token.eliminado`, motivo `manual`). Si un conector activo lo usa, 409 `token_en_uso_por_conector` sin tocar nada (revocarlo cortaría la integración: se cambia desde Integraciones). Fuera de tu alcance de empresas, 404. Ya eliminado: 200 sin evento."
+	huma.Register(api, revocarEliminar,
+		func(ctx context.Context, in *conID[EntradaEliminarToken]) (*cuerpo[TokenAPI], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(m.RevocarYEliminarToken.Ejecutar(ctx, e))
+		})
+	contarEliminables := operacion("contarTokensEliminables", http.MethodGet, "/api/v1/tokens/eliminables", "Contar los tokens revocados o vencidos que se pueden eliminar", nucleo.PermTokensEliminar, http.StatusOK)
+	contarEliminables.Description += " Lo que eliminaría `POST /api/v1/tokens/eliminar-inactivos` con el mismo filtro (para la confirmación)."
+	huma.Register(api, contarEliminables,
+		func(ctx context.Context, in *ConsultaTokensInactivos) (*cuerpo[TokensEliminables], error) {
+			return responder(m.ContarTokensEliminables.Ejecutar(ctx, EntradaTokensInactivos{UsuarioID: in.UsuarioID}))
+		})
+	eliminarInactivos := operacion("eliminarTokensInactivos", http.MethodPost, "/api/v1/tokens/eliminar-inactivos", "Eliminar todos los tokens revocados y vencidos", nucleo.PermTokensEliminar, http.StatusOK)
+	eliminarInactivos.Description += " Todos los revocados o vencidos que ves y administras (opcional: de un usuario), salvo los que usa un conector activo (`omitidos`). Cada uno se audita por separado y emite `token.eliminado` (motivo `lote`). Sin ninguno, responde `eliminados: 0`."
+	huma.Register(api, eliminarInactivos,
+		func(ctx context.Context, in *conClave[EntradaTokensInactivos]) (*cuerpo[TokensEliminados], error) {
+			return responder(m.EliminarTokensInactivos.Ejecutar(ctx, in.Body))
+		})
+	revocar := operacion("revocarToken", http.MethodPost, "/api/v1/tokens/{id}/revocar", "Revocar un token de API", nucleo.PermTokensRevocar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	revocar.Description += " El iris_pat_ de un conector activo (`enUsoPorConector`) no se revoca aquí: 409 `token_en_uso_por_conector` (cortaría la integración; se cambia desde Integraciones)."
+	huma.Register(api, revocar,
 		func(ctx context.Context, in *conID[EntradaRevocarToken]) (*cuerpo[TokenAPI], error) {
 			e := in.Body
 			e.ID = in.ID

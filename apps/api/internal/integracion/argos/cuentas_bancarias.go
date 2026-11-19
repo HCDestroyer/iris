@@ -24,8 +24,8 @@ import (
 // Cuentas bancarias (contrato 0.8.0 §7.8, pedido B5): Argos es la única fuente. Iris guarda una
 // instantánea de lectura (integracion.argos_cuentas_bancarias) con los campos que usa y la refresca:
 //
-//   - con la lista completa (GET /cuentas-bancarias, sin `activa`: activas e inactivas), al activar
-//     el conector y cada 6 h (ArgsSincronizarCuentas). Sin las cabeceras de §7.1, que son opcionales
+//   - con la lista completa (GET /cuentas-bancarias, sin `activa`: activas e inactivas), en la
+//     primera sincronización (CargaCuentasBancarias) y cada 6 h (ArgsSincronizarCuentas). Sin las cabeceras de §7.1, que son opcionales
 //     desde la 0.8.0: con un Argos anterior (contrato < 0.8.0) la lista sin cabeceras responde 400,
 //     así que el job no la pide y la instantánea se llena desde una conversación (CuentasDeEmpresa);
 //   - con el webhook cuenta_bancaria.cambiada (solo a conectores ≥ 0.8.0): se relee la cuenta con

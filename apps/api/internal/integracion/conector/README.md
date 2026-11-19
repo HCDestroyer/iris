@@ -97,5 +97,10 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
 
 ## Eventos
 
-Emite `conector.creado`, `conector.activado`, `conector.desactivado` y `conector.actualizado`
-(URL pública), con `sistema`. No consume eventos.
+Emite `conector.creado`, `conector.activado`, `conector.desactivado`, `conector.actualizado`
+(URL pública) y `conector.eliminado` (`POST /conectores/{id}/eliminar`, motivo `manual`, o el lote
+`POST /conectores/eliminar-apagados`, motivo `lote`: borrado lógico de un conector apagado, con
+`integraciones.eliminar`; sus credenciales cifradas se borran, sus webhooks se rechazan como firma
+inválida y su `iris_pat_` se revoca si aún valía y se elimina con `token.eliminado` motivo
+`conector`. 409 `conector_activo` si está activo y `conector_en_uso` si el activo lo reemplazó con
+la reconexión sin confirmar), con `sistema`. No consume eventos.

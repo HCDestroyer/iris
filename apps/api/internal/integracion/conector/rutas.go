@@ -98,6 +98,27 @@ func (n *Nucleo) Registrar(api huma.API) {
 			return Responder(n.DesactivarConector.Ejecutar(ctx, e))
 		})
 
+	eliminar := Operacion(EtiquetaIntegraciones, "eliminarConector", http.MethodPost, "/api/v1/integraciones/conectores/{id}/eliminar",
+		"Eliminar un conector apagado", nucleo.PermIntegracionesEliminar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	eliminar.Description += " Borrado lógico de un conector que ya no sirve: deja de salir en la lista, sus credenciales cifradas (token y secretos de webhooks) se borran y sus webhooks se rechazan; los avisos recibidos, las acciones pendientes y la auditoría lo siguen referenciando. El iris_pat_ que Iris le entregó se revoca si aún valía (`token.revocado`) y se elimina (`token.eliminado`, motivo `conector`). Uno activo responde 409 `conector_activo` (desactívalo primero); uno que el activo reemplazó con la reconexión de Argos sin confirmar, 409 `conector_en_uso`. Eliminarlo otra vez responde 200, sin evento. Emite `conector.eliminado` (motivo `manual`)."
+	huma.Register(api, eliminar, func(ctx context.Context, in *conID[EntradaEliminarConector]) (*Cuerpo[Conector], error) {
+		e := in.Body
+		e.ID = in.ID
+		return Responder(n.EliminarConector.Ejecutar(ctx, e))
+	})
+	contar := Operacion(EtiquetaIntegraciones, "contarConectoresEliminables", http.MethodGet, "/api/v1/integraciones/conectores/eliminables",
+		"Contar los conectores apagados que se pueden eliminar", nucleo.PermIntegracionesEliminar, http.StatusOK)
+	contar.Description += " Lo que eliminaría `POST …/conectores/eliminar-apagados` (para la confirmación), sin depender de la paginación de la lista."
+	huma.Register(api, contar, func(ctx context.Context, _ *struct{}) (*Cuerpo[ConectoresEliminables], error) {
+		return Responder(n.ContarConectoresEliminables.Ejecutar(ctx, struct{}{}))
+	})
+	apagados := Operacion(EtiquetaIntegraciones, "eliminarConectoresApagados", http.MethodPost, "/api/v1/integraciones/conectores/eliminar-apagados",
+		"Eliminar todos los conectores apagados", nucleo.PermIntegracionesEliminar, http.StatusOK)
+	apagados.Description += " Los que tienen `eliminable: true` en la lista. Cada uno se audita por separado y emite `conector.eliminado` (motivo `lote`). Sin ninguno, responde `eliminados: 0`."
+	huma.Register(api, apagados, func(ctx context.Context, _ *soloClave) (*Cuerpo[ConectoresEliminados], error) {
+		return Responder(n.EliminarConectoresApagados.Ejecutar(ctx, struct{}{}))
+	})
+
 	url := Operacion(EtiquetaIntegraciones, "configurarURLPublicaConector", http.MethodPost, "/api/v1/integraciones/conectores/{id}/url-publica",
 		"Configurar la URL pública de un conector", nucleo.PermIntegracionesConectar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
 	url.Description += " Origen de la interfaz del otro sistema para los enlaces «Ver en Argos/Horus» (null = la URL base del conector). Emite `conector.actualizado`."
