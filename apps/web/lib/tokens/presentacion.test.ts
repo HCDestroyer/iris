@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accionesToken, cuantosTokens, estadoToken, tituloLote } from "./presentacion";
+import { accionesToken, cuantosTokens, estadoToken, textoTokensRevocados, tituloLote } from "./presentacion";
 
 const AHORA = Date.parse("2026-11-19T12:00:00Z");
 
@@ -32,6 +32,11 @@ describe("accionesToken", () => {
 });
 
 describe("textos", () => {
+    it("tokens revocados y el de la integración conservado", () => {
+        expect(textoTokensRevocados(2, 1)).toBe("Se revocaron 2 tokens; se conservó el de la integración.");
+        expect(textoTokensRevocados(1, 0)).toBe("Se revocó 1 token.");
+        expect(textoTokensRevocados(0, 1)).toBe("Se revocaron 0 tokens; se conservó el de la integración.");
+    });
     it("singular y plural", () => {
         expect(cuantosTokens(1)).toBe("1 token");
         expect(cuantosTokens(3)).toBe("3 tokens");

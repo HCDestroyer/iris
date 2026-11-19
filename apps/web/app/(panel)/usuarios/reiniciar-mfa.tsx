@@ -12,7 +12,8 @@ import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { cuerpoReiniciarMfa, esquemaReiniciarMfa, generarContrasenaTemporal, type DatosReiniciarMfa } from "@/lib/cuenta/esquemas";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
-import { AVISO_TOKEN_CONSERVADO } from "@/lib/tokens/presentacion";
+import { textoTokensRevocados } from "@/lib/tokens/presentacion";
+import { TokenConservado } from "@/componentes/tokens/token-conservado";
 
 type Usuario = Schema<"Usuario">;
 
@@ -27,7 +28,7 @@ type Props = {
     alCerrar: () => void;
 };
 
-type Resultado = { usuario: Usuario; revocoTokens: boolean };
+type Resultado = { usuario: Usuario; revocoTokens: boolean; revocados: number; conservados: number };
 
 /** Usuario por id con `GET /usuarios?q=<correo>` (no hay `GET /usuarios/{id}`); `null` si ya no se ve. */
 async function releerUsuario(u: Usuario): Promise<Usuario | null> {
@@ -68,10 +69,10 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
             clave.renovar();
             // La contraseña temporal no se vuelve a mostrar: se borra del formulario.
             formulario.reset({ motivo: "", contrasenaTemporal: "", revocarTokens: true });
-            setResultado({ usuario: nuevo, revocoTokens: datos.revocarTokens });
+            setResultado({ usuario: nuevo, revocoTokens: datos.revocarTokens, revocados: nuevo.tokensRevocados, conservados: nuevo.tokensConservados });
             avisar({
                 titulo: `Verificación en dos pasos de ${nuevo.nombre} reiniciada`,
-                ...(nuevo.tokensConservados > 0 ? { descripcion: AVISO_TOKEN_CONSERVADO } : {}),
+                ...(nuevo.tokensConservados > 0 ? { descripcion: <TokenConservado /> } : {}),
             });
             alReiniciar(nuevo);
         } catch (e) {
@@ -113,7 +114,13 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
                             </p>
                             <ul className="grid list-disc gap-1 pl-4 text-muted-foreground" aria-label="Resultado">
                                 <li>Se cerraron todas sus sesiones abiertas.</li>
-                                <li>{resultado.revocoTokens ? "Se revocaron sus tokens de API." : "Sus tokens de API siguen vigentes."}</li>
+                                <li data-testid="resultado-tokens">
+                                    {resultado.revocoTokens
+                                        ? resultado.conservados > 0
+                                            ? textoTokensRevocados(resultado.revocados, resultado.conservados)
+                                            : "Se revocaron sus tokens de API."
+                                        : "Sus tokens de API siguen vigentes."}
+                                </li>
                                 <li>Al entrar con la contraseña temporal, Iris le pedirá cambiarla y luego configurar de nuevo su verificación.</li>
                             </ul>
                         </div>
@@ -169,7 +176,7 @@ export function DialogoReiniciarMfa({ usuario, alReiniciar, alRecargar, alRecarg
                 </div>
                 <Casilla
                     etiqueta="Revocar también sus tokens de API"
-                    ayuda="Los scripts o integraciones que usen sus tokens dejarán de funcionar."
+                    ayuda="Los scripts o integraciones que usen sus tokens dejarán de funcionar, salvo la integración activa con Argos u Horus."
                     {...formulario.register("revocarTokens")}
                 />
                 <DialogoPie>

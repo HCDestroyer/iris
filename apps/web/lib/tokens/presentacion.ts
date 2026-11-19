@@ -31,8 +31,14 @@ export function accionesToken(estado: EstadoToken, puedeRevocar: boolean, puedeE
     return puedeEliminar ? ["eliminar"] : [];
 }
 
-/** Aviso cuando revocar los tokens de un usuario conservó el de un conector activo. */
-export const AVISO_TOKEN_CONSERVADO = "Se conservó el token de la integración; cámbialo desde Integraciones.";
+/** Aviso cuando revocar los tokens de un usuario conservó el de un conector activo (con enlace: componentes/tokens/token-conservado.tsx). */
+export const AVISO_TOKEN_CONSERVADO = "Se conservó el token de la integración con Argos u Horus. Si está comprometida, desactiva el conector en Integraciones.";
+
+/** Resumen de lo revocado: «Se revocaron 2 tokens; se conservó el de la integración». */
+export function textoTokensRevocados(revocados: number, conservados: number): string {
+    const base = revocados === 1 ? "Se revocó 1 token" : `Se revocaron ${revocados} tokens`;
+    return conservados > 0 ? `${base}; se conservó el de la integración.` : `${base}.`;
+}
 
 /** «1 token», «3 tokens». */
 export function cuantosTokens(n: number): string {

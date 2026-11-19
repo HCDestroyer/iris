@@ -61,6 +61,8 @@ export type ApiCuenta = {
     sacarDelAlcance: (id: number) => void;
     /** Cuerpos recibidos en `POST /usuarios/{id}/reiniciar-mfa`. */
     reinicios: { id: number; cuerpo: Schema<"EntradaReiniciarMFA">; idempotencia: string | undefined }[];
+    /** Lo que el próximo reinicio informa de sus tokens (como la API): revocados y los conservados del conector activo. */
+    tokens: { revocados: number; conservados: number };
 };
 
 export function apiCuenta(todos: () => Usuario[]): ApiCuenta {
@@ -69,6 +71,7 @@ export function apiCuenta(todos: () => Usuario[]): ApiCuenta {
     const secretoPendiente = new Set<number>();
     const fuera = new Set<number>();
     const reinicios: ApiCuenta["reinicios"] = [];
+    const tokens: ApiCuenta["tokens"] = { revocados: 0, conservados: 0 };
 
     const ver = (u: Usuario): Usuario => {
         const c = cambios.get(u.id);
@@ -90,6 +93,7 @@ export function apiCuenta(todos: () => Usuario[]): ApiCuenta {
     return {
         ver,
         reinicios,
+        tokens,
         contrasenaValida: (u, c) => c === contrasena(u),
         fueraDeAlcance: (id) => fuera.has(id),
         cambiarVersion: (id) => {
@@ -206,7 +210,13 @@ export function apiCuenta(todos: () => Usuario[]): ApiCuenta {
                     return true;
                 }
                 contrasenas.set(id, e.contrasenaTemporal);
-                await json(route, cambiar(objetivo, { mfaActivo: false, cambioContrasenaRequerido: true }));
+                const revoca = e.revocarTokens !== false;
+                await json(route, {
+                    ...cambiar(objetivo, { mfaActivo: false, cambioContrasenaRequerido: true }),
+                    sesionesCerradas: 1,
+                    tokensRevocados: revoca ? tokens.revocados : 0,
+                    tokensConservados: revoca ? tokens.conservados : 0,
+                });
                 return true;
             }
             return false;

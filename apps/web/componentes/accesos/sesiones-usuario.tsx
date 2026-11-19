@@ -10,7 +10,7 @@ import { mensajeDeError } from "@/lib/api/errores";
 import { formatearFecha, haceCuanto } from "@/lib/fechas";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
-import { AVISO_TOKEN_CONSERVADO } from "@/lib/tokens/presentacion";
+import { TokenConservado } from "@/componentes/tokens/token-conservado";
 import { Canal } from "./insignias";
 
 type SesionActiva = Schema<"SesionActiva">;
@@ -123,7 +123,7 @@ function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { us
             }
             avisar({
                 titulo: cierre.tipo === "una" ? "Sesión cerrada" : propio ? "Tus demás sesiones se cerraron" : "Sesiones cerradas",
-                ...(conservados > 0 ? { descripcion: AVISO_TOKEN_CONSERVADO } : {}),
+                ...(conservados > 0 ? { descripcion: <TokenConservado /> } : {}),
             });
             alCerrar();
         } catch (e) {
@@ -150,7 +150,7 @@ function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { us
                         puede(["tokens.revocar"]) ? (
                             <Casilla
                                 etiqueta="Revocar también sus tokens de API"
-                                ayuda="Los tokens no son sesiones: si no los revocas, siguen valiendo."
+                                ayuda="Los tokens no son sesiones: si no los revocas, siguen valiendo. El de la integración activa con Argos u Horus se conserva."
                                 checked={revocarTokens}
                                 onChange={(e) => setRevocarTokens(e.target.checked)}
                             />

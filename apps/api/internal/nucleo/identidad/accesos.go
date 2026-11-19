@@ -498,6 +498,9 @@ func nuevoCerrarSesionesUsuario() *auditoria.Caso[EntradaCerrarSesionesUsuario, 
 				if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermTokensRevocar)) {
 					return SesionesCerradas{}, nucleo.Prohibido("Revocar sus tokens exige el permiso tokens.revocar")
 				}
+				if err := q.BloquearTokensDeUsuario(ctx, in.UsuarioID); err != nil {
+					return SesionesCerradas{}, err
+				}
 				revocados, err := q.RevocarTokensDeUsuario(ctx, in.UsuarioID)
 				if err != nil {
 					return SesionesCerradas{}, err

@@ -210,6 +210,21 @@ func (q *Queries) BloquearLogin(ctx context.Context, arg BloquearLoginParams) er
 	return err
 }
 
+const bloquearTokensDeUsuario = `-- name: BloquearTokensDeUsuario :exec
+SELECT id FROM nucleo.tokens_api
+WHERE usuario_id = $1 AND revocado_en IS NULL AND eliminado_en IS NULL
+ORDER BY id
+FOR UPDATE
+`
+
+// Antes de RevocarTokensDeUsuario: bloquea los tokens vivos del usuario. Activar un conector
+// confirma su iris_pat_ (UPDATE de esa fila), así que espera; y si la activación ganó, el UPDATE
+// siguiente (con una instantánea nueva) ya ve el conector activo y conserva su token.
+func (q *Queries) BloquearTokensDeUsuario(ctx context.Context, usuarioID int64) error {
+	_, err := q.db.Exec(ctx, bloquearTokensDeUsuario, usuarioID)
+	return err
+}
+
 const bloqueoLogin = `-- name: BloqueoLogin :one
 
 SELECT bloqueado_hasta::timestamptz FROM nucleo.intentos_login
@@ -2348,7 +2363,7 @@ func (q *Queries) RevocarToken(ctx context.Context, id int64) (NucleoTokensApi, 
 
 const revocarTokensDeUsuario = `-- name: RevocarTokensDeUsuario :many
 UPDATE nucleo.tokens_api t SET revocado_en = now(), updated_at = now()
-WHERE t.usuario_id = $1 AND t.revocado_en IS NULL
+WHERE t.usuario_id = $1 AND t.revocado_en IS NULL AND t.eliminado_en IS NULL
   AND NOT EXISTS (SELECT 1 FROM integracion.conectores c
                   WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id))
 RETURNING t.id

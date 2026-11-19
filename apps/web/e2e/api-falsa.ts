@@ -392,7 +392,7 @@ export type ApiFalsa = {
     /** Prospectos, cotizaciones y contratos del escenario comercial. */
     comercial: Pick<ApiComercial, "escenario" | "cambiarVersion">;
     /** Cuenta y reinicio de MFA: subir la versión de un usuario, sacarlo del alcance, cuerpos recibidos. */
-    cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios">;
+    cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios" | "tokens">;
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
     /** Pedido B3: boletas, decisiones recibidas y enlaces a Argos pedidos. */
@@ -1207,7 +1207,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         flujoAbierto: conversaciones.flujoAbierto,
         pagos,
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
-        cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
+        cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios, tokens: cuenta.tokens },
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);
             if (o) o.version++;

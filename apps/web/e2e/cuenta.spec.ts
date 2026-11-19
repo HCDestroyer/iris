@@ -162,6 +162,23 @@ test.describe("cambiar contraseña desde el menú del usuario", () => {
 });
 
 test.describe("reiniciar MFA desde Usuarios", () => {
+    test("reiniciar el MFA de la integración: conserva el token del conector activo y lo dice", async ({ page, context, baseURL }) => {
+        const api = await simularApi(page);
+        api.cuenta.tokens.revocados = 2;
+        api.cuenta.tokens.conservados = 1;
+        await conSesion(context, baseURL ?? "", ADMIN.correo);
+        await page.goto("/usuarios");
+        await page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` }).click();
+        const dialogo = page.getByRole("dialog", { name: `Reiniciar MFA de ${CON_MFA.nombre}` });
+        await expect(dialogo.getByText("dejarán de funcionar, salvo la integración activa con Argos u Horus.")).toBeVisible();
+        await dialogo.getByLabel("Motivo").fill("Rotación");
+        await dialogo.getByLabel("Contraseña temporal").fill("temporal-de-prueba-1");
+        await dialogo.getByRole("button", { name: "Reiniciar MFA" }).click();
+        const resultado = page.getByRole("dialog", { name: "MFA reiniciado" });
+        await expect(resultado.getByTestId("resultado-tokens")).toHaveText("Se revocaron 2 tokens; se conservó el de la integración.");
+        await expect(page.getByText("Se conservó el token de la integración con Argos u Horus. Si está comprometida, desactiva el conector en")).toBeVisible();
+    });
+
     test("genera y copia la temporal, revoca tokens por omisión, manda versión e Idempotency-Key y muestra el resultado", async ({ page, context, baseURL, browserName }) => {
         const api = await simularApi(page);
         if (browserName === "chromium") {

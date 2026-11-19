@@ -24,6 +24,18 @@ func TestRevocarTokensDeIntegracionConservaElDelConector(t *testing.T) {
 		t.Fatalf("otro token: %d %s", otro.status, otro.crudo)
 	}
 	otroID := int64(otro.cuerpo["token"].(map[string]any)["id"].(float64))
+	// Uno vencido y eliminado (sin revocar): revocar los del usuario no lo toca.
+	viejo := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "viejo", "usuarioId": integ})
+	if viejo.status != 201 {
+		t.Fatalf("token viejo: %d %s", viejo.status, viejo.crudo)
+	}
+	viejoID := int64(viejo.cuerpo["token"].(map[string]any)["id"].(float64))
+	if _, err := e.pool.Exec(t.Context(), `UPDATE nucleo.tokens_api SET expira_en = now() - interval '1 minute' WHERE id = $1`, viejoID); err != nil {
+		t.Fatal(err)
+	}
+	if r := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/tokens/%d/eliminar", viejoID), map[string]any{}); r.status != 200 {
+		t.Fatalf("eliminar el viejo: %d %s", r.status, r.crudo)
+	}
 
 	r := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/cerrar-sesiones", integ), map[string]any{"revocarTokens": true})
 	if r.status != 200 || r.cuerpo["tokensRevocados"] != float64(1) || r.cuerpo["tokensConservados"] != float64(1) {
@@ -35,6 +47,9 @@ func TestRevocarTokensDeIntegracionConservaElDelConector(t *testing.T) {
 	if e.contar(`SELECT count(*) FROM nucleo.tokens_api WHERE id = $1 AND revocado_en IS NOT NULL`, otroID) != 1 ||
 		e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'token.revocado' AND (payload->>'token_id')::bigint = $1`, tokenConector) != 0 {
 		t.Fatal("se revoca el otro token y no el del conector")
+	}
+	if e.contar(`SELECT count(*) FROM nucleo.tokens_api WHERE id = $1 AND revocado_en IS NULL AND eliminado_en IS NOT NULL`, viejoID) != 1 {
+		t.Fatal("un token eliminado no se revoca")
 	}
 
 	// Reiniciar el MFA (con revocarTokens por omisión): igual, el del conector se conserva.
@@ -53,5 +68,9 @@ func TestRevocarTokensDeIntegracionConservaElDelConector(t *testing.T) {
 	}
 	if r := e.leerConPat(pat); r.status != 200 {
 		t.Fatalf("tras reiniciar el MFA el iris_pat_ del conector sigue valiendo: %d", r.status)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'usuario.mfa_reiniciado' AND (payload->>'usuario_id')::bigint = $1
+		AND (payload->>'tokens_conservados')::int = 1 AND (payload->>'tokens_revocados')::int = 0`, integ); n != 1 {
+		t.Fatalf("usuario.mfa_reiniciado con tokens_conservados: %d", n)
 	}
 }

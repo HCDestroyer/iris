@@ -81,6 +81,9 @@ func nuevoReiniciarMFA() *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado] {
 			revocados := []int64{}
 			var conservados int32
 			if in.RevocarTokens == nil || *in.RevocarTokens {
+				if err := q.BloquearTokensDeUsuario(ctx, in.ID); err != nil {
+					return MFAReiniciado{}, err
+				}
 				if revocados, err = q.RevocarTokensDeUsuario(ctx, in.ID); err != nil {
 					return MFAReiniciado{}, err
 				}
@@ -100,7 +103,7 @@ func nuevoReiniciarMFA() *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado] {
 			t.RegistrarCambios("usuario", in.ID, auditable(antes, roles[in.ID]), auditable(despues, roles[in.ID]))
 			t.Anotar(map[string]any{"mfa_activo_antes": antes.TotpActivo, "sesiones_cerradas": cerradas, "tokens_revocados": revocados, "tokens_conservados": conservados})
 			if err := t.Emitir("usuario.mfa_reiniciado", map[string]any{
-				"usuario_id": in.ID, "motivo": in.Motivo, "sesiones_cerradas": cerradas, "tokens_revocados": len(revocados),
+				"usuario_id": in.ID, "motivo": in.Motivo, "sesiones_cerradas": cerradas, "tokens_revocados": len(revocados), "tokens_conservados": conservados,
 			}); err != nil {
 				return MFAReiniciado{}, err
 			}
