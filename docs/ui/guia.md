@@ -922,6 +922,32 @@ la marca «En pruebas». El proveedor se monta también para quien solo llama (`
   contestar · escríbele» (esto último solo mientras se sabe por el flujo en vivo).
 - **Pruebas:** `lib/voz/saliente.test.ts` y `e2e/voz-salientes.spec.ts` (mismos dobles y reloj).
 
+## Centralita Issabel (voz E4a, nov. 2026)
+
+Contrato: `voz.md` §3.12 («E4a hecha»). Código: `lib/centralita`, `componentes/voz/centralita.tsx`,
+`componentes/clientes/llamadas-centralita.tsx` y `app/(panel)/administracion/integraciones/centralita`.
+
+- **Administración › Integraciones › Centralita:** sin centralita, «Conecta tu Issabel». Con ella: el
+  estado (un punto verde si está conectada; crece en ámbar o rojo con lo que hay que hacer: sin
+  conexión desde…, certificado cambiado con «Comparar y confirmar», permisos de más), dirección,
+  usuario, contraseña guardada (nunca se muestra), «Probar conexión», encender o apagar (con
+  confirmación) y las extensiones (asignar en un diálogo de 2 campos; quitar con confirmación).
+- **Conexión con Issabel** (pantalla propia): nombre, dirección, usuario y contraseña; el puerto 5039
+  en «Avanzado». **Probar antes de guardar:** «Guardar» queda deshabilitado hasta que la prueba pasa
+  con los datos actuales y se marca «Es la misma que muestra mi Issabel» junto a la huella. Al guardar
+  se prueba otra vez y se enciende. Cambiar dirección o usuario pide la contraseña de nuevo.
+- **Aviso cuando suena tu extensión:** el mismo aviso de llamada de WhatsApp (`CabeceraLlamada`,
+  `Senales`, `MARCO_AVISO`) con «Suena tu extensión 204 · número», **sin «Contestar»** (se contesta en el
+  teléfono; E4c lo sumará). Reconocido: línea de servicio y ticket abierto con «Agregar a #…» y «Crear
+  ticket». Varios posibles: «¿Quién llama?» y «Es este». Desconocido u oculto: «Buscar cliente» y
+  «Crear ticket» (abre «Nuevo ticket» y, al crear, agrega la llamada). Contestó otra persona: «Contestó
+  Luis (ext. 205)» y se cierra sola. Al colgar (si la contestaste tú): «¿Cómo quedó?» y una nota
+  opcional. Nunca un nombre inventado: el CallerIDName no se usa.
+- **Ficha y ticket:** «Llamadas de la centralita» bajo los datos del cliente y «Llamadas de este
+  ticket» en la pestaña «Historial» (quién contestó, duración, extensión, ticket, resultado y nota).
+- **Pruebas:** `lib/centralita/presentacion.test.ts` y `e2e/centralita.spec.ts` (con
+  `e2e/api-centralita.ts`), en los 4 proyectos.
+
 ## Servidor de IA (nov. 2026)
 
 `/administracion/servidor-ia` (contratos/voz.md §4.8, §4.11 y §4.12). Entrada en Administración y

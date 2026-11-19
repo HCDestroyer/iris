@@ -449,6 +449,14 @@ claves ni el número del cliente. Todos llevan `empresa_id`, salvo los del servi
 | `centralita.creada` / `centralita.actualizada` | `centralita_id`, `empresa_id`; `tipo`, `modo` (creada); `campos[]`, `activa` (actualizada; el secreto como `secreto_guardado`) | E4: `centralita.configurar`. |
 | `centralita.estado_cambiado` | `centralita_id`, `empresa_id`, `de`, `a` (`conectada`, `desconectada`, `error`, `desactivada`) | E4: la conexión AMI cambió. |
 | `extension.asignada` / `extension.quitada` | `centralita_id`, `extension_id`, `empresa_id`, `usuario_id` | E4: `centralita.asignar_extension`. |
+| `llamada.vinculada` | `llamada_id`, `empresa_id`, `ticket_id`, `cliente_id` (o null), `usuario_id`, `origen` (`centralita`) | E4a: la persona agregó la llamada de la centralita a un ticket (a elección; nunca automático). |
+| `llamada.cliente_asociado` | `llamada_id`, `empresa_id`, `cliente_id`, `servicio_id` (o null), `usuario_id`, `origen` (`centralita`) | E4a: la persona eligió el cliente de la llamada (varios posibles o número desconocido). |
+
+En la centralita (E4a) los `llamada.*` de siempre salen con `origen: centralita`, `centralita_id` y
+`conversacion_id: null` (`llamada.entrante`, `llamada.contestada`, `llamada.terminada`, `llamada.perdida`
+sin `usuarios`, `llamada.saliente_iniciada` desde el teléfono de escritorio a un cliente y
+`llamada.anotada`). `centralita.estado_cambiado` sale solo en cambios reales (una caída de menos de 60 s
+no cuenta).
 
 Cambian eventos existentes: `asistente.accion_ejecutada`, `asistente.paso_a_persona` y
 `conversacion.identidad_verificada` suman `canal` (`whatsapp` \| `voz`; ausente = `whatsapp`) y

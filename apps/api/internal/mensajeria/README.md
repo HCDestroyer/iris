@@ -692,3 +692,22 @@ Eventos (todos con `empresa_id: null`): `voz.motor_enlazado`, `voz.motor_activad
 No consume eventos. Secretos cifrados con `IRIS_CLAVE_CIFRADO` (los rota `iris clave rotar`): el
 token y el token siguiente, la clave del certificado de cliente (la vigente y la siguiente) y el
 código de enlace pendiente.
+
+## Centralita Issabel (voz E4a)
+
+Contrato: `.claude/integration/contratos/voz.md` §2.10 y §3.12 («E4a hecha»). Iris escucha el AMI de
+una Issabel 5 (Asterisk 18) **solo para leer**: cliente propio en `ami/` (TLS con huella fijada, sin
+acciones de escritura), motor por centralita activa en `centralita_motor.go` (arriendo en la fila,
+reconexión, latido, topes), traducción de eventos en `centralita_ami.go` (PJSIP/SIP, colas con
+`Local/…`, internas, salientes a clientes, CDR) y casos de uso en `centralita*.go`. Las llamadas van en
+`mensajeria.llamadas` con `origen = centralita` (todo lo de WhatsApp filtra `origen = 'whatsapp'`) y la
+ventana llega por el feed de la bandeja como evento dirigido a quien le sonó.
+
+- **Emite:** `centralita.creada`, `centralita.actualizada`, `centralita.estado_cambiado`,
+  `extension.asignada`, `extension.quitada`, `llamada.entrante`, `llamada.contestada`,
+  `llamada.terminada`, `llamada.perdida`, `llamada.saliente_iniciada`, `llamada.anotada`,
+  `llamada.vinculada`, `llamada.cliente_asociado` (todos los `llamada.*` con `origen: centralita`).
+- **Consume:** nada (el AMI no es un evento del outbox).
+- **Pruebas:** `ami/ami_test.go`, `centralita_ami_interno_test.go` y `centralita_test.go`, contra el AMI
+  falso de `ami/amifalso` (TLS, Login, Ping, ListCommands, eventos, corte, cambio de certificado).
+- Guía para preparar Issabel: `docs/runbooks/centralita-issabel.md`.
