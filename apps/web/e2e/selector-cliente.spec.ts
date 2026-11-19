@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
+import { ADMIN, DESPACHO, EMPRESAS, conSesion, simularApi } from "./api-falsa";
 import { abrirSugerencias, buscarSugerencias, elegirConEnter, elegirSugerencia } from "./controles";
 import { abrirCuenta } from "./ayudas";
 
@@ -38,8 +38,15 @@ test("buscar, ver servicios y empresa, elegir el servicio con el teclado y crear
     await expect(opcion).toContainText("6a avenida 12-40, zona 10");
     await expect(opcion).toContainText("5555 0303");
     await expect(opcion).toContainText("Cable Norte");
-    await expect(opcion).toContainText("Fibra 100 Mb/s · Activo");
-    await expect(opcion).toContainText("Radio 10 Mb/s · Suspendido");
+    // Cada servicio con su línea compacta: número, plan, estado, precio, zona e IP.
+    const lineas = opcion.getByTestId("linea-servicio");
+    await expect(lineas).toHaveCount(2);
+    await expect(lineas.first()).toContainText("Fibra 100 Mb/s");
+    await expect(lineas.first()).toContainText("Activo");
+    await expect(lineas.first()).toContainText("Q250.00 al mes");
+    await expect(lineas.nth(1)).toContainText("Radio 10 Mb/s");
+    await expect(lineas.nth(1)).toContainText("Suspendido");
+    await expect(lineas.nth(1)).toContainText("10.20.31.9");
     // La lista cabe en la pantalla (390 px en el teléfono).
     const caja = await page.getByRole("listbox", { name: "Clientes encontrados" }).boundingBox();
     const vista = page.viewportSize();
@@ -145,6 +152,20 @@ test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", as
     await buscarSugerencias(buscar, "10.20.31.9");
     await elegirConEnter(buscar, /Ana Morales/);
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-503-B");
+});
+
+test("sin servicios.ver_red no se busca por IP: lo dice y no pregunta al servidor", async ({ page, context, baseURL }) => {
+    const api = await simularApi(page, { empresas: EMPRESAS });
+    await conSesion(context, baseURL ?? "", DESPACHO.correo);
+    // Despacho crea órdenes y no tiene servicios.ver_red.
+    await page.goto("/ordenes/nueva");
+    const empresas = page.getByRole("list", { name: "Empresas" });
+    const buscar = page.getByRole("combobox", { name: "Cliente en Argos" });
+    await expect(buscar.or(empresas)).toBeVisible();
+    if (await empresas.isVisible()) await empresas.getByRole("button", { name: "Cable Norte" }).click();
+    await buscarSugerencias(buscar, "10.20.31.9");
+    await expect(page.getByTestId("sin-permiso-ip")).toHaveText("Tu rol no busca por IP.");
+    expect(api.peticiones.some((p) => p.ruta.startsWith("/api/v1/clientes"))).toBe(false);
 });
 
 test("Enter con lo escrito sin elegir no envía el formulario; «Crear» espera a elegir o borrar", async ({ page, context, baseURL }) => {

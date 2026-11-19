@@ -807,29 +807,34 @@ type IntegracionArgosRouter struct {
 }
 
 type IntegracionArgosServicio struct {
-	ID               int64
-	EmpresaID        int64
-	ClienteID        int64
-	Codigo           string
-	PlanID           *int64
-	PlanNombre       string
-	RouterID         *int64
-	RouterNombre     string
-	ZonaID           *int64
-	ZonaNombre       string
-	Ip               string
-	Direccion        string
-	Lat              *float64
-	Lon              *float64
-	Estado           string
-	SincronizadoEn   time.Time
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	UserPpp          string
-	TipoConexion     string
-	Referencia       string
-	ContactoNombre   string
-	ContactoTelefono string
+	ID                int64
+	EmpresaID         int64
+	ClienteID         int64
+	Codigo            string
+	PlanID            *int64
+	PlanNombre        string
+	RouterID          *int64
+	RouterNombre      string
+	ZonaID            *int64
+	ZonaNombre        string
+	Ip                string
+	Direccion         string
+	Lat               *float64
+	Lon               *float64
+	Estado            string
+	SincronizadoEn    time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	UserPpp           string
+	TipoConexion      string
+	Referencia        string
+	ContactoNombre    string
+	ContactoTelefono  string
+	PrecioMensual     pgtype.Numeric
+	Moneda            *string
+	PrefijoEnlaceV6   string
+	PrefijoDelegadoV6 string
+	Planta            []byte
 }
 
 type IntegracionArgosTraslado struct {
@@ -1707,6 +1712,10 @@ type MensajeriaLlamada struct {
 	PestanaVistaEn     *time.Time
 	ExternoWebhook     *string
 	AccionMetaNoExiste bool
+	RafagaHasta        *time.Time
+	RafagaIntentos     int32
+	RafagaUltimoCallID *string
+	RafagaAvisadaEn    *time.Time
 }
 
 type MensajeriaLlamadaCandidato struct {
@@ -2080,6 +2089,15 @@ type MensajeriaVozMotore struct {
 	RotacionDesde             *time.Time
 	SiguienteRechazos         int32
 	RotacionFallidaEn         *time.Time
+}
+
+type MensajeriaVozRafagasLevantada struct {
+	CanalID      int64
+	Numero       string
+	EmpresaID    *int64
+	LevantadaEn  time.Time
+	LevantadaPor *int64
+	Origen       string
 }
 
 type MensajeriaWebhooksSalida struct {

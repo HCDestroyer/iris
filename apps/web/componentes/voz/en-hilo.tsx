@@ -1,18 +1,22 @@
 "use client";
 
 import { avisar, Boton, cn, DialogoConfirmar } from "@iris/ui";
-import { Clock, MessageSquare, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, StickyNote, TriangleAlert, type LucideIcon } from "lucide-react";
-import { useState } from "react";
+import { Clock, MessageSquare, Phone, PhoneCall, PhoneIncoming, PhoneMissed, PhoneOff, PhoneOutgoing, StickyNote, TriangleAlert, type LucideIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { hora } from "@/lib/conversaciones/presentacion";
 import { useSesion } from "@/lib/sesion";
-import { colgarLlamada } from "@/lib/voz/api";
+import { colgarLlamada, desbloquearNumero } from "@/lib/voz/api";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
-import { llamadaEnHilo, type IconoLlamada, type TonoLlamada } from "@/lib/voz/presentacion";
-import { PERMISO_LLAMAR } from "@/lib/voz/tipos";
+import { llamadaEnHilo, textoRafaga, type IconoLlamada, type TonoLlamada } from "@/lib/voz/presentacion";
+import { PERMISO_CONFIGURAR_LLAMADAS, PERMISO_DESBLOQUEAR_NUMERO, PERMISO_LLAMAR } from "@/lib/voz/tipos";
+import { PasoQueFaltaLlamadas, usePasoQueFalta } from "./paso-que-falta";
 import { useDevoluciones } from "./devoluciones";
 import { useVoz } from "./proveedor";
+
+/** Hasta cuándo una perdida es «reciente»: se puede decir «No te sonó porque…» con el estado de ahora. */
+const PERDIDA_RECIENTE_MS = 2 * 60_000;
 
 const ICONO: Record<IconoLlamada, LucideIcon> = {
     contestada: PhoneIncoming,
@@ -53,9 +57,34 @@ export function LlamadaEnHilo({ m }: { m: Mensaje }) {
     const voz = useVoz();
     const { yo, puede } = useSesion();
     const [colgando, setColgando] = useState(false);
+    const [desbloqueando, setDesbloqueando] = useState(false);
+    const paso = usePasoQueFalta();
+    // La hora: la de «vuelve a sonar» (el botón se va solo al pasar) y la de una perdida reciente (pasado
+    // el rato, ya no se afirma por qué no sonó). Se relee cada 30 s mientras haga falta.
+    const [ahora, setAhora] = useState(() => Date.now());
+    const conReloj = (m.llamada?.rafaga !== undefined && !m.llamada.rafaga.levantada) || m.llamada?.estado === "perdida";
+    useEffect(() => {
+        if (!conReloj) return;
+        const id = window.setInterval(() => setAhora(Date.now()), 30_000);
+        return () => window.clearInterval(id);
+    }, [conReloj]);
     if (!m.llamada) return null;
     const l = m.llamada;
-    const v = llamadaEnHilo(l);
+    const base = llamadaEnHilo(l);
+    // Rechazada sola por la ráfaga: el motivo (con la hora, a quien configura llamadas) y no «La rechazó…».
+    const rafaga = l.direccion === "entrante" && l.estado === "rechazada" && l.motivoFin === "limite" ? textoRafaga(l.rafaga, ahora, puede([PERMISO_CONFIGURAR_LLAMADAS])) : null;
+    const v = rafaga ? { ...base, detalle: rafaga.detalle } : base;
+    // El servidor dice si esta empresa puede (en un número prestado, la prestataria no).
+    const puedeDesbloquear = rafaga?.vigente === true && l.rafaga?.puedeLevantar === true && puede([PERMISO_DESBLOQUEAR_NUMERO]);
+    // Una entrante que me está sonando: «Contestar» también aquí. Si no me suena (o no me sonó) por un
+    // paso que me falta, se dice cuál y se ofrece en un toque.
+    const entrante = l.direccion === "entrante";
+    const meSuena = entrante && l.estado === "sonando" && voz?.estado.fase === "sonando" && voz.estado.llamada.id === l.id;
+    const faltaPaso = entrante && !meSuena && paso !== null && (l.estado === "sonando" || (l.estado === "perdida" && l.motivoFin !== "agente_salio")) ? paso : null;
+    // Lo que falta se ve con el estado de AHORA: solo se afirma la causa mientras suena o en una perdida
+    // reciente; en una vieja se dice lo de ahora («Ahora no te sonaría…»), sin inventar el pasado.
+    const perdidaReciente = l.estado === "perdida" && ahora - Date.parse(m.creadoEn) < PERDIDA_RECIENTE_MS;
+    const cuando = l.estado === "sonando" ? "No te está sonando" : perdidaReciente ? "No te sonó" : "Ahora no te sonaría";
     const Icono = ICONO[v.icono];
     const clase = CLASE[v.tono];
     const pendiente = l.estado === "perdida" ? dev?.deLlamada(l.id) : undefined;
@@ -89,6 +118,40 @@ export function LlamadaEnHilo({ m }: { m: Mensaje }) {
                     </span>
                 ) : null}
             </div>
+            {meSuena && voz ? (
+                <div className="flex flex-wrap gap-1.5">
+                    <Boton tamano="sm" onClick={voz.contestar}>
+                        <Phone />
+                        Contestar
+                    </Boton>
+                </div>
+            ) : null}
+            {faltaPaso ? <PasoQueFaltaLlamadas paso={faltaPaso} cuando={cuando} /> : null}
+            {puedeDesbloquear ? (
+                <div className="flex flex-wrap gap-1.5">
+                    <Boton variante="secundario" tamano="sm" onClick={() => setDesbloqueando(true)}>
+                        <PhoneIncoming />
+                        Dejar que vuelva a llamar
+                    </Boton>
+                    <DialogoConfirmar
+                        open={desbloqueando}
+                        onOpenChange={setDesbloqueando}
+                        titulo="¿Dejar que este número vuelva a llamar?"
+                        descripcion="Su próxima llamada vuelve a sonar ya, sin esperar los 10 minutos. Queda registrado que lo hiciste tú."
+                        textoConfirmar="Dejar que vuelva a llamar"
+                        textoCancelar="No por ahora"
+                        alConfirmar={async () => {
+                            try {
+                                await desbloquearNumero(m.conversacionId, nuevaClaveIdempotencia());
+                                avisar({ titulo: "Listo: su próxima llamada vuelve a sonar" });
+                            } catch (e) {
+                                avisar({ tono: "error", titulo: "No se pudo", descripcion: mensajeDeError(e).titulo });
+                            }
+                            setDesbloqueando(false);
+                        }}
+                    />
+                </div>
+            ) : null}
             {puedeColgar ? (
                 <div className="flex flex-wrap gap-1.5">
                     <Boton variante="peligro" tamano="sm" onClick={() => setColgando(true)}>

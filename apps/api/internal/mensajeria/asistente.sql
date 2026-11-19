@@ -127,11 +127,19 @@ ORDER BY seq DESC LIMIT @limite;
 
 -- name: ServiciosClienteAsistente :many
 -- La instantánea de Argos del cliente asociado, solo los servicios de la empresa de la conversación.
-SELECT c.nombre AS cliente_nombre, s.id, s.codigo, s.plan_nombre, s.estado, s.zona_nombre, s.router_id
-FROM integracion.argos_clientes c
-JOIN integracion.argos_servicios s ON s.cliente_id = c.id
-WHERE c.id = @cliente_id AND s.empresa_id = @empresa::bigint
-ORDER BY (s.id = sqlc.narg('servicio_id')::bigint) DESC NULLS LAST, s.id
+-- numero: el orden del servicio dentro del cliente (1, 2, 3…, por id) para la etiqueta corta
+-- «Servicio n · plan · zona» (contrato argosisp.md 0.8.0 §2.4). Nunca dirección, IP, user_ppp,
+-- coordenadas ni router: no se leen aquí.
+SELECT x.cliente_nombre, x.id, x.codigo, x.plan_nombre, x.estado, x.zona_nombre, x.router_id,
+    x.precio_mensual::text AS precio_mensual, x.moneda::text AS moneda, x.numero::int AS numero
+FROM (
+    SELECT c.nombre AS cliente_nombre, s.id, s.codigo, s.plan_nombre, s.estado, s.zona_nombre, s.router_id,
+        COALESCE(s.precio_mensual::text, '') AS precio_mensual, COALESCE(s.moneda, '') AS moneda, row_number() OVER (ORDER BY s.id) AS numero
+    FROM integracion.argos_clientes c
+    JOIN integracion.argos_servicios s ON s.cliente_id = c.id
+    WHERE c.id = @cliente_id AND s.empresa_id = @empresa::bigint
+) x
+ORDER BY (x.id = sqlc.narg('servicio_id')::bigint) DESC NULLS LAST, x.id
 LIMIT 5;
 
 -- name: FallasHorusCliente :many

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -53,8 +54,13 @@ func empresaDeLectura(ctx context.Context) (int64, error) {
 
 // nuevoPrevio arma la fase 1 genérica: permiso + conector activo. No deja fila al terminar bien.
 func nuevoPrevio[In any](m *Modulo, accion string) *auditoria.Caso[In, conector.Leido] {
+	return nuevoPrevioCon[In](m, accion, nucleo.PermClientesVer)
+}
+
+// nuevoPrevioCon es nuevoPrevio con otro permiso.
+func nuevoPrevioCon[In any](m *Modulo, accion string, permiso nucleo.Permiso) *auditoria.Caso[In, conector.Leido] {
 	return auditoria.Nuevo(auditoria.Caso[In, conector.Leido]{
-		Accion: accion, Permiso: nucleo.PermClientesVer, AuditarExito: soloLecturas[conector.Leido],
+		Accion: accion, Permiso: permiso, AuditarExito: soloLecturas[conector.Leido],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ In) (conector.Leido, error) {
 			c, err := m.conectorActivo(ctx, t)
 			if err != nil {
@@ -122,6 +128,9 @@ type entradaBusquedaFinal struct {
 	// pudo leer y queda con servicios null.
 	servicios  map[int64]leidoEnArgos
 	conectorID int64
+	// sinRed: se mandó buscar_red=false a Argos (contrato 0.8.1 §2.1). efectivo: Argos informó
+	// version_argos ≥ 1.21.0 (lo aplica); si no, lo ignora. Solo para la auditoría.
+	sinRed, efectivo bool
 }
 
 // MinimoBusquedaConServicios: caracteres mínimos de q con ?servicios=true.
@@ -194,14 +203,40 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 				return r, Problema(in.errArgos)
 			}
 			ids := make([]int64, 0, len(r.Data))
+			var todos []Servicio
+			if in.Servicios {
+				vis, err := LeerVisibilidad(ctx, t)
+				if err != nil {
+					return r, err
+				}
+				for i := range r.Data {
+					vis.RecortarTodos(r.Data[i].Servicios)
+					todos = append(todos, r.Data[i].Servicios...)
+				}
+				t.Anotar(vis.Anotacion(todos))
+			}
 			for _, c := range r.Data {
 				ids = append(ids, c.ID)
 			}
-			t.Anotar(map[string]any{"clientes": ids, "stale": r.Stale, "servicios": in.Servicios})
+			t.Anotar(map[string]any{"clientes": ids, "stale": r.Stale, "servicios": in.Servicios, "buscar_red": in.anotacionBuscarRed()})
 			return r, nil
 		},
 	})
 	return b
+}
+
+// anotacionBuscarRed: lo que anota la auditoría de buscar_red (contrato 0.8.1 §2.1): no_enviado (el
+// actor tiene servicios.ver_red global), efectivo (se mandó a un Argos ≥ 1.21.0) o ignorado (se
+// mandó a un Argos anterior o que no informó versión, que lo ignora).
+func (e entradaBusquedaFinal) anotacionBuscarRed() string {
+	switch {
+	case !e.sinRed:
+		return "no_enviado"
+	case e.efectivo:
+		return "efectivo"
+	default:
+		return "ignorado"
+	}
 }
 
 func (e EntradaBuscarClientes) limite() int {
@@ -222,11 +257,23 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 	if err != nil {
 		return ResultadoBusqueda{}, err
 	}
-	f := entradaBusquedaFinal{EntradaBuscarClientes: in}
+	// Buscar por IP (o un trozo de IP) sería un oráculo de la red: Argos busca también en la IP. Sin
+	// servicios.ver_red global, lista vacía sin llamar a Argos (contrato 0.8.0 §2.4).
+	redGlobal := contexto.PermisosDe(ctx).TieneGlobal(string(nucleo.PermServiciosVerRed))
+	if pareceIP(in.Q) && !redGlobal {
+		return ResultadoBusqueda{Data: []ClienteResumen{}}, nil
+	}
+	// Tampoco por user_ppp (texto libre que no parece una IP) ni prefijos: buscar_red=false
+	// (contrato 0.8.1 §2.1) siempre que el actor no tenga servicios.ver_red global, sin depender de
+	// la versión que informó Argos (falla cerrado: una version_argos vieja o mal informada no lo
+	// apaga). Un Argos anterior a 1.21.0 lo ignora y queda el límite conocido de 0.8.0 (un q con el
+	// user_ppp todavía encuentra al cliente); la versión solo decide lo que anota la auditoría.
+	sinRed := !redGlobal
+	f := entradaBusquedaFinal{EntradaBuscarClientes: in, efectivo: SoportaBuscarSinRed(c.VersionRemota)}
 	cli := b.m.clienteDe(c)
 	empresa := contexto.EmpresaDe(ctx)
-	f.pagina, f.errArgos = cli.BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, empresa)
-	f.conectorID = c.ID
+	f.pagina, f.errArgos = cli.BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, empresa, sinRed)
+	f.conectorID, f.sinRed = c.ID, sinRed
 	if f.errArgos == nil {
 		f.verificados = map[int64]infoEmpresas{}
 		resto := f.pagina.Data
@@ -273,6 +320,7 @@ func serviciosDeEmpresa(c ClienteArgos, leidos []ServicioArgos, leidoEn time.Tim
 		srv.SincronizadoEn = leidoEn
 		salida = append(salida, srv)
 	}
+	Numerar(salida)
 	return salida
 }
 
@@ -485,8 +533,15 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 				}
 				resumen.Estado = ResumenEstado(estados)
 			}
+			vistos := aServicios(servicios)
+			vis, err := LeerVisibilidad(ctx, t)
+			if err != nil {
+				return Ficha{}, err
+			}
+			vis.RecortarTodos(vistos)
+			t.Anotar(vis.Anotacion(vistos))
 			return Ficha{
-				Cliente: resumen, Servicios: aServicios(servicios), ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
+				Cliente: resumen, Servicios: vistos, ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
 				EstadoCuentaError: in.errEstado, Stale: stale, SincronizadoEn: cliente.SincronizadoEn, RefrescoOmitido: in.omitido,
 			}, nil
 		},
@@ -678,9 +733,11 @@ type ResolverIP struct {
 }
 
 func nuevoResolverIP(m *Modulo) *ResolverIP {
-	r := &ResolverIP{m: m, previo: nuevoPrevio[EntradaResolverIP](m, "clientes.resolver_ip")}
+	// La IP es un dato de red (contrato 0.8.0 §2.4): exige servicios.ver_red, además de clientes.ver,
+	// con el mismo alcance que la ficha (zona del servicio, órdenes del técnico).
+	r := &ResolverIP{m: m, previo: nuevoPrevioCon[EntradaResolverIP](m, "clientes.resolver_ip", nucleo.PermServiciosVerRed)}
 	r.final = auditoria.Nuevo(auditoria.Caso[entradaIPFinal, IPResuelta]{
-		Accion: "clientes.resolver_ip", Permiso: nucleo.PermClientesVer,
+		Accion: "clientes.resolver_ip", Permiso: nucleo.PermServiciosVerRed,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaIPFinal) (IPResuelta, error) {
 			salida := IPResuelta{IP: in.IP, Fuente: "argos"}
 			switch {
@@ -707,6 +764,24 @@ func nuevoResolverIP(m *Modulo) *ResolverIP {
 			if e := contexto.EmpresaDe(ctx); e != 0 && (salida.EmpresaID == nil || *salida.EmpresaID != e) {
 				// De otra empresa o sin empresa: igual que una IP sin cliente.
 				t.Anotar(map[string]any{"descartado": "otra_empresa"})
+				return IPResuelta{IP: in.IP}, nucleo.NoEncontrado("Argos no tiene un servicio con esa IP")
+			}
+			// Fuera del alcance de servicios.ver_red (zona del servicio, órdenes del técnico): igual que una
+			// IP sin cliente, sin revelar de quién es.
+			vis, err := LeerVisibilidad(ctx, t)
+			if err != nil {
+				return salida, err
+			}
+			var zona *int64
+			if salida.ServicioID != nil {
+				if f, err := argosbd.New(t).ServicioPorID(ctx, *salida.ServicioID); err == nil {
+					zona = f.ZonaID
+				} else if !errors.Is(err, pgx.ErrNoRows) {
+					return salida, err
+				}
+			}
+			if !vis.PuedeRed() || (salida.ServicioID == nil && (!vis.red.global || vis.acotado)) || (salida.ServicioID != nil && !vis.Red(*salida.ServicioID, zona)) {
+				t.Anotar(map[string]any{"descartado": "fuera_de_alcance"})
 				return IPResuelta{IP: in.IP}, nucleo.NoEncontrado("Argos no tiene un servicio con esa IP")
 			}
 			if salida.EmpresaID != nil {
@@ -843,4 +918,19 @@ func (s *SincronizarCatalogos) Ejecutar(ctx context.Context, _ struct{}) (Result
 		}
 	}
 	return s.guardar.Ejecutar(ctx, in)
+}
+
+// reTrozoIP: un trozo de IPv4 («100.64», «100.64.12.») o algo con forma de IPv6 («2001:db8»).
+var reTrozoIP = regexp.MustCompile(`^(\d{1,3}\.){1,3}\d{0,3}$|^[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,}(/\d{1,3})?$`)
+
+// pareceIP: q es una IP, un prefijo CIDR o un trozo de IP.
+func pareceIP(q string) bool {
+	q = strings.TrimSpace(q)
+	if _, err := netip.ParseAddr(q); err == nil {
+		return true
+	}
+	if _, err := netip.ParsePrefix(q); err == nil {
+		return true
+	}
+	return reTrozoIP.MatchString(q)
 }

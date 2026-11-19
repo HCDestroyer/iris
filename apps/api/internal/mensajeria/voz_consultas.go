@@ -159,7 +159,11 @@ func senalesDe(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente in
 		f, err := q.ServicioPrincipal(ctx, mensajeriabd.ServicioPrincipalParams{ClienteID: cliente, Empresa: empresa, ServicioID: servicio})
 		switch {
 		case err == nil:
-			s.Servicio = &ServicioDeLlamada{ID: f.ID, Codigo: f.Codigo, Plan: f.PlanNombre, Estado: f.Estado}
+			s.Servicio = &ServicioDeLlamada{ID: f.ID, Codigo: f.Codigo, Plan: f.PlanNombre, Estado: f.Estado, Zona: f.ZonaNombre}
+			if f.PrecioMensual != "" && f.Moneda != "" {
+				precio, moneda := f.PrecioMensual, f.Moneda
+				s.Servicio.PrecioMensual, s.Servicio.Moneda = &precio, &moneda
+			}
 		case !errors.Is(err, pgx.ErrNoRows):
 			return nil, err
 		}
@@ -478,6 +482,9 @@ type RecibirLlamadas struct {
 	// Motivo: por qué lo apagó el servidor. Ausente si está encendido, si lo apagó la persona o si
 	// nunca se encendió en este navegador.
 	Motivo *string `json:"motivo,omitempty" enum:"tope,inactivo" doc:"Por qué el servidor apagó «Recibir llamadas» en este navegador: tope (pasaste de 10 navegadores) o inactivo (30 días sin abrirlo)"`
+	// NumeroConLlamadas: la empresa tiene algún número con las llamadas encendidas en Iris (si no, no
+	// tiene sentido ofrecer encender «Recibir llamadas»).
+	NumeroConLlamadas bool `json:"numeroConLlamadas" doc:"La empresa activa tiene algún número con las llamadas de WhatsApp encendidas en Iris"`
 }
 
 // EntradaRecibir es POST /llamadas/recibir/encender y /apagar.
@@ -537,14 +544,18 @@ func nuevoVerRecibir(m *Modulo) *auditoria.Caso[EntradaVerRecibir, RecibirLlamad
 			if navegador == "" {
 				return RecibirLlamadas{}, reglaVoz("navegador_requerido", "Falta el id de este navegador (cabecera X-Iris-Navegador)")
 			}
+			conLlamadas, err := mensajeriabd.New(t).EmpresaConLlamadas(ctx, a.empresa)
+			if err != nil {
+				return RecibirLlamadas{}, err
+			}
 			f, err := mensajeriabd.New(t).ReceptorDe(ctx, mensajeriabd.ReceptorDeParams{Empresa: a.empresa, UsuarioID: a.usuario, Navegador: navegador})
 			if errors.Is(err, pgx.ErrNoRows) {
-				return RecibirLlamadas{}, nil
+				return RecibirLlamadas{NumeroConLlamadas: conLlamadas}, nil
 			}
 			if err != nil {
 				return RecibirLlamadas{}, err
 			}
-			r := RecibirLlamadas{Recibe: f.Recibe, Vivo: f.Recibe && f.VistoEn.After(m.ahora().Add(-FlujoVivo))}
+			r := RecibirLlamadas{Recibe: f.Recibe, Vivo: f.Recibe && f.VistoEn.After(m.ahora().Add(-FlujoVivo)), NumeroConLlamadas: conLlamadas}
 			if !f.Recibe {
 				r.Motivo = f.ApagadoMotivo
 			}
@@ -737,6 +748,21 @@ func llamadasDeMensajes(ctx context.Context, q *mensajeriabd.Queries, filas []me
 		}
 		if e, ok := grabaciones[l.ID]; ok {
 			x.Grabacion = &EstadoGrabacion{Estado: e}
+		}
+		if l.RafagaHasta != nil && l.CanalID != nil {
+			// Pocas (solo las rechazadas por ráfaga): una lectura por llamada.
+			r := RafagaDeLlamada{Hasta: *l.RafagaHasta, Intentos: l.RafagaIntentos}
+			canal, err := q.CanalPorID(ctx, *l.CanalID)
+			if err != nil {
+				return nil, err
+			}
+			r.PuedeLevantar = derefEmpresa(canal.EmpresaID) == derefEmpresa(l.EmpresaID)
+			if en, err := q.RafagaLevantadaEn(ctx, mensajeriabd.RafagaLevantadaEnParams{CanalID: *l.CanalID, Numero: l.Numero, Empresa: derefEmpresa(l.EmpresaID)}); err == nil {
+				r.Levantada = en.After(l.SonoEn)
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return nil, err
+			}
+			x.Rafaga = &r
 		}
 		out[l.ID] = x
 	}

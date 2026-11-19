@@ -3,9 +3,10 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { avisar, Aviso, Campo, CampoArea, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { AvisoAccion, useEnvio, useZonas } from "@/componentes/comercial/comun";
+import { NotaPermisosServicio, SelectorServicio } from "@/componentes/clientes/linea-servicio";
 import { DesdeConversacion } from "@/componentes/conversaciones/desde-conversacion";
 import { api, resolver } from "@/lib/api/cliente";
 import type { ConversacionDetalle } from "@/lib/conversaciones/tipos";
@@ -53,6 +54,7 @@ function FormularioOrden({ conv }: { conv: ConversacionDetalle }) {
         },
     });
     const errores = form.formState.errors;
+    const servicioElegido = useWatch({ control: form.control, name: "servicioId" });
 
     async function guardar(d: Valores) {
         const r = await envio.enviar(
@@ -92,23 +94,23 @@ function FormularioOrden({ conv }: { conv: ConversacionDetalle }) {
         >
             {servicios.length === 0 ? <Aviso tono="warning" titulo="La conversación no tiene un servicio de Argos: escribe la dirección." /> : null}
             <SeccionFormulario titulo="1. Qué y para qué servicio">
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <CampoSelector etiqueta="Tipo" error={errores.tipo?.message} {...form.register("tipo")}>
-                        {TIPOS.map(([v, t]) => (
-                            <option key={v} value={v}>
-                                {t}
-                            </option>
-                        ))}
-                    </CampoSelector>
-                    <CampoSelector etiqueta="Servicio" error={errores.servicioId?.message} disabled={servicios.length === 0} {...form.register("servicioId")}>
-                        <option value="">Sin servicio</option>
-                        {servicios.map((s) => (
-                            <option key={s.id} value={String(s.id)}>
-                                {s.plan} · {s.codigo}
-                            </option>
-                        ))}
-                    </CampoSelector>
-                </div>
+                <CampoSelector etiqueta="Tipo" error={errores.tipo?.message} {...form.register("tipo")}>
+                    {TIPOS.map(([v, t]) => (
+                        <option key={v} value={v}>
+                            {t}
+                        </option>
+                    ))}
+                </CampoSelector>
+                {servicios.length > 0 ? (
+                    <SelectorServicio
+                        leyenda="¿En cuál servicio?"
+                        servicios={servicios}
+                        valor={servicioElegido ? Number(servicioElegido) : undefined}
+                        alCambiar={(id) => form.setValue("servicioId", String(id), { shouldDirty: true, shouldValidate: true })}
+                        error={errores.servicioId?.message}
+                    />
+                ) : null}
+                <NotaPermisosServicio />
                 <CampoSelector etiqueta="Ticket de origen" error={errores.ticketId?.message} {...form.register("ticketId")}>
                     <option value="">Sin ticket</option>
                     {tickets.map((t) => (

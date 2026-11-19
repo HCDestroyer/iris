@@ -53,12 +53,17 @@ test.describe("bandeja de conversaciones", () => {
             await expect(page.getByRole("link", { name: "Volver a las conversaciones" })).toBeVisible();
             await conv.getByRole("button", { name: "Ver la ficha del cliente" }).click();
             const hoja = page.getByRole("dialog", { name: "Ficha del cliente" });
-            await expect(hoja).toContainText("Fibra 100 Mb · S-4101");
+            // La línea de servicio: plan, precio y código (contrato con Argos 0.8.0 §2.4).
+            await expect(hoja.getByTestId("linea-servicio")).toContainText("Fibra 100 Mb");
+            await expect(hoja.getByTestId("linea-servicio")).toContainText("Q250.00 al mes");
+            await expect(hoja.getByTestId("linea-servicio")).toContainText("S-4101");
             await page.screenshot({ path: path.join(carpeta, `bandeja-ficha-${info.project.name}.png`) });
             await hoja.getByRole("button", { name: "Cerrar la ficha" }).click();
         } else {
             const ficha = page.getByRole("complementary", { name: "Ficha del cliente" });
-            await expect(ficha).toContainText("Fibra 100 Mb · S-4101");
+            await expect(ficha.getByTestId("linea-servicio")).toContainText("Fibra 100 Mb");
+            await expect(ficha.getByTestId("linea-servicio")).toContainText("Q250.00 al mes");
+            await expect(ficha.getByTestId("linea-servicio")).toContainText("S-4101");
             await expect(ficha).toContainText("TK-004812");
             await expect(ficha.getByRole("link", { name: "Orden" })).toBeVisible();
         }

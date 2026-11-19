@@ -47,6 +47,18 @@ const ContratoAprobarComprobantes = "0.7.0"
 // CapacidadAprobarComprobantes es la capacidad del conector con contrato ≥ 0.7.0.
 const CapacidadAprobarComprobantes = "aprobar_comprobantes"
 
+// VersionBuscarSinRed es la primera versión de Argos que entiende `buscar_red` en la búsqueda `q`
+// de GET /clientes y GET /servicios (contrato 0.8.1 §2.1, pedido A29). Un Argos anterior lo ignora
+// y sigue buscando también en la IPv4 vigente, los prefijos IPv6 y el user_ppp de los servicios.
+const VersionBuscarSinRed = "1.21.0"
+
+// SoportaBuscarSinRed indica si Argos (por su version_argos) aplica `buscar_red=false`. Solo sirve
+// para la auditoría (efectivo o ignorado): Iris lo manda igual sin servicios.ver_red global, porque
+// un Argos anterior lo ignora (falla cerrado ante una versión vieja o mal informada).
+func SoportaBuscarSinRed(version *string) bool {
+	return conector.VersionAlMenos(version, VersionBuscarSinRed)
+}
+
 // capacidades del conector Argos según su versión y el contrato que informa.
 func capacidades(version, contrato *string) []string {
 	caps := []string{}

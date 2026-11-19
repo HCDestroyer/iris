@@ -722,6 +722,17 @@ func nuevoResultadoLlamar(m *Modulo) *auditoria.Caso[resultadoLlamar, bool] {
 				return false, err
 			}
 			l = g
+			// Meta aceptó la saliente: si el número tenía la ráfaga encima, se levanta (quien llama quiere
+			// que le puedan devolver la llamada; contratos/voz.md §3.5).
+			if l.CanalID != nil {
+				var conv *int64
+				if c != nil {
+					conv = &c.ID
+				}
+				if _, err := m.levantarRafaga(ctx, t, *l.CanalID, l.Numero, l.EmpresaID, conv, l.UsuarioID, OrigenRafagaLlamada, &l.ID); err != nil {
+					return false, err
+				}
+			}
 			if adelantado == nil {
 				return false, nil
 			}

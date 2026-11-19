@@ -64,7 +64,7 @@ func TestFichaDatosCoherentesArgos14(t *testing.T) {
 		VALUES (3, 1, 'Norte', now()) ON CONFLICT (id) DO UPDATE SET nombre = 'Norte'`); err != nil {
 		t.Fatal(err)
 	}
-	f := e.usuario("lectura").pedir(http.MethodGet, "/api/v1/clientes/455", nil)
+	f := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes/455", nil)
 	if f.status != 200 {
 		t.Fatalf("ficha: %d %s", f.status, f.crudo)
 	}
@@ -96,8 +96,8 @@ func TestFichaDatosCoherentesArgos14(t *testing.T) {
 		s["planNombre"] != "Fibra 100" || s["routerNombre"] != "RT-Norte" || s["estado"] != "suspendido" || s["sincronizadoEn"] == nil {
 		t.Fatalf("servicio con dirección de instalación: %v", s)
 	}
-	// Sin dirección propia: vacía (aplica la del cliente; Iris no la inventa).
-	if s2 := mapa(t, servicios[1]); s2["direccion"] != "" || s2["lat"] != nil || s2["ip"] != "100.64.10.6" || s2["userPpp"] != "" {
+	// Sin dirección propia: ausente (aplica la del cliente; Iris no la inventa).
+	if s2 := mapa(t, servicios[1]); s2["direccion"] != nil || s2["lat"] != nil || s2["ip"] != "100.64.10.6" || s2["userPpp"] != nil {
 		t.Fatalf("servicio sin dirección propia: %v", s2)
 	}
 	// La IP (ipv4) queda en la instantánea: la resolución local por IP (Argos caído) la usa.

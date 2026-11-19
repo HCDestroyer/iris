@@ -3721,6 +3721,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/{id}/llamadas/desbloquear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dejar que el número vuelva a llamar
+         * @description Permiso: `llamadas.desbloquear_numero`. Levanta la ráfaga del número de la conversación (como máximo 3 llamadas que suenan cada 10 minutos): desde ahora sus llamadas anteriores dejan de contar y la próxima vuelve a sonar. También la levanta una saliente a ese número que WhatsApp acepta. Idempotente; acepta `Idempotency-Key`. En un número prestado solo la empresa dueña: 409 `numero_prestado`. Emite `voz.rafaga_levantada` (sin el número). Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         */
+        post: operations["desbloquearNumeroLlamadas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/{id}/llamar": {
         parameters: {
             query?: never;
@@ -10102,18 +10122,23 @@ export interface components {
             zonaNombre: string;
         };
         CopiaServicio: {
-            /** @description Dirección de instalación; vacía si Argos no tenía una propia */
-            direccion: string;
+            /** @description Dirección de instalación; ausente si Argos no tenía una propia o sin servicios.ver_ubicacion */
+            direccion?: string;
             estado: string;
             /** Format: int64 */
             id: number;
-            ip: string;
+            /** @description Ausente sin servicios.ver_red */
+            ip?: string;
+            /**
+             * Format: double
+             * @description Ausente sin servicios.ver_ubicacion
+             */
+            lat?: number;
             /** Format: double */
-            lat: number | null;
-            /** Format: double */
-            lon: number | null;
+            lon?: number;
             planNombre: string;
-            routerNombre: string;
+            /** @description Ausente sin servicios.ver_red */
+            routerNombre?: string;
             zonaNombre: string;
         };
         CorreoSistema: {
@@ -14359,6 +14384,8 @@ export interface components {
             grabacion?: components["schemas"]["EstadoGrabacion"];
             id: string;
             motivoFin?: string;
+            /** @description Solo en una entrante que Iris rechazó por ráfaga (motivoFin limite) */
+            rafaga?: components["schemas"]["RafagaDeLlamada"];
             tieneNota: boolean;
             usuario?: components["schemas"]["UsuarioRef"];
         };
@@ -16102,7 +16129,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -16175,6 +16202,15 @@ export interface components {
             disponible: boolean;
             /** @description sin_conector, conector_apagado, argos_no_disponible… */
             motivo: string | null;
+        };
+        Planta: {
+            caja: string | null;
+            olt: string | null;
+            pon: string | null;
+            /** @description Decimal con dos decimales, como -19.40 */
+            potenciaDbm: string | null;
+            puerto: string | null;
+            slot: string | null;
         };
         Plantilla: {
             codigo: string;
@@ -16741,6 +16777,26 @@ export interface components {
             /** Format: double */
             vramPct: number | null;
         };
+        RafagaDeLlamada: {
+            /**
+             * Format: date-time
+             * @description Desde este instante el número vuelve a sonar (si nadie levantó antes la ráfaga)
+             */
+            hasta: string;
+            /**
+             * Format: int32
+             * @description Reintentos que la ráfaga rechazó después de esta llamada, en la misma ventana (no dejan tarjeta propia)
+             */
+            intentos: number;
+            /** @description Alguien dejó que vuelva a llamar (a mano o llamándolo) después de esta llamada */
+            levantada: boolean;
+            /** @description La empresa de la llamada puede dejar que el número vuelva a llamar (false en un número prestado, para la prestataria) */
+            puedeLevantar: boolean;
+        };
+        RafagaLevantada: {
+            /** @description El número tenía la ráfaga encima: desde ahora su próxima llamada vuelve a sonar */
+            estabaActiva: boolean;
+        };
         Reautenticado: {
             /** Format: date-time */
             validaHasta: string;
@@ -16763,6 +16819,8 @@ export interface components {
              * @enum {string}
              */
             motivo?: "tope" | "inactivo";
+            /** @description La empresa activa tiene algún número con las llamadas de WhatsApp encendidas en Iris */
+            numeroConLlamadas: boolean;
             /** @description Este navegador tiene «Recibir llamadas» encendido */
             recibe: boolean;
             vivo: boolean;
@@ -17462,14 +17520,14 @@ export interface components {
             /** Format: int64 */
             clienteId: number;
             codigo: string;
-            /** @description Quien atiende en el sitio (si no es el titular); vacío si no hay */
+            /** @description Quien atiende en el sitio; solo con servicios.ver_ubicacion */
             contactoNombre?: string;
-            /** @description Teléfono del contacto en sitio tal como está en Argos (+502 5512-3344) */
+            /** @description Teléfono del contacto en sitio tal como está en Argos; solo con servicios.ver_ubicacion */
             contactoTelefono?: string;
-            /** @description El teléfono del contacto en sitio para mostrar y llamar (E.164) */
+            /** @description El teléfono del contacto en sitio para mostrar y llamar (E.164); solo con servicios.ver_ubicacion */
             contactoTelefonos?: components["schemas"]["Telefono"][] | null;
-            /** @description Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente */
-            direccion: string;
+            /** @description Dirección de instalación del servicio; ausente si Argos no tiene una propia (aplica la del cliente) o sin servicios.ver_ubicacion */
+            direccion?: string;
             /** Format: int64 */
             empresaId: number;
             /** @description Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado) */
@@ -17479,58 +17537,93 @@ export interface components {
              * @description Id del servicio en Argos
              */
             id: number;
-            /** @description IPv4 vigente del servicio en Argos */
-            ip: string;
+            /** @description IPv4 vigente del servicio en Argos; ausente sin asignación o sin servicios.ver_red */
+            ip?: string;
             /**
              * Format: double
-             * @description Coordenadas de instalación (6 decimales); null si Argos no las tiene
+             * @description Coordenadas de instalación (6 decimales); ausentes si Argos no las tiene o sin servicios.ver_ubicacion
              */
-            lat: number | null;
+            lat?: number;
             /** Format: double */
-            lon: number | null;
+            lon?: number;
+            /** @description Moneda de precioMensual (GTQ); ausente si no hay precio */
+            moneda?: string;
+            /**
+             * Format: int64
+             * @description Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA
+             */
+            numero: number;
             /** Format: int64 */
             planId: number | null;
             planNombre: string;
-            /** @description Punto de referencia de la instalación; vacío si no hay */
+            /** @description Referencia de planta (OZmap, de solo lectura); ausente sin datos o sin servicios.ver_red */
+            planta?: components["schemas"]["Planta"];
+            /** @description Precio mensual con el que Argos factura el servicio, con IVA (texto decimal, 2 decimales). No es el total de la factura. Ausente con un Argos anterior a 1.18.0: no se muestra ni se calcula */
+            precioMensual?: string;
+            /** @description CIDR; ausente sin asignación o sin servicios.ver_red */
+            prefijoDelegadoV6?: string;
+            /** @description CIDR; ausente sin asignación o sin servicios.ver_red */
+            prefijoEnlaceV6?: string;
+            /** @description Punto de referencia de la instalación; solo con servicios.ver_ubicacion */
             referencia?: string;
-            /** Format: int64 */
-            routerId: number | null;
-            routerNombre: string;
+            /**
+             * Format: int64
+             * @description Solo con servicios.ver_red
+             */
+            routerId?: number;
+            /** @description Solo con servicios.ver_red */
+            routerNombre?: string;
             /**
              * Format: date-time
              * @description Cuándo se leyó de Argos
              */
             sincronizadoEn: string;
-            /** @description pppoe, ip_estatica o dhcp_fija */
-            tipoConexion: string;
-            /** @description Usuario PPPoE; vacío fuera de pppoe */
-            userPpp: string;
+            /** @description pppoe, ip_estatica o dhcp_fija; solo con servicios.ver_red */
+            tipoConexion?: string;
+            /** @description Usuario PPPoE; ausente fuera de pppoe o sin servicios.ver_red */
+            userPpp?: string;
             /** Format: int64 */
             zonaId: number | null;
             zonaNombre: string;
         };
         ServicioCampo: {
             codigo: string;
-            direccion: string;
+            /** @description Solo con servicios.ver_ubicacion */
+            direccion?: string;
             estado: string;
             /** Format: int64 */
             id: number;
-            ip: string;
+            /** @description Solo con servicios.ver_red */
+            ip?: string;
+            /**
+             * Format: double
+             * @description Solo con servicios.ver_ubicacion
+             */
+            lat?: number;
             /** Format: double */
-            lat: number | null;
-            /** Format: double */
-            lon: number | null;
+            lon?: number;
+            moneda?: string;
             plan: string;
-            router: string;
+            /** @description Precio mensual del plan con IVA (Argos ≥ 1.18.0); ausente si Argos no lo informa */
+            precioMensual?: string;
+            /** @description Solo con servicios.ver_red */
+            router?: string;
             /** Format: date-time */
             sincronizadoEn: string;
+            /** @description Nombre de la zona del servicio */
+            zona?: string;
         };
         ServicioDeLlamada: {
             codigo: string;
             estado: string;
             /** Format: int64 */
             id: number;
+            moneda?: string;
             plan: string;
+            /** @description Precio mensual del plan con IVA; ausente si Argos no lo informa */
+            precioMensual?: string;
+            /** @description Nombre de la zona del servicio */
+            zona?: string;
         };
         ServicioEliminado: {
             /** Format: int64 */
@@ -17553,12 +17646,78 @@ export interface components {
             planNombre: string;
         };
         ServicioResumenConversacion: {
-            codigo: string;
-            estado: string;
             /** Format: int64 */
+            clienteId: number;
+            codigo: string;
+            /** @description Quien atiende en el sitio; solo con servicios.ver_ubicacion */
+            contactoNombre?: string;
+            /** @description Teléfono del contacto en sitio tal como está en Argos; solo con servicios.ver_ubicacion */
+            contactoTelefono?: string;
+            /** @description El teléfono del contacto en sitio para mostrar y llamar (E.164); solo con servicios.ver_ubicacion */
+            contactoTelefonos?: components["schemas"]["Telefono"][] | null;
+            /** @description Dirección de instalación del servicio; ausente si Argos no tiene una propia (aplica la del cliente) o sin servicios.ver_ubicacion */
+            direccion?: string;
+            /** Format: int64 */
+            empresaId: number;
+            /** @description Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado) */
+            estado: string;
+            /**
+             * Format: int64
+             * @description Id del servicio en Argos
+             */
             id: number;
+            /** @description IPv4 vigente del servicio en Argos; ausente sin asignación o sin servicios.ver_red */
+            ip?: string;
+            /**
+             * Format: double
+             * @description Coordenadas de instalación (6 decimales); ausentes si Argos no las tiene o sin servicios.ver_ubicacion
+             */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
+            /** @description Moneda de precioMensual (GTQ); ausente si no hay precio */
+            moneda?: string;
+            /**
+             * Format: int64
+             * @description Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA
+             */
+            numero: number;
+            /** @description = planNombre (compatibilidad) */
             plan: string;
+            /** Format: int64 */
+            planId: number | null;
+            planNombre: string;
+            /** @description Referencia de planta (OZmap, de solo lectura); ausente sin datos o sin servicios.ver_red */
+            planta?: components["schemas"]["Planta"];
+            /** @description Precio mensual con el que Argos factura el servicio, con IVA (texto decimal, 2 decimales). No es el total de la factura. Ausente con un Argos anterior a 1.18.0: no se muestra ni se calcula */
+            precioMensual?: string;
+            /** @description CIDR; ausente sin asignación o sin servicios.ver_red */
+            prefijoDelegadoV6?: string;
+            /** @description CIDR; ausente sin asignación o sin servicios.ver_red */
+            prefijoEnlaceV6?: string;
+            /** @description Punto de referencia de la instalación; solo con servicios.ver_ubicacion */
+            referencia?: string;
+            /**
+             * Format: int64
+             * @description Solo con servicios.ver_red
+             */
+            routerId?: number;
+            /** @description Solo con servicios.ver_red */
+            routerNombre?: string;
+            /**
+             * Format: date-time
+             * @description Cuándo se leyó de Argos
+             */
+            sincronizadoEn: string;
+            /** @description pppoe, ip_estatica o dhcp_fija; solo con servicios.ver_red */
+            tipoConexion?: string;
+            /** @description Usuario PPPoE; ausente fuera de pppoe o sin servicios.ver_red */
+            userPpp?: string;
+            /** @description = zonaNombre (compatibilidad) */
             zona: string;
+            /** Format: int64 */
+            zonaId: number | null;
+            zonaNombre: string;
         };
         ServidorIAAsistente: {
             /** @description Hay un servidor de IA activo, compatible, contestando y que esta empresa puede usar */
@@ -33410,6 +33569,85 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desbloquearNumeroLlamadas: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RafagaLevantada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

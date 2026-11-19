@@ -50,11 +50,17 @@ type Pagina[T any] = conector.Pagina[T]
 const CabeceraEmpresaArgos = "X-Empresa-Id"
 
 // BuscarClientes: GET /clientes?q=&limit=&cursor= con X-Empresa-Id (≠ 0), que acota la búsqueda en
-// Argos; Iris además descarta lo que sabe que es de otra empresa.
-func (c *Cliente) BuscarClientes(ctx context.Context, q string, limite int, cursor string, empresaID int64) (Pagina[ClienteArgos], error) {
+// Argos; Iris además descarta lo que sabe que es de otra empresa. sinRed manda buscar_red=false
+// (contrato 0.8.1 §2.1): q no coincide por la IPv4 vigente, los prefijos IPv6 ni el user_ppp. Quien
+// llama decide si mandarlo (el caso de uso, sin servicios.ver_red global); un Argos anterior a
+// 1.21.0 lo ignora. Sin sinRed no se manda el parámetro y Argos busca como siempre.
+func (c *Cliente) BuscarClientes(ctx context.Context, q string, limite int, cursor string, empresaID int64, sinRed bool) (Pagina[ClienteArgos], error) {
 	v := url.Values{"q": {q}, "limit": {strconv.Itoa(limite)}}
 	if cursor != "" {
 		v.Set("cursor", cursor)
+	}
+	if sinRed {
+		v.Set("buscar_red", "false")
 	}
 	cli := c.Cliente
 	if empresaID != 0 {
@@ -82,6 +88,12 @@ func (c *Cliente) ObtenerServicio(ctx context.Context, id int64) (ServicioArgos,
 // ServiciosDeCliente: GET /servicios?cliente_id= (todas las páginas).
 func (c *Cliente) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]ServicioArgos, error) {
 	return conector.Todas[ServicioArgos](ctx, c.Cliente, "/servicios", url.Values{"cliente_id": {strconv.FormatInt(clienteID, 10)}})
+}
+
+// ServiciosDePlan: GET /servicios?plan_id= (todas las páginas). catalogo.cambiado de un plan con
+// precio (contrato 0.8.0 §2.3): Iris relee los servicios del plan para refrescar precio_mensual.
+func (c *Cliente) ServiciosDePlan(ctx context.Context, planID int64) ([]ServicioArgos, error) {
+	return conector.Todas[ServicioArgos](ctx, c.Cliente, "/servicios", url.Values{"plan_id": {strconv.FormatInt(planID, 10)}})
 }
 
 // ServiciosDeClienteCompletos: GET /servicios?cliente_id=&empresas=todas, el consolidado de todas

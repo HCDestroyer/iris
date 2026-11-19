@@ -24,6 +24,30 @@ func (q *Queries) AnonimizarCopiasDeCliente(ctx context.Context, clienteID int64
 	return err
 }
 
+const avisoPrecioPlanDesde = `-- name: AvisoPrecioPlanDesde :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.entrantes
+    WHERE conector_id = $1::bigint AND evento = 'catalogo.cambiado' AND recibido_en > $2::timestamptz
+        AND payload->>'catalogo' = 'plan' AND (payload->>'id') = ($3::bigint)::text
+        AND payload->'campos' ? 'precio'
+)::boolean
+`
+
+type AvisoPrecioPlanDesdeParams struct {
+	ConectorID int64
+	Desde      time.Time
+	PlanID     int64
+}
+
+// ¿Llegó un catalogo.cambiado de este plan con precio después de @desde? (el job de precios vuelve a
+// leer: un aviso que llegó mientras corría no encoló otro job, por único).
+func (q *Queries) AvisoPrecioPlanDesde(ctx context.Context, arg AvisoPrecioPlanDesdeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, avisoPrecioPlanDesde, arg.ConectorID, arg.Desde, arg.PlanID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const bloquearArgos = `-- name: BloquearArgos :exec
 
 SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || ($2::bigint)::text, 0))
@@ -186,6 +210,35 @@ type CambiarPlanArgosParams struct {
 // Argos no guarda planes en la instantánea: solo el nombre copiado en los servicios.
 func (q *Queries) CambiarPlanArgos(ctx context.Context, arg CambiarPlanArgosParams) (int64, error) {
 	result, err := q.db.Exec(ctx, cambiarPlanArgos, arg.Nombre, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const cambiarPrecioServicio = `-- name: CambiarPrecioServicio :execrows
+UPDATE integracion.argos_servicios
+SET precio_mensual = CAST($1::text AS numeric), moneda = $2::text, updated_at = now()
+WHERE id = $3 AND plan_id = $4::bigint
+    AND (precio_mensual IS DISTINCT FROM CAST($1::text AS numeric) OR moneda IS DISTINCT FROM $2::text)
+`
+
+type CambiarPrecioServicioParams struct {
+	PrecioMensual *string
+	Moneda        *string
+	ID            int64
+	PlanID        int64
+}
+
+// Precio releído de Argos por catalogo.cambiado de un plan (§2.4). Solo si el servicio sigue en ese
+// plan; null/null = Argos ya no lo informa.
+func (q *Queries) CambiarPrecioServicio(ctx context.Context, arg CambiarPrecioServicioParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cambiarPrecioServicio,
+		arg.PrecioMensual,
+		arg.Moneda,
+		arg.ID,
+		arg.PlanID,
+	)
 	if err != nil {
 		return 0, err
 	}
@@ -646,10 +699,12 @@ func (q *Queries) GuardarRouter(ctx context.Context, arg GuardarRouterParams) er
 const guardarServicio = `-- name: GuardarServicio :exec
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
-    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono
+    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono,
+    precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta
 )
 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+    CAST($22::text AS numeric), $23::text, $24, $25, $26::jsonb
 WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = $1)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
@@ -658,32 +713,39 @@ ON CONFLICT (id) DO UPDATE SET
     ip = excluded.ip, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     estado = excluded.estado, sincronizado_en = excluded.sincronizado_en, user_ppp = excluded.user_ppp,
     tipo_conexion = excluded.tipo_conexion, referencia = excluded.referencia, contacto_nombre = excluded.contacto_nombre,
-    contacto_telefono = excluded.contacto_telefono, updated_at = now()
+    contacto_telefono = excluded.contacto_telefono, precio_mensual = excluded.precio_mensual, moneda = excluded.moneda,
+    prefijo_enlace_v6 = excluded.prefijo_enlace_v6, prefijo_delegado_v6 = excluded.prefijo_delegado_v6,
+    planta = excluded.planta, updated_at = now()
 WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en
 `
 
 type GuardarServicioParams struct {
-	ID               int64
-	EmpresaID        int64
-	ClienteID        int64
-	Codigo           string
-	PlanID           *int64
-	PlanNombre       string
-	RouterID         *int64
-	RouterNombre     string
-	ZonaID           *int64
-	ZonaNombre       string
-	Ip               string
-	Direccion        string
-	Lat              *float64
-	Lon              *float64
-	Estado           string
-	SincronizadoEn   time.Time
-	UserPpp          string
-	TipoConexion     string
-	Referencia       string
-	ContactoNombre   string
-	ContactoTelefono string
+	ID                int64
+	EmpresaID         int64
+	ClienteID         int64
+	Codigo            string
+	PlanID            *int64
+	PlanNombre        string
+	RouterID          *int64
+	RouterNombre      string
+	ZonaID            *int64
+	ZonaNombre        string
+	Ip                string
+	Direccion         string
+	Lat               *float64
+	Lon               *float64
+	Estado            string
+	SincronizadoEn    time.Time
+	UserPpp           string
+	TipoConexion      string
+	Referencia        string
+	ContactoNombre    string
+	ContactoTelefono  string
+	PrecioMensual     *string
+	Moneda            *string
+	PrefijoEnlaceV6   string
+	PrefijoDelegadoV6 string
+	Planta            []byte
 }
 
 // Un servicio con lápida no se guarda desde una lista: solo un GET por id con 200 lo resucita
@@ -711,6 +773,11 @@ func (q *Queries) GuardarServicio(ctx context.Context, arg GuardarServicioParams
 		arg.Referencia,
 		arg.ContactoNombre,
 		arg.ContactoTelefono,
+		arg.PrecioMensual,
+		arg.Moneda,
+		arg.PrefijoEnlaceV6,
+		arg.PrefijoDelegadoV6,
+		arg.Planta,
 	)
 	return err
 }
@@ -1029,7 +1096,7 @@ func (q *Queries) RouterPorID(ctx context.Context, id int64) (IntegracionArgosRo
 }
 
 const servicioPorID = `-- name: ServicioPorID :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE id = $1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta FROM integracion.argos_servicios WHERE id = $1
 `
 
 func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgosServicio, error) {
@@ -1059,12 +1126,17 @@ func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgos
 		&i.Referencia,
 		&i.ContactoNombre,
 		&i.ContactoTelefono,
+		&i.PrecioMensual,
+		&i.Moneda,
+		&i.PrefijoEnlaceV6,
+		&i.PrefijoDelegadoV6,
+		&i.Planta,
 	)
 	return i, err
 }
 
 const servicioPorIP = `-- name: ServicioPorIP :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta FROM integracion.argos_servicios
 WHERE ip = $1 AND empresa_id <> 0 AND estado <> 'retirado' AND ($2::bigint = 0 OR empresa_id = $2::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1
 `
@@ -1103,12 +1175,17 @@ func (q *Queries) ServicioPorIP(ctx context.Context, arg ServicioPorIPParams) (I
 		&i.Referencia,
 		&i.ContactoNombre,
 		&i.ContactoTelefono,
+		&i.PrecioMensual,
+		&i.Moneda,
+		&i.PrefijoEnlaceV6,
+		&i.PrefijoDelegadoV6,
+		&i.Planta,
 	)
 	return i, err
 }
 
 const serviciosDeCliente = `-- name: ServiciosDeCliente :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
 `
 
 func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]IntegracionArgosServicio, error) {
@@ -1144,7 +1221,89 @@ func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]In
 			&i.Referencia,
 			&i.ContactoNombre,
 			&i.ContactoTelefono,
+			&i.PrecioMensual,
+			&i.Moneda,
+			&i.PrefijoEnlaceV6,
+			&i.PrefijoDelegadoV6,
+			&i.Planta,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const serviciosDeOrdenesVisibles = `-- name: ServiciosDeOrdenesVisibles :many
+SELECT DISTINCT servicio_id::bigint AS servicio_id FROM campo.ordenes
+WHERE servicio_id IS NOT NULL
+    AND ($1::bigint = 0 OR empresa_id = $1::bigint)
+    AND (estado IN ('pendiente', 'programada', 'en_camino', 'en_sitio', 'pausada')
+        OR (estado IN ('cerrada', 'fallida') AND finalizada_en > now() - interval '24 hours'))
+    AND (($2::boolean AND tecnico_id = $3::bigint) OR zona_id = ANY($4::bigint[]) OR cuadrilla_id = ANY($5::bigint[]))
+`
+
+type ServiciosDeOrdenesVisiblesParams struct {
+	EmpresaID  int64
+	Propias    bool
+	UsuarioID  int64
+	Zonas      []int64
+	Cuadrillas []int64
+}
+
+// «Sus órdenes» para servicios.ver_red / ver_ubicacion (contrato 0.8.0 §2.4; visibilidad.go): de la
+// empresa activa (0 = sin empresas registradas), abiertas o terminadas (cerrada, fallida) hace
+// menos de 24 h, nunca canceladas; asignadas al usuario (solo con ordenes.ver_propias) o en una zona o
+// cuadrilla de su alcance de ordenes.ver.
+func (q *Queries) ServiciosDeOrdenesVisibles(ctx context.Context, arg ServiciosDeOrdenesVisiblesParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, serviciosDeOrdenesVisibles,
+		arg.EmpresaID,
+		arg.Propias,
+		arg.UsuarioID,
+		arg.Zonas,
+		arg.Cuadrillas,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var servicio_id int64
+		if err := rows.Scan(&servicio_id); err != nil {
+			return nil, err
+		}
+		items = append(items, servicio_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const serviciosDePlan = `-- name: ServiciosDePlan :many
+SELECT id, cliente_id FROM integracion.argos_servicios WHERE plan_id = $1::bigint ORDER BY id
+`
+
+type ServiciosDePlanRow struct {
+	ID        int64
+	ClienteID int64
+}
+
+// catalogo.cambiado de un plan con precio (§2.4): los servicios de la instantánea con ese plan.
+func (q *Queries) ServiciosDePlan(ctx context.Context, planID int64) ([]ServiciosDePlanRow, error) {
+	rows, err := q.db.Query(ctx, serviciosDePlan, planID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ServiciosDePlanRow
+	for rows.Next() {
+		var i ServiciosDePlanRow
+		if err := rows.Scan(&i.ID, &i.ClienteID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

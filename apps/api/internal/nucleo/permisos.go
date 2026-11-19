@@ -198,8 +198,14 @@ const (
 
 // Conector Argos (lectura) e integraciones.
 const (
-	PermClientesEstadoCuenta    Permiso = "clientes.estado_cuenta"
-	PermClientesVer             Permiso = "clientes.ver"
+	PermClientesEstadoCuenta Permiso = "clientes.estado_cuenta"
+	PermClientesVer          Permiso = "clientes.ver"
+	// Datos sensibles del servicio de Argos (contrato argosisp.md 0.8.0 §2.4, decidido por el PM en
+	// §10.2 puntos 4 y 5). Sin ellos la API de Iris OMITE los campos: el filtro es del servidor.
+	// servicios.ver_red: IP, prefijos IPv6, user_ppp, tipo de conexión, router y planta.
+	PermServiciosVerRed Permiso = "servicios.ver_red"
+	// servicios.ver_ubicacion: dirección, referencia, coordenadas y contacto en sitio del servicio.
+	PermServiciosVerUbicacion   Permiso = "servicios.ver_ubicacion"
 	PermIntegracionesActivar    Permiso = "integraciones.activar"
 	PermIntegracionesConectar   Permiso = "integraciones.conectar"
 	PermIntegracionesDesactivar Permiso = "integraciones.desactivar"
@@ -266,6 +272,8 @@ const (
 	PermLlamadasSolicitarPermiso Permiso = "llamadas.solicitar_permiso"
 	// PermLlamadasLlamar: llamar al contacto por WhatsApp (saliente: cuesta dinero). Sensible.
 	PermLlamadasLlamar Permiso = "llamadas.llamar"
+	// PermLlamadasDesbloquearNumero: levantar la ráfaga de un número («Dejar que vuelva a llamar»).
+	PermLlamadasDesbloquearNumero Permiso = "llamadas.desbloquear_numero"
 	// PermVozConfigurar: ajustes de voz de la empresa (grabación, límites). Sensible.
 	PermVozConfigurar Permiso = "voz.configurar"
 )
@@ -513,6 +521,7 @@ var Catalogo = []DefPermiso{
 	{PermLlamadasColgar, "Terminar la llamada que tienes (o cualquiera, si supervisas)"},
 	{PermLlamadasConfigurar, "Encender y configurar las llamadas de WhatsApp de un número (cola, horario, cuánto suena, fuera de horario)"},
 	{PermLlamadasContestar, "Recibir el timbre de las llamadas de WhatsApp en el panel y contestarlas"},
+	{PermLlamadasDesbloquearNumero, "Dejar que un número rechazado por llamar muchas veces seguidas vuelva a llamar"},
 	{PermLlamadasDescartarDevolucion, "Cerrar una llamada «por devolver» sin llamar, con motivo"},
 	{PermLlamadasLlamar, "Llamar por WhatsApp al contacto de una conversación que dio permiso (devolver la llamada); tiene coste"},
 	{PermLlamadasRechazar, "Dejar de recibir una llamada que suena; si supervisas, rechazarla para todos"},
@@ -572,6 +581,8 @@ var Catalogo = []DefPermiso{
 	{PermRutasProponer, "Proponer la ruta del día de un técnico (orden de visita con OSRM y las ventanas de cita)"},
 	{PermRutasPublicar, "Publicar la ruta del día de un técnico (la recibe en la app de campo)"},
 	{PermRutasVer, "Ver las rutas del día: propuesta, publicada y el recorrido real (según el alcance)"},
+	{PermServiciosVerRed, "Ver los datos de red de los servicios de Argos: IP, prefijos IPv6, usuario PPPoE, tipo de conexión, router y planta (el técnico, solo en sus órdenes)"},
+	{PermServiciosVerUbicacion, "Ver la dirección, la referencia, las coordenadas y el contacto en sitio de los servicios de Argos (el técnico, solo en sus órdenes)"},
 	{PermServidorIAAdministrar, "Administrar el servidor de IA de la instalación: enlazarlo, activarlo, probarlo, rotar sus credenciales, elegir qué empresas lo usan y desactivarlo (solo con todas las empresas)"},
 	{PermServidorIAVer, "Ver el servidor de IA de la instalación: estado, versión, GPU y modelos (solo con todas las empresas)"},
 	{PermServidorIAVerUso, "Ver el uso que tu empresa hace del servidor de IA y su estado general"},
@@ -667,11 +678,11 @@ var RolesBase = []DefRol{
 	{Codigo: "admin", Nombre: "Administrador", Descripcion: "Todos los permisos", Todos: true},
 	{Codigo: "supervisor", Nombre: "Supervisor", Descripcion: "Supervisa soporte, campo y despacho",
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
-			PermClientesVer, PermClientesEstadoCuenta, PermIntegracionesVer, PermEmpresasVer,
+			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermIntegracionesVer, PermEmpresasVer,
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
-			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar,
+			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar, PermLlamadasDesbloquearNumero,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar},
@@ -679,14 +690,16 @@ var RolesBase = []DefRol{
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
-			PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
+			PermClientesVer, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
 			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas,
 			PermAgendaVer, PermAgendaFijarTurnos, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
 			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea,
 			PermCampoVerPosiciones, PermCampoVerActividad, PermChatVer, PermChatEnviar},
 			slices.Concat(permisosOrdenes, permisosRutas, permisosAtencion)...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
-		Permisos: []Permiso{PermClientesVer, PermAdjuntosSubir, PermAdjuntosVer,
+		// servicios.ver_red y servicios.ver_ubicacion: solo en los servicios de sus órdenes (alcance de
+		// ordenes.ver_propias), contrato argosisp.md §2.4.
+		Permisos: []Permiso{PermClientesVer, PermServiciosVerRed, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer,
 			PermOrdenesVerPropias, PermOrdenesIniciarCamino, PermOrdenesLlegar, PermOrdenesRegistrar,
 			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones,
 			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer, PermFactibilidadRegistrarManual,
@@ -694,11 +707,11 @@ var RolesBase = []DefRol{
 			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea, PermOrdenesTomar}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
-			PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
+			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
 			PermChatVer, PermChatEnviar, PermConversacionesTransferir, PermConversacionesAsociar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesIniciar}, slices.Concat(permisosTickets, permisosAtencion)...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
-		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosVer, PermAdjuntosSubir, PermAgendaVer,
+		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerUbicacion, PermAdjuntosVer, PermAdjuntosSubir, PermAgendaVer,
 			PermConversacionesTransferir, PermConversacionesAsociar, PermConversacionesIniciar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso},
 			slices.Concat(permisosComercial, permisosAtencion)...)},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",

@@ -97,6 +97,16 @@ type cambioCatalogo struct {
 	Lat      *float64 `json:"lat,omitempty"`
 	Lon      *float64 `json:"lon,omitempty"`
 	conCoord bool
+	// relerPrecios: `precio` en campos[] de un plan (0.8.0): se encola ArgsPreciosPlan (único por
+	// plan) para releer GET /servicios?plan_id= fuera del webhook.
+	relerPrecios bool
+	conectorID   int64
+}
+
+// precioServicio es el precio releído de un servicio (lista blanca: solo precio y moneda).
+type precioServicio struct {
+	id             int64
+	precio, moneda *string
 }
 
 // leerCatalogo relee de Argos el elemento del catálogo (fuera de transacción): zona en GET /zonas,
@@ -153,13 +163,21 @@ func (p *ProcesarEntrante) leerCatalogo(ctx context.Context, q conector.DBTX, e 
 		if err != nil {
 			return nil, "", err
 		}
+		encontrado := false
 		for _, pl := range planes {
 			if pl.ID == c.ID {
 				c.Nombre = textoNoVacio(pl.Nombre)
-				return c, "", nil
+				encontrado = true
 			}
 		}
-		return nil, "catalogo_no_encontrado", nil
+		if slices.Contains(d.Campos, "precio") {
+			c.relerPrecios, c.conectorID = true, e.ConectorID
+			return c, "", nil
+		}
+		if !encontrado {
+			return nil, "catalogo_no_encontrado", nil
+		}
+		return c, "", nil
 	}
 	return nil, "catalogo_desconocido", nil
 }
@@ -183,7 +201,7 @@ func activoDe(activo *bool, estado string) *bool {
 
 // aplicarCatalogo actualiza la instantánea (zonas, routers), los nombres copiados en servicios y
 // clientes, y la zona espejo de agenda (nombre y activa).
-func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c cambioCatalogo) error {
+func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c cambioCatalogo, encolar conector.Encolador) error {
 	var n int64
 	var err error
 	switch c.Catalogo {
@@ -218,6 +236,14 @@ func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c
 			if n, err = q.CambiarPlanArgos(ctx, argosbd.CambiarPlanArgosParams{Nombre: *c.Nombre, ID: &c.ID}); err != nil {
 				return err
 			}
+		}
+		if c.relerPrecios && encolar != nil {
+			// Un job por plan (único mientras esté pendiente): varios avisos seguidos no releen la
+			// lista varias veces ni la leen dentro del webhook.
+			if err := encolar(ctx, t.Tx, ArgsPreciosPlan{ConectorID: c.conectorID, PlanID: c.ID}); err != nil {
+				return err
+			}
+			t.Anotar(map[string]any{"precios": "encolado"})
 		}
 	}
 	t.Anotar(map[string]any{"catalogo": c.Catalogo, "catalogo_id": c.ID, "filas": n})

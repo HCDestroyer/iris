@@ -1004,6 +1004,28 @@ tarjeta en Integraciones (junto a Argos y Horus). Código en `componentes/servid
   repite en la hora (`datos.veces` > 1), la segunda línea añade «Ya van N veces en esta hora».
 - **Tipos.** Todo sale de `packages/contratos` (`lib/servidor-ia/tipos.ts` son solo alias).
 
+## Línea de servicio (nov. 2026)
+
+Pedido del PM: «solo muestra el nombre y no el ip, precio, ubicación u router». Contrato con Argos
+0.8.0 §2.4. Un solo componente, `componentes/clientes/linea-servicio.tsx`, identifica un servicio
+de Argos donde se muestra o se elige:
+
+- **`LineaServicio`** (completa): primera línea, el plan entero (envuelve, nunca se recorta) y el
+  estado con `InsigniaEstado`; segunda línea, discreta, el precio («Q250.00 al mes»), la zona, el
+  router, la IP, la dirección y el código. **`variante="compacta"`**: una línea que envuelve, para
+  listas y resultados de búsqueda. Con varios servicios, el número («Servicio 2», el mismo del
+  asistente).
+- **`ListaServicios`**: todos los servicios del cliente en una tarjeta; el de la conversación lleva
+  borde teal y «De esta conversación». **`SelectorServicio`**: `GrupoOpciones` con `apiladas` y
+  `contenido` (radios reales con la línea completa). **`NotaPermisosServicio`**: «Tu rol no ve…».
+- **Permisos.** El servidor omite la red sin `servicios.ver_red` y la ubicación sin
+  `servicios.ver_ubicacion`; el componente muestra solo lo que llega y nunca escribe «Sin IP» (el
+  técnico solo ve la red de sus órdenes). Sin precio (Argos anterior a 1.18.0), nada: nunca «Q0».
+- **Dónde:** ficha de la conversación, crear ticket, promesa, orden y boleta desde la conversación,
+  selector de cliente (alta de ticket, nueva orden, asociar), «Datos del cliente / servicio» (ficha
+  de ticket, de orden y alta comercial), ticket de origen de una orden y la app de campo
+  (`lineaDeServicioCampo`). Adaptadores en `lib/datos/servicio.ts`.
+
 ## Navegación del panel (fase 1, hecha)
 
 - **Barra lateral por grupos:**

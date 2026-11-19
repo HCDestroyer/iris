@@ -1,6 +1,6 @@
 "use client";
 
-import { avisar, DialogoConfirmar } from "@iris/ui";
+import { avisar, cerrarAviso, DialogoConfirmar } from "@iris/ui";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -118,6 +118,8 @@ type ContextoVoz = {
     errorColgar: unknown;
     reintentarColgar: () => void;
     recibir: EstadoRecibir;
+    /** La empresa tiene algún número con las llamadas encendidas en Iris (lo dice `GET /llamadas/recibir`). */
+    numeroConLlamadas: boolean;
     /**
      * El servidor apagó «Recibir» en este navegador: `tope` (más de 10 navegadores), `inactivo` (30
      * días sin abrirlo) o `desconocido`. Se dice y se ofrece volver a encender.
@@ -407,6 +409,7 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
 
     // --- «Recibir llamadas» -------------------------------------------------------------------
     const [recibir, setRecibir] = useState<EstadoRecibir>({ estado: "cargando" });
+    const [numeroConLlamadas, setNumeroConLlamadas] = useState(false);
     const [intentoRecibir, setIntentoRecibir] = useState(0);
     const [microfono, setMicrofono] = useState<EstadoMicrofono | null>(null);
     const [cambiando, setCambiando] = useState(false);
@@ -475,6 +478,7 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
                 }
                 const r = await leerRecibir(control.signal);
                 if (control.signal.aborted) return;
+                setNumeroConLlamadas(r.numeroConLlamadas);
                 let encendido = r.recibe;
                 // Lo apagó el servidor desde la última vez: se dice por qué.
                 if (!r.recibe && r.motivo) setDesplazado(r.motivo);
@@ -534,6 +538,36 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
             setCambiando(false);
         }
     }, []);
+
+    // La primera vez que alguien que contesta entra con un número con llamadas y «Recibir» apagado
+    // aquí: un aviso discreto que lo ofrece (una sola vez por persona y navegador). Sin esto la persona
+    // no sabe que existe y las llamadas se pierden sin sonarle a nadie.
+    const recibeListo = recibir.estado === "listo" ? recibir.recibe : null;
+    // Nunca durante una llamada: espera a que no la haya, y si una empieza con el aviso a la vista, se
+    // cierra (en el teléfono sale arriba y taparía la cabecera mientras se llama).
+    const sinLlamada = estado.fase === "libre";
+    const avisoOfrecer = useRef<string | null>(null);
+    useEffect(() => {
+        if (sinLlamada || avisoOfrecer.current === null) return;
+        cerrarAviso(avisoOfrecer.current);
+        avisoOfrecer.current = null;
+    }, [sinLlamada]);
+    useEffect(() => {
+        if (!contesta || !sinLlamada || recibeListo !== false || !numeroConLlamadas || desplazado !== null || !admiteAhora()) return;
+        const clave = `iris-voz-ofrecer-recibir-${yoId}`;
+        try {
+            if (window.localStorage.getItem(clave)) return;
+            window.localStorage.setItem(clave, "1");
+        } catch {
+            // Sin almacenamiento (privado): se ofrece igual, una vez por carga.
+        }
+        avisoOfrecer.current = avisar({
+            tono: "info",
+            titulo: "Puedes contestar llamadas de WhatsApp aquí",
+            descripcion: "Enciende «Recibir llamadas» (el teléfono de la barra de arriba) y ponte «Disponible» para que te suenen.",
+            accion: { texto: "Encender recibir llamadas", alPresionar: () => void encender() },
+        });
+    }, [contesta, sinLlamada, recibeListo, numeroConLlamadas, desplazado, yoId, encender]);
 
     // --- El flujo de eventos -------------------------------------------------------------------
     const ajena = useSyncExternalStore(escucharFuente, fuenteAjena, () => null);
@@ -1055,8 +1089,8 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
     }, []);
 
     const valor = useMemo<ContextoVoz>(
-        () => ({ estado, contesta, comprobando, llamar, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena, antesDeSalir, rechazarParaTodos }),
-        [estado, contesta, comprobando, llamar, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena, antesDeSalir, rechazarParaTodos],
+        () => ({ estado, contesta, comprobando, llamar, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, numeroConLlamadas, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, timbre: suena, antesDeSalir, rechazarParaTodos }),
+        [estado, contesta, comprobando, llamar, contestar, rechazar, colgar, silenciar, cerrar, errorColgar, reintentarColgar, recibir, numeroConLlamadas, desplazado, microfono, admite, cambiando, errorCambio, encender, apagar, reintentarRecibir, feed, suena, antesDeSalir, rechazarParaTodos],
     );
     return (
         <Contexto value={valor}>

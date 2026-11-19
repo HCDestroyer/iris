@@ -40,29 +40,47 @@ type ClienteResumen struct {
 
 // Servicio de un cliente de Argos.
 type Servicio struct {
-	ID           int64    `json:"id" doc:"Id del servicio en Argos"`
-	EmpresaID    int64    `json:"empresaId"`
-	ClienteID    int64    `json:"clienteId"`
-	Codigo       string   `json:"codigo"`
-	PlanID       *int64   `json:"planId" nullable:"true"`
-	PlanNombre   string   `json:"planNombre"`
-	RouterID     *int64   `json:"routerId" nullable:"true"`
-	RouterNombre string   `json:"routerNombre"`
-	ZonaID       *int64   `json:"zonaId" nullable:"true"`
-	ZonaNombre   string   `json:"zonaNombre"`
-	IP           string   `json:"ip" doc:"IPv4 vigente del servicio en Argos"`
-	Direccion    string   `json:"direccion" doc:"Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente"`
-	Lat          *float64 `json:"lat" nullable:"true" doc:"Coordenadas de instalación (6 decimales); null si Argos no las tiene"`
-	Lon          *float64 `json:"lon" nullable:"true"`
-	Estado       string   `json:"estado" doc:"Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado)"`
-	UserPPP      string   `json:"userPpp" doc:"Usuario PPPoE; vacío fuera de pppoe"`
-	TipoConexion string   `json:"tipoConexion" doc:"pppoe, ip_estatica o dhcp_fija"`
-	// Ubicación y contacto en sitio (Argos ≥ 1.6.0, contrato 0.5.0 §2.1).
-	Referencia        string             `json:"referencia" required:"false" doc:"Punto de referencia de la instalación; vacío si no hay"`
-	ContactoNombre    string             `json:"contactoNombre" required:"false" doc:"Quien atiende en el sitio (si no es el titular); vacío si no hay"`
-	ContactoTelefono  string             `json:"contactoTelefono" required:"false" doc:"Teléfono del contacto en sitio tal como está en Argos (+502 5512-3344)"`
-	ContactoTelefonos []formato.Telefono `json:"contactoTelefonos" required:"false" doc:"El teléfono del contacto en sitio para mostrar y llamar (E.164)"`
+	ID         int64  `json:"id" doc:"Id del servicio en Argos"`
+	EmpresaID  int64  `json:"empresaId"`
+	ClienteID  int64  `json:"clienteId"`
+	Codigo     string `json:"codigo"`
+	Numero     int    `json:"numero" doc:"Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA"`
+	PlanID     *int64 `json:"planId" nullable:"true"`
+	PlanNombre string `json:"planNombre"`
+	ZonaID     *int64 `json:"zonaId" nullable:"true"`
+	ZonaNombre string `json:"zonaNombre"`
+	Estado     string `json:"estado" doc:"Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado)"`
+	// Precio (contrato 0.8.0 §2.4): lo ve cualquiera con clientes.ver.
+	PrecioMensual *string `json:"precioMensual,omitempty" doc:"Precio mensual con el que Argos factura el servicio, con IVA (texto decimal, 2 decimales). No es el total de la factura. Ausente con un Argos anterior a 1.18.0: no se muestra ni se calcula"`
+	Moneda        *string `json:"moneda,omitempty" doc:"Moneda de precioMensual (GTQ); ausente si no hay precio"`
+	// Datos de red (servicios.ver_red, §2.4): sin el permiso NO vienen (no vacíos).
+	RouterID          *int64  `json:"routerId,omitempty" doc:"Solo con servicios.ver_red"`
+	RouterNombre      string  `json:"routerNombre,omitempty" doc:"Solo con servicios.ver_red"`
+	IP                string  `json:"ip,omitempty" doc:"IPv4 vigente del servicio en Argos; ausente sin asignación o sin servicios.ver_red"`
+	PrefijoEnlaceV6   string  `json:"prefijoEnlaceV6,omitempty" doc:"CIDR; ausente sin asignación o sin servicios.ver_red"`
+	PrefijoDelegadoV6 string  `json:"prefijoDelegadoV6,omitempty" doc:"CIDR; ausente sin asignación o sin servicios.ver_red"`
+	UserPPP           string  `json:"userPpp,omitempty" doc:"Usuario PPPoE; ausente fuera de pppoe o sin servicios.ver_red"`
+	TipoConexion      string  `json:"tipoConexion,omitempty" doc:"pppoe, ip_estatica o dhcp_fija; solo con servicios.ver_red"`
+	Planta            *Planta `json:"planta,omitempty" doc:"Referencia de planta (OZmap, de solo lectura); ausente sin datos o sin servicios.ver_red"`
+	// Ubicación y contacto en sitio (servicios.ver_ubicacion, §2.4): sin el permiso NO vienen.
+	Direccion         string             `json:"direccion,omitempty" doc:"Dirección de instalación del servicio; ausente si Argos no tiene una propia (aplica la del cliente) o sin servicios.ver_ubicacion"`
+	Lat               *float64           `json:"lat,omitempty" doc:"Coordenadas de instalación (6 decimales); ausentes si Argos no las tiene o sin servicios.ver_ubicacion"`
+	Lon               *float64           `json:"lon,omitempty"`
+	Referencia        string             `json:"referencia,omitempty" doc:"Punto de referencia de la instalación; solo con servicios.ver_ubicacion"`
+	ContactoNombre    string             `json:"contactoNombre,omitempty" doc:"Quien atiende en el sitio; solo con servicios.ver_ubicacion"`
+	ContactoTelefono  string             `json:"contactoTelefono,omitempty" doc:"Teléfono del contacto en sitio tal como está en Argos; solo con servicios.ver_ubicacion"`
+	ContactoTelefonos []formato.Telefono `json:"contactoTelefonos,omitempty" doc:"El teléfono del contacto en sitio para mostrar y llamar (E.164); solo con servicios.ver_ubicacion"`
 	SincronizadoEn    time.Time          `json:"sincronizadoEn" doc:"Cuándo se leyó de Argos"`
+}
+
+// Planta es la referencia de planta del servicio (A9): cada clave es texto o null.
+type Planta struct {
+	Caja        *string `json:"caja" nullable:"true"`
+	Puerto      *string `json:"puerto" nullable:"true"`
+	OLT         *string `json:"olt" nullable:"true"`
+	Slot        *string `json:"slot" nullable:"true"`
+	PON         *string `json:"pon" nullable:"true"`
+	PotenciaDBm *string `json:"potenciaDbm" nullable:"true" doc:"Decimal con dos decimales, como -19.40"`
 }
 
 // CopiaArgos es lo que Iris sabía del cliente y del servicio al crear un ticket o una orden. Se
@@ -98,11 +116,11 @@ type CopiaServicio struct {
 	ID           int64    `json:"id"`
 	PlanNombre   string   `json:"planNombre"`
 	Estado       string   `json:"estado"`
-	Direccion    string   `json:"direccion" doc:"Dirección de instalación; vacía si Argos no tenía una propia"`
-	Lat          *float64 `json:"lat" nullable:"true"`
-	Lon          *float64 `json:"lon" nullable:"true"`
-	IP           string   `json:"ip"`
-	RouterNombre string   `json:"routerNombre"`
+	Direccion    string   `json:"direccion,omitempty" doc:"Dirección de instalación; ausente si Argos no tenía una propia o sin servicios.ver_ubicacion"`
+	Lat          *float64 `json:"lat,omitempty" doc:"Ausente sin servicios.ver_ubicacion"`
+	Lon          *float64 `json:"lon,omitempty"`
+	IP           string   `json:"ip,omitempty" doc:"Ausente sin servicios.ver_red"`
+	RouterNombre string   `json:"routerNombre,omitempty" doc:"Ausente sin servicios.ver_red"`
 	ZonaNombre   string   `json:"zonaNombre"`
 }
 

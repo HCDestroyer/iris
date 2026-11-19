@@ -1,8 +1,9 @@
 "use client";
 
 import { Autocompletar, Aviso, Boton, Cargando, InsigniaEstado, ListaOpciones } from "@iris/ui";
-import { ArrowLeft, Building2, History, MapPin, Phone, PlugZap, RotateCw, Search, UserRound, Wifi, X } from "lucide-react";
+import { ArrowLeft, Building2, History, MapPin, Phone, PlugZap, RotateCw, Search, UserRound, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { LineaServicio } from "@/componentes/clientes/linea-servicio";
 import { api, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { escribirLocal, leerLocalJson } from "@/lib/almacen";
@@ -11,7 +12,6 @@ import {
     agregarReciente,
     claveRecientes,
     esIP,
-    estadoServicio,
     nombresEmpresas,
     MIN_BUSQUEDA,
     ordenarServicios,
@@ -22,6 +22,7 @@ import {
     type SeleccionCliente,
     type ServicioCliente,
 } from "@/lib/clientes/selector";
+import { etiquetaServicio } from "@/lib/datos/servicio";
 import { useDiferido } from "@/lib/diferido";
 import { useSesion } from "@/lib/sesion";
 
@@ -118,12 +119,8 @@ function ClienteElegido({ seleccion, alCambiar, alQuitar }: { seleccion: Selecci
                 </Boton>
             </div>
             {servicio ? (
-                <div className="flex flex-wrap items-center gap-2 text-sm" data-testid="servicio-elegido">
-                    <Wifi aria-hidden className="size-4 text-muted-foreground" />
-                    <span>
-                        Servicio <span className="font-mono">{servicio.codigo}</span> · {servicio.planNombre || "Sin plan"}
-                    </span>
-                    <InsigniaEstado {...estadoServicio(servicio.estado)} />
+                <div className="rounded-md border bg-background px-3 py-2.5" data-testid="servicio-elegido">
+                    <LineaServicio servicio={servicio} />
                 </div>
             ) : null}
             <Boton variante="secundario" tamano="sm" className="justify-self-start" onClick={alCambiar}>
@@ -135,11 +132,16 @@ function ClienteElegido({ seleccion, alCambiar, alQuitar }: { seleccion: Selecci
 }
 
 type Estado =
-    | { q: string; tipo: "listo"; datos: ClienteResumen[]; stale: boolean; servicioIP?: number | null }
+    | { q: string; tipo: "listo"; datos: ClienteResumen[]; stale: boolean; servicioIP?: number | null; sinPermisoIP?: boolean }
     | { q: string; tipo: "error"; error: unknown };
 
-/** Lee los clientes del texto (o de la IP). Devuelve resultados con sus servicios. */
-async function buscarClientes(q: string, signal: AbortSignal): Promise<Extract<Estado, { tipo: "listo" }>> {
+/**
+ * Lee los clientes del texto (o de la IP). Devuelve resultados con sus servicios. Buscar por IP
+ * exige `servicios.ver_red` (la IP es un dato de red, contrato con Argos 0.8.0 §2.4): sin él, una IP
+ * no se busca (el servidor tampoco la buscaría).
+ */
+async function buscarClientes(q: string, signal: AbortSignal, porIP: boolean): Promise<Extract<Estado, { tipo: "listo" }>> {
+    if (!porIP && esIP(q)) return { q, tipo: "listo", datos: [], stale: false, sinPermisoIP: true };
     if (esIP(q)) {
         try {
             const r = await resolver(api().GET("/api/v1/clientes/resolver-ip", { params: { query: { ip: q.trim() } }, signal }));
@@ -177,7 +179,8 @@ function Busqueda({
     alCancelar?: () => void;
     alConectorApagado?: (apagado: boolean) => void;
 }) {
-    const { yo } = useSesion();
+    const { yo, puede } = useSesion();
+    const porIP = puede(["servicios.ver_red"]);
     const clave = claveRecientes(yo.usuario.id, yo.empresaActiva?.id);
     // Solo en el navegador: los recientes se leen al montar la búsqueda (componente de cliente).
     const [recientes] = useState<ClienteReciente[]>(() => soloMinimo(leerLocalJson(clave, sonRecientes, [])));
@@ -202,7 +205,7 @@ function Busqueda({
     useEffect(() => {
         if (q.length < MIN_BUSQUEDA) return undefined;
         const control = new AbortController();
-        buscarClientes(q, control.signal).then(
+        buscarClientes(q, control.signal, porIP).then(
             (r) => {
                 if (control.signal.aborted) return;
                 setEstado(r);
@@ -215,7 +218,7 @@ function Busqueda({
             },
         );
         return () => control.abort();
-    }, [q, intento]);
+    }, [q, intento, porIP]);
 
     const terminar = useCallback(
         (cliente: ClienteResumen, servicio: ServicioCliente | null) => {
@@ -251,6 +254,8 @@ function Busqueda({
         ) : (
             "No se pudo buscar: el aviso con «Reintentar» está bajo el campo."
         )
+    ) : vigente?.tipo === "listo" && vigente.sinPermisoIP ? (
+        <span data-testid="sin-permiso-ip">Tu rol no busca por IP.</span>
     ) : (
         <span className="grid gap-0.5">
             <span className="font-medium text-foreground">{`Ningún cliente coincide con «${q}»`}</span>
@@ -346,9 +351,9 @@ function OpcionCliente({ cliente: opcion }: { cliente: ClienteResumen | ClienteR
             {servicios === null ? null : servicios.length === 0 ? (
                 <span className="text-xs text-muted-foreground">Sin servicios en esta empresa</span>
             ) : (
-                <span className="flex flex-wrap gap-1.5">
+                <span className="grid gap-1">
                     {servicios.slice(0, 3).map((s) => (
-                        <InsigniaEstado key={s.id} {...estadoServicio(s.estado)} texto={`${s.planNombre || s.codigo} · ${estadoServicio(s.estado).texto}`} />
+                        <LineaServicio key={s.id} servicio={s} variante="compacta" numerado={servicios.length > 1} />
                     ))}
                     {servicios.length > 3 ? <span className="text-xs text-muted-foreground">+{servicios.length - 3} más</span> : null}
                 </span>
@@ -434,19 +439,10 @@ function ConfirmarCliente({
                         }}
                         opciones={lectura.servicios.map((x) => ({
                             valor: String(x.id),
-                            texto: `${x.planNombre || "Sin plan"} ${x.codigo}`,
+                            texto: etiquetaServicio(x),
                             contenido: (
-                                <span className="grid gap-1" data-servicio={x.codigo}>
-                                    <span className="flex flex-wrap items-center justify-between gap-2">
-                                        <span className="font-medium">{x.planNombre || "Sin plan"}</span>
-                                        <InsigniaEstado {...estadoServicio(x.estado)} />
-                                    </span>
-                                    <span className="text-xs break-words text-muted-foreground">
-                                        <span className="font-mono">{x.codigo}</span>
-                                        {x.ip ? ` · IP ${x.ip}` : null}
-                                        {x.direccion ? ` · ${x.direccion}` : null}
-                                        {x.zonaNombre ? ` · ${x.zonaNombre}` : null}
-                                    </span>
+                                <span className="grid" data-servicio={x.codigo}>
+                                    <LineaServicio servicio={x} numerado={lectura.servicios.length > 1} />
                                 </span>
                             ),
                         }))}

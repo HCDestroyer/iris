@@ -350,17 +350,15 @@ func (m *Modulo) herrEstadoServicio(ctx context.Context, t *turnoIA, l LlamadaIA
 		return resHerramienta{fallo: true}, h
 	}
 	var b strings.Builder
-	for _, s := range svs {
-		b.WriteString(fmt.Sprintf("Servicio id %d (%s): plan «%s», estado %s, zona %s.\n", s.ID, limpiarDato(s.Codigo, 30), limpiarDato(s.PlanNombre, 60),
-			limpiarDato(s.Estado, 30), limpiarDato(s.ZonaNombre, 60)))
-	}
+	b.WriteString(describirServiciosIA(svs, t.numeroVerificado))
 	if len(svs) == 0 {
 		b.WriteString("El cliente no tiene servicios en esta empresa.\n")
 	}
 	zona := ""
 	for _, f := range fallas {
 		zona = limpiarDato(f.ZonaNombre, 60)
-		b.WriteString(fmt.Sprintf("Falla de red abierta: el equipo «%s» de %s está caído y afecta al cliente. No hay hora estimada de solución.\n", limpiarDato(f.RouterNombre, 60), zona))
+		// Nunca el nombre del router (contrato argosisp.md 0.8.0 §2.4): solo la zona.
+		b.WriteString(fmt.Sprintf("Falla de red abierta: un equipo de red de %s está caído y afecta al cliente. No hay hora estimada de solución.\n", zonaFalla(zona)))
 	}
 	if len(fallas) == 0 {
 		b.WriteString("No hay fallas de red abiertas que afecten al cliente.\n")

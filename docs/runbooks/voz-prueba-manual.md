@@ -204,13 +204,24 @@ en el momento:
    Llamadas, o la de la conversación).
 5. Tiene el permiso de contestar llamadas (roles `soporte`, `despacho`, `ventas`, `supervisor` y `admin`).
 
+Ahora el panel lo dice solo: en la tarjeta de la llamada (sonando o perdida) aparece «No te
+sonó porque…» con el paso que falta y su botón («Encender recibir llamadas», «Ponerme disponible» o
+volver a pedir el micrófono); el panel «Llamadas» también ofrece «Ponerme disponible», y la primera vez
+que alguien que contesta entra con un número con llamadas encendidas, un aviso le ofrece encender
+«Recibir llamadas». Lo que el panel no puede saber (si eres de la cola) no se dice.
+
 Si a nadie le suena, la llamada queda en la conversación como **«Llamada perdida — Nadie
 contestó»** y en «Por devolver». Si alguien se pone disponible o enciende «Recibir llamadas» mientras
 todavía suena, le empieza a sonar en unos segundos.
 
-**«Llamada rechazada» sin nadie que la rechazara**: es el límite contra abuso. La cuarta llamada del
-mismo número en 10 minutos se rechaza sola (el cliente oye que no se le contestó). Al probar, esperar
-10 minutos desde la primera de las tres o probar desde otro teléfono. Otras causas que se ven
+**«Llamada rechazada» sin nadie que la rechazara**: es el límite contra abuso. Como máximo suenan 3
+llamadas del mismo número cada 10 minutos; la siguiente se rechaza sola (el cliente oye que no se le
+contestó). La tarjeta dice «Demasiadas llamadas seguidas de este número; vuelve a sonar a las HH:MM» a
+quien configura llamadas, y trae **«Dejar que vuelva a llamar»** (supervisor y admin) para que la
+próxima suene ya. Llamar a ese número desde Iris también lo levanta, en cuanto WhatsApp acepta la
+llamada aunque el cliente no conteste (queda registrado quién llamó). En un número prestado solo lo
+puede hacer la empresa dueña del número. Al probar: usar ese botón,
+esperar a la hora que dice o probar desde otro teléfono. Otras causas que se ven
 distinto: con las llamadas apagadas en Iris no queda nada en la conversación (registro: «voz: llegó
 una llamada y se rechazó porque las llamadas del número están apagadas en Iris»); fuera del horario
 queda «Llamó fuera de horario».
