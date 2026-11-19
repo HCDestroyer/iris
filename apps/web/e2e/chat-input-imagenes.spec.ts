@@ -149,7 +149,8 @@ test.describe("compositor de la bandeja", () => {
         const sugerencia = conv(page).getByRole("region", { name: "Sugerencia del asistente" });
         await expect(sugerencia).toBeVisible();
         await expect(sugerencia.locator('[data-slot="cuerpo-sugerencia"]')).toHaveCount(0);
-        await expect(sugerencia.locator('[data-slot="resumen-sugerencia"]')).toBeVisible();
+        // Plegada: el comienzo del texto junto al título (recortado si no cabe).
+        await expect(sugerencia.locator('[data-slot="resumen-sugerencia"]')).toHaveCount(1);
         const medidas = await page.evaluate(() => {
             const log = document.querySelector<HTMLElement>('[role="log"][aria-label="Mensajes"]');
             const boton = document.querySelector<HTMLElement>('[data-slot="enviar-telefono"]');
