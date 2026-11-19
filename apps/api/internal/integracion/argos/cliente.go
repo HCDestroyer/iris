@@ -50,11 +50,17 @@ type Pagina[T any] = conector.Pagina[T]
 const CabeceraEmpresaArgos = "X-Empresa-Id"
 
 // BuscarClientes: GET /clientes?q=&limit=&cursor= con X-Empresa-Id (≠ 0), que acota la búsqueda en
-// Argos; Iris además descarta lo que sabe que es de otra empresa.
-func (c *Cliente) BuscarClientes(ctx context.Context, q string, limite int, cursor string, empresaID int64) (Pagina[ClienteArgos], error) {
+// Argos; Iris además descarta lo que sabe que es de otra empresa. sinRed manda buscar_red=false
+// (contrato 0.8.1 §2.1): q no coincide por la IPv4 vigente, los prefijos IPv6 ni el user_ppp. Quien
+// llama decide si mandarlo (solo con Argos ≥ 1.21.0, SoportaBuscarSinRed); sin sinRed no se manda
+// el parámetro y Argos busca como siempre.
+func (c *Cliente) BuscarClientes(ctx context.Context, q string, limite int, cursor string, empresaID int64, sinRed bool) (Pagina[ClienteArgos], error) {
 	v := url.Values{"q": {q}, "limit": {strconv.Itoa(limite)}}
 	if cursor != "" {
 		v.Set("cursor", cursor)
+	}
+	if sinRed {
+		v.Set("buscar_red", "false")
 	}
 	cli := c.Cliente
 	if empresaID != 0 {

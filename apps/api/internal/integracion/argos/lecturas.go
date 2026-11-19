@@ -128,6 +128,8 @@ type entradaBusquedaFinal struct {
 	// pudo leer y queda con servicios null.
 	servicios  map[int64]leidoEnArgos
 	conectorID int64
+	// sinRed: se mandó buscar_red=false a Argos (contrato 0.8.1 §2.1); queda en la auditoría.
+	sinRed bool
 }
 
 // MinimoBusquedaConServicios: caracteres mínimos de q con ?servicios=true.
@@ -215,7 +217,7 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 			for _, c := range r.Data {
 				ids = append(ids, c.ID)
 			}
-			t.Anotar(map[string]any{"clientes": ids, "stale": r.Stale, "servicios": in.Servicios})
+			t.Anotar(map[string]any{"clientes": ids, "stale": r.Stale, "servicios": in.Servicios, "buscar_red": !in.sinRed})
 			return r, nil
 		},
 	})
@@ -242,14 +244,19 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 	}
 	// Buscar por IP (o un trozo de IP) sería un oráculo de la red: Argos busca también en la IP. Sin
 	// servicios.ver_red global, lista vacía sin llamar a Argos (contrato 0.8.0 §2.4).
-	if pareceIP(in.Q) && !contexto.PermisosDe(ctx).TieneGlobal(string(nucleo.PermServiciosVerRed)) {
+	redGlobal := contexto.PermisosDe(ctx).TieneGlobal(string(nucleo.PermServiciosVerRed))
+	if pareceIP(in.Q) && !redGlobal {
 		return ResultadoBusqueda{Data: []ClienteResumen{}}, nil
 	}
+	// Tampoco por user_ppp (texto libre que no parece una IP) ni prefijos: con Argos ≥ 1.21.0,
+	// buscar_red=false (contrato 0.8.1 §2.1). Con un Argos anterior no se manda (lo ignoraría) y
+	// queda el límite conocido: un q con el user_ppp todavía encuentra al cliente.
+	sinRed := !redGlobal && SoportaBuscarSinRed(c.VersionRemota)
 	f := entradaBusquedaFinal{EntradaBuscarClientes: in}
 	cli := b.m.clienteDe(c)
 	empresa := contexto.EmpresaDe(ctx)
-	f.pagina, f.errArgos = cli.BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, empresa)
-	f.conectorID = c.ID
+	f.pagina, f.errArgos = cli.BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, empresa, sinRed)
+	f.conectorID, f.sinRed = c.ID, sinRed
 	if f.errArgos == nil {
 		f.verificados = map[int64]infoEmpresas{}
 		resto := f.pagina.Data
