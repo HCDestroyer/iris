@@ -30,7 +30,7 @@ func (x *bandejaIA) boletaRegistrada(conv, num string) {
 	x.t.Helper()
 	x.guion(dice("Hola, con gusto te ayudo."))
 	x.correr(conv)
-	x.webhook(x.mensajeCliente(num, "wamid.b4foto"+num, `"type":"image","image":{"id":"boleta1","mime_type":"image/jpeg"}`))
+	x.webhook(x.mensajeCliente(num, "wamid.b4foto"+num, `"type":"image","image":{"id":"b4`+num+`","mime_type":"image/jpeg"}`))
 	ms := x.mensajes(x.supervisor, conv)
 	if err := x.m.DescargarMedio(x.ctx, uuid.MustParse(ms[len(ms)-1]["id"].(string)), false); err != nil {
 		x.t.Fatal(err)
@@ -40,6 +40,11 @@ func (x *bandejaIA) boletaRegistrada(conv, num string) {
 		llama("registrar_boleta", `{"metodo": "deposito", "cuenta_bancaria_id": 3, "banco_origen_id": 0, "referencia": "b4-1", "monto": "250.00", "fecha_deposito": "2026-11-04"}`),
 		dice("Recibí tu boleta. Caja la revisa."))
 	x.correr(conv)
+	// DespacharBoletas manda todas las pendientes del paquete: las de pruebas anteriores (con su
+	// almacenamiento ya borrado) se dejan fuera para que solo vaya la de esta conversación.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.boletas SET estado = 'fallida' WHERE estado = 'por_enviar' AND conversacion_id <> $1`, conv); err != nil {
+		x.t.Fatal(err)
+	}
 	if err := x.m.DespacharBoletas(x.ctx, x.bd); err != nil {
 		x.t.Fatal(err)
 	}
@@ -87,8 +92,10 @@ func (x *bandejaIA) ultimoCriterio(conv string) map[string]any {
 func TestReconexionSinPersonal(t *testing.T) {
 	x := nuevaBandejaIA(t)
 	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(map[string]any{"reconexion_temporal": true, "recibir_boleta": true}, "alta")}, "maxTurnos": 20})
-	// Nadie de caja disponible de otras pruebas del paquete: la prueba controla quién está.
-	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.disponibilidad SET estado = 'no_disponible' WHERE estado = 'disponible'`); err != nil {
+	// Las personas de caja de otras pruebas del paquete (ya terminadas) no cuentan: la prueba
+	// controla quién tiene el rol y quién está disponible.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.disponibilidad SET estado = 'no_disponible' WHERE estado = 'disponible';
+		DELETE FROM nucleo.usuarios_roles WHERE rol_id = (SELECT id FROM nucleo.roles WHERE codigo = 'caja')`); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
