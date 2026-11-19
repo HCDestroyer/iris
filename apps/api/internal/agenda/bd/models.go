@@ -739,6 +739,20 @@ type IntegracionAbrirArgosCuota struct {
 	Pedidos   int32
 }
 
+type IntegracionArgosCertificado struct {
+	ID            int64
+	ConectorID    int64
+	HuellaSha256  string
+	Emisor        string
+	Sujeto        string
+	Host          string
+	VenceEn       *time.Time
+	VistoEn       time.Time
+	UltimoVistoEn time.Time
+	AnteriorID    *int64
+	Cambiado      bool
+}
+
 type IntegracionArgosCliente struct {
 	ID                  int64
 	EmpresaID           int64
@@ -856,6 +870,38 @@ type IntegracionArgosServicio struct {
 	PrefijoEnlaceV6   string
 	PrefijoDelegadoV6 string
 	Planta            []byte
+}
+
+type IntegracionArgosSincronizacionEtapa struct {
+	SincronizacionID uuid.UUID
+	Recurso          string
+	Orden            int16
+	Estado           string
+	Procesados       int32
+	Omitidos         int32
+	Total            *int32
+	Cursor           *string
+	IniciadaEn       *time.Time
+	TerminadaEn      *time.Time
+	Error            *string
+}
+
+type IntegracionArgosSincronizacione struct {
+	ID               uuid.UUID
+	ConectorID       int64
+	Estado           string
+	ContratoRemoto   *string
+	ExcluirRetirados bool
+	Informar         bool
+	IniciadaEn       time.Time
+	ActualizadaEn    time.Time
+	TerminadaEn      *time.Time
+	InformeEstado    string
+	InformadoEn      *time.Time
+	InformadoHasta   *time.Time
+	InformeDetalle   *string
+	IniciadaPor      *int64
+	Origen           string
 }
 
 type IntegracionArgosTraslado struct {
@@ -2480,6 +2526,7 @@ type NucleoTokensApi struct {
 	CreadoPor  *int64
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	Via        *string
 }
 
 type NucleoUsuario struct {

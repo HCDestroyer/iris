@@ -299,6 +299,32 @@
         ],
         "type": "object"
       },
+      "ActivacionConector": {
+        "additionalProperties": false,
+        "properties": {
+          "actorNombre": {
+            "description": "Nombre de quien lo activó tal como quedó en la auditoría",
+            "type": "string"
+          },
+          "en": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usuarioId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "en",
+          "usuarioId",
+          "actorNombre"
+        ],
+        "type": "object"
+      },
       "Actividad": {
         "additionalProperties": false,
         "properties": {
@@ -1811,12 +1837,13 @@
             "type": "string"
           },
           "tipo": {
-            "description": "asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)",
+            "description": "argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)",
             "enum": [
               "asistente_tope",
               "servidor_ia_caido",
               "servidor_ia_incompatible",
-              "servidor_ia_umbral"
+              "servidor_ia_umbral",
+              "argos_certificado"
             ],
             "type": "string"
           },
@@ -3396,6 +3423,82 @@
         "required": [
           "nombre",
           "modo"
+        ],
+        "type": "object"
+      },
+      "CertificadoAnterior": {
+        "additionalProperties": false,
+        "properties": {
+          "emisor": {
+            "type": "string"
+          },
+          "huellaSha256": {
+            "type": "string"
+          },
+          "sujeto": {
+            "type": "string"
+          },
+          "ultimoVistoEn": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "huellaSha256",
+          "emisor",
+          "sujeto",
+          "ultimoVistoEn"
+        ],
+        "type": "object"
+      },
+      "CertificadoArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "anterior": {
+            "$ref": "#/components/schemas/CertificadoAnterior"
+          },
+          "cambiado": {
+            "description": "true: reemplazó a otro en este conector sin reconectar (Iris avisó al admin y no detuvo nada)",
+            "type": "boolean"
+          },
+          "emisor": {
+            "type": "string"
+          },
+          "host": {
+            "type": "string"
+          },
+          "huellaSha256": {
+            "type": "string"
+          },
+          "sujeto": {
+            "type": "string"
+          },
+          "ultimoVistoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "venceEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vistoEn": {
+            "description": "La primera vez que Iris lo vio",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "huellaSha256",
+          "emisor",
+          "sujeto",
+          "host",
+          "venceEn",
+          "vistoEn",
+          "ultimoVistoEn",
+          "cambiado"
         ],
         "type": "object"
       },
@@ -7466,6 +7569,27 @@
           "version",
           "creadoEn",
           "actualizadoEn"
+        ],
+        "type": "object"
+      },
+      "EmpresaAlcance": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nit": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "nit"
         ],
         "type": "object"
       },
@@ -14462,6 +14586,92 @@
         ],
         "type": "object"
       },
+      "EstadoConexionArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "activacion": {
+            "$ref": "#/components/schemas/ActivacionConector",
+            "description": "Última activación (de la auditoría); ausente si nunca se activó"
+          },
+          "alcanceGlobal": {
+            "description": "true: también las empresas que se creen después en Argos; null = Argos no lo informó",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "certificado": {
+            "$ref": "#/components/schemas/CertificadoArgos",
+            "description": "Certificado TLS de la API de Argos; ausente = no se ha visto (sin llamadas por HTTPS todavía)"
+          },
+          "conector": {
+            "$ref": "#/components/schemas/Conector",
+            "description": "El conector de Argos activo o, si no hay, el más reciente. ausente = Iris nunca se conectó"
+          },
+          "contratoArgos": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contratoIris": {
+            "type": "string"
+          },
+          "empresas": {
+            "description": "Empresas del alcance del token (lo que informó el canje)",
+            "items": {
+              "$ref": "#/components/schemas/EmpresaAlcance"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "fallos": {
+            "$ref": "#/components/schemas/FallosArgos"
+          },
+          "funcionesApagadas": {
+            "description": "Lo que Iris no hace por la versión de Argos (§4.1); vacío si Argos tiene todo",
+            "items": {
+              "$ref": "#/components/schemas/FuncionApagada"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "instantaneas": {
+            "items": {
+              "$ref": "#/components/schemas/InstantaneaArgos"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "sincronizacion": {
+            "$ref": "#/components/schemas/Sincronizacion",
+            "description": "La última primera sincronización del conector; ausente = no ha empezado"
+          },
+          "versionArgos": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "contratoIris",
+          "contratoArgos",
+          "versionArgos",
+          "funcionesApagadas",
+          "instantaneas",
+          "fallos",
+          "empresas",
+          "alcanceGlobal"
+        ],
+        "type": "object"
+      },
       "EstadoCuenta": {
         "additionalProperties": false,
         "properties": {
@@ -14806,6 +15016,83 @@
           "tomadoEn",
           "lecturaOk",
           "modelosDisponibles"
+        ],
+        "type": "object"
+      },
+      "EtapaSincronizacion": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "description": "Último error, en español y sin datos de clientes (hasta 300 caracteres)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "en_curso",
+              "completa",
+              "con_errores"
+            ],
+            "type": "string"
+          },
+          "iniciadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "omitidos": {
+            "description": "Filas que no se guardaron: un servicio que Argos eliminó (lápida) o cuyo cliente no está en Iris",
+            "format": "int32",
+            "type": "integer"
+          },
+          "procesados": {
+            "description": "Filas que se leyeron y guardaron",
+            "format": "int32",
+            "type": "integer"
+          },
+          "recurso": {
+            "enum": [
+              "empresas",
+              "zonas",
+              "planes",
+              "routers",
+              "cuentas_bancarias",
+              "bancos",
+              "clientes",
+              "servicios"
+            ],
+            "type": "string"
+          },
+          "terminadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "description": "null si no se sabe (las listas por cursor no lo dicen)",
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "recurso",
+          "estado",
+          "procesados",
+          "omitidos",
+          "total",
+          "iniciadaEn",
+          "terminadaEn",
+          "error"
         ],
         "type": "object"
       },
@@ -15547,6 +15834,45 @@
         ],
         "type": "object"
       },
+      "FallosArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "pendientes": {
+            "description": "Acciones hacia Argos que no están hechas, por estado",
+            "items": {
+              "$ref": "#/components/schemas/PendientesPorEstado"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "ultimoWebhookErrorEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhooksConError": {
+            "description": "Webhooks de Argos guardados que no se pudieron aplicar (se reintentan)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "webhooksRechazados": {
+            "description": "Webhooks con firma inválida rechazados desde que arrancó el servidor (de cualquier conector)",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "webhooksConError",
+          "ultimoWebhookErrorEn",
+          "webhooksRechazados",
+          "pendientes"
+        ],
+        "type": "object"
+      },
       "FeriadoHorario": {
         "additionalProperties": false,
         "properties": {
@@ -16276,6 +16602,38 @@
         ],
         "type": "object"
       },
+      "FuncionApagada": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "enum": [
+              "primera_sincronizacion_completa",
+              "informe_sincronizacion",
+              "reconexion_sin_personal",
+              "precio_servicio",
+              "cuentas_bancarias_webhook",
+              "aprobar_comprobantes",
+              "inventario_por_tecnico",
+              "buscar_sin_red"
+            ],
+            "type": "string"
+          },
+          "desde": {
+            "description": "Contrato o versión de Argos que la trae (\"contrato 0.8.0\", \"Argos 1.21.0\")",
+            "type": "string"
+          },
+          "texto": {
+            "description": "Qué no hace Iris con este Argos, en español llano",
+            "type": "string"
+          }
+        },
+        "required": [
+          "codigo",
+          "texto",
+          "desde"
+        ],
+        "type": "object"
+      },
       "GPUMotor": {
         "additionalProperties": false,
         "properties": {
@@ -16624,6 +16982,37 @@
           "nombre",
           "hallazgoId",
           "urlHorus"
+        ],
+        "type": "object"
+      },
+      "InstantaneaArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "cuantos": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "recurso": {
+            "enum": [
+              "clientes",
+              "servicios",
+              "zonas",
+              "routers"
+            ],
+            "type": "string"
+          },
+          "ultimoSincronizadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "recurso",
+          "cuantos",
+          "ultimoSincronizadoEn"
         ],
         "type": "object"
       },
@@ -23035,6 +23424,29 @@
         ],
         "type": "object"
       },
+      "PendientesPorEstado": {
+        "additionalProperties": false,
+        "properties": {
+          "cuantos": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "en_curso",
+              "fallido_negocio",
+              "agotado"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "estado",
+          "cuantos"
+        ],
+        "type": "object"
+      },
       "PerfilAsistente": {
         "additionalProperties": false,
         "properties": {
@@ -23217,6 +23629,7 @@
           "integraciones.reintentar",
           "integraciones.resolver_pendiente",
           "integraciones.revisar_version",
+          "integraciones.sincronizar",
           "integraciones.ver",
           "integraciones.ver_pendientes",
           "llamadas.anotar",
@@ -28151,6 +28564,110 @@
         ],
         "type": "object"
       },
+      "Sincronizacion": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "conectorId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "contratoArgos": {
+            "description": "Contrato que informaba Argos al empezar",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "en_curso",
+              "completa",
+              "con_errores"
+            ],
+            "type": "string"
+          },
+          "etapas": {
+            "items": {
+              "$ref": "#/components/schemas/EtapaSincronizacion"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "excluirRetirados": {
+            "description": "true: solo clientes con un servicio no retirado (Argos ≥ 0.8.0); false: listas completas (Argos anterior)",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "sincronizacion_id (UUID v7 de Iris) que va en el informe a Argos",
+            "type": "string"
+          },
+          "informadoEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "informeDetalle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "informeEstado": {
+            "description": "pendiente: por mandar; informado: Argos lo guardó; descartado: Argos ya tenía uno más nuevo (409 sincronizacion_vieja); no_soportado: Argos anterior a 0.8.0; error: no se pudo (se reintenta)",
+            "enum": [
+              "pendiente",
+              "informado",
+              "descartado",
+              "no_soportado",
+              "error"
+            ],
+            "type": "string"
+          },
+          "iniciadaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "origen": {
+            "description": "activacion: empezó sola al activar el conector; manual: la lanzó o reanudó un administrador",
+            "enum": [
+              "activacion",
+              "manual"
+            ],
+            "type": "string"
+          },
+          "terminadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "conectorId",
+          "estado",
+          "origen",
+          "excluirRetirados",
+          "contratoArgos",
+          "iniciadaEn",
+          "actualizadaEn",
+          "terminadaEn",
+          "informeEstado",
+          "informadoEn",
+          "informeDetalle",
+          "etapas"
+        ],
+        "type": "object"
+      },
       "SincronizacionCanal": {
         "additionalProperties": false,
         "properties": {
@@ -29472,6 +29989,17 @@
           "usuarioId": {
             "format": "int64",
             "type": "integer"
+          },
+          "via": {
+            "description": "Solo lectura. recuperacion: token de un conector creado a mano por un admin (vía de recuperación, contrato con Argos 0.8.0 §1.5); cli: creado con «iris integracion crear». Los dos se revocan al confirmarse un canje nuevo del mismo sistema. null: los demás",
+            "enum": [
+              "recuperacion",
+              "cli"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -29484,6 +30012,7 @@
           "ultimoUso",
           "revocadoEn",
           "creadoPor",
+          "via",
           "creadoEn"
         ],
         "type": "object"
@@ -38879,6 +39408,77 @@
         "x-permiso": "integraciones.conectar"
       }
     },
+    "/api/v1/integraciones/argosisp/estado": {
+      "get": {
+        "description": "Permiso: `integraciones.ver`. Contrato 0.8.0 §2.5 (d): el conector (activo o el más reciente) y quién lo activó, el contrato de cada lado con las funciones que quedan apagadas por la versión de Argos, la primera sincronización por recurso, las instantáneas (cuántos y el último `sincronizadoEn`), lo que falló (webhooks con error, rechazados y pendientes hacia Argos), las empresas del alcance y el certificado TLS de la API de Argos (solo informa: si cambió, `cambiado` y `anterior`). Nunca tokens ni secretos. Solo lee la base de Iris: no llama a Argos.",
+        "operationId": "estadoConexionArgos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoConexionArgos"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Estado de la conexión con Argos (pantalla de estado)",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.ver"
+      }
+    },
     "/api/v1/integraciones/argosisp/sso/tickets": {
       "post": {
         "description": "Permiso: `sso.emitir`. Lo llama el servidor de Argos (contrato §1.3 → §1.5) con el `iris_pat_` que Iris le entregó al conectar: cualquier otro token o una sesión, 403. Cuerpo en snake_case: `{ usuario: { id_externo, correo?, nombre? }, destino: { tipo: ticket|orden|prospecto, id_externo } }` (ids de Iris). Devuelve `{ url: \u003cIRIS_BASE_URL\u003e/sso/entrar#\u003cticket\u003e, expira_en }`: 60 s, un solo uso, atado al conector. Sin conector activo con Argos, 409 `conector_apagado`. No comprueba que el destino exista: al entrar, el usuario ve el recurso con sus propios permisos (o el error de acceso de siempre). La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.",
@@ -39683,6 +40283,129 @@
           "integraciones"
         ],
         "x-permiso": "integraciones.revisar_version"
+      }
+    },
+    "/api/v1/integraciones/conectores/{id}/sincronizar": {
+      "post": {
+        "description": "Permiso: `integraciones.sincronizar`. Contrato 0.8.0 §2.5. Con una en curso, la reanuda desde el último cursor; con una `con_errores`, la reabre (mismo id); si ya terminó completa (o Argos cambió de contrato), lanza otra (409 `sincronizacion_reciente` si la última terminó completa hace menos de 10 minutos). Solo lee de Argos. Responde **202** con la sincronización; el avance llega en `GET /integraciones/argosisp/estado`. Acepta `Idempotency-Key`. 422 `conector_apagado` si no está activo y `sistema_sin_sincronizacion` si no es de ArgosISP; 404 si no existe.",
+        "operationId": "sincronizarConectorArgos",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Sincronizacion"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reanudar o volver a lanzar la primera sincronización con Argos",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.sincronizar"
       }
     },
     "/api/v1/integraciones/conectores/{id}/url-publica": {
@@ -76650,7 +77373,7 @@
         "x-permiso": "tokens.ver"
       },
       "post": {
-        "description": "Permiso: `tokens.crear`. Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo. Desde un token, el nuevo no puede tener más permisos que el que lo crea. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.",
+        "description": "Permiso: `tokens.crear`. Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo, `integraciones.conectar` y `empresas.todas` (403): el token de la integración de un conector (roles `integracion_argos` o `integracion_horus`) creado a mano es la **vía de recuperación** del conector (contrato con Argos 0.8.0 §1.5, S5), solo de un administrador y auditada con `via: recuperacion`, con `expiraEn` de 30 días por defecto y 90 como máximo (422 `validacion`), y se revoca al confirmarse un canje nuevo; lo normal es conectar con un paso, donde el token nunca se muestra. Desde un token, el nuevo no puede tener más permisos que el que lo crea. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.",
         "operationId": "crearToken",
         "parameters": [
           {

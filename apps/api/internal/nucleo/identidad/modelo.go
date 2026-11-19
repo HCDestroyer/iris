@@ -80,6 +80,7 @@ type TokenAPI struct {
 	UltimoUso  *time.Time       `json:"ultimoUso" nullable:"true"`
 	RevocadoEn *time.Time       `json:"revocadoEn" nullable:"true"`
 	CreadoPor  *int64           `json:"creadoPor" nullable:"true"`
+	Via        *string          `json:"via" nullable:"true" enum:"recuperacion,cli" doc:"Solo lectura. recuperacion: token de un conector creado a mano por un admin (vía de recuperación, contrato con Argos 0.8.0 §1.5); cli: creado con «iris integracion crear». Los dos se revocan al confirmarse un canje nuevo del mismo sistema. null: los demás"`
 	CreadoEn   time.Time        `json:"creadoEn"`
 }
 
@@ -119,7 +120,7 @@ func aTokenAPI(t identidadbd.NucleoTokensApi) TokenAPI {
 	}
 	return TokenAPI{
 		ID: t.ID, UsuarioID: t.UsuarioID, Nombre: t.Nombre, Prefijo: t.Prefijo, Permisos: permisos,
-		ExpiraEn: t.ExpiraEn, UltimoUso: t.UltimoUso, RevocadoEn: t.RevocadoEn, CreadoPor: t.CreadoPor, CreadoEn: t.CreatedAt,
+		ExpiraEn: t.ExpiraEn, UltimoUso: t.UltimoUso, RevocadoEn: t.RevocadoEn, CreadoPor: t.CreadoPor, CreadoEn: t.CreatedAt, Via: t.Via,
 	}
 }
 

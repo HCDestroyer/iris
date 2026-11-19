@@ -435,3 +435,155 @@ ON CONFLICT (empresa_id) DO UPDATE SET leido_en = greatest(integracion.argos_cue
 -- Sin filas: nunca se leyó.
 SELECT leido_en FROM integracion.argos_cuentas_lecturas WHERE empresa_id IN (0, @empresa_id::bigint)
 ORDER BY leido_en DESC LIMIT 1;
+
+-- Primera sincronización (contrato 0.8.0 §2.5, B7) ----------------------------------------------
+
+-- name: CrearSincronizacion :one
+INSERT INTO integracion.argos_sincronizaciones (id, conector_id, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, iniciada_por, origen)
+VALUES (@id, @conector_id, sqlc.narg('contrato_remoto')::text, @excluir_retirados, @informar, @ahora, @ahora, sqlc.narg('iniciada_por')::bigint, @origen)
+RETURNING *;
+
+-- name: CrearEtapa :exec
+INSERT INTO integracion.argos_sincronizacion_etapas (sincronizacion_id, recurso, orden) VALUES (@sincronizacion_id, @recurso, @orden);
+
+-- name: SincronizacionEnCurso :one
+SELECT * FROM integracion.argos_sincronizaciones WHERE conector_id = @conector_id AND estado = 'en_curso';
+
+-- name: UltimaSincronizacion :one
+SELECT * FROM integracion.argos_sincronizaciones WHERE conector_id = @conector_id ORDER BY id DESC LIMIT 1;
+
+-- name: SincronizacionPorID :one
+SELECT * FROM integracion.argos_sincronizaciones WHERE id = @id;
+
+-- name: SincronizacionParaActualizar :one
+SELECT * FROM integracion.argos_sincronizaciones WHERE id = @id FOR UPDATE;
+
+-- name: EtapasDeSincronizacion :many
+SELECT * FROM integracion.argos_sincronizacion_etapas WHERE sincronizacion_id = @sincronizacion_id ORDER BY orden;
+
+-- name: ActualizarEtapa :one
+UPDATE integracion.argos_sincronizacion_etapas
+SET estado = @estado, procesados = @procesados, omitidos = @omitidos, total = sqlc.narg('total')::integer, cursor = sqlc.narg('cursor')::text,
+    iniciada_en = sqlc.narg('iniciada_en')::timestamptz, terminada_en = sqlc.narg('terminada_en')::timestamptz, error = sqlc.narg('error')::text
+WHERE sincronizacion_id = @sincronizacion_id AND recurso = @recurso
+RETURNING *;
+
+-- name: ActualizarSincronizacion :one
+-- actualizada_en siempre avanza (el informe a Argos compara por este instante).
+UPDATE integracion.argos_sincronizaciones
+SET estado = @estado, actualizada_en = GREATEST(@actualizada_en::timestamptz, actualizada_en + interval '1 millisecond'),
+    terminada_en = sqlc.narg('terminada_en')::timestamptz
+WHERE id = @id
+RETURNING *;
+
+-- name: FijarInformeSincronizacion :one
+-- informado_hasta solo avanza (un informe atrasado no lo retrocede).
+UPDATE integracion.argos_sincronizaciones
+SET informe_estado = @informe_estado, informado_en = coalesce(sqlc.narg('informado_en')::timestamptz, informado_en),
+    informado_hasta = GREATEST(informado_hasta, sqlc.narg('informado_hasta')::timestamptz), informe_detalle = sqlc.narg('informe_detalle')::text
+WHERE id = @id
+RETURNING *;
+
+-- name: GuardarClienteLista :exec
+-- Cliente leído de GET /clientes (primera sincronización): la lista no trae sus servicios, así que
+-- una fila que ya existe conserva sus empresas y sin_servicios (los recalcula la etapa de servicios).
+-- Una fila nueva nace sin empresas: nadie la ve en una empresa hasta que llegan sus servicios.
+INSERT INTO integracion.argos_clientes (
+    id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en,
+    tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, referencia
+) VALUES (
+    @id, 0, '{}'::bigint[], false, @codigo, @nombre, @telefono, @direccion, @lat, @lon, @zona_id, @estado, @sincronizado_en,
+    @tipo, @tipo_documento_fiscal, @nit_cui, @movil, @correo, @zona_nombre, @version_datos, @referencia
+)
+ON CONFLICT (id) DO UPDATE SET
+    codigo = excluded.codigo, nombre = excluded.nombre,
+    telefono = excluded.telefono, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
+    zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
+    tipo = excluded.tipo, tipo_documento_fiscal = excluded.tipo_documento_fiscal, nit_cui = excluded.nit_cui,
+    movil = excluded.movil, correo = excluded.correo,
+    zona_nombre = CASE WHEN excluded.zona_nombre <> '' THEN excluded.zona_nombre ELSE integracion.argos_clientes.zona_nombre END,
+    version_datos = excluded.version_datos, referencia = excluded.referencia, fallo_en = NULL, updated_at = now()
+WHERE integracion.argos_clientes.sincronizado_en <= excluded.sincronizado_en;
+
+-- name: ClientesEnInstantanea :many
+SELECT id, zona_id FROM integracion.argos_clientes WHERE id = ANY(@ids::bigint[]);
+
+-- name: RecalcularEmpresasClientes :exec
+-- Después de guardar una página de servicios: las empresas de cada cliente son las de sus servicios
+-- en la instantánea (las mayores que 0). Un cliente sin servicios en la instantánea no cambia.
+UPDATE integracion.argos_clientes c
+SET empresas = s.empresas, empresa_id = s.empresas[1], sin_servicios = false, updated_at = now()
+FROM (
+    SELECT cliente_id, array_agg(DISTINCT empresa_id ORDER BY empresa_id)::bigint[] AS empresas
+    FROM integracion.argos_servicios
+    WHERE cliente_id = ANY(@ids::bigint[]) AND empresa_id > 0
+    GROUP BY cliente_id
+) s
+WHERE c.id = s.cliente_id AND c.empresas IS DISTINCT FROM s.empresas;
+
+-- name: ResumenInstantaneas :many
+-- Pantalla de estado (§2.5 d): cuántos hay y el último sincronizado_en de cada instantánea.
+SELECT 'clientes'::text AS recurso, count(*)::bigint AS cuantos, max(sincronizado_en) AS ultimo FROM integracion.argos_clientes
+UNION ALL SELECT 'servicios'::text, count(*)::bigint, max(sincronizado_en) FROM integracion.argos_servicios
+UNION ALL SELECT 'zonas'::text, count(*)::bigint, max(sincronizado_en) FROM integracion.argos_zonas
+UNION ALL SELECT 'routers'::text, count(*)::bigint, max(sincronizado_en) FROM integracion.argos_routers;
+
+-- name: ResumenEntrantesFallidos :one
+-- Webhooks de Argos de este conector que no se pudieron aplicar (con error al procesarlos).
+SELECT count(*)::bigint AS cuantos, max(recibido_en) AS ultimo
+FROM integracion.entrantes WHERE conector_id = @conector_id AND error IS NOT NULL AND procesado_en IS NULL;
+
+-- name: ResumenPendientesArgos :many
+-- Acciones hacia Argos que no están hechas (integracion.pendientes), por estado.
+SELECT estado, count(*)::bigint AS cuantos FROM integracion.pendientes WHERE estado <> 'hecho' GROUP BY estado ORDER BY estado;
+
+-- Certificado TLS de la API de Argos (§1.5, «registrar y avisar») ------------------------------
+
+-- name: UltimoCertificado :one
+SELECT * FROM integracion.argos_certificados WHERE conector_id = @conector_id ORDER BY ultimo_visto_en DESC, id DESC LIMIT 1;
+
+-- name: CertificadoPorHuella :one
+SELECT * FROM integracion.argos_certificados WHERE conector_id = @conector_id AND huella_sha256 = @huella_sha256;
+
+-- name: VolverAVerCertificado :exec
+UPDATE integracion.argos_certificados SET ultimo_visto_en = @visto_en WHERE id = @id AND ultimo_visto_en < @visto_en;
+
+-- name: RegistrarCertificado :one
+INSERT INTO integracion.argos_certificados (conector_id, huella_sha256, emisor, sujeto, host, vence_en, visto_en, ultimo_visto_en, anterior_id, cambiado)
+VALUES (@conector_id, @huella_sha256, @emisor, @sujeto, @host, sqlc.narg('vence_en')::timestamptz, @visto_en, @visto_en, sqlc.narg('anterior_id')::bigint, @cambiado)
+RETURNING *;
+
+-- name: CertificadoPorID :one
+SELECT * FROM integracion.argos_certificados WHERE id = @id;
+
+-- name: ReabrirSincronizacion :one
+-- Reanudar a mano una sincronización con_errores: vuelve a en_curso con el mismo id (Argos recibe un
+-- informe más nuevo por actualizada_en).
+UPDATE integracion.argos_sincronizaciones
+SET estado = 'en_curso', terminada_en = NULL, actualizada_en = GREATEST(@ahora::timestamptz, actualizada_en + interval '1 millisecond'),
+    informe_estado = CASE WHEN informar THEN 'pendiente' ELSE informe_estado END,
+    origen = 'manual', iniciada_por = sqlc.narg('iniciada_por')::bigint
+WHERE id = @id AND estado = 'con_errores'
+RETURNING *;
+
+-- name: ReabrirEtapas :exec
+-- Las etapas con errores vuelven a pendiente; las listas por cursor siguen desde su último cursor.
+UPDATE integracion.argos_sincronizacion_etapas
+SET estado = 'pendiente', error = NULL, terminada_en = NULL
+WHERE sincronizacion_id = @sincronizacion_id AND estado = 'con_errores';
+
+-- name: EmpresasPorIDs :many
+SELECT id, nombre, nit FROM nucleo.empresas WHERE id = ANY(@ids::bigint[]) ORDER BY id;
+
+-- name: ActivacionDeConector :one
+-- Quién activó el conector por última vez (de la auditoría; el conector no lo guarda).
+SELECT a.actor_id, a.actor_nombre, a.created_at FROM auditoria.acciones a
+WHERE a.accion = 'integraciones.activar' AND a.entidad = 'conector' AND a.entidad_id = (@conector_id::bigint)::text AND a.resultado = 'ok'
+ORDER BY a.id DESC LIMIT 1;
+
+-- name: CertificadoVuelveAVerse :one
+-- Un certificado ya visto vuelve a aparecer después de otro (A → B → A): cuenta como cambio.
+UPDATE integracion.argos_certificados
+SET visto_en = @visto_en, ultimo_visto_en = @visto_en, cambiado = true, anterior_id = @anterior_id
+WHERE id = @id
+RETURNING *;

@@ -279,7 +279,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	crearToken := operacion("crearToken", http.MethodPost, "/api/v1/tokens", "Crear un token de API", nucleo.PermTokensCrear, http.StatusCreated, http.StatusNotFound, http.StatusConflict)
-	crearToken.Description += " Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo. Desde un token, el nuevo no puede tener más permisos que el que lo crea. " + descNoRepetible
+	crearToken.Description += " Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo, `integraciones.conectar` y `empresas.todas` (403): el token de la integración de un conector (roles `integracion_argos` o `integracion_horus`) creado a mano es la **vía de recuperación** del conector (contrato con Argos 0.8.0 §1.5, S5), solo de un administrador y auditada con `via: recuperacion`, con `expiraEn` de 30 días por defecto y 90 como máximo (422 `validacion`), y se revoca al confirmarse un canje nuevo; lo normal es conectar con un paso, donde el token nunca se muestra. Desde un token, el nuevo no puede tener más permisos que el que lo crea. " + descNoRepetible
 	huma.Register(api, crearToken,
 		func(ctx context.Context, in *conClave[EntradaCrearToken]) (*cuerpo[TokenCreado], error) {
 			v, err := m.CrearToken.Ejecutar(ctx, in.Body)

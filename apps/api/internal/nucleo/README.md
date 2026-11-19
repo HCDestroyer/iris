@@ -41,7 +41,14 @@ Subpaquetes:
   `nucleo.portal_purga` (worker, cada hora) borra las sesiones vencidas o revocadas y los tickets
   vencidos sin sesiones 30 días después. **Integraciones**
   (`integracion.go`): roles base `integracion_argos` / `integracion_horus` y
-  `iris integracion crear --sistema argosisp|horus --empresa …` (usuario + token).
+  `iris integracion crear --sistema argosisp|horus --empresa … [--expires-in <días>]` (usuario +
+  token). Tokens a mano de un conector (contrato con Argos 0.8.0 §1.5, S5; `tokens_api.via`, de solo
+  lectura en `TokenAPI`): por consola quedan `cli` (sin vencimiento salvo `--expires-in`, 1 a 365
+  días; la consola imprime si vence y cuándo); desde la API, solo un admin con
+  `integraciones.conectar` y `empresas.todas`, quedan `recuperacion` (30 días por defecto, 90 como
+  máximo). Los dos se revocan al confirmarse un canje nuevo del mismo sistema (los de todos los
+  usuarios con su rol). Al actualizar, la migración marca `recuperacion`, sin vencimiento nuevo, los
+  tokens vigentes de esos usuarios que no son el entregado por un canje: la instalación no se corta.
 - `identidad` · **historial de accesos** (`accesos.go`, tabla `nucleo.accesos`): una fila por
   inicio de sesión (éxito al quedar la sesión completa, también tras el MFA; `contrasena_erronea`,
   `mfa_fallido`, `bloqueado`, `inactivo`) y por uso de un token (como mucho una por token y hora),
