@@ -304,7 +304,8 @@ func (m *Modulo) abrirFlujoConvSSE(ctx context.Context, desde string) (flujoConv
 }
 
 // revalidarConv vuelve a leer la credencial y los permisos de hoy. false = cortar.
-func (m *Modulo) revalidarConv(ctx context.Context, bd nucleo.BD) (alcanceConv, bool) {
+func (m *Modulo) revalidarConv(ctx context.Context, bd nucleo.BD, donde string) (alcanceConv, bool) {
+	m.contarRevalidacion(contexto.ActorDe(ctx).ID, donde)
 	nctx, err := identidad.Revalidar(ctx, bd)
 	if err != nil {
 		return alcanceConv{}, false
@@ -420,8 +421,7 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 		case <-sub.c:
 		case <-latido.C:
 			// La única revalidación del latido: su alcance toca los receptores y lee lo que sigue.
-			m.contarRevalidacion(a.usuario, revalidaLatido)
-			ahora, ok := m.revalidarConv(ctx, bd)
+			ahora, ok := m.revalidarConv(ctx, bd, revalidaLatido)
 			if !ok {
 				return
 			}
@@ -450,8 +450,7 @@ func (m *Modulo) leerPaginaFlujoConv(ctx context.Context, bd nucleo.BD, q *mensa
 	if err != nil || (len(evs) == 0 && siguiente == desde) {
 		return evs, hayMas, siguiente, a, err == nil, err
 	}
-	m.contarRevalidacion(a.usuario, revalidaPagina)
-	ahora, vale = m.revalidarConv(ctx, bd)
+	ahora, vale = m.revalidarConv(ctx, bd, revalidaPagina)
 	return evs, hayMas, siguiente, ahora, vale, nil
 }
 

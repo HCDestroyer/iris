@@ -165,8 +165,10 @@ func (m *Modulo) abrirFlujoSSE(ctx context.Context, desde string) (flujo, *suscr
 }
 
 // revalidar vuelve a leer la credencial del flujo y el alcance del usuario desde la base (sesión o
-// token vigente, usuario activo y en la empresa, permisos de hoy). false = cortar el flujo.
-func (m *Modulo) revalidar(ctx context.Context, bd nucleo.BD) (alcanceChat, bool) {
+// token vigente, usuario activo y en la empresa, permisos de hoy). false = cortar el flujo. donde
+// (revalidaPagina, revalidaLatido) solo lo ve el gancho de pruebas alRevalidarFlujo.
+func (m *Modulo) revalidar(ctx context.Context, bd nucleo.BD, donde string) (alcanceChat, bool) {
+	m.contarRevalidacion(contexto.ActorDe(ctx).ID, donde)
 	nctx, err := identidad.Revalidar(ctx, bd)
 	if err != nil {
 		return alcanceChat{}, false
@@ -213,8 +215,7 @@ func (m *Modulo) leerPaginaFlujo(ctx context.Context, bd nucleo.BD, q *mensajeri
 	if err != nil || (len(evs) == 0 && siguiente == desde) {
 		return evs, hayMas, siguiente, a, err == nil, err
 	}
-	m.contarRevalidacion(a.usuario, revalidaPagina)
-	ahora, vale = m.revalidar(ctx, bd)
+	ahora, vale = m.revalidar(ctx, bd, revalidaPagina)
 	return evs, hayMas, siguiente, ahora, vale, nil
 }
 
@@ -336,8 +337,7 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo,
 		case <-sub.c:
 		case <-latido.C:
 			// La única revalidación del latido: su alcance es el de la lectura que sigue.
-			m.contarRevalidacion(a.usuario, revalidaLatido)
-			ahora, ok := m.revalidar(ctx, bd)
+			ahora, ok := m.revalidar(ctx, bd, revalidaLatido)
 			if !ok {
 				return
 			}
