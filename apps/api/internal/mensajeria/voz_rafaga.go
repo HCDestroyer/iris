@@ -43,8 +43,11 @@ func (m *Modulo) rafagaActiva(ctx context.Context, q *mensajeriabd.Queries, cana
 }
 
 // levantarRafaga anota la marca, emite `voz.rafaga_levantada` (nunca el número) y refresca en el hilo la
-// tarjeta de la ráfaga vigente, solo si había ráfaga (una saliente común no deja rastro y un desbloqueo
-// a mano sin ráfaga solo queda auditado: es idempotente). Devuelve si había ráfaga.
+// tarjeta de la ráfaga vigente. A mano la marca se mueve SIEMPRE (levantada_en = ahora), haya o no
+// ráfaga a la vista: así gana la carrera contra una entrante que se esté procesando a la vez; sin
+// ráfaga solo se omite el evento (la auditoría queda siempre, la escribe el caso de uso). Una saliente
+// sin ráfaga no deja rastro. No toma el candado voz:rafaga (se interbloquearía con guardarConv).
+// Devuelve si había ráfaga.
 func (m *Modulo) levantarRafaga(ctx context.Context, t *auditoria.Tx, canal int64, numero string, empresa *int64, conversacion *int64, usuario *int64,
 	origen string, llamada *uuid.UUID) (bool, error) {
 	q := mensajeriabd.New(t)
@@ -53,17 +56,17 @@ func (m *Modulo) levantarRafaga(ctx context.Context, t *auditoria.Tx, canal int6
 	if err != nil {
 		return false, err
 	}
-	// Sin ráfaga encima no hay nada que levantar: ni se mueve la marca (si hay un levantamiento vigente,
-	// sigue el mismo) ni sale el evento. A mano queda igual la fila de auditoría del caso de uso.
-	if !activa {
-		t.Anotar(map[string]any{"rafaga_activa": false, "origen": origen})
+	if !activa && origen != OrigenRafagaManual {
 		return false, nil
 	}
 	if err := q.LevantarRafaga(ctx, mensajeriabd.LevantarRafagaParams{CanalID: canal, Numero: numero, EmpresaID: empresa, Ahora: ahora,
 		LevantadaPor: usuario, Origen: origen}); err != nil {
 		return false, err
 	}
-	t.Anotar(map[string]any{"rafaga_activa": true, "origen": origen})
+	t.Anotar(map[string]any{"rafaga_activa": activa, "origen": origen})
+	if !activa {
+		return false, nil // a mano sin ráfaga a la vista: marca movida y auditada, sin evento
+	}
 	if err := t.Emitir("voz.rafaga_levantada", map[string]any{"empresa_id": empresa, "canal_id": canal, "conversacion_id": conversacion,
 		"origen": origen, "usuario_id": usuario, "llamada_id": llamada}); err != nil {
 		return false, err

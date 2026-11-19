@@ -616,6 +616,11 @@ Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consult
   Limitación conocida (anotada, sin código): la tarjeta guarda solo el último `call_id` contado, así
   que una secuencia A, B, A (Meta reintenta A después de B) cuenta A dos veces en `rafaga.intentos`.
   Solo infla el contador; el rechazo es el mismo.
+  Candado: `voz:rafaga:<canal>:<numero>` se toma dentro de la transacción del webhook, que también
+  toma `conv:eventos:<empresa>`. Dos webhooks con `statuses` y `calls` en orden cruzado pueden
+  interbloquearse: Postgres aborta uno y River lo reintenta (el webhook ya está guardado). Por eso
+  `levantarRafaga` no toma ese candado. En un número prestado la prestataria no ve `levantada: true`
+  (la marca es de la dueña y la lectura filtra por empresa): es a propósito.
 - **Tablas:** `llamadas`, `llamada_tramos`, `llamada_candidatos`, `llamada_receptores`,
   `llamada_devoluciones`, `llamada_grabaciones`, `voz_ajustes`, `voz_ajustes_canal`,
   `voz_rafagas_levantadas`.

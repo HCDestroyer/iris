@@ -165,7 +165,8 @@ func TestRafagaLevantadaAMano(t *testing.T) {
 	if _, estado, motivo := x.llamada(x.conectar(num, "wacid.mano4"+num)); estado != "sonando" {
 		t.Fatalf("tras levantar la ráfaga debía sonar: %s %s", estado, motivo)
 	}
-	// Repetirlo sin ráfaga no cambia nada: queda auditado, pero ni evento ni se mueve la marca.
+	// Repetirlo sin ráfaga a la vista: la marca se mueve igual (gana la carrera contra una entrante en
+	// proceso) y queda auditado, pero no sale el evento.
 	var marca time.Time
 	if err := x.bd.QueryRow(x.ctx, `SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num).Scan(&marca); err != nil {
 		t.Fatal(err)
@@ -175,8 +176,8 @@ func TestRafagaLevantadaAMano(t *testing.T) {
 		t.Fatalf("sin ráfaga: %s", crudo(r))
 	}
 	var marca2 time.Time
-	if err := x.bd.QueryRow(x.ctx, `SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num).Scan(&marca2); err != nil || !marca2.Equal(marca) {
-		t.Fatalf("la marca se movió sin ráfaga: %v %v %v", err, marca, marca2)
+	if err := x.bd.QueryRow(x.ctx, `SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num).Scan(&marca2); err != nil || !marca2.After(marca) {
+		t.Fatalf("a mano la marca debía moverse siempre: %v %v %v", err, marca, marca2)
 	}
 	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.rafaga_levantada' AND payload->>'conversacion_id' = $1`, conv); n != 1 {
 		t.Fatalf("eventos tras repetir sin ráfaga: %d", n)
