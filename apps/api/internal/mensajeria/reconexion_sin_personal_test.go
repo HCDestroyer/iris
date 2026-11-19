@@ -30,7 +30,7 @@ func (x *bandejaIA) boletaRegistrada(conv, num string) {
 	x.t.Helper()
 	x.guion(dice("Hola, con gusto te ayudo."))
 	x.correr(conv)
-	x.webhook(x.mensajeCliente(num, "wamid.b4foto", `"type":"image","image":{"id":"boleta1","mime_type":"image/jpeg"}`))
+	x.webhook(x.mensajeCliente(num, "wamid.b4foto"+num, `"type":"image","image":{"id":"boleta1","mime_type":"image/jpeg"}`))
 	ms := x.mensajes(x.supervisor, conv)
 	if err := x.m.DescargarMedio(x.ctx, uuid.MustParse(ms[len(ms)-1]["id"].(string)), false); err != nil {
 		x.t.Fatal(err)
