@@ -606,12 +606,28 @@ Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consult
 - **Graph API detrás de una interfaz** (`GraphLlamadas`): todo lo de la Calling API es un supuesto a
   validar con un número de prueba; las pruebas usan un doble. Guion de la prueba manual:
   `docs/runbooks/voz-prueba-manual.md`.
+- **Ráfaga (`voz_rafaga.go`).** Como máximo 3 llamadas que suenan por número cada 10 minutos
+  (ventana deslizante, sin bloqueo adicional); se decide **antes** de registrar nada. La primera que
+  rechaza deja una sola tarjeta (`rafaga_hasta`, sin reabrir la conversación ni `llamada.entrante` ni
+  `conversacion.mensaje_recibido`); los reintentos de la misma ventana solo suman `rafaga_intentos` y
+  se rechazan en Meta. La levanta una persona con `POST /conversaciones/{id}/llamadas/desbloquear`
+  (`llamadas.desbloquear_numero`: supervisor y admin) o una saliente a ese número que Meta acepta;
+  queda en `voz_rafagas_levantadas` y la consulta de la ráfaga solo cuenta lo de después.
+  Limitación conocida (anotada, sin código): la tarjeta guarda solo el último `call_id` contado, así
+  que una secuencia A, B, A (Meta reintenta A después de B) cuenta A dos veces en `rafaga.intentos`.
+  Solo infla el contador; el rechazo es el mismo.
+  Candado: `voz:rafaga:<canal>:<numero>` se toma dentro de la transacción del webhook, que también
+  toma `conv:eventos:<empresa>`. Dos webhooks con `statuses` y `calls` en orden cruzado pueden
+  interbloquearse: Postgres aborta uno y River lo reintenta (el webhook ya está guardado). Por eso
+  `levantarRafaga` no toma ese candado. En un número prestado la prestataria no ve `levantada: true`
+  (la marca es de la dueña y la lectura filtra por empresa): es a propósito.
 - **Tablas:** `llamadas`, `llamada_tramos`, `llamada_candidatos`, `llamada_receptores`,
-  `llamada_devoluciones`, `llamada_grabaciones`, `voz_ajustes`, `voz_ajustes_canal`.
+  `llamada_devoluciones`, `llamada_grabaciones`, `voz_ajustes`, `voz_ajustes_canal`,
+  `voz_rafagas_levantadas`.
 - **Emite:** `llamada.entrante`, `llamada.contestada`, `llamada.terminada`, `llamada.perdida`,
   `llamada.rechazada`, `llamada.fallida`, `llamada.anotada`, `llamada.devolucion_pedida`,
-  `llamada.devolucion_cerrada`, `canal_mensajeria.llamadas_cambiadas`, `voz.ajustes_cambiados` y
-  `conversacion.mensaje_recibido` con `tipo: llamada`. No consume eventos.
+  `llamada.devolucion_cerrada`, `canal_mensajeria.llamadas_cambiadas`, `voz.ajustes_cambiados`,
+  `voz.rafaga_levantada` y `conversacion.mensaje_recibido` con `tipo: llamada`. No consume eventos.
 - **Ajustes en WhatsApp:** encendido, icono, devolución y horario de llamadas (`call_hours`, espejo
   del horario de Iris cuando cabe en los límites de Meta) se escriben como un pendiente con
   reintentos (1 min, 5 min, 30 min, 2 h, 12 h; después `error`), con su estado en

@@ -363,6 +363,23 @@ test.describe("voz salientes › llamar", () => {
         await expect.poll(() => api.flujoAbierto()).toBe(false);
     });
 
+    test("el aviso que ofrece «Recibir llamadas» no se queda encima mientras se llama: se cierra al llamar y no vuelve", async ({ page }) => {
+        const api = await abrir(page, "/conversaciones?c=41", { voz: { ...CON_PERMISO, recibe: false } });
+        const ofrecer = page.getByText("Puedes contestar llamadas de WhatsApp aquí");
+        await expect(ofrecer).toBeVisible();
+        const l = await llamar(page, api);
+        await expect(ofrecer).toHaveCount(0);
+        await feedListo(page, api);
+        api.voz.contestaCliente(l.id);
+        await expect(enCurso(page)).toBeVisible();
+        await expect(ofrecer).toHaveCount(0);
+        await enCurso(page).getByRole("button", { name: "Colgar" }).click();
+        await nota(page).getByRole("button", { name: "Ahora no" }).click();
+        // Ya se ofreció una vez en este navegador: no vuelve al terminar.
+        await page.clock.fastForward(2_000);
+        await expect(ofrecer).toHaveCount(0);
+    });
+
     test("no contesta o rechaza: «No contestó», queda en el hilo en ámbar y cuenta; si el aviso no llega, a los 70 s se cuelga", async ({ page }) => {
         const api = await abrir(page, "/conversaciones?c=41");
         const l = await llamar(page, api);

@@ -18,6 +18,7 @@ type LlamadasCanal = Schema<"LlamadasCanal">;
 type AjustesVoz = Schema<"AjustesVoz">;
 type Requisito = Schema<"RequisitoLlamadas">;
 type PermisoLlamada = Schema<"PermisoLlamada">;
+type RafagaDeLlamada = Schema<"RafagaDeLlamada">;
 
 const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(cuerpo) });
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
@@ -26,7 +27,7 @@ const P = (codigo: string, status: number, title: string, extra: Partial<Problem
 /** Quien atiende llamadas en la bandeja. */
 export const PERMISOS_LLAMADAS: Permiso[] = ["llamadas.ver", "llamadas.contestar", "llamadas.rechazar", "llamadas.colgar", "llamadas.anotar", "llamadas.descartar_devolucion"];
 /** Además, quien administra. */
-export const PERMISOS_VOZ_ADMIN: Permiso[] = ["llamadas.configurar", "voz.configurar"];
+export const PERMISOS_VOZ_ADMIN: Permiso[] = ["llamadas.configurar", "voz.configurar", "llamadas.desbloquear_numero"];
 /** E1b: llamar es de quien supervisa; pedir el permiso, de quien atiende. */
 export const PERMISO_LLAMAR: Permiso = "llamadas.llamar";
 export const PERMISO_PEDIR: Permiso = "llamadas.solicitar_permiso";
@@ -51,6 +52,10 @@ export type OpcionesVoz = {
      * Sin esta opción nadie tiene esos permisos y el panel no ofrece llamar.
      */
     salientes?: boolean;
+    /** Con `soloAtender`: Ana tiene además `llamadas.desbloquear_numero` (sin `llamadas.configurar`). */
+    desbloquear?: boolean;
+    /** Ningún número de la empresa tiene las llamadas encendidas en Iris (por defecto, el 3 sí). */
+    sinNumeroConLlamadas?: boolean;
     /** E1b: el permiso de llamada de cada conversación al empezar (por defecto, sin pedir). */
     permisos?: Record<number, Partial<PermisoLlamada>>;
     /** Lo que lleva la empresa de sus topes de salientes (por defecto, 0 y 0). */
@@ -105,6 +110,8 @@ export function apiVoz(
     const permisos = new Map<number, PermisoLlamada>();
     for (const [id, p] of Object.entries(opciones.permisos ?? {})) permisos.set(Number(id), { estado: "sin_pedir", puedeLlamar: false, puedeSolicitar: true, sinContestar: 0, ...p });
     const salientes = new Map<string, { navegador: string; pestana: string; respuesta: boolean; devolucionId?: number }>();
+    /** La ráfaga de las entrantes que Iris rechazó sola (motivoFin `limite`), por id de llamada. */
+    const rafagas = new Map<string, RafagaDeLlamada>();
     /** Una saliente que el servidor aún está creando (la respuesta de `llamar` se perdió). */
     let tardia: { faltan: number; crear: () => Llamada } | null = null;
 
@@ -117,6 +124,8 @@ export function apiVoz(
         recibir: [] as { accion: "encender" | "apagar"; navegador: string }[],
         /** E1b. */
         solicitudes: [] as number[],
+        /** «Dejar que vuelva a llamar»: conversaciones. */
+        desbloqueos: [] as number[],
         llamar: [] as { conversacionId: number; cuerpo: Record<string, unknown>; navegador: string; pestana: string; empresa: string }[],
         respuestas: [] as { llamadaId: string; navegador: string; pestana: string }[],
         /** Lecturas de `GET /llamadas/activa`, con la pestaña que preguntó. */
@@ -202,7 +211,15 @@ export function apiVoz(
             ...(l.duracionSeg !== undefined ? { duracionSeg: l.duracionSeg } : {}),
             ...(l.motivoFin ? { motivoFin: l.motivoFin } : {}),
             ...(l.usuario ? { usuario: l.usuario } : {}),
+            ...(rafagas.has(l.id) ? { rafaga: structuredClone(rafagas.get(l.id)) } : {}),
         };
+    }
+    /** Una entrante que Iris rechazó sola por la ráfaga: su tarjeta, con hasta cuándo y los reintentos. */
+    function rechazadaPorRafaga(conversacionId: number, hasta: Date, intentos = 0, puedeLevantar = true): Llamada {
+        const l = entrante(conversacionId, { estado: "rechazada", motivoFin: "limite", terminadaEn: new Date().toISOString() });
+        rafagas.set(l.id, { hasta: hasta.toISOString(), levantada: false, intentos, puedeLevantar });
+        alHilo(l);
+        return l;
     }
     function avisar(tipo: "llamada_entrante" | "llamada_actualizada" | "llamada_terminada" | "llamada_respuesta", l: Llamada) {
         alHilo(l);
@@ -363,7 +380,8 @@ export function apiVoz(
             tipo: "llamada",
             texto: null,
             automatico: null,
-            creadoEn: ahora,
+            // Como el servidor: el mensaje de la llamada es de cuando sonó.
+            creadoEn: l.sonoEn,
             enviadoEn: null,
             entregadoEn: null,
             leidoEn: null,
@@ -372,7 +390,7 @@ export function apiVoz(
             menciones: [],
         });
         mensajes.set(conversacionId, lista);
-        c.ultimoMensaje = { tipo: "llamada", direccion: "entrante", texto: null, evento: null, automatico: null, creadoEn: ahora };
+        c.ultimoMensaje = { tipo: "llamada", direccion: "entrante", texto: null, evento: null, automatico: null, creadoEn: l.sonoEn };
         alHilo(l);
         if (l.estado === "sonando") avisar("llamada_entrante", l);
         return l;
@@ -555,6 +573,24 @@ export function apiVoz(
             return (await json(route, nuevo), true);
         }
 
+        // --- «Dejar que vuelva a llamar» (levantar la ráfaga) ---
+        const desbloquear = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)\/llamadas\/desbloquear$/.exec(ruta);
+        if (desbloquear && metodo === "POST") {
+            const conversacionId = Number(desbloquear[1]);
+            if (!conversaciones.some((c) => c.id === conversacionId)) return noExiste();
+            if (!puede("llamadas.desbloquear_numero")) return prohibido();
+            recibido.desbloqueos.push(conversacionId);
+            let estabaActiva = false;
+            for (const [id, r] of rafagas) {
+                const l = llamadas.get(id);
+                if (l?.conversacionId !== conversacionId || r.levantada) continue;
+                estabaActiva = estabaActiva || Date.parse(r.hasta) > Date.now();
+                r.levantada = true;
+                avisar("llamada_actualizada", l);
+            }
+            return (await json(route, { estabaActiva }), true);
+        }
+
         // --- E1b: permiso de llamada y «Llamar» ---
         const deConv = /^\/api\/v1\/mensajeria\/conversaciones\/(\d+)\/(permiso-llamada|solicitar-permiso-llamada|llamar)$/.exec(ruta);
         if (deConv) {
@@ -676,8 +712,9 @@ export function apiVoz(
             // El id va en la cabecera (no queda en los registros de acceso); la query sigue valiendo.
             const nav = cabeceras["x-iris-navegador"] ?? query.get("navegador") ?? "";
             if (!nav) return (await problema(route, P("navegador_requerido", 422, "Falta el id del navegador")), true);
-            if (forzar.desplazado) return (await json(route, { recibe: false, vivo: true, motivo: forzar.desplazado }), true);
-            return (await json(route, { recibe: recibe.get(nav) ?? opciones.recibe ?? false, vivo: true }), true);
+            const numeroConLlamadas = !opciones.sinNumeroConLlamadas;
+            if (forzar.desplazado) return (await json(route, { recibe: false, vivo: true, motivo: forzar.desplazado, numeroConLlamadas }), true);
+            return (await json(route, { recibe: recibe.get(nav) ?? opciones.recibe ?? false, vivo: true, numeroConLlamadas }), true);
         }
         const interruptor = /^\/api\/v1\/mensajeria\/llamadas\/recibir\/(encender|apagar)$/.exec(ruta);
         if (interruptor && metodo === "POST") {
@@ -688,7 +725,7 @@ export function apiVoz(
             recibido.recibir.push({ accion, navegador: nav });
             recibe.set(nav, accion === "encender");
             if (accion === "encender") delete forzar.desplazado;
-            return (await json(route, { recibe: accion === "encender", vivo: true }), true);
+            return (await json(route, { recibe: accion === "encender", vivo: true, numeroConLlamadas: !opciones.sinNumeroConLlamadas }), true);
         }
 
         // --- Devoluciones ---
@@ -875,7 +912,7 @@ export function apiVoz(
         return (await json(route, vista(l)), true);
     }
 
-    return { manejar, llamadas, devoluciones, recibido, forzar, retener, entrante, historica, perder, contestaOtro, cuelgaCliente, canal, ajustes: () => ajustes, permisoDe, respondePermiso, respondeMeta, contestaCliente, noContesta, cortaPorTope, cortaServidor, salienteAjena };
+    return { manejar, llamadas, devoluciones, recibido, forzar, retener, entrante, historica, rechazadaPorRafaga, perder, contestaOtro, cuelgaCliente, canal, ajustes: () => ajustes, permisoDe, respondePermiso, respondeMeta, contestaCliente, noContesta, cortaPorTope, cortaServidor, salienteAjena };
 }
 
 export type ApiVoz = ReturnType<typeof apiVoz>;

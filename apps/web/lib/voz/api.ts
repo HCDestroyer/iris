@@ -120,6 +120,14 @@ export function solicitarPermisoLlamada(conversacionId: number, clave: string) {
     return resolver(api().POST(`${CONV}/solicitar-permiso-llamada`, { params: { path: { id: conversacionId }, header: idem(clave) } }));
 }
 
+/**
+ * «Dejar que vuelva a llamar»: levanta la ráfaga del número de la conversación (la próxima llamada
+ * suena aunque no hayan pasado los 10 minutos). `llamadas.desbloquear_numero`.
+ */
+export function desbloquearNumero(conversacionId: number, clave: string) {
+    return resolver(api().POST(`${CONV}/llamadas/desbloquear`, { params: { path: { id: conversacionId }, header: idem(clave) } }));
+}
+
 /** Llama al contacto de la conversación con la oferta SDP del navegador. Responde la llamada en `marcando`. */
 export function llamarContacto(conversacionId: number, entrada: { sdpOferta: string; devolucionId?: number | undefined; confirmarRiesgo?: boolean | undefined }, clave: string, empresa?: number, signal?: AbortSignal) {
     return resolver(
