@@ -50,7 +50,8 @@ type EntradaResponder struct {
 	Cuentas           bool              `json:"cuentas,omitempty" doc:"«Enviar cuentas» (contrato con Argos 0.8.0 §7.8): el servidor arma el texto con las cuentas de Argos (GET /conversaciones/{id}/texto-cuentas); va sin texto, plantilla ni adjunto, y con cuentasHash. 422 sin_cuentas_para_enviar si la empresa no tiene cuentas activas en quetzales con titular; 409 cuentas_cambiaron si el texto ya no es el que se mostró o la conversación cambió de empresa"`
 	CuentasHash       string            `json:"cuentasHash,omitempty" maxLength:"64" doc:"Con cuentas: el hash del texto que se mostró (TextoCuentasConv.hash). Lo que se ve es lo que se envía"`
 	IdempotencyKey    string            `json:"-"`
-	// cuentasEmpresa: la empresa con cuyas cuentas se armó el texto (prepararEnvioCuentas).
+	// cuentasEmpresa: la empresa con cuyas cuentas se armó el texto («Enviar cuentas» o la marca
+	// {{cuentas}} del asistente); ≠ 0 = el texto lleva cuentas y la conversación debe seguir en ella.
 	cuentasEmpresa int64
 }
 
@@ -252,7 +253,8 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			}
 			// «Enviar cuentas»: el texto se armó con las cuentas de una empresa; si la conversación pasó a
 			// otra mientras tanto, no se manda (§7.8: solo las cuentas de la empresa de la conversación).
-			if in.Cuentas && (in.cuentasEmpresa == 0 || in.cuentasEmpresa != empresaDeConv(c)) {
+			// Igual con el texto de las cuentas que puso el asistente (marca {{cuentas}}).
+			if (in.Cuentas && in.cuentasEmpresa == 0) || (in.cuentasEmpresa != 0 && in.cuentasEmpresa != empresaDeConv(c)) {
 				return MensajeConvEnviado{}, cuentasCambiaron()
 			}
 			canal, err := q.CanalPorID(ctx, c.CanalID)

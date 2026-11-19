@@ -590,6 +590,7 @@ func (m *Modulo) herrCuentasBoleta(ctx context.Context, t *turnoIA, l LlamadaIA,
 	for _, k := range ce.Cuentas {
 		// Solo las activas de la empresa de la conversación y en quetzales. El modelo nunca recibe el
 		// número ni el titular: solo el id y el nombre.
+		t.numerosCuentas = append(t.numerosCuentas, k.Numero)
 		if !cuentaParaBoleta(k, t.empresa) {
 			continue
 		}

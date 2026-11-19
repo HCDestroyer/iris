@@ -197,6 +197,11 @@ type turnoIA struct {
 	// textoCuentas: el texto fijo con las cuentas de la empresa para la marca {{cuentas}} (§7.8; solo
 	// con número registrado). El modelo nunca lo ve.
 	textoCuentas *string
+	// numerosCuentas: los números de las cuentas de la empresa que leyó cuentas_para_boleta (para
+	// reconocerlos si el modelo los escribe; nunca van al modelo).
+	numerosCuentas []string
+	// conCuentas: el mensaje final lleva el texto de las cuentas (de la empresa del turno).
+	conCuentas bool
 	// reserva: la reserva de tokens del turno (se libera al terminar).
 	reserva uuid.UUID
 	// paso: acciones ya registradas en el turno.
@@ -1198,6 +1203,11 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 			return "", false
 		}
 	}
+	// Un número de cuenta nunca lo escribe el modelo (§7.8). Se revisa ANTES de poner el saldo y las
+	// cuentas (el texto del servidor sí lleva números). Falla cerrado: pasa a una persona.
+	if ContieneNumeroDeCuenta(texto, t.numerosCuentas) {
+		return "", false
+	}
 	// El monto del saldo solo lo pone el servidor, y solo si este turno lo leyó para un cliente verificado.
 	if reMarcaSaldo.MatchString(texto) {
 		if t.saldo == nil || !t.verificado {
@@ -1206,11 +1216,6 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 		texto = reMarcaSaldo.ReplaceAllString(texto, "Q "+*t.saldo)
 		t.conSaldo = true
 	}
-	// Un número de cuenta nunca lo escribe el modelo (§7.8): ni uno que parezca de cuenta ni 7 o más
-	// dígitos seguidos (falla cerrado: un teléfono o un id largo también pasan a una persona).
-	if pareceNumeroDeCuenta(texto) {
-		return "", false
-	}
 	// Las cuentas bancarias solo las pone el servidor, y solo si este turno las leyó para un número
 	// registrado (§7.8). Una sola vez por mensaje, y el mensaje entero tiene que caber.
 	if n := len(reMarcaCuentas.FindAllStringIndex(texto, -1)); n > 0 {
@@ -1218,6 +1223,7 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 			return "", false
 		}
 		texto = reMarcaCuentas.ReplaceAllLiteralString(texto, "\n\n"+*t.textoCuentas+"\n\n")
+		t.conCuentas = true
 		texto = strings.TrimSpace(reLineasVacias.ReplaceAllString(texto, "\n\n"))
 		if len([]rune(texto)) > MaxLargoTextoCuentas {
 			return "", false
@@ -1231,14 +1237,6 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 
 // reLineasVacias: tres o más saltos de línea seguidos (al insertar el texto de las cuentas).
 var reLineasVacias = regexp.MustCompile(`\n{3,}`)
-
-// reSieteDigitos: 7 o más dígitos seguidos.
-var reSieteDigitos = regexp.MustCompile(`\d{7,}`)
-
-// pareceNumeroDeCuenta: el texto del modelo trae algo con forma de número de cuenta (§7.8).
-func pareceNumeroDeCuenta(texto string) bool {
-	return MotivoNumeroCuenta(texto, nil) != "" || reSieteDigitos.MatchString(texto)
-}
 
 // presentar arma el mensaje final: el primero se presenta como asistente virtual de la empresa, y si
 // el cliente preguntó si habla con una persona, dice la verdad aunque el modelo no lo haya dicho.
@@ -1370,6 +1368,14 @@ func (m *Modulo) terminarTurno(ctx context.Context, t *auditoria.Tx, empresa int
 	if err != nil {
 		return err
 	}
+	// cuentasEmpresa: la empresa con cuyas cuentas se armó el texto de la marca {{cuentas}}.
+	var cuentasEmpresa int64
+	if in.t != nil && in.t.conCuentas {
+		cuentasEmpresa = in.t.empresa
+		if m.trasPrepararCuentas != nil {
+			m.trasPrepararCuentas(&cuentasEmpresa)
+		}
+	}
 	enviar := func(texto, clase string) (*uuid.UUID, error) {
 		if !puede {
 			return nil, nil
@@ -1378,7 +1384,13 @@ func (m *Modulo) terminarTurno(ctx context.Context, t *auditoria.Tx, empresa int
 		// aviso de que pasa con una persona).
 		id := uuid.NewSHA1(uuid.NameSpaceOID, []byte("iris:asistente:turno:"+turno.ID.String()+clase))
 		tx := presentar(in.t, texto)
-		if _, err := m.Conv.Responder.Ejecutar(ctx, EntradaResponder{ConversacionID: c.ID, ID: id, Texto: &tx}); err != nil {
+		e := EntradaResponder{ConversacionID: c.ID, ID: id, Texto: &tx}
+		// Con las cuentas de la marca {{cuentas}}: la empresa con que se armaron se comprueba en la
+		// transacción (si la conversación cambió de empresa, no sale).
+		if clase == "" && in.t != nil && in.t.conCuentas {
+			e.cuentasEmpresa = cuentasEmpresa
+		}
+		if _, err := m.Conv.Responder.Ejecutar(ctx, e); err != nil {
 			return nil, err
 		}
 		return &id, nil
@@ -1398,6 +1410,15 @@ func (m *Modulo) terminarTurno(ctx context.Context, t *auditoria.Tx, empresa int
 	}
 	if !puede {
 		// No se le puede escribir (ventana cerrada o BAJA): la conversación sigue en la cola.
+		in.Paso = PasoSinRespuesta
+		if err := m.pasarAPersona(ctx, t, &c, turno, in, false); err != nil {
+			return err
+		}
+		return cerrar(TurnoPaso, in.Paso)
+	}
+	if in.t.conCuentas && cuentasEmpresa != empresaDeConv(c) {
+		// Las cuentas son de otra empresa que la de la conversación (cambió en medio): no salen y sigue
+		// una persona. Responder lo vuelve a comprobar en su transacción.
 		in.Paso = PasoSinRespuesta
 		if err := m.pasarAPersona(ctx, t, &c, turno, in, false); err != nil {
 			return err

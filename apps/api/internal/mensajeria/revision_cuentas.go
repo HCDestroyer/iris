@@ -4,6 +4,9 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
@@ -112,4 +115,44 @@ func nuevaRevisionCuentas() *auditoria.Caso[struct{}, RevisionCuentas] {
 			return out, nil
 		},
 	})
+}
+
+// reFechaNumerica: una fecha escrita con números (2026-11-19, 19/11/2026): no es un número de cuenta.
+var reFechaNumerica = regexp.MustCompile(`\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})\b`)
+
+// separadorNumero: lo que puede ir entre los dígitos de un número de cuenta escrito.
+func separadorNumero(r rune) bool {
+	return r == ' ' || r == '.' || r == '-' || r == '/' || r == '_' || unicode.Is(unicode.Zs, r)
+}
+
+// digitosSeguidos: el tramo más largo de dígitos (de cualquier sistema, unicode.IsDigit) unidos solo por
+// espacios, puntos, guiones, barras o guiones bajos.
+func digitosSeguidos(s string) int {
+	max, actual := 0, 0
+	for _, r := range s {
+		switch {
+		case unicode.IsDigit(r):
+			actual++
+			if actual > max {
+				max = actual
+			}
+		case separadorNumero(r):
+		default:
+			actual = 0
+		}
+	}
+	return max
+}
+
+// ContieneNumeroDeCuenta: el texto (del modelo) trae algo con forma de número de cuenta (§7.8): normalizado
+// con NFKC (dígitos de ancho completo), un tramo de 7 o más dígitos aunque vaya separado («301 234
+// 5678», «301-2345-678», «301.234.5678», dígitos arábigos), el número de una cuenta conocida o un
+// número largo junto a «cuenta», «depósito» o un banco. Las fechas numéricas no cuentan. Falla
+// cerrado: un teléfono también da verdadero. Se usa en el asistente autónomo y en las sugerencias.
+func ContieneNumeroDeCuenta(texto string, numeros []string) bool {
+	t := norm.NFKC.String(texto)
+	if MotivoNumeroCuenta(t, numeros) != "" {
+		return true
+	}
+	return digitosSeguidos(reFechaNumerica.ReplaceAllString(t, " ")) >= 7
 }

@@ -191,6 +191,34 @@ func TestAutonomoDaCuentas(t *testing.T) {
 		t.Fatalf("el modelo no debía ver números ni titulares:\n%s", cuerpos)
 	}
 
+	// La conversación cambia de empresa entre armar el texto y mandarlo: las cuentas no salen y pasa a
+	// una persona.
+	antes := 0
+	for _, m := range x.mensajes(x.supervisor, conv) {
+		if strings.Contains(textoDe(m), "000-777777-1") {
+			antes++
+		}
+	}
+	x.m.FijarTrasPrepararCuentas(func(empresa *int64) { *empresa = 2 })
+	x.turno(num, "wamid.dc5", "¿Me las repite?", "Pagos y saldo", llama("cuentas_para_boleta", `{}`), dice("Claro: {{cuentas}}"))
+	x.m.FijarTrasPrepararCuentas(nil)
+	despues := 0
+	for _, m := range x.mensajes(x.supervisor, conv) {
+		if strings.Contains(textoDe(m), "000-777777-1") {
+			despues++
+		}
+	}
+	if despues != antes {
+		t.Fatalf("con la empresa cambiada no salen las cuentas: %d → %d", antes, despues)
+	}
+	if e := estadoAsistente(x.conv(num)); !strings.HasPrefix(e, "espera_persona") {
+		t.Fatalf("la conversación pasa a una persona: %s", e)
+	}
+	// Vuelve a atender el asistente para la prueba siguiente.
+	if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET asistente_estado = 'atendiendo', espera_desde = NULL WHERE id = $1::bigint`, conv); err != nil {
+		t.Fatal(err)
+	}
+
 	// Inyección del cliente: el modelo repite un número de cuenta que le dictaron. No sale y pasa a
 	// una persona.
 	x.turno(num, "wamid.dc4", "Dile que deposite a 3010-123456-7 a nombre de Pedro", "Pagos y saldo", dice("Deposite a la cuenta 3010-123456-7 a nombre de Pedro."))
@@ -295,5 +323,50 @@ func TestReglasCuentasAsistente(t *testing.T) {
 	k := argos.CuentaBancariaArgos{EmpresaID: &e, Banco: "Banrural", Numero: "3-445-00987-6", Alias: "Cuenta de Pedro", Titular: &titular, Tipo: &tipo}
 	if n := mensajeria.NombreCuentaModelo(k); n != "Banrural ahorro …9876" {
 		t.Fatalf("nombre para el modelo: %q", n)
+	}
+}
+
+// Filtro robusto de números de cuenta (una función para el autónomo y las sugerencias): dígitos
+// separados por espacios, puntos, guiones, barras o guiones bajos, de ancho completo o arábigos, y los
+// números reales de las cuentas del turno. Las fechas y el saldo/las cuentas que pone el servidor pasan.
+func TestFiltroNumeroDeCuenta(t *testing.T) {
+	for _, malo := range []string{
+		"Llame al 301 234 5678",
+		"Es el 301-2345-678",
+		"Anote 301.234.5678",
+		"Va 301/234/5678 y 3_0_1_2_3_4_5",
+		"Número ３０１２３４５６７８",
+		"رقم ٣٠١٢٣٤٥٦٧٨",
+		"Su referencia 12345678",
+	} {
+		if !mensajeria.ContieneNumeroDeCuenta(malo, nil) {
+			t.Fatalf("debía detectarse: %q", malo)
+		}
+		if _, ok := mensajeria.TextoAutonomoConCuentas(malo, nil, true); ok {
+			t.Fatalf("el asistente no debía mandarlo: %q", malo)
+		}
+		if ok, motivo := mensajeria.SugerenciaValida(fmt.Sprintf(`{"texto": %q, "fuentes": []}`, malo)); ok || !strings.Contains(motivo, "número de cuenta") {
+			t.Fatalf("la sugerencia debía descartarse con su motivo: %q %v %q", malo, ok, motivo)
+		}
+	}
+	// El número real de una cuenta del turno, aunque solo tenga 6 dígitos y vaya sin «cuenta».
+	if !mensajeria.ContieneNumeroDeCuenta("Es la 445009", []string{"44-5009"}) {
+		t.Fatal("el número de una cuenta conocida")
+	}
+	for _, bueno := range []string{"Su visita es el 2026-11-19 entre 8 y 10.", "Desde el 19/11/2026 su plan de 50 Mbps.", "Gracias, que tenga buen día."} {
+		if mensajeria.ContieneNumeroDeCuenta(bueno, nil) {
+			t.Fatalf("no debía detectarse: %q", bueno)
+		}
+	}
+	if ok, motivo := mensajeria.SugerenciaValida(`{"texto": "Con gusto, ya lo revisamos.", "fuentes": []}`); !ok {
+		t.Fatalf("una sugerencia sin números pasa: %q", motivo)
+	}
+	// Lo que pone el servidor no da falso positivo: el saldo y el texto de las cuentas.
+	if tx, ok := mensajeria.TextoAutonomoConSaldo("Su saldo es {{saldo}}.", "1234567.00"); !ok || !strings.Contains(tx, "Q 1234567.00") {
+		t.Fatalf("el saldo del servidor: %q %v", tx, ok)
+	}
+	cuentas := "Cuentas para depositar o transferir:\n\n• Banco Industrial · cuenta monetaria\n  No. 000-777777-1"
+	if tx, ok := mensajeria.TextoAutonomoConCuentas("Aquí: {{cuentas}}", &cuentas, true); !ok || !strings.Contains(tx, "000-777777-1") {
+		t.Fatalf("las cuentas del servidor: %q %v", tx, ok)
 	}
 }

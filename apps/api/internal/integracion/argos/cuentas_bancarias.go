@@ -17,6 +17,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -135,6 +136,9 @@ type lecturaCuentas struct {
 	fuera *int64
 	// webhook: el entrante cuenta_bancaria.cambiada (sus campos[] y creada van en el evento).
 	webhook *webhookCuenta
+	// alcance: el conector con que se leyó; una cuenta de una empresa fuera de su alcance no se guarda
+	// (y en una lista completa cuenta como no vista: se quita). nil = sin filtro (solo pruebas).
+	alcance *conectorbd.IntegracionConectore
 }
 
 type webhookCuenta struct {
@@ -160,6 +164,8 @@ type ResultadoCuentas struct {
 	Quitadas   int    `json:"quitadas"`
 	Invalidas  int    `json:"invalidas"`
 	Desechadas int    `json:"desechadas"`
+	// FueraDeAlcance: cuentas de empresas fuera del alcance del conector (omitidas).
+	FueraDeAlcance int `json:"fuera_de_alcance"`
 }
 
 // camposCambiados: los nombres de §2.3 que difieren entre la fila y la lectura (nunca valores).
@@ -210,6 +216,17 @@ func cuentaValida(c CuentaBancariaArgos) bool {
 func guardarCuentas(ctx context.Context, t *auditoria.Tx, in lecturaCuentas) (ResultadoCuentas, error) {
 	q := argosbd.New(t)
 	res := ResultadoCuentas{Cuentas: len(in.cuentas)}
+	if in.alcance != nil {
+		dentro := make([]CuentaBancariaArgos, 0, len(in.cuentas))
+		for _, c := range in.cuentas {
+			if c.EmpresaID != nil && !empresaEnAlcance(*in.alcance, *c.EmpresaID) {
+				res.FueraDeAlcance++
+				continue
+			}
+			dentro = append(dentro, c)
+		}
+		in.cuentas = dentro
+	}
 	ids := make([]int64, 0, len(in.cuentas))
 	for _, c := range in.cuentas {
 		ids = append(ids, c.ID)
@@ -299,7 +316,7 @@ func guardarCuentas(ctx context.Context, t *auditoria.Tx, in lecturaCuentas) (Re
 			return res, err
 		}
 	}
-	t.Anotar(map[string]any{"cuentas": res.Cuentas, "cambiadas": res.Cambiadas, "quitadas": res.Quitadas, "invalidas": res.Invalidas})
+	t.Anotar(map[string]any{"cuentas": res.Cuentas, "cambiadas": res.Cambiadas, "quitadas": res.Quitadas, "invalidas": res.Invalidas, "fuera_de_alcance": res.FueraDeAlcance})
 	return res, nil
 }
 
@@ -363,7 +380,7 @@ func (m *Modulo) CargarCuentasBancarias(ctx context.Context) (ResultadoCuentas, 
 	if !conector.VersionAlMenos(c.ContratoRemoto, ContratoCuentasSinCabeceras) {
 		return ResultadoCuentas{Omitido: OmitidoArgosAnterior080}, nil
 	}
-	return m.cargarCuentasCon(ctx, bd, m.clienteDe(c))
+	return m.cargarCuentasCon(ctx, bd, c.IntegracionConectore, m.clienteDe(c))
 }
 
 // CargaCuentasBancarias es el paso `cuentas_bancarias` de la primera sincronización (§2.5), con la
@@ -374,12 +391,17 @@ func (m *Modulo) CargaCuentasBancarias(ctx context.Context, cli *Cliente) (int, 
 	if bd == nil {
 		return 0, nucleo.ErrSinBD
 	}
-	r, err := m.cargarCuentasCon(ctx, bd, cli)
-	return r.Cuentas - r.Invalidas, err
+	// El gancho no trae el conector: es el activo (la primera sincronización corre al activarlo).
+	c, err := m.conectorActivo(ctx, bd)
+	if err != nil {
+		return 0, err
+	}
+	r, err := m.cargarCuentasCon(ctx, bd, c.IntegracionConectore, cli)
+	return r.Cuentas - r.Invalidas - r.FueraDeAlcance, err
 }
 
-func (m *Modulo) cargarCuentasCon(ctx context.Context, bd nucleo.BD, cli *Cliente) (ResultadoCuentas, error) {
-	in := lecturaCuentas{completa: true, marcar: true}
+func (m *Modulo) cargarCuentasCon(ctx context.Context, bd nucleo.BD, con conectorbd.IntegracionConectore, cli *Cliente) (ResultadoCuentas, error) {
+	in := lecturaCuentas{completa: true, marcar: true, alcance: &con}
 	var err error
 	if in.leidoEn, err = relojAntes(ctx, bd); err != nil {
 		return ResultadoCuentas{}, err
@@ -480,7 +502,7 @@ func (m *Modulo) CuentasDeEmpresa(ctx context.Context, a AtencionIris) (CuentasE
 
 // releerCuentasEmpresa lee la lista en Argos y la guarda.
 func (m *Modulo) releerCuentasEmpresa(ctx context.Context, c conector.Leido, a AtencionIris, ahora time.Time) error {
-	in := lecturaCuentas{leidoEn: ahora, marcar: true}
+	in := lecturaCuentas{leidoEn: ahora, marcar: true, alcance: &c.IntegracionConectore}
 	var cs []CuentaBancariaArgos
 	var err error
 	if conector.VersionAlMenos(c.ContratoRemoto, ContratoCuentasSinCabeceras) {
@@ -533,7 +555,7 @@ func (m *Modulo) ReleerCuentaBancaria(ctx context.Context, id int64) (CuentaBanc
 		k.normalizar()
 		k.armarNombre()
 		k.SincronizadoEn = ahora
-		if _, err := m.guardarCuentas.Ejecutar(ctx, lecturaCuentas{cuentas: []CuentaBancariaArgos{k}, leidoEn: ahora}); err != nil {
+		if _, err := m.guardarCuentas.Ejecutar(ctx, lecturaCuentas{cuentas: []CuentaBancariaArgos{k}, leidoEn: ahora, alcance: &c.IntegracionConectore}); err != nil {
 			return CuentaBancariaArgos{}, err
 		}
 		return k, nil
@@ -558,16 +580,22 @@ func (p *ProcesarEntrante) leerCuentaWebhook(ctx context.Context, bd nucleo.BD, 
 	if err != nil {
 		return nil, "", err
 	}
-	cli, err := p.clienteArgos(ctx, bd, e.ConectorID)
+	con, err := p.m.conexion.PorID(ctx, bd, e.ConectorID)
 	if err != nil {
 		return nil, "", err
 	}
+	cli := p.m.clienteDe(con)
 	w := &webhookCuenta{entranteID: e.ID, campos: camposWebhook(d.Campos), creada: d.Creada}
 	k, err := cli.ObtenerCuentaBancaria(ctx, d.CuentaBancariaID)
 	switch {
 	case err == nil:
 		k.normalizar()
-		return &lecturaCuentas{cuentas: []CuentaBancariaArgos{k}, leidoEn: ahora, webhook: w}, "", nil
+		if k.EmpresaID != nil && !empresaEnAlcance(con.IntegracionConectore, *k.EmpresaID) {
+			// Una empresa fuera del alcance del conector: no se guarda (y se quita si estaba).
+			id := d.CuentaBancariaID
+			return &lecturaCuentas{fuera: &id, leidoEn: ahora}, "cuenta_fuera_de_alcance", nil
+		}
+		return &lecturaCuentas{cuentas: []CuentaBancariaArgos{k}, leidoEn: ahora, webhook: w, alcance: &con.IntegracionConectore}, "", nil
 	case EsFueraDeAlcance(err):
 		id := d.CuentaBancariaID
 		return &lecturaCuentas{fuera: &id, leidoEn: ahora}, "cuenta_fuera_de_alcance", nil

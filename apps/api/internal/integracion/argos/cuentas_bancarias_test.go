@@ -370,3 +370,42 @@ func TestCuentaInactivaAlRegistrar(t *testing.T) {
 		t.Fatal("EsCuentaInactiva")
 	}
 }
+
+// Una cuenta de una empresa fuera del alcance del conector no entra a la instantánea, ni por la lista
+// completa ni por el webhook (y si estaba, se quita).
+func TestCuentasBancariasFueraDeAlcance(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos.con(func() { conAlcance(false, map[string]any{"id": 1, "nombre": "Cable Norte", "nit": "1"})(e.argos) })
+	_, conID, secreto := e.conectado080()
+	cf := nuevasCuentasFalsas(e)
+	cf.poner(9301, map[string]any{"titular": "Cable Norte, S.A.", "tipo": "monetaria"})
+	cf.poner(9302, map[string]any{"empresa_id": 7, "titular": "Otra, S.A.", "tipo": "ahorro"})
+	ctx := nucleo.ConBD(pruebas.ContextoSistema(e.pool), e.pool)
+	r, err := e.mod.CargarCuentasBancarias(ctx)
+	if err != nil || r.FueraDeAlcance != 1 {
+		t.Fatalf("carga completa: %+v %v", r, err)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_cuentas_bancarias WHERE id IN (9301, 9302)`); n != 1 {
+		t.Fatalf("solo la de la empresa del alcance: %d", n)
+	}
+	// Una fila vieja de la empresa 7 (de antes) se quita en la siguiente lista completa.
+	if _, err := e.pool.Exec(t.Context(), `INSERT INTO integracion.argos_cuentas_bancarias (id, empresa_id, numero, activa, moneda, sincronizado_en)
+		VALUES (9302, 7, '1', true, 'GTQ', now() - interval '1 hour')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.mod.CargarCuentasBancarias(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_cuentas_bancarias WHERE id = 9302`); n != 0 {
+		t.Fatal("la cuenta fuera del alcance se quita")
+	}
+	// Webhook de la cuenta de la empresa 7: omitido, sin guardar.
+	ent := e.entranteDe(e.enviar(conID, secreto, "wh-b5-"+pruebas.Unico(), argos.EventoCuentaBancariaCambiada,
+		map[string]any{"cuenta_bancaria_id": 9302, "empresa_id": 7, "campos": []string{"alias"}, "activa": true, "creada": true}, time.Now()))
+	if _, err := e.mod.ProcesarEntrante.Ejecutar(pruebas.ContextoSistema(e.pool), ent); err != nil || e.omitidoDe(ent) != "cuenta_fuera_de_alcance" {
+		t.Fatalf("webhook fuera del alcance: %v %q", err, e.omitidoDe(ent))
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_cuentas_bancarias WHERE id = 9302`); n != 0 {
+		t.Fatal("el webhook no guarda una cuenta fuera del alcance")
+	}
+}

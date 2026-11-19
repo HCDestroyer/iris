@@ -327,3 +327,18 @@ func TextoAutonomoConCuentas(texto string, textoCuentas *string, verificado bool
 
 // NombreCuentaModelo: cómo ve el modelo una cuenta.
 var NombreCuentaModelo = nombreCuentaModelo
+
+// TextoAutonomoConSaldo: las reglas de envío con el saldo leído en el turno (marca {{saldo}}).
+func TextoAutonomoConSaldo(texto, saldo string) (string, bool) {
+	t := &turnoIA{hechas: map[string]bool{}, saldo: &saldo, verificado: true}
+	return validarMensajeAutonomo(t, texto)
+}
+
+// SugerenciaValida: la salida del modelo pasaría como sugerencia (JSON { texto, fuentes }); si no, el motivo.
+func SugerenciaValida(json string) (bool, string) {
+	_, err := validarSalidaModelo(RespuestaIA{Texto: json}, contextoIA{catalogo: map[string]FuenteSugerencia{}}, nil, nil)
+	if err != nil {
+		return false, err.Error()
+	}
+	return true, ""
+}
