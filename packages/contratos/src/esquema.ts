@@ -1905,6 +1905,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/asistente/reconexion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Reconexión temporal: ajustes de la empresa
+         * @description Permiso: `mensajeria.asistente_configurar`.
+         */
+        get: operations["verAjustesReconexion"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/asistente/reconexion/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Encender o apagar la reconexión sin personal de caja
+         * @description Permiso: `mensajeria.asistente_configurar`. `sinPersonal`: también en horario hábil cuando ninguna persona con el rol caja está disponible (apagado de fábrica). Solo se pide si el Argos conectado informa contrato ≥ 0.8.0 (`argosLoPermite`) y la empresa tiene a alguien con el rol caja. `version` 0 la primera vez (409 `conflicto_version`). Evento `reconexion.ajustes_cambiados`.
+         */
+        post: operations["actualizarAjustesReconexion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/asistente/uso": {
         parameters: {
             query?: never;
@@ -8498,6 +8538,22 @@ export interface components {
             modoAutonomo?: "nunca" | "sin_nadie" | "siempre_primero";
             perfil?: components["schemas"]["PerfilPrueba"];
         };
+        AjustesReconexion: {
+            /** Format: date-time */
+            actualizadoEn: string | null;
+            /** @description El Argos conectado informa contrato ≥ 0.8.0; sin eso nunca se pide sin_personal */
+            argosLoPermite: boolean;
+            caja: components["schemas"]["CajaReconexion"];
+            /** @description El contrato con Argos que hace falta (0.8.0) */
+            contratoMinimo: string;
+            /** @description También en horario hábil cuando nadie de caja está disponible (apagado de fábrica) */
+            sinPersonal: boolean;
+            /**
+             * Format: int32
+             * @description 0 si nunca se cambiaron
+             */
+            version: number;
+        };
         AjustesVoz: {
             /**
              * Format: int32
@@ -8927,6 +8983,12 @@ export interface components {
             nucleos: number;
             /** Format: double */
             usoPct: number | null;
+        };
+        CajaReconexion: {
+            /** Format: int32 */
+            disponibles: number;
+            /** Format: int32 */
+            total: number;
         };
         Calendario: {
             ausencias: components["schemas"]["AusenciaAgenda"][] | null;
@@ -11024,6 +11086,11 @@ export interface components {
         EntradaAjustesBandeja: {
             /** Format: int32 */
             minutosInactividad: number;
+            /** Format: int32 */
+            version: number;
+        };
+        EntradaAjustesReconexion: {
+            sinPersonal: boolean;
             /** Format: int32 */
             version: number;
         };
@@ -13548,16 +13615,25 @@ export interface components {
              */
             disponibles?: number;
             entidadId?: string;
+            /** @description reconexion_actualizada (cancelada): comprobante_rechazado | vencida_sin_revisar | otro */
+            fin?: string;
+            /**
+             * Format: date-time
+             * @description reconexion_pedida (aceptada), reconexion_actualizada (activa): hasta cuándo vale la reconexión temporal; no es la hora del corte
+             */
+            hasta?: string;
             /**
              * Format: int32
              * @description bot_atendio: minutos que esperó
              */
             minutos?: number;
+            /** @description reconexion_pedida, reconexion_actualizada: fuera_de_horario | sin_personal (contrato con Argos 0.8.0 §7.3) */
+            motivo?: string;
             /** @description respondio_aviso: la plantilla del aviso */
             plantilla?: string;
             /** @description TK-…, OT-…, PR-… */
             referencia?: string;
-            /** @description conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, bot_sin_respuesta (el bot no pudo escribirle al cliente), menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor); §17.11: asistente_pausado (detalle: el motivo de la pausa), asistente_reanudado (detalle: pausado | persona_presente | espera_persona) */
+            /** @description conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, bot_sin_respuesta (el bot no pudo escribirle al cliente), menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada; motivo; hasta), reconexion_actualizada (detalle: activa | cumplida | incumplida | cancelada; motivo; fin: comprobante_rechazado | vencida_sin_revisar | otro al cancelarse), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor); §17.11: asistente_pausado (detalle: el motivo de la pausa), asistente_reanudado (detalle: pausado | persona_presente | espera_persona) */
             tipo: string;
         };
         EventoTicket: {
@@ -26351,6 +26427,134 @@ export interface operations {
             };
             /** @description Bad Gateway */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verAjustesReconexion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesReconexion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarAjustesReconexion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAjustesReconexion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesReconexion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
