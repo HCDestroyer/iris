@@ -201,7 +201,13 @@ func (a *argosFalso) rutas050(mux *http.ServeMux) {
 		}
 		a.paginar(w, r, a.tecnicos)
 	}))
-	mux.HandleFunc("GET /api/v1/planes", a.conToken(func(w http.ResponseWriter, r *http.Request) { a.paginar(w, r, a.planes) }))
+	mux.HandleFunc("GET /api/v1/planes", a.conToken(func(w http.ResponseWriter, r *http.Request) {
+		if a.sinc080.cursorEnorme {
+			escribir(w, map[string]any{"data": a.planes[:1], "nextCursor": strings.Repeat("x", 600)})
+			return
+		}
+		a.paginar(w, r, a.planes)
+	}))
 }
 
 func (a *argosFalso) enlace() string { return a.srv.URL + "/conectar#" + a.codigo }

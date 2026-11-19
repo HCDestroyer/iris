@@ -155,6 +155,37 @@ func TestTokenParaOtroSoloIntegracion(t *testing.T) {
 		WHERE accion = 'tokens.crear' AND resultado = 'ok' ORDER BY id DESC LIMIT 1`).Scan(&via); err != nil || via != "recuperacion" {
 		t.Fatalf("la vía de recuperación debía quedar marcada en la auditoría: %q %v", via, err)
 	}
+
+	// Revisión de seguridad de B7: también exige empresas.todas sin límite (un admin acotado a una
+	// empresa con un rol a medida que tiene integraciones.conectar y tokens.crear no puede).
+	ctxAcotado := pruebas.ContextoUsuario(pruebas.Pool(t), idSinConectar, nucleo.PermTokensCrear, nucleo.PermIntegracionesConectar,
+		nucleo.PermTicketsVer, nucleo.PermTicketsCrear)
+	if _, err := e.mod.CrearToken.Ejecutar(ctxAcotado, identidad.EntradaCrearToken{UsuarioID: integID, Nombre: "manual"}); !errors.As(err, &p) || p.Status != http.StatusForbidden {
+		t.Fatalf("sin empresas.todas debía ser 403: %v", err)
+	}
+	// Vence: 30 días por defecto y 90 como máximo.
+	var dias float64
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT extract(epoch FROM expira_en - now()) / 86400 FROM nucleo.tokens_api
+		WHERE usuario_id = $1 AND via = 'recuperacion' ORDER BY id DESC LIMIT 1`, integID).Scan(&dias); err != nil || dias < 29.9 || dias > 30.1 {
+		t.Fatalf("el token de recuperación debía vencer en 30 días: %v %v", dias, err)
+	}
+	lejos := time.Now().Add(100 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "horus", "usuarioId": integ, "expiraEn": lejos}).problema(t, 422, "validacion")
+
+	// Al confirmarse un canje nuevo de ese usuario de integración, la vía de recuperación deja de valer.
+	var entregado int64
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, expira_en)
+		VALUES ($1, 'canje', 'iris_pat_x', sha256(random()::text::bytea), now() + interval '15 minutes') RETURNING id`, integID).Scan(&entregado); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.mod.ConfirmarTokenCanje(pruebas.ContextoSistema(pruebas.Pool(t)), entregado); err != nil {
+		t.Fatal(err)
+	}
+	var vigentes int
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT count(*) FROM nucleo.tokens_api WHERE usuario_id = $1 AND via = 'recuperacion' AND revocado_en IS NULL`,
+		integID).Scan(&vigentes); err != nil || vigentes != 0 {
+		t.Fatalf("los tokens de recuperación debían revocarse al confirmar el canje: %d %v", vigentes, err)
+	}
 }
 
 // Regresión: 10 inicios de sesión fallidos bloquean el correo 15 min (429 con Retry-After,

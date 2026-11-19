@@ -23,6 +23,10 @@ import (
 
 // Reanudar o volver a lanzar ----------------------------------------------------------------------
 
+// EsperaRelanzarSincronizacion: tras una completa, cuánto hay que esperar para lanzar otra (409
+// sincronizacion_reciente; revisión de seguridad de B7).
+const EsperaRelanzarSincronizacion = 10 * time.Minute
+
 // EntradaSincronizar es la entrada de integraciones.sincronizar.
 type EntradaSincronizar struct {
 	ID int64 `json:"id"`
@@ -89,6 +93,17 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 				} else if errU != nil && !errors.Is(errU, pgx.ErrNoRows) {
 					return Sincronizacion{}, errU
 				} else {
+					// Volver a lanzar una que acaba de terminar completa no aporta nada y carga a Argos.
+					if errU == nil && ultima.Estado == SincCompleta && ultima.TerminadaEn != nil {
+						ahora, err := q.RelojBD(ctx)
+						if err != nil {
+							return Sincronizacion{}, err
+						}
+						if ahora.Sub(*ultima.TerminadaEn) < EsperaRelanzarSincronizacion {
+							return Sincronizacion{}, nucleo.Conflicto("sincronizacion_reciente",
+								"La última sincronización terminó completa hace menos de 10 minutos. Espera un poco para volver a lanzarla.")
+						}
+					}
 					r, err := crearSincronizacion(ctx, t, m, entradaCrearSincronizacion{ConectorID: f.ID, Contrato: f.ContratoRemoto, Origen: "manual"})
 					if err != nil {
 						return Sincronizacion{}, err
@@ -347,15 +362,25 @@ func nuevoRegistrarCertificado() *auditoria.Caso[EntradaCertificado, ResultadoCe
 			if err != nil {
 				return ResultadoCertificado{}, err
 			}
-			if f, err := q.CertificadoPorHuella(ctx, argosbd.CertificadoPorHuellaParams{ConectorID: in.ConectorID, HuellaSha256: in.Visto.HuellaSHA256}); err == nil {
-				return ResultadoCertificado{}, q.VolverAVerCertificado(ctx, argosbd.VolverAVerCertificadoParams{ID: f.ID, VistoEn: ahora})
-			} else if !errors.Is(err, pgx.ErrNoRows) {
-				return ResultadoCertificado{}, err
-			}
 			var anterior *argosbd.IntegracionArgosCertificado
 			if a, err := q.UltimoCertificado(ctx, in.ConectorID); err == nil {
 				anterior = &a
 			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return ResultadoCertificado{}, err
+			}
+			visto, err := q.CertificadoPorHuella(ctx, argosbd.CertificadoPorHuellaParams{ConectorID: in.ConectorID, HuellaSha256: in.Visto.HuellaSHA256})
+			switch {
+			case err == nil && anterior != nil && anterior.ID == visto.ID:
+				// El mismo de la última vez: solo se anota que se volvió a ver.
+				return ResultadoCertificado{}, q.VolverAVerCertificado(ctx, argosbd.VolverAVerCertificadoParams{ID: visto.ID, VistoEn: ahora})
+			case err == nil && anterior != nil:
+				// Uno que ya se había visto vuelve después de otro (A → B → A): también es un cambio.
+				f, err := q.CertificadoVuelveAVerse(ctx, argosbd.CertificadoVuelveAVerseParams{ID: visto.ID, VistoEn: ahora, AnteriorID: &anterior.ID})
+				if err != nil {
+					return ResultadoCertificado{}, err
+				}
+				return avisarCambioCertificado(t, in.ConectorID, f, *anterior)
+			case err != nil && !errors.Is(err, pgx.ErrNoRows):
 				return ResultadoCertificado{}, err
 			}
 			p := argosbd.RegistrarCertificadoParams{ConectorID: in.ConectorID, HuellaSha256: in.Visto.HuellaSHA256, Emisor: in.Visto.Emisor,
@@ -374,12 +399,17 @@ func nuevoRegistrarCertificado() *auditoria.Caso[EntradaCertificado, ResultadoCe
 			if anterior == nil {
 				return ResultadoCertificado{Nuevo: true}, nil
 			}
-			t.Anotar(map[string]any{"huella_anterior": anterior.HuellaSha256})
-			return ResultadoCertificado{Nuevo: true, Cambiado: true}, t.Emitir(EventoCertificadoCambiado, map[string]any{
-				"conector_id": in.ConectorID, "certificado_id": f.ID, "anterior_id": anterior.ID, "host": f.Host,
-				"huella_sha256": f.HuellaSha256, "huella_anterior": anterior.HuellaSha256, "emisor": f.Emisor,
-			})
+			return avisarCambioCertificado(t, in.ConectorID, f, *anterior)
 		},
+	})
+}
+
+// avisarCambioCertificado anota y emite argos.certificado_cambiado (solo informa; nunca bloquea).
+func avisarCambioCertificado(t *auditoria.Tx, conectorID int64, f, anterior argosbd.IntegracionArgosCertificado) (ResultadoCertificado, error) {
+	t.Anotar(map[string]any{"huella_sha256": f.HuellaSha256, "huella_anterior": anterior.HuellaSha256, "host": f.Host})
+	return ResultadoCertificado{Nuevo: true, Cambiado: true}, t.Emitir(EventoCertificadoCambiado, map[string]any{
+		"conector_id": conectorID, "certificado_id": f.ID, "anterior_id": anterior.ID, "host": f.Host,
+		"huella_sha256": f.HuellaSha256, "huella_anterior": anterior.HuellaSha256, "emisor": f.Emisor,
 	})
 }
 
@@ -409,10 +439,10 @@ func (m *Modulo) registrarEstado(api huma.API) {
 	})
 
 	sinc := conector.Operacion(conector.EtiquetaIntegraciones, "sincronizarConectorArgos", http.MethodPost, "/api/v1/integraciones/conectores/{id}/sincronizar",
-		"Reanudar o volver a lanzar la primera sincronización con Argos", nucleo.PermIntegracionesSincronizar, http.StatusAccepted,
+		"Reanudar o volver a lanzar la primera sincronización con Argos", nucleo.PermIntegracionesSincronizar, http.StatusAccepted, http.StatusConflict,
 		http.StatusNotFound, http.StatusServiceUnavailable)
 	sinc.Description += " Contrato 0.8.0 §2.5. Con una en curso, la reanuda desde el último cursor; con una `con_errores`, la reabre (mismo id); si ya terminó " +
-		"completa (o Argos cambió de contrato), lanza otra. Solo lee de Argos. Responde **202** con la sincronización; el avance llega en " +
+		"completa (o Argos cambió de contrato), lanza otra (409 `sincronizacion_reciente` si la última terminó completa hace menos de 10 minutos). Solo lee de Argos. Responde **202** con la sincronización; el avance llega en " +
 		"`GET /integraciones/argosisp/estado`. Acepta `Idempotency-Key`. 422 `conector_apagado` si no está activo y `sistema_sin_sincronizacion` si no es de ArgosISP; 404 si no existe."
 	huma.Register(api, sinc, func(ctx context.Context, in *struct {
 		nucleo.ConIdempotencia

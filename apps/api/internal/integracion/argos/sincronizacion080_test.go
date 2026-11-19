@@ -39,7 +39,9 @@ type sinc080 struct {
 	// fallarServicios: GET /servicios con cursor responde 503 (Argos se cae a mitad de la lista).
 	fallarServicios bool
 	bancos          []map[string]any
-	cabeceras       []string // X-Iris-Actor de las lecturas de cuentas y bancos
+	// cursorEnorme: GET /planes responde un cursor de 600 caracteres (revisión de seguridad).
+	cursorEnorme bool
+	cabeceras    []string // X-Iris-Actor de las lecturas de cuentas y bancos
 }
 
 func (a *argosFalso) rutas080(mux *http.ServeMux) {
@@ -333,6 +335,9 @@ func TestPrimeraSincronizacion080(t *testing.T) {
 		t.Fatalf("una terminada no se repite: %v %+v", err, r2)
 	}
 	e.usuario("lectura").pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/sincronizar", id), nil).problema(t, 403, "prohibido")
+	// Recién terminada completa: 409 sincronizacion_reciente (10 minutos).
+	admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/sincronizar", id), nil).problema(t, 409, "sincronizacion_reciente")
+	e.exec(`UPDATE integracion.argos_sincronizaciones SET terminada_en = now() - interval '11 minutes' WHERE id = $1`, r.ID)
 	otra := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/sincronizar", id), nil)
 	if otra.status != 202 || otra.cuerpo["estado"] != "en_curso" || otra.cuerpo["origen"] != "manual" || otra.cuerpo["id"].(string) <= r.ID.String() {
 		t.Fatalf("volver a lanzar: %d %s", otra.status, otra.crudo)
@@ -491,10 +496,76 @@ func TestCertificadoArgos(t *testing.T) {
 	if _, err := e.sincronizar(id); err != nil {
 		t.Fatalf("la sincronización debía seguir: %v", err)
 	}
+	// A → B → A: volver a uno anterior también es un cambio y avisa.
+	if r, err := e.mod.RegistrarCertificado.Ejecutar(ctxS, argos.EntradaCertificado{ConectorID: id, Visto: a}); err != nil || !r.Cambiado {
+		t.Fatalf("A → B → A: %v %+v", err, r)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.certificado_cambiado' AND payload->>'huella_anterior' = $1`, b.HuellaSHA256); n != 1 {
+		t.Fatalf("argos.certificado_cambiado de B a A: %d", n)
+	}
+	if r, err := e.mod.RegistrarCertificado.Ejecutar(ctxS, argos.EntradaCertificado{ConectorID: id, Visto: b}); err != nil || !r.Cambiado {
+		t.Fatalf("A → B: %v %+v", err, r)
+	}
 	est := admin.pedir(http.MethodGet, "/api/v1/integraciones/argosisp/estado", nil)
 	cert, _ := est.cuerpo["certificado"].(map[string]any)
 	ant, _ := cert["anterior"].(map[string]any)
 	if cert["cambiado"] != true || cert["huellaSha256"] != b.HuellaSHA256 || ant["huellaSha256"] != a.HuellaSHA256 {
 		t.Fatalf("certificado en el estado: %s", est.crudo)
+	}
+}
+
+// Revisión de seguridad de B7: lo que Argos mande fuera del alcance del canje no se guarda (cuenta como
+// omitido), y un cursor enorme o una página más grande que el límite son una respuesta ilegible.
+func TestPrimeraSincronizacionDefensas(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.limpiarSinc()
+	e.sembrarSinc("1.18.0", "0.8.0")
+	e.argos.con(func() {
+		// El canje informa solo la empresa 1 (alcance_global: false).
+		falso := false
+		e.argos.alcanceGlobal = &falso
+		e.argos.zonas = append(e.argos.zonas, map[string]any{"id": 9, "nombre": "Ajena", "empresa_id": 2})
+		e.argos.routers = append(e.argos.routers, map[string]any{"id": 9, "nombre": "Router ajeno", "empresa_id": 2})
+		e.argos.servicios[704] = append(e.argos.servicios[704], map[string]any{"id": 7049, "cliente_id": 704, "empresa_id": int64(2), "estado": "activo"})
+	})
+	_, id, _ := e.conectado()
+	r, err := e.sincronizar(id)
+	if err != nil || r.Estado != argos.SincCompleta {
+		t.Fatalf("sincronizar: %v %+v", err, r)
+	}
+	if x := etapa(r.Sincronizacion, "zonas"); x.Procesados != 2 || x.Omitidos != 1 {
+		t.Fatalf("zonas: %+v", x)
+	}
+	if x := etapa(r.Sincronizacion, "routers"); x.Procesados != 3 || x.Omitidos != 1 {
+		t.Fatalf("routers: %+v", x)
+	}
+	if x := etapa(r.Sincronizacion, "servicios"); x.Procesados != 4 || x.Omitidos != 1 {
+		t.Fatalf("servicios: %+v", x)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_zonas WHERE id = 9`) + e.contar(`SELECT count(*) FROM integracion.argos_routers WHERE id = 9`) +
+		e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 7049`); n != 0 {
+		t.Fatalf("se guardaron filas fuera del alcance: %d", n)
+	}
+
+	// Cursor de más de 512 caracteres: la etapa queda con errores (ilegible), sin guardarlo.
+	e.limpiarSinc()
+	e.argos.con(func() {
+		e.argos.planes = []map[string]any{{"id": 1}, {"id": 2}, {"id": 3}}
+		e.argos.sinc080.cursorEnorme = true
+	})
+	e.exec(`DELETE FROM river.river_job WHERE kind = 'integracion.argos_primera_sincronizacion'`)
+	admin := e.usuario("admin")
+	if r := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/sincronizar", id), nil); r.status != 202 {
+		t.Fatalf("sincronizar: %d %s", r.status, r.crudo)
+	}
+	r, err = e.sincronizar(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x := etapa(r.Sincronizacion, "planes"); x.Estado != argos.SincConErrores || x.Error == nil || !strings.Contains(*x.Error, "no pudo leer") {
+		t.Fatalf("cursor enorme: %+v", x)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_sincronizacion_etapas WHERE length(cursor) > 512`); n != 0 {
+		t.Fatal("se guardó un cursor enorme")
 	}
 }

@@ -546,6 +546,39 @@ func (q *Queries) CertificadoPorID(ctx context.Context, id int64) (IntegracionAr
 	return i, err
 }
 
+const certificadoVuelveAVerse = `-- name: CertificadoVuelveAVerse :one
+UPDATE integracion.argos_certificados
+SET visto_en = $1, ultimo_visto_en = $1, cambiado = true, anterior_id = $2
+WHERE id = $3
+RETURNING id, conector_id, huella_sha256, emisor, sujeto, host, vence_en, visto_en, ultimo_visto_en, anterior_id, cambiado
+`
+
+type CertificadoVuelveAVerseParams struct {
+	VistoEn    time.Time
+	AnteriorID *int64
+	ID         int64
+}
+
+// Un certificado ya visto vuelve a aparecer después de otro (A → B → A): cuenta como cambio.
+func (q *Queries) CertificadoVuelveAVerse(ctx context.Context, arg CertificadoVuelveAVerseParams) (IntegracionArgosCertificado, error) {
+	row := q.db.QueryRow(ctx, certificadoVuelveAVerse, arg.VistoEn, arg.AnteriorID, arg.ID)
+	var i IntegracionArgosCertificado
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.HuellaSha256,
+		&i.Emisor,
+		&i.Sujeto,
+		&i.Host,
+		&i.VenceEn,
+		&i.VistoEn,
+		&i.UltimoVistoEn,
+		&i.AnteriorID,
+		&i.Cambiado,
+	)
+	return i, err
+}
+
 const clienteConfirmadoDesde = `-- name: ClienteConfirmadoDesde :one
 SELECT EXISTS (
     SELECT 1 FROM integracion.pendientes

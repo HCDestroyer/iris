@@ -80,11 +80,23 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			if err := puedeEmitir(ctx, q, actor, u, limite); err != nil {
 				return TokenCreado{}, err
 			}
+			expira := in.ExpiraEn
+			var via *string
 			if conector, err := esDeConector(ctx, q, u.ID); err != nil {
 				return TokenCreado{}, err
 			} else if conector && (!actor.EsUsuario() || actor.ID != u.ID) {
-				// Vía de recuperación del conector (contrato con Argos 0.8.0 §1.5, S5): queda marcada.
-				t.Anotar(map[string]any{"via": "recuperacion"})
+				// Vía de recuperación del conector (contrato con Argos 0.8.0 §1.5, S5): queda marcada, vence
+				// (30 días por defecto, 90 como máximo) y se revoca al confirmarse un canje nuevo.
+				if expira == nil {
+					v := time.Now().Add(VigenciaRecuperacion)
+					expira = &v
+				} else if expira.After(time.Now().Add(VigenciaMaximaRecuperacion)) {
+					return TokenCreado{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "expiraEn",
+						Message: "El token de recuperación de un conector vence como mucho en 90 días", Rule: "maximo"})
+				}
+				r := ViaRecuperacion
+				via = &r
+				t.Anotar(map[string]any{"via": ViaRecuperacion})
 			}
 
 			valor, err := NuevoTokenAPI()
@@ -97,7 +109,7 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			}
 			fila, err := q.CrearToken(ctx, identidadbd.CrearTokenParams{
 				UsuarioID: dueno, Nombre: nombre, Prefijo: prefijoVisible(valor), Hash: Hash256(valor),
-				Permisos: limite, ExpiraEn: in.ExpiraEn, CreadoPor: creadoPor,
+				Permisos: limite, ExpiraEn: expira, CreadoPor: creadoPor, Via: via,
 			})
 			if err != nil {
 				return TokenCreado{}, err
@@ -157,8 +169,8 @@ func puedeEmitir(ctx context.Context, q *identidadbd.Queries, actor contexto.Act
 		if err != nil {
 			return err
 		}
-		if conector && !quien.TieneGlobal(string(nucleo.PermIntegracionesConectar)) {
-			return nucleo.Prohibido("El token de un usuario de integración es la vía de recuperación del conector: solo lo crea un administrador (integraciones.conectar)")
+		if conector && (!quien.TieneGlobal(string(nucleo.PermIntegracionesConectar)) || !quien.TieneGlobal(string(nucleo.PermEmpresasTodas))) {
+			return nucleo.Prohibido("El token de un usuario de integración es la vía de recuperación del conector: solo lo crea un administrador (integraciones.conectar y empresas.todas, sin límite de alcance)")
 		}
 		return exigirSuperior(ctx, q, quien, dueno.ID, "crear tokens de este usuario")
 	}
@@ -178,3 +190,10 @@ func esDeConector(ctx context.Context, q *identidadbd.Queries, usuarioID int64) 
 	}
 	return false, nil
 }
+
+// Vía de recuperación del conector (contrato con Argos 0.8.0 §1.5, S5).
+const (
+	ViaRecuperacion            = "recuperacion"
+	VigenciaRecuperacion       = 30 * 24 * time.Hour
+	VigenciaMaximaRecuperacion = 90 * 24 * time.Hour
+)

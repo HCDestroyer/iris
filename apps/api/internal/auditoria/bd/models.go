@@ -2503,6 +2503,7 @@ type NucleoTokensApi struct {
 	CreadoPor  *int64
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
+	Via        *string
 }
 
 type NucleoUsuario struct {

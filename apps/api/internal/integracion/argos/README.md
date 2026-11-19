@@ -179,7 +179,19 @@ comunes de conectores); aquí queda lo propio de Argos.
   `InformarContrato` (al activar y cada 6 h); `integraciones.registrar_certificado` lo guarda en
   `integracion.argos_certificados` y, si cambió sin reconectar, emite `argos.certificado_cambiado`
   (campana `argos_certificado` a quien tiene `integraciones.conectar`). Nunca bloquea ni marca el
-  conector.
+  conector. Un certificado que vuelve después de otro (A → B → A) también cuenta como cambio.
+- **Defensas** (revisión de seguridad): zonas, routers y servicios de una empresa fuera del alcance
+  del canje (`empresaEnAlcance`) no se guardan y cuentan como omitidos; un cursor de más de 512
+  caracteres o una página con más filas que `limit` es una respuesta ilegible; volver a lanzar una
+  sincronización que terminó completa hace menos de 10 minutos responde 409 `sincronizacion_reciente`.
+- **Qué ve quien abre el estado:** `GET …/estado` exige `integraciones.ver` y es de la instalación,
+  no de la empresa activa: un supervisor acotado a una empresa ve los nombres de todas las empresas del
+  alcance del conector y los conteos globales de las instantáneas (clientes, servicios, zonas,
+  routers) y de los pendientes. Nunca datos de clientes, tokens ni secretos.
+- **Vía de recuperación** (S5, `nucleo/identidad/crear_token.go`): el token a mano del usuario de
+  integración de un conector exige `integraciones.conectar` y `empresas.todas` sin límite, vence
+  (30 días por defecto, 90 como máximo), queda marcado (`tokens_api.via = 'recuperacion'`, auditoría
+  `via: recuperacion`) y se revoca al confirmarse un canje nuevo de ese usuario.
 
 ## Empresa del cliente
 

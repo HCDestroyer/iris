@@ -18,7 +18,7 @@ import (
 // Aviso del certificado TLS de la API de Argos (contrato Iris ↔ ArgosISP 0.8.0 §1.5, «registrar y
 // avisar»; decisión del PM §10.2 punto 15): cuando cambia sin reconexión, la campana avisa a quienes
 // pueden conectar integraciones con todas las empresas. Es solo informativo: Iris no detuvo nada.
-// Uno por certificado nuevo (clave con su huella): repetir el evento no avisa dos veces.
+// Uno por cambio (clave con la huella anterior y la nueva): repetir el evento no avisa dos veces.
 
 // TipoAvisoArgosCertificado: el certificado de la API de Argos cambió.
 const TipoAvisoArgosCertificado = "argos_certificado"
@@ -59,7 +59,7 @@ func (m *Modulo) nuevoAvisarCertificadoArgos() *auditoria.Caso[EntradaAvisarCert
 			if err != nil {
 				return r, err
 			}
-			clave := fmt.Sprintf("%s:%d:%s", TipoAvisoArgosCertificado, in.ConectorID, in.Huella)
+			clave := fmt.Sprintf("%s:%d:%s:%s", TipoAvisoArgosCertificado, in.ConectorID, in.HuellaAnterior, in.Huella)
 			datosMapa := map[string]any{"conector_id": in.ConectorID, "huella_sha256": in.Huella}
 			if reHuella.MatchString(in.HuellaAnterior) {
 				datosMapa["huella_anterior"] = in.HuellaAnterior

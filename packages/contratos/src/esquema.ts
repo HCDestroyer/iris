@@ -1491,7 +1491,7 @@ export interface paths {
         put?: never;
         /**
          * Reanudar o volver a lanzar la primera sincronización con Argos
-         * @description Permiso: `integraciones.sincronizar`. Contrato 0.8.0 §2.5. Con una en curso, la reanuda desde el último cursor; con una `con_errores`, la reabre (mismo id); si ya terminó completa (o Argos cambió de contrato), lanza otra. Solo lee de Argos. Responde **202** con la sincronización; el avance llega en `GET /integraciones/argosisp/estado`. Acepta `Idempotency-Key`. 422 `conector_apagado` si no está activo y `sistema_sin_sincronizacion` si no es de ArgosISP; 404 si no existe.
+         * @description Permiso: `integraciones.sincronizar`. Contrato 0.8.0 §2.5. Con una en curso, la reanuda desde el último cursor; con una `con_errores`, la reabre (mismo id); si ya terminó completa (o Argos cambió de contrato), lanza otra (409 `sincronizacion_reciente` si la última terminó completa hace menos de 10 minutos). Solo lee de Argos. Responde **202** con la sincronización; el avance llega en `GET /integraciones/argosisp/estado`. Acepta `Idempotency-Key`. 422 `conector_apagado` si no está activo y `sistema_sin_sincronizacion` si no es de ArgosISP; 404 si no existe.
          */
         post: operations["sincronizarConectorArgos"];
         delete?: never;
@@ -7566,7 +7566,7 @@ export interface paths {
         put?: never;
         /**
          * Crear un token de API
-         * @description Permiso: `tokens.crear`. Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo y `integraciones.conectar` (403): el token de la integración de un conector (roles `integracion_argos` o `integracion_horus`) creado a mano es la **vía de recuperación** del conector (contrato con Argos 0.8.0 §1.5, S5), solo de un administrador y auditada con `via: recuperacion`; lo normal es conectar con un paso, donde el token nunca se muestra. Desde un token, el nuevo no puede tener más permisos que el que lo crea. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         * @description Permiso: `tokens.crear`. Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo, `integraciones.conectar` y `empresas.todas` (403): el token de la integración de un conector (roles `integracion_argos` o `integracion_horus`) creado a mano es la **vía de recuperación** del conector (contrato con Argos 0.8.0 §1.5, S5), solo de un administrador y auditada con `via: recuperacion`, con `expiraEn` de 30 días por defecto y 90 como máximo (422 `validacion`), y se revoca al confirmarse un canje nuevo; lo normal es conectar con un paso, donde el token nunca se muestra. Desde un token, el nuevo no puede tener más permisos que el que lo crea. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
          */
         post: operations["crearToken"];
         delete?: never;
@@ -24976,6 +24976,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

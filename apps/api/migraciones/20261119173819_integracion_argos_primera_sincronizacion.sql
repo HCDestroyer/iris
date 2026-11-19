@@ -73,12 +73,20 @@ INSERT INTO nucleo.permisos (codigo, descripcion) VALUES
     ('integraciones.sincronizar', 'Reanudar o volver a lanzar la primera sincronización con Argos')
 ON CONFLICT (codigo) DO NOTHING;
 
+-- Vía de recuperación (contrato 0.8.0 §1.5, S5): el token de la integración de un conector creado a
+-- mano queda marcado, vence (30 días por defecto, 90 como máximo) y se revoca al confirmarse un canje
+-- nuevo de ese usuario.
+ALTER TABLE nucleo.tokens_api ADD COLUMN via text CHECK (via IN ('recuperacion'));
+CREATE INDEX tokens_api_recuperacion_idx ON nucleo.tokens_api (usuario_id) WHERE via = 'recuperacion' AND revocado_en IS NULL;
+
 -- Aviso de campana cuando cambia el certificado (notificaciones, tipo argos_certificado).
 ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
 ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
     CHECK (tipo IN ('asistente_tope', 'servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_certificado'));
 
 -- +goose Down
+DROP INDEX nucleo.tokens_api_recuperacion_idx;
+ALTER TABLE nucleo.tokens_api DROP COLUMN via;
 DELETE FROM notificaciones.avisos WHERE tipo = 'argos_certificado';
 ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
 ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check

@@ -725,13 +725,25 @@ func (k *corrida) zonas(ctx context.Context, e *argosbd.IntegracionArgosSincroni
 	}
 	e.Procesados, e.Omitidos, e.Cursor = 0, 0, nil
 	return k.guardarPagina(ctx, e, "", func(ctx context.Context, _ *auditoria.Tx, q *argosbd.Queries) (int, int, error) {
+		fuera := 0
 		for _, z := range zonas {
+			if !k.enAlcance(z.Empresa()) {
+				fuera++
+				continue
+			}
 			if err := q.GuardarZona(ctx, argosbd.GuardarZonaParams{ID: z.ID, EmpresaID: z.Empresa(), Nombre: z.Nombre, SincronizadoEn: leidoEn}); err != nil {
 				return 0, 0, err
 			}
 		}
-		return len(zonas), 0, nil
+		return len(zonas) - fuera, fuera, nil
 	})
+}
+
+// enAlcance: defensa extra (revisión de seguridad de B7): una fila de una empresa fuera del alcance
+// que informó el canje no se guarda aunque Argos la mande (cuenta como omitida). Sin empresa: se
+// guarda (nadie la ve en una empresa).
+func (k *corrida) enAlcance(empresa *int64) bool {
+	return empresa == nil || *empresa <= 0 || empresaEnAlcance(k.conector.IntegracionConectore, *empresa)
 }
 
 // pagina lee una página de una lista por cursor.
@@ -764,6 +776,11 @@ func (k *corrida) paginas(ctx context.Context, e *argosbd.IntegracionArgosSincro
 		if err != nil {
 			return err
 		}
+		// Defensa (revisión de seguridad de B7): un cursor enorme o más filas que el límite pedido
+		// no son una respuesta válida de Argos.
+		if len(siguiente) > maxCursor || len(crudo) > LimitePaginaSincronizacion {
+			return &ErrorArgos{Remoto: Remoto, Status: http.StatusBadGateway, Titulo: "Respuesta ilegible", Ilegible: true}
+		}
 		guardar, err := procesar(crudo)
 		if err != nil {
 			return err
@@ -778,6 +795,9 @@ func (k *corrida) paginas(ctx context.Context, e *argosbd.IntegracionArgosSincro
 	}
 	return fmt.Errorf("%w: más de %d páginas en %s", conector.ErrListaDemasiadoLarga, maxPaginasSincronizacion, ruta)
 }
+
+// maxCursor: el cursor más largo que Iris acepta de Argos (se guarda y se reenvía).
+const maxCursor = 512
 
 // maxPaginasSincronizacion acota una lista (2 millones de filas de 200 en 200).
 const maxPaginasSincronizacion = 10000
@@ -821,7 +841,12 @@ func (k *corrida) routers(crudo []json.RawMessage) (guardarFilas, error) {
 		if err != nil {
 			return 0, 0, err
 		}
+		fuera := 0
 		for _, r := range routers {
+			if !k.enAlcance(r.Empresa()) {
+				fuera++
+				continue
+			}
 			lat, lon := r.LatLon()
 			// Sin vivoEn: una lista nunca revive una lápida (§2.5); GuardarRouter la respeta.
 			if err := guardarRouter(ctx, t, q, argosbd.GuardarRouterParams{ID: r.ID, EmpresaID: r.Empresa(), Nombre: r.Nombre,
@@ -829,7 +854,7 @@ func (k *corrida) routers(crudo []json.RawMessage) (guardarFilas, error) {
 				return 0, 0, err
 			}
 		}
-		return len(routers) - len(conLapida), len(conLapida), nil
+		return len(routers) - len(conLapida) - fuera, len(conLapida) + fuera, nil
 	}, nil
 }
 
@@ -945,7 +970,7 @@ func (k *corrida) servicios(crudo []json.RawMessage) (guardarFilas, error) {
 		tocados := []int64{}
 		for _, s := range servicios {
 			zona, ok := zonas[s.ClienteID]
-			if !ok || lapida[s.ID] {
+			if !ok || lapida[s.ID] || !k.enAlcance(&s.EmpresaID) {
 				continue
 			}
 			v := AServicio(s, zona)

@@ -69,7 +69,8 @@ const CON_ERRORES = sincronizacion("con_errores", [
 ]);
 
 function estado(s: Sincronizacion | undefined, certificadoCambiado: boolean): Estado {
-    const conector = CONECTORES_INICIALES()[0];
+    const conector = CONECTORES_INICIALES().find((c) => c.id === 1);
+    if (!conector) throw new Error("Falta el conector 1 en la API falsa");
     return {
         conector: { ...conector, versionRemota: "1.18.0", contratoRemoto: "0.8.0" },
         activacion: { en: "2026-11-19T20:20:00Z", usuarioId: 1, actorNombre: ADMIN.nombre },

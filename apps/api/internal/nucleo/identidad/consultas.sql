@@ -181,8 +181,8 @@ WHERE usuario_id = @usuario_id AND revocada_en IS NULL;
 -- Tokens de API --------------------------------------------------------------
 
 -- name: CrearToken :one
-INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por)
-VALUES (@usuario_id, @nombre, @prefijo, @hash, @permisos, @expira_en, @creado_por)
+INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por, via)
+VALUES (@usuario_id, @nombre, @prefijo, @hash, @permisos, @expira_en, @creado_por, sqlc.narg('via')::text)
 RETURNING *;
 
 -- name: TokenVigentePorHash :one
@@ -422,6 +422,14 @@ DELETE FROM nucleo.portal_accesos WHERE id IN (
     ORDER BY a.id
     LIMIT @lote::integer
     FOR UPDATE SKIP LOCKED);
+
+-- name: TokensRecuperacionDelUsuarioDe :many
+-- Tokens de recuperación vigentes del mismo usuario de integración que el token @id (el entregado en
+-- un canje que se acaba de confirmar): se revocan (contrato con Argos 0.8.0 §1.5, S5).
+SELECT r.id FROM nucleo.tokens_api r
+JOIN nucleo.tokens_api t ON t.usuario_id = r.usuario_id
+WHERE t.id = @id AND r.id <> @id AND r.via = 'recuperacion' AND r.revocado_en IS NULL
+ORDER BY r.id;
 
 -- name: ConfirmarTokenEntregado :execrows
 -- El iris_pat_ de un canje queda sin vencimiento al activar el conector (si sigue vigente).

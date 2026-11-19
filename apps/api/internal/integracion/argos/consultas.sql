@@ -535,3 +535,10 @@ SELECT id, nombre, nit FROM nucleo.empresas WHERE id = ANY(@ids::bigint[]) ORDER
 SELECT a.actor_id, a.actor_nombre, a.created_at FROM auditoria.acciones a
 WHERE a.accion = 'integraciones.activar' AND a.entidad = 'conector' AND a.entidad_id = (@conector_id::bigint)::text AND a.resultado = 'ok'
 ORDER BY a.id DESC LIMIT 1;
+
+-- name: CertificadoVuelveAVerse :one
+-- Un certificado ya visto vuelve a aparecer después de otro (A → B → A): cuenta como cambio.
+UPDATE integracion.argos_certificados
+SET visto_en = @visto_en, ultimo_visto_en = @visto_en, cambiado = true, anterior_id = @anterior_id
+WHERE id = @id
+RETURNING *;
