@@ -294,3 +294,6 @@ func DecidirCuenta(empresa int64, cuentas []argos.CuentaBancariaArgos, err error
 func (m *Modulo) EnviarBoleta(ctx context.Context, id uuid.UUID) error {
 	return m.enviarBoleta(ctx, id)
 }
+
+// DescribirServiciosIA: cómo ve el asistente los servicios del cliente (contrato argosisp.md 0.8.0 §2.4).
+var DescribirServiciosIA = describirServiciosIA

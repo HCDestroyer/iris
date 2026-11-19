@@ -475,6 +475,20 @@ func (a *argosFalso) estadoCuenta(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *argosFalso) serviciosDe(w http.ResponseWriter, r *http.Request) {
+	if plan := r.URL.Query().Get("plan_id"); plan != "" {
+		// GET /servicios?plan_id= (contrato 0.8.0 §2.3: catalogo.cambiado de un plan con precio).
+		planID, _ := strconv.ParseInt(plan, 10, 64)
+		lista := []map[string]any{}
+		for _, servicios := range a.servicios {
+			for _, s := range servicios {
+				if enteroDe(s["plan_id"]) == planID {
+					lista = append(lista, s)
+				}
+			}
+		}
+		escribir(w, lista)
+		return
+	}
 	id, _ := strconv.ParseInt(r.URL.Query().Get("cliente_id"), 10, 64)
 	todas := r.URL.Query().Get("empresas") == "todas"
 	if todas && len(a.alcance) > 0 {

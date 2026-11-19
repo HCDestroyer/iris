@@ -516,9 +516,11 @@ func TestAsistenteSugerenciaConFuentesYRedaccion(t *testing.T) {
 		t.Fatal(err)
 	}
 	router := siguienteCliente.Add(1)
-	if _, err := x.bd.Exec(x.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_nombre, router_id, router_nombre, sincronizado_en)
-		VALUES ($1, 1, $2, 'S-1', 'Fibra 50 Mbps', 'activo', 'Zona 4', $3, 'R-Z4', now()),
-		       ($4, 2, $2, 'S-2', 'PLAN-DE-OTRA-EMPRESA', 'activo', 'Zona 9', NULL, '', now())`, cliente*10, cliente, router, cliente*10+1); err != nil {
+	// Con precio (Argos ≥ 1.18.0) y datos sensibles que nunca viajan al proveedor (§2.4).
+	if _, err := x.bd.Exec(x.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_nombre, router_id, router_nombre, sincronizado_en,
+			precio_mensual, moneda, ip, direccion, user_ppp, lat, lon, referencia)
+		VALUES ($1, 1, $2, 'S-1', 'Fibra 50 Mbps', 'activo', 'Zona 4', $3, 'R-Z4', now(), 250.00, 'GTQ', '100.64.77.1', 'CALLE-SECRETA 4-56', 'PPP-SECRETO', 14.6349, -90.5069, 'PORTON-SECRETO'),
+		       ($4, 2, $2, 'S-2', 'PLAN-DE-OTRA-EMPRESA', 'activo', 'Zona 9', NULL, '', now(), NULL, NULL, '', '', '', NULL, NULL, '')`, cliente*10, cliente, router, cliente*10+1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := x.bd.Exec(x.ctx, `INSERT INTO soporte.horus_estados (clave, empresa_id, estado, ocurrido_en, entrante_id) VALUES ($1, 1, 'caido', now(), 1)`,
@@ -561,12 +563,14 @@ func TestAsistenteSugerenciaConFuentesYRedaccion(t *testing.T) {
 	}
 	// Lo que vio el modelo: redactado, sin notas, solo la empresa de la conversación.
 	pedido, _, _ := x.ia.ultimo()
-	for _, prohibido := range []string{"Gato123", "67890", "NOTA-INTERNA-SECRETA", "PLAN-DE-OTRA-EMPRESA", "MANUAL-OTRA-EMPRESA"} {
+	// Tampoco el nombre del router ni el código del servicio (contrato argosisp.md 0.8.0 §2.4).
+	for _, prohibido := range []string{"Gato123", "67890", "NOTA-INTERNA-SECRETA", "PLAN-DE-OTRA-EMPRESA", "MANUAL-OTRA-EMPRESA", "R-Z4",
+		"S-1", "100.64.77.1", "CALLE-SECRETA", "PPP-SECRETO", "14.6349", "PORTON-SECRETO"} {
 		if strings.Contains(pedido, prohibido) {
 			t.Fatalf("el modelo vio %q: %s", prohibido, pedido)
 		}
 	}
-	for _, debe := range []string{"***", "Fibra 50 Mbps", "Sin internet (FTTH)", "R-Z4", "\\u003cconversacion\\u003e"} {
+	for _, debe := range []string{"***", "Fibra 50 Mbps", "Sin internet (FTTH)", "un equipo de red de Zona 4", "Servicio 1 · Fibra 50 Mbps · Zona 4", "\\u003cconversacion\\u003e"} {
 		if !strings.Contains(pedido, debe) {
 			t.Fatalf("el modelo no vio %q: %s", debe, pedido)
 		}
