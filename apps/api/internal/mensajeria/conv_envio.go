@@ -318,6 +318,7 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 					return MensajeConvEnviado{}, reglaConv("adjunto_no_listo", "El adjunto pesa más de 16 MB")
 				}
 				n.adjunto, n.tipo = in.AdjuntoID, tipoDeMime(adj.Mime)
+				n.medidas = m.medidasDeAdjunto(ctx, adj)
 			}
 			if in.RespuestaRapidaID != nil {
 				if _, err := q.RespuestaRapidaPorID(ctx, mensajeriabd.RespuestaRapidaPorIDParams{ID: *in.RespuestaRapidaID, Empresa: empresaDeConv(c)}); err != nil {

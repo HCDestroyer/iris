@@ -8368,6 +8368,16 @@ export interface components {
             url_descarga: string;
         };
         AdjuntoMensaje: {
+            /**
+             * Format: int32
+             * @description Imagen: alto en píxeles como se ve; null junto con ancho
+             */
+            alto?: number | null;
+            /**
+             * Format: int32
+             * @description Imagen: ancho en píxeles como se ve (orientación EXIF aplicada), leído de la cabecera. null = sin medidas (documento, WebP, mensaje anterior o cabecera ilegible): el panel reserva 4:3
+             */
+            ancho?: number | null;
             /** @enum {string} */
             estado: "pendiente" | "subiendo" | "completo" | "rechazado";
             id: string;
