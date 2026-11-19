@@ -176,6 +176,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "integraciones.conectar",
     "integraciones.revisar_version",
     "integraciones.desactivar",
+    "integraciones.eliminar",
     "integraciones.reintentar",
     "integraciones.resolver_pendiente",
     "ordenes.aplicar_datos_argos",
@@ -208,6 +209,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "roles.ver",
     ...PERMISOS_TICKETS,
     "tokens.crear",
+    "tokens.eliminar",
     "tokens.revocar",
     "tokens.ver",
     "usuarios.crear",
@@ -390,7 +392,7 @@ export type ApiFalsa = {
     /** Prospectos, cotizaciones y contratos del escenario comercial. */
     comercial: Pick<ApiComercial, "escenario" | "cambiarVersion">;
     /** Cuenta y reinicio de MFA: subir la versión de un usuario, sacarlo del alcance, cuerpos recibidos. */
-    cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios">;
+    cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios" | "tokens">;
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
     /** Pedido B3: boletas, decisiones recibidas y enlaces a Argos pedidos. */
@@ -412,7 +414,7 @@ export type ApiFalsa = {
     /** Encuestas: lista, respuestas públicas y peticiones públicas que llevaron sesión. */
     encuestas: Pick<ApiEncuestas, "encuestas" | "publicasConSesion" | "respuestas" | "enlacesPedidos">;
     /** Autologin desde Argos, re-autenticación, vínculos y conectores. */
-    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "revisiones" | "autorizaciones" | "completados" | "enProceso" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
+    sso: Pick<ApiSSO, "canjes" | "vinculaciones" | "vinculos" | "conectores" | "revisiones" | "eliminaciones" | "autorizaciones" | "completados" | "enProceso" | "sesionesSSO"> & { reautenticaciones: () => number; descartes: () => number };
 };
 
 const OPERATIVAS = [
@@ -1191,6 +1193,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             vinculos: sso.vinculos,
             conectores: sso.conectores,
             revisiones: sso.revisiones,
+            eliminaciones: sso.eliminaciones,
             autorizaciones: sso.autorizaciones,
             completados: sso.completados,
             enProceso: sso.enProceso,
@@ -1204,7 +1207,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         flujoAbierto: conversaciones.flujoAbierto,
         pagos,
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
-        cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios },
+        cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios, tokens: cuenta.tokens },
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);
             if (o) o.version++;

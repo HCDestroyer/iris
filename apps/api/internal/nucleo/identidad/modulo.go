@@ -103,6 +103,12 @@ type Modulo struct {
 	CrearToken   *auditoria.Caso[EntradaCrearToken, TokenCreado]
 	RevocarToken *auditoria.Caso[EntradaRevocarToken, TokenAPI]
 	ListarTokens *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[TokenAPI]]
+	// EliminarToken y el lote: borrado lógico de tokens revocados o vencidos (eliminar_token.go).
+	EliminarToken           *auditoria.Caso[EntradaEliminarToken, TokenAPI]
+	RevocarYEliminarToken   *auditoria.Caso[EntradaEliminarToken, TokenAPI]
+	EliminarTokensInactivos *auditoria.Caso[EntradaTokensInactivos, TokensEliminados]
+	ContarTokensEliminables *auditoria.Caso[EntradaTokensInactivos, TokensEliminables]
+	eliminarTokenInterno    *auditoria.Caso[EntradaEliminarToken, TokenAPI]
 
 	EmitirAccesoPortal  *EmitirAccesoPortal
 	EntrarPortal        *auditoria.Caso[EntradaEntrarPortal, SesionPortal]
@@ -206,6 +212,11 @@ func Nuevo(cfg Config) *Modulo {
 	m.CrearToken = nuevoCrearToken()
 	m.RevocarToken = nuevoRevocarToken()
 	m.ListarTokens = nuevoListarTokens()
+	m.EliminarToken = nuevoEliminarToken(eliminarManual)
+	m.RevocarYEliminarToken = nuevoEliminarToken(eliminarRevocando)
+	m.eliminarTokenInterno = nuevoEliminarToken(eliminarInterno)
+	m.EliminarTokensInactivos = nuevoEliminarTokensInactivos(m.EliminarToken)
+	m.ContarTokensEliminables = nuevoContarTokensEliminables()
 	m.EmitirAccesoPortal = nuevoEmitirAccesoPortal(cfg)
 	m.EntrarPortal = nuevoEntrarPortal(m)
 	m.ObtenerSesionPortal = nuevoObtenerSesionPortal()

@@ -7,8 +7,8 @@ describe("buscador global", () => {
         expect(soloTickets).toEqual(["Inicio", "Tickets", "Mi perfil"]);
         const admin = pantallasVisibles(["roles.ver", "buzones.ver", "tokens.ver"]);
         expect(admin.map((p) => p.href)).toEqual(expect.arrayContaining(["/administracion", "/administracion/roles", "/administracion/buzones"]));
-        // «Tokens de API» aún no tiene pantalla: no se ofrece.
-        expect(admin.map((p) => p.etiqueta)).not.toContain("Tokens de API");
+        // «Tokens de API» ya tiene pantalla: se ofrece con tokens.ver.
+        expect(admin.map((p) => p.href)).toContain("/administracion/tokens");
         expect(filtrarPantallas(admin, "ROLES").map((p) => p.href)).toEqual(["/administracion/roles"]);
         expect(filtrarPantallas(pantallasVisibles(["ordenes.ver"]), "ordenes").map((p) => p.href)).toEqual(["/ordenes"]);
         expect(normalizar("  Órdenes ")).toBe("ordenes");

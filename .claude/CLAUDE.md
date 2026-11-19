@@ -193,14 +193,14 @@ Una tarea está terminada solo si:
 | `horus.router_estado_cambiado` / `horus.servicio_infra_cambiado` | integracion (horus) | router_id / infra_id, nombre, estado (caido, arriba), empresa_id (o null) |
 | `horus.hallazgo_abierto` / `horus.hallazgo_resuelto` | integracion (horus) | hallazgo_id, categoria, severidad, ip, cliente_id/servicio_id/empresa_id (o null + motivo_sin_cliente), url_horus |
 | `usuario.creado` / `usuario.actualizado` / `usuario.desactivado` | identidad (núcleo) | usuario_id; tipo (creado), campos[] (actualizado), motivo (desactivado) |
-| `usuario.mfa_reiniciado` | identidad (núcleo) | usuario_id, motivo, sesiones_cerradas, tokens_revocados |
+| `usuario.mfa_reiniciado` | identidad (núcleo) | usuario_id, motivo, sesiones_cerradas, tokens_revocados, tokens_conservados |
 | `usuario.sso_vinculado` / `usuario.sso_desvinculado` | identidad (núcleo, autologin) | usuario_id, vinculo_id, conector_id, usuario_externo; sistema, origen (usuario, admin) (vinculado); motivo (desvinculado) |
 | `usuario.sesiones_cerradas` | identidad (núcleo) | usuario_id, sesiones[], todas, motivo (o null) |
 | `usuario.argos_abierto` | integracion (núcleo, autologin Iris → Argos) | usuario_id, conector_id, con_destino; nunca la URL ni el ticket |
 | `usuario.rol_asignado` / `usuario.rol_quitado` | identidad (núcleo) | usuario_id, rol, zona_id (o null), cuadrilla_id (o null) |
 | `rol.creado` / `rol.actualizado` / `rol.activado` / `rol.desactivado` | identidad (núcleo) | rol_id; codigo, permisos[] (creado); campos[], permisos_agregados[], permisos_quitados[] (actualizado); codigo, usuarios, motivo (activado, desactivado) |
-| `token.creado` / `token.revocado` | identidad (núcleo) | token_id, usuario_id, motivo (revocado) |
-| `conector.creado` / `conector.activado` / `conector.desactivado` | integracion (núcleo) | conector_id, sistema; origen (creado), motivo (desactivado) |
+| `token.creado` / `token.revocado` / `token.eliminado` | identidad (núcleo) | token_id, usuario_id; motivo (revocado); motivo (manual, lote, conector) (eliminado) |
+| `conector.creado` / `conector.activado` / `conector.desactivado` / `conector.eliminado` | integracion (núcleo) | conector_id, sistema; origen (creado), motivo (desactivado); motivo (manual, lote), token_id (o null) (eliminado) |
 | `argos.servicio_retirado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id (o null), de, a, entrante_id |
 | `argos.datos_cambiados` | integracion (argos) | entidad (servicio \| cliente), cliente_id, servicio_id (o null), empresa_id (o null), campos[], entrante_id |
 | `argos.traslado_cambiado` | integracion (argos) | traslado_id, estado (enviado, recibido, cancelado), empresa_id, usuario_id (o null), entrante_id |

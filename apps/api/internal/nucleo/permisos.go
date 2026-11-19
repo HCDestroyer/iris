@@ -27,6 +27,8 @@ const (
 	PermTokensVer          Permiso = "tokens.ver"
 	PermTokensCrear        Permiso = "tokens.crear"
 	PermTokensRevocar      Permiso = "tokens.revocar" //nolint:gosec // nombre de permiso, no una credencial
+	// PermTokensEliminar: borrado lógico de un token revocado o vencido (POST /tokens/{id}/eliminar).
+	PermTokensEliminar Permiso = "tokens.eliminar"
 
 	// Roles propios (los base no se editan ni se desactivan) y su asignación con alcance.
 	PermRolesCrear             Permiso = "roles.crear"
@@ -209,7 +211,9 @@ const (
 	PermIntegracionesActivar    Permiso = "integraciones.activar"
 	PermIntegracionesConectar   Permiso = "integraciones.conectar"
 	PermIntegracionesDesactivar Permiso = "integraciones.desactivar"
-	PermIntegracionesVer        Permiso = "integraciones.ver"
+	// PermIntegracionesEliminar: borrado lógico de un conector apagado (POST /integraciones/conectores/{id}/eliminar).
+	PermIntegracionesEliminar Permiso = "integraciones.eliminar"
+	PermIntegracionesVer      Permiso = "integraciones.ver"
 	// PermIntegracionesRevisarVersion: releer ya la versión del otro sistema (diagnóstico del
 	// conector; POST /integraciones/conectores/{id}/revisar-version).
 	PermIntegracionesRevisarVersion Permiso = "integraciones.revisar_version"
@@ -389,12 +393,12 @@ const (
 var PermisosSensibles = map[Permiso]bool{
 	PermUsuariosCrear: true, PermUsuariosEditar: true, PermUsuariosDesactivar: true, PermUsuariosReiniciarMFA: true,
 	PermUsuariosAsignarEmpresa: true, PermUsuariosQuitarEmpresa: true,
-	PermTokensCrear: true, PermTokensRevocar: true,
+	PermTokensCrear: true, PermTokensRevocar: true, PermTokensEliminar: true,
 	PermRolesCrear: true, PermRolesEditar: true, PermRolesActivar: true, PermRolesDesactivar: true,
 	PermUsuariosAsignarRol: true, PermUsuariosQuitarRol: true, PermUsuariosCerrarSesiones: true,
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
-	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true,
+	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
@@ -512,6 +516,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesActivar, "Activar un conector con ArgosISP u Horus"},
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
+	{PermIntegracionesEliminar, "Eliminar un conector apagado que ya no se usa (queda en la auditoría; sus credenciales se borran)"},
 	{PermIntegracionesReintentar, "Reintentar a mano una acción pendiente hacia Argos (fallida o agotada)"},
 	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
 	{PermIntegracionesRevisarVersion, "Releer ya la versión de Argos en un conector (diagnóstico: la URL base y el status de la última lectura)"},
@@ -602,6 +607,7 @@ var Catalogo = []DefPermiso{
 	{PermTicketsVer, "Ver tickets, su conversación, historial, categorías y SLA"},
 	{PermTicketsVerNotas, "Ver las notas internas de los tickets"},
 	{PermTokensCrear, "Crear tokens de API (iris_pat_) para un usuario"},
+	{PermTokensEliminar, "Eliminar tokens de API revocados o vencidos (quedan en la auditoría; su hash se borra)"},
 	{PermTokensRevocar, "Revocar tokens de API"},
 	{PermTokensVer, "Ver tokens de API (nunca el valor)"},
 	{PermUsuariosAsignarEmpresa, "Asignar a un usuario una empresa en que operar (solo empresas en que operas tú)"},
