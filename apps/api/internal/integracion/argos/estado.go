@@ -163,7 +163,7 @@ type CertificadoArgos struct {
 	VistoEn       time.Time            `json:"vistoEn" doc:"La primera vez que Iris lo vio"`
 	UltimoVistoEn time.Time            `json:"ultimoVistoEn"`
 	Cambiado      bool                 `json:"cambiado" doc:"true: reemplazó a otro en este conector sin reconectar (Iris avisó al admin y no detuvo nada)"`
-	Anterior      *CertificadoAnterior `json:"anterior"`
+	Anterior      *CertificadoAnterior `json:"anterior,omitempty" required:"false"`
 }
 
 // CertificadoAnterior es el que se veía antes del cambio.
@@ -176,19 +176,19 @@ type CertificadoAnterior struct {
 
 // EstadoConexionArgos es lo que muestra Administración → Integraciones → Argos.
 type EstadoConexionArgos struct {
-	Conector   *Conector           `json:"conector" doc:"El conector de Argos activo o, si no hay, el más reciente. null = Iris nunca se conectó"`
-	Activacion *ActivacionConector `json:"activacion" doc:"Última activación (de la auditoría); null si nunca se activó"`
+	Conector   *Conector           `json:"conector,omitempty" required:"false" doc:"El conector de Argos activo o, si no hay, el más reciente. ausente = Iris nunca se conectó"`
+	Activacion *ActivacionConector `json:"activacion,omitempty" required:"false" doc:"Última activación (de la auditoría); ausente si nunca se activó"`
 	// Versiones de cada lado.
 	ContratoIris      string             `json:"contratoIris"`
 	ContratoArgos     *string            `json:"contratoArgos" nullable:"true"`
 	VersionArgos      *string            `json:"versionArgos" nullable:"true"`
 	FuncionesApagadas []FuncionApagada   `json:"funcionesApagadas" doc:"Lo que Iris no hace por la versión de Argos (§4.1); vacío si Argos tiene todo"`
-	Sincronizacion    *Sincronizacion    `json:"sincronizacion" doc:"La última primera sincronización del conector; null = no ha empezado"`
+	Sincronizacion    *Sincronizacion    `json:"sincronizacion,omitempty" required:"false" doc:"La última primera sincronización del conector; ausente = no ha empezado"`
 	Instantaneas      []InstantaneaArgos `json:"instantaneas"`
 	Fallos            FallosArgos        `json:"fallos"`
 	Empresas          []EmpresaAlcance   `json:"empresas" doc:"Empresas del alcance del token (lo que informó el canje)"`
 	AlcanceGlobal     *bool              `json:"alcanceGlobal" nullable:"true" doc:"true: también las empresas que se creen después en Argos; null = Argos no lo informó"`
-	Certificado       *CertificadoArgos  `json:"certificado" doc:"Certificado TLS de la API de Argos; null = no se ha visto (sin llamadas por HTTPS todavía)"`
+	Certificado       *CertificadoArgos  `json:"certificado,omitempty" required:"false" doc:"Certificado TLS de la API de Argos; ausente = no se ha visto (sin llamadas por HTTPS todavía)"`
 }
 
 // FuncionesApagadas: lo que Iris deja de hacer con este Argos (§4.1, §3.3, §4.2).
