@@ -92,7 +92,9 @@ var Catalogo = []Plantilla{
 	{Codigo: "boleta_falta_dato", Pide: PideIris, Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
 		Texto: "A tu boleta de {{moneda}} {{monto}} le falta un dato: {{motivo}}. Envíala de nuevo, por favor."},
 	{Codigo: "reconexion_temporal", Pide: PideIris, Variables: vars("hasta", formatoInstante), Caducidad: "hasta",
-		Texto: "Reconectamos tu servicio de forma temporal hasta {{hasta}} mientras revisamos tu pago."},
+		// `hasta` es el instante de Argos; al cliente le llega en hora de Guatemala y en llano
+		// (HastaReconexionTexto, §6.3 y §7.3): nunca una hora de corte.
+		Texto: "Reconectamos tu servicio de forma temporal: la reconexión vale hasta {{hasta}}. Tu comprobante queda pendiente de revisión."},
 	{Codigo: "promesa_aceptada", Pide: PideIris, Variables: vars("vence_en", formatoFecha, "monto", formatoMonto), Caducidad: "vence_en",
 		Texto: "Registramos tu promesa de pago de {{monto}} para el {{vence_en}}."},
 }
@@ -232,16 +234,35 @@ func (p Plantilla) venceEn(v map[string]string, zona *time.Location) *time.Time 
 func (p Plantilla) Parametros(v map[string]string) []string {
 	salida := make([]string, 0, len(p.Variables))
 	for _, d := range p.Variables {
-		salida = append(salida, v[d.Nombre])
+		salida = append(salida, p.valor(d, v))
 	}
 	return salida
+}
+
+// zonaPlantillas: la hora de Guatemala para lo que lee el cliente (CLAUDE.md: zona solo al mostrar).
+var zonaPlantillas = func() *time.Location {
+	if z, err := time.LoadLocation("America/Guatemala"); err == nil {
+		return z
+	}
+	return time.FixedZone("America/Guatemala", -6*60*60)
+}()
+
+// valor: lo que lee el cliente de una variable. El `hasta` de reconexion_temporal (un instante de
+// Argos) va en hora de Guatemala y en llano (contrato con Argos §6.3, §7.3).
+func (p Plantilla) valor(d Variable, v map[string]string) string {
+	if p.Codigo == "reconexion_temporal" && d.Nombre == "hasta" {
+		if t, ok := parsearInstante(v[d.Nombre], time.UTC); ok {
+			return HastaReconexionTexto(t, zonaPlantillas)
+		}
+	}
+	return v[d.Nombre]
 }
 
 // Render arma el texto con las variables (canal simulado).
 func (p Plantilla) Render(v map[string]string) string {
 	t := p.Texto
 	for _, d := range p.Variables {
-		t = strings.ReplaceAll(t, "{{"+d.Nombre+"}}", v[d.Nombre])
+		t = strings.ReplaceAll(t, "{{"+d.Nombre+"}}", p.valor(d, v))
 	}
 	return t
 }

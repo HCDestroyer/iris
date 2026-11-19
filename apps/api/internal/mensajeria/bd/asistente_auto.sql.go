@@ -149,20 +149,20 @@ func (q *Queries) ActualizarAjustesReconexion(ctx context.Context, arg Actualiza
 
 const actualizarReconexionArgos = `-- name: ActualizarReconexionArgos :one
 UPDATE mensajeria.reconexiones
-SET argos_estado = $1, argos_motivo = coalesce($2, argos_motivo),
-    argos_fin_motivo = $3, argos_entrante_id = $4, argos_actualizada_en = now(),
-    hasta = CASE WHEN $1 = 'activa' AND estado = 'aceptada' THEN coalesce($5, hasta) ELSE hasta END
+SET argos_estado = $1::text, argos_motivo = coalesce($2, argos_motivo),
+    argos_fin_motivo = $3, argos_entrante_id = $4::bigint, argos_actualizada_en = now(),
+    hasta = CASE WHEN $1::text = 'activa' AND estado = 'aceptada' THEN coalesce($5, hasta) ELSE hasta END
 WHERE id = $6
-  AND argos_entrante_id IS DISTINCT FROM $4
+  AND argos_entrante_id IS DISTINCT FROM $4::bigint
   AND (argos_estado IS NULL OR argos_estado = 'activa')
 RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en
 `
 
 type ActualizarReconexionArgosParams struct {
-	ArgosEstado    *string
+	ArgosEstado    string
 	ArgosMotivo    *string
 	ArgosFinMotivo *string
-	EntranteID     *int64
+	EntranteID     int64
 	Vence          *time.Time
 	ID             uuid.UUID
 }
@@ -1265,7 +1265,7 @@ func (q *Queries) RechazosVerificacionConv(ctx context.Context, arg RechazosVeri
 
 const reconexionDePromesa = `-- name: ReconexionDePromesa :one
 SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en FROM mensajeria.reconexiones
-WHERE comprobante_id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+WHERE comprobante_id = $1 AND (empresa_id IS NULL OR empresa_id = $2::bigint)
   AND (promesa_argos_id IS NULL OR promesa_argos_id = $3::bigint)
 FOR UPDATE
 `

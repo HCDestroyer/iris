@@ -698,8 +698,11 @@ func (m *Modulo) herrReconexion(ctx context.Context, t *turnoIA, l LlamadaIA, h 
 	}
 	h.actividadTipo, h.actividadTexto = "reconexion_pedida", "Pidió una reconexión temporal"
 	t.permitir(ResReconectar, ResActivo, ResAceptar, ResConfirmar)
-	return resHerramienta{contenido: "Reconexión temporal aceptada hasta " + r.Hasta.In(m.cfg.Zona).Format("2006-01-02 15:04") +
-		" mientras caja revisa la boleta. Explícaselo al cliente."}, h
+	// La fecha y la hora las pone el servidor (§7.3): el modelo nunca ve ni escribe `hasta`.
+	t.fraseReconexion = FraseReconexion(*r.Hasta, m.cfg.Zona)
+	return resHerramienta{contenido: "Reconexión temporal aceptada mientras caja revisa la boleta. Escribe {{reconexion}} donde va: el sistema pone " +
+		"hasta cuándo vale y que el comprobante queda pendiente de revisión. No escribas tú fechas, horas, «medianoche» ni cuándo se corta el servicio. " +
+		"Si el cliente pregunta qué pasa después: si el pago se confirma antes, no pasa nada; si no, el servicio puede volver a suspenderse después de esa hora."}, h
 }
 
 // herrVerificarIdentidad hace el desafío de identidad de Argos (§7.5) con el documento que el cliente

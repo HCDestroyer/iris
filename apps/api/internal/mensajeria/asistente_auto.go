@@ -180,6 +180,9 @@ type turnoIA struct {
 	desde        time.Time
 	// conSaldo: el mensaje final lleva el monto del saldo (se marca para enmascararlo en el historial).
 	conSaldo   bool
+	// fraseReconexion: la frase de FraseReconexion si una reconexión se aceptó en este turno (va en
+	// la marca {{reconexion}} o al final del mensaje).
+	fraseReconexion string
 	servicioID *int64
 	presentado bool
 	nombreISP  string
@@ -1175,6 +1178,11 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 	if afirmaSerPersona(texto) || afirmaSinResultado(t, texto) {
 		return "", false
 	}
+	// Nunca una hora de corte ni «medianoche», y la fecha u hora de la reconexión solo la pone el
+	// servidor (marca {{reconexion}}, contrato con Argos §7.3).
+	if cuandoInventado(texto) {
+		return "", false
+	}
 	vistos := strings.Join(t.vistos, "\n")
 	for _, p := range preciosDe(texto) {
 		if !slices.Contains(preciosDe(vistos), p) {
@@ -1200,7 +1208,8 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 		texto = reMarcaSaldo.ReplaceAllString(texto, "Q "+*t.saldo)
 		t.conSaldo = true
 	}
-	if strings.Contains(texto, "{{") {
+	texto, ok := conFraseReconexion(t, texto)
+	if !ok || strings.Contains(texto, "{{") {
 		return "", false
 	}
 	return texto, true

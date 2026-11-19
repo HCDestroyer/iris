@@ -421,7 +421,7 @@ SELECT (SELECT count(*) FROM caja)::integer AS total,
 -- La reconexión local de una promesa de Argos (webhooks promesa.*): por el comprobante, de la misma
 -- empresa y, si ya se sabe, de la misma promesa.
 SELECT * FROM mensajeria.reconexiones
-WHERE comprobante_id = @comprobante_id AND coalesce(empresa_id, 0) = @empresa::bigint
+WHERE comprobante_id = @comprobante_id AND (empresa_id IS NULL OR empresa_id = @empresa::bigint)
   AND (promesa_argos_id IS NULL OR promesa_argos_id = @promesa_id::bigint)
 FOR UPDATE;
 
@@ -429,10 +429,10 @@ FOR UPDATE;
 -- Lo que Argos dice de la promesa. Un estado final (cumplida, incumplida, cancelada) no lo pisa un
 -- webhook atrasado, y el mismo entrante no se aplica dos veces.
 UPDATE mensajeria.reconexiones
-SET argos_estado = @argos_estado, argos_motivo = coalesce(sqlc.narg('argos_motivo'), argos_motivo),
-    argos_fin_motivo = sqlc.narg('argos_fin_motivo'), argos_entrante_id = @entrante_id, argos_actualizada_en = now(),
-    hasta = CASE WHEN @argos_estado = 'activa' AND estado = 'aceptada' THEN coalesce(sqlc.narg('vence'), hasta) ELSE hasta END
+SET argos_estado = @argos_estado::text, argos_motivo = coalesce(sqlc.narg('argos_motivo'), argos_motivo),
+    argos_fin_motivo = sqlc.narg('argos_fin_motivo'), argos_entrante_id = @entrante_id::bigint, argos_actualizada_en = now(),
+    hasta = CASE WHEN @argos_estado::text = 'activa' AND estado = 'aceptada' THEN coalesce(sqlc.narg('vence'), hasta) ELSE hasta END
 WHERE id = @id
-  AND argos_entrante_id IS DISTINCT FROM @entrante_id
+  AND argos_entrante_id IS DISTINCT FROM @entrante_id::bigint
   AND (argos_estado IS NULL OR argos_estado = 'activa')
 RETURNING *;

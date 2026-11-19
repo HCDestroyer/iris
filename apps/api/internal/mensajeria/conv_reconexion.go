@@ -25,10 +25,10 @@ import (
 // Los dos los pide a Argos el asistente de IA cuando atiende solo (contratos/conversaciones.md §17.8);
 // Argos decide. Iris guarda lo pedido y lo decidido, nunca el dato de identidad.
 
-// ReconexionFueraDeHorario: el único motivo que acepta Argos (§7.3). La reconexión temporal solo se
-// pide fuera de horario; en horario hábil, aunque no haya nadie disponible, sigue una persona.
+// ReconexionFueraDeHorario: el motivo fuera del horario hábil (§7.3). En horario hábil solo se pide
+// con ReconexionSinPersonal (0.8.0, conv_reconexion_sin_personal.go); si no, sigue una persona.
 const (
-	ReconexionFueraDeHorario = "fuera_de_horario"
+	ReconexionFueraDeHorario = argos.MotivoReconexionFueraDeHorario
 	ReconexionPendiente      = "pendiente"
 	// MaxIntentosReconexion: llamadas a Argos por una reconexión que no responde, antes de darla por rechazada.
 	MaxIntentosReconexion = 10
@@ -45,7 +45,7 @@ type EntradaReconexion struct {
 type ReconexionConv struct {
 	ID             uuid.UUID  `json:"id"`
 	Estado         string     `json:"estado" enum:"pendiente,aceptada,rechazada"`
-	Motivo         string     `json:"motivo" enum:"fuera_de_horario"`
+	Motivo         string     `json:"motivo" enum:"fuera_de_horario,sin_personal" doc:"Lo decide el servidor (reloj y disponibilidad de caja), nunca el cliente"`
 	ComprobanteID  int64      `json:"comprobanteId"`
 	PromesaArgosID *int64     `json:"promesaArgosId" nullable:"true"`
 	Hasta          *time.Time `json:"hasta" nullable:"true"`
@@ -78,7 +78,8 @@ func (p previaReconexion) MarshalJSON() ([]byte, error) {
 	if p.repetida != nil {
 		return json.Marshal(map[string]any{"reconexion_id": p.repetida.ID, "repetida": true})
 	}
-	return json.Marshal(map[string]any{"reconexion_id": p.fila.ID, "comprobante_id": p.fila.ComprobanteID, "estado": p.fila.Estado})
+	return json.Marshal(map[string]any{"reconexion_id": p.fila.ID, "comprobante_id": p.fila.ComprobanteID, "estado": p.fila.Estado, "motivo": p.fila.Motivo,
+		"caja_total": p.fila.CajaTotal, "caja_disponibles": p.fila.CajaDisponibles})
 }
 
 type finalReconexion struct {
@@ -149,13 +150,15 @@ func nuevoPedirReconexion(m *Modulo) *PedirReconexion {
 				// Un intento anterior quedó sin respuesta de Argos: se repite con la misma clave.
 				return previaReconexion{a: a, fila: previa}, nil
 			}
-			// Solo fuera de horario: en horario hábil la boleta la revisa una persona.
-			fuera, err := m.fueraDeHorarioConv(ctx, q, c)
+			// El motivo lo decide el servidor: fuera de horario, o en horario hábil sin nadie de caja
+			// disponible (0.8.0, apagado de fábrica). Si no corresponde, la boleta la revisa una persona.
+			cr, err := m.motivoReconexion(ctx, t, q, c)
 			if err != nil {
 				return previaReconexion{}, err
 			}
-			if !fuera {
-				return previaReconexion{}, reglaConv("reconexion_no_corresponde", "La reconexión temporal solo se pide fuera de horario: en horario hábil la boleta la revisa una persona")
+			var cajaTotal, cajaDisp *int32
+			if cr.Motivo == ReconexionSinPersonal {
+				cajaTotal, cajaDisp = &cr.CajaTotal, &cr.CajaDisp
 			}
 			servicio := b.ServicioID
 			if servicio == nil {
@@ -168,8 +171,8 @@ func nuevoPedirReconexion(m *Modulo) *PedirReconexion {
 			t.FijarEmpresa(empresaDeConv(c))
 			t.FijarEntidad("conversacion", c.ID)
 			f, err := q.InsertarReconexion(ctx, mensajeriabd.InsertarReconexionParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, BoletaID: b.ID,
-				ComprobanteID: *b.ComprobanteID, ClienteID: *c.ClienteID, ServicioID: servicio, Motivo: ReconexionFueraDeHorario,
-				Estado: ReconexionPendiente, SolicitadaPor: a.usuarioPtr(), PorAsistente: a.asistente})
+				ComprobanteID: *b.ComprobanteID, ClienteID: *c.ClienteID, ServicioID: servicio, Motivo: cr.Motivo,
+				Estado: ReconexionPendiente, SolicitadaPor: a.usuarioPtr(), PorAsistente: a.asistente, CajaTotal: cajaTotal, CajaDisponibles: cajaDisp})
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Otra petición la registró primero: la misma reconexión (y la misma clave hacia Argos).
 				f, err = q.ReconexionPorComprobante(ctx, *b.ComprobanteID)
@@ -241,7 +244,7 @@ func (m *Modulo) aplicarReconexion(ctx context.Context, t *auditoria.Tx, q *mens
 	if !f.PorAsistente && f.SolicitadaPor != nil {
 		nombre = actorNombre(ctx, q, *f.SolicitadaPor)
 	}
-	if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "reconexion_pedida", ActorNombre: nombre, Detalle: &f.Estado}); err != nil {
+	if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "reconexion_pedida", ActorNombre: nombre, Detalle: &f.Estado, Motivo: &f.Motivo, Hasta: f.Hasta}); err != nil {
 		return ReconexionConv{}, err
 	}
 	return aReconexion(f), t.Emitir("reconexion.solicitada", map[string]any{"reconexion_id": f.ID, "conversacion_id": c.ID, "empresa_id": c.EmpresaID,

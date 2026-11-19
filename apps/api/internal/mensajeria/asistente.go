@@ -193,6 +193,11 @@ type casosAsistente struct {
 	leerConv              *auditoria.Caso[EntradaConversacion, convLeida]
 	registrarVerificacion *auditoria.Caso[verificacionHecha, bool]
 
+	// Reconexión sin personal de caja (contrato con Argos 0.8.0 §7.3, B4): el interruptor y los webhooks promesa.*.
+	VerReconexion   *auditoria.Caso[struct{}, AjustesReconexion]
+	FijarReconexion *auditoria.Caso[EntradaAjustesReconexion, AjustesReconexion]
+	reconexionArgos *auditoria.Caso[entradaPromesaArgos, promesaAplicada]
+
 	prepararGen    *auditoria.Caso[uuidSugerencia, generacion]
 	guardarGen     *auditoria.Caso[resultadoGeneracion, struct{}]
 	crearAuto      *auditoria.Caso[int64, autoCreada]
@@ -202,6 +207,7 @@ type casosAsistente struct {
 func nuevosCasosAsistente(m *Modulo) casosAsistente {
 	return casosAsistente{
 		VerAjustes: nuevoVerAjustesAsistente(m), FijarAjustes: nuevoFijarAjustesAsistente(m), Estado: nuevoEstadoAsistente(m),
+		VerReconexion: nuevoVerAjustesReconexion(m), FijarReconexion: nuevoFijarAjustesReconexion(m), reconexionArgos: nuevoReconexionArgos(m),
 		Probar: nuevoProbarAsistente(m), Modelos: nuevoModelosAsistente(m), Uso: nuevoUsoAsistente(m),
 		Pedir: nuevoPedirSugerencia(m), Actual: nuevoSugerenciaActual(m), Usar: nuevoUsarSugerencia(m),
 		Descartar: nuevoDescartarSugerencia(m), Calificar: nuevoCalificarSugerencia(m), Resumen: nuevoResumirConversacion(m), VerResumen: nuevoVerResumen(m),
