@@ -12,6 +12,26 @@ import (
 	"github.com/google/uuid"
 )
 
+const activacionDeConector = `-- name: ActivacionDeConector :one
+SELECT a.actor_id, a.actor_nombre, a.created_at FROM auditoria.acciones a
+WHERE a.accion = 'integraciones.activar' AND a.entidad = 'conector' AND a.entidad_id = ($1::bigint)::text AND a.resultado = 'ok'
+ORDER BY a.id DESC LIMIT 1
+`
+
+type ActivacionDeConectorRow struct {
+	ActorID     *int64
+	ActorNombre string
+	CreatedAt   time.Time
+}
+
+// Quién activó el conector por última vez (de la auditoría; el conector no lo guarda).
+func (q *Queries) ActivacionDeConector(ctx context.Context, conectorID int64) (ActivacionDeConectorRow, error) {
+	row := q.db.QueryRow(ctx, activacionDeConector, conectorID)
+	var i ActivacionDeConectorRow
+	err := row.Scan(&i.ActorID, &i.ActorNombre, &i.CreatedAt)
+	return i, err
+}
+
 const actualizarEtapa = `-- name: ActualizarEtapa :one
 UPDATE integracion.argos_sincronizacion_etapas
 SET estado = $1, procesados = $2, omitidos = $3, total = $4::integer, cursor = $5::text,
@@ -591,22 +611,27 @@ func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosC
 }
 
 const clientesEnInstantanea = `-- name: ClientesEnInstantanea :many
-SELECT id FROM integracion.argos_clientes WHERE id = ANY($1::bigint[])
+SELECT id, zona_id FROM integracion.argos_clientes WHERE id = ANY($1::bigint[])
 `
 
-func (q *Queries) ClientesEnInstantanea(ctx context.Context, ids []int64) ([]int64, error) {
+type ClientesEnInstantaneaRow struct {
+	ID     int64
+	ZonaID *int64
+}
+
+func (q *Queries) ClientesEnInstantanea(ctx context.Context, ids []int64) ([]ClientesEnInstantaneaRow, error) {
 	rows, err := q.db.Query(ctx, clientesEnInstantanea, ids)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []int64
+	var items []ClientesEnInstantaneaRow
 	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
+		var i ClientesEnInstantaneaRow
+		if err := rows.Scan(&i.ID, &i.ZonaID); err != nil {
 			return nil, err
 		}
-		items = append(items, id)
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -788,6 +813,36 @@ func (q *Queries) EmpresasDeEliminadosDeCliente(ctx context.Context, clienteID *
 			return nil, err
 		}
 		items = append(items, empresa_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const empresasPorIDs = `-- name: EmpresasPorIDs :many
+SELECT id, nombre, nit FROM nucleo.empresas WHERE id = ANY($1::bigint[]) ORDER BY id
+`
+
+type EmpresasPorIDsRow struct {
+	ID     int64
+	Nombre string
+	Nit    string
+}
+
+func (q *Queries) EmpresasPorIDs(ctx context.Context, ids []int64) ([]EmpresasPorIDsRow, error) {
+	rows, err := q.db.Query(ctx, empresasPorIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EmpresasPorIDsRow
+	for rows.Next() {
+		var i EmpresasPorIDsRow
+		if err := rows.Scan(&i.ID, &i.Nombre, &i.Nit); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -1358,6 +1413,58 @@ func (q *Queries) PistaEmpresaAlta(ctx context.Context, clienteID int64) (int64,
 	return empresa_id, err
 }
 
+const reabrirEtapas = `-- name: ReabrirEtapas :exec
+UPDATE integracion.argos_sincronizacion_etapas
+SET estado = 'pendiente', error = NULL, terminada_en = NULL
+WHERE sincronizacion_id = $1 AND estado = 'con_errores'
+`
+
+// Las etapas con errores vuelven a pendiente; las listas por cursor siguen desde su último cursor.
+func (q *Queries) ReabrirEtapas(ctx context.Context, sincronizacionID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, reabrirEtapas, sincronizacionID)
+	return err
+}
+
+const reabrirSincronizacion = `-- name: ReabrirSincronizacion :one
+UPDATE integracion.argos_sincronizaciones
+SET estado = 'en_curso', terminada_en = NULL, actualizada_en = GREATEST($1::timestamptz, actualizada_en + interval '1 millisecond'),
+    informe_estado = CASE WHEN informar THEN 'pendiente' ELSE informe_estado END,
+    origen = 'manual', iniciada_por = $2::bigint
+WHERE id = $3 AND estado = 'con_errores'
+RETURNING id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen
+`
+
+type ReabrirSincronizacionParams struct {
+	Ahora       time.Time
+	IniciadaPor *int64
+	ID          uuid.UUID
+}
+
+// Reanudar a mano una sincronización con_errores: vuelve a en_curso con el mismo id (Argos recibe un
+// informe más nuevo por actualizada_en).
+func (q *Queries) ReabrirSincronizacion(ctx context.Context, arg ReabrirSincronizacionParams) (IntegracionArgosSincronizacione, error) {
+	row := q.db.QueryRow(ctx, reabrirSincronizacion, arg.Ahora, arg.IniciadaPor, arg.ID)
+	var i IntegracionArgosSincronizacione
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ExcluirRetirados,
+		&i.Informar,
+		&i.IniciadaEn,
+		&i.ActualizadaEn,
+		&i.TerminadaEn,
+		&i.InformeEstado,
+		&i.InformadoEn,
+		&i.InformadoHasta,
+		&i.InformeDetalle,
+		&i.IniciadaPor,
+		&i.Origen,
+	)
+	return i, err
+}
+
 const recalcularEmpresasClientes = `-- name: RecalcularEmpresasClientes :exec
 UPDATE integracion.argos_clientes c
 SET empresas = s.empresas, empresa_id = s.empresas[1], sin_servicios = false, updated_at = now()
@@ -1527,13 +1634,13 @@ func (q *Queries) ResucitarEliminado(ctx context.Context, arg ResucitarEliminado
 }
 
 const resumenEntrantesFallidos = `-- name: ResumenEntrantesFallidos :one
-SELECT count(*)::bigint AS cuantos, max(recibido_en)::timestamptz AS ultimo
+SELECT count(*)::bigint AS cuantos, max(recibido_en) AS ultimo
 FROM integracion.entrantes WHERE conector_id = $1 AND error IS NOT NULL AND procesado_en IS NULL
 `
 
 type ResumenEntrantesFallidosRow struct {
 	Cuantos int64
-	Ultimo  time.Time
+	Ultimo  interface{}
 }
 
 // Webhooks de Argos de este conector que no se pudieron aplicar (con error al procesarlos).
@@ -1545,16 +1652,16 @@ func (q *Queries) ResumenEntrantesFallidos(ctx context.Context, conectorID int64
 }
 
 const resumenInstantaneas = `-- name: ResumenInstantaneas :many
-SELECT 'clientes'::text AS recurso, count(*)::bigint AS cuantos, max(sincronizado_en)::timestamptz AS ultimo FROM integracion.argos_clientes
-UNION ALL SELECT 'servicios'::text, count(*)::bigint, max(sincronizado_en)::timestamptz FROM integracion.argos_servicios
-UNION ALL SELECT 'zonas'::text, count(*)::bigint, max(sincronizado_en)::timestamptz FROM integracion.argos_zonas
-UNION ALL SELECT 'routers'::text, count(*)::bigint, max(sincronizado_en)::timestamptz FROM integracion.argos_routers
+SELECT 'clientes'::text AS recurso, count(*)::bigint AS cuantos, max(sincronizado_en) AS ultimo FROM integracion.argos_clientes
+UNION ALL SELECT 'servicios'::text, count(*)::bigint, max(sincronizado_en) FROM integracion.argos_servicios
+UNION ALL SELECT 'zonas'::text, count(*)::bigint, max(sincronizado_en) FROM integracion.argos_zonas
+UNION ALL SELECT 'routers'::text, count(*)::bigint, max(sincronizado_en) FROM integracion.argos_routers
 `
 
 type ResumenInstantaneasRow struct {
 	Recurso string
 	Cuantos int64
-	Ultimo  time.Time
+	Ultimo  interface{}
 }
 
 // Pantalla de estado (§2.5 d): cuántos hay y el último sincronizado_en de cada instantánea.

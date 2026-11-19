@@ -73,7 +73,16 @@ INSERT INTO nucleo.permisos (codigo, descripcion) VALUES
     ('integraciones.sincronizar', 'Reanudar o volver a lanzar la primera sincronización con Argos')
 ON CONFLICT (codigo) DO NOTHING;
 
+-- Aviso de campana cuando cambia el certificado (notificaciones, tipo argos_certificado).
+ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
+ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
+    CHECK (tipo IN ('asistente_tope', 'servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_certificado'));
+
 -- +goose Down
+DELETE FROM notificaciones.avisos WHERE tipo = 'argos_certificado';
+ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
+ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
+    CHECK (tipo IN ('asistente_tope', 'servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral'));
 DELETE FROM nucleo.roles_permisos WHERE permiso = 'integraciones.sincronizar';
 DELETE FROM nucleo.permisos WHERE codigo = 'integraciones.sincronizar';
 DROP TABLE integracion.argos_certificados;
