@@ -244,6 +244,7 @@ type casosCentralita struct {
 	Extensiones     *auditoria.Caso[EntradaVerCentralita, ListaExtensiones]
 	Asignar         *auditoria.Caso[EntradaAsignarExtension, Extension]
 	Quitar          *auditoria.Caso[EntradaQuitarExtension, Extension]
+	MiExtension     *auditoria.Caso[struct{}, MiExtension]
 
 	Llamadas     *auditoria.Caso[EntradaListarLlamadasCentralita, ListaLlamadasCentralita]
 	VerLlamada   *auditoria.Caso[EntradaLlamadaCentralita, Llamada]
@@ -362,6 +363,7 @@ func nuevosCasosCentralita(m *Modulo) casosCentralita {
 		Probar:          nuevoProbarCentralita(m),
 	}
 	k.Extensiones, k.Asignar, k.Quitar = nuevosCasosExtensiones(m)
+	k.MiExtension = nuevoMiExtension(m)
 	k.Llamadas, k.VerLlamada, k.Anotar, k.Asociar, k.Vincular = nuevosCasosLlamadasCentralita(m)
 	k.procesar = nuevoProcesarHechoAMI(m)
 	k.fijarEstado = nuevoFijarEstadoCentralita(m)

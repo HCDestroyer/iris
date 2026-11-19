@@ -190,3 +190,10 @@ RETURNING id;
 
 -- name: SoltarMotorCentralita :exec
 UPDATE mensajeria.centralitas SET motor_dueno = NULL, motor_hasta = NULL WHERE id = @id AND motor_dueno = @dueno;
+
+-- name: MiExtension :one
+-- La extensión activa del usuario en la centralita activa de la empresa (para montar la ventana).
+SELECT x.id, x.extension, c.id AS centralita_id, c.estado FROM mensajeria.centralita_extensiones x
+JOIN mensajeria.centralitas c ON c.id = x.centralita_id
+WHERE x.usuario_id = @usuario::bigint AND x.activa AND c.activa AND coalesce(c.empresa_id, 0) = @empresa::bigint
+LIMIT 1;

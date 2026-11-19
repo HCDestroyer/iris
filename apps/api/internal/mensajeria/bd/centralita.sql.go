@@ -1373,6 +1373,38 @@ func (q *Queries) LlamadasCentralitaVivas(ctx context.Context, arg LlamadasCentr
 	return items, nil
 }
 
+const miExtension = `-- name: MiExtension :one
+SELECT x.id, x.extension, c.id AS centralita_id, c.estado FROM mensajeria.centralita_extensiones x
+JOIN mensajeria.centralitas c ON c.id = x.centralita_id
+WHERE x.usuario_id = $1::bigint AND x.activa AND c.activa AND coalesce(c.empresa_id, 0) = $2::bigint
+LIMIT 1
+`
+
+type MiExtensionParams struct {
+	Usuario int64
+	Empresa int64
+}
+
+type MiExtensionRow struct {
+	ID           int64
+	Extension    string
+	CentralitaID int64
+	Estado       string
+}
+
+// La extensión activa del usuario en la centralita activa de la empresa (para montar la ventana).
+func (q *Queries) MiExtension(ctx context.Context, arg MiExtensionParams) (MiExtensionRow, error) {
+	row := q.db.QueryRow(ctx, miExtension, arg.Usuario, arg.Empresa)
+	var i MiExtensionRow
+	err := row.Scan(
+		&i.ID,
+		&i.Extension,
+		&i.CentralitaID,
+		&i.Estado,
+	)
+	return i, err
+}
+
 const notificarCentralitas = `-- name: NotificarCentralitas :exec
 SELECT pg_notify('iris_centralitas', $1::text)
 `

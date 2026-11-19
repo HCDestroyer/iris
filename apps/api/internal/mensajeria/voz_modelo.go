@@ -494,7 +494,7 @@ type Llamada struct {
 	TicketID *int64 `json:"ticketId,omitempty" doc:"El ticket al que se agregó la llamada (centralita)"`
 	// Centralita: lo propio de una llamada de la centralita Issabel (origen centralita, E4a).
 	Centralita *CentralitaDeLlamada `json:"centralita,omitempty" doc:"Solo con origen centralita (contratos/voz.md §3.12)"`
-	Version    int32                `json:"version" doc:"Para editar la nota de una llamada de la centralita (409 conflicto_version)"`
+	Version    int32                `json:"version,omitempty" doc:"Para editar la nota de una llamada de la centralita (409 conflicto_version)"`
 }
 
 // CentralitaDeLlamada es lo propio de una llamada de la centralita (E4a). En E4a no hay audio en

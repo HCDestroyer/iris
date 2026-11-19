@@ -641,7 +641,9 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
     useEffect(
         () =>
             escucharEventos((evento) => {
-                if (!evento.llamada) return;
+                // Las de la centralita (E4a) no suenan aquí: se contestan en el teléfono de la extensión
+                // y las muestra el aviso de la centralita (componentes/voz/centralita.tsx).
+                if (!evento.llamada || evento.llamada.origen === "centralita") return;
                 const llamada = evento.llamada;
                 const tipo = evento.tipo;
                 if (tipo === "llamada_entrante") {

@@ -5,7 +5,7 @@ import { avisar, Aviso, Boton, CampoArea, CampoSelector, Cargando, cn, Dialogo, 
 import { Banknote, CalendarPlus, LifeBuoy, Mic, MicOff, Phone, PhoneCall, PhoneIncoming, PhoneOff, PhoneOutgoing, RotateCw, UserRound, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { LineaServicio } from "@/componentes/clientes/linea-servicio";
 import { lineaDeLlamada } from "@/lib/datos/servicio";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -41,7 +41,7 @@ function useSaldoVencido(llamada: Llamada | null): boolean {
 const hrefConversacion = (id: number) => `/conversaciones?c=${id}`;
 
 /** Servicio y señales del cliente (saldo vencido, ticket abierto), solo lo que manda el servidor en la llamada. */
-function Senales({ llamada, saldoVencido }: { llamada: Llamada; saldoVencido: boolean }) {
+export function Senales({ llamada, saldoVencido }: { llamada: Llamada; saldoVencido: boolean }) {
     const servicio = llamada.senales?.servicio;
     const ticket = llamada.senales?.ticketAbierto;
     if (!servicio && !ticket && !saldoVencido) return null;
@@ -97,7 +97,7 @@ export function AvisoLlamada() {
     }, [esAviso, cerrar]);
 
     if (!voz || !estado) return null;
-    const marco = "fixed inset-x-2 top-[calc(env(safe-area-inset-top)+4rem)] z-50 mx-auto grid w-auto max-w-sm gap-3 rounded-xl border p-3.5 shadow-lg sm:inset-x-auto sm:right-4 sm:w-[22rem]";
+    const marco = MARCO_AVISO;
 
     if (estado.fase === "aviso") {
         const t = textoAviso(estado.motivo, estado.quien, estado.saliente === true);
@@ -128,16 +128,13 @@ export function AvisoLlamada() {
             data-timbre={voz.timbre ? "sonando" : undefined}
             className={cn(marco, "border-primary/50 bg-card ring-2 ring-primary/25")}
         >
-            <div className="flex min-w-0 items-center gap-3">
-                <span aria-hidden className={cn("flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary ring-2 ring-primary/40", sonando && "motion-safe:animate-pulse")}>
-                    {quien.conocido ? <PhoneIncoming className="size-5" /> : <UserRound className="size-5" />}
-                </span>
-                <div className="grid min-w-0 flex-1">
-                    <p className="truncate text-[0.9375rem] font-semibold">{quien.nombre}</p>
-                    <p className="truncate text-[0.8125rem] text-muted-foreground">Llamada de WhatsApp · {llamada.numero}</p>
-                    {llamada.canal ? <p className="truncate text-xs text-muted-foreground">Al número {llamada.canal.nombre}</p> : null}
-                </div>
-            </div>
+            <CabeceraLlamada
+                conocido={quien.conocido}
+                nombre={quien.nombre}
+                linea={`Llamada de WhatsApp · ${llamada.numero}`}
+                detalle={llamada.canal ? `Al número ${llamada.canal.nombre}` : undefined}
+                sonando={sonando}
+            />
             <Senales llamada={llamada} saldoVencido={saldoVencido} />
             {sonando && voz.microfono !== "concedido" ? (
                 // El permiso aún no está dado en este navegador: que la pregunta no tome por sorpresa.
@@ -191,6 +188,29 @@ export function AvisoLlamada() {
                 }}
             />
         </section>
+    );
+}
+
+/** El marco del aviso de llamada: flotante bajo la barra superior (ancho completo en el teléfono). */
+export const MARCO_AVISO = "fixed inset-x-2 top-[calc(env(safe-area-inset-top)+4rem)] z-50 mx-auto grid w-auto max-w-sm gap-3 rounded-xl border p-3.5 shadow-lg sm:inset-x-auto sm:right-4 sm:w-[22rem]";
+
+/**
+ * Cabecera del aviso de una llamada entrante: el mismo para WhatsApp y para la centralita (E4a; E4c
+ * le sumará contestar en el navegador). Quién llama, por dónde y, mientras suena, el pulso.
+ */
+export function CabeceraLlamada({ conocido, nombre, linea, detalle, sonando, accion }: { conocido: boolean; nombre: string; linea: string; detalle?: string; sonando: boolean; accion?: ReactNode }) {
+    return (
+        <div className="flex min-w-0 items-center gap-3">
+            <span aria-hidden className={cn("flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary ring-2 ring-primary/40", sonando && "motion-safe:animate-pulse")}>
+                {conocido ? <PhoneIncoming className="size-5" /> : <UserRound className="size-5" />}
+            </span>
+            <div className="grid min-w-0 flex-1">
+                <p className="truncate text-[0.9375rem] font-semibold">{nombre}</p>
+                <p className="truncate text-[0.8125rem] text-muted-foreground">{linea}</p>
+                {detalle ? <p className="truncate text-xs text-muted-foreground">{detalle}</p> : null}
+            </div>
+            {accion}
+        </div>
     );
 }
 

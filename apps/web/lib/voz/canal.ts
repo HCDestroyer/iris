@@ -55,3 +55,6 @@ export function escucharFuente(o: OyenteFuente): () => void {
     oyentesFuente.add(o);
     return () => void oyentesFuente.delete(o);
 }
+
+/** Cuántas pantallas anunciaron el feed abierto (la centralita abre el suyo solo si no hay otra). */
+export const cuantasFuentes = (): number => fuentes;

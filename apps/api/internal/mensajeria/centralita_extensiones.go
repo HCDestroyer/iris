@@ -9,6 +9,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Extensiones de la centralita (contratos/voz.md §3.12): a quién le sale la ventana cuando suena.
@@ -146,4 +147,31 @@ func nuevosCasosExtensiones(m *Modulo) (*auditoria.Caso[EntradaVerCentralita, Li
 		},
 	})
 	return listar, asignar, quitar
+}
+
+// MiExtension es GET /centralita/mi-extension: la extensión del usuario (sin permiso: es suya).
+type MiExtension struct {
+	Extension    *string `json:"extension" nullable:"true" doc:"Null si no tiene una extensión activa en la centralita activa de la empresa"`
+	CentralitaID *int64  `json:"centralitaId" nullable:"true"`
+	Estado       *string `json:"estado" nullable:"true" enum:"conectada,desconectada,error,desactivada" doc:"Estado de la conexión con la centralita"`
+}
+
+func nuevoMiExtension(*Modulo) *auditoria.Caso[struct{}, MiExtension] {
+	return auditoria.Nuevo(auditoria.Caso[struct{}, MiExtension]{
+		Accion: "centralita.mi_extension", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[MiExtension],
+		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (MiExtension, error) {
+			actor := contexto.ActorDe(ctx)
+			if actor.Tipo != contexto.ActorUsuario || actor.ID == 0 {
+				return MiExtension{}, nil
+			}
+			f, err := mensajeriabd.New(t).MiExtension(ctx, mensajeriabd.MiExtensionParams{Usuario: actor.ID, Empresa: empresaDeCtx(ctx)})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return MiExtension{}, nil
+			}
+			if err != nil {
+				return MiExtension{}, err
+			}
+			return MiExtension{Extension: &f.Extension, CentralitaID: &f.CentralitaID, Estado: &f.Estado}, nil
+		},
+	})
 }

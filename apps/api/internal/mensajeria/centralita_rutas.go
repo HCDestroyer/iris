@@ -52,6 +52,11 @@ func (m *Modulo) registrarCentralita(api huma.API) {
 		func(ctx context.Context, _ *struct{}) (*cuerpo[CentralitaDeEmpresa], error) {
 			return responder(k.Ver.Ejecutar(ctx, struct{}{}))
 		})
+	huma.Register(api, d(op("miExtensionCentralita", http.MethodGet, "/centralita/mi-extension", "Tu extensión de la centralita", "", http.StatusOK),
+		"Sin permiso: es la tuya. `extension` null si no tienes una activa (el panel no espera la ventana)."),
+		func(ctx context.Context, _ *struct{}) (*cuerpo[MiExtension], error) {
+			return responder(k.MiExtension.Ejecutar(ctx, struct{}{}))
+		})
 	huma.Register(api, d(op("crearCentralita", http.MethodPost, "/centralitas", "Conectar la centralita Issabel (solo lectura)", conf,
 		http.StatusCreated, http.StatusConflict),
 		"Queda apagada: se enciende con `activar` después de una prueba que pasa. `huellaTls` es la huella que mostró `probar` y que el administrador "+
