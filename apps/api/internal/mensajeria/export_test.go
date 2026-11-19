@@ -44,6 +44,9 @@ func (m *Modulo) FijarTrasLeerCabeza(f func()) { m.trasLeerCabeza = f }
 // FijarAntesDeLeerFlujo: se llama antes de abrir los flujos SSE (no se cambia con ellos abiertos).
 func (m *Modulo) FijarAntesDeLeerFlujo(f func(usuario int64)) { m.antesDeLeerFlujo = f }
 
+// FijarAlRevalidarFlujo: como FijarAntesDeLeerFlujo; donde es "pagina", "latido" o "toque".
+func (m *Modulo) FijarAlRevalidarFlujo(f func(usuario int64, donde string)) { m.alRevalidarFlujo = f }
+
 func (m *Modulo) ProcesarMensaje(ctx context.Context, id uuid.UUID, ultimo bool) (time.Duration, error) {
 	return m.procesarMensaje(ctx, id, ultimo)
 }
