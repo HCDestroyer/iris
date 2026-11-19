@@ -90,7 +90,7 @@ export function VisorFotos({ fotos, indice, alCambiar }: PropsVisorFotos) {
     }, [abierto]);
 
     return (
-        <Modal.Backdrop isOpen={abierto} onOpenChange={(v) => (v ? undefined : alCambiar(null))} isDismissable={false} variant="opaque" className="bg-black/90 data-exiting:animate-none">
+        <Modal.Backdrop isOpen={abierto} onOpenChange={(v) => (v ? undefined : alCambiar(null))} isDismissable={false} variant="opaque" className="bg-black/90! backdrop-blur-none data-exiting:animate-none">
             <Modal.Container placement="center" scroll="inside" className="size-full max-h-none max-w-none p-0 data-exiting:animate-none motion-reduce:animate-none">
                 <Modal.Dialog
                     aria-label={foto ? `Foto ${i + 1} de ${fotos.length}: ${foto.alt}` : "Foto"}
@@ -153,7 +153,7 @@ function Contenido({ foto, i, total, ir, cerrar, fotos, elegir }: { foto: FotoEn
                     alt={foto.alt}
                     draggable={false}
                     data-slot="visor-imagen"
-                    className={cn("max-h-full max-w-full rounded-sm object-contain transition-transform duration-200 motion-reduce:transition-none", zoom && "scale-200 cursor-zoom-out")}
+                    className={cn("size-full rounded-sm object-contain transition-transform duration-200 motion-reduce:transition-none", zoom && "scale-200 cursor-zoom-out")}
                 />
                 {i > 0 ? (
                     <Boton variante="fantasma" tamano="icono" className={cn(claseBotonVisor, "absolute top-1/2 left-3 hidden -translate-y-1/2 sm:inline-flex")} aria-label="Foto anterior" onClick={() => ir(-1)}>
