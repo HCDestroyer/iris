@@ -84,7 +84,7 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			var via *string
 			if conector, err := esDeConector(ctx, q, u.ID); err != nil {
 				return TokenCreado{}, err
-			} else if conector && (!actor.EsUsuario() || actor.ID != u.ID) {
+			} else if conector && !esTokenDeCanje(ctx) && (!actor.EsUsuario() || actor.ID != u.ID) {
 				// Vía de recuperación del conector (contrato con Argos 0.8.0 §1.5, S5): queda marcada, vence
 				// (30 días por defecto, 90 como máximo) y se revoca al confirmarse un canje nuevo.
 				if expira == nil {

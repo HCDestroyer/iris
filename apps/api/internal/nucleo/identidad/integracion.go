@@ -170,7 +170,7 @@ func (m *Modulo) EmitirTokenCanje(ctx context.Context, sistema string, expira ti
 	default:
 		return 0, "", err
 	}
-	t, err := m.CrearToken.Ejecutar(ctx, EntradaCrearToken{
+	t, err := m.CrearToken.Ejecutar(conTokenDeCanje(ctx), EntradaCrearToken{
 		UsuarioID: u.ID, Nombre: sistema + " (canje " + time.Now().UTC().Format("2006-01-02 15:04") + ")", ExpiraEn: &expira,
 	})
 	if err != nil {
@@ -248,5 +248,19 @@ func conIntegracionInterna(ctx context.Context) context.Context {
 
 func esIntegracionInterna(ctx context.Context) bool {
 	v, _ := ctx.Value(claveIntegracionInterna{}).(bool)
+	return v
+}
+
+// claveTokenDeCanje marca el token que el conector entrega en un canje (EmitirTokenCanje): no es la vía
+// de recuperación (no se marca, vence a los 15 min salvo que se active) aunque lo emita un admin para
+// el usuario de integración. No sale de ninguna entrada HTTP.
+type claveTokenDeCanje struct{}
+
+func conTokenDeCanje(ctx context.Context) context.Context {
+	return context.WithValue(ctx, claveTokenDeCanje{}, true)
+}
+
+func esTokenDeCanje(ctx context.Context) bool {
+	v, _ := ctx.Value(claveTokenDeCanje{}).(bool)
 	return v
 }
