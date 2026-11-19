@@ -227,12 +227,15 @@ func (f *contactosFalsos) consultas() int {
 }
 
 type entorno struct {
-	t         *testing.T
-	m         *mensajeria.Modulo
-	h         http.Handler
-	bd        nucleo.BD
-	ctx       context.Context
-	reloj     *time.Time
+	t     *testing.T
+	m     *mensajeria.Modulo
+	h     http.Handler
+	bd    nucleo.BD
+	ctx   context.Context
+	reloj *time.Time
+	// relojMu protege la lectura del reloj del módulo; una prueba que lo avanza con un flujo SSE
+	// abierto (que lo lee en su goroutine) lo escribe con avanzarReloj.
+	relojMu   sync.Mutex
 	contactos *contactosFalsos
 	jobs      *[]river.JobArgs
 	receptor  *receptorArgos
@@ -294,7 +297,11 @@ func nuevoEntorno(t *testing.T, ajustar func(*mensajeria.Config)) *entorno {
 	}
 	e := &entorno{t: t, bd: pool, ctx: ctx, contactos: contactos, jobs: jobs, receptor: receptorComp, meta: meta, conector: conectorID}
 	e.reloj = &reloj
-	cfg.Ahora = func() time.Time { return *e.reloj }
+	cfg.Ahora = func() time.Time {
+		e.relojMu.Lock()
+		defer e.relojMu.Unlock()
+		return *e.reloj
+	}
 	e.m = mensajeria.Nuevo(cfg)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	e.h, _ = servidor.Nuevo(servidor.Deps{BD: pool, Log: log, Version: "prueba",
