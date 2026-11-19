@@ -70,6 +70,8 @@ type argosFalso struct {
 	// alComprobante corre mientras «Argos» atiende POST /comprobantes (fuera del candado).
 	alComprobante func()
 	errCuentas    error
+	// lecturasCuentas: cuántas veces se leyeron las cuentas en «Argos».
+	lecturasCuentas int
 	// caja: el Argos falso (httptest) que aprueba y rechaza comprobantes (boletas_decidir_test.go).
 	caja *cajaFalsa
 	// promesas: el Argos falso (httptest) de POST /promesas y /promesas/simular (promesas_argos_test.go).
@@ -174,17 +176,17 @@ const cuentasArgos = `[
 	 "cuenta_id":13,"cuenta_codigo":"1.1.02.03","version":2,"created_at":"2026-01-05T15:00:00Z","updated_at":"2026-02-01T15:00:00Z"}
 	%[2]s]`
 
-// CuentasBancarias responde como Argos: el JSON real pasa por el mismo decodificador que el cliente
-// HTTP. Las cuentas base son de la empresa pedida (X-Empresa-Id; 1 sin cabecera); cuentasExtra agrega
-// objetos JSON (cada uno empieza con una coma) para probar cuentas ajenas, inactivas o sin empresa.
-func (f *argosFalso) CuentasBancarias(_ context.Context, a argos.AtencionIris) ([]argos.CuentaBancariaArgos, error) {
+// cuentasDeArgos responde como Argos: el JSON real pasa por el mismo decodificador que el cliente
+// HTTP. Las cuentas base son de la empresa pedida (1 sin empresa); cuentasExtra agrega objetos JSON
+// (cada uno empieza con una coma) para probar cuentas ajenas, inactivas, sin empresa o con titular.
+func (f *argosFalso) cuentasDeArgos(empresa int64) ([]argos.CuentaBancariaArgos, error) {
 	f.mu.Lock()
 	extra, falla := f.cuentasExtra, f.errCuentas
+	f.lecturasCuentas++
 	f.mu.Unlock()
 	if falla != nil {
 		return nil, falla
 	}
-	empresa := a.EmpresaID
 	if empresa == 0 {
 		empresa = 1
 	}
@@ -194,6 +196,38 @@ func (f *argosFalso) CuentasBancarias(_ context.Context, a argos.AtencionIris) (
 		return nil, &conector.ErrorRemoto{Status: http.StatusBadGateway, Titulo: "Respuesta ilegible", Ilegible: true}
 	}
 	return cs, nil
+}
+
+// CuentasDeEmpresa: la instantánea de la empresa (argos.Modulo guarda solo las cuentas con empresa_id
+// y devuelve las de la empresa pedida, activas e inactivas).
+func (f *argosFalso) CuentasDeEmpresa(_ context.Context, a argos.AtencionIris) (argos.CuentasEmpresa, error) {
+	cs, err := f.cuentasDeArgos(a.EmpresaID)
+	if err != nil {
+		return argos.CuentasEmpresa{}, err
+	}
+	out := argos.CuentasEmpresa{Cuentas: []argos.CuentaBancariaArgos{}}
+	for _, k := range cs {
+		if k.EmpresaID != nil && *k.EmpresaID == a.EmpresaID {
+			out.Cuentas = append(out.Cuentas, k)
+		}
+	}
+	ahora := time.Now()
+	out.LeidoEn = &ahora
+	return out, nil
+}
+
+// ReleerCuentaBancaria: GET /cuentas-bancarias/:id (las base, de la empresa 1). 404 si no existe.
+func (f *argosFalso) ReleerCuentaBancaria(_ context.Context, id int64) (argos.CuentaBancariaArgos, error) {
+	cs, err := f.cuentasDeArgos(1)
+	if err != nil {
+		return argos.CuentaBancariaArgos{}, err
+	}
+	for _, k := range cs {
+		if k.ID == id {
+			return k, nil
+		}
+	}
+	return argos.CuentaBancariaArgos{}, &conector.ErrorRemoto{Status: http.StatusNotFound, ProblemJSON: true, Tipo: "urn:argosisp:problema:no_encontrado", Codigo: "no_encontrado"}
 }
 
 func (f *argosFalso) Bancos(context.Context, argos.AtencionIris) ([]argos.BancoArgos, error) {

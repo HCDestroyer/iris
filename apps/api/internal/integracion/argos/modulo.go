@@ -89,9 +89,9 @@ type Modulo struct {
 	guardarTrasladoLeido *auditoria.Caso[argosbd.GuardarTrasladoParams, struct{}]
 	// guardarCuentas: la instantánea de cuentas bancarias (0.8.0 §7.8).
 	guardarCuentas *auditoria.Caso[lecturaCuentas, ResultadoCuentas]
-	cfg                  Config
-	nucleo               *conector.Nucleo
-	conexion             *conector.Conexion
+	cfg            Config
+	nucleo         *conector.Nucleo
+	conexion       *conector.Conexion
 
 	Conectar        *conector.Conectar
 	Previsualizar   *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]

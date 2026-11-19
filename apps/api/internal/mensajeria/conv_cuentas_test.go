@@ -71,7 +71,8 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 	if len(d) != 2 {
 		t.Fatalf("solo las activas en GTQ de la empresa: %v", cu.cuerpo)
 	}
-	if k := d[0].(map[string]any); fmt.Sprint(k["id"]) != "3" || k["nombre"] != "Monetaria" || k["banco"] != "Banco Industrial" || k["numero"] != "000-123456-7" || k["moneda"] != "GTQ" || len(k) != 5 {
+	if k := d[0].(map[string]any); fmt.Sprint(k["id"]) != "3" || k["nombre"] != "Monetaria" || k["banco"] != "Banco Industrial" || k["numero"] != "000-123456-7" || k["moneda"] != "GTQ" || k["alias"] != "Monetaria" ||
+		k["titular"] != nil || k["tipo"] != nil || k["seOfrece"] != false || len(k) != 9 {
 		t.Fatalf("cuenta con alias: %v", k)
 	}
 	if k := d[1].(map[string]any); fmt.Sprint(k["id"]) != "5" || k["nombre"] != "Banrural …9876" || k["banco"] != "Banrural" {
@@ -96,8 +97,14 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 	boletas := func() int {
 		return b.contar(`SELECT count(*) FROM mensajeria.boletas WHERE conversacion_id = $1::bigint`, cid(c))
 	}
-	// 8: de otra empresa; 9: sin empresa_id; 10: inactiva; 4: en dólares; 77: no existe.
-	for _, cuenta := range []int{8, 9, 10, 4, 77} {
+	// 10: inactiva en Argos (la misma empresa): el error lo dice (§7.8).
+	r10 := b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(10))
+	b.exigir(r10, http.StatusUnprocessableEntity, "type", "urn:iris:problema:validacion")
+	if e := fmt.Sprint(r10.cuerpo["errors"]); !strings.Contains(e, "cuentaBancariaId") || !strings.Contains(e, "inactiva") || !strings.Contains(e, "desactivada en Argos") {
+		t.Fatalf("cuenta desactivada: %v", r10.cuerpo)
+	}
+	// 8: de otra empresa; 9: sin empresa_id; 4: en dólares; 77: no existe (404 de Argos).
+	for _, cuenta := range []int{8, 9, 4, 77} {
 		r := b.api(b.agente, http.MethodPost, ruta+"/boletas", boleta(cuenta))
 		b.exigir(r, http.StatusUnprocessableEntity, "type", "urn:iris:problema:validacion")
 		if e := fmt.Sprint(r.cuerpo["errors"]); !strings.Contains(e, "cuentaBancariaId") || !strings.Contains(e, "cuenta_de_la_empresa") {
@@ -259,10 +266,14 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 	if err := b.m.DespacharBoletas(b.ctx, b.bd); err != nil {
 		t.Fatal(err)
 	}
-	for _, ref := range []string{"CU-8", "CU-10", "CU-4"} {
+	for _, ref := range []string{"CU-8", "CU-4"} {
 		if e, d, _ := fila(ref); e != "fallida" || d != mensajeria.MotivoCuentaBoleta {
 			t.Fatalf("%s debía quedar fallida por la cuenta: %s %q", ref, e, d)
 		}
+	}
+	// La inactiva de la empresa: el motivo dice que caja la registra a mano (§10.2, punto 13).
+	if e, d, _ := fila("CU-10"); e != "fallida" || d != mensajeria.MotivoCuentaInactiva {
+		t.Fatalf("CU-10 debía quedar fallida por la cuenta desactivada: %s %q", e, d)
 	}
 	for _, ref := range []string{"CU-3", "CU-5"} {
 		if e, _, v := fila(ref); e != "registrada" || v != "validada" {
@@ -284,10 +295,13 @@ func TestConvCuentasBancariasDeLaEmpresa(t *testing.T) {
 // S2 y M1, la decisión sola: sin empresa (0) nunca se registra una boleta con cuenta bancaria, ni con
 // Argos caído ni con el conector apagado; una respuesta ilegible no es una caída.
 func TestDecidirCuentaBoleta(t *testing.T) {
-	var cs []argos.CuentaBancariaArgos
-	if err := json.Unmarshal([]byte(`[{"id":3,"empresa_id":1,"banco_nombre":"Banco Industrial","numero":"1","alias":"Monetaria","moneda":"GTQ","activa":true}]`), &cs); err != nil {
+	var lista []argos.CuentaBancariaArgos
+	if err := json.Unmarshal([]byte(`[{"id":3,"empresa_id":1,"banco_nombre":"Banco Industrial","numero":"1","alias":"Monetaria","moneda":"GTQ","activa":true},
+		{"id":3,"empresa_id":1,"banco_nombre":"Banco Industrial","numero":"1","alias":"Monetaria","moneda":"GTQ","activa":false}]`), &lista); err != nil {
 		t.Fatal(err)
 	}
+	cs, inactiva := lista[0], lista[1]
+	var nada argos.CuentaBancariaArgos
 	es422 := func(err error) bool {
 		var p *nucleo.Problema
 		return errors.As(err, &p) && p.Status == http.StatusUnprocessableEntity
@@ -308,17 +322,31 @@ func TestDecidirCuentaBoleta(t *testing.T) {
 	if m, e := mensajeria.DecidirCuenta(2, cs, nil, 3); m != "" || !es422(e) {
 		t.Fatalf("cuenta de otra empresa: %q %v", m, e)
 	}
+	// Desactivada en Argos (0.8.0 §7.8): 422 con la regla inactiva; otra cuenta (id distinto): 422.
+	var p0 *nucleo.Problema
+	if m, e := mensajeria.DecidirCuenta(1, inactiva, nil, 3); m != "" || !errors.As(e, &p0) || !strings.Contains(fmt.Sprint(p0.Errors), "inactiva") {
+		t.Fatalf("cuenta desactivada: %q %v", m, e)
+	}
+	if m, e := mensajeria.DecidirCuenta(1, cs, nil, 4); m != "" || !es422(e) {
+		t.Fatalf("la relectura es de otra cuenta: %q %v", m, e)
+	}
+	// Argos dice que no existe (404) o que es de otra empresa (403 empresa_no_permitida): 422.
+	for _, err := range []error{&conector.ErrorRemoto{Status: http.StatusNotFound}, &conector.ErrorRemoto{Status: http.StatusForbidden, Codigo: "empresa_no_permitida"}} {
+		if m, e := mensajeria.DecidirCuenta(1, nada, err, 3); m != "" || !es422(e) {
+			t.Fatalf("Argos niega la cuenta (%v): %q %v", err, m, e)
+		}
+	}
 	for _, err := range []error{caido, limite, mal} {
-		if m, e := mensajeria.DecidirCuenta(1, nil, err, 3); m != mensajeria.CuentaSinValidar || e != nil {
+		if m, e := mensajeria.DecidirCuenta(1, nada, err, 3); m != mensajeria.CuentaSinValidar || e != nil {
 			t.Fatalf("Argos sin responder (%v): %q %v", err, m, e)
 		}
 	}
-	if m, e := mensajeria.DecidirCuenta(1, nil, apagado, 3); m != mensajeria.CuentaSinConector || e != nil {
+	if m, e := mensajeria.DecidirCuenta(1, nada, apagado, 3); m != mensajeria.CuentaSinConector || e != nil {
 		t.Fatalf("conector apagado: %q %v", m, e)
 	}
 	// Ilegible: 502 y no se registra.
 	var p *nucleo.Problema
-	if m, e := mensajeria.DecidirCuenta(1, nil, ilegible, 3); m != "" || !errors.As(e, &p) || p.Status != http.StatusBadGateway || p.Codigo() != "argos_respuesta_ilegible" {
+	if m, e := mensajeria.DecidirCuenta(1, nada, ilegible, 3); m != "" || !errors.As(e, &p) || p.Status != http.StatusBadGateway || p.Codigo() != "argos_respuesta_ilegible" {
 		t.Fatalf("respuesta ilegible: %q %v", m, e)
 	}
 }
