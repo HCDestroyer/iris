@@ -82,6 +82,8 @@ type argosFalso struct {
 	planes          []map[string]any
 	// alLeerPlan: se llama al atender GET /servicios?plan_id= (un aviso que llega mientras Iris lee).
 	alLeerPlan func()
+	// Contrato 0.8.0 §2.5 (sincronizacion080_test.go): listas completas, informes y bancos.
+	sinc080 sinc080
 	contratos  int      // PUT /integraciones/iris/contrato recibidos
 	informados []string // el contrato de cada PUT, tal como lo mandó Iris
 	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
@@ -150,6 +152,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/routers/{id}", a.conToken(a.router))
 	a.rutas050(mux)
 	a.rutas070(mux)
+	a.rutas080(mux)
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 	return a
@@ -440,6 +443,10 @@ func (a *argosFalso) revocacionesDe(token string) []revocacion {
 }
 
 func (a *argosFalso) buscar(w http.ResponseWriter, r *http.Request) {
+	if !r.URL.Query().Has("q") && !r.URL.Query().Has("telefono") {
+		a.listaClientes(w, r) // primera sincronización (§2.5): sin q
+		return
+	}
 	q := strings.ToLower(r.URL.Query().Get("q"))
 	if v := r.URL.Query().Get("empresas"); v != "" && v != "todas" {
 		// Como Argos 1.3.0: ?empresas= solo acepta «todas»; la empresa va en X-Empresa-Id.
@@ -532,6 +539,10 @@ func (a *argosFalso) serviciosDe(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		escribir(w, lista)
+		return
+	}
+	if !r.URL.Query().Has("cliente_id") {
+		a.listaServicios(w, r) // primera sincronización (§2.5): sin q ni cliente_id
 		return
 	}
 	id, _ := strconv.ParseInt(r.URL.Query().Get("cliente_id"), 10, 64)
