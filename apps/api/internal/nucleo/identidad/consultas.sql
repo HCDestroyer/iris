@@ -181,8 +181,8 @@ WHERE usuario_id = @usuario_id AND revocada_en IS NULL;
 -- Tokens de API --------------------------------------------------------------
 
 -- name: CrearToken :one
-INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por)
-VALUES (@usuario_id, @nombre, @prefijo, @hash, @permisos, @expira_en, @creado_por)
+INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por, via)
+VALUES (@usuario_id, @nombre, @prefijo, @hash, @permisos, @expira_en, @creado_por, sqlc.narg('via')::text)
 RETURNING *;
 
 -- name: TokenVigentePorHash :one
@@ -475,6 +475,23 @@ DELETE FROM nucleo.portal_accesos WHERE id IN (
     ORDER BY a.id
     LIMIT @lote::integer
     FOR UPDATE SKIP LOCKED);
+
+-- name: TokensRecuperacionDelSistemaDe :many
+-- Tokens manuales vigentes (via recuperacion o cli) de TODOS los usuarios con el rol de integración del
+-- sistema del token @id (el entregado en un canje que se acaba de confirmar: integracion_argos o
+-- integracion_horus): se revocan (contrato con Argos 0.8.0 §1.5, S5). FOR UPDATE: nadie los usa a
+-- medias mientras se revocan.
+SELECT r.id FROM nucleo.tokens_api r
+WHERE r.id <> @id AND r.via IN ('recuperacion', 'cli') AND r.revocado_en IS NULL AND r.eliminado_en IS NULL
+    AND r.usuario_id IN (
+        SELECT ur.usuario_id FROM nucleo.usuarios_roles ur JOIN nucleo.roles ro ON ro.id = ur.rol_id
+        WHERE ro.codigo IN (
+            SELECT ro2.codigo FROM nucleo.tokens_api t
+            JOIN nucleo.usuarios_roles ur2 ON ur2.usuario_id = t.usuario_id
+            JOIN nucleo.roles ro2 ON ro2.id = ur2.rol_id
+            WHERE t.id = @id AND ro2.codigo IN ('integracion_argos', 'integracion_horus')))
+ORDER BY r.id
+FOR UPDATE OF r;
 
 -- name: ConfirmarTokenEntregado :execrows
 -- El iris_pat_ de un canje queda sin vencimiento al activar el conector (si sigue vigente).
