@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.30.0](https://github.com/HCDestroyer/iris/compare/v0.29.1...v0.30.0) (2026-11-19)
+
+
+### Funcionalidades
+
+* **integracion:** servicios identificables (plan, precio, router, zona, IP y ubicación con permisos) ([#220](https://github.com/HCDestroyer/iris/issues/220)) ([81501aa](https://github.com/HCDestroyer/iris/commit/81501aa182b37b49983ca2764aed219f078014ab))
+* **mensajeria:** decir por qué no suena una llamada y dejar que un número vuelva a llamar ([#218](https://github.com/HCDestroyer/iris/issues/218)) ([964f441](https://github.com/HCDestroyer/iris/commit/964f4418d99a834df323bfb57bd2248e04fd69a4))
+
 ## [0.29.1](https://github.com/HCDestroyer/iris/compare/v0.29.0...v0.29.1) (2026-11-19)
 
 
