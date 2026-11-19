@@ -367,29 +367,33 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 		if f.pestana != "" {
 			_ = q.TocarPestanaDeLlamada(ctx, mensajeriabd.TocarPestanaDeLlamadaParams{UsuarioID: &a.usuario, Pestana: f.pestana, Ahora: ptrT(m.ahora())})
 		}
+		relecturas := 0
 		for {
 			if m.antesDeLeerFlujo != nil {
 				m.antesDeLeerFlujo(a.usuario)
 			}
 			plazo()
-			evs, hayMas, siguiente, err := m.leerFeedConvLimitado(ctx, q, a, desde)
+			// Revalida otra vez después de leer y antes de entregar (como el chat, ver transmitir).
+			evs, hayMas, siguiente, ahora, vale, err := m.leerPaginaFlujoConv(ctx, bd, q, a, desde)
 			if err != nil {
 				if ctx.Err() == nil {
 					slog.WarnContext(ctx, "conversaciones: leer el feed del flujo", "err", err)
 				}
 				return
 			}
-			if len(evs) > 0 {
-				// Revalidar otra vez entre leer y escribir (como el chat, ver transmitir): nada que se
-				// confirmó después de perder el acceso llega al flujo; con otro alcance, se relee.
-				ahora, ok := m.revalidarConv(ctx, bd)
-				if !ok {
+			if !vale {
+				return
+			}
+			if ahora != a {
+				// Otro alcance: se relee sin mover el cursor, hasta maxRelecturasFlujo veces seguidas.
+				if relecturas++; relecturas > maxRelecturasFlujo {
 					return
 				}
-				if ahora != a {
-					a = ahora
-					continue
-				}
+				a = ahora
+				continue
+			}
+			relecturas = 0
+			if len(evs) > 0 {
 				for _, e := range evs {
 					datos, _ := json.Marshal(e)
 					_, _ = fmt.Fprintf(bw, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Tipo, datos)
@@ -422,14 +426,22 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 	}
 }
 
-func (m *Modulo) leerFeedConvLimitado(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, desde int64) ([]EventoConversacion, bool, int64, error) {
+// leerPaginaFlujoConv es leerPaginaFlujo para la bandeja: lee la página y, en el mismo turno del
+// semáforo, revalida si la página mueve el cursor.
+func (m *Modulo) leerPaginaFlujoConv(ctx context.Context, bd nucleo.BD, q *mensajeriabd.Queries, a alcanceConv, desde int64) (
+	evs []EventoConversacion, hayMas bool, siguiente int64, ahora alcanceConv, vale bool, err error) {
 	select {
 	case m.lecturas <- struct{}{}:
 	case <-ctx.Done():
-		return nil, false, desde, ctx.Err()
+		return nil, false, desde, a, false, ctx.Err()
 	}
 	defer func() { <-m.lecturas }()
-	return m.leerFeedConv(ctx, q, a, desde, 100)
+	evs, hayMas, siguiente, err = m.leerFeedConv(ctx, q, a, desde, 100)
+	if err != nil || (len(evs) == 0 && siguiente == desde) {
+		return evs, hayMas, siguiente, a, err == nil, err
+	}
+	ahora, vale = m.revalidarConv(ctx, bd)
+	return evs, hayMas, siguiente, ahora, vale, nil
 }
 
 // purgarFeedConv borra los eventos de la bandeja más viejos que ChatRetencion.

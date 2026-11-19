@@ -342,6 +342,118 @@ func TestChatSSENoEntregaLoEnviadoEnLaVentanaDeRevalidacion(t *testing.T) {
 	}
 }
 
+// sqlDarSupervisorZona da a $1 el rol supervisor en la zona $2; sqlQuitarSupervisor se lo quita.
+const (
+	sqlDarSupervisorZona = `INSERT INTO nucleo.usuarios_roles (usuario_id, rol_id, zona_id)
+		VALUES ($1, (SELECT id FROM nucleo.roles WHERE codigo = 'supervisor'), $2)`
+	sqlQuitarSupervisor = `DELETE FROM nucleo.usuarios_roles WHERE usuario_id = $1 AND rol_id = (SELECT id FROM nucleo.roles WHERE codigo = 'supervisor')`
+)
+
+// Un alcance que se AMPLÍA en la ventana (le dan chat.supervisar entre la revalidación y la lectura):
+// la página leída con el alcance viejo viene vacía pero mueve el cursor; no se salta lo que el
+// alcance nuevo ve: se relee y se entrega.
+func TestChatSSEAlcanceAmpliadoEnLaVentanaNoSaltaEventos(t *testing.T) {
+	e := nuevoEntorno(t, func(c *mensajeria.Config) { c.ChatLatido = 100 * time.Millisecond })
+	var objetivo atomic.Int64
+	enVentana, seguir := make(chan struct{}), make(chan struct{})
+	e.m.FijarAntesDeLeerFlujo(func(usuario int64) {
+		if !objetivo.CompareAndSwap(usuario, 0) {
+			return
+		}
+		enVentana <- struct{}{}
+		select {
+		case <-seguir:
+		case <-time.After(10 * time.Second):
+		}
+	})
+	url, ctx := e.servirSSE(t)
+	q := e.equipo(1)
+	a := e.persona([]int64{1}, rolBase("tecnico"))
+	e.ficha(a.id, q.cuadrilla1)
+	c := idConv(e.chat(a, http.MethodPost, fmt.Sprintf("/cuadrillas/%d/abrir", q.cuadrilla1), "", nil))
+	sup := e.persona([]int64{1}, rolBase("lectura"))
+	vigila := abrirSSE(t, ctx, url, sup, "")
+	esperar(t, vigila, "latido")
+	objetivo.Store(sup.id)
+	select {
+	case <-enVentana:
+	case <-time.After(5 * time.Second):
+		t.Fatal("el flujo no llegó a la lectura del feed")
+	}
+	if _, err := e.bd.Exec(e.ctx, sqlDarSupervisorZona, sup.id, q.zona1); err != nil {
+		t.Fatal(err)
+	}
+	e.exigir(e.enviarChat(a, c, nuevoID(), "ahora sí le toca"), http.StatusCreated)
+	seguir <- struct{}{}
+	ev := esperar(t, vigila, "mensaje_nuevo")
+	if m, _ := ev.datos["mensaje"].(map[string]any); m["texto"] != "ahora sí le toca" {
+		t.Fatalf("entregó otro mensaje: %v", ev.datos)
+	}
+}
+
+// Si el alcance cambia en cada lectura, el flujo relee a lo más maxRelecturasFlujo (3) veces
+// seguidas y se cierra (el cliente reconecta), sin entregar nada leído con un alcance viejo.
+func TestChatSSETopeDeRelecturas(t *testing.T) {
+	e := nuevoEntorno(t, func(c *mensajeria.Config) { c.ChatLatido = 100 * time.Millisecond })
+	var objetivo, alternar, zona, lecturas atomic.Int64
+	var conRol atomic.Bool
+	fallo := make(chan error, 16)
+	enVentana, seguir := make(chan struct{}), make(chan struct{})
+	e.m.FijarAntesDeLeerFlujo(func(usuario int64) {
+		if objetivo.CompareAndSwap(usuario, 0) {
+			enVentana <- struct{}{}
+			select {
+			case <-seguir:
+			case <-time.After(10 * time.Second):
+			}
+		}
+		if alternar.Load() != usuario {
+			return
+		}
+		// Cada lectura con el rol al revés que la anterior: el alcance nunca queda quieto.
+		lecturas.Add(1)
+		var err error
+		if conRol.Load() {
+			_, err = e.bd.Exec(e.ctx, sqlQuitarSupervisor, usuario)
+		} else {
+			_, err = e.bd.Exec(e.ctx, sqlDarSupervisorZona, usuario, zona.Load())
+		}
+		conRol.Store(!conRol.Load())
+		if err != nil {
+			fallo <- err
+		}
+	})
+	url, ctx := e.servirSSE(t)
+	q := e.equipo(1)
+	zona.Store(q.zona1)
+	a := e.persona([]int64{1}, rolBase("tecnico"))
+	e.ficha(a.id, q.cuadrilla1)
+	c := idConv(e.chat(a, http.MethodPost, fmt.Sprintf("/cuadrillas/%d/abrir", q.cuadrilla1), "", nil))
+	sup := e.persona([]int64{1}, rolBase("lectura"))
+	flujo := abrirSSE(t, ctx, url, sup, "")
+	esperar(t, flujo, "latido")
+	alternar.Store(sup.id)
+	objetivo.Store(sup.id)
+	select {
+	case <-enVentana:
+	case <-time.After(5 * time.Second):
+		t.Fatal("el flujo no llegó a la lectura del feed")
+	}
+	// Un mensaje pendiente para que cada página mueva el cursor (y se revalide).
+	e.exigir(e.enviarChat(a, c, nuevoID(), "alcance inestable"), http.StatusCreated)
+	seguir <- struct{}{}
+	cerrado(t, flujo)
+	select {
+	case err := <-fallo:
+		t.Fatal(err)
+	default:
+	}
+	// La primera lectura y sus 3 relecturas; la cuarta relectura ya no ocurre.
+	if n := lecturas.Load(); n != 4 {
+		t.Fatalf("lecturas antes de cerrar: %d (esperaba 4)", n)
+	}
+}
+
 func TestChatSSETopes(t *testing.T) {
 	e := nuevoEntorno(t, func(c *mensajeria.Config) { c.ChatSSEMax = 7 })
 	url, ctx := e.servirSSE(t)

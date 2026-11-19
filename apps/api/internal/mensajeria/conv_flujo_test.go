@@ -154,6 +154,127 @@ func TestConversacionesSSENoEntregaEnLaVentanaDeRevalidacion(t *testing.T) {
 	}
 }
 
+const (
+	sqlDarSupervisor        = `INSERT INTO nucleo.usuarios_roles (usuario_id, rol_id) VALUES ($1, (SELECT id FROM nucleo.roles WHERE codigo = 'supervisor'))`
+	sqlQuitarSupervisorConv = `DELETE FROM nucleo.usuarios_roles WHERE usuario_id = $1
+		AND rol_id = (SELECT id FROM nucleo.roles WHERE codigo = 'supervisor')`
+)
+
+// Bandeja: un alcance que se amplía en la ventana (le dan conversaciones.supervisar) no salta lo
+// que ahora ve aunque la página leída con el alcance viejo venga vacía.
+func TestConversacionesSSEAlcanceAmpliadoEnLaVentanaNoSaltaEventos(t *testing.T) {
+	b := nuevaBandeja(t, func(c *mensajeria.Config) { c.ChatLatido = 100 * time.Millisecond })
+	var objetivo atomic.Int64
+	enVentana, seguir := make(chan struct{}), make(chan struct{})
+	b.m.FijarAntesDeLeerFlujo(func(usuario int64) {
+		if !objetivo.CompareAndSwap(usuario, 0) {
+			return
+		}
+		enVentana <- struct{}{}
+		select {
+		case <-seguir:
+		case <-time.After(10 * time.Second):
+		}
+	})
+	url, ctx := b.servirSSE(t)
+	url += rutaMsj + "/conversaciones/eventos"
+	p := b.persona([]int64{1}, rolBase("soporte"))
+	flujo := abrirSSEEn(t, ctx, url, p, "")
+	esperar(t, flujo, "latido")
+	objetivo.Store(p.id)
+	select {
+	case <-enVentana:
+	case <-time.After(5 * time.Second):
+		t.Fatal("el flujo no llegó a la lectura del feed")
+	}
+	if _, err := b.bd.Exec(b.ctx, sqlDarSupervisor, p.id); err != nil {
+		t.Fatal(err)
+	}
+	b.texto(numeroCliente(), "wamid.ampliado.1", "ya lo supervisa")
+	seguir <- struct{}{}
+	limite := time.After(5 * time.Second)
+	for {
+		select {
+		case ev, ok := <-flujo:
+			if !ok {
+				t.Fatal("el flujo se cerró")
+			}
+			if ev.tipo != "latido" {
+				return
+			}
+		case <-limite:
+			t.Fatal("no entregó lo que el alcance nuevo ve")
+		}
+	}
+}
+
+// Bandeja: con el alcance cambiando en cada lectura, 3 relecturas seguidas y se cierra.
+func TestConversacionesSSETopeDeRelecturas(t *testing.T) {
+	b := nuevaBandeja(t, func(c *mensajeria.Config) { c.ChatLatido = 100 * time.Millisecond })
+	var objetivo, alternar, lecturas atomic.Int64
+	var conRol atomic.Bool
+	fallo := make(chan error, 16)
+	enVentana, seguir := make(chan struct{}), make(chan struct{})
+	b.m.FijarAntesDeLeerFlujo(func(usuario int64) {
+		if objetivo.CompareAndSwap(usuario, 0) {
+			enVentana <- struct{}{}
+			select {
+			case <-seguir:
+			case <-time.After(10 * time.Second):
+			}
+		}
+		if alternar.Load() != usuario {
+			return
+		}
+		lecturas.Add(1)
+		sql := sqlDarSupervisor
+		if conRol.Load() {
+			sql = sqlQuitarSupervisorConv
+		}
+		conRol.Store(!conRol.Load())
+		if _, err := b.bd.Exec(b.ctx, sql, usuario); err != nil {
+			fallo <- err
+		}
+	})
+	url, ctx := b.servirSSE(t)
+	url += rutaMsj + "/conversaciones/eventos"
+	p := b.persona([]int64{1}, rolBase("soporte"))
+	flujo := abrirSSEEn(t, ctx, url, p, "")
+	esperar(t, flujo, "latido")
+	alternar.Store(p.id)
+	objetivo.Store(p.id)
+	select {
+	case <-enVentana:
+	case <-time.After(5 * time.Second):
+		t.Fatal("el flujo no llegó a la lectura del feed")
+	}
+	b.texto(numeroCliente(), "wamid.inestable.1", "alcance inestable")
+	seguir <- struct{}{}
+	limite := time.After(5 * time.Second)
+leer:
+	for {
+		select {
+		case ev, ok := <-flujo:
+			if !ok {
+				break leer
+			}
+			if ev.tipo != "latido" {
+				t.Fatalf("entregó %s leído con un alcance viejo: %v", ev.tipo, ev.datos)
+			}
+		case <-limite:
+			t.Fatal("el flujo no se cerró")
+		}
+	}
+	select {
+	case err := <-fallo:
+		t.Fatal(err)
+	default:
+	}
+	if n := lecturas.Load(); n != 4 {
+		t.Fatalf("lecturas antes de cerrar: %d (esperaba 4)", n)
+	}
+}
+
 // Topes de la bandeja: 5 flujos por usuario (el sexto, 429) y ChatSSEMax por proceso (503); al
 // cerrarse se liberan. El difusor es otro que el del chat: sus 5 no gastan los del chat.
 func TestConversacionesSSETopes(t *testing.T) {
