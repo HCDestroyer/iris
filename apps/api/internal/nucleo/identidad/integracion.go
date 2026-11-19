@@ -228,11 +228,18 @@ func (m *Modulo) ConfirmarTokenCanje(ctx context.Context, id int64) error {
 
 // RevocarTokenIntegracion revoca un token entregado en un canje (canje fallido, conector
 // desactivado o reemplazado). Con el actor de ctx (el worker usa el actor sistema). Revocar uno
-// ya revocado no es un error.
+// ya revocado, o ya eliminado (borrado lógico: ya no vale), no es un error.
 func (m *Modulo) RevocarTokenIntegracion(ctx context.Context, id int64, motivo string) error {
-	_, err := m.RevocarToken.Ejecutar(ctx, EntradaRevocarToken{ID: id, Motivo: motivo})
+	_, err := m.RevocarToken.Ejecutar(ctx, EntradaRevocarToken{ID: id, Motivo: motivo, interno: true})
 	if esCodigo(err, "token_revocado") {
 		return nil
+	}
+	if esCodigo(err, "no_encontrado") {
+		if db := nucleo.DBDe(ctx); db != nil {
+			if t, e := identidadbd.New(db).TokenPorID(ctx, id); e == nil && t.EliminadoEn != nil {
+				return nil
+			}
+		}
 	}
 	return err
 }

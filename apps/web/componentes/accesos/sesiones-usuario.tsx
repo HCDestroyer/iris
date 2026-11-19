@@ -10,6 +10,7 @@ import { mensajeDeError } from "@/lib/api/errores";
 import { formatearFecha, haceCuanto } from "@/lib/fechas";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
+import { TokenConservado } from "@/componentes/tokens/token-conservado";
 import { Canal } from "./insignias";
 
 type SesionActiva = Schema<"SesionActiva">;
@@ -106,19 +107,24 @@ function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { us
         const cuerpo = motivo.trim() ? { motivo: motivo.trim() } : {};
         const cabecera = { "Idempotency-Key": clave.current };
         try {
+            let conservados = 0;
             if (cierre.tipo === "una") {
                 await resolver(
                     api().POST("/api/v1/usuarios/{id}/sesiones/{sesionId}/cerrar", { params: { path: { id: usuarioId, sesionId: cierre.sesion.id }, header: cabecera }, body: cuerpo }),
                 );
             } else {
-                await resolver(
+                const r = await resolver(
                     api().POST("/api/v1/usuarios/{id}/cerrar-sesiones", {
                         params: { path: { id: usuarioId }, header: cabecera },
                         body: { ...cuerpo, ...(revocarTokens ? { revocarTokens: true } : {}) },
                     }),
                 );
+                conservados = r.tokensConservados;
             }
-            avisar({ titulo: cierre.tipo === "una" ? "Sesión cerrada" : propio ? "Tus demás sesiones se cerraron" : "Sesiones cerradas" });
+            avisar({
+                titulo: cierre.tipo === "una" ? "Sesión cerrada" : propio ? "Tus demás sesiones se cerraron" : "Sesiones cerradas",
+                ...(conservados > 0 ? { descripcion: <TokenConservado /> } : {}),
+            });
             alCerrar();
         } catch (e) {
             clave.current = claveTrasError(e, clave.current);
@@ -144,7 +150,7 @@ function DialogoCerrar({ usuarioId, cierre, propio, alCerrar, alCancelar }: { us
                         puede(["tokens.revocar"]) ? (
                             <Casilla
                                 etiqueta="Revocar también sus tokens de API"
-                                ayuda="Los tokens no son sesiones: si no los revocas, siguen valiendo."
+                                ayuda="Los tokens no son sesiones: si no los revocas, siguen valiendo. El de la integración activa con Argos u Horus se conserva."
                                 checked={revocarTokens}
                                 onChange={(e) => setRevocarTokens(e.target.checked)}
                             />

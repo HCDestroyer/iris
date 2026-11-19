@@ -128,8 +128,12 @@ type Nucleo struct {
 	ListarConectores   *auditoria.Caso[nucleo.ParamsPagina, nucleo.Pagina[Conector]]
 	ActivarConector    *auditoria.Caso[EntradaActivarConector, Conector]
 	DesactivarConector *auditoria.Caso[EntradaCambioConector, Conector]
-	CambiarURLPublica  *auditoria.Caso[EntradaURLPublica, Conector]
-	ObtenerEnlaces     *auditoria.Caso[struct{}, EnlacesExternos]
+	// Borrado lógico de conectores apagados (eliminar.go).
+	EliminarConector            *auditoria.Caso[EntradaEliminarConector, Conector]
+	EliminarConectoresApagados  *auditoria.Caso[struct{}, ConectoresEliminados]
+	ContarConectoresEliminables *auditoria.Caso[struct{}, ConectoresEliminables]
+	CambiarURLPublica           *auditoria.Caso[EntradaURLPublica, Conector]
+	ObtenerEnlaces              *auditoria.Caso[struct{}, EnlacesExternos]
 	// Reconexión sin corte (0.6.3, reconexion.go).
 	ConfirmarReemplazo *auditoria.Caso[int64, ReemplazoCerrado]
 	VencerReemplazo    *auditoria.Caso[ArgsVencerReemplazo, ReemplazoCerrado]
@@ -145,6 +149,9 @@ type Tokens interface {
 	ConfirmarTokenCanje(ctx context.Context, id int64) error
 	// RevocarTokenIntegracion lo revoca (revocar uno ya revocado no es error).
 	RevocarTokenIntegracion(ctx context.Context, id int64, motivo string) error
+	// EliminarTokenIntegracion lo revoca si aún vale y lo elimina (borrado lógico) al eliminar el
+	// conector; eliminar uno ya eliminado no es error.
+	EliminarTokenIntegracion(ctx context.Context, id int64) error
 }
 
 // VigenciaTokenCanje: el iris_pat_ entregado muere solo si el conector no se activa en este plazo.
@@ -176,6 +183,9 @@ func Nuevo(cfg Config) *Nucleo {
 	n.ListarConectores = nuevoListarConectores(n)
 	n.ActivarConector = nuevoActivarConector(n)
 	n.DesactivarConector = nuevoDesactivarConector(n)
+	n.EliminarConector = nuevoEliminarConector(n)
+	n.EliminarConectoresApagados = nuevoEliminarConectoresApagados(n.EliminarConector)
+	n.ContarConectoresEliminables = nuevoContarConectoresEliminables()
 	n.CambiarURLPublica = nuevoCambiarURLPublica(n)
 	n.ObtenerEnlaces = nuevoObtenerEnlaces(n)
 	n.ConfirmarReemplazo = nuevoConfirmarReemplazo(n)
@@ -363,6 +373,9 @@ func (n *Nucleo) cifrar(id int64, campo, valor string) ([]byte, error) {
 
 // Leer descifra el token y el secreto de un conector.
 func (n *Nucleo) Leer(f conectorbd.IntegracionConectore) (Leido, error) {
+	if esEliminado(f) {
+		return Leido{}, nucleo.NoEncontrado("") // sin credenciales: no existe para la API
+	}
 	if n.cfg.Cifrador == nil {
 		return Leido{}, SinCifrado()
 	}

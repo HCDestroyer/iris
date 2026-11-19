@@ -40,6 +40,7 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/administracion/plantillas": "Plantillas de formulario",
     "/administracion/plantillas/nueva": "Nueva plantilla",
     "/administracion/roles": "Roles y permisos",
+    "/administracion/tokens": "Tokens de API",
     "/administracion/roles/nuevo": "Nuevo rol",
     "/administracion/buzones/nuevo": "Nuevo buzón",
     "/administracion/numeros": "Números de WhatsApp",

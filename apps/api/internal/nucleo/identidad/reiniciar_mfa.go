@@ -27,8 +27,9 @@ type EntradaReiniciarMFA struct {
 // lleva el evento usuario.mfa_reiniciado.
 type MFAReiniciado struct {
 	Usuario
-	SesionesCerradas int64 `json:"sesionesCerradas" minimum:"0" doc:"Sesiones del usuario que se cerraron (completas y pendientes de MFA)"`
-	TokensRevocados  int   `json:"tokensRevocados" minimum:"0" doc:"Tokens iris_pat_ revocados (0 con revocarTokens: false)"`
+	SesionesCerradas  int64 `json:"sesionesCerradas" minimum:"0" doc:"Sesiones del usuario que se cerraron (completas y pendientes de MFA)"`
+	TokensRevocados   int   `json:"tokensRevocados" minimum:"0" doc:"Tokens iris_pat_ revocados (0 con revocarTokens: false)"`
+	TokensConservados int   `json:"tokensConservados" minimum:"0" doc:"Tokens que no se revocaron porque los usa un conector activo de Argos u Horus (revocarlos cortaría la integración; se cambian desde Integraciones)"`
 }
 
 func nuevoReiniciarMFA() *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado] {
@@ -78,8 +79,15 @@ func nuevoReiniciarMFA() *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado] {
 				return MFAReiniciado{}, err
 			}
 			revocados := []int64{}
+			var conservados int32
 			if in.RevocarTokens == nil || *in.RevocarTokens {
+				if err := q.BloquearTokensDeUsuario(ctx, in.ID); err != nil {
+					return MFAReiniciado{}, err
+				}
 				if revocados, err = q.RevocarTokensDeUsuario(ctx, in.ID); err != nil {
+					return MFAReiniciado{}, err
+				}
+				if conservados, err = q.TokensDeUsuarioEnUsoPorConector(ctx, in.ID); err != nil {
 					return MFAReiniciado{}, err
 				}
 				for _, id := range revocados {
@@ -93,9 +101,9 @@ func nuevoReiniciarMFA() *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado] {
 				return MFAReiniciado{}, err
 			}
 			t.RegistrarCambios("usuario", in.ID, auditable(antes, roles[in.ID]), auditable(despues, roles[in.ID]))
-			t.Anotar(map[string]any{"mfa_activo_antes": antes.TotpActivo, "sesiones_cerradas": cerradas, "tokens_revocados": revocados})
+			t.Anotar(map[string]any{"mfa_activo_antes": antes.TotpActivo, "sesiones_cerradas": cerradas, "tokens_revocados": revocados, "tokens_conservados": conservados})
 			if err := t.Emitir("usuario.mfa_reiniciado", map[string]any{
-				"usuario_id": in.ID, "motivo": in.Motivo, "sesiones_cerradas": cerradas, "tokens_revocados": len(revocados),
+				"usuario_id": in.ID, "motivo": in.Motivo, "sesiones_cerradas": cerradas, "tokens_revocados": len(revocados), "tokens_conservados": conservados,
 			}); err != nil {
 				return MFAReiniciado{}, err
 			}
@@ -106,7 +114,7 @@ func nuevoReiniciarMFA() *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado] {
 			return MFAReiniciado{
 				Usuario:          aUsuario(despues, roles[in.ID], empresas[in.ID]),
 				SesionesCerradas: cerradas,
-				TokensRevocados:  len(revocados),
+				TokensRevocados:  len(revocados), TokensConservados: int(conservados),
 			}, nil
 		},
 	})

@@ -9,6 +9,7 @@ import {
     CampoSelector,
     Casilla,
     DialogoCerrar,
+    DialogoConfirmar,
     DialogoContenido,
     DialogoPie,
     DialogoProtegido,
@@ -17,8 +18,8 @@ import {
     InsigniaEstado,
     Tarjeta,
 } from "@iris/ui";
-import { CircleCheck, CirclePower, LinkIcon, Plug, PlugZap, Power, ShieldAlert, ShieldCheck } from "lucide-react";
-import { useState } from "react";
+import { CircleCheck, CirclePower, LinkIcon, Plug, PlugZap, Power, ShieldAlert, ShieldCheck, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
@@ -47,6 +48,17 @@ export function Integraciones() {
     const puedeConectar = puede(["integraciones.conectar"]) && yo.todasLasEmpresas;
     const lectura = useLectura(async (signal) => (await resolver(api().GET("/api/v1/integraciones/conectores", { params: { query: { limit: 50 } }, signal }))).data ?? []);
     const [aviso, setAviso] = useState<string | null>(null);
+    const [lote, setLote] = useState(false);
+    const puedeEliminar = puede(["integraciones.eliminar"]);
+    // El número del lote sale del servidor (no de la página de la lista).
+    const eliminables = useLectura(async (signal) =>
+        puedeEliminar ? (await resolver(api().GET("/api/v1/integraciones/conectores/eliminables", { signal }))).cantidad : 0,
+    );
+    const apagados = eliminables.estado === "listo" ? eliminables.datos : 0;
+    const refrescarTodo = () => {
+        void lectura.refrescar();
+        void eliminables.refrescar();
+    };
 
     return (
         <>
@@ -73,6 +85,25 @@ export function Integraciones() {
                     panelSugerido={panelSugerido(lectura.datos)}
                     panelesConocidos={panelesDeArgos(lectura.datos)}
                 /> : null}
+            {puedeEliminar && apagados > 0 ? (
+                <div className="mb-3 flex justify-end">
+                    <Boton variante="secundario" onClick={() => setLote(true)} data-testid="eliminar-apagados">
+                        <Trash2 />
+                        Eliminar apagados ({apagados})
+                    </Boton>
+                </div>
+            ) : null}
+            {lote ? (
+                <DialogoEliminar
+                    conector={null}
+                    cantidad={apagados}
+                    alCerrar={() => setLote(false)}
+                    alHecho={() => {
+                        setLote(false);
+                        refrescarTodo();
+                    }}
+                />
+            ) : null}
             {lectura.estado === "cargando" ? (
                 <Esqueleto className="h-32" />
             ) : lectura.estado === "error" ? (
@@ -84,7 +115,7 @@ export function Integraciones() {
             ) : (
                 <ul className="grid gap-3" aria-label="Conectores">
                     {lectura.datos.map((c) => (
-                        <FilaConector key={c.id} conector={c} todos={lectura.datos} alCambiar={() => void lectura.refrescar()} />
+                        <FilaConector key={c.id} conector={c} todos={lectura.datos} alCambiar={refrescarTodo} />
                     ))}
                 </ul>
             )}
@@ -102,7 +133,7 @@ function panelSugerido(conectores: readonly Conector[]): string | null {
 
 function FilaConector({ conector: c, todos, alCambiar }: { conector: Conector; todos: readonly Conector[]; alCambiar: () => void }) {
     const { puede } = useSesion();
-    const [dialogo, setDialogo] = useState<"activar" | "desactivar" | null>(null);
+    const [dialogo, setDialogo] = useState<"activar" | "desactivar" | "eliminar" | null>(null);
     const panel = panelDe(c);
     return (
         <li className="surface-card grid gap-3 p-4" data-conector={c.id}>
@@ -144,8 +175,29 @@ function FilaConector({ conector: c, todos, alCambiar }: { conector: Conector; t
                         Desactivar
                     </Boton>
                 ) : null}
+                {c.estado === "apagado" && c.eliminable && puede(["integraciones.eliminar"]) ? (
+                    <Boton variante="secundario" tamano="sm" onClick={() => setDialogo("eliminar")}>
+                        <Trash2 />
+                        Eliminar
+                    </Boton>
+                ) : null}
             </div>
-            {dialogo ? (
+            {c.estado === "apagado" && !c.eliminable && puede(["integraciones.eliminar"]) ? (
+                <p className="text-xs text-muted-foreground" data-testid="conector-en-uso">
+                    {SISTEMAS[c.sistema]} aún usa su acceso mientras se confirma la reconexión (24 h como máximo). Después se podrá eliminar.
+                </p>
+            ) : null}
+            {dialogo === "eliminar" ? (
+                <DialogoEliminar
+                    conector={c}
+                    cantidad={1}
+                    alCerrar={() => setDialogo(null)}
+                    alHecho={() => {
+                        setDialogo(null);
+                        alCambiar();
+                    }}
+                />
+            ) : dialogo ? (
                 <DialogoCambio
                     conector={c}
                     accion={dialogo}
@@ -158,6 +210,55 @@ function FilaConector({ conector: c, todos, alCambiar }: { conector: Conector; t
                 />
             ) : null}
         </li>
+    );
+}
+
+/**
+ * Eliminar un conector apagado (o todos los apagados): sale de la lista, sus credenciales se borran
+ * y el token que Iris le entregó se elimina con él. Queda en la auditoría.
+ */
+function DialogoEliminar({ conector: c, cantidad, alCerrar, alHecho }: { conector: Conector | null; cantidad: number; alCerrar: () => void; alHecho: () => void }) {
+    const [error, setError] = useState<unknown>(null);
+    const clave = useRef(nuevaClaveIdempotencia());
+
+    async function confirmar() {
+        setError(null);
+        const cabecera = { "Idempotency-Key": clave.current };
+        try {
+            if (c) {
+                await resolver(api().POST("/api/v1/integraciones/conectores/{id}/eliminar", { params: { path: { id: c.id }, header: cabecera }, body: {} }));
+                avisar({ titulo: `Conector de ${SISTEMAS[c.sistema]} eliminado` });
+            } else {
+                const r = await resolver(api().POST("/api/v1/integraciones/conectores/eliminar-apagados", { params: { header: cabecera } }));
+                avisar({ titulo: r.eliminados === 1 ? "1 conector eliminado" : `${r.eliminados} conectores eliminados` });
+            }
+            alHecho();
+        } catch (e) {
+            clave.current = claveTrasError(e, clave.current);
+            setError(e);
+        }
+    }
+
+    return (
+        <DialogoConfirmar
+            open
+            onOpenChange={(a) => (a ? undefined : alCerrar())}
+            peligro
+            titulo={c ? `¿Eliminar el conector de ${SISTEMAS[c.sistema]}?` : cantidad === 1 ? "¿Eliminar 1 conector apagado?" : `¿Eliminar ${cantidad} conectores apagados?`}
+            descripcion={
+                c
+                    ? `${panelDe(c) ?? c.apiUrl}. Sale de la lista y su token se elimina. Lo que hizo sigue en la auditoría. No se puede deshacer.`
+                    : "Salen de la lista y sus tokens se eliminan. Lo que hicieron sigue en la auditoría. No se puede deshacer."
+            }
+            textoConfirmar="Eliminar"
+            alConfirmar={confirmar}
+        >
+            {error ? (
+                <Aviso tono="error" titulo="No se pudo eliminar">
+                    {mensajeDeError(error).detalle ?? mensajeDeError(error).titulo}
+                </Aviso>
+            ) : null}
+        </DialogoConfirmar>
     );
 }
 

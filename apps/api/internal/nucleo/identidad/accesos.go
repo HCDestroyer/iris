@@ -427,6 +427,8 @@ type SesionesCerradas struct {
 	Sesiones  []int64 `json:"sesiones" doc:"Ids de las sesiones cerradas"`
 	// TokensRevocados: con revocarTokens; si no, 0 (los tokens siguen valiendo).
 	TokensRevocados int `json:"tokensRevocados" doc:"Tokens iris_pat_ revocados (0 sin revocarTokens: los tokens siguen valiendo)"`
+	// TokensConservados: con revocarTokens, los que no se revocaron porque un conector activo los usa.
+	TokensConservados int `json:"tokensConservados" doc:"Con revocarTokens: tokens que se conservaron porque los usa un conector activo de Argos u Horus (revocarlos cortaría la integración; se cambian desde Integraciones)"`
 }
 
 // exigirCerrarSesiones: el usuario debe estar en el alcance (404 si no) y, salvo el propio, quien
@@ -496,6 +498,9 @@ func nuevoCerrarSesionesUsuario() *auditoria.Caso[EntradaCerrarSesionesUsuario, 
 				if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermTokensRevocar)) {
 					return SesionesCerradas{}, nucleo.Prohibido("Revocar sus tokens exige el permiso tokens.revocar")
 				}
+				if err := q.BloquearTokensDeUsuario(ctx, in.UsuarioID); err != nil {
+					return SesionesCerradas{}, err
+				}
 				revocados, err := q.RevocarTokensDeUsuario(ctx, in.UsuarioID)
 				if err != nil {
 					return SesionesCerradas{}, err
@@ -506,6 +511,11 @@ func nuevoCerrarSesionesUsuario() *auditoria.Caso[EntradaCerrarSesionesUsuario, 
 					}
 				}
 				salida.TokensRevocados = len(revocados)
+				conservados, err := q.TokensDeUsuarioEnUsoPorConector(ctx, in.UsuarioID)
+				if err != nil {
+					return SesionesCerradas{}, err
+				}
+				salida.TokensConservados = int(conservados)
 			}
 			if len(ids) == 0 {
 				return salida, nil // ninguna sesión cerrada: sin evento de sesiones

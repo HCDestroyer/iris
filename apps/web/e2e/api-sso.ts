@@ -59,6 +59,7 @@ export const CONECTORES_INICIALES = (): Conector[] => [
         urlPublica: "https://panel.argos.fibra.test",
         webhookUrl: "https://iris.fibra.test/api/v1/integraciones/argosisp/webhooks",
         version: 3,
+        eliminable: false,
     },
     {
         id: 2,
@@ -78,6 +79,7 @@ export const CONECTORES_INICIALES = (): Conector[] => [
         urlPublica: "https://argos-nuevo.fibra.test",
         webhookUrl: "https://iris.fibra.test/api/v1/integraciones/argosisp/webhooks",
         version: 1,
+        eliminable: true,
     },
 ];
 
@@ -109,6 +111,8 @@ export type ApiSSO = {
      */
     revisiones: { id: number; idempotencia: string | undefined }[];
     resultadoRevision: Partial<Conector>;
+    /** `POST …/eliminar` y `…/eliminar-apagados` recibidos, con su Idempotency-Key. */
+    eliminaciones: { ruta: string; idempotencia: string | undefined }[];
     /** «Conectar con Argos» (0.4.0 §1.4): autorizaciones iniciadas, por state. */
     autorizaciones: Map<string, { panelUrl: string; usada: boolean }>;
     /** Cuerpos de `POST …/autorizaciones/completar` con su Idempotency-Key. */
@@ -152,6 +156,7 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
         vinculos,
         conectores,
         revisiones: [],
+        eliminaciones: [],
         resultadoRevision: { versionRemota: "1.6.2", versionEstado: "ok", versionDetalle: null, capacidades: ["inventario_por_tecnico"] },
         autorizaciones: new Map(),
         completados: [],
@@ -347,16 +352,48 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
                     for (const otro of conectores) {
                         if (otro.sistema === c.sistema && otro.estado === "activo") {
                             otro.estado = "apagado";
+                            otro.eliminable = true;
                             otro.version++;
                         }
                     }
                     c.estado = "activo";
+                    c.eliminable = false;
                     c.activadoEn = new Date().toISOString();
                 } else {
                     c.estado = "apagado";
+                    c.eliminable = true;
                 }
                 c.version++;
                 await json(route, c);
+                return true;
+            }
+            // Eliminar un conector apagado (borrado lógico): sale de la lista; 409 si está activo o en uso.
+            const eliminar = /^\/api\/v1\/integraciones\/conectores\/(\d+)\/eliminar$/.exec(ruta);
+            if (eliminar && metodo === "POST") {
+                if (!puede("integraciones.eliminar")) return (await prohibido(), true);
+                if (sso) return (await pedirReautenticacion(), true);
+                api.eliminaciones.push({ ruta, idempotencia });
+                const i = conectores.findIndex((x) => x.id === Number(eliminar[1]));
+                const c = conectores[i];
+                if (!c) return (await problema(route, { type: "urn:iris:problema:no_encontrado", title: "No encontrado", status: 404 }), true);
+                if (c.estado === "activo") return (await problema(route, { type: "urn:iris:problema:conector_activo", title: "Conflicto", status: 409, detail: "El conector está activo: desactívalo primero y luego elimínalo" }), true);
+                if (!c.eliminable) return (await problema(route, { type: "urn:iris:problema:conector_en_uso", title: "Conflicto", status: 409, detail: "El otro sistema aún usa su acceso" }), true);
+                conectores.splice(i, 1);
+                await json(route, { ...c, eliminadoEn: new Date().toISOString() });
+                return true;
+            }
+            if (ruta === "/api/v1/integraciones/conectores/eliminables" && metodo === "GET") {
+                if (!puede("integraciones.eliminar")) return (await prohibido(), true);
+                await json(route, { cantidad: conectores.filter((c) => c.eliminable).length } satisfies Schema<"ConectoresEliminables">);
+                return true;
+            }
+            if (ruta === "/api/v1/integraciones/conectores/eliminar-apagados" && metodo === "POST") {
+                if (!puede("integraciones.eliminar")) return (await prohibido(), true);
+                if (sso) return (await pedirReautenticacion(), true);
+                api.eliminaciones.push({ ruta, idempotencia });
+                const ids = conectores.filter((c) => c.eliminable).map((c) => c.id);
+                for (const id of ids) conectores.splice(conectores.findIndex((c) => c.id === id), 1);
+                await json(route, { eliminados: ids.length, ids } satisfies Schema<"ConectoresEliminados">);
                 return true;
             }
             if (ruta === "/api/v1/integraciones/argosisp/autorizaciones" && metodo === "POST") {

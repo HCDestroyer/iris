@@ -86,7 +86,7 @@ CREATE INDEX tokens_api_via_idx ON nucleo.tokens_api (usuario_id) WHERE via IS N
 -- TestMigracionMarcaRecuperacion con el bloque entre las marcas.)
 -- b7:marcar_recuperacion:inicio
 UPDATE nucleo.tokens_api t SET via = 'recuperacion'
-WHERE t.via IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now())
+WHERE t.via IS NULL AND t.revocado_en IS NULL AND t.eliminado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now())
     AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles r ON r.id = ur.rol_id
         WHERE ur.usuario_id = t.usuario_id AND r.codigo IN ('integracion_argos', 'integracion_horus'))
     AND NOT EXISTS (SELECT 1 FROM integracion.conectores c WHERE c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id);

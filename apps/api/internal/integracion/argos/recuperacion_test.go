@@ -20,7 +20,7 @@ import (
 // bloqueMarcarRecuperacion: el UPDATE de la migración, entre sus marcas (el mismo texto que corre goose).
 func bloqueMarcarRecuperacion(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile("../../../migraciones/20261119173819_integracion_argos_primera_sincronizacion.sql")
+	b, err := os.ReadFile("../../../migraciones/20261119213639_integracion_argos_primera_sincronizacion.sql")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -230,4 +230,26 @@ test.describe("accesos, actividad de la app y roles", () => {
         await expect(page).toHaveURL(new RegExp(`/administracion/accesos\\?usuarioId=${CONSULTA.id}$`));
         await esperarOpcion(page.getByRole("form", { name: "Filtros del historial" }).getByLabel("Usuario"), String(CONSULTA.id));
     });
+
+    test("cerrar todas y revocar tokens: si se conservó el de la integración, el aviso lo dice y lleva a Integraciones", async ({ page, context, baseURL }) => {
+        await preparar(page, context, baseURL);
+        // Como la API cuando el usuario es la integración con un conector activo (tokensConservados).
+        await page.route(`**/api/v1/usuarios/${CONSULTA.id}/cerrar-sesiones`, (route) =>
+            route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({ usuarioId: CONSULTA.id, cerradas: 1, sesiones: [900], tokensRevocados: 1, tokensConservados: 1 } satisfies Schema<"SesionesCerradas">),
+            }),
+        );
+        await page.goto(`/usuarios/${CONSULTA.id}?pestana=sesiones`);
+        const sesiones = page.locator('[data-seccion="sesiones"]');
+        await sesiones.getByRole("button", { name: "Cerrar todas las sesiones" }).click();
+        const todas = page.getByRole("dialog", { name: "¿Cerrar todas sus sesiones?" });
+        await expect(todas.getByText("El de la integración activa con Argos u Horus se conserva.")).toBeVisible();
+        await todas.getByLabel("Revocar también sus tokens de API").check();
+        await todas.getByRole("button", { name: "Cerrar sesiones" }).click();
+        const aviso = page.getByText("Se conservó el token de la integración con Argos u Horus. Si está comprometida, desactiva el conector en");
+        await expect(aviso).toBeVisible();
+        await expect(page.getByRole("link", { name: "Integraciones", exact: true }).last()).toHaveAttribute("href", "/administracion/integraciones");
+    });
 });

@@ -153,9 +153,9 @@ SELECT id, nombre FROM integracion.argos_routers WHERE id = @id AND (empresa_id 
 SELECT count(*) FROM integracion.argos_routers WHERE empresa_id = @empresa_id::bigint OR empresa_id IS NULL;
 
 -- name: EstadoConectorArgos :one
--- 'activo', 'apagado' o '' (nunca se conectó: modo sin conector).
+-- 'activo', 'apagado' o '' (nunca se conectó, o se eliminaron todos: modo sin conector).
 SELECT coalesce(
-    (SELECT estado FROM integracion.conectores WHERE sistema = 'argosisp' ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1),
+    (SELECT estado FROM integracion.conectores WHERE sistema = 'argosisp' AND eliminado_en IS NULL ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1),
     '')::text AS estado;
 
 -- name: CrearFactibilidad :one

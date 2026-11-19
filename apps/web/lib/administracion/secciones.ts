@@ -158,6 +158,12 @@ export const SECCIONES: readonly Seccion[] = [
         icono: ShieldCheck,
         permisos: ["roles.ver"],
     },
-    { titulo: "Tokens de API", descripcion: "Accesos para integraciones y scripts.", icono: KeyRound, permisos: ["tokens.ver"] },
+    {
+        href: "/administracion/tokens",
+        titulo: "Tokens de API",
+        descripcion: "Para integraciones y scripts: revocar y eliminar los que ya no se usan.",
+        icono: KeyRound,
+        permisos: ["tokens.ver"],
+    },
 ];
 
