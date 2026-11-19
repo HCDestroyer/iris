@@ -39,6 +39,19 @@ export function lineaDeServicioCampo(s: Schema<"ServicioCampo">): ServicioLinea 
     };
 }
 
+/** Servicio de una llamada (`ServicioDeLlamada`: plan, zona y precio; nunca red ni ubicación) como línea. */
+export function lineaDeLlamada(s: Schema<"ServicioDeLlamada">): ServicioLinea {
+    return {
+        id: s.id,
+        estado: s.estado,
+        codigo: s.codigo,
+        planNombre: s.plan,
+        ...(s.zona ? { zonaNombre: s.zona } : {}),
+        ...(s.precioMensual ? { precioMensual: s.precioMensual } : {}),
+        ...(s.moneda ? { moneda: s.moneda } : {}),
+    };
+}
+
 /** Servicio copiado al crear un ticket o una orden (`CopiaServicio`) como línea. */
 export function lineaDeCopia(s: Schema<"CopiaServicio">): ServicioLinea {
     return {

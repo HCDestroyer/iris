@@ -17618,7 +17618,12 @@ export interface components {
             estado: string;
             /** Format: int64 */
             id: number;
+            moneda?: string;
             plan: string;
+            /** @description Precio mensual del plan con IVA; ausente si Argos no lo informa */
+            precioMensual?: string;
+            /** @description Nombre de la zona del servicio */
+            zona?: string;
         };
         ServicioEliminado: {
             /** Format: int64 */

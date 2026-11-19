@@ -27498,7 +27498,18 @@
             "format": "int64",
             "type": "integer"
           },
+          "moneda": {
+            "type": "string"
+          },
           "plan": {
+            "type": "string"
+          },
+          "precioMensual": {
+            "description": "Precio mensual del plan con IVA; ausente si Argos no lo informa",
+            "type": "string"
+          },
+          "zona": {
+            "description": "Nombre de la zona del servicio",
             "type": "string"
           }
         },
