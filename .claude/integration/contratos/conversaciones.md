@@ -2591,6 +2591,15 @@ no un hecho comprobado.
   de regla de Argos en crudo (se traducen a texto fijo).
 - Los identificadores internos (cliente, servicio, empresa, conversación) nunca van en los argumentos
   de las herramientas: los pone el servidor.
+- **Servicios del cliente (contrato `argosisp.md` 0.8.0 §2.4; §10.2 puntos 7 y 8).** Cada servicio
+  viaja como la etiqueta corta «Servicio n · plan · zona» (n = orden dentro del cliente, por id) con
+  su estado; nunca el id, el código, la IP, los prefijos, `user_ppp`, la dirección, la referencia,
+  las coordenadas, el contacto en sitio, `planta` ni el nombre del router (una falla de Horus se
+  describe como «un equipo de red de <zona>»). El precio mensual del plan (`precio_mensual`, con IVA)
+  viaja solo si el número de la conversación está registrado como del cliente, para decir «su plan
+  cuesta Q250.00 al mes», nunca «su factura es de…»; a un número no registrado se le indica no dar
+  precios. Si dos servicios tienen el mismo plan y la misma zona, el asistente no adivina: pasa a
+  una persona.
 - **Lo que queda guardado en Iris.** El payload crudo de cada webhook de Meta se guarda en
   `mensajeria.entrantes` (deduplicación y reproceso), con el texto del cliente tal como llegó. Cuando
   el asistente detecta un documento de identidad en un turno en el que puede verificarla, el dato

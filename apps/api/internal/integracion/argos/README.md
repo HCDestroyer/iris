@@ -368,3 +368,36 @@ partes (ficha, ticket, orden, comercial y app de campo).
 - §1.3: `vinculacion.instalacion` es del canje del ticket en el panel de Argos; Iris no manda ni recibe nada
   nuevo. Sigue mandando `usuario.correo` y `usuario.nombre` en el ticket para la pantalla de confirmación.
 
+
+## Contrato 0.8.0, bloque C: datos del servicio con permisos (§2.4, B6)
+
+- **Lista blanca.** `ServicioArgos` (`tipos.go`) es la lista escrita de lo que se lee de Argos: plan,
+  zona, router, estado, `precio_mensual` y `moneda` (Argos ≥ 1.18.0), tipo de conexión, `user_ppp`,
+  `ipv4`, `prefijo_enlace_v6`, `prefijo_delegado_v6`, `planta` (seis claves texto o null), dirección,
+  referencia, coordenadas y contacto en sitio. `mac`, `ipv6_duid`, `ipv6_modo`, `local_address`,
+  `servidor_pppoe_id`, `excepciones`, `costo_override`, `suspension_manual_motivo` y `externo` no
+  tienen campo: el decodificador los descarta y nunca se guardan, registran ni salen por la API.
+- **Precio.** `precio_mensual` (numeric) y `moneda` van juntos o son null (Argos anterior a 1.18.0: no
+  se muestra ni se calcula; nunca «Q0»). Se refresca con la ficha (más de 24 h), con
+  `servicio.config_cambiada` (cualquier `campos[]`, también `precio`) y con `catalogo.cambiado` de un
+  plan con `precio` en `campos[]`: relee `GET /servicios?plan_id=` (paginado) y actualiza solo los
+  servicios de ese plan que Iris ya tiene (`CambiarPrecioServicio`).
+- **Permisos (`visibilidad.go`).** `servicios.ver_red` (router, IP, prefijos, `user_ppp`, tipo de
+  conexión, planta) y `servicios.ver_ubicacion` (dirección, referencia, coordenadas, contacto en
+  sitio). Sin el permiso **el servidor omite** el campo (`omitempty`): ficha, búsqueda con servicios,
+  copia de ticket u orden (`CopiaDe`: sin ubicación, la dirección que aplica vuelve a ser la del
+  cliente), ficha de la conversación (`ServiciosVisibles`) y paquete de la app de campo. Quien solo
+  ve sus órdenes (`ordenes.ver_propias` sin `ordenes.ver`, el técnico) recibe esos datos solo de los
+  servicios de las órdenes asignadas a él. El alcance por zona o cuadrilla de estos dos permisos no
+  se usa (se mira si el actor los tiene). Plan, zona, estado y precio los ve cualquiera con
+  `clientes.ver`.
+- **Roles.** Base: `ver_red` a admin, supervisor, soporte y técnico; `ver_ubicacion` a admin,
+  supervisor, despacho, soporte, ventas y técnico (caja y lectura dejan de ver la ubicación; los
+  roles de integración, ninguno). La migración `20261119024424` da los dos a los **roles propios**
+  que tenían `clientes.ver`, una sola vez, con una fila `roles.permisos_agregados_por_migracion` en
+  `auditoria.acciones` por rol (el admin se los quita si quiere).
+- **Auditoría.** La lectura (`clientes.ver`, `clientes.buscar`) anota `servicios_ver_red` y
+  `servicios_ver_ubicacion` con los ids de los servicios cuyos datos salieron; nunca los valores.
+- **Número del servicio.** `numero` (1, 2, 3…, por id, en la lista de la empresa activa): «Servicio 2»
+  en el panel y en el asistente.
+- No emite ni consume eventos nuevos.

@@ -4,6 +4,7 @@ import { ADJUNTOS_SUBIDOS } from "./api-adjuntos-conv";
 import { agentesBandeja11, bandeja11, canalesBandeja11, colasBandeja11, PERMISOS_BANDEJA11, type ColaBase, type NumeroBase, type OpcionesBandeja11 } from "./api-bandeja11";
 import { apiAsistente, PERMISO_SUGERENCIAS, type OpcionesAsistente } from "./api-asistente";
 import { apiFase3 } from "./api-asistente3";
+import { recortarServicio } from "./recorte-servicio";
 import { PERMISO_CATEGORIZAR } from "../lib/asistente/permisos";
 import type { Contadores, Conversacion, Mensaje } from "../lib/conversaciones/tipos";
 import { ANDREA, CANAL_AVISOS, CANAL_COBROS, CANAL_SOPORTE, CANAL_VENTAS, CONVERSACIONES, detalle, mensajesDe } from "./datos-conversaciones";
@@ -349,7 +350,12 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         const accion = m[2];
 
         if (metodo === "GET") {
-            if (!accion) return (await json(route, detalle(c)), true);
+            if (!accion) {
+                // Como el servidor (§2.4): los servicios del cliente sin lo que el rol no puede ver.
+                const d = detalle(c);
+                const r = d.clienteResumen;
+                return (await json(route, r ? { ...d, clienteResumen: { ...r, servicios: r.servicios.map((s) => recortarServicio(s, puede)) } } : d), true);
+            }
             if (accion === "mensajes") return (await json(route, { data: mensajes.get(c.id) ?? [], nextCursor: null }), true);
             if (accion === "plantillas") {
                 return (
@@ -498,6 +504,8 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             }
             case "crear-ticket":
                 return (await json(route, { vinculo: { tipo: "ticket", id: "4900", referencia: "TK-004900", creadoEn: new Date().toISOString() }, conversacion: detalle(c) }, 201), true);
+            case "crear-orden":
+                return (await json(route, { vinculo: { tipo: "orden", id: "7300", referencia: "OT-007300", creadoEn: new Date().toISOString() }, conversacion: detalle(c) }, 201), true);
             case "mensajes":
             case "notas": {
                 if (!puede("conversaciones.responder")) return (await prohibido(), true);
