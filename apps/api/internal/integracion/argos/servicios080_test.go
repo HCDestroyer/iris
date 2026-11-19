@@ -543,7 +543,9 @@ func TestServicios080AlcanceCopiaYPropias(t *testing.T) {
 		t.Fatalf("ficha: %d %s", r.status, r.crudo)
 	}
 	// C: Argos resuelve la IP a un cliente sin servicio; con órdenes acotadas (técnico), 404.
-	e.argos.con(func() { e.argos.ips["100.64.99.1"] = map[string]any{"cliente_id": 906, "servicio_id": nil, "empresa_id": 1} })
+	e.argos.con(func() {
+		e.argos.ips["100.64.99.1"] = map[string]any{"cliente_id": 906, "servicio_id": nil, "empresa_id": 1}
+	})
 	tec, _ := e.usuarioConID("tecnico")
 	tec.pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=100.64.99.1", nil).problema(t, 404, "no_encontrado")
 	if r := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=100.64.99.1", nil); r.status != 200 {
@@ -559,7 +561,9 @@ func TestServicios080AlcanceCopiaYPropias(t *testing.T) {
 		VALUES ('orden', 906906, NULL, 906, $1, $2::jsonb, now()) ON CONFLICT DO NOTHING`, con, copia); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = e.pool.Exec(context.Background(), `DELETE FROM integracion.argos_copias WHERE cliente_id = 906`) })
+	t.Cleanup(func() {
+		_, _ = e.pool.Exec(context.Background(), `DELETE FROM integracion.argos_copias WHERE cliente_id = 906`)
+	})
 	ipDeCopia := func(zona int64) string {
 		t.Helper()
 		ctx := conAlcances(e.pool, usuario, map[nucleo.Permiso][]contexto.Alcance{nucleo.PermClientesVer: nil, nucleo.PermServiciosVerRed: {{ZonaID: zona}}})

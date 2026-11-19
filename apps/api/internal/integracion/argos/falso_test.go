@@ -78,8 +78,8 @@ type argosFalso struct {
 	planes          []map[string]any
 	// alLeerPlan: se llama al atender GET /servicios?plan_id= (un aviso que llega mientras Iris lee).
 	alLeerPlan func()
-	contratos       int      // PUT /integraciones/iris/contrato recibidos
-	informados      []string // el contrato de cada PUT, tal como lo mandó Iris
+	contratos  int      // PUT /integraciones/iris/contrato recibidos
+	informados []string // el contrato de cada PUT, tal como lo mandó Iris
 	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
 	webhookURL string
 	// sinWebhook: el canje no devuelve el bloque webhook (Argos fuera de contrato, 0.6.2).
