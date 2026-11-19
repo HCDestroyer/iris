@@ -209,7 +209,10 @@ Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «A
   `GET /asistente/reconexion` y `POST /asistente/reconexion/actualizar`, permiso `mensajeria.asistente_configurar`,
   solo admin), el Argos activo informa contrato ≥ 0.8.0 (`argos.SoportaSinPersonal`; `ContratoIris` sigue en
   0.7.1 hasta que el líder lo suba) y la empresa tiene personas con el rol `caja` pero ninguna disponible en la
-  bandeja en ese momento (`CajaDeEmpresa`: sesión vigente, dentro de su horario y con actividad reciente). Si no,
+  bandeja en ese momento (`CajaDeEmpresa`: sesión vigente, dentro de su horario y con actividad reciente).
+  Un rol `caja` asignado con alcance de zona o cuadrilla cuenta igual para toda la empresa (la disponibilidad
+  de la bandeja es por empresa, no por zona). `GET /asistente/reconexion` dice además si la acción
+  `reconexion_temporal` está encendida en algún perfil (`accionEncendida`): sin ella no se pide ninguna. Si no,
   `422 reconexion_no_corresponde` sin llamar a Argos. La herramienta `pedir_reconexion` no lleva argumentos: el
   cliente ni el modelo pueden elegir el motivo. Verificación fuerte y boleta registrada, siempre.
 - **Auditoría:** el intento (también rechazado) anota el criterio: `fuera_de_horario`, `sin_personal_encendido`,
@@ -222,9 +225,18 @@ Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «A
   `hasta` a hora de Guatemala con el mismo texto.
 - **Webhooks `promesa.*`:** `argos.promesa_cambiada` → `conversaciones.reconexion_argos` guarda `argos_estado`,
   `argos_motivo` (el `motivo_reconexion` de Argos), `argos_fin_motivo` y, si sigue activa, `hasta`; deja
-  `reconexion_actualizada` en el hilo y emite `reconexion.actualizada`. Pendiente: explicarle al cliente los
-  cuatro finales (§7.3 «Cómo termina»).
-- **Emite:** `reconexion.solicitada` (motivo `sin_personal`), `reconexion.actualizada`, `reconexion.ajustes_cambiados`.
+  `reconexion_actualizada` en el hilo y emite `reconexion.actualizada`. Un `vence` pasado o a más de 49 h no
+  se copia a `hasta`; tampoco se cree un `hasta` así en la respuesta de Argos (queda aceptada sin fecha, no
+  se le dice nada al cliente y pasa a una persona). Una reconexión repetida que ya terminó o venció
+  responde `NoVigente` y el asistente no la vuelve a anunciar.
+- **Aviso al cliente de cómo terminó (§7.3 «Cómo termina»):** el final deja `argos_aviso = pendiente`; el
+  mantenimiento del proceso de mensajería (que encola los envíos) manda una sola vez el texto del servidor
+  (`TextoFinReconexion`: cumplida, incumplida, cancelada por comprobante rechazado o vencida sin revisar),
+  sin montos ni hora de corte, solo dentro de la ventana de 24 h. Fuera de la ventana no hay plantilla
+  aprobada para los finales (§6.3), así que queda `sin_aviso` y el final se ve en el hilo. Emite
+  `reconexion.cliente_avisado`.
+- **Emite:** `reconexion.solicitada` (motivo `sin_personal`), `reconexion.actualizada`, `reconexion.cliente_avisado`,
+  `reconexion.ajustes_cambiados`.
 
 ### Aprobar y rechazar boletas (`boletas_decidir.go`, `boletas_rutas.go`, `boletas.sql`)
 

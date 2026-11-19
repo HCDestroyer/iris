@@ -1074,6 +1074,10 @@
       "AjustesReconexion": {
         "additionalProperties": false,
         "properties": {
+          "accionEncendida": {
+            "description": "Algún perfil del asistente tiene encendida la acción reconexion_temporal",
+            "type": "boolean"
+          },
           "actualizadoEn": {
             "format": "date-time",
             "type": [
@@ -1108,6 +1112,7 @@
           "argosLoPermite",
           "contratoMinimo",
           "caja",
+          "accionEncendida",
           "actualizadoEn"
         ],
         "type": "object"

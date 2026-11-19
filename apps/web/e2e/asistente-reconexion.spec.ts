@@ -60,6 +60,13 @@ test.describe("Asistente › reconexión sin personal de caja", () => {
         await captura(page, "reconexion-argos-viejo");
     });
 
+    test("con «Reconexión temporal» apagada en «¿Qué puede hacer solo?» no dice «Listo»", async ({ page }) => {
+        await abrir(page, { reconexion: { sinPersonal: true, version: 1, accionEncendida: false } });
+        await expect(estado(page)).toHaveAttribute("data-tono", "warning");
+        await expect(estado(page)).toContainText("«Reconexión temporal» está apagada");
+        await expect(estado(page)).not.toContainText("Listo");
+    });
+
     test("sin nadie con el rol Caja", async ({ page }) => {
         await abrir(page, { reconexion: { sinPersonal: true, version: 1, caja: { total: 0, disponibles: 0 } } });
         await expect(estado(page)).toContainText("Nadie tiene el rol Caja");

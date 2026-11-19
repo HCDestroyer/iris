@@ -23,9 +23,17 @@ export function textoMotivoReconexion(motivo: string | undefined): string | null
  */
 export type EstadoSinPersonal = { tono: "success" | "info" | "warning"; titulo: string; detalle: string };
 
-export function estadoSinPersonal(a: Pick<AjustesReconexion, "argosLoPermite" | "caja" | "contratoMinimo">, encendido: boolean): EstadoSinPersonal {
+export function estadoSinPersonal(a: Pick<AjustesReconexion, "argosLoPermite" | "caja" | "contratoMinimo"> & { accionEncendida?: boolean }, encendido: boolean): EstadoSinPersonal {
     if (!encendido) {
         return { tono: "info", titulo: "Apagado", detalle: "En horario hábil, la boleta siempre la revisa una persona de caja." };
+    }
+    // Sin la acción «Reconexión temporal» en «¿Qué puede hacer solo?» el asistente no pide ninguna.
+    if (a.accionEncendida === false) {
+        return {
+            tono: "warning",
+            titulo: "«Reconexión temporal» está apagada",
+            detalle: "Enciéndela en «¿Qué puede hacer solo?»: sin ella el asistente no pide ninguna reconexión.",
+        };
     }
     if (!a.argosLoPermite) {
         return {

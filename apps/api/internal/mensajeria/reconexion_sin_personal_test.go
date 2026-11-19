@@ -144,7 +144,7 @@ func TestReconexionSinPersonal(t *testing.T) {
 
 	// 2. Encendido (auditado, con su evento), pero Argos viejo (contrato < 0.8.0): no se pide.
 	r := x.interruptorSinPersonal(true)
-	if r["argosLoPermite"] != true || r["caja"].(map[string]any)["total"] != float64(1) || r["caja"].(map[string]any)["disponibles"] != float64(0) {
+	if r["argosLoPermite"] != true || r["accionEncendida"] != true || r["caja"].(map[string]any)["total"] != float64(1) || r["caja"].(map[string]any)["disponibles"] != float64(0) {
 		t.Fatalf("ajustes: %v", r)
 	}
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'mensajeria.ajustes_reconexion' AND resultado = 'ok'`); n != 1 {

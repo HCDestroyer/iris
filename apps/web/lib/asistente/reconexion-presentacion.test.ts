@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { textoReconexion, textoReconexionActualizada } from "./fase3b";
 import { estadoSinPersonal, hastaCorto, textoMotivoReconexion } from "./reconexion-presentacion";
 
-const listo = { argosLoPermite: true, contratoMinimo: "0.8.0", caja: { total: 2, disponibles: 0 } };
+const listo = { argosLoPermite: true, contratoMinimo: "0.8.0", caja: { total: 2, disponibles: 0 }, accionEncendida: true };
 
 describe("reconexión sin personal de caja (contrato con Argos 0.8.0 §7.3)", () => {
     it("el motivo en llano; uno desconocido no se interpreta", () => {
@@ -14,6 +14,8 @@ describe("reconexión sin personal de caja (contrato con Argos 0.8.0 §7.3)", ()
 
     it("estado del interruptor: apagado, Argos viejo, sin rol Caja y listo", () => {
         expect(estadoSinPersonal(listo, false)).toMatchObject({ tono: "info", titulo: "Apagado" });
+        expect(estadoSinPersonal({ ...listo, accionEncendida: false }, true)).toMatchObject({ tono: "warning", titulo: "«Reconexión temporal» está apagada" });
+        expect(estadoSinPersonal({ ...listo, accionEncendida: false }, false)).toMatchObject({ titulo: "Apagado" });
         expect(estadoSinPersonal({ ...listo, argosLoPermite: false }, true)).toMatchObject({ tono: "warning", titulo: "Argos todavía no lo permite" });
         expect(estadoSinPersonal({ ...listo, argosLoPermite: false }, true).detalle).toContain("0.8.0");
         expect(estadoSinPersonal({ ...listo, caja: { total: 0, disponibles: 0 } }, true)).toMatchObject({ tono: "warning", titulo: "Nadie tiene el rol Caja" });

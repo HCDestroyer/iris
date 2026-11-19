@@ -8539,6 +8539,8 @@ export interface components {
             perfil?: components["schemas"]["PerfilPrueba"];
         };
         AjustesReconexion: {
+            /** @description Algún perfil del asistente tiene encendida la acción reconexion_temporal */
+            accionEncendida: boolean;
             /** Format: date-time */
             actualizadoEn: string | null;
             /** @description El Argos conectado informa contrato ≥ 0.8.0; sin eso nunca se pide sin_personal */

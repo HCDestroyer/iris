@@ -141,7 +141,7 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
     const sugerencias: Sugerencia[] = [];
     const guardados: unknown[] = [];
     let reconexion: Schema<"AjustesReconexion"> = {
-        sinPersonal: false, version: 0, argosLoPermite: true, contratoMinimo: "0.8.0", caja: { total: 2, disponibles: 0 }, actualizadoEn: null, ...opciones.reconexion,
+        sinPersonal: false, version: 0, argosLoPermite: true, contratoMinimo: "0.8.0", caja: { total: 2, disponibles: 0 }, accionEncendida: true, actualizadoEn: null, ...opciones.reconexion,
     };
     let conflictoReconexion = opciones.conflictoReconexion ?? false;
     let fallasReconexion = opciones.fallasReconexion ?? 0;
