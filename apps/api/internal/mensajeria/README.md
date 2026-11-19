@@ -239,8 +239,13 @@ Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «A
   mantenimiento del proceso de mensajería (que encola los envíos) manda una sola vez el texto del servidor
   (`TextoFinReconexion`: cumplida, incumplida, cancelada por comprobante rechazado o vencida sin revisar),
   sin montos ni hora de corte, solo dentro de la ventana de 24 h. Fuera de la ventana no hay plantilla
-  aprobada para los finales (§6.3), así que queda `sin_aviso` y el final se ve en el hilo. Emite
-  `reconexion.cliente_avisado`.
+  aprobada para los finales (§6.3), así que queda `sin_aviso` y el final se ve en el hilo. Solo se avisa el
+  final de una reconexión aceptada y con `hasta` (la que Iris anunció), a la misma empresa y el mismo cliente
+  de la reconexión (si la conversación pasó a otra empresa o se desasoció, `sin_aviso`), con el
+  consentimiento de ese cliente. Un error de negocio o un final con más de 24 h cierra el aviso como
+  `sin_aviso` para no bloquear la cola. Candados en el orden de `PedirReconexion`: conversación y después
+  reconexión. Los `promesa.*` de una empresa fuera del alcance del conector se descartan, y los de otro
+  cliente no tocan la reconexión. Emite `reconexion.cliente_avisado`.
 - **Emite:** `reconexion.solicitada` (motivo `sin_personal`), `reconexion.actualizada`, `reconexion.cliente_avisado`,
   `reconexion.ajustes_cambiados`.
 
