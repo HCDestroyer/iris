@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -223,8 +224,10 @@ func crearSincronizacion(ctx context.Context, t *auditoria.Tx, m *Modulo, in ent
 	if err != nil {
 		return resultadoCrearSincronizacion{}, err
 	}
-	for i, r := range RecursosSincronizacion {
-		if err := q.CrearEtapa(ctx, argosbd.CrearEtapaParams{SincronizacionID: id, Recurso: r, Orden: int16(i + 1)}); err != nil {
+	orden := int16(0)
+	for _, r := range RecursosSincronizacion {
+		orden++
+		if err := q.CrearEtapa(ctx, argosbd.CrearEtapaParams{SincronizacionID: id, Recurso: r, Orden: orden}); err != nil {
 			return resultadoCrearSincronizacion{}, err
 		}
 	}
@@ -306,21 +309,20 @@ func nuevoGuardarAvance(m *Modulo) *auditoria.Caso[avanceEtapa, resultadoAvance]
 				if err != nil {
 					return resultadoAvance{}, err
 				}
-				in.Procesados += int32(procesados)
-				in.Omitidos += int32(omitidos)
+				in.Procesados = sumar32(in.Procesados, procesados)
+				in.Omitidos = sumar32(in.Omitidos, omitidos)
 			}
 			ahora, err := q.RelojBD(ctx)
 			if err != nil {
 				return resultadoAvance{}, err
 			}
-			iniciada, terminada := antes.IniciadaEn, antes.TerminadaEn
+			iniciada := antes.IniciadaEn
 			if iniciada == nil {
 				iniciada = &ahora
 			}
+			var terminada *time.Time
 			if in.Estado == SincCompleta || in.Estado == SincConErrores {
 				terminada = &ahora
-			} else {
-				terminada = nil
 			}
 			e, err := q.ActualizarEtapa(ctx, argosbd.ActualizarEtapaParams{SincronizacionID: in.SincronizacionID, Recurso: in.Recurso, Estado: in.Estado,
 				Procesados: in.Procesados, Omitidos: in.Omitidos, Total: in.Total, Cursor: in.Cursor, IniciadaEn: iniciada, TerminadaEn: terminada, Error: in.Error})
@@ -655,13 +657,24 @@ func resumenError(err error) string {
 	return "sin conexión"
 }
 
-var errArgosAnterior = errors.New(MotivoArgosAnterior080)
+var errArgosAnterior = errors.New("argos anterior a 0.8.0")
+
+// sumar32 suma sin desbordar int32 (los contadores de una etapa).
+func sumar32(a int32, b int) int32 {
+	if b <= 0 {
+		return a
+	}
+	if int64(a)+int64(b) > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return a + int32(b) // #nosec G115 -- acotado arriba
+}
 
 // recorrer lee el recurso desde e.Cursor y guarda cada página con su avance (e se actualiza).
 func (k *corrida) recorrer(ctx context.Context, e *argosbd.IntegracionArgosSincronizacionEtapa) error {
 	switch e.Recurso {
 	case RecursoEmpresas:
-		n := int32(len(k.conector.Empresas))
+		n := sumar32(0, len(k.conector.Empresas))
 		e.Procesados, e.Total = n, &n
 		return nil
 	case RecursoZonas:
@@ -844,7 +857,7 @@ func (k *corrida) bancario(ctx context.Context, e *argosbd.IntegracionArgosSincr
 	}); err != nil {
 		return err
 	}
-	total := int32(n)
+	total := sumar32(0, n)
 	e.Procesados, e.Omitidos, e.Total = total, 0, &total
 	return nil
 }

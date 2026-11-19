@@ -40,7 +40,6 @@ type sinc080 struct {
 	fallarServicios bool
 	bancos          []map[string]any
 	cabeceras       []string // X-Iris-Actor de las lecturas de cuentas y bancos
-	cuentas         []map[string]any
 }
 
 func (a *argosFalso) rutas080(mux *http.ServeMux) {

@@ -135,7 +135,9 @@ comunes de conectores); aquí queda lo propio de Argos.
   `argos.servicio_retirado` (gancho para la orden de retiro de I2; solo si Argos confirma el
   estado al releer `GET /servicios/:id`), `argos.servicio_eliminado` y `argos.router_eliminado`
   (contrato 0.3.1, confirmados con el 404), `argos.servicio_restaurado` y `argos.router_restaurado`;
-  `argos.comprobante_resuelto` y `usuario.argos_abierto` (contrato 0.7.0).
+  `argos.comprobante_resuelto` y `usuario.argos_abierto` (contrato 0.7.0);
+  `argos.sincronizacion_iniciada`, `argos.sincronizacion_terminada` y `argos.certificado_cambiado`
+  (contrato 0.8.0, abajo).
   Detalle en
   `.claude/integration/contratos/eventos.md`.
 - **Consume (webhooks de Argos, §2.3):** `cliente.actualizado`, `servicio.creado`,
@@ -147,7 +149,37 @@ comunes de conectores); aquí queda lo propio de Argos.
 ## Jobs (cmd/worker)
 
 `integracion.argos_procesar_entrante` (uno por entrante, hasta 12 intentos) e
-`integracion.argos_sincronizar_catalogos` (cada 6 h y al activar).
+`integracion.argos_sincronizar_catalogos` (cada 6 h y al activar),
+`integracion.argos_primera_sincronizacion` (al activar un conector que nunca se sincronizó o con
+«Sincronizar»; único por conector mientras no termina, 12 intentos) e
+`integracion.argos_informar_sincronizacion` (uno por cambio de etapa o de estado).
+
+## Primera sincronización y estado de la conexión (contrato 0.8.0 §1.5 y §2.5, B7)
+
+- **Cuándo:** al activar un conector que nunca tuvo una (`AlActivar`), siempre después de
+  `PUT /integraciones/iris/contrato` (el job lo llama primero: confirma el canje y relee el contrato).
+- **Qué lee y cómo** (`sincronizacion.go`): empresas (del canje), zonas, planes (solo se cuentan),
+  routers, cuentas bancarias, bancos, clientes y servicios, una petición a la vez, `limit=200` y como
+  máximo 5 por segundo (`RitmoSincronizacion`); 429 con `Retry-After` se espera. Progreso por
+  recurso en `integracion.argos_sincronizacion_etapas` (estado, procesados, omitidos, último cursor,
+  error de hasta 300 caracteres sin datos de clientes). Un corte deja la etapa en curso y River
+  reintenta desde el cursor; en el último intento queda `con_errores` y se reanuda a mano.
+- **Instantáneas:** clientes con `GuardarClienteLista` (una fila nueva nace sin empresas: nadie la ve
+  hasta que llegan sus servicios), servicios por la lista blanca de `AServicio`, sin revivir lápidas,
+  solo si su cliente está en la instantánea; las empresas del cliente se recalculan de sus servicios.
+- **Con Argos ≥ 0.8.0** (`contrato_remoto`): `excluir_retirados=true`, cuentas y bancos sin cabeceras
+  de Iris (`FijarCargasBancarias` deja enchufar la instantánea de B5; sin ella solo se cuentan) e
+  informe con `PUT /integraciones/iris/sincronizacion` (409 `sincronizacion_vieja` → `descartado`,
+  sin reintento; 5xx → reintento). Con uno anterior: listas completas, cuentas y bancos
+  `con_errores` «Argos anterior a 0.8.0» y sin informe.
+- **Acciones:** `GET /integraciones/argosisp/estado` (`integraciones.ver`, pantalla de estado) y
+  `POST /integraciones/conectores/{id}/sincronizar` (`integraciones.sincronizar`: reanuda la en
+  curso, reabre la `con_errores` con su mismo id o lanza otra).
+- **Certificado TLS de Argos:** `conector.ConCapturaTLS` anota el certificado hoja en
+  `InformarContrato` (al activar y cada 6 h); `integraciones.registrar_certificado` lo guarda en
+  `integracion.argos_certificados` y, si cambió sin reconectar, emite `argos.certificado_cambiado`
+  (campana `argos_certificado` a quien tiene `integraciones.conectar`). Nunca bloquea ni marca el
+  conector.
 
 ## Empresa del cliente
 
