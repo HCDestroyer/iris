@@ -165,8 +165,10 @@ func (m *Modulo) abrirFlujoSSE(ctx context.Context, desde string) (flujo, *suscr
 }
 
 // revalidar vuelve a leer la credencial del flujo y el alcance del usuario desde la base (sesión o
-// token vigente, usuario activo y en la empresa, permisos de hoy). false = cortar el flujo.
-func (m *Modulo) revalidar(ctx context.Context, bd nucleo.BD) (alcanceChat, bool) {
+// token vigente, usuario activo y en la empresa, permisos de hoy). false = cortar el flujo. donde
+// (revalidaPagina, revalidaLatido) solo lo ve el gancho de pruebas alRevalidarFlujo.
+func (m *Modulo) revalidar(ctx context.Context, bd nucleo.BD, donde string) (alcanceChat, bool) {
+	m.contarRevalidacion(contexto.ActorDe(ctx).ID, donde)
 	nctx, err := identidad.Revalidar(ctx, bd)
 	if err != nil {
 		return alcanceChat{}, false
@@ -213,8 +215,28 @@ func (m *Modulo) leerPaginaFlujo(ctx context.Context, bd nucleo.BD, q *mensajeri
 	if err != nil || (len(evs) == 0 && siguiente == desde) {
 		return evs, hayMas, siguiente, a, err == nil, err
 	}
-	ahora, vale = m.revalidar(ctx, bd)
+	ahora, vale = m.revalidar(ctx, bd, revalidaPagina)
 	return evs, hayMas, siguiente, ahora, vale, nil
+}
+
+// Dónde revalida un flujo SSE (solo para el gancho de pruebas alRevalidarFlujo).
+const (
+	revalidaPagina = "pagina" // después de leer una página que mueve el cursor
+	revalidaLatido = "latido"
+	revalidaToque  = "toque" // bandeja: antes de tocar los receptores si el latido se atrasó
+)
+
+func (m *Modulo) contarRevalidacion(usuario int64, donde string) {
+	if m.alRevalidarFlujo != nil {
+		m.alRevalidarFlujo(usuario, donde)
+	}
+}
+
+// cerrarPorRelecturas deja constancia (solo ids y motivo) de un flujo que se cierra porque el
+// alcance cambió en cada lectura (maxRelecturasFlujo); el cliente reconecta.
+func cerrarPorRelecturas(ctx context.Context, flujo string, usuario int64) {
+	slog.InfoContext(ctx, flujo+": flujo SSE cerrado por el tope de relecturas", "flujo", flujo,
+		"usuario_id", usuario, "motivo", "alcance_inestable", "relecturas", maxRelecturasFlujo)
 }
 
 // transmitir escribe el flujo SSE hasta que el cliente se va, ctx termina, pasa ChatDuracionMax o
@@ -255,12 +277,14 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo,
 	defer fin.Stop()
 	desde := f.desde
 	q := mensajeriabd.New(bd)
+	// Sin revalidar arriba: a es siempre el alcance de la última autorización (la de apertura en el
+	// primer ciclo; después, la revalidación posterior a la última lectura que movió el cursor o la
+	// del latido). Leer con un alcance viejo no entrega nada: toda entrega y todo avance del cursor
+	// pasan por la revalidación posterior a la lectura (leerPaginaFlujo), y una página que no mueve
+	// el cursor no entrega nada. Una credencial perdida sin eventos que muevan el cursor se corta en
+	// el siguiente latido.
+	a := f.alcance
 	for {
-		// Antes de leer: la sesión o el token siguen valiendo y el alcance es el de hoy.
-		a, ok := m.revalidar(ctx, bd)
-		if !ok {
-			return
-		}
 		// Todo lo pendiente desde el cursor, en páginas.
 		relecturas := 0
 		for {
@@ -268,9 +292,9 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo,
 				m.antesDeLeerFlujo(a.usuario)
 			}
 			plazo()
-			// La revalidación de arriba no basta: entre ella y la lectura (el semáforo, el pool) se
+			// a no basta: entre su autorización y la lectura (la espera, el semáforo, el pool) se
 			// pudo cerrar la sesión y enviar un mensaje. leerPaginaFlujo revalida otra vez, después de
-			// leer y antes de entregar.
+			// leer y antes de entregar o de avanzar el cursor.
 			evs, hayMas, siguiente, ahora, vale, err := m.leerPaginaFlujo(ctx, bd, q, a, desde)
 			if err != nil {
 				if ctx.Err() == nil {
@@ -285,6 +309,7 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo,
 				// El alcance cambió en medio: la página se descarta y se relee con el de ahora, sin
 				// mover el cursor (con uno más amplio no se salta lo que ahora le toca ver).
 				if relecturas++; relecturas > maxRelecturasFlujo {
+					cerrarPorRelecturas(ctx, "chat", a.usuario)
 					return
 				}
 				a = ahora
@@ -312,9 +337,12 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo,
 			return
 		case <-sub.c:
 		case <-latido.C:
-			if _, ok := m.revalidar(ctx, bd); !ok {
+			// La única revalidación del latido: su alcance es el de la lectura que sigue.
+			ahora, ok := m.revalidar(ctx, bd, revalidaLatido)
+			if !ok {
 				return
 			}
+			a = ahora
 			plazo()
 			_, _ = fmt.Fprintf(bw, ": latido\n\n")
 			if !enviar() {
