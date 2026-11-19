@@ -236,7 +236,7 @@ func guardarCuentas(ctx context.Context, t *auditoria.Tx, in lecturaCuentas) (Re
 			res.Desechadas++
 			continue
 		}
-		campos := []string{}
+		var campos []string
 		if nueva {
 			campos = []string{"banco_id", "numero", "alias", "titular", "tipo", "moneda", "activa"}
 		} else {
@@ -258,6 +258,9 @@ func guardarCuentas(ctx context.Context, t *auditoria.Tx, in lecturaCuentas) (Re
 			continue
 		}
 		res.Cambiadas++
+		if campos == nil {
+			campos = []string{}
+		}
 		empresa := *c.EmpresaID
 		if err := t.EmitirEnEmpresa(EventoCuentaBancariaCambiadaInterno, &empresa, map[string]any{"cuenta_bancaria_id": c.ID, "empresa_id": empresa,
 			"campos": campos, "activa": c.Activa, "creada": creada, "entrante_id": entrante}); err != nil {

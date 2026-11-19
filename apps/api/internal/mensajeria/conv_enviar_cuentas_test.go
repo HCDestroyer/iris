@@ -177,8 +177,8 @@ func TestAutonomoDaCuentas(t *testing.T) {
 			t.Fatal("a un número desconocido no se le dan las cuentas")
 		}
 	}
-	if !strings.Contains(strings.Join(x.ia.cuerposAutonomos(), "\n"), "su número no está registrado") {
-		t.Fatal("la herramienta le dice al modelo que no las dé")
+	if a := strings.Join(x.acciones(c2), ","); strings.Contains(a, "cuentas_para_boleta:ok") && strings.Contains(a, "responder:ok") {
+		t.Fatalf("a un número desconocido el asistente no le responde con las cuentas: %s", a)
 	}
 }
 
