@@ -85,7 +85,7 @@ function useTactil(): boolean {
  *
  * Compositor único (diseño del PM, nov. 2026: «teléfono primero»): pestañas Responder / Nota
  * interna y el tiempo que queda de la ventana de 24 h en una línea fina; el texto crece de 1 a 6
- * líneas con tope (24 % del alto en el teléfono, 30 % en escritorio) y después se desplaza por
+ * líneas con tope (18 % del alto en el teléfono, 30 % en escritorio) y después se desplaza por
  * dentro, para que el hilo siga a la vista con el teclado abierto. En el teléfono va en una fila
  * con «+» (despliega las herramientas) y «Enviar» redondo; en escritorio, la barra de íconos
  * (adjuntar, plantillas, respuestas rápidas, emoji) siempre visible y «Enviar» en teal. Las
@@ -482,7 +482,8 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                     ) : null}
                     {soloPlantilla ? null : <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alReenvio={alReenvio} alActualizar={alActualizar} />}
                     {cerrada ? null : <MenuRespuestas respuestas={deLaCola} alElegir={usarRespuesta} />}
-                    {cerrada ? null : accesorio}
+                    {/* «Sugerir» (asistente en modo botón): en el teléfono va en la fila, siempre a la vista. */}
+                    {cerrada || !accesorio ? null : <span className="hidden @min-[34rem]/conv:contents">{accesorio}</span>}
                 </>
             ) : (
                 <MenuMenciones candidatos={candidatos} elegidos={menciones} alCambiar={setMenciones} />
@@ -601,7 +602,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                                 rows={1}
                                 maxLength={4096}
                                 placeholder={modo === "nota" ? "Nota para el equipo; el cliente no la ve" : validos > 0 ? "Comentario (opcional)" : "Escribe un mensaje"}
-                                className="block max-h-[min(8.5rem,24dvh)] min-h-10 w-full min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-1.5 py-2 text-base leading-[1.4] [overflow-wrap:anywhere] shadow-none [field-sizing:content] focus:ring-0 focus-visible:ring-0 focus-visible:outline-none! @min-[34rem]/conv:max-h-[min(11rem,30dvh)] @min-[34rem]/conv:px-1.5 sm:text-sm"
+                                className="block max-h-[min(8.5rem,18dvh)] min-h-10 w-full min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-1.5 py-2 text-base leading-[1.4] [overflow-wrap:anywhere] shadow-none [field-sizing:content] focus:ring-0 focus-visible:ring-0 focus-visible:outline-none! @min-[34rem]/conv:max-h-[min(11rem,30dvh)] @min-[34rem]/conv:px-1.5 sm:text-sm"
                                 onKeyDown={alTeclear}
                                 onPaste={alPegar}
                                 aria-invalid={form.formState.errors.texto ? true : undefined}
@@ -611,6 +612,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                                     campo.current = el;
                                 }}
                             />
+                            {modo === "responder" && !cerrada && accesorio ? <span className="flex shrink-0 items-center self-center @min-[34rem]/conv:hidden">{accesorio}</span> : null}
                             <Boton
                                 variante="primario"
                                 tamano="icono"

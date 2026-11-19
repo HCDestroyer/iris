@@ -115,7 +115,7 @@ export function VistaPreviaArchivos({ etiqueta, archivos, alQuitar, alReintentar
                             <Boton
                                 variante="fantasma"
                                 tamano="icono-sm"
-                                className="absolute top-0.5 right-0.5 size-6 rounded-full bg-black/60 text-white [--button-fg:#fff] [--button-bg-hover:rgb(0_0_0/0.75)] [&_svg]:size-3.5"
+                                className="absolute top-0.5 right-0.5 size-6! rounded-full bg-black/60 text-white [--button-fg:#fff] [--button-bg-hover:rgb(0_0_0/0.75)] [&_svg]:size-3.5"
                                 aria-label={`Quitar ${a.nombre}`}
                                 title="Quitar"
                                 disabled={ocupado}

@@ -2,7 +2,7 @@
 
 import { Modal } from "@heroui/react";
 import { ChevronLeft, ChevronRight, Download, X } from "lucide-react";
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { cn } from "../utilidades";
 import { Boton } from "./boton";
 
@@ -73,6 +73,21 @@ export function VisorFotos({ fotos, indice, alCambiar }: PropsVisorFotos) {
         const siguiente = i + d;
         if (siguiente >= 0 && siguiente < fotos.length) alCambiar(siguiente);
     };
+    const irRef = useRef(ir);
+    useEffect(() => {
+        irRef.current = ir;
+    });
+
+    // ← y → pasan de foto, esté donde esté el foco dentro del visor.
+    useEffect(() => {
+        if (!abierto) return undefined;
+        const alTeclear = (e: globalThis.KeyboardEvent) => {
+            if (e.key === "ArrowRight") irRef.current(1);
+            else if (e.key === "ArrowLeft") irRef.current(-1);
+        };
+        window.addEventListener("keydown", alTeclear);
+        return () => window.removeEventListener("keydown", alTeclear);
+    }, [abierto]);
 
     return (
         <Modal.Backdrop isOpen={abierto} onOpenChange={(v) => (v ? undefined : alCambiar(null))} isDismissable={false} variant="opaque" className="bg-black/90 data-exiting:animate-none">
@@ -82,14 +97,7 @@ export function VisorFotos({ fotos, indice, alCambiar }: PropsVisorFotos) {
                     data-slot="visor-fotos"
                     className="flex h-dvh max-h-none w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-transparent! p-0 text-white shadow-none!"
                 >
-                    {/* ← y → pasan de foto desde cualquier control del visor. */}
-                    <div
-                        className="flex size-full min-h-0 flex-col"
-                        onKeyDown={(e: KeyboardEvent) => {
-                            if (e.key === "ArrowRight") ir(1);
-                            else if (e.key === "ArrowLeft") ir(-1);
-                        }}
-                    >
+                    <div className="flex size-full min-h-0 flex-col">
                         {foto ? <Contenido key={foto.id} foto={foto} i={i} total={fotos.length} ir={ir} cerrar={() => alCambiar(null)} fotos={fotos} elegir={alCambiar} /> : null}
                     </div>
                 </Modal.Dialog>
@@ -120,7 +128,7 @@ function Contenido({ foto, i, total, ir, cerrar, fotos, elegir }: { foto: FotoEn
                     <X />
                 </Boton>
                 <span className="grid min-w-0 flex-1">
-                    <Modal.Heading className="truncate text-sm font-semibold">{foto.titulo}</Modal.Heading>
+                    <h2 className="truncate text-sm font-semibold">{foto.titulo}</h2>
                     <span className="truncate text-xs text-white/75" data-slot="visor-posicion">
                         {foto.detalle} · {i + 1} de {total}
                     </span>

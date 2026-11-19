@@ -191,7 +191,7 @@ export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, 
                 aria-activedescendant={abierta ? idOpcion(idLista, activa) : undefined}
                 // Crece de 1 a ~6 líneas (tope por alto de pantalla) y luego se desplaza por dentro; el foco
                 // se marca en la caja entera, no en el texto.
-                className="max-h-[min(8.5rem,24dvh)] min-h-10 resize-none border-0 bg-transparent px-1.5 py-2 leading-[1.4] [overflow-wrap:anywhere] shadow-none [field-sizing:content] focus-visible:ring-0 focus-visible:outline-none! sm:max-h-[min(11rem,30dvh)]"
+                className="max-h-[min(8.5rem,18dvh)] min-h-10 resize-none border-0 bg-transparent px-1.5 py-2 leading-[1.4] [overflow-wrap:anywhere] shadow-none [field-sizing:content] focus-visible:ring-0 focus-visible:outline-none! sm:max-h-[min(11rem,30dvh)]"
                 onChange={(e) => {
                     setTexto(e.target.value);
                     leerConsulta(e.target.value, e.target.selectionStart);
