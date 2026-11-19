@@ -78,6 +78,11 @@ func (s *S3) urlDe(clave string) (string, error) {
 const sha256Vacio = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 func (s *S3) pedir(ctx context.Context, metodo, clave string, cuerpo io.Reader, tamano int64, mime, sha256Hex string) (*http.Response, error) {
+	return s.pedirCon(ctx, metodo, clave, cuerpo, tamano, mime, sha256Hex, nil)
+}
+
+// pedirCon es pedir con cabeceras extra (p. ej. `Range`), puestas antes de firmar.
+func (s *S3) pedirCon(ctx context.Context, metodo, clave string, cuerpo io.Reader, tamano int64, mime, sha256Hex string, extra map[string]string) (*http.Response, error) {
 	u, err := s.urlDe(clave)
 	if err != nil {
 		return nil, err
@@ -89,6 +94,9 @@ func (s *S3) pedir(ctx context.Context, metodo, clave string, cuerpo io.Reader, 
 	if cuerpo != nil {
 		req.ContentLength = tamano
 		req.Header.Set("Content-Type", mime)
+	}
+	for k, v := range extra {
+		req.Header.Set(k, v)
 	}
 	if sha256Hex == "" {
 		sha256Hex = sha256Vacio
@@ -126,6 +134,34 @@ func (s *S3) Abrir(ctx context.Context, clave string) (io.ReadCloser, error) {
 		return nil, errorS3("GET", resp)
 	}
 	return resp.Body, nil
+}
+
+// AbrirInicio implementa AbridorInicio: GET con `Range: bytes=0-(n-1)` (206 o, si el servidor
+// ignora el rango, 200 recortado a n bytes).
+func (s *S3) AbrirInicio(ctx context.Context, clave string, n int64) (io.ReadCloser, error) {
+	if n <= 0 {
+		return io.NopCloser(strings.NewReader("")), nil
+	}
+	resp, err := s.pedirCon(ctx, http.MethodGet, clave, nil, 0, "", "", map[string]string{"Range": fmt.Sprintf("bytes=0-%d", n-1)})
+	if err != nil {
+		return nil, fmt.Errorf("adjuntos: S3 GET (rango): %w", err)
+	}
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		cerrar(resp)
+		return nil, ErrNoExiste
+	case resp.StatusCode == http.StatusRequestedRangeNotSatisfiable:
+		// Objeto vacío: no hay cabecera que leer.
+		cerrar(resp)
+		return io.NopCloser(strings.NewReader("")), nil
+	case resp.StatusCode/100 != 2:
+		defer cerrar(resp)
+		return nil, errorS3("GET", resp)
+	}
+	return struct {
+		io.Reader
+		io.Closer
+	}{io.LimitReader(resp.Body, n), resp.Body}, nil
 }
 
 // Borrar implementa Almacen.

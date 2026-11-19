@@ -158,6 +158,12 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
   Los medios se descargan de Meta en `mensajeria.descargar_medio` y quedan en el módulo de adjuntos
   (entidad `conversacion`, `adjuntos.GuardarCompleto`). «Respondió al aviso …» si el cliente contesta
   un aviso de ese número.
+- **Medidas de la imagen** (`conv_medidas.go`): al guardar el medio de WhatsApp y al enviar un
+  adjunto desde el panel se lee solo la cabecera (≤ 256 KiB, `image.DecodeConfig` de la biblioteca
+  estándar: JPEG, PNG y GIF; WebP queda sin medidas) y se guardan `adjunto_ancho` / `adjunto_alto`
+  en el mensaje, con la orientación EXIF aplicada (5–8 intercambia ancho y alto). Salen en
+  `adjunto.ancho` / `adjunto.alto` (null sin medidas): el panel reserva la proporción antes de
+  cargar la foto (4:3 si no hay). Leer la cabecera nunca bloquea el envío.
 - **Salientes:** `POST /conversaciones/{id}/mensajes` (idempotente por id del cliente) deja el mensaje
   `en_cola`; `mensajeria.enviar_mensaje` lo manda (texto, medio subido a `/media`, o plantilla).
   Ventana de 24 h, plantillas aprobadas en el número y permiso de contacto (§8 del contrato). Los
