@@ -157,8 +157,12 @@ test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", as
 test("sin servicios.ver_red no se busca por IP: lo dice y no pregunta al servidor", async ({ page, context, baseURL }) => {
     const api = await simularApi(page, { empresas: EMPRESAS });
     await conSesion(context, baseURL ?? "", DESPACHO.correo);
-    await page.goto("/tickets/nuevo");
+    // Despacho crea órdenes y no tiene servicios.ver_red.
+    await page.goto("/ordenes/nueva");
+    const empresas = page.getByRole("list", { name: "Empresas" });
     const buscar = page.getByRole("combobox", { name: "Cliente en Argos" });
+    await expect(buscar.or(empresas)).toBeVisible();
+    if (await empresas.isVisible()) await empresas.getByRole("button", { name: "Cable Norte" }).click();
     await buscarSugerencias(buscar, "10.20.31.9");
     await expect(page.getByTestId("sin-permiso-ip")).toHaveText("Tu rol no busca por IP.");
     expect(api.peticiones.some((p) => p.ruta.startsWith("/api/v1/clientes"))).toBe(false);
