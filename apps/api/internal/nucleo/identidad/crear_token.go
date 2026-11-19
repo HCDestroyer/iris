@@ -80,6 +80,34 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			if err := puedeEmitir(ctx, q, actor, u, limite); err != nil {
 				return TokenCreado{}, err
 			}
+			expira := in.ExpiraEn
+			var via *string
+			if conector, err := esDeConector(ctx, q, u.ID); err != nil {
+				return TokenCreado{}, err
+			} else if conector && !esTokenDeCanje(ctx) && actor.Tipo == contexto.ActorSistema {
+				// `iris integracion crear` (acceso al servidor): marcado `cli`, sin vencimiento forzado
+				// (como mucho 365 días si se pide), y se revoca al confirmarse un canje nuevo del sistema.
+				if expira != nil && expira.After(time.Now().Add(VigenciaMaximaCLI)) {
+					return TokenCreado{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "expiraEn",
+						Message: "El token de un conector creado por consola vence como mucho en 365 días", Rule: "maximo"})
+				}
+				r := ViaCLI
+				via = &r
+				t.Anotar(map[string]any{"via": ViaCLI})
+			} else if conector && !esTokenDeCanje(ctx) && (!actor.EsUsuario() || actor.ID != u.ID) {
+				// Vía de recuperación del conector (contrato con Argos 0.8.0 §1.5, S5): queda marcada, vence
+				// (30 días por defecto, 90 como máximo) y se revoca al confirmarse un canje nuevo.
+				if expira == nil {
+					v := time.Now().Add(VigenciaRecuperacion)
+					expira = &v
+				} else if expira.After(time.Now().Add(VigenciaMaximaRecuperacion)) {
+					return TokenCreado{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "expiraEn",
+						Message: "El token de recuperación de un conector vence como mucho en 90 días", Rule: "maximo"})
+				}
+				r := ViaRecuperacion
+				via = &r
+				t.Anotar(map[string]any{"via": ViaRecuperacion})
+			}
 
 			valor, err := NuevoTokenAPI()
 			if err != nil {
@@ -91,7 +119,7 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			}
 			fila, err := q.CrearToken(ctx, identidadbd.CrearTokenParams{
 				UsuarioID: dueno, Nombre: nombre, Prefijo: prefijoVisible(valor), Hash: Hash256(valor),
-				Permisos: limite, ExpiraEn: in.ExpiraEn, CreadoPor: creadoPor,
+				Permisos: limite, ExpiraEn: expira, CreadoPor: creadoPor, Via: via,
 			})
 			if err != nil {
 				return TokenCreado{}, err
@@ -143,6 +171,41 @@ func puedeEmitir(ctx context.Context, q *identidadbd.Queries, actor contexto.Act
 		if dueno.Tipo != "integracion" {
 			return nucleo.ReglaNegocio("token_para_persona", "Solo se crean tokens para otro usuario si es de tipo integración; cada persona crea los suyos")
 		}
+		// Contrato con Argos 0.8.0 §1.5 (S5) y §10.1 punto 1: el token de un usuario de integración
+		// creado a mano (para pegarlo en Argos u Horus) es la vía de RECUPERACIÓN del conector: solo un
+		// administrador (integraciones.conectar sin límite de alcance), auditada y marcada así. Lo normal
+		// es la conexión de un paso, donde el token nunca se muestra.
+		conector, err := esDeConector(ctx, q, dueno.ID)
+		if err != nil {
+			return err
+		}
+		if conector && (!quien.TieneGlobal(string(nucleo.PermIntegracionesConectar)) || !quien.TieneGlobal(string(nucleo.PermEmpresasTodas))) {
+			return nucleo.Prohibido("El token de un usuario de integración es la vía de recuperación del conector: solo lo crea un administrador (integraciones.conectar y empresas.todas, sin límite de alcance)")
+		}
 		return exigirSuperior(ctx, q, quien, dueno.ID, "crear tokens de este usuario")
 	}
 }
+
+// esDeConector: el usuario de integración es el de un conector (rol integracion_argos o
+// integracion_horus). Sus tokens a mano son la vía de recuperación (contrato con Argos 0.8.0 §1.5).
+func esDeConector(ctx context.Context, q *identidadbd.Queries, usuarioID int64) (bool, error) {
+	roles, err := q.RolesDeUsuarios(ctx, []int64{usuarioID})
+	if err != nil {
+		return false, err
+	}
+	for _, r := range roles {
+		if r.Codigo == "integracion_argos" || r.Codigo == "integracion_horus" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Vía de recuperación del conector (contrato con Argos 0.8.0 §1.5, S5).
+const (
+	ViaRecuperacion            = "recuperacion"
+	VigenciaRecuperacion       = 30 * 24 * time.Hour
+	VigenciaMaximaRecuperacion = 90 * 24 * time.Hour
+	ViaCLI                     = "cli"
+	VigenciaMaximaCLI          = 365 * 24 * time.Hour
+)

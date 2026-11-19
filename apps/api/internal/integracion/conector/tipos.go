@@ -43,6 +43,8 @@ type Conector struct {
 	Version             int32      `json:"version"`
 	CreadoEn            time.Time  `json:"creadoEn"`
 	ActualizadoEn       time.Time  `json:"actualizadoEn"`
+	Eliminable          bool       `json:"eliminable" doc:"Solo en la lista: apagado y sin un activo que lo reemplace con la reconexión sin confirmar (POST …/eliminar respondería 200)"`
+	EliminadoEn         *time.Time `json:"eliminadoEn,omitempty" required:"false" doc:"Cuándo se eliminó (borrado lógico); solo en la respuesta de eliminar: la lista nunca trae eliminados"`
 }
 
 // AConector arma el tipo de la API desde la fila.
@@ -56,7 +58,7 @@ func (n *Nucleo) AConector(f conectorbd.IntegracionConectore) Conector {
 		RemotoID: f.RemotoID, Empresas: empresas, AlcanceGlobal: f.AlcanceGlobal, WebhookURL: n.URLWebhook(f.Sistema, f.ID), ActivadoEn: f.ActivadoEn,
 		UltimoWebhookEn: f.UltimoWebhookEn, Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt,
 		VersionRemota: f.VersionRemota, ContratoRemoto: f.ContratoRemoto, ContratoInformado: f.ContratoInformado,
-		VersionConsultadaEn: f.VersionConsultadaEn, VersionEstado: f.VersionEstado, VersionDetalle: f.VersionDetalle, Capacidades: n.capacidadesDe(f),
+		VersionConsultadaEn: f.VersionConsultadaEn, VersionEstado: f.VersionEstado, VersionDetalle: f.VersionDetalle, Capacidades: n.capacidadesDe(f), EliminadoEn: f.EliminadoEn,
 	}
 }
 

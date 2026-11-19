@@ -315,6 +315,10 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	cli := k.m.clienteDe(c)
 	base := cli.Base()
 	versionAntes := c.VersionRemota
+	// 0.8.0 §1.5: el certificado TLS de la API de Argos se registra (y se avisa si cambió); nunca
+	// corta la llamada.
+	ctx, visto := conector.ConCapturaTLS(ctx)
+	defer k.m.registrarCertificadoVisto(context.WithoutCancel(ctx), conectorID, visto)
 	in := entradaGuardarContrato{ConectorID: conectorID}
 	var puesto EstadoIris
 	// receptor_argos (0.6.2): true si el conector tiene guardado el receptor de Argos (url y secreto

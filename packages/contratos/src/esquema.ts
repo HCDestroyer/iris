@@ -1320,6 +1320,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/argosisp/estado": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado de la conexión con Argos (pantalla de estado)
+         * @description Permiso: `integraciones.ver`. Contrato 0.8.0 §2.5 (d): el conector (activo o el más reciente) y quién lo activó, el contrato de cada lado con las funciones que quedan apagadas por la versión de Argos, la primera sincronización por recurso, las instantáneas (cuántos y el último `sincronizadoEn`), lo que falló (webhooks con error, rechazados y pendientes hacia Argos), las empresas del alcance y el certificado TLS de la API de Argos (solo informa: si cambió, `cambiado` y `anterior`). Nunca tokens ni secretos. Solo lee la base de Iris: no llama a Argos.
+         */
+        get: operations["estadoConexionArgos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/sso/tickets": {
         parameters: {
             query?: never;
@@ -1400,6 +1420,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/conectores/eliminables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Contar los conectores apagados que se pueden eliminar
+         * @description Permiso: `integraciones.eliminar`. Lo que eliminaría `POST …/conectores/eliminar-apagados` (para la confirmación), sin depender de la paginación de la lista.
+         */
+        get: operations["contarConectoresEliminables"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/conectores/eliminar-apagados": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Eliminar todos los conectores apagados
+         * @description Permiso: `integraciones.eliminar`. Los que tienen `eliminable: true` en la lista. Cada uno se audita por separado y emite `conector.eliminado` (motivo `lote`). Sin ninguno, responde `eliminados: 0`.
+         */
+        post: operations["eliminarConectoresApagados"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/conectores/{id}/activar": {
         parameters: {
             query?: never;
@@ -1440,6 +1500,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/conectores/{id}/eliminar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Eliminar un conector apagado
+         * @description Permiso: `integraciones.eliminar`. Borrado lógico de un conector que ya no sirve: deja de salir en la lista, sus credenciales cifradas (token y secretos de webhooks) se borran y sus webhooks se rechazan; los avisos recibidos, las acciones pendientes y la auditoría lo siguen referenciando. El iris_pat_ que Iris le entregó se revoca si aún valía (`token.revocado`) y se elimina (`token.eliminado`, motivo `conector`). Uno activo responde 409 `conector_activo` (desactívalo primero); uno que el activo reemplazó con la reconexión de Argos sin confirmar, 409 `conector_en_uso`. Eliminarlo otra vez responde 200, sin evento. Emite `conector.eliminado` (motivo `manual`).
+         */
+        post: operations["eliminarConector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/conectores/{id}/revisar-version": {
         parameters: {
             query?: never;
@@ -1454,6 +1534,26 @@ export interface paths {
          * @description Permiso: `integraciones.revisar_version`. Encola enseguida el job que informa el contrato (`PUT /integraciones/iris/contrato`) y lee la versión (`GET /integraciones/iris/estado`); responde **202** con el conector como está ahora. El resultado llega en `versionEstado`, `versionDetalle` y `versionConsultadaEn` (el panel vuelve a leer el conector). Acepta `Idempotency-Key`. 422 `conector_apagado` si no está activo y `sistema_sin_version` si no es de ArgosISP; 404 si no existe.
          */
         post: operations["revisarVersionConector"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/conectores/{id}/sincronizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reanudar o volver a lanzar la primera sincronización con Argos
+         * @description Permiso: `integraciones.sincronizar`. Contrato 0.8.0 §2.5. Con una en curso, la reanuda desde el último cursor; con una `con_errores`, la reabre (mismo id); si ya terminó completa (o Argos cambió de contrato), lanza otra (409 `sincronizacion_reciente` si la última terminó completa hace menos de 10 minutos). Solo lee de Argos. Responde **202** con la sincronización; el avance llega en `GET /integraciones/argosisp/estado`. Acepta `Idempotency-Key`. 422 `conector_apagado` si no está activo y `sistema_sin_sincronizacion` si no es de ArgosISP; 404 si no existe.
+         */
+        post: operations["sincronizarConectorArgos"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7566,9 +7666,69 @@ export interface paths {
         put?: never;
         /**
          * Crear un token de API
-         * @description Permiso: `tokens.crear`. Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo. Desde un token, el nuevo no puede tener más permisos que el que lo crea. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         * @description Permiso: `tokens.crear`. Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo, `integraciones.conectar` y `empresas.todas` (403): el token de la integración de un conector (roles `integracion_argos` o `integracion_horus`) creado a mano es la **vía de recuperación** del conector (contrato con Argos 0.8.0 §1.5, S5), solo de un administrador y auditada con `via: recuperacion`, con `expiraEn` de 30 días por defecto y 90 como máximo (422 `validacion`), y se revoca al confirmarse un canje nuevo; lo normal es conectar con un paso, donde el token nunca se muestra. Desde un token, el nuevo no puede tener más permisos que el que lo crea. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
          */
         post: operations["crearToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/eliminables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Contar los tokens revocados o vencidos que se pueden eliminar
+         * @description Permiso: `tokens.eliminar`. Lo que eliminaría `POST /api/v1/tokens/eliminar-inactivos` con el mismo filtro (para la confirmación).
+         */
+        get: operations["contarTokensEliminables"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/eliminar-inactivos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Eliminar todos los tokens revocados y vencidos
+         * @description Permiso: `tokens.eliminar`. Todos los revocados o vencidos que ves y administras (opcional: de un usuario), salvo los que usa un conector activo (`omitidos`). Cada uno se audita por separado y emite `token.eliminado` (motivo `lote`). Sin ninguno, responde `eliminados: 0`.
+         */
+        post: operations["eliminarTokensInactivos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/{id}/eliminar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Eliminar un token de API revocado o vencido
+         * @description Permiso: `tokens.eliminar`. Borrado lógico: el token deja de salir en `GET /api/v1/tokens` y su hash se borra; la auditoría y el historial siguen apuntando a él. Solo uno revocado o vencido: uno que aún vale responde 409 `token_vigente` (revócalo primero). Si un conector activo lo usa (el iris_pat_ entregado a Argos u Horus), 409 `token_en_uso_por_conector`. Fuera de tu alcance de empresas, 404. Eliminarlo otra vez responde 200 con el mismo token, sin evento. Emite `token.eliminado` (motivo `manual`).
+         */
+        post: operations["eliminarToken"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7586,9 +7746,29 @@ export interface paths {
         put?: never;
         /**
          * Revocar un token de API
-         * @description Permiso: `tokens.revocar`.
+         * @description Permiso: `tokens.revocar`. El iris_pat_ de un conector activo (`enUsoPorConector`) no se revoca aquí: 409 `token_en_uso_por_conector` (cortaría la integración; se cambia desde Integraciones).
          */
         post: operations["revocarToken"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/{id}/revocar-y-eliminar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revocar y eliminar un token de API
+         * @description Permiso: `tokens.eliminar`. Una sola acción y una sola transacción: si el token aún vale lo revoca (exige además `tokens.revocar`; emite `token.revocado` con el motivo) y lo elimina (`token.eliminado`, motivo `manual`). Si un conector activo lo usa, 409 `token_en_uso_por_conector` sin tocar nada (revocarlo cortaría la integración: se cambia desde Integraciones). Fuera de tu alcance de empresas, 404. Ya eliminado: 200 sin evento.
+         */
+        post: operations["revocarYEliminarToken"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7710,7 +7890,7 @@ export interface paths {
         put?: never;
         /**
          * Cerrar todas las sesiones de un usuario
-         * @description Permiso: `usuarios.cerrar_sesiones`. Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`. **Los tokens `iris_pat_` del usuario no son sesiones y siguen valiendo**, salvo con `revocarTokens: true` (exige además `tokens.revocar`; emite `token.revocado` por cada uno).
+         * @description Permiso: `usuarios.cerrar_sesiones`. Las propias: todas menos la que hace la petición. Exige tener sin límite de alcance los permisos del usuario (salvo el propio). Sin sesiones abiertas responde `cerradas: 0` sin evento. Emite `usuario.sesiones_cerradas`. **Los tokens `iris_pat_` del usuario no son sesiones y siguen valiendo**, salvo con `revocarTokens: true` (exige además `tokens.revocar`; emite `token.revocado` por cada uno), menos los que usa un conector activo de Argos u Horus (`tokensConservados`).
          */
         post: operations["cerrarSesionesUsuario"];
         delete?: never;
@@ -7810,7 +7990,7 @@ export interface paths {
         put?: never;
         /**
          * Reiniciar el MFA de otro usuario
-         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
+         * @description Permiso: `usuarios.reiniciar_mfa`. Borra su secreto TOTP (activo o a medio configurar), reemplaza su contraseña por `contrasenaTemporal` (que el admin le entrega fuera de banda), cierra sus sesiones y, salvo `revocarTokens: false`, revoca sus tokens (`token.revocado` por cada uno) menos los que usa un conector activo (`tokensConservados`: revocarlos cortaría la integración; se cambian desde Integraciones). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa, y luego configura el MFA. Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para el propio usuario (422 `reinicio_mfa_propio`); sin MFA, 422 `mfa_no_configurado`. Responde el `Usuario` actualizado con `sesionesCerradas` y `tokensRevocados` (los mismos números del evento). Emite `usuario.mfa_reiniciado`. Sin `empresas.todas` global, solo usuarios cuyas empresas son todas tuyas; uno sin empresas, o con `empresas.todas`, solo lo administra un admin global (403).
          */
         post: operations["reiniciarMFAUsuario"];
         delete?: never;
@@ -8258,6 +8438,14 @@ export interface components {
             ganar: boolean;
             perder: boolean;
             reabrir: boolean;
+        };
+        ActivacionConector: {
+            /** @description Nombre de quien lo activó tal como quedó en la auditoría */
+            actorNombre: string;
+            /** Format: date-time */
+            en: string;
+            /** Format: int64 */
+            usuarioId: number | null;
         };
         Actividad: {
             /** Format: int64 */
@@ -8832,10 +9020,10 @@ export interface components {
              */
             nivel: "info" | "alerta" | "peligro";
             /**
-             * @description asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
+             * @description argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
              * @enum {string}
              */
-            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral";
+            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado";
             /** @description Texto en español, listo para mostrar */
             titulo: string;
         };
@@ -9356,6 +9544,31 @@ export interface components {
             /** @enum {string} */
             tono?: "info" | "error" | "ok" | "aviso" | "neutro";
         };
+        CertificadoAnterior: {
+            emisor: string;
+            huellaSha256: string;
+            sujeto: string;
+            /** Format: date-time */
+            ultimoVistoEn: string;
+        };
+        CertificadoArgos: {
+            anterior?: components["schemas"]["CertificadoAnterior"];
+            /** @description true: reemplazó a otro en este conector sin reconectar (Iris avisó al admin y no detuvo nada) */
+            cambiado: boolean;
+            emisor: string;
+            host: string;
+            huellaSha256: string;
+            sujeto: string;
+            /** Format: date-time */
+            ultimoVistoEn: string;
+            /** Format: date-time */
+            venceEn: string | null;
+            /**
+             * Format: date-time
+             * @description La primera vez que Iris lo vio
+             */
+            vistoEn: string;
+        };
         CitaAgenda: {
             /** Format: int64 */
             clienteId: number | null;
@@ -9658,6 +9871,13 @@ export interface components {
             contratoRemoto?: string | null;
             /** Format: date-time */
             creadoEn: string;
+            /** @description Solo en la lista: apagado y sin un activo que lo reemplace con la reconexión sin confirmar (POST …/eliminar respondería 200) */
+            eliminable: boolean;
+            /**
+             * Format: date-time
+             * @description Cuándo se eliminó (borrado lógico); solo en la respuesta de eliminar: la lista nunca trae eliminados
+             */
+            eliminadoEn?: string;
             /** @description Empresas de Argos que cubre el token (vacío si el otro sistema no lo informó) */
             empresas: number[] | null;
             /** @enum {string} */
@@ -9697,6 +9917,19 @@ export interface components {
             versionRemota?: string | null;
             /** @description URL a la que el otro sistema envía los webhooks */
             webhookUrl: string;
+        };
+        ConectoresEliminables: {
+            /**
+             * Format: int64
+             * @description Conectores apagados que se pueden eliminar
+             */
+            cantidad: number;
+        };
+        ConectoresEliminados: {
+            /** Format: int64 */
+            eliminados: number;
+            /** @description Ids de los conectores eliminados */
+            ids: number[] | null;
         };
         ConexionCanjeada: {
             /** Format: int64 */
@@ -10765,6 +10998,12 @@ export interface components {
             sincronizadoEn: string | null;
             /** Format: int32 */
             version: number;
+        };
+        EmpresaAlcance: {
+            /** Format: int64 */
+            id: number;
+            nit: string;
+            nombre: string;
         };
         EmpresaAutorizada: {
             /** Format: int64 */
@@ -12184,6 +12423,10 @@ export interface components {
              */
             version: number;
         };
+        EntradaEliminarConector: {
+            /** @description Nota libre (opcional); va en la auditoría */
+            motivo?: string;
+        };
         EntradaEliminarNota: {
             /**
              * Format: int32
@@ -12199,6 +12442,10 @@ export interface components {
              * @description Versión de la nota que vio el teléfono; si cambió, rechazada con conflicto_version
              */
             versionNota: number;
+        };
+        EntradaEliminarToken: {
+            /** @description Nota libre (opcional); va en la auditoría */
+            motivo?: string;
         };
         EntradaEmitirAccesoPortal: {
             /**
@@ -13190,6 +13437,13 @@ export interface components {
             /** Format: int64 */
             zonaId?: number;
         };
+        EntradaTokensInactivos: {
+            /**
+             * Format: int64
+             * @description Solo los tokens de este usuario
+             */
+            usuarioId?: number;
+        };
         EntradaTransferirConv: {
             /** Format: int64 */
             colaId: number;
@@ -13395,6 +13649,27 @@ export interface components {
             /** @description Se llegó al tope de tokens del mes */
             pausado: boolean;
         };
+        EstadoConexionArgos: {
+            /** @description Última activación (de la auditoría); ausente si nunca se activó */
+            activacion?: components["schemas"]["ActivacionConector"];
+            /** @description true: también las empresas que se creen después en Argos; null = Argos no lo informó */
+            alcanceGlobal: boolean | null;
+            /** @description Certificado TLS de la API de Argos; ausente = no se ha visto (sin llamadas por HTTPS todavía) */
+            certificado?: components["schemas"]["CertificadoArgos"];
+            /** @description El conector de Argos activo o, si no hay, el más reciente. ausente = Iris nunca se conectó */
+            conector?: components["schemas"]["Conector"];
+            contratoArgos: string | null;
+            contratoIris: string;
+            /** @description Empresas del alcance del token (lo que informó el canje) */
+            empresas: components["schemas"]["EmpresaAlcance"][] | null;
+            fallos: components["schemas"]["FallosArgos"];
+            /** @description Lo que Iris no hace por la versión de Argos (§4.1); vacío si Argos tiene todo */
+            funcionesApagadas: components["schemas"]["FuncionApagada"][] | null;
+            instantaneas: components["schemas"]["InstantaneaArgos"][] | null;
+            /** @description La última primera sincronización del conector; ausente = no ha empezado */
+            sincronizacion?: components["schemas"]["Sincronizacion"];
+            versionArgos: string | null;
+        };
         EstadoCuenta: {
             /** Format: int64 */
             facturasVencidas: number | null;
@@ -13504,6 +13779,33 @@ export interface components {
              */
             tomadoEn: string | null;
             version: string | null;
+        };
+        EtapaSincronizacion: {
+            /** @description Último error, en español y sin datos de clientes (hasta 300 caracteres) */
+            error: string | null;
+            /** @enum {string} */
+            estado: "pendiente" | "en_curso" | "completa" | "con_errores";
+            /** Format: date-time */
+            iniciadaEn: string | null;
+            /**
+             * Format: int32
+             * @description Filas que no se guardaron: un servicio que Argos eliminó (lápida) o cuyo cliente no está en Iris
+             */
+            omitidos: number;
+            /**
+             * Format: int32
+             * @description Filas que se leyeron y guardaron
+             */
+            procesados: number;
+            /** @enum {string} */
+            recurso: "empresas" | "zonas" | "planes" | "routers" | "cuentas_bancarias" | "bancos" | "clientes" | "servicios";
+            /** Format: date-time */
+            terminadaEn: string | null;
+            /**
+             * Format: int32
+             * @description null si no se sabe (las listas por cursor no lo dicen)
+             */
+            total: number | null;
         };
         EtiquetaConversacion: {
             activa: boolean;
@@ -13767,6 +14069,22 @@ export interface components {
              * @description Umbral aplicado: viable hasta estos metros
              */
             viableM: number | null;
+        };
+        FallosArgos: {
+            /** @description Acciones hacia Argos que no están hechas, por estado */
+            pendientes: components["schemas"]["PendientesPorEstado"][] | null;
+            /** Format: date-time */
+            ultimoWebhookErrorEn: string | null;
+            /**
+             * Format: int64
+             * @description Webhooks de Argos guardados que no se pudieron aplicar (se reintentan)
+             */
+            webhooksConError: number;
+            /**
+             * Format: int64
+             * @description Webhooks con firma inválida rechazados desde que arrancó el servidor (de cualquier conector)
+             */
+            webhooksRechazados: number;
         };
         FeriadoHorario: {
             /**
@@ -14106,6 +14424,14 @@ export interface components {
             /** @description Contestar el mensaje una vez por ventana cerrada */
             responder: boolean;
         };
+        FuncionApagada: {
+            /** @enum {string} */
+            codigo: "primera_sincronizacion_completa" | "informe_sincronizacion" | "reconexion_sin_personal" | "precio_servicio" | "cuentas_bancarias_webhook" | "aprobar_comprobantes" | "inventario_por_tecnico" | "buscar_sin_red";
+            /** @description Contrato o versión de Argos que la trae ("contrato 0.8.0", "Argos 1.21.0") */
+            desde: string;
+            /** @description Qué no hace Iris con este Argos, en español llano */
+            texto: string;
+        };
         GPUMotor: {
             modelo: string;
             /** Format: int64 */
@@ -14202,6 +14528,14 @@ export interface components {
             tipo: "router" | "infra" | "hallazgo";
             /** @description «Ver en Horus» (mismo origen que el conector) */
             urlHorus: string | null;
+        };
+        InstantaneaArgos: {
+            /** Format: int64 */
+            cuantos: number;
+            /** @enum {string} */
+            recurso: "clientes" | "servicios" | "zonas" | "routers";
+            /** Format: date-time */
+            ultimoSincronizadoEn: string | null;
         };
         ItemChecklist: {
             codigo: string;
@@ -14563,6 +14897,11 @@ export interface components {
             sesionesCerradas: number;
             /** @enum {string} */
             tipo: "persona" | "integracion";
+            /**
+             * Format: int64
+             * @description Tokens que no se revocaron porque los usa un conector activo de Argos u Horus (revocarlos cortaría la integración; se cambian desde Integraciones)
+             */
+            tokensConservados: number;
             /**
              * Format: int64
              * @description Tokens iris_pat_ revocados (0 con revocarTokens: false)
@@ -16173,6 +16512,12 @@ export interface components {
              */
             version: number;
         };
+        PendientesPorEstado: {
+            /** Format: int64 */
+            cuantos: number;
+            /** @enum {string} */
+            estado: "pendiente" | "en_curso" | "fallido_negocio" | "agotado";
+        };
         PerfilAsistente: {
             acciones: components["schemas"]["AccionesAsistente"];
             /** @description «defecto» el primero; se usa en horarios.franjas[].perfil */
@@ -16217,7 +16562,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -17900,6 +18245,11 @@ export interface components {
             sesiones: number[] | null;
             /**
              * Format: int64
+             * @description Con revocarTokens: tokens que se conservaron porque los usa un conector activo de Argos u Horus (revocarlos cortaría la integración; se cambian desde Integraciones)
+             */
+            tokensConservados: number;
+            /**
+             * Format: int64
              * @description Tokens iris_pat_ revocados (0 sin revocarTokens: los tokens siguen valiendo)
              */
             tokensRevocados: number;
@@ -17915,6 +18265,38 @@ export interface components {
             regla: string | null;
             /** @description aprobada, rechazada o pendiente_aprobacion */
             resultado: string;
+        };
+        Sincronizacion: {
+            /** Format: date-time */
+            actualizadaEn: string;
+            /** Format: int64 */
+            conectorId: number;
+            /** @description Contrato que informaba Argos al empezar */
+            contratoArgos: string | null;
+            /** @enum {string} */
+            estado: "en_curso" | "completa" | "con_errores";
+            etapas: components["schemas"]["EtapaSincronizacion"][] | null;
+            /** @description true: solo clientes con un servicio no retirado (Argos ≥ 0.8.0); false: listas completas (Argos anterior) */
+            excluirRetirados: boolean;
+            /** @description sincronizacion_id (UUID v7 de Iris) que va en el informe a Argos */
+            id: string;
+            /** Format: date-time */
+            informadoEn: string | null;
+            informeDetalle: string | null;
+            /**
+             * @description pendiente: por mandar; informado: Argos lo guardó; descartado: Argos ya tenía uno más nuevo (409 sincronizacion_vieja); no_soportado: Argos anterior a 0.8.0; error: no se pudo (se reintenta)
+             * @enum {string}
+             */
+            informeEstado: "pendiente" | "informado" | "descartado" | "no_soportado" | "error";
+            /** Format: date-time */
+            iniciadaEn: string;
+            /**
+             * @description activacion: empezó sola al activar el conector; manual: la lanzó o reanudó un administrador
+             * @enum {string}
+             */
+            origen: "activacion" | "manual";
+            /** Format: date-time */
+            terminadaEn: string | null;
         };
         SincronizacionCanal: {
             contactos: components["schemas"]["ParteSincronizacion"];
@@ -18313,6 +18695,13 @@ export interface components {
             creadoEn: string;
             /** Format: int64 */
             creadoPor: number | null;
+            /**
+             * Format: date-time
+             * @description Cuándo se eliminó (borrado lógico); ausente si no está eliminado
+             */
+            eliminadoEn?: string;
+            /** @description Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector) */
+            enUsoPorConector: boolean;
             /** Format: date-time */
             expiraEn: string | null;
             /** Format: int64 */
@@ -18328,11 +18717,39 @@ export interface components {
             ultimoUso: string | null;
             /** Format: int64 */
             usuarioId: number;
+            /**
+             * @description Solo lectura. recuperacion: token de un conector creado a mano por un admin (vía de recuperación, contrato con Argos 0.8.0 §1.5); cli: creado con «iris integracion crear». Los dos se revocan al confirmarse un canje nuevo del mismo sistema. null: los demás
+             * @enum {string|null}
+             */
+            via: "recuperacion" | "cli" | null;
         };
         TokenCreado: {
             token: components["schemas"]["TokenAPI"];
             /** @description iris_pat_…; guárdalo ahora, no se vuelve a mostrar */
             valor: string;
+        };
+        TokensEliminables: {
+            /**
+             * Format: int64
+             * @description Tokens revocados o vencidos que se pueden eliminar
+             */
+            cantidad: number;
+            /**
+             * Format: int64
+             * @description Revocados o vencidos que no se eliminan porque un conector activo depende de ellos
+             */
+            enUso: number;
+        };
+        TokensEliminados: {
+            /** Format: int64 */
+            eliminados: number;
+            /** @description Ids de los tokens eliminados */
+            ids: number[] | null;
+            /**
+             * Format: int64
+             * @description Revocados o vencidos que quedaron (un conector activo depende de ellos)
+             */
+            omitidos: number;
         };
         TramoCampo: {
             /** Format: date-time */
@@ -24232,6 +24649,62 @@ export interface operations {
             };
         };
     };
+    estadoConexionArgos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstadoConexionArgos"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     emitirTicketSSO: {
         parameters: {
             query?: never;
@@ -24523,6 +24996,121 @@ export interface operations {
             };
         };
     };
+    contarConectoresEliminables: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConectoresEliminables"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    eliminarConectoresApagados: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConectoresEliminados"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     activarConector: {
         parameters: {
             query?: never;
@@ -24689,6 +25277,89 @@ export interface operations {
             };
         };
     };
+    eliminarConector: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEliminarConector"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conector"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     revisarVersionConector: {
         parameters: {
             query?: never;
@@ -24732,6 +25403,94 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    sincronizarConectorArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Sincronizacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -49211,6 +49970,8 @@ export interface operations {
                 limit?: number;
                 /** @description Solo los tokens de este usuario */
                 usuario_id?: number;
+                /** @description Solo los que aún valen (sin revocar ni vencer). Los eliminados no salen nunca */
+                vigentes?: boolean;
             };
             header?: never;
             path?: never;
@@ -49346,6 +50107,211 @@ export interface operations {
             };
         };
     };
+    contarTokensEliminables: {
+        parameters: {
+            query?: {
+                /** @description Solo los tokens de este usuario */
+                usuario_id?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokensEliminables"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    eliminarTokensInactivos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaTokensInactivos"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokensEliminados"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    eliminarToken: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEliminarToken"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenAPI"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     revocarToken: {
         parameters: {
             query?: never;
@@ -49393,6 +50359,98 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    revocarYEliminarToken: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEliminarToken"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenAPI"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

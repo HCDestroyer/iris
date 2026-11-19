@@ -181,22 +181,22 @@ WHERE usuario_id = @usuario_id AND revocada_en IS NULL;
 -- Tokens de API --------------------------------------------------------------
 
 -- name: CrearToken :one
-INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por)
-VALUES (@usuario_id, @nombre, @prefijo, @hash, @permisos, @expira_en, @creado_por)
+INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por, via)
+VALUES (@usuario_id, @nombre, @prefijo, @hash, @permisos, @expira_en, @creado_por, sqlc.narg('via')::text)
 RETURNING *;
 
 -- name: TokenVigentePorHash :one
 SELECT sqlc.embed(t), sqlc.embed(u)
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
-WHERE t.hash = @hash AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
+WHERE t.hash = @hash AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
 
 -- name: TokenVigentePorID :one
 -- Revalidar un flujo largo (SSE del chat) autenticado con este token.
 SELECT t.permisos, u.id AS usuario_id
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
-WHERE t.id = @id AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
+WHERE t.id = @id AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
 
 -- name: SesionVigentePorID :one
 -- Revalidar un flujo largo (SSE del chat) autenticado con esta sesión del panel.
@@ -212,8 +212,11 @@ WHERE id = @id AND (ultimo_uso IS NULL OR ultimo_uso < now() - interval '1 minut
 
 -- name: ListarTokens :many
 -- Sin @todas, solo los tokens propios y los de usuarios que comparten alguna empresa (@empresas).
+-- Nunca los eliminados; con @vigentes, solo los que aún valen (sin revocar ni vencer).
 SELECT * FROM nucleo.tokens_api t
-WHERE t.id > @despues_de AND (sqlc.narg(usuario_id)::bigint IS NULL OR t.usuario_id = sqlc.narg(usuario_id))
+WHERE t.id > @despues_de AND t.eliminado_en IS NULL
+  AND (NOT @vigentes::boolean OR (t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now())))
+  AND (sqlc.narg(usuario_id)::bigint IS NULL OR t.usuario_id = sqlc.narg(usuario_id))
   AND (@todas::boolean OR t.usuario_id = @yo
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
                   WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = ANY(@empresas::bigint[])))
@@ -226,15 +229,65 @@ SELECT * FROM nucleo.tokens_api WHERE id = @id;
 -- name: TokenPorIDParaActualizar :one
 SELECT * FROM nucleo.tokens_api WHERE id = @id FOR UPDATE;
 
+-- name: BloquearTokensDeUsuario :exec
+-- Antes de RevocarTokensDeUsuario: bloquea los tokens vivos del usuario. Activar un conector
+-- confirma su iris_pat_ (UPDATE de esa fila), así que espera; y si la activación ganó, el UPDATE
+-- siguiente (con una instantánea nueva) ya ve el conector activo y conserva su token.
+SELECT id FROM nucleo.tokens_api
+WHERE usuario_id = @usuario_id AND revocado_en IS NULL AND eliminado_en IS NULL
+ORDER BY id
+FOR UPDATE;
+
 -- name: RevocarTokensDeUsuario :many
-UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
-WHERE usuario_id = @usuario_id AND revocado_en IS NULL
-RETURNING id;
+-- Nunca el de un conector activo (su iris_pat_ o el de la reconexión sin confirmar): cortaría la
+-- integración; se cambia desde Integraciones (TokensDeUsuarioEnUsoPorConector los cuenta).
+UPDATE nucleo.tokens_api t SET revocado_en = now(), updated_at = now()
+WHERE t.usuario_id = @usuario_id AND t.revocado_en IS NULL AND t.eliminado_en IS NULL
+  AND NOT EXISTS (SELECT 1 FROM integracion.conectores c
+                  WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id))
+RETURNING t.id;
+
+-- name: TokensDeUsuarioEnUsoPorConector :one
+-- Los tokens sin revocar del usuario que un conector activo usa (RevocarTokensDeUsuario los conserva).
+SELECT count(*)::integer FROM nucleo.tokens_api t
+WHERE t.usuario_id = @usuario_id AND t.revocado_en IS NULL AND t.eliminado_en IS NULL
+  AND EXISTS (SELECT 1 FROM integracion.conectores c
+              WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id));
 
 -- name: RevocarToken :one
 UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- name: EliminarToken :one
+-- Borrado lógico (tokens.eliminar): la fila queda para la auditoría; el hash se borra.
+-- Solo uno revocado o vencido (con la hora de la base): si no, ninguna fila.
+UPDATE nucleo.tokens_api SET eliminado_en = now(), eliminado_por = sqlc.narg(eliminado_por), hash = NULL, updated_at = now()
+WHERE id = @id AND eliminado_en IS NULL AND (revocado_en IS NOT NULL OR expira_en <= now())
+RETURNING *;
+
+-- name: TokensUsadosPorConectoresActivos :many
+-- Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo).
+SELECT DISTINCT t.id::bigint AS id FROM integracion.conectores c
+CROSS JOIN LATERAL (VALUES (c.token_entregado_id), (c.reemplaza_token_id)) AS t (id)
+WHERE c.estado = 'activo' AND t.id IS NOT NULL;
+
+-- name: TokenUsadoPorConectorActivo :one
+-- Un conector activo depende del token: el iris_pat_ que Iris le entregó en el canje, o el del
+-- conector al que reemplaza mientras dura la reconexión sin corte.
+SELECT EXISTS (SELECT 1 FROM integracion.conectores
+               WHERE estado = 'activo' AND (token_entregado_id = @id::bigint OR reemplaza_token_id = @id::bigint))::boolean;
+
+-- name: TokensEliminables :many
+-- Los revocados o vencidos (sin eliminar) que el actor ve, como en ListarTokens; el caso de uso
+-- aplica después exigirVisible y la regla del conector a cada uno.
+SELECT t.id, t.usuario_id FROM nucleo.tokens_api t
+WHERE t.eliminado_en IS NULL AND (t.revocado_en IS NOT NULL OR t.expira_en <= now())
+  AND (sqlc.narg(usuario_id)::bigint IS NULL OR t.usuario_id = sqlc.narg(usuario_id))
+  AND (@todas::boolean OR t.usuario_id = @yo
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                  WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = ANY(@empresas::bigint[])))
+ORDER BY t.id;
 
 -- Límites de intentos -------------------------------------------------------
 
@@ -423,6 +476,23 @@ DELETE FROM nucleo.portal_accesos WHERE id IN (
     LIMIT @lote::integer
     FOR UPDATE SKIP LOCKED);
 
+-- name: TokensRecuperacionDelSistemaDe :many
+-- Tokens manuales vigentes (via recuperacion o cli) de TODOS los usuarios con el rol de integración del
+-- sistema del token @id (el entregado en un canje que se acaba de confirmar: integracion_argos o
+-- integracion_horus): se revocan (contrato con Argos 0.8.0 §1.5, S5). FOR UPDATE: nadie los usa a
+-- medias mientras se revocan.
+SELECT r.id FROM nucleo.tokens_api r
+WHERE r.id <> @id AND r.via IN ('recuperacion', 'cli') AND r.revocado_en IS NULL AND r.eliminado_en IS NULL
+    AND r.usuario_id IN (
+        SELECT ur.usuario_id FROM nucleo.usuarios_roles ur JOIN nucleo.roles ro ON ro.id = ur.rol_id
+        WHERE ro.codigo IN (
+            SELECT ro2.codigo FROM nucleo.tokens_api t
+            JOIN nucleo.usuarios_roles ur2 ON ur2.usuario_id = t.usuario_id
+            JOIN nucleo.roles ro2 ON ro2.id = ur2.rol_id
+            WHERE t.id = @id AND ro2.codigo IN ('integracion_argos', 'integracion_horus')))
+ORDER BY r.id
+FOR UPDATE OF r;
+
 -- name: ConfirmarTokenEntregado :execrows
 -- El iris_pat_ de un canje queda sin vencimiento al activar el conector (si sigue vigente).
 UPDATE nucleo.tokens_api SET expira_en = NULL
@@ -506,7 +576,7 @@ RETURNING *;
 -- name: VinculosSSODeUsuario :many
 SELECT v.id, v.conector_id, c.sistema, v.usuario_externo, v.created_at
 FROM nucleo.sso_vinculos v JOIN integracion.conectores c ON c.id = v.conector_id
-WHERE v.usuario_id = @usuario_id ORDER BY v.id;
+WHERE v.usuario_id = @usuario_id AND c.eliminado_en IS NULL ORDER BY v.id;
 
 -- name: VinculoSSOParaBorrar :one
 SELECT * FROM nucleo.sso_vinculos WHERE id = @id AND usuario_id = @usuario_id FOR UPDATE;

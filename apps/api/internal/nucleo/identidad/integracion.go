@@ -170,7 +170,7 @@ func (m *Modulo) EmitirTokenCanje(ctx context.Context, sistema string, expira ti
 	default:
 		return 0, "", err
 	}
-	t, err := m.CrearToken.Ejecutar(ctx, EntradaCrearToken{
+	t, err := m.CrearToken.Ejecutar(conTokenDeCanje(ctx), EntradaCrearToken{
 		UsuarioID: u.ID, Nombre: sistema + " (canje " + time.Now().UTC().Format("2006-01-02 15:04") + ")", ExpiraEn: &expira,
 	})
 	if err != nil {
@@ -212,16 +212,34 @@ func (m *Modulo) ConfirmarTokenCanje(ctx context.Context, id int64) error {
 		return nucleo.ReglaNegocio("token_entregado_vencido",
 			"El token que Iris entregó en el canje venció o se revocó: vuelve a conectar con un enlace nuevo")
 	}
+	// Contrato con Argos 0.8.0 §1.5 (S5): confirmado un canje nuevo, los tokens manuales (recuperación y
+	// consola) de los usuarios de integración de ese sistema dejan de valer.
+	ids, err := identidadbd.New(db).TokensRecuperacionDelSistemaDe(ctx, id)
+	if err != nil {
+		return err
+	}
+	for _, r := range ids {
+		if err := m.RevocarTokenIntegracion(ctx, r, "Canje nuevo confirmado: la vía de recuperación deja de valer"); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 // RevocarTokenIntegracion revoca un token entregado en un canje (canje fallido, conector
 // desactivado o reemplazado). Con el actor de ctx (el worker usa el actor sistema). Revocar uno
-// ya revocado no es un error.
+// ya revocado, o ya eliminado (borrado lógico: ya no vale), no es un error.
 func (m *Modulo) RevocarTokenIntegracion(ctx context.Context, id int64, motivo string) error {
-	_, err := m.RevocarToken.Ejecutar(ctx, EntradaRevocarToken{ID: id, Motivo: motivo})
+	_, err := m.RevocarToken.Ejecutar(ctx, EntradaRevocarToken{ID: id, Motivo: motivo, interno: true})
 	if esCodigo(err, "token_revocado") {
 		return nil
+	}
+	if esCodigo(err, "no_encontrado") {
+		if db := nucleo.DBDe(ctx); db != nil {
+			if t, e := identidadbd.New(db).TokenPorID(ctx, id); e == nil && t.EliminadoEn != nil {
+				return nil
+			}
+		}
 	}
 	return err
 }
@@ -237,5 +255,19 @@ func conIntegracionInterna(ctx context.Context) context.Context {
 
 func esIntegracionInterna(ctx context.Context) bool {
 	v, _ := ctx.Value(claveIntegracionInterna{}).(bool)
+	return v
+}
+
+// claveTokenDeCanje marca el token que el conector entrega en un canje (EmitirTokenCanje): no es la vía
+// de recuperación (no se marca, vence a los 15 min salvo que se active) aunque lo emita un admin para
+// el usuario de integración. No sale de ninguna entrada HTTP.
+type claveTokenDeCanje struct{}
+
+func conTokenDeCanje(ctx context.Context) context.Context {
+	return context.WithValue(ctx, claveTokenDeCanje{}, true)
+}
+
+func esTokenDeCanje(ctx context.Context) bool {
+	v, _ := ctx.Value(claveTokenDeCanje{}).(bool)
 	return v
 }

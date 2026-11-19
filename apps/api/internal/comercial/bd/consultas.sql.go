@@ -973,11 +973,11 @@ func (q *Queries) EstadoAdjunto(ctx context.Context, id uuid.UUID) (EstadoAdjunt
 
 const estadoConectorArgos = `-- name: EstadoConectorArgos :one
 SELECT coalesce(
-    (SELECT estado FROM integracion.conectores WHERE sistema = 'argosisp' ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1),
+    (SELECT estado FROM integracion.conectores WHERE sistema = 'argosisp' AND eliminado_en IS NULL ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1),
     '')::text AS estado
 `
 
-// 'activo', 'apagado' o ” (nunca se conectó: modo sin conector).
+// 'activo', 'apagado' o ” (nunca se conectó, o se eliminaron todos: modo sin conector).
 func (q *Queries) EstadoConectorArgos(ctx context.Context) (string, error) {
 	row := q.db.QueryRow(ctx, estadoConectorArgos)
 	var estado string

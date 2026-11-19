@@ -205,3 +205,6 @@ func (TokensFalsos) ConfirmarTokenCanje(context.Context, int64) error { return n
 
 // RevocarTokenIntegracion no hace nada.
 func (TokensFalsos) RevocarTokenIntegracion(context.Context, int64, string) error { return nil }
+
+// EliminarTokenIntegracion no hace nada.
+func (TokensFalsos) EliminarTokenIntegracion(context.Context, int64) error { return nil }

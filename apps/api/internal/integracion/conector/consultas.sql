@@ -19,7 +19,7 @@ RETURNING *;
 -- name: TokensEntregadosDeOtros :many
 -- Los iris_pat_ entregados por los demás conectores del sistema (se revocan al guardar uno nuevo).
 SELECT token_entregado_id::bigint AS token_id FROM integracion.conectores
-WHERE sistema = @sistema AND id <> @excepto AND token_entregado_id IS NOT NULL;
+WHERE sistema = @sistema AND id <> @excepto AND token_entregado_id IS NOT NULL AND eliminado_en IS NULL;
 
 -- name: ExisteConectorConBase :one
 -- El conector activo del sistema tiene ese origen (uno apagado o de un intento no cuenta).
@@ -45,10 +45,31 @@ SELECT * FROM integracion.conectores WHERE sistema = @sistema AND estado = 'acti
 SELECT * FROM integracion.conectores WHERE estado = 'activo' ORDER BY sistema;
 
 -- name: ListarConectores :many
+-- Nunca los eliminados.
 SELECT * FROM integracion.conectores
-WHERE id > @despues_de
+WHERE id > @despues_de AND eliminado_en IS NULL
 ORDER BY id
 LIMIT @limite;
+
+-- name: EliminarConector :one
+-- Borrado lógico de un conector apagado: la fila queda; sus credenciales cifradas se borran.
+UPDATE integracion.conectores
+SET eliminado_en = now(), eliminado_por = sqlc.narg(eliminado_por), token_cifrado = NULL, secreto_webhook_cifrado = NULL,
+    webhook_salida_url = NULL, webhook_salida_secreto_cifrado = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'apagado' AND eliminado_en IS NULL
+RETURNING *;
+
+-- name: ConectorReemplazadoPorActivo :one
+-- Un conector activo lo reemplaza y la reconexión sin corte no se confirmó (0.6.3): el otro
+-- sistema sigue usando las credenciales del apagado.
+SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE estado = 'activo' AND reemplaza_conector_id = @id::bigint)::boolean;
+
+-- name: ConectoresEliminables :many
+-- Los apagados sin eliminar que ningún activo reemplaza (ver ConectorReemplazadoPorActivo).
+SELECT c.id FROM integracion.conectores c
+WHERE c.estado = 'apagado' AND c.eliminado_en IS NULL
+  AND NOT EXISTS (SELECT 1 FROM integracion.conectores a WHERE a.estado = 'activo' AND a.reemplaza_conector_id = c.id)
+ORDER BY c.id;
 
 -- name: CambiarEstadoConector :one
 UPDATE integracion.conectores
