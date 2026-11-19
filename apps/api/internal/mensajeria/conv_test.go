@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -585,10 +586,21 @@ func TestConvVisibilidadYPermisos(t *testing.T) {
 	ajeno := b.persona([]int64{2}, rolBase("supervisor"))
 	b.exigir(b.api(ajeno, http.MethodGet, ruta, nil), http.StatusNotFound)
 	// Las listas solo traen lo que se ve.
+	// Todas las páginas: la base de pruebas del paquete acumula muchas conversaciones de «Carlos R.».
 	lista := func(p persona, q string) []any {
-		r := b.api(p, http.MethodGet, "/conversaciones?limit=200"+q, nil)
-		b.exigir(r, http.StatusOK)
-		return r.cuerpo["data"].([]any)
+		var out []any
+		cursor := ""
+		for range 50 {
+			r := b.api(p, http.MethodGet, "/conversaciones?limit=200"+q+cursor, nil)
+			b.exigir(r, http.StatusOK)
+			out = append(out, r.cuerpo["data"].([]any)...)
+			sig, _ := r.cuerpo["nextCursor"].(string)
+			if sig == "" {
+				break
+			}
+			cursor = "&cursor=" + url.QueryEscape(sig)
+		}
+		return out
 	}
 	tiene := func(xs []any) bool {
 		for _, x := range xs {
