@@ -419,11 +419,11 @@ SELECT (SELECT count(*) FROM caja)::integer AS total,
 
 -- name: ReconexionDePromesa :one
 -- La reconexión local de una promesa de Argos (webhooks promesa.*): por el comprobante, de la misma
--- empresa y, si ya se sabe, de la misma promesa.
+-- empresa y de la misma promesa (una sin promesa_argos_id todavía no la conoce Argos por ese id). Sin
+-- candado: el caso bloquea primero la conversación y después la reconexión (el orden de PedirReconexion).
 SELECT * FROM mensajeria.reconexiones
 WHERE comprobante_id = @comprobante_id AND (empresa_id IS NULL OR empresa_id = @empresa::bigint)
-  AND (promesa_argos_id IS NULL OR promesa_argos_id = @promesa_id::bigint)
-FOR UPDATE;
+  AND promesa_argos_id = @promesa_id::bigint;
 
 -- name: ActualizarReconexionArgos :one
 -- Lo que Argos dice de la promesa. Un estado final (cumplida, incumplida, cancelada) no lo pisa un
@@ -431,7 +431,9 @@ FOR UPDATE;
 UPDATE mensajeria.reconexiones
 SET argos_estado = @argos_estado::text, argos_motivo = coalesce(sqlc.narg('argos_motivo'), argos_motivo),
     argos_fin_motivo = sqlc.narg('argos_fin_motivo'), argos_entrante_id = @entrante_id::bigint, argos_actualizada_en = now(),
-    argos_aviso = CASE WHEN @argos_estado::text = 'activa' THEN argos_aviso ELSE 'pendiente' END,
+    -- Solo se avisa el final de una reconexión que Iris le anunció al cliente (aceptada y con hasta).
+    argos_aviso = CASE WHEN @argos_estado::text = 'activa' THEN argos_aviso
+                       WHEN estado = 'aceptada' AND hasta IS NOT NULL THEN 'pendiente' ELSE 'sin_aviso' END,
     hasta = CASE WHEN @argos_estado::text = 'activa' AND estado = 'aceptada' THEN coalesce(sqlc.narg('vence'), hasta) ELSE hasta END
 WHERE id = @id
   AND argos_entrante_id IS DISTINCT FROM @entrante_id::bigint
@@ -449,3 +451,7 @@ SELECT * FROM mensajeria.reconexiones WHERE id = @id AND argos_aviso = 'pendient
 UPDATE mensajeria.reconexiones SET argos_aviso = @aviso::text, argos_aviso_mensaje_id = sqlc.narg('mensaje_id')
 WHERE id = @id AND argos_aviso = 'pendiente'
 RETURNING *;
+
+-- name: ConversacionDeReconexion :one
+-- Sin candado: para bloquear primero la conversación (el orden de PedirReconexion).
+SELECT conversacion_id FROM mensajeria.reconexiones WHERE id = @id;

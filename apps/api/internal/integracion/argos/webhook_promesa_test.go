@@ -48,6 +48,19 @@ func TestWebhookPromesaEmiteEventoInterno(t *testing.T) {
 		AND payload->>'motivo_reconexion' IS NULL AND payload->>'tipo' = 'promesa'`, r.EntranteID); n != 1 {
 		t.Fatalf("promesa normal: %d", n)
 	}
+	// Una empresa fuera del alcance del conector: descartado.
+	if _, err := e.pool.Exec(pruebas.ContextoSistema(e.pool), `UPDATE integracion.conectores SET alcance_global = false, empresas = '{1}' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	r = e.procesarWebhook(id, secreto, argos.EventoPromesaCreada, base(map[string]any{"empresa_id": 7, "motivo_reconexion": "sin_personal"}))
+	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "empresa_fuera_de_alcance" {
+		t.Fatalf("empresa fuera de alcance: %+v %s", r, e.omitidoDe(r.EntranteID))
+	}
+	// Sin empresa_id: payload inválido.
+	r = e.procesarWebhook(id, secreto, argos.EventoPromesaCreada, base(map[string]any{"empresa_id": nil}))
+	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "payload_invalido" {
+		t.Fatalf("sin empresa: %+v", r)
+	}
 	// Sin promesa_id: se ignora y queda dicho.
 	r = e.procesarWebhook(id, secreto, argos.EventoPromesaCreada, map[string]any{"empresa_id": 1})
 	if r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "payload_invalido" {

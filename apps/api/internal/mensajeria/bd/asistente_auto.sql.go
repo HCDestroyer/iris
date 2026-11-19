@@ -151,7 +151,9 @@ const actualizarReconexionArgos = `-- name: ActualizarReconexionArgos :one
 UPDATE mensajeria.reconexiones
 SET argos_estado = $1::text, argos_motivo = coalesce($2, argos_motivo),
     argos_fin_motivo = $3, argos_entrante_id = $4::bigint, argos_actualizada_en = now(),
-    argos_aviso = CASE WHEN $1::text = 'activa' THEN argos_aviso ELSE 'pendiente' END,
+    -- Solo se avisa el final de una reconexión que Iris le anunció al cliente (aceptada y con hasta).
+    argos_aviso = CASE WHEN $1::text = 'activa' THEN argos_aviso
+                       WHEN estado = 'aceptada' AND hasta IS NOT NULL THEN 'pendiente' ELSE 'sin_aviso' END,
     hasta = CASE WHEN $1::text = 'activa' AND estado = 'aceptada' THEN coalesce($5, hasta) ELSE hasta END
 WHERE id = $6
   AND argos_entrante_id IS DISTINCT FROM $4::bigint
@@ -482,6 +484,18 @@ UPDATE mensajeria.reconexiones SET intentos = intentos + 1 WHERE id = $1
 func (q *Queries) ContarIntentoReconexion(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, contarIntentoReconexion, id)
 	return err
+}
+
+const conversacionDeReconexion = `-- name: ConversacionDeReconexion :one
+SELECT conversacion_id FROM mensajeria.reconexiones WHERE id = $1
+`
+
+// Sin candado: para bloquear primero la conversación (el orden de PedirReconexion).
+func (q *Queries) ConversacionDeReconexion(ctx context.Context, id uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, conversacionDeReconexion, id)
+	var conversacion_id int64
+	err := row.Scan(&conversacion_id)
+	return conversacion_id, err
 }
 
 const descartarTurnosEnCurso = `-- name: DescartarTurnosEnCurso :exec
@@ -1317,8 +1331,7 @@ func (q *Queries) RechazosVerificacionConv(ctx context.Context, arg RechazosVeri
 const reconexionDePromesa = `-- name: ReconexionDePromesa :one
 SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en, argos_aviso, argos_aviso_mensaje_id FROM mensajeria.reconexiones
 WHERE comprobante_id = $1 AND (empresa_id IS NULL OR empresa_id = $2::bigint)
-  AND (promesa_argos_id IS NULL OR promesa_argos_id = $3::bigint)
-FOR UPDATE
+  AND promesa_argos_id = $3::bigint
 `
 
 type ReconexionDePromesaParams struct {
@@ -1328,7 +1341,8 @@ type ReconexionDePromesaParams struct {
 }
 
 // La reconexión local de una promesa de Argos (webhooks promesa.*): por el comprobante, de la misma
-// empresa y, si ya se sabe, de la misma promesa.
+// empresa y de la misma promesa (una sin promesa_argos_id todavía no la conoce Argos por ese id). Sin
+// candado: el caso bloquea primero la conversación y después la reconexión (el orden de PedirReconexion).
 func (q *Queries) ReconexionDePromesa(ctx context.Context, arg ReconexionDePromesaParams) (MensajeriaReconexione, error) {
 	row := q.db.QueryRow(ctx, reconexionDePromesa, arg.ComprobanteID, arg.Empresa, arg.PromesaID)
 	var i MensajeriaReconexione

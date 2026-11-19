@@ -5,6 +5,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 )
 
 // Webhooks de promesas (contrato 0.6.0 §7.4; desde 0.8.0 con motivo_reconexion, §7.3): Argos avisa
@@ -48,13 +49,17 @@ type promesaCambiada struct {
 	estado           string
 }
 
-// promesaDe lee el payload del webhook; omitido dice por qué se ignora. motivo_reconexion que no
+// promesaDe lee el payload del webhook; omitido dice por qué se ignora (sin empresa o con una fuera del
+// alcance del conector, no se aplica). motivo_reconexion que no
 // viene (Argos < 0.8.0) o con un valor desconocido queda null; el motivo de cancelada, de una lista
 // cerrada (lo demás es «otro»: nunca texto libre de Argos).
-func promesaDe(e conector.Entrante) (*promesaCambiada, string) {
+func promesaDe(e conector.Entrante, con conectorbd.IntegracionConectore) (*promesaCambiada, string) {
 	var p promesaCambiada
-	if err := conector.Decodificar(e.Payload, &p); err != nil || p.PromesaID <= 0 {
+	if err := conector.Decodificar(e.Payload, &p); err != nil || p.PromesaID <= 0 || p.EmpresaID == nil {
 		return nil, "payload_invalido"
+	}
+	if !empresaEnAlcance(con, *p.EmpresaID) {
+		return nil, "empresa_fuera_de_alcance"
 	}
 	p.estado = estadoDePromesa[e.Evento]
 	if p.Tipo != "promesa" && p.Tipo != "reconexion_temporal" {

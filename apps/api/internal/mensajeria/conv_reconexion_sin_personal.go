@@ -322,6 +322,7 @@ type entradaPromesaArgos struct {
 	Estado           string     `json:"estado"`
 	Tipo             string     `json:"tipo"`
 	EmpresaID        *int64     `json:"empresa_id"`
+	ClienteID        *int64     `json:"cliente_id"`
 	ComprobanteID    *int64     `json:"comprobante_id"`
 	Vence            *time.Time `json:"vence"`
 	MotivoReconexion *string    `json:"motivo_reconexion"`
@@ -355,11 +356,25 @@ func nuevoReconexionArgos(m *Modulo) *auditoria.Caso[entradaPromesaArgos, promes
 				return promesaAplicada{}, nil
 			}
 			q := mensajeriabd.New(t)
-			f, err := q.ReconexionDePromesa(ctx, mensajeriabd.ReconexionDePromesaParams{ComprobanteID: *in.ComprobanteID, Empresa: derefEmpresa(in.EmpresaID),
+			previa, err := q.ReconexionDePromesa(ctx, mensajeriabd.ReconexionDePromesaParams{ComprobanteID: *in.ComprobanteID, Empresa: derefEmpresa(in.EmpresaID),
 				PromesaID: in.PromesaID})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return promesaAplicada{}, nil
 			}
+			if err != nil {
+				return promesaAplicada{}, err
+			}
+			// La promesa debe ser del mismo cliente: si no, no se toca la reconexión.
+			if in.ClienteID == nil || *in.ClienteID != previa.ClienteID {
+				t.Anotar(map[string]any{"omitido": "cliente_distinto"})
+				return promesaAplicada{}, nil
+			}
+			// Mismo orden de candados que PedirReconexion: conversación y después reconexión.
+			c, err := q.ConversacionClienteParaActualizar(ctx, previa.ConversacionID)
+			if err != nil {
+				return promesaAplicada{}, err
+			}
+			f, err := q.ReconexionParaActualizar(ctx, previa.ID)
 			if err != nil {
 				return promesaAplicada{}, err
 			}
@@ -382,10 +397,6 @@ func nuevoReconexionArgos(m *Modulo) *auditoria.Caso[entradaPromesaArgos, promes
 			if errors.Is(err, pgx.ErrNoRows) {
 				return promesaAplicada{}, nil
 			}
-			if err != nil {
-				return promesaAplicada{}, err
-			}
-			c, err := q.ConversacionClienteParaActualizar(ctx, g.ConversacionID)
 			if err != nil {
 				return promesaAplicada{}, err
 			}
@@ -455,8 +466,15 @@ func TextoFinReconexion(estado string, fin *string) string {
 	return ""
 }
 
-// uuidReconexion: el id de una reconexión (entrada del aviso de su final).
-type uuidReconexion = uuid.UUID
+// uuidReconexion: la reconexión cuyo final se avisa; sinAviso: no mandar nada y cerrar el aviso
+// (un error que no se arregla reintentando).
+type uuidReconexion struct {
+	ID       uuid.UUID `json:"reconexion_id"`
+	SinAviso string    `json:"sin_aviso,omitempty"`
+}
+
+// PlazoAvisoFinReconexion: un final con más de esto sin avisar ya no se avisa (sin_aviso).
+const PlazoAvisoFinReconexion = 24 * time.Hour
 
 // avisoFinReconexion: lo que se decidió con el aviso de un final.
 type avisoFinReconexion struct {
@@ -474,19 +492,27 @@ func nuevoAvisarFinReconexion(m *Modulo) *auditoria.Caso[uuidReconexion, avisoFi
 	return auditoria.Nuevo(auditoria.Caso[uuidReconexion, avisoFinReconexion]{
 		Accion: "conversaciones.reconexion_aviso", Acceso: auditoria.Autenticado,
 		AuditarExito: func(r avisoFinReconexion) bool { return r.hecho },
-		Logica: func(ctx context.Context, t *auditoria.Tx, id uuid.UUID) (avisoFinReconexion, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in uuidReconexion) (avisoFinReconexion, error) {
 			if err := soloSistema(ctx); err != nil {
 				return avisoFinReconexion{}, err
 			}
 			q := mensajeriabd.New(t)
-			f, err := q.ReconexionPorAvisar(ctx, id)
+			// Mismo orden de candados que PedirReconexion: conversación y después reconexión.
+			convID, err := q.ConversacionDeReconexion(ctx, in.ID)
 			if errors.Is(err, pgx.ErrNoRows) {
-				return avisoFinReconexion{ID: id}, nil
+				return avisoFinReconexion{ID: in.ID}, nil
 			}
 			if err != nil {
 				return avisoFinReconexion{}, err
 			}
-			c, err := q.ConversacionClienteParaActualizar(ctx, f.ConversacionID)
+			c, err := q.ConversacionClienteParaActualizar(ctx, convID)
+			if err != nil {
+				return avisoFinReconexion{}, err
+			}
+			f, err := q.ReconexionPorAvisar(ctx, in.ID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return avisoFinReconexion{ID: in.ID}, nil
+			}
 			if err != nil {
 				return avisoFinReconexion{}, err
 			}
@@ -496,11 +522,23 @@ func nuevoAvisarFinReconexion(m *Modulo) *auditoria.Caso[uuidReconexion, avisoFi
 			if f.ArgosEstado != nil {
 				estado = *f.ArgosEstado
 			}
-			aviso, mensaje := AvisoBoletaSinAvis, (*uuid.UUID)(nil)
-			if texto := TextoFinReconexion(estado, f.ArgosFinMotivo); texto != "" {
-				if aviso, mensaje, err = m.avisoDentroDeVentana(ctx, t, q, &c, texto); err != nil {
-					return avisoFinReconexion{}, err
+			aviso, mensaje, porque := AvisoBoletaSinAvis, (*uuid.UUID)(nil), in.SinAviso
+			switch {
+			case porque != "":
+			case f.ArgosActualizadaEn != nil && m.ahora().Sub(*f.ArgosActualizadaEn) > PlazoAvisoFinReconexion:
+				porque = "vencido"
+			case empresaDeConv(c) != derefEmpresa(f.EmpresaID) || c.ClienteID == nil || *c.ClienteID != f.ClienteID:
+				// La conversación pasó a otra empresa o a otro cliente (o se desasoció): no se le escribe.
+				porque = "conversacion_cambio"
+			default:
+				if texto := TextoFinReconexion(estado, f.ArgosFinMotivo); texto != "" {
+					if aviso, mensaje, err = m.avisoDentroDeVentana(ctx, t, q, &c, derefEmpresa(f.EmpresaID), f.ClienteID, texto); err != nil {
+						return avisoFinReconexion{}, err
+					}
 				}
+			}
+			if porque != "" {
+				t.Anotar(map[string]any{"sin_aviso": porque})
 			}
 			g, err := q.MarcarAvisoReconexion(ctx, mensajeriabd.MarcarAvisoReconexionParams{ID: f.ID, Aviso: aviso, MensajeID: pgUUID(mensaje)})
 			if err != nil {
@@ -518,7 +556,7 @@ func nuevoAvisarFinReconexion(m *Modulo) *auditoria.Caso[uuidReconexion, avisoFi
 // el número sigue activo para la empresa, el cliente no se dio de baja y (en una conversación resuelta
 // de un número compartido) ninguna otra empresa está conversando con ese teléfono.
 func (m *Modulo) avisoDentroDeVentana(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion,
-	texto string) (string, *uuid.UUID, error) {
+	empresa, cliente int64, texto string) (string, *uuid.UUID, error) {
 	canal, err := q.CanalPorID(ctx, c.CanalID)
 	if err != nil {
 		return "", nil, err
@@ -530,8 +568,12 @@ func (m *Modulo) avisoDentroDeVentana(ctx context.Context, t *auditoria.Tx, q *m
 	if !canal.Activo || canal.DesconectadoEn != nil || !uso.activo {
 		return AvisoBoletaSinAvis, nil, nil
 	}
-	puede, err := m.puedeContestarBot(ctx, q, *c)
-	if err != nil || !puede {
+	if !ventanaDe(c.UltimoEntranteEn, m.ahora()).Abierta {
+		return AvisoBoletaSinAvis, nil, nil
+	}
+	// El consentimiento del cliente y la empresa de la reconexión (no los de la conversación).
+	baja, err := m.dadoDeBaja(ctx, q, empresa, cliente, c.Numero)
+	if err != nil || baja {
 		return AvisoBoletaSinAvis, nil, err
 	}
 	if c.Estado == EstadoConvResuelta {
@@ -556,9 +598,32 @@ func (m *Modulo) avisarFinesReconexion(ctx context.Context, bd nucleo.BD, log *s
 		return err
 	}
 	for _, id := range ids {
-		if _, err := m.Asistente.avisarFinReconexion.Ejecutar(ctx, id); err != nil {
+		_, err := m.Asistente.avisarFinReconexion.Ejecutar(ctx, uuidReconexion{ID: id})
+		var pr *nucleo.Problema
+		if errors.As(err, &pr) {
+			// Un error de negocio no se arregla reintentando: el aviso se cierra sin mandar nada para
+			// que no bloquee la cola.
+			_, err = m.Asistente.avisarFinReconexion.Ejecutar(ctx, uuidReconexion{ID: id, SinAviso: "error"})
+		}
+		if err != nil {
 			log.WarnContext(ctx, "mensajeria: aviso del final de una reconexión", "reconexion_id", id, "err", err)
 		}
 	}
 	return nil
+}
+
+// dadoDeBaja: el cliente (en esa empresa) o su número pidieron no recibir mensajes por WhatsApp.
+func (m *Modulo) dadoDeBaja(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente int64, numero string) (bool, error) {
+	v, err := q.ConsentimientoVigente(ctx, mensajeriabd.ConsentimientoVigenteParams{EmpresaID: empresa, ClienteID: cliente, Canal: CanalWhatsApp})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	if err == nil && v.Estado == "baja" {
+		return true, nil
+	}
+	n, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: empresa, Telefono: numero})
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	return err == nil && n.Estado == "baja", nil
 }

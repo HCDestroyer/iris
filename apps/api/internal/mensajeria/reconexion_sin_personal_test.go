@@ -105,7 +105,7 @@ func TestReconexionSinPersonal(t *testing.T) {
 		x.argos.mu.Unlock()
 		_, _ = x.bd.Exec(x.ctx, `UPDATE nucleo.roles SET activo = true WHERE codigo = 'caja'; DELETE FROM mensajeria.ajustes_reconexion`)
 	})
-	conv, _ := x.conClienteArgos()
+	conv, cliente := x.conClienteArgos()
 	num := x.numeroDe(conv)
 	*x.reloj = x.reloj.Add(21 * time.Second)
 	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
@@ -228,8 +228,8 @@ func TestReconexionSinPersonal(t *testing.T) {
 	}
 	payload := func(estado string, entrante int64, motivoFin string) []byte {
 		// Un vence a meses no es creíble: no se copia a `hasta`.
-		p := map[string]any{"promesa_id": promesa, "estado": estado, "tipo": "reconexion_temporal", "empresa_id": 1, "comprobante_id": comprobante,
-			"vence": "2027-03-01T06:00:00.000Z", "motivo_reconexion": "sin_personal", "entrante_id": entrante}
+		p := map[string]any{"promesa_id": promesa, "estado": estado, "tipo": "reconexion_temporal", "empresa_id": 1, "cliente_id": cliente,
+			"comprobante_id": comprobante, "vence": "2027-03-01T06:00:00.000Z", "motivo_reconexion": "sin_personal", "entrante_id": entrante}
 		if motivoFin != "" {
 			p["motivo"] = motivoFin
 		}
@@ -243,6 +243,13 @@ func TestReconexionSinPersonal(t *testing.T) {
 			t.Fatal(err)
 		}
 		return ok
+	}
+	// Una promesa de otro cliente con el mismo comprobante no toca la reconexión.
+	var ajeno map[string]any
+	_ = json.Unmarshal(payload("cancelada", 500, "comprobante_rechazado"), &ajeno)
+	ajeno["cliente_id"] = cliente + 1
+	if b, _ := json.Marshal(ajeno); aplicar(b) {
+		t.Fatal("una promesa de otro cliente cambió la reconexión")
 	}
 	if !aplicar(payload("activa", 501, "")) || aplicar(payload("activa", 501, "")) {
 		t.Fatal("promesa.creada: se aplica una sola vez")
@@ -332,7 +339,7 @@ func TestReconexionFueraDeHorarioConArgosNuevo(t *testing.T) {
 		x.argos.contrato080 = false
 		x.argos.mu.Unlock()
 	})
-	conv, _ := x.conClienteArgos()
+	conv, cliente := x.conClienteArgos()
 	num := x.numeroDe(conv)
 	*x.reloj = x.reloj.Add(21 * time.Second)
 	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
@@ -356,8 +363,8 @@ func TestReconexionFueraDeHorarioConArgosNuevo(t *testing.T) {
 	}
 	*x.reloj = x.reloj.Add(25 * time.Hour)
 	salientes := x.salientes(conv)
-	b, _ := json.Marshal(map[string]any{"promesa_id": promesa, "estado": "cumplida", "tipo": "reconexion_temporal", "empresa_id": 1, "comprobante_id": comprobante,
-		"motivo_reconexion": "fuera_de_horario", "entrante_id": 601})
+	b, _ := json.Marshal(map[string]any{"promesa_id": promesa, "estado": "cumplida", "tipo": "reconexion_temporal", "empresa_id": 1, "cliente_id": cliente,
+		"comprobante_id": comprobante, "motivo_reconexion": "fuera_de_horario", "entrante_id": 601})
 	if ok, err := x.m.AplicarPromesaArgos(x.ctx, x.bd, b); err != nil || !ok {
 		t.Fatalf("cumplida: %v %v", ok, err)
 	}
@@ -479,12 +486,19 @@ func TestHastaCreible(t *testing.T) {
 // Seguridad: la variable `hasta` de reconexion_temporal exige RFC 3339 con zona; un valor sin zona
 // se lee en hora de Guatemala, nunca como UTC.
 func TestPlantillaReconexionZona(t *testing.T) {
-	if err := mensajeria.ValidarVariablesPlantilla("reconexion_temporal", map[string]string{"hasta": "2026-11-19T16:00:00Z"}); err != nil {
+	ahora := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	if err := mensajeria.ValidarVariablesPlantilla("reconexion_temporal", map[string]string{"hasta": "2026-11-19T16:00:00Z"}, ahora); err != nil {
 		t.Fatalf("RFC 3339: %v", err)
 	}
 	for _, v := range []string{"2026-11-19T10:00", "2026-11-19"} {
-		if err := mensajeria.ValidarVariablesPlantilla("reconexion_temporal", map[string]string{"hasta": v}); err == nil {
+		if err := mensajeria.ValidarVariablesPlantilla("reconexion_temporal", map[string]string{"hasta": v}, ahora); err == nil {
 			t.Errorf("%s: aceptado sin zona", v)
+		}
+	}
+	// También en una plantilla manual: un hasta pasado o a más de 49 h no se acepta.
+	for _, v := range []string{"2026-11-19T11:00:00Z", "2026-11-21T14:00:00Z", "2027-01-01T00:00:00Z"} {
+		if err := mensajeria.ValidarVariablesPlantilla("reconexion_temporal", map[string]string{"hasta": v}, ahora); err == nil {
+			t.Errorf("%s: hasta no creíble aceptado", v)
 		}
 	}
 	casos := map[string]string{
@@ -531,5 +545,137 @@ func TestReconexionHastaNoCreible(t *testing.T) {
 	}
 	if a := strings.Join(x.acciones(conv), ","); !strings.Contains(a, "reconexion_temporal:fallo") {
 		t.Fatalf("no pasó a una persona: %s", a)
+	}
+}
+
+// Item 7 de la revisión: el aviso del final no sale con la ventana cerrada, a un cliente dado de baja,
+// por un número cuyo préstamo se revocó, si otra empresa está conversando con ese teléfono, si la
+// conversación pasó a otra empresa o si se desasoció el cliente. Tampoco un final con más de 24 h.
+// Sin nada de eso, sale.
+func TestAvisoFinReconexionCasos(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(map[string]any{"reconexion_temporal": true, "recibir_boleta": true}, "alta")}, "maxTurnos": 20})
+	conv, cliente := x.conClienteArgos()
+	num := x.numeroDe(conv)
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
+	x.boletaRegistrada(conv, num)
+	x.cerrarHorario()
+	x.fuerte(conv)
+	x.turno(num, "wamid.b4j", "Reconéctenme", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("Listo. {{reconexion}}"))
+	if x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND estado = 'aceptada' AND hasta IS NOT NULL`, conv) != 1 {
+		t.Fatal("reconexión aceptada")
+	}
+	var canal int64
+	var numero string
+	if err := x.bd.QueryRow(x.ctx, `SELECT canal_id, numero FROM mensajeria.conversaciones WHERE id = $1`, conv).Scan(&canal, &numero); err != nil {
+		t.Fatal(err)
+	}
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := x.bd.Exec(x.ctx, sql, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	finTexto := mensajeria.TextoFinReconexion("cancelada", texto("vencida_sin_revisar"))
+	avisos := func() int {
+		return x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'saliente' AND texto = $2`, conv, finTexto)
+	}
+	// Deja el final pendiente de aviso, como lo deja el webhook.
+	pendiente := func() {
+		t.Helper()
+		exec(`UPDATE mensajeria.reconexiones SET argos_estado = 'cancelada', argos_fin_motivo = 'vencida_sin_revisar', argos_aviso = 'pendiente',
+			argos_aviso_mensaje_id = NULL, argos_actualizada_en = $2 WHERE conversacion_id = $1`, conv, *x.reloj)
+	}
+	exigir := func(caso, aviso string, mensajes int) {
+		t.Helper()
+		if err := x.m.VencerAtascadas(x.ctx, x.bd); err != nil {
+			t.Fatal(err)
+		}
+		if n := x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND argos_aviso = $2`, conv, aviso); n != 1 || avisos() != mensajes {
+			t.Fatalf("%s: aviso %s (%d), mensajes %d", caso, aviso, n, avisos())
+		}
+	}
+	casos := []struct {
+		nombre         string
+		preparar, undo string
+	}{
+		{"baja del cliente", `INSERT INTO mensajeria.consentimientos (empresa_id, cliente_id, canal, estado, origen, ocurrido_en)
+			VALUES (1, ` + fmt.Sprint(cliente) + `, 'whatsapp', 'baja', 'cliente', now())`,
+			`DELETE FROM mensajeria.consentimientos WHERE cliente_id = ` + fmt.Sprint(cliente)},
+		{"préstamo revocado", `UPDATE mensajeria.canales SET empresa_id = 2 WHERE id = ` + fmt.Sprint(canal) + `;
+			INSERT INTO mensajeria.canal_prestamos (canal_id, empresa_id, usos, activo, prestado_en, revocado_en, motivo_revocacion)
+			VALUES (` + fmt.Sprint(canal) + `, 1, '{soporte}', false, now(), now(), 'revocado en la prueba')`,
+			`DELETE FROM mensajeria.canal_prestamos WHERE canal_id = ` + fmt.Sprint(canal) + `; UPDATE mensajeria.canales SET empresa_id = 1 WHERE id = ` + fmt.Sprint(canal)},
+		{"conversación pasada a otra empresa", `UPDATE mensajeria.conversaciones SET empresa_id = 2, categoria_id = NULL, cola_id = NULL WHERE id = ` + conv,
+			`UPDATE mensajeria.conversaciones SET empresa_id = 1 WHERE id = ` + conv},
+		{"cliente desasociado", `UPDATE mensajeria.conversaciones SET cliente_id = NULL WHERE id = ` + conv,
+			`UPDATE mensajeria.conversaciones SET cliente_id = ` + fmt.Sprint(cliente) + ` WHERE id = ` + conv},
+	}
+	for _, c := range casos {
+		pendiente()
+		exec(c.preparar)
+		exigir(c.nombre, "sin_aviso", 0)
+		exec(c.undo)
+	}
+	// Otra empresa conversando con ese teléfono por el mismo número (compartido), con la conversación resuelta.
+	pendiente()
+	exec(`INSERT INTO mensajeria.canal_prestamos (canal_id, empresa_id, usos, activo, prestado_en) VALUES ($1, 2, '{soporte}', true, now())`, canal)
+	exec(`UPDATE mensajeria.conversaciones SET estado = 'resuelta' WHERE id = $1`, conv)
+	var otra int64
+	if err := x.bd.QueryRow(x.ctx, `INSERT INTO mensajeria.conversaciones OVERRIDING SYSTEM VALUE SELECT (jsonb_populate_record(NULL::mensajeria.conversaciones,
+		to_jsonb(c) || jsonb_build_object('id', (SELECT max(id) + 1000 FROM mensajeria.conversaciones), 'empresa_id', 2, 'estado', 'abierta', 'cliente_id', NULL, 'categoria_id', NULL, 'cola_id', NULL))).* FROM mensajeria.conversaciones c WHERE c.id = $1
+		RETURNING id`, conv).Scan(&otra); err != nil {
+		t.Fatal(err)
+	}
+	exigir("otra empresa conversando", "sin_aviso", 0)
+	exec(`DELETE FROM mensajeria.conversaciones WHERE id = $1`, otra)
+	exec(`DELETE FROM mensajeria.canal_prestamos WHERE canal_id = $1`, canal)
+	exec(`UPDATE mensajeria.conversaciones SET estado = 'abierta' WHERE id = $1`, conv)
+	// Un final con más de 24 h sin avisar ya no se avisa.
+	pendiente()
+	exec(`UPDATE mensajeria.reconexiones SET argos_actualizada_en = $2 WHERE conversacion_id = $1`, conv, x.reloj.Add(-25*time.Hour))
+	exigir("más de 24 h", "sin_aviso", 0)
+	// Sin nada de eso: sale una vez.
+	pendiente()
+	exigir("control", "enviado", 1)
+	// Con la ventana cerrada: no sale.
+	pendiente()
+	*x.reloj = x.reloj.Add(25 * time.Hour)
+	exec(`UPDATE mensajeria.reconexiones SET argos_actualizada_en = $2 WHERE conversacion_id = $1`, conv, *x.reloj)
+	exigir("ventana cerrada", "sin_aviso", 1)
+}
+
+// Item 3: un final de una reconexión que Iris no le anunció al cliente (rechazada o sin hasta) no se avisa.
+func TestAvisoFinReconexionSoloAnunciadas(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.autonomo("siempre_primero", map[string]any{"perfiles": []any{perfilCon(map[string]any{"reconexion_temporal": true, "recibir_boleta": true}, "alta")}, "maxTurnos": 20})
+	x.argos.mu.Lock()
+	x.argos.hastaReconex = x.reloj.Add(30 * 24 * time.Hour)
+	x.argos.mu.Unlock()
+	t.Cleanup(func() {
+		x.argos.mu.Lock()
+		x.argos.hastaReconex = time.Time{}
+		x.argos.mu.Unlock()
+	})
+	conv, cliente := x.conClienteArgos()
+	num := x.numeroDe(conv)
+	*x.reloj = x.reloj.Add(21 * time.Second)
+	x.ia.decir(`{"categoria": "Pagos y saldo", "confianza": 0.95}`)
+	x.boletaRegistrada(conv, num)
+	x.cerrarHorario()
+	x.fuerte(conv)
+	x.turno(num, "wamid.b4k", "Reconéctenme", "Pagos y saldo", llama("pedir_reconexion", `{}`), dice("Listo."))
+	var comprobante, promesa int64
+	if err := x.bd.QueryRow(x.ctx, `SELECT comprobante_id, promesa_argos_id FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND hasta IS NULL`, conv).Scan(&comprobante, &promesa); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(map[string]any{"promesa_id": promesa, "estado": "cancelada", "motivo": "vencida_sin_revisar", "tipo": "reconexion_temporal", "empresa_id": 1,
+		"cliente_id": cliente, "comprobante_id": comprobante, "entrante_id": 701})
+	if ok, err := x.m.AplicarPromesaArgos(x.ctx, x.bd, b); err != nil || !ok {
+		t.Fatalf("cancelada: %v %v", ok, err)
+	}
+	if x.contar(`SELECT count(*) FROM mensajeria.reconexiones WHERE conversacion_id = $1 AND argos_aviso = 'sin_aviso'`, conv) != 1 {
+		t.Fatal("una reconexión sin hasta quedó para avisar")
 	}
 }

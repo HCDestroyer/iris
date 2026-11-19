@@ -330,9 +330,9 @@ func RenderPlantilla(codigo string, v map[string]string) string {
 }
 
 // ValidarVariablesPlantilla: la validación de §6.2 de una plantilla del catálogo.
-func ValidarVariablesPlantilla(codigo string, v map[string]string) error {
+func ValidarVariablesPlantilla(codigo string, v map[string]string, ahora time.Time) error {
 	p, _ := PlantillaPorCodigo(codigo)
-	return p.validarVariables(v)
+	return p.validarVariables(v, ahora)
 }
 
 // FijarPlazoMedidas cambia el plazo para leer la cabecera de una foto al enviarla (pruebas).

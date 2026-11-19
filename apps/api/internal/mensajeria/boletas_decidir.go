@@ -587,7 +587,7 @@ func (m *Modulo) avisarBoleta(ctx context.Context, t *auditoria.Tx, q *mensajeri
 		if _, aprobada := plantillasDeCanal(canal)[p.Codigo]; !aprobada || (!uso.propio && !tieneUsoConversacion(uso.usos)) {
 			return AvisoBoletaSinAvis, nil, nil
 		}
-		if p.validarVariables(vars) != nil {
+		if p.validarVariables(vars, m.ahora()) != nil {
 			return AvisoBoletaSinAvis, nil, nil
 		}
 		if err := permisoPlantilla(ctx, q, *c, true); errors.As(err, &pr) {

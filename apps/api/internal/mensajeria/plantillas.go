@@ -125,7 +125,7 @@ var (
 )
 
 // validarVariables aplica §6.2: solo las claves declaradas, todas presentes y con su formato.
-func (p Plantilla) validarVariables(v map[string]string) error {
+func (p Plantilla) validarVariables(v map[string]string, ahora time.Time) error {
 	var errs []nucleo.ErrorCampo
 	desconocidas := []string{}
 	for k := range v {
@@ -156,8 +156,11 @@ func (p Plantilla) validarVariables(v map[string]string) error {
 		}
 		if p.Codigo == "reconexion_temporal" && d.Nombre == "hasta" {
 			// El instante de Argos, con su zona (RFC 3339): nunca una hora local sin zona (§7.3).
-			if _, err := time.Parse(time.RFC3339, valor); err != nil {
+			if h, err := time.Parse(time.RFC3339, valor); err != nil {
 				errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: "Instante RFC 3339 con zona (2026-11-19T06:00:00Z)", Rule: "instante_con_zona"})
+			} else if !HastaCreible(h, ahora) {
+				// Tampoco desde una plantilla manual: un hasta pasado o a más de 49 h no se le dice al cliente.
+				errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: "Debe ser posterior a ahora y a lo más 49 horas después", Rule: "hasta_no_creible"})
 			}
 			continue
 		}

@@ -296,8 +296,13 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		in.comprobante, in.omitido = comprobanteDe(e)
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoPromesaCreada, EventoPromesaCumplida, EventoPromesaIncumplida, EventoPromesaCancelada:
-		// El payload firmado trae lo que se muestra (no se relee de Argos); nunca el monto.
-		in.promesa, in.omitido = promesaDe(e)
+		// El payload firmado trae lo que se muestra (no se relee de Argos); nunca el monto. La empresa
+		// debe estar en el alcance del conector.
+		con, err := conectorbd.New(bd).ConectorPorID(ctx, e.ConectorID)
+		if err != nil {
+			return ResultadoEntrante{}, err
+		}
+		in.promesa, in.omitido = promesaDe(e, con)
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoServicioDatosCambiados:
 		in.datosServicio = datos.servicio()
