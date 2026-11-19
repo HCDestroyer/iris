@@ -4,7 +4,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, CONSULTA, conSesion, simularApi } from "./api-falsa";
 import { esTelefono } from "./ayudas";
 import { AHORA_CONV, CONVERSACIONES, detalle } from "./datos-conversaciones";
-import { esperarSinDesbordes } from "./desbordes";
+import { buscarDesbordes } from "./desbordes";
 import { recortarServicio } from "./recorte-servicio";
 
 /*
@@ -18,6 +18,9 @@ const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas
 const captura = (page: Page, nombre: string) => page.screenshot({ path: path.join(carpeta, `${nombre}-${test.info().project.name}.png`), fullPage: true });
 
 type ServicioConv = Schema<"ServicioResumenConversacion">;
+
+/** La hoja del teléfono entra deslizándose: se espera a que se asiente. */
+const sinDesbordes = (page: Page) => expect.poll(() => buscarDesbordes(page), "nada se desborda ni queda fuera de pantalla").toEqual([]);
 
 const base = { empresaId: 1, clienteId: 4102, zonaId: 7, sincronizadoEn: "2026-10-28T16:40:00Z" };
 const linea = (s: Omit<ServicioConv, "empresaId" | "clienteId" | "zonaId" | "sincronizadoEn" | "plan" | "zona">): ServicioConv => ({ ...base, ...s, plan: s.planNombre, zona: s.zonaNombre });
@@ -73,7 +76,7 @@ test.describe("servicios identificables", () => {
         const plan = l.getByTestId("linea-servicio-plan");
         expect(await plan.evaluate((e) => e.scrollWidth <= e.clientWidth + 1)).toBe(true);
         await expect(f.getByTestId("nota-permisos-servicio")).toHaveCount(0);
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "ficha-1-servicio");
     });
 
@@ -92,7 +95,7 @@ test.describe("servicios identificables", () => {
         // Sin precio en Argos: ningún monto inventado.
         await expect(lineas.nth(2)).not.toContainText("Q");
         await expect(lineas.nth(2)).toContainText("Pendiente de instalación");
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "ficha-3-servicios");
     });
 
@@ -104,9 +107,9 @@ test.describe("servicios identificables", () => {
         await expect(grupo.getByRole("radio", { name: /Servicio 2 · Chitá Fibra 100 Mbps · Chitá/ })).toBeChecked();
         await expect(grupo).toContainText("100.64.12.34");
         await expect(grupo).toContainText("Km 18 carretera a San Pedro");
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "orden-selector");
-        await grupo.getByText("Negocio 30 Mbps").click();
+        await grupo.getByRole("radio", { name: /Servicio 3 · Negocio 30 Mbps/ }).click();
         await expect(grupo.getByRole("radio", { name: /Servicio 3 · Negocio 30 Mbps/ })).toBeChecked();
         await page.getByRole("button", { name: "Crear orden" }).click();
         await expect.poll(() => api.conversaciones.enviados.find((e) => e.ruta.endsWith("/crear-orden"))?.cuerpo).toMatchObject({ servicioId: 41021 });
@@ -124,7 +127,7 @@ test.describe("servicios identificables", () => {
         await expect(lista.getByTestId("linea-servicio-direccion")).toHaveCount(0);
         await expect(lista).not.toContainText("100.64");
         await expect(f.getByTestId("nota-permisos-servicio")).toContainText("Tu rol no ve la dirección ni los datos de red del servicio.");
-        await esperarSinDesbordes(page);
+        await sinDesbordes(page);
         await captura(page, "sin-permisos");
     });
 });
