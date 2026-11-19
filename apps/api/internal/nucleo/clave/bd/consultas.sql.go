@@ -140,6 +140,36 @@ func (q *Queries) CanalesMensajeriaCifrados(ctx context.Context) ([]CanalesMensa
 	return items, nil
 }
 
+const centralitasCifradas = `-- name: CentralitasCifradas :many
+SELECT id, secreto_cifrado FROM mensajeria.centralitas WHERE secreto_cifrado IS NOT NULL ORDER BY id
+`
+
+type CentralitasCifradasRow struct {
+	ID             int64
+	SecretoCifrado []byte
+}
+
+// Contraseña del usuario AMI de cada centralita Issabel.
+func (q *Queries) CentralitasCifradas(ctx context.Context) ([]CentralitasCifradasRow, error) {
+	rows, err := q.db.Query(ctx, centralitasCifradas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CentralitasCifradasRow
+	for rows.Next() {
+		var i CentralitasCifradasRow
+		if err := rows.Scan(&i.ID, &i.SecretoCifrado); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const conectoresCifrados = `-- name: ConectoresCifrados :many
 SELECT id, token_cifrado, secreto_webhook_cifrado FROM integracion.conectores
 ORDER BY id
@@ -339,6 +369,20 @@ type RecifrarCanalMensajeriaParams struct {
 
 func (q *Queries) RecifrarCanalMensajeria(ctx context.Context, arg RecifrarCanalMensajeriaParams) error {
 	_, err := q.db.Exec(ctx, recifrarCanalMensajeria, arg.CredencialesCifradas, arg.ID)
+	return err
+}
+
+const recifrarCentralita = `-- name: RecifrarCentralita :exec
+UPDATE mensajeria.centralitas SET secreto_cifrado = $1 WHERE id = $2
+`
+
+type RecifrarCentralitaParams struct {
+	SecretoCifrado []byte
+	ID             int64
+}
+
+func (q *Queries) RecifrarCentralita(ctx context.Context, arg RecifrarCentralitaParams) error {
+	_, err := q.db.Exec(ctx, recifrarCentralita, arg.SecretoCifrado, arg.ID)
 	return err
 }
 

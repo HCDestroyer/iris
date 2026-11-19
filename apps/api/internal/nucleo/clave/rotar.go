@@ -46,6 +46,8 @@ const (
 	ColumnaMotorClaveCert      = "mensajeria.voz_motores.cert_cliente_clave"
 	ColumnaMotorCodigoEnlace   = "mensajeria.voz_motores.enlace_codigo"
 	ColumnaMotorClaveCertSig   = "mensajeria.voz_motores.cert_cliente_clave_siguiente"
+	// ColumnaCentralita: contraseña del usuario AMI de la centralita Issabel (contratos/voz.md §2.10).
+	ColumnaCentralita = "mensajeria.centralitas.secreto_cifrado"
 	// ColumnaCorreoSistema: contraseña del SMTP del correo del sistema (contratos/correo-sistema.md).
 	ColumnaCorreoSistema = "notificaciones.correo_ajustes.contrasena_cifrada"
 )
@@ -53,7 +55,7 @@ const (
 // Columnas en el orden en que se rotan y se informan.
 var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador,
 	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta, ColumnaAsistente, ColumnaMotorToken, ColumnaMotorTokenSiguiente, ColumnaMotorClaveCert,
-	ColumnaMotorCodigoEnlace, ColumnaMotorClaveCertSig, ColumnaCorreoSistema}
+	ColumnaMotorCodigoEnlace, ColumnaMotorClaveCertSig, ColumnaCorreoSistema, ColumnaCentralita}
 
 // datoAsociadoBuzon es el de internal/soporte (buzones.go, de I2): "soporte.buzon:<id>:imap|smtp".
 // La prueba de la rotación lo verifica leyendo el buzón con el módulo de soporte.
@@ -160,6 +162,9 @@ func nuevoRotar(c *nucleo.Cifrador) *auditoria.Caso[EntradaRotar, Resultado] {
 				return Resultado{}, err
 			}
 			if err := r.correosSistema(ctx, q, in.Simular); err != nil {
+				return Resultado{}, err
+			}
+			if err := r.centralitas(ctx, q, in.Simular); err != nil {
 				return Resultado{}, err
 			}
 			for _, col := range Columnas {
@@ -413,6 +418,25 @@ func (r *rotador) motoresIA(ctx context.Context, q *clavebd.Queries, simular boo
 		}
 		if hay && !simular {
 			if err := q.RecifrarMotorIA(ctx, p); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (r *rotador) centralitas(ctx context.Context, q *clavebd.Queries, simular bool) error {
+	filas, err := q.CentralitasCifradas(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		nuevo, cambio, err := r.valor(ColumnaCentralita, f.ID, f.SecretoCifrado, mensajeria.DatosAsociadosCentralita(f.ID))
+		if err != nil {
+			return err
+		}
+		if cambio && !simular {
+			if err := q.RecifrarCentralita(ctx, clavebd.RecifrarCentralitaParams{ID: f.ID, SecretoCifrado: nuevo}); err != nil {
 				return err
 			}
 		}

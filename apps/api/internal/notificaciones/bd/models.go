@@ -1286,6 +1286,78 @@ type MensajeriaCanale struct {
 	RechazadoPorEnvio     bool
 }
 
+type MensajeriaCentralita struct {
+	ID                int64
+	EmpresaID         *int64
+	Nombre            string
+	Tipo              string
+	Host              string
+	Puerto            int32
+	Usuario           string
+	SecretoCifrado    []byte
+	SecretoGuardadoEn *time.Time
+	HuellaTls         *string
+	HuellaVista       *string
+	Modo              string
+	Estado            string
+	ErrorCodigo       *string
+	ProbadaEn         *time.Time
+	ConectadaEn       *time.Time
+	DesconectadaDesde *time.Time
+	UltimoEventoEn    *time.Time
+	Activa            bool
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type MensajeriaCentralitaExtensione struct {
+	ID           int64
+	EmpresaID    *int64
+	CentralitaID int64
+	Extension    string
+	UsuarioID    int64
+	Activa       bool
+	QuitadaEn    *time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+}
+
+type MensajeriaCentralitaLlamada struct {
+	ID            uuid.UUID
+	EmpresaID     *int64
+	CentralitaID  int64
+	IDExterno     string
+	Direccion     string
+	Numero        string
+	ClienteID     *int64
+	ServicioID    *int64
+	Asociacion    *string
+	Coincidencias int32
+	Estado        string
+	UsuarioID     *int64
+	Extension     *string
+	SonoEn        time.Time
+	ContestadaEn  *time.Time
+	TerminadaEn   *time.Time
+	DuracionSeg   *int32
+	Nota          *string
+	Resultado     *string
+	AnotadaPor    *int64
+	TicketID      *int64
+	Version       int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+type MensajeriaCentralitaReceptore struct {
+	LlamadaID uuid.UUID
+	UsuarioID int64
+	EmpresaID *int64
+	Extension string
+	SonoEn    time.Time
+}
+
 type MensajeriaChatConversacione struct {
 	ID              int64
 	EmpresaID       *int64
@@ -1462,16 +1534,17 @@ type MensajeriaContactosIri struct {
 }
 
 type MensajeriaConvEvento struct {
-	ID             int64
-	EmpresaID      *int64
-	ConversacionID int64
-	Tipo           string
-	MensajeID      pgtype.UUID
-	UsuarioID      *int64
-	OcurridoEn     time.Time
-	CreatedAt      time.Time
-	SugerenciaID   pgtype.UUID
-	LlamadaID      pgtype.UUID
+	ID                  int64
+	EmpresaID           *int64
+	ConversacionID      *int64
+	Tipo                string
+	MensajeID           pgtype.UUID
+	UsuarioID           *int64
+	OcurridoEn          time.Time
+	CreatedAt           time.Time
+	SugerenciaID        pgtype.UUID
+	LlamadaID           pgtype.UUID
+	CentralitaLlamadaID pgtype.UUID
 }
 
 type MensajeriaConversacionEtiqueta struct {

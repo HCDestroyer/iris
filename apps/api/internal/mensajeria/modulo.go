@@ -146,6 +146,22 @@ type Config struct {
 	// EsperaAsistente: en modo automático, cuánto se espera desde el último mensaje del cliente
 	// para juntar mensajes seguidos (20 s).
 	EsperaAsistente time.Duration
+
+	// Centralita Issabel (contratos/voz.md §3.12, E4a).
+	// CentralitaLoopback permite el AMI en loopback (solo pruebas).
+	CentralitaLoopback bool
+	// CentralitaPuertos: puertos del AMI permitidos además del 5039 (instalación; pruebas).
+	CentralitaPuertos []int
+	// CentralitaPlazo para conectar y entrar (10 s).
+	CentralitaPlazo time.Duration
+	// CentralitaRevision: cada cuánto el motor revisa centralitas y extensiones (30 s).
+	CentralitaRevision time.Duration
+	// CentralitaGracia: una caída más corta no cambia el estado (60 s).
+	CentralitaGracia time.Duration
+	// CentralitaPing: latido al AMI (20 s).
+	CentralitaPing time.Duration
+	// CentralitaEventosSeg: eventos por segundo que se procesan como mucho (200).
+	CentralitaEventosSeg int
 }
 
 // Modulo reúne los casos de uso.
@@ -185,6 +201,8 @@ type Modulo struct {
 	Meta casosMeta
 	// Asistente de IA (§16).
 	Asistente casosAsistente
+	// Centralita: conexión, extensiones y llamadas de la centralita Issabel (E4a).
+	Centralita casosCentralita
 	// difusorConv despierta los flujos SSE de la bandeja (NOTIFY iris_conversaciones).
 	difusorConv *difusor
 	// alRecibir: lo que pasa después de guardar un mensaje del cliente (fuera de horario, PR B).
@@ -313,6 +331,21 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.EsperaAsistente <= 0 {
 		cfg.EsperaAsistente = 20 * time.Second
 	}
+	if cfg.CentralitaPlazo <= 0 {
+		cfg.CentralitaPlazo = 10 * time.Second
+	}
+	if cfg.CentralitaRevision <= 0 {
+		cfg.CentralitaRevision = centralitaRevision
+	}
+	if cfg.CentralitaGracia <= 0 {
+		cfg.CentralitaGracia = centralitaGracia
+	}
+	if cfg.CentralitaPing <= 0 {
+		cfg.CentralitaPing = centralitaPing
+	}
+	if cfg.CentralitaEventosSeg <= 0 {
+		cfg.CentralitaEventosSeg = centralitaEventosSeg
+	}
 	if cfg.EnlaceManual <= 0 {
 		cfg.EnlaceManual = 30 * 24 * time.Hour
 	}
@@ -361,6 +394,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.Horarios = nuevosCasosHorarios(m)
 	m.Meta = nuevosCasosMeta(m)
 	m.Asistente = nuevosCasosAsistente(m)
+	m.Centralita = nuevosCasosCentralita(m)
 	return m
 }
 
