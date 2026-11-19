@@ -141,6 +141,14 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		}
 		a.rutaExtra(w, r)
 	}))
+	// GET /cuentas-bancarias/:id (0.8.0 §7.8): también lo atiende rutaExtra.
+	mux.HandleFunc("GET /api/v1/cuentas-bancarias/{id}", a.conToken(func(w http.ResponseWriter, r *http.Request) {
+		if a.rutaExtra == nil {
+			http.NotFound(w, r)
+			return
+		}
+		a.rutaExtra(w, r)
+	}))
 	mux.HandleFunc("GET /api/v1/clientes/{id}", a.conToken(a.cliente))
 	mux.HandleFunc("GET /api/v1/clientes/{id}/estado-cuenta", a.conToken(a.estadoCuenta))
 	mux.HandleFunc("GET /api/v1/servicios", a.conToken(a.serviciosDe))

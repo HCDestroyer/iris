@@ -192,6 +192,24 @@ func (q *Queries) BorrarCliente(ctx context.Context, id int64) error {
 	return err
 }
 
+const borrarCuentaBancaria = `-- name: BorrarCuentaBancaria :execrows
+DELETE FROM integracion.argos_cuentas_bancarias WHERE id = $1 AND sincronizado_en <= $2
+`
+
+type BorrarCuentaBancariaParams struct {
+	ID      int64
+	LeidoEn time.Time
+}
+
+// Una cuenta que Argos ya no le muestra a Iris (fuera del alcance del token). Argos nunca borra cuentas.
+func (q *Queries) BorrarCuentaBancaria(ctx context.Context, arg BorrarCuentaBancariaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarCuentaBancaria, arg.ID, arg.LeidoEn)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const borrarRouter = `-- name: BorrarRouter :exec
 DELETE FROM integracion.argos_routers WHERE id = $1
 `
@@ -764,6 +782,176 @@ func (q *Queries) CrearSincronizacion(ctx context.Context, arg CrearSincronizaci
 	return i, err
 }
 
+const cuentaBancariaInstantanea = `-- name: CuentaBancariaInstantanea :one
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE id = $1
+`
+
+func (q *Queries) CuentaBancariaInstantanea(ctx context.Context, id int64) (IntegracionArgosCuentasBancaria, error) {
+	row := q.db.QueryRow(ctx, cuentaBancariaInstantanea, id)
+	var i IntegracionArgosCuentasBancaria
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.BancoID,
+		&i.BancoNombre,
+		&i.Numero,
+		&i.Alias,
+		&i.Titular,
+		&i.Tipo,
+		&i.Moneda,
+		&i.Activa,
+		&i.SincronizadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const cuentaBancariaParaActualizar = `-- name: CuentaBancariaParaActualizar :one
+
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE id = $1 FOR UPDATE
+`
+
+// Cuentas bancarias (contrato 0.8.0 §7.8) ---------------------------------------------------------
+// La fila de la instantánea con su candado (para comparar antes de guardar y emitir el cambio).
+func (q *Queries) CuentaBancariaParaActualizar(ctx context.Context, id int64) (IntegracionArgosCuentasBancaria, error) {
+	row := q.db.QueryRow(ctx, cuentaBancariaParaActualizar, id)
+	var i IntegracionArgosCuentasBancaria
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.BancoID,
+		&i.BancoNombre,
+		&i.Numero,
+		&i.Alias,
+		&i.Titular,
+		&i.Tipo,
+		&i.Moneda,
+		&i.Activa,
+		&i.SincronizadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const cuentasBancariasDeEmpresa = `-- name: CuentasBancariasDeEmpresa :many
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE empresa_id = $1
+ORDER BY banco_nombre, alias, id
+`
+
+// Orden de Argos: banco, alias, id.
+func (q *Queries) CuentasBancariasDeEmpresa(ctx context.Context, empresaID int64) ([]IntegracionArgosCuentasBancaria, error) {
+	rows, err := q.db.Query(ctx, cuentasBancariasDeEmpresa, empresaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosCuentasBancaria
+	for rows.Next() {
+		var i IntegracionArgosCuentasBancaria
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.BancoID,
+			&i.BancoNombre,
+			&i.Numero,
+			&i.Alias,
+			&i.Titular,
+			&i.Tipo,
+			&i.Moneda,
+			&i.Activa,
+			&i.SincronizadoEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cuentasBancariasNoVistas = `-- name: CuentasBancariasNoVistas :many
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE sincronizado_en < $1 ORDER BY id
+`
+
+// Las de la instantánea que una lista completa (leída desde @desde) no trajo.
+func (q *Queries) CuentasBancariasNoVistas(ctx context.Context, desde time.Time) ([]IntegracionArgosCuentasBancaria, error) {
+	rows, err := q.db.Query(ctx, cuentasBancariasNoVistas, desde)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosCuentasBancaria
+	for rows.Next() {
+		var i IntegracionArgosCuentasBancaria
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.BancoID,
+			&i.BancoNombre,
+			&i.Numero,
+			&i.Alias,
+			&i.Titular,
+			&i.Tipo,
+			&i.Moneda,
+			&i.Activa,
+			&i.SincronizadoEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cuentasBancariasTodas = `-- name: CuentasBancariasTodas :many
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias ORDER BY empresa_id, banco_nombre, alias, id
+`
+
+func (q *Queries) CuentasBancariasTodas(ctx context.Context) ([]IntegracionArgosCuentasBancaria, error) {
+	rows, err := q.db.Query(ctx, cuentasBancariasTodas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosCuentasBancaria
+	for rows.Next() {
+		var i IntegracionArgosCuentasBancaria
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.BancoID,
+			&i.BancoNombre,
+			&i.Numero,
+			&i.Alias,
+			&i.Titular,
+			&i.Tipo,
+			&i.Moneda,
+			&i.Activa,
+			&i.SincronizadoEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const eliminado = `-- name: Eliminado :one
 SELECT tipo, id, empresa_id, cliente_id, codigo, nombre, de_instantanea, conector_id, entrante_id, eliminado_en, confirmado_en, created_at FROM integracion.argos_eliminados WHERE tipo = $1 AND id = $2
 `
@@ -1136,6 +1324,51 @@ func (q *Queries) GuardarCopia(ctx context.Context, arg GuardarCopiaParams) erro
 	return err
 }
 
+const guardarCuentaBancaria = `-- name: GuardarCuentaBancaria :execrows
+INSERT INTO integracion.argos_cuentas_bancarias (id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, banco_id = excluded.banco_id, banco_nombre = excluded.banco_nombre, numero = excluded.numero,
+    alias = excluded.alias, titular = excluded.titular, tipo = excluded.tipo, moneda = excluded.moneda, activa = excluded.activa,
+    sincronizado_en = excluded.sincronizado_en, updated_at = now()
+WHERE integracion.argos_cuentas_bancarias.sincronizado_en <= excluded.sincronizado_en
+`
+
+type GuardarCuentaBancariaParams struct {
+	ID             int64
+	EmpresaID      int64
+	BancoID        *int64
+	BancoNombre    string
+	Numero         string
+	Alias          string
+	Titular        *string
+	Tipo           *string
+	Moneda         string
+	Activa         bool
+	SincronizadoEn time.Time
+}
+
+// Gana la lectura más reciente de Argos (una relectura vieja no pisa a una nueva).
+func (q *Queries) GuardarCuentaBancaria(ctx context.Context, arg GuardarCuentaBancariaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, guardarCuentaBancaria,
+		arg.ID,
+		arg.EmpresaID,
+		arg.BancoID,
+		arg.BancoNombre,
+		arg.Numero,
+		arg.Alias,
+		arg.Titular,
+		arg.Tipo,
+		arg.Moneda,
+		arg.Activa,
+		arg.SincronizadoEn,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const guardarRouter = `-- name: GuardarRouter :exec
 INSERT INTO integracion.argos_routers (id, empresa_id, nombre, zona_id, lat, lon, sincronizado_en)
 SELECT $1, $2, $3, $4, $5, $6, $7
@@ -1400,6 +1633,20 @@ func (q *Queries) IDsExternosVinculados(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const lecturaCuentasDe = `-- name: LecturaCuentasDe :one
+SELECT leido_en FROM integracion.argos_cuentas_lecturas WHERE empresa_id IN (0, $1::bigint)
+ORDER BY leido_en DESC LIMIT 1
+`
+
+// La última lista completa que cubre a la empresa (la suya o la de todas, empresa 0).
+// Sin filas: nunca se leyó.
+func (q *Queries) LecturaCuentasDe(ctx context.Context, empresaID int64) (time.Time, error) {
+	row := q.db.QueryRow(ctx, lecturaCuentasDe, empresaID)
+	var leido_en time.Time
+	err := row.Scan(&leido_en)
+	return leido_en, err
+}
+
 const marcarFalloCliente = `-- name: MarcarFalloCliente :exec
 UPDATE integracion.argos_clientes SET fallo_en = $1 WHERE id = $2
 `
@@ -1412,6 +1659,21 @@ type MarcarFalloClienteParams struct {
 // Argos no respondió al leer el cliente: durante EsperaTrasFallo no se vuelve a pedir.
 func (q *Queries) MarcarFalloCliente(ctx context.Context, arg MarcarFalloClienteParams) error {
 	_, err := q.db.Exec(ctx, marcarFalloCliente, arg.FalloEn, arg.ID)
+	return err
+}
+
+const marcarLecturaCuentas = `-- name: MarcarLecturaCuentas :exec
+INSERT INTO integracion.argos_cuentas_lecturas (empresa_id, leido_en) VALUES ($1, $2)
+ON CONFLICT (empresa_id) DO UPDATE SET leido_en = greatest(integracion.argos_cuentas_lecturas.leido_en, excluded.leido_en)
+`
+
+type MarcarLecturaCuentasParams struct {
+	EmpresaID int64
+	LeidoEn   time.Time
+}
+
+func (q *Queries) MarcarLecturaCuentas(ctx context.Context, arg MarcarLecturaCuentasParams) error {
+	_, err := q.db.Exec(ctx, marcarLecturaCuentas, arg.EmpresaID, arg.LeidoEn)
 	return err
 }
 

@@ -147,7 +147,9 @@ func (e *entorno) sembrarSinc(version, contrato string) {
 		e.argos.sinc080.bancos = []map[string]any{{"id": 1, "nombre": "Banco Industrial"}, {"id": 2, "nombre": "Banrural"}}
 		e.argos.rutaExtra = func(w http.ResponseWriter, r *http.Request) {
 			e.argos.sinc080.cabeceras = append(e.argos.sinc080.cabeceras, r.Header.Get("X-Iris-Actor"))
-			escribir(w, []map[string]any{{"id": 1, "alias": "Monetaria BI", "banco_nombre": "Banco Industrial", "empresa_id": 1}})
+			// La forma real de Argos (§7.8): número, moneda y activa siempre vienen.
+			escribir(w, []map[string]any{{"id": 1, "alias": "Monetaria BI", "banco_nombre": "Banco Industrial", "empresa_id": 1, "numero": "000-123456-7",
+				"moneda": "GTQ", "activa": true, "titular": "Internet del Norte, S.A.", "tipo": "monetaria"}})
 		}
 		for _, c := range []int64{701, 702, 703, 704} {
 			e.argos.clientes[c] = map[string]any{"id": c, "codigo": fmt.Sprintf("C-%d", c), "nombre": fmt.Sprintf("Cliente %d", c), "zona_id": 3}
@@ -269,6 +271,10 @@ func TestPrimeraSincronizacion080(t *testing.T) {
 	}
 	if len(cabeceras) != 2 || cabeceras[0] != "" || cabeceras[1] != "" {
 		t.Fatalf("cuentas y bancos se leen sin X-Iris-Actor: %v", cabeceras)
+	}
+	// B5: el paso de cuentas llena la instantánea con titular y tipo (FijarCargasBancarias).
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_cuentas_bancarias WHERE id = 1 AND titular = 'Internet del Norte, S.A.' AND tipo = 'monetaria' AND activa`); n != 1 {
+		t.Fatal("la primera sincronización llena la instantánea de cuentas")
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.argos_clientes WHERE id IN (701, 702, 703, 704)`); n != 3 {
 		t.Fatalf("clientes en la instantánea: %d (el 703 solo tiene retirados)", n)

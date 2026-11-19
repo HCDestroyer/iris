@@ -90,6 +90,8 @@ type Modulo struct {
 	guardarFichaInterna *auditoria.Caso[entradaGuardarFicha, struct{}]
 	// guardarTrasladoLeido: el traslado confirmado con GET /inventario/traslados/:id.
 	guardarTrasladoLeido *auditoria.Caso[argosbd.GuardarTrasladoParams, struct{}]
+	// guardarCuentas: la instantánea de cuentas bancarias (0.8.0 §7.8).
+	guardarCuentas *auditoria.Caso[lecturaCuentas, ResultadoCuentas]
 	// cargaCuentas y cargaBancos: la instantánea de cuentas y bancos (B5); nil = solo contar.
 	cargaCuentas, cargaBancos CargaCatalogoBancario
 	cfg                       Config
@@ -153,7 +155,7 @@ func Nuevo(cfg Config) *Modulo {
 		cfg.VigenciaInstantanea = 24 * time.Hour
 	}
 	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones(), refrescos: nuevosRefrescos(), guardarFichaInterna: nuevoGuardarFichaInterna(),
-		guardarTrasladoLeido: nuevoGuardarTrasladoLeido()}
+		guardarTrasladoLeido: nuevoGuardarTrasladoLeido(), guardarCuentas: nuevoGuardarCuentas()}
 	m.nucleo = conector.Nuevo(conector.Config{
 		Cifrador: cfg.Cifrador, BaseURL: cfg.BaseURL, VentanaWebhook: cfg.VentanaWebhook, VigenciaEnlace: cfg.VigenciaEnlace,
 		PermitirHTTP: cfg.PermitirHTTP, Encolar: cfg.Encolar, Version: cfg.Version,
@@ -207,6 +209,9 @@ func Nuevo(cfg Config) *Modulo {
 	m.RevisarVersion = nuevoRevisarVersion(m)
 	m.ListarTecnicosArgos = nuevoListarTecnicosArgos(m)
 	m.AbrirArgos = nuevoAbrirArgos(m)
+	// 0.8.0 §2.5 paso 5: la primera sincronización llena la instantánea de cuentas (B5); los bancos solo
+	// se leen y se cuentan (Iris no los guarda).
+	m.FijarCargasBancarias(m.CargaCuentasBancarias, nil)
 	m.PrimeraSincronizacion = nuevaPrimeraSincronizacion(m)
 	m.InformarSincronizacion = nuevoInformarSincronizacion(m)
 	m.Sincronizar = nuevoSincronizar(m)

@@ -203,6 +203,10 @@ type Modulo struct {
 	dispararBot      *auditoria.Caso[int64, bool]
 	botDiferido      *auditoria.Caso[int64, bool]
 	permisoBoleta    *auditoria.Caso[int64, alcanceConv]
+	// permisoCuentasCliente: «Enviar cuentas» (conversaciones.responder, contrato con Argos 0.8.0 §7.8).
+	permisoCuentasCliente *auditoria.Caso[int64, alcanceConv]
+	// revisionCuentas: textos con números de cuenta escritos a mano (§10.3, filas 12 a 14).
+	revisionCuentas *auditoria.Caso[struct{}, RevisionCuentas]
 	// Aprobar y rechazar boletas (contrato con Argos 0.7.0 §7.7).
 	boletas       *DecidirBoleta
 	verBoleta     *auditoria.Caso[EntradaBoletaID, Boleta]
@@ -218,6 +222,8 @@ type Modulo struct {
 	// antesDeLeerFlujo: solo pruebas (en los flujos SSE del chat y la bandeja, entre la autorización
 	// que da el alcance y la lectura del feed; recibe el usuario del flujo). Se fija antes de abrirlos.
 	antesDeLeerFlujo func(usuario int64)
+	// trasPrepararCuentas: pruebas; corre entre armar el texto de «Enviar cuentas» y la transacción.
+	trasPrepararCuentas func(empresa *int64)
 	// alRevalidarFlujo: solo pruebas (cada revalidación de un flujo SSE del chat o la bandeja, con el
 	// usuario del flujo y dónde: pagina, latido o toque). Se fija antes de abrirlos.
 	alRevalidarFlujo func(usuario int64, donde string)
@@ -354,6 +360,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.botDiferido = nuevoBotDiferido(m)
 	m.auditarBot = nuevoAuditarBot()
 	m.permisoBoleta = nuevoPermisoBoleta()
+	m.permisoCuentasCliente = nuevoAlcanceCuentas("conversaciones.texto_cuentas", nucleo.PermConversacionesResponder)
+	m.revisionCuentas = nuevaRevisionCuentas()
 	m.boletas = nuevoDecidirBoleta(m)
 	m.verBoleta = nuevoVerBoleta(m)
 	m.listarBoletas = nuevoListarBoletas(m)
