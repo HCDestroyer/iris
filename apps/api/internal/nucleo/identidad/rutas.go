@@ -286,6 +286,26 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responderSecreto(ctx, v, err)
 		})
 
+	eliminarToken := operacion("eliminarToken", http.MethodPost, "/api/v1/tokens/{id}/eliminar", "Eliminar un token de API revocado o vencido", nucleo.PermTokensEliminar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	eliminarToken.Description += " Borrado lógico: el token deja de salir en `GET /api/v1/tokens` y su hash se borra; la auditoría y el historial siguen apuntando a él. Solo uno revocado o vencido: uno que aún vale responde 409 `token_vigente` (revócalo primero). Si un conector activo lo usa (el iris_pat_ entregado a Argos u Horus), 409 `token_en_uso_por_conector`. Fuera de tu alcance de empresas, 404. Eliminarlo otra vez responde 200 con el mismo token, sin evento. Emite `token.eliminado` (motivo `manual`)."
+	huma.Register(api, eliminarToken,
+		func(ctx context.Context, in *conID[EntradaEliminarToken]) (*cuerpo[TokenAPI], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(m.EliminarToken.Ejecutar(ctx, e))
+		})
+	contarEliminables := operacion("contarTokensEliminables", http.MethodGet, "/api/v1/tokens/eliminables", "Contar los tokens revocados o vencidos que se pueden eliminar", nucleo.PermTokensEliminar, http.StatusOK)
+	contarEliminables.Description += " Lo que eliminaría `POST /api/v1/tokens/eliminar-inactivos` con el mismo filtro (para la confirmación)."
+	huma.Register(api, contarEliminables,
+		func(ctx context.Context, in *ConsultaTokensInactivos) (*cuerpo[TokensEliminables], error) {
+			return responder(m.ContarTokensEliminables.Ejecutar(ctx, EntradaTokensInactivos{UsuarioID: in.UsuarioID}))
+		})
+	eliminarInactivos := operacion("eliminarTokensInactivos", http.MethodPost, "/api/v1/tokens/eliminar-inactivos", "Eliminar todos los tokens revocados y vencidos", nucleo.PermTokensEliminar, http.StatusOK)
+	eliminarInactivos.Description += " Todos los revocados o vencidos que ves y administras (opcional: de un usuario), salvo los que usa un conector activo (`omitidos`). Cada uno se audita por separado y emite `token.eliminado` (motivo `lote`). Sin ninguno, responde `eliminados: 0`."
+	huma.Register(api, eliminarInactivos,
+		func(ctx context.Context, in *conClave[EntradaTokensInactivos]) (*cuerpo[TokensEliminados], error) {
+			return responder(m.EliminarTokensInactivos.Ejecutar(ctx, in.Body))
+		})
 	huma.Register(api, operacion("revocarToken", http.MethodPost, "/api/v1/tokens/{id}/revocar", "Revocar un token de API", nucleo.PermTokensRevocar, http.StatusOK, http.StatusNotFound),
 		func(ctx context.Context, in *conID[EntradaRevocarToken]) (*cuerpo[TokenAPI], error) {
 			e := in.Body

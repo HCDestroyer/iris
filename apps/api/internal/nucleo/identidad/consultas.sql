@@ -189,14 +189,14 @@ RETURNING *;
 SELECT sqlc.embed(t), sqlc.embed(u)
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
-WHERE t.hash = @hash AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
+WHERE t.hash = @hash AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
 
 -- name: TokenVigentePorID :one
 -- Revalidar un flujo largo (SSE del chat) autenticado con este token.
 SELECT t.permisos, u.id AS usuario_id
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
-WHERE t.id = @id AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
+WHERE t.id = @id AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
 
 -- name: SesionVigentePorID :one
 -- Revalidar un flujo largo (SSE del chat) autenticado con esta sesión del panel.
@@ -212,8 +212,11 @@ WHERE id = @id AND (ultimo_uso IS NULL OR ultimo_uso < now() - interval '1 minut
 
 -- name: ListarTokens :many
 -- Sin @todas, solo los tokens propios y los de usuarios que comparten alguna empresa (@empresas).
+-- Nunca los eliminados; con @vigentes, solo los que aún valen (sin revocar ni vencer).
 SELECT * FROM nucleo.tokens_api t
-WHERE t.id > @despues_de AND (sqlc.narg(usuario_id)::bigint IS NULL OR t.usuario_id = sqlc.narg(usuario_id))
+WHERE t.id > @despues_de AND t.eliminado_en IS NULL
+  AND (NOT @vigentes::boolean OR (t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now())))
+  AND (sqlc.narg(usuario_id)::bigint IS NULL OR t.usuario_id = sqlc.narg(usuario_id))
   AND (@todas::boolean OR t.usuario_id = @yo
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
                   WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = ANY(@empresas::bigint[])))
@@ -235,6 +238,29 @@ RETURNING id;
 UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- name: EliminarToken :one
+-- Borrado lógico (tokens.eliminar): la fila queda para la auditoría; el hash se borra.
+UPDATE nucleo.tokens_api SET eliminado_en = now(), eliminado_por = sqlc.narg(eliminado_por), hash = NULL, updated_at = now()
+WHERE id = @id AND eliminado_en IS NULL
+RETURNING *;
+
+-- name: TokenUsadoPorConectorActivo :one
+-- Un conector activo depende del token: el iris_pat_ que Iris le entregó en el canje, o el del
+-- conector al que reemplaza mientras dura la reconexión sin corte.
+SELECT EXISTS (SELECT 1 FROM integracion.conectores
+               WHERE estado = 'activo' AND (token_entregado_id = @id::bigint OR reemplaza_token_id = @id::bigint))::boolean;
+
+-- name: TokensEliminables :many
+-- Los revocados o vencidos (sin eliminar) que el actor ve, como en ListarTokens; el caso de uso
+-- aplica después exigirVisible y la regla del conector a cada uno.
+SELECT t.id, t.usuario_id FROM nucleo.tokens_api t
+WHERE t.eliminado_en IS NULL AND (t.revocado_en IS NOT NULL OR t.expira_en <= now())
+  AND (sqlc.narg(usuario_id)::bigint IS NULL OR t.usuario_id = sqlc.narg(usuario_id))
+  AND (@todas::boolean OR t.usuario_id = @yo
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                  WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = ANY(@empresas::bigint[])))
+ORDER BY t.id;
 
 -- Límites de intentos -------------------------------------------------------
 

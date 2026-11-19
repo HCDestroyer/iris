@@ -31,6 +31,9 @@ func nuevoRevocarToken() *auditoria.Caso[EntradaRevocarToken, TokenAPI] {
 			if err := exigirVisible(ctx, q, antes.UsuarioID, "revocar tokens de este usuario"); err != nil {
 				return TokenAPI{}, err
 			}
+			if antes.EliminadoEn != nil {
+				return TokenAPI{}, nucleo.NoEncontrado("") // un token eliminado ya no existe para la API
+			}
 			if antes.RevocadoEn != nil {
 				return TokenAPI{}, nucleo.ReglaNegocio("token_revocado", "El token ya está revocado")
 			}

@@ -13,6 +13,7 @@ import (
 type EntradaListarTokens struct {
 	nucleo.ParamsPagina
 	UsuarioID int64 `query:"usuario_id" minimum:"0" doc:"Solo los tokens de este usuario"`
+	Vigentes  bool  `query:"vigentes" doc:"Solo los que aún valen (sin revocar ni vencer). Los eliminados no salen nunca"`
 }
 
 func nuevoListarTokens() *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[TokenAPI]] {
@@ -26,7 +27,7 @@ func nuevoListarTokens() *auditoria.Caso[EntradaListarTokens, nucleo.Pagina[Toke
 			if _, err := nucleo.DecodificarCursor(in.Cursor, &despues); err != nil {
 				return nucleo.Pagina[TokenAPI]{}, err
 			}
-			p := identidadbd.ListarTokensParams{DespuesDe: despues, Limite: int32(in.Limite() + 1)} //nolint:gosec // ≤ 201
+			p := identidadbd.ListarTokensParams{DespuesDe: despues, Vigentes: in.Vigentes, Limite: int32(in.Limite() + 1)} //nolint:gosec // ≤ 201
 			if in.UsuarioID != 0 {
 				p.UsuarioID = &in.UsuarioID
 			}

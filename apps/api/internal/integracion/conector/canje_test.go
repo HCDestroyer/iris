@@ -24,9 +24,10 @@ func TestMain(m *testing.M) { os.Exit(pruebas.Correr(m)) }
 
 // tokensDePrueba registra lo que se emite y se revoca; fallar hace fallar la revocación.
 type tokensDePrueba struct {
-	mu        sync.Mutex
-	revocados []int64
-	fallar    bool
+	mu         sync.Mutex
+	revocados  []int64
+	eliminados []int64
+	fallar     bool
 }
 
 func (t *tokensDePrueba) EmitirTokenCanje(context.Context, string, time.Time) (int64, string, error) {
@@ -40,6 +41,13 @@ func (t *tokensDePrueba) RevocarTokenIntegracion(_ context.Context, id int64, _ 
 		return errors.New("identidad no disponible")
 	}
 	t.revocados = append(t.revocados, id)
+	return nil
+}
+
+func (t *tokensDePrueba) EliminarTokenIntegracion(_ context.Context, id int64) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.eliminados = append(t.eliminados, id)
 	return nil
 }
 

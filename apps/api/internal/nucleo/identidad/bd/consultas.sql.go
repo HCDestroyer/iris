@@ -707,7 +707,7 @@ const crearToken = `-- name: CrearToken :one
 
 INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at
+RETURNING id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at, eliminado_en, eliminado_por
 `
 
 type CrearTokenParams struct {
@@ -745,6 +745,8 @@ func (q *Queries) CrearToken(ctx context.Context, arg CrearTokenParams) (NucleoT
 		&i.CreadoPor,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EliminadoEn,
+		&i.EliminadoPor,
 	)
 	return i, err
 }
@@ -906,6 +908,40 @@ func (q *Queries) EditarEmpresa(ctx context.Context, arg EditarEmpresaParams) (N
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const eliminarToken = `-- name: EliminarToken :one
+UPDATE nucleo.tokens_api SET eliminado_en = now(), eliminado_por = $1, hash = NULL, updated_at = now()
+WHERE id = $2 AND eliminado_en IS NULL
+RETURNING id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at, eliminado_en, eliminado_por
+`
+
+type EliminarTokenParams struct {
+	EliminadoPor *int64
+	ID           int64
+}
+
+// Borrado lógico (tokens.eliminar): la fila queda para la auditoría; el hash se borra.
+func (q *Queries) EliminarToken(ctx context.Context, arg EliminarTokenParams) (NucleoTokensApi, error) {
+	row := q.db.QueryRow(ctx, eliminarToken, arg.EliminadoPor, arg.ID)
+	var i NucleoTokensApi
+	err := row.Scan(
+		&i.ID,
+		&i.UsuarioID,
+		&i.Nombre,
+		&i.Prefijo,
+		&i.Hash,
+		&i.Permisos,
+		&i.ExpiraEn,
+		&i.UltimoUso,
+		&i.RevocadoEn,
+		&i.CreadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EliminadoEn,
+		&i.EliminadoPor,
 	)
 	return i, err
 }
@@ -1440,17 +1476,20 @@ func (q *Queries) ListarRoles(ctx context.Context, arg ListarRolesParams) ([]Nuc
 }
 
 const listarTokens = `-- name: ListarTokens :many
-SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at FROM nucleo.tokens_api t
-WHERE t.id > $1 AND ($2::bigint IS NULL OR t.usuario_id = $2)
-  AND ($3::boolean OR t.usuario_id = $4
+SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at, eliminado_en, eliminado_por FROM nucleo.tokens_api t
+WHERE t.id > $1 AND t.eliminado_en IS NULL
+  AND (NOT $2::boolean OR (t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now())))
+  AND ($3::bigint IS NULL OR t.usuario_id = $3)
+  AND ($4::boolean OR t.usuario_id = $5
        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
-                  WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = ANY($5::bigint[])))
+                  WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = ANY($6::bigint[])))
 ORDER BY id
-LIMIT $6
+LIMIT $7
 `
 
 type ListarTokensParams struct {
 	DespuesDe int64
+	Vigentes  bool
 	UsuarioID *int64
 	Todas     bool
 	Yo        int64
@@ -1459,9 +1498,11 @@ type ListarTokensParams struct {
 }
 
 // Sin @todas, solo los tokens propios y los de usuarios que comparten alguna empresa (@empresas).
+// Nunca los eliminados; con @vigentes, solo los que aún valen (sin revocar ni vencer).
 func (q *Queries) ListarTokens(ctx context.Context, arg ListarTokensParams) ([]NucleoTokensApi, error) {
 	rows, err := q.db.Query(ctx, listarTokens,
 		arg.DespuesDe,
+		arg.Vigentes,
 		arg.UsuarioID,
 		arg.Todas,
 		arg.Yo,
@@ -1488,6 +1529,8 @@ func (q *Queries) ListarTokens(ctx context.Context, arg ListarTokensParams) ([]N
 			&i.CreadoPor,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.EliminadoEn,
+			&i.EliminadoPor,
 		); err != nil {
 			return nil, err
 		}
@@ -2277,7 +2320,7 @@ func (q *Queries) RevocarSesionesDeUsuarioSalvo(ctx context.Context, arg Revocar
 const revocarToken = `-- name: RevocarToken :one
 UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
 WHERE id = $1
-RETURNING id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at
+RETURNING id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at, eliminado_en, eliminado_por
 `
 
 func (q *Queries) RevocarToken(ctx context.Context, id int64) (NucleoTokensApi, error) {
@@ -2296,6 +2339,8 @@ func (q *Queries) RevocarToken(ctx context.Context, id int64) (NucleoTokensApi, 
 		&i.CreadoPor,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EliminadoEn,
+		&i.EliminadoPor,
 	)
 	return i, err
 }
@@ -2822,7 +2867,7 @@ func (q *Queries) TocarToken(ctx context.Context, id int64) error {
 }
 
 const tokenPorID = `-- name: TokenPorID :one
-SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at FROM nucleo.tokens_api WHERE id = $1
+SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at, eliminado_en, eliminado_por FROM nucleo.tokens_api WHERE id = $1
 `
 
 func (q *Queries) TokenPorID(ctx context.Context, id int64) (NucleoTokensApi, error) {
@@ -2841,12 +2886,14 @@ func (q *Queries) TokenPorID(ctx context.Context, id int64) (NucleoTokensApi, er
 		&i.CreadoPor,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EliminadoEn,
+		&i.EliminadoPor,
 	)
 	return i, err
 }
 
 const tokenPorIDParaActualizar = `-- name: TokenPorIDParaActualizar :one
-SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at FROM nucleo.tokens_api WHERE id = $1 FOR UPDATE
+SELECT id, usuario_id, nombre, prefijo, hash, permisos, expira_en, ultimo_uso, revocado_en, creado_por, created_at, updated_at, eliminado_en, eliminado_por FROM nucleo.tokens_api WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) TokenPorIDParaActualizar(ctx context.Context, id int64) (NucleoTokensApi, error) {
@@ -2865,15 +2912,31 @@ func (q *Queries) TokenPorIDParaActualizar(ctx context.Context, id int64) (Nucle
 		&i.CreadoPor,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EliminadoEn,
+		&i.EliminadoPor,
 	)
 	return i, err
 }
 
+const tokenUsadoPorConectorActivo = `-- name: TokenUsadoPorConectorActivo :one
+SELECT EXISTS (SELECT 1 FROM integracion.conectores
+               WHERE estado = 'activo' AND (token_entregado_id = $1::bigint OR reemplaza_token_id = $1::bigint))::boolean
+`
+
+// Un conector activo depende del token: el iris_pat_ que Iris le entregó en el canje, o el del
+// conector al que reemplaza mientras dura la reconexión sin corte.
+func (q *Queries) TokenUsadoPorConectorActivo(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, tokenUsadoPorConectorActivo, id)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const tokenVigentePorHash = `-- name: TokenVigentePorHash :one
-SELECT t.id, t.usuario_id, t.nombre, t.prefijo, t.hash, t.permisos, t.expira_en, t.ultimo_uso, t.revocado_en, t.creado_por, t.created_at, t.updated_at, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena
+SELECT t.id, t.usuario_id, t.nombre, t.prefijo, t.hash, t.permisos, t.expira_en, t.ultimo_uso, t.revocado_en, t.creado_por, t.created_at, t.updated_at, t.eliminado_en, t.eliminado_por, u.id, u.nombre, u.correo, u.tipo, u.contrasena_hash, u.totp_secreto, u.totp_activo, u.totp_ultimo_paso, u.activo, u.usuario_argos_id, u.version, u.created_at, u.updated_at, u.debe_cambiar_contrasena
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
-WHERE t.hash = $1 AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo
+WHERE t.hash = $1 AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo
 `
 
 type TokenVigentePorHashRow struct {
@@ -2897,6 +2960,8 @@ func (q *Queries) TokenVigentePorHash(ctx context.Context, hash []byte) (TokenVi
 		&i.NucleoTokensApi.CreadoPor,
 		&i.NucleoTokensApi.CreatedAt,
 		&i.NucleoTokensApi.UpdatedAt,
+		&i.NucleoTokensApi.EliminadoEn,
+		&i.NucleoTokensApi.EliminadoPor,
 		&i.NucleoUsuario.ID,
 		&i.NucleoUsuario.Nombre,
 		&i.NucleoUsuario.Correo,
@@ -2919,7 +2984,7 @@ const tokenVigentePorID = `-- name: TokenVigentePorID :one
 SELECT t.permisos, u.id AS usuario_id
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
-WHERE t.id = $1 AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo
+WHERE t.id = $1 AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo
 `
 
 type TokenVigentePorIDRow struct {
@@ -2933,6 +2998,55 @@ func (q *Queries) TokenVigentePorID(ctx context.Context, id int64) (TokenVigente
 	var i TokenVigentePorIDRow
 	err := row.Scan(&i.Permisos, &i.UsuarioID)
 	return i, err
+}
+
+const tokensEliminables = `-- name: TokensEliminables :many
+SELECT t.id, t.usuario_id FROM nucleo.tokens_api t
+WHERE t.eliminado_en IS NULL AND (t.revocado_en IS NOT NULL OR t.expira_en <= now())
+  AND ($1::bigint IS NULL OR t.usuario_id = $1)
+  AND ($2::boolean OR t.usuario_id = $3
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue
+                  WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = ANY($4::bigint[])))
+ORDER BY t.id
+`
+
+type TokensEliminablesParams struct {
+	UsuarioID *int64
+	Todas     bool
+	Yo        int64
+	Empresas  []int64
+}
+
+type TokensEliminablesRow struct {
+	ID        int64
+	UsuarioID int64
+}
+
+// Los revocados o vencidos (sin eliminar) que el actor ve, como en ListarTokens; el caso de uso
+// aplica después exigirVisible y la regla del conector a cada uno.
+func (q *Queries) TokensEliminables(ctx context.Context, arg TokensEliminablesParams) ([]TokensEliminablesRow, error) {
+	rows, err := q.db.Query(ctx, tokensEliminables,
+		arg.UsuarioID,
+		arg.Todas,
+		arg.Yo,
+		arg.Empresas,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TokensEliminablesRow
+	for rows.Next() {
+		var i TokensEliminablesRow
+		if err := rows.Scan(&i.ID, &i.UsuarioID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const tomarAccesoPortal = `-- name: TomarAccesoPortal :one

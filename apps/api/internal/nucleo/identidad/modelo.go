@@ -81,6 +81,8 @@ type TokenAPI struct {
 	RevocadoEn *time.Time       `json:"revocadoEn" nullable:"true"`
 	CreadoPor  *int64           `json:"creadoPor" nullable:"true"`
 	CreadoEn   time.Time        `json:"creadoEn"`
+	// EliminadoEn solo llega en la respuesta de eliminar: la lista nunca trae tokens eliminados.
+	EliminadoEn *time.Time `json:"eliminadoEn,omitempty" required:"false" doc:"Cuándo se eliminó (borrado lógico); ausente si no está eliminado"`
 }
 
 func aUsuario(u identidadbd.NucleoUsuario, roles []AsignacionRol, empresas []int64) Usuario {
@@ -119,7 +121,7 @@ func aTokenAPI(t identidadbd.NucleoTokensApi) TokenAPI {
 	}
 	return TokenAPI{
 		ID: t.ID, UsuarioID: t.UsuarioID, Nombre: t.Nombre, Prefijo: t.Prefijo, Permisos: permisos,
-		ExpiraEn: t.ExpiraEn, UltimoUso: t.UltimoUso, RevocadoEn: t.RevocadoEn, CreadoPor: t.CreadoPor, CreadoEn: t.CreatedAt,
+		ExpiraEn: t.ExpiraEn, UltimoUso: t.UltimoUso, RevocadoEn: t.RevocadoEn, CreadoPor: t.CreadoPor, CreadoEn: t.CreatedAt, EliminadoEn: t.EliminadoEn,
 	}
 }
 

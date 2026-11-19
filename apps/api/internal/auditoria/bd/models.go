@@ -925,6 +925,8 @@ type IntegracionConectore struct {
 	ReemplazaTokenID            *int64
 	VersionEstado               *string
 	VersionDetalle              *string
+	EliminadoEn                 *time.Time
+	EliminadoPor                *int64
 }
 
 type IntegracionEntrante struct {
@@ -2445,18 +2447,20 @@ type NucleoSsoVinculo struct {
 }
 
 type NucleoTokensApi struct {
-	ID         int64
-	UsuarioID  int64
-	Nombre     string
-	Prefijo    string
-	Hash       []byte
-	Permisos   []string
-	ExpiraEn   *time.Time
-	UltimoUso  *time.Time
-	RevocadoEn *time.Time
-	CreadoPor  *int64
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID           int64
+	UsuarioID    int64
+	Nombre       string
+	Prefijo      string
+	Hash         []byte
+	Permisos     []string
+	ExpiraEn     *time.Time
+	UltimoUso    *time.Time
+	RevocadoEn   *time.Time
+	CreadoPor    *int64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	EliminadoEn  *time.Time
+	EliminadoPor *int64
 }
 
 type NucleoUsuario struct {
