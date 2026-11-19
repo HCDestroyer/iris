@@ -44,6 +44,10 @@ test.describe("cuentas bancarias de Argos", () => {
 
     test("«Enviar cuentas» muestra el texto fijo y lo manda al cliente", async ({ page }) => {
         const api = await abrir(page, "/conversaciones?c=41");
+        // En el teléfono las herramientas del compositor van detrás de «+».
+        const mas = page.getByRole("button", { name: "Adjuntar y más herramientas" });
+        await expect(page.getByRole("button", { name: "Cuentas bancarias" }).or(mas).first()).toBeVisible();
+        if (await mas.isVisible()) await mas.click();
         await page.getByRole("button", { name: "Cuentas bancarias" }).click();
         const d = page.getByRole("dialog", { name: "Enviar cuentas" });
         const texto = d.getByTestId("texto-cuentas");
