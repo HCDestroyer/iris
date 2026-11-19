@@ -128,8 +128,9 @@ type entradaBusquedaFinal struct {
 	// pudo leer y queda con servicios null.
 	servicios  map[int64]leidoEnArgos
 	conectorID int64
-	// sinRed: se mandó buscar_red=false a Argos (contrato 0.8.1 §2.1); queda en la auditoría.
-	sinRed bool
+	// sinRed: se mandó buscar_red=false a Argos (contrato 0.8.1 §2.1). efectivo: Argos informó
+	// version_argos ≥ 1.21.0 (lo aplica); si no, lo ignora. Solo para la auditoría.
+	sinRed, efectivo bool
 }
 
 // MinimoBusquedaConServicios: caracteres mínimos de q con ?servicios=true.
@@ -217,11 +218,25 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 			for _, c := range r.Data {
 				ids = append(ids, c.ID)
 			}
-			t.Anotar(map[string]any{"clientes": ids, "stale": r.Stale, "servicios": in.Servicios, "buscar_red": !in.sinRed})
+			t.Anotar(map[string]any{"clientes": ids, "stale": r.Stale, "servicios": in.Servicios, "buscar_red": in.anotacionBuscarRed()})
 			return r, nil
 		},
 	})
 	return b
+}
+
+// anotacionBuscarRed: lo que anota la auditoría de buscar_red (contrato 0.8.1 §2.1): no_enviado (el
+// actor tiene servicios.ver_red global), efectivo (se mandó a un Argos ≥ 1.21.0) o ignorado (se
+// mandó a un Argos anterior o que no informó versión, que lo ignora).
+func (e entradaBusquedaFinal) anotacionBuscarRed() string {
+	switch {
+	case !e.sinRed:
+		return "no_enviado"
+	case e.efectivo:
+		return "efectivo"
+	default:
+		return "ignorado"
+	}
 }
 
 func (e EntradaBuscarClientes) limite() int {
@@ -248,11 +263,13 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 	if pareceIP(in.Q) && !redGlobal {
 		return ResultadoBusqueda{Data: []ClienteResumen{}}, nil
 	}
-	// Tampoco por user_ppp (texto libre que no parece una IP) ni prefijos: con Argos ≥ 1.21.0,
-	// buscar_red=false (contrato 0.8.1 §2.1). Con un Argos anterior no se manda (lo ignoraría) y
-	// queda el límite conocido: un q con el user_ppp todavía encuentra al cliente.
-	sinRed := !redGlobal && SoportaBuscarSinRed(c.VersionRemota)
-	f := entradaBusquedaFinal{EntradaBuscarClientes: in}
+	// Tampoco por user_ppp (texto libre que no parece una IP) ni prefijos: buscar_red=false
+	// (contrato 0.8.1 §2.1) siempre que el actor no tenga servicios.ver_red global, sin depender de
+	// la versión que informó Argos (falla cerrado: una version_argos vieja o mal informada no lo
+	// apaga). Un Argos anterior a 1.21.0 lo ignora y queda el límite conocido de 0.8.0 (un q con el
+	// user_ppp todavía encuentra al cliente); la versión solo decide lo que anota la auditoría.
+	sinRed := !redGlobal
+	f := entradaBusquedaFinal{EntradaBuscarClientes: in, efectivo: SoportaBuscarSinRed(c.VersionRemota)}
 	cli := b.m.clienteDe(c)
 	empresa := contexto.EmpresaDe(ctx)
 	f.pagina, f.errArgos = cli.BuscarClientes(ctx, in.Q, in.limite(), in.Cursor, empresa, sinRed)

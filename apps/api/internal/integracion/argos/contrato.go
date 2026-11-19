@@ -52,8 +52,9 @@ const CapacidadAprobarComprobantes = "aprobar_comprobantes"
 // y sigue buscando también en la IPv4 vigente, los prefijos IPv6 y el user_ppp de los servicios.
 const VersionBuscarSinRed = "1.21.0"
 
-// SoportaBuscarSinRed indica si Argos (por su version_argos) acepta `buscar_red=false`. false si el
-// conector no informó versión: Iris se queda con el filtro de IP propio (límite conocido de 0.8.0).
+// SoportaBuscarSinRed indica si Argos (por su version_argos) aplica `buscar_red=false`. Solo sirve
+// para la auditoría (efectivo o ignorado): Iris lo manda igual sin servicios.ver_red global, porque
+// un Argos anterior lo ignora (falla cerrado ante una versión vieja o mal informada).
 func SoportaBuscarSinRed(version *string) bool {
 	return conector.VersionAlMenos(version, VersionBuscarSinRed)
 }

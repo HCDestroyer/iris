@@ -12,14 +12,15 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
-// Contrato argosisp.md 0.8.1 §2.1 (A29): sin servicios.ver_red global, la búsqueda de clientes manda
-// buscar_red=false a un Argos ≥ 1.21.0, que deja fuera de q la IPv4 vigente, los prefijos IPv6 y el
-// user_ppp de los servicios. Con un Argos anterior no se manda (queda el límite conocido de 0.8.0) y con
-// servicios.ver_red global tampoco.
+// Contrato argosisp.md 0.8.1 §2.1 (A29): sin servicios.ver_red global (también con alcance por
+// zona), la búsqueda de clientes manda SIEMPRE buscar_red=false, sin depender de la versión que
+// informó Argos (falla cerrado). Argos ≥ 1.21.0 deja fuera de q la IPv4 vigente, los prefijos IPv6 y
+// el user_ppp de los servicios; uno anterior lo ignora (límite conocido de 0.8.0). Con
+// servicios.ver_red global no se manda. La auditoría anota efectivo, ignorado o no_enviado.
 
-// buscar081 busca q con esos permisos (vacío = global) y devuelve los ids encontrados y el
-// buscar_red que recibió Argos ("" = no vino).
-func (e *entorno) buscar081(usuario int64, q string, permisos map[nucleo.Permiso][]contexto.Alcance) (ids map[int64]bool, buscarRed string) {
+// buscar081 busca q con esos permisos (vacío = global) y devuelve los ids encontrados, el
+// buscar_red que recibió Argos ("" = no vino) y lo que anotó la auditoría de esa búsqueda.
+func (e *entorno) buscar081(usuario int64, q string, permisos map[nucleo.Permiso][]contexto.Alcance) (ids map[int64]bool, buscarRed, anotado string) {
 	e.t.Helper()
 	var antes int
 	e.argos.con(func() { antes = len(e.argos.buscarRed) })
@@ -37,7 +38,9 @@ func (e *entorno) buscar081(usuario int64, q string, permisos map[nucleo.Permiso
 		}
 		buscarRed = e.argos.buscarRed[antes]
 	})
-	return ids, buscarRed
+	anotado = e.consultarTexto(`SELECT coalesce(entrada->'auditoria'->>'buscar_red', '') FROM auditoria.acciones
+		WHERE accion = 'clientes.buscar' AND actor_id = $1 ORDER BY id DESC LIMIT 1`, usuario)
+	return ids, buscarRed, anotado
 }
 
 func TestContrato081BuscarSinRed(t *testing.T) {
@@ -55,26 +58,20 @@ func TestContrato081BuscarSinRed(t *testing.T) {
 		_, usuario := e.usuarioConID("lectura")
 
 		// Sin servicios.ver_red: buscar_red=false y el user_ppp ya no encuentra al cliente.
-		ids, br := e.buscar081(usuario, userPPP, sinRed)
-		if br != "false" || ids[cliente] {
-			t.Fatalf("sin ver_red: buscar_red=%q, encontrados %v", br, ids)
+		if ids, br, an := e.buscar081(usuario, userPPP, sinRed); br != "false" || ids[cliente] || an != "efectivo" {
+			t.Fatalf("sin ver_red: buscar_red=%q, auditoría %q, encontrados %v", br, an, ids)
 		}
 		// Por nombre sí, también con buscar_red=false.
-		if ids, br := e.buscar081(usuario, "maría", sinRed); br != "false" || !ids[cliente] {
+		if ids, br, _ := e.buscar081(usuario, "maría", sinRed); br != "false" || !ids[cliente] {
 			t.Fatalf("por nombre sin ver_red: buscar_red=%q, encontrados %v", br, ids)
 		}
-		// La auditoría de la búsqueda lo anota (nunca el q en claro de un teléfono).
-		if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'clientes.buscar' AND actor_id = $1
-			AND (entrada->'auditoria'->>'buscar_red')::boolean = false`, usuario); n < 1 {
-			t.Fatalf("la auditoría debía anotar buscar_red=false: %d", n)
-		}
 		// Alcance por zona (no global): también se manda.
-		if ids, br := e.buscar081(usuario, userPPP, redZona); br != "false" || ids[cliente] {
-			t.Fatalf("ver_red por zona: buscar_red=%q, encontrados %v", br, ids)
+		if ids, br, an := e.buscar081(usuario, userPPP, redZona); br != "false" || ids[cliente] || an != "efectivo" {
+			t.Fatalf("ver_red por zona: buscar_red=%q, auditoría %q, encontrados %v", br, an, ids)
 		}
 		// Con servicios.ver_red global no se manda: Argos busca también en la red.
-		if ids, br := e.buscar081(usuario, userPPP, redGlobal); br != "" || !ids[cliente] {
-			t.Fatalf("ver_red global: buscar_red=%q, encontrados %v", br, ids)
+		if ids, br, an := e.buscar081(usuario, userPPP, redGlobal); br != "" || !ids[cliente] || an != "no_enviado" {
+			t.Fatalf("ver_red global: buscar_red=%q, auditoría %q, encontrados %v", br, an, ids)
 		}
 	})
 
@@ -84,23 +81,24 @@ func TestContrato081BuscarSinRed(t *testing.T) {
 		_, _, _ = e.conectado()
 		e.sembrar080(cliente)
 		_, usuario := e.usuarioConID("lectura")
-		// Argos anterior: no se manda (lo ignoraría). Límite conocido: el user_ppp encuentra al cliente.
-		if ids, br := e.buscar081(usuario, userPPP, sinRed); br != "" || !ids[cliente] {
-			t.Fatalf("Argos 1.20.0 sin ver_red: buscar_red=%q, encontrados %v", br, ids)
+		// Argos anterior: se manda igual (falla cerrado) y el doble lo ignora. Límite conocido: el
+		// user_ppp encuentra al cliente; la auditoría lo anota como ignorado.
+		if ids, br, an := e.buscar081(usuario, userPPP, sinRed); br != "false" || !ids[cliente] || an != "ignorado" {
+			t.Fatalf("Argos 1.20.0 sin ver_red: buscar_red=%q, auditoría %q, encontrados %v", br, an, ids)
 		}
-		if ids, br := e.buscar081(usuario, userPPP, redGlobal); br != "" || !ids[cliente] {
-			t.Fatalf("Argos 1.20.0 con ver_red: buscar_red=%q, encontrados %v", br, ids)
+		if ids, br, an := e.buscar081(usuario, userPPP, redGlobal); br != "" || !ids[cliente] || an != "no_enviado" {
+			t.Fatalf("Argos 1.20.0 con ver_red: buscar_red=%q, auditoría %q, encontrados %v", br, an, ids)
 		}
 	})
 
 	t.Run("argos sin version", func(t *testing.T) {
-		// Argos 1.5.x no informa versión: Iris no sabe si lo soporta y no lo manda.
+		// Argos 1.5.x no informa versión: se manda igual y lo ignora.
 		e := nuevoEntorno(t)
 		_, _, _ = e.conectado()
 		e.sembrar080(cliente)
 		_, usuario := e.usuarioConID("lectura")
-		if _, br := e.buscar081(usuario, userPPP, sinRed); br != "" {
-			t.Fatalf("sin versión de Argos: buscar_red=%q", br)
+		if ids, br, an := e.buscar081(usuario, userPPP, sinRed); br != "false" || !ids[cliente] || an != "ignorado" {
+			t.Fatalf("sin versión de Argos: buscar_red=%q, auditoría %q, encontrados %v", br, an, ids)
 		}
 	})
 }
