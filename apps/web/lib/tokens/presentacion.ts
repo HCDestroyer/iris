@@ -18,8 +18,13 @@ export const PRESENTACION_ESTADO: Record<EstadoToken, { texto: string; tono: Ton
     vencido: { texto: "Vencido", tono: "warning", icono: Hourglass },
 };
 
-/** Lo que el menú de un token ofrece según su estado y los permisos. */
-export function accionesToken(estado: EstadoToken, puedeRevocar: boolean, puedeEliminar: boolean): ("revocar" | "revocar_eliminar" | "eliminar")[] {
+/**
+ * Lo que el menú de un token ofrece según su estado y los permisos. El de un conector activo
+ * (`enUsoPorConector`) no se toca aquí: revocarlo cortaría la integración; se cambia desde
+ * Integraciones.
+ */
+export function accionesToken(estado: EstadoToken, puedeRevocar: boolean, puedeEliminar: boolean, enUsoPorConector = false): ("revocar" | "revocar_eliminar" | "eliminar")[] {
+    if (enUsoPorConector) return [];
     if (estado === "vigente") {
         return [...(puedeRevocar ? (["revocar"] as const) : []), ...(puedeRevocar && puedeEliminar ? (["revocar_eliminar"] as const) : [])];
     }

@@ -48,7 +48,16 @@ export function Integraciones() {
     const lectura = useLectura(async (signal) => (await resolver(api().GET("/api/v1/integraciones/conectores", { params: { query: { limit: 50 } }, signal }))).data ?? []);
     const [aviso, setAviso] = useState<string | null>(null);
     const [lote, setLote] = useState(false);
-    const apagados = lectura.estado === "listo" ? lectura.datos.filter((c) => c.eliminable).length : 0;
+    const puedeEliminar = puede(["integraciones.eliminar"]);
+    // El número del lote sale del servidor (no de la página de la lista).
+    const eliminables = useLectura(async (signal) =>
+        puedeEliminar ? (await resolver(api().GET("/api/v1/integraciones/conectores/eliminables", { signal }))).cantidad : 0,
+    );
+    const apagados = eliminables.estado === "listo" ? eliminables.datos : 0;
+    const refrescarTodo = () => {
+        void lectura.refrescar();
+        void eliminables.refrescar();
+    };
 
     return (
         <>
@@ -75,7 +84,7 @@ export function Integraciones() {
                     panelSugerido={panelSugerido(lectura.datos)}
                     panelesConocidos={panelesDeArgos(lectura.datos)}
                 /> : null}
-            {puede(["integraciones.eliminar"]) && apagados > 0 ? (
+            {puedeEliminar && apagados > 0 ? (
                 <div className="mb-3 flex justify-end">
                     <Boton variante="secundario" onClick={() => setLote(true)} data-testid="eliminar-apagados">
                         <Trash2 />
@@ -90,7 +99,7 @@ export function Integraciones() {
                     alCerrar={() => setLote(false)}
                     alHecho={() => {
                         setLote(false);
-                        void lectura.refrescar();
+                        refrescarTodo();
                     }}
                 />
             ) : null}
@@ -105,7 +114,7 @@ export function Integraciones() {
             ) : (
                 <ul className="grid gap-3" aria-label="Conectores">
                     {lectura.datos.map((c) => (
-                        <FilaConector key={c.id} conector={c} todos={lectura.datos} alCambiar={() => void lectura.refrescar()} />
+                        <FilaConector key={c.id} conector={c} todos={lectura.datos} alCambiar={refrescarTodo} />
                     ))}
                 </ul>
             )}

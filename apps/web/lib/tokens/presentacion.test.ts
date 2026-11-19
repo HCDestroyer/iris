@@ -20,6 +20,10 @@ describe("accionesToken", () => {
         expect(accionesToken("vigente", true, false)).toEqual(["revocar"]);
         expect(accionesToken("vigente", false, true)).toEqual([]);
     });
+    it("el de un conector activo: nada (se cambia desde Integraciones)", () => {
+        expect(accionesToken("vigente", true, true, true)).toEqual([]);
+        expect(accionesToken("revocado", true, true, true)).toEqual([]);
+    });
     it("revocado o vencido: solo eliminar (con tokens.eliminar)", () => {
         expect(accionesToken("revocado", true, true)).toEqual(["eliminar"]);
         expect(accionesToken("vencido", false, true)).toEqual(["eliminar"]);

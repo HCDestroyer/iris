@@ -382,6 +382,11 @@ export function apiSSO(deps: DepsSSO): ApiSSO {
                 await json(route, { ...c, eliminadoEn: new Date().toISOString() });
                 return true;
             }
+            if (ruta === "/api/v1/integraciones/conectores/eliminables" && metodo === "GET") {
+                if (!puede("integraciones.eliminar")) return (await prohibido(), true);
+                await json(route, { cantidad: conectores.filter((c) => c.eliminable).length } satisfies Schema<"ConectoresEliminables">);
+                return true;
+            }
             if (ruta === "/api/v1/integraciones/conectores/eliminar-apagados" && metodo === "POST") {
                 if (!puede("integraciones.eliminar")) return (await prohibido(), true);
                 if (sso) return (await pedirReautenticacion(), true);

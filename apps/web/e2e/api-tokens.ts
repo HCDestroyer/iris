@@ -24,6 +24,7 @@ const token = (id: number, nombre: string, extra: Partial<TokenAPI> = {}): Token
     revocadoEn: null,
     creadoPor: ADMIN.id,
     creadoEn: iso(-60 * 24 * 30),
+    enUsoPorConector: false,
     ...extra,
 });
 
@@ -32,14 +33,13 @@ export function tokensIniciales(): TokenAPI[] {
         token(1, "Script de reportes", { expiraEn: iso(60 * 24 * 40) }),
         token(2, "Bot de Horus 2025", { usuarioId: CONSULTA.id, revocadoEn: iso(-60 * 24 * 3) }),
         token(3, "Prueba vieja", { expiraEn: iso(-60 * 24), ultimoUso: null }),
-        token(4, "Argos (canje)", { revocadoEn: iso(-60) }),
+        token(4, "Argos (canje)", { revocadoEn: iso(-60), enUsoPorConector: true }),
+        token(5, "Argos (conector activo)", { enUsoPorConector: true }),
     ];
 }
 
 export type ApiTokens = {
     tokens: TokenAPI[];
-    /** Revocados o vencidos que «usa un conector activo» (el lote los omite; eliminar responde 409). */
-    enUso: Set<number>;
     peticiones: Peticion[];
 };
 
@@ -59,10 +59,10 @@ const inactivo = (t: TokenAPI) => t.revocadoEn !== null || (t.expiraEn !== null 
 
 /** Registra la API falsa de tokens (después de simularApi). */
 export async function simularTokens(page: Page): Promise<ApiTokens> {
-    const estado: ApiTokens = { tokens: tokensIniciales(), enUso: new Set([4]), peticiones: [] };
+    const estado: ApiTokens = { tokens: tokensIniciales(), peticiones: [] };
     const eliminados = new Set<number>();
     const vivos = () => estado.tokens.filter((t) => !eliminados.has(t.id));
-    const elegibles = () => vivos().filter((t) => inactivo(t) && !estado.enUso.has(t.id));
+    const elegibles = () => vivos().filter((t) => inactivo(t) && !t.enUsoPorConector);
 
     await page.route("**/api/v1/**", async (route) => {
         const req = route.request();
@@ -86,30 +86,38 @@ export async function simularTokens(page: Page): Promise<ApiTokens> {
             return json(route, { data, nextCursor: null } satisfies Schema<"PaginaTokenAPI">);
         }
         if (metodo === "GET" && ruta === "/api/v1/tokens/eliminables") {
-            const enUso = vivos().filter((t) => inactivo(t) && estado.enUso.has(t.id)).length;
+            const enUso = vivos().filter((t) => inactivo(t) && t.enUsoPorConector).length;
             return json(route, { cantidad: elegibles().length, enUso } satisfies Schema<"TokensEliminables">);
         }
         if (metodo === "POST" && ruta === "/api/v1/tokens/eliminar-inactivos") {
             const ids = elegibles().map((t) => t.id);
-            const omitidos = vivos().filter((t) => inactivo(t) && estado.enUso.has(t.id)).length;
+            const omitidos = vivos().filter((t) => inactivo(t) && t.enUsoPorConector).length;
             for (const id of ids) eliminados.add(id);
             return json(route, { eliminados: ids.length, omitidos, ids } satisfies Schema<"TokensEliminados">);
         }
-        const accion = /^\/api\/v1\/tokens\/(\d+)\/(revocar|eliminar)$/.exec(ruta);
+        const accion = /^\/api\/v1\/tokens\/(\d+)\/(revocar|eliminar|revocar-y-eliminar)$/.exec(ruta);
         if (metodo === "POST" && accion) {
             const t = estado.tokens.find((x) => x.id === Number(accion[1]));
             if (!t) return problema(route, 404, "no_encontrado", "No existe");
+            if (eliminados.has(t.id)) {
+                if (accion[2] === "revocar") return problema(route, 404, "no_encontrado", "No existe");
+                return json(route, { ...t, eliminadoEn: new Date().toISOString() });
+            }
+            // El de un conector activo no se toca (ni revocar): cortaría la integración.
+            if (t.enUsoPorConector) {
+                return problema(route, 409, "token_en_uso_por_conector", "Un conector activo de Argos u Horus usa este token. Desactiva o reemplaza el conector en Integraciones antes de eliminarlo");
+            }
+            if (accion[2] === "revocar-y-eliminar") {
+                t.revocadoEn ??= new Date().toISOString();
+                eliminados.add(t.id);
+                return json(route, { ...t, eliminadoEn: new Date().toISOString() });
+            }
             if (accion[2] === "revocar") {
-                if (eliminados.has(t.id)) return problema(route, 404, "no_encontrado", "No existe");
                 if (t.revocadoEn) return problema(route, 422, "token_revocado", "El token ya está revocado");
                 t.revocadoEn = new Date().toISOString();
                 return json(route, t);
             }
-            if (eliminados.has(t.id)) return json(route, { ...t, eliminadoEn: new Date().toISOString() });
             if (!inactivo(t)) return problema(route, 409, "token_vigente", "El token aún vale: revócalo primero y luego elimínalo");
-            if (estado.enUso.has(t.id)) {
-                return problema(route, 409, "token_en_uso_por_conector", "Un conector activo de Argos u Horus usa este token. Desactiva o reemplaza el conector en Integraciones antes de eliminarlo");
-            }
             eliminados.add(t.id);
             return json(route, { ...t, eliminadoEn: new Date().toISOString() });
         }

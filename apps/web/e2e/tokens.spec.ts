@@ -39,11 +39,16 @@ test.describe("tokens de API", () => {
         const migas = page.getByRole("navigation", { name: "Ruta de navegación" }).filter({ visible: true });
         await expect(migas.locator('[aria-current="page"]')).toHaveText("Tokens de API");
         const lista = page.getByRole("list", { name: "Tokens" });
-        await expect(lista.locator("[data-token]")).toHaveCount(1);
+        await expect(lista.locator("[data-token]")).toHaveCount(2);
         await expect(page.locator('[data-token="1"]')).toContainText("Vigente");
         await expect(page.locator('[data-token="1"]')).toContainText("Ana López");
+        // El iris_pat_ de un conector activo: sin menú y con el camino a Integraciones.
+        const deConector = page.locator('[data-token="5"]');
+        await expect(deConector.getByTestId("token-de-conector")).toContainText("Lo usa la integración con Argos u Horus");
+        await expect(deConector.getByRole("link", { name: "Integraciones" })).toHaveAttribute("href", "/administracion/integraciones");
+        await expect(deConector.getByRole("button", { name: /Acciones de/ })).toHaveCount(0);
         await page.getByText("Mostrar revocados y vencidos").click();
-        await expect(lista.locator("[data-token]")).toHaveCount(4);
+        await expect(lista.locator("[data-token]")).toHaveCount(5);
         await expect(page.locator('[data-token="2"]')).toContainText("Revocado");
         await expect(page.locator('[data-token="3"]')).toContainText("Vencido");
         // 2 y 3 se pueden eliminar; 4 lo usa un conector activo.
@@ -78,8 +83,10 @@ test.describe("tokens de API", () => {
         await dialogo.getByRole("button", { name: "Revocar y eliminar" }).click();
         await expect(page.getByText("Token revocado y eliminado")).toBeVisible();
         await expect(page.locator('[data-token="1"]')).toHaveCount(0);
-        const rutas = tokens.peticiones.filter((p) => p.metodo === "POST").map((p) => p.ruta);
-        expect(rutas).toEqual(["/api/v1/tokens/1/revocar", "/api/v1/tokens/1/eliminar"]);
+        // Una sola acción del servidor (una transacción), no dos llamadas.
+        const pedidos = tokens.peticiones.filter((p) => p.metodo === "POST");
+        expect(pedidos.map((p) => p.ruta)).toEqual(["/api/v1/tokens/1/revocar-y-eliminar"]);
+        expect(pedidos[0]?.idempotencia).toBeTruthy();
     });
 
     test("«Revocar» deja el token en la lista como revocado", async ({ page, context, baseURL }) => {
@@ -103,20 +110,24 @@ test.describe("tokens de API", () => {
         await expect(page.getByTestId("eliminar-inactivos")).toHaveCount(0);
         expect(tokens.peticiones.filter((p) => p.ruta === "/api/v1/tokens/eliminar-inactivos")).toHaveLength(1);
         await page.getByText("Mostrar revocados y vencidos").click();
-        await expect(page.getByRole("list", { name: "Tokens" }).locator("[data-token]")).toHaveCount(2);
+        await expect(page.getByRole("list", { name: "Tokens" }).locator("[data-token]")).toHaveCount(3);
     });
 
-    test("uno que usa un conector activo: el error se ve en el diálogo", async ({ page, context, baseURL }) => {
-        await preparar(page, context, baseURL);
+    test("si un conector lo empieza a usar mientras tanto: el 409 se ve en el diálogo", async ({ page, context, baseURL }) => {
+        const { tokens } = await preparar(page, context, baseURL);
         await page.goto("/administracion/tokens");
         await page.getByText("Mostrar revocados y vencidos").click();
-        await elegir(page, 4, "Argos (canje)", "Eliminar");
-        const dialogo = page.getByRole("alertdialog", { name: "¿Eliminar «Argos (canje)»?" });
+        await expect(page.locator('[data-token="4"]').getByRole("button", { name: /Acciones de/ })).toHaveCount(0);
+        const bot = tokens.tokens.find((t) => t.id === 2);
+        if (!bot) throw new Error("falta el token 2");
+        bot.enUsoPorConector = true;
+        await elegir(page, 2, "Bot de Horus 2025", "Eliminar");
+        const dialogo = page.getByRole("alertdialog", { name: "¿Eliminar «Bot de Horus 2025»?" });
         await dialogo.getByRole("button", { name: "Eliminar" }).click();
         await expect(dialogo.getByText("No se pudo completar")).toBeVisible();
         await expect(dialogo).toContainText("Desactiva o reemplaza el conector");
         await dialogo.getByRole("button", { name: "Cancelar" }).click();
-        await expect(page.locator('[data-token="4"]')).toBeVisible();
+        await expect(page.locator('[data-token="2"]')).toBeVisible();
     });
 
     test("si la lista falla: error visible con «Reintentar»", async ({ page, context, baseURL }) => {

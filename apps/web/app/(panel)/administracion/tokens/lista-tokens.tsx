@@ -16,7 +16,8 @@ import {
     MenuDesplegableElemento,
     Tarjeta,
 } from "@iris/ui";
-import { Ban, Ellipsis, KeyRound, Trash2 } from "lucide-react";
+import { Ban, Ellipsis, KeyRound, Plug, Trash2 } from "lucide-react";
+import Link from "next/link";
 import { useRef, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -133,7 +134,7 @@ function Lista({ todos, alAccion }: { todos: boolean; alAccion: (a: Accion) => v
                     const estado = estadoToken(t, ahora);
                     const p = PRESENTACION_ESTADO[estado];
                     const dueno = nombres.get(t.usuarioId);
-                    const acciones = accionesToken(estado, puede(["tokens.revocar"]), puede(["tokens.eliminar"]));
+                    const acciones = accionesToken(estado, puede(["tokens.revocar"]), puede(["tokens.eliminar"]), t.enUsoPorConector);
                     return (
                         <li key={t.id} data-token={t.id}>
                             <Tarjeta className="flex h-full items-start gap-3 p-4">
@@ -152,6 +153,18 @@ function Lista({ todos, alAccion }: { todos: boolean; alAccion: (a: Accion) => v
                                               ? `Venció el ${formatearFecha(t.expiraEn)}`
                                               : [t.ultimoUso ? `Último uso ${haceCuanto(t.ultimoUso, ahora)}` : "Sin usar", t.expiraEn ? `vence ${formatearFecha(t.expiraEn)}` : "sin vencimiento"].join(" · ")}
                                     </span>
+                                    {t.enUsoPorConector ? (
+                                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground" data-testid="token-de-conector">
+                                            <Plug aria-hidden className="size-3.5 shrink-0" />
+                                            <span>
+                                                Lo usa la integración con Argos u Horus: cámbialo desde{" "}
+                                                <Link href="/administracion/integraciones" className="underline underline-offset-2">
+                                                    Integraciones
+                                                </Link>
+                                                .
+                                            </span>
+                                        </span>
+                                    ) : null}
                                 </div>
                                 {acciones.length > 0 ? (
                                     <MenuDesplegable>
@@ -196,12 +209,13 @@ function Confirmar({ accion, alCancelar, alHecho }: { accion: Accion; alCancelar
                 avisar({ titulo: r.eliminados === 1 ? "1 token eliminado" : `${r.eliminados} tokens eliminados`, ...(r.omitidos > 0 ? { descripcion: `${cuantosTokens(r.omitidos)} siguen: los usa un conector activo.` } : {}) });
             } else {
                 const id = accion.token.id;
-                if (accion.tipo !== "eliminar") {
+                // Una sola acción del servidor por opción: «Revocar y eliminar» no son dos llamadas.
+                if (accion.tipo === "revocar") {
                     await resolver(api().POST("/api/v1/tokens/{id}/revocar", { params: { path: { id }, header: { "Idempotency-Key": claves.current.revocar } }, body: {} }));
-                }
-                if (accion.tipo !== "revocar") {
+                } else {
                     paso = "eliminar";
-                    await resolver(api().POST("/api/v1/tokens/{id}/eliminar", { params: { path: { id }, header: { "Idempotency-Key": claves.current.eliminar } }, body: {} }));
+                    const ruta = accion.tipo === "eliminar" ? "/api/v1/tokens/{id}/eliminar" : "/api/v1/tokens/{id}/revocar-y-eliminar";
+                    await resolver(api().POST(ruta, { params: { path: { id }, header: { "Idempotency-Key": claves.current.eliminar } }, body: {} }));
                 }
                 avisar({ titulo: accion.tipo === "revocar" ? "Token revocado" : accion.tipo === "revocar_eliminar" ? "Token revocado y eliminado" : "Token eliminado" });
             }
