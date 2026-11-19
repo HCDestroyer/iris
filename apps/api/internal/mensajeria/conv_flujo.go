@@ -368,6 +368,9 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 			_ = q.TocarPestanaDeLlamada(ctx, mensajeriabd.TocarPestanaDeLlamadaParams{UsuarioID: &a.usuario, Pestana: f.pestana, Ahora: ptrT(m.ahora())})
 		}
 		for {
+			if m.antesDeLeerFlujo != nil {
+				m.antesDeLeerFlujo(a.usuario)
+			}
 			plazo()
 			evs, hayMas, siguiente, err := m.leerFeedConvLimitado(ctx, q, a, desde)
 			if err != nil {
@@ -376,14 +379,26 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 				}
 				return
 			}
-			for _, e := range evs {
-				datos, _ := json.Marshal(e)
-				_, _ = fmt.Fprintf(bw, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Tipo, datos)
+			if len(evs) > 0 {
+				// Revalidar otra vez entre leer y escribir (como el chat, ver transmitir): nada que se
+				// confirmó después de perder el acceso llega al flujo; con otro alcance, se relee.
+				ahora, ok := m.revalidarConv(ctx, bd)
+				if !ok {
+					return
+				}
+				if ahora != a {
+					a = ahora
+					continue
+				}
+				for _, e := range evs {
+					datos, _ := json.Marshal(e)
+					_, _ = fmt.Fprintf(bw, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Tipo, datos)
+				}
+				if !enviar() {
+					return
+				}
 			}
 			desde = siguiente
-			if len(evs) > 0 && !enviar() {
-				return
-			}
 			if !hayMas {
 				break
 			}

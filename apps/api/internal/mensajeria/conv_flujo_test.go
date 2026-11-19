@@ -3,9 +3,11 @@ package mensajeria_test
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -93,6 +95,62 @@ func TestConversacionesSSERevalidaLaSesion(t *testing.T) {
 	// Sin conversaciones.ver no se abre (403); un técnico no ve la bandeja.
 	if s := estadoSSEEn(t, ctx, url, b.tecnico); s != http.StatusForbidden {
 		t.Fatalf("técnico sin conversaciones.ver: %d", s)
+	}
+}
+
+// Como en el chat: si el acceso se pierde entre la revalidación que da el alcance y la lectura del
+// feed, lo que llegó después no se entrega (se revalida otra vez antes de escribir).
+func TestConversacionesSSENoEntregaEnLaVentanaDeRevalidacion(t *testing.T) {
+	b := nuevaBandeja(t, func(c *mensajeria.Config) { c.ChatLatido = 100 * time.Millisecond })
+	var objetivo atomic.Int64
+	enVentana, seguir := make(chan struct{}), make(chan struct{})
+	b.m.FijarAntesDeLeerFlujo(func(usuario int64) {
+		if !objetivo.CompareAndSwap(usuario, 0) {
+			return
+		}
+		enVentana <- struct{}{}
+		select {
+		case <-seguir:
+		case <-time.After(10 * time.Second):
+		}
+	})
+	url, ctx := b.servirSSE(t)
+	url += rutaMsj + "/conversaciones/eventos"
+	casos := []struct{ nombre, cortar string }{
+		{"sesión cerrada", `UPDATE nucleo.sesiones SET revocada_en = now() WHERE usuario_id = $1`},
+		{"usuario desactivado", `UPDATE nucleo.usuarios SET activo = false WHERE id = $1`},
+		{"sin conversaciones.ver", `DELETE FROM nucleo.usuarios_roles WHERE usuario_id = $1`},
+	}
+	for i, c := range casos {
+		p := b.persona([]int64{1}, rolBase("supervisor"))
+		flujo := abrirSSEEn(t, ctx, url, p, "")
+		esperar(t, flujo, "latido")
+		objetivo.Store(p.id)
+		select {
+		case <-enVentana:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: el flujo no llegó a la lectura del feed", c.nombre)
+		}
+		if _, err := b.bd.Exec(b.ctx, c.cortar, p.id); err != nil {
+			t.Fatal(err)
+		}
+		b.texto(numeroCliente(), fmt.Sprintf("wamid.ventana.%d", i), "llegó tras "+c.nombre)
+		seguir <- struct{}{}
+		limite := time.After(5 * time.Second)
+	leer:
+		for {
+			select {
+			case ev, ok := <-flujo:
+				if !ok {
+					break leer
+				}
+				if ev.tipo != "latido" {
+					t.Fatalf("%s: entregó %s después de perder el acceso: %v", c.nombre, ev.tipo, ev.datos)
+				}
+			case <-limite:
+				t.Fatalf("%s: el flujo de la bandeja no se cerró", c.nombre)
+			}
+		}
 	}
 }
 

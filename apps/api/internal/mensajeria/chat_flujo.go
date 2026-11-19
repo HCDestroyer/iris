@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 
@@ -177,6 +178,19 @@ func (m *Modulo) revalidar(ctx context.Context, bd nucleo.BD) (alcanceChat, bool
 	return a, err == nil
 }
 
+// igual compara dos alcances del chat (las zonas y cuadrillas sin importar el orden).
+func (a alcanceChat) igual(b alcanceChat) bool {
+	mismos := func(x, y []int64) bool {
+		x, y = slices.Clone(x), slices.Clone(y)
+		slices.Sort(x)
+		slices.Sort(y)
+		return slices.Equal(x, y)
+	}
+	return a.usuario == b.usuario && mismoID(a.empresa, b.empresa) && a.todas == b.todas && a.global == b.global &&
+		a.ordGlobal == b.ordGlobal && mismos(a.zonas, b.zonas) && mismos(a.cuadrillas, b.cuadrillas) &&
+		mismos(a.ordZonas, b.ordZonas) && mismos(a.ordCuadrillas, b.ordCuadrillas)
+}
+
 // leerFeedLimitado es leerFeed con el semáforo de lecturas (ChatLecturas).
 func (m *Modulo) leerFeedLimitado(ctx context.Context, q *mensajeriabd.Queries, a alcanceChat, desde int64) ([]EventoChat, bool, int64, error) {
 	select {
@@ -227,13 +241,16 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo,
 	desde := f.desde
 	q := mensajeriabd.New(bd)
 	for {
-		// Antes de entregar: la sesión o el token siguen valiendo y el alcance es el de hoy.
+		// Antes de leer: la sesión o el token siguen valiendo y el alcance es el de hoy.
 		a, ok := m.revalidar(ctx, bd)
 		if !ok {
 			return
 		}
 		// Todo lo pendiente desde el cursor, en páginas.
 		for {
+			if m.antesDeLeerFlujo != nil {
+				m.antesDeLeerFlujo(a.usuario)
+			}
 			plazo()
 			evs, hayMas, siguiente, err := m.leerFeedLimitado(ctx, q, a, desde)
 			if err != nil {
@@ -242,14 +259,29 @@ func (m *Modulo) transmitir(ctx context.Context, w http.ResponseWriter, f flujo,
 				}
 				return
 			}
-			for _, e := range evs {
-				datos, _ := json.Marshal(e)
-				_, _ = fmt.Fprintf(bw, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Tipo, datos)
+			if len(evs) > 0 {
+				// Y otra vez después de leer y antes de escribir. La revalidación de arriba no basta:
+				// entre ella y la lectura (el semáforo, el pool) se pudo cerrar la sesión y enviar un
+				// mensaje, y se entregaba. Lo leído se confirmó antes de esta segunda lectura de la
+				// credencial: nada enviado después de perder el acceso llega al flujo. Si el alcance
+				// cambió entre las dos (rol quitado), la página se descarta y se relee con el de ahora.
+				ahora, ok := m.revalidar(ctx, bd)
+				if !ok {
+					return
+				}
+				if !ahora.igual(a) {
+					a = ahora
+					continue
+				}
+				for _, e := range evs {
+					datos, _ := json.Marshal(e)
+					_, _ = fmt.Fprintf(bw, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Tipo, datos)
+				}
+				if !enviar() {
+					return
+				}
 			}
 			desde = siguiente
-			if len(evs) > 0 && !enviar() {
-				return
-			}
 			if !hayMas {
 				break
 			}

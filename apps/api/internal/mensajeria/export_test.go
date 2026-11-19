@@ -41,6 +41,9 @@ func (m *Modulo) PurgarFeedChat(ctx context.Context, bd nucleo.BD) error {
 
 func (m *Modulo) FijarTrasLeerCabeza(f func()) { m.trasLeerCabeza = f }
 
+// FijarAntesDeLeerFlujo: se llama antes de abrir los flujos SSE (no se cambia con ellos abiertos).
+func (m *Modulo) FijarAntesDeLeerFlujo(f func(usuario int64)) { m.antesDeLeerFlujo = f }
+
 func (m *Modulo) ProcesarMensaje(ctx context.Context, id uuid.UUID, ultimo bool) (time.Duration, error) {
 	return m.procesarMensaje(ctx, id, ultimo)
 }

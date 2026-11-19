@@ -281,7 +281,8 @@ data: {"id":"1543","tipo":"mensaje_nuevo",…}
 - Reanudar: `Last-Event-ID: <id>` (EventSource lo hace solo) o `?desde=<id>`. Sin los dos: desde
   ahora.
 - `: latido` cada 25 s. **En cada latido y antes de entregar eventos** el servidor revalida la
-  credencial: sesión cerrada o vencida, token revocado, usuario desactivado, fuera de la empresa o
+  credencial (antes de escribir cada página de eventos, después de leerla: nada que se envió
+  después de perder el acceso llega al flujo): sesión cerrada o vencida, token revocado, usuario desactivado, fuera de la empresa o
   sin `chat.ver` → cierra el flujo (al reconectar, 401/403: no reintentes; vuelve a iniciar sesión).
   El alcance se recalcula de la base: quitar `chat.supervisar` deja de entregar lo de ese alcance
   sin cerrar el flujo. Igual, cada flujo se cierra a los 30 min: reconecta con el último `id`.

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -260,6 +261,83 @@ func TestChatSSERevalidaLaSesion(t *testing.T) {
 				t.Fatal("sin latidos")
 			}
 			return
+		}
+	}
+}
+
+// La credencial se revalida justo antes de escribir, no solo antes de leer el feed: si el acceso se
+// pierde entre la revalidación que da el alcance y la lectura (semáforo de lecturas, pool ocupado),
+// lo que se envió después no se entrega. El gancho detiene el flujo justo en esa ventana.
+func TestChatSSENoEntregaLoEnviadoEnLaVentanaDeRevalidacion(t *testing.T) {
+	e := nuevoEntorno(t, func(c *mensajeria.Config) { c.ChatLatido = 100 * time.Millisecond })
+	var objetivo atomic.Int64
+	enVentana, seguir := make(chan struct{}), make(chan struct{})
+	e.m.FijarAntesDeLeerFlujo(func(usuario int64) {
+		if !objetivo.CompareAndSwap(usuario, 0) {
+			return
+		}
+		enVentana <- struct{}{}
+		select {
+		case <-seguir:
+		case <-time.After(10 * time.Second):
+		}
+	})
+	url, ctx := e.servirSSE(t)
+	q := e.equipo(1)
+	a := e.persona([]int64{1}, rolBase("tecnico"))
+	e.ficha(a.id, q.cuadrilla1)
+	c := idConv(e.chat(a, http.MethodPost, fmt.Sprintf("/cuadrillas/%d/abrir", q.cuadrilla1), "", nil))
+	// detener abre la ventana en el flujo de p (ya revalidado, aún sin leer), corre cortar y envía un
+	// mensaje de a con la ventana abierta; al soltarla el flujo lee ese mensaje.
+	detener := func(p persona, cortar string, texto string) {
+		t.Helper()
+		objetivo.Store(p.id)
+		select {
+		case <-enVentana:
+		case <-time.After(5 * time.Second):
+			t.Fatal("el flujo no llegó a la lectura del feed")
+		}
+		if _, err := e.bd.Exec(e.ctx, cortar, p.id); err != nil {
+			t.Fatal(err)
+		}
+		e.exigir(e.enviarChat(a, c, nuevoID(), texto), http.StatusCreated)
+		seguir <- struct{}{}
+	}
+
+	casos := []struct{ nombre, cortar string }{
+		{"token revocado", `UPDATE nucleo.tokens_api SET revocado_en = now() WHERE usuario_id = $1`},
+		{"usuario desactivado", `UPDATE nucleo.usuarios SET activo = false WHERE id = $1`},
+		{"sin chat.ver", `DELETE FROM nucleo.usuarios_roles WHERE usuario_id = $1`},
+	}
+	for _, caso := range casos {
+		p := e.persona([]int64{1}, rolBase("tecnico"))
+		e.ficha(p.id, q.cuadrilla1)
+		flujo := abrirSSE(t, ctx, url, p, "")
+		esperar(t, flujo, "latido")
+		detener(p, caso.cortar, "enviado tras "+caso.nombre)
+		cerrado(t, flujo)
+	}
+
+	// Pierde chat.supervisar en la ventana (le queda chat.ver): el flujo sigue, pero la página leída
+	// con el alcance viejo se descarta y no entrega lo de la cuadrilla.
+	sup := e.persona([]int64{1}, rolBase("lectura"), identidad.AsignacionRol{Rol: "supervisor", ZonaID: &q.zona1})
+	vigila := abrirSSE(t, ctx, url, sup, "")
+	esperar(t, vigila, "latido")
+	detener(sup, `DELETE FROM nucleo.usuarios_roles WHERE usuario_id = $1 AND rol_id = (SELECT id FROM nucleo.roles WHERE codigo = 'supervisor')`,
+		"ya no le toca")
+	// Dos latidos después de soltar la ventana: la lectura ya pasó.
+	for latidos := 0; latidos < 2; {
+		select {
+		case ev, ok := <-vigila:
+			if !ok {
+				t.Fatal("el flujo se cerró (todavía tiene chat.ver)")
+			}
+			if ev.tipo == "mensaje_nuevo" {
+				t.Fatalf("entregó un mensaje fuera de su alcance: %v", ev.datos)
+			}
+			latidos++
+		case <-time.After(5 * time.Second):
+			t.Fatal("sin latidos")
 		}
 	}
 }
