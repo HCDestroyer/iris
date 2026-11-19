@@ -307,3 +307,10 @@ func (m *Modulo) EnviarBoleta(ctx context.Context, id uuid.UUID) error {
 
 // DescribirServiciosIA: cómo ve el asistente los servicios del cliente (contrato argosisp.md 0.8.0 §2.4).
 var DescribirServiciosIA = describirServiciosIA
+
+// FijarPlazoMedidas cambia el plazo para leer la cabecera de una foto al enviarla (pruebas).
+func FijarPlazoMedidas(d time.Duration) func() {
+	antes := plazoMedidas
+	plazoMedidas = d
+	return func() { plazoMedidas = antes }
+}

@@ -113,6 +113,9 @@ type metaFalso struct {
 // medioFalso es la «foto» que Meta entrega al descargar un medio.
 var medioFalso = []byte("\xff\xd8\xff\xe0 foto del modem")
 
+// mediosFalsos: bytes propios por id de medio (fotos de verdad para las medidas, conv_medidas_test.go).
+var mediosFalsos = map[string][]byte{}
+
 func nuevoMeta(t *testing.T) *metaFalso {
 	f := &metaFalso{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -159,6 +162,10 @@ func nuevoMeta(t *testing.T) *metaFalso {
 				_, _ = w.Write([]byte("<html>no soy una imagen</html>"))
 			case strings.HasPrefix(req.URL.Path, "/descarga/"):
 				w.Header().Set("Content-Type", "image/jpeg")
+				if d, ok := mediosFalsos[req.URL.Path[strings.LastIndex(req.URL.Path, "/")+1:]]; ok {
+					_, _ = w.Write(d)
+					return
+				}
 				_, _ = w.Write(medioFalso)
 			case strings.HasSuffix(req.URL.Path, "perdido"):
 				w.WriteHeader(http.StatusNotFound)

@@ -46,6 +46,12 @@ const conv = (page: Page) => page.getByRole("region", { name: /^Conversación co
 const hilo = (page: Page) => conv(page).getByRole("log", { name: "Mensajes" });
 const compositor = (page: Page) => conv(page).locator('[data-slot="compositor"]');
 const caja = (page: Page) => compositor(page).getByRole("textbox");
+/** En el teléfono las herramientas del compositor (adjuntar, plantillas…) se despliegan con «+». */
+async function abrirHerramientas(page: Page) {
+    if (!esTelefono(page)) return;
+    await compositor(page).getByRole("button", { name: "Adjuntar y más herramientas" }).click();
+    await expect(compositor(page).getByRole("button", { name: "Ocultar herramientas" })).toBeVisible();
+}
 
 /** Un hilo largo: 40 mensajes, una foto cerca del final (que carga tarde) y el último bien marcado. */
 function hiloLargo(api: Api, extra: Mensaje[] = []) {
@@ -186,7 +192,9 @@ test.describe("bandeja › el campo para escribir no se desborda", () => {
         await sinDesbordeHorizontal(compositor(page), "compositor con una palabra larga");
         await sinScrollDePagina(page);
         await expect(compositor(page).getByRole("button", { name: /^Enviar/ })).toBeInViewport({ ratio: 1 });
+        await abrirHerramientas(page);
         await expect(compositor(page).locator("[data-adjuntar]")).toBeInViewport({ ratio: 1 });
+        await sinDesbordeHorizontal(compositor(page), "compositor con las herramientas desplegadas");
         await captura(page, "compositor-palabra-larga");
     });
 
@@ -351,6 +359,7 @@ const mensajesEnviados = (api: Api) => api.conversaciones.enviados.filter((e) =>
 test.describe("bandeja › adjuntar archivos con vista previa", () => {
     test("el clip abre un menú; lo elegido va a la vista previa (sin subir nada), se amplía y se quita; al enviar sale un mensaje por archivo, en orden, con el comentario en el primero", async ({ page }) => {
         const { api, adjuntos } = await abrir(page);
+        await abrirHerramientas(page);
         await compositor(page).locator("[data-adjuntar]").click();
         await expect(page.getByRole("menuitem", { name: "Fotos" })).toBeVisible();
         await expect(page.getByRole("menuitem", { name: "Documento (PDF)" })).toBeVisible();

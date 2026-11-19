@@ -1,8 +1,8 @@
 "use client";
 
-import { Boton, Cargando, cn } from "@iris/ui";
-import { AlertTriangle, ArrowDown, ArrowLeftRight, Bot, CirclePause, FileText, History, MapPin, MessageCircle, Paperclip, PencilLine, PhoneCall, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound, Voicemail } from "lucide-react";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AlbumFotos, Boton, Cargando, cn, FotoMensaje, VisorFotos, type FotoEnVisor } from "@iris/ui";
+import { AlertTriangle, ArrowDown, ArrowLeftRight, Bot, CirclePause, FileText, History, MapPin, MessageCircle, PencilLine, PhoneCall, Plug, RotateCw, ShieldCheck, ShieldX, Smartphone, Sparkles, Timer, UserRound, Voicemail } from "lucide-react";
+import { createContext, Fragment, use, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Pendiente } from "@/lib/conversaciones/estado";
 import { hora, separadorDia, tamanoLegible, textoEntrega, textoEvento } from "@/lib/conversaciones/presentacion";
 import type { Mensaje } from "@/lib/conversaciones/tipos";
@@ -23,7 +23,12 @@ type Props = {
     errorAnteriores: boolean;
     cargarAnteriores: () => void;
     reintentarPendiente: (p: Pendiente) => void;
+    /** Quién escribe del otro lado (el título de la conversación): para el visor de fotos. */
+    nombreCliente?: string;
 };
+
+/** Abre una foto del hilo en el visor (por id de mensaje). */
+const AbrirFoto = createContext<(mensajeId: string) => void>(() => undefined);
 
 /** A menos de esto del final se considera que estás abajo (y la vista sigue a lo que llega). */
 const MARGEN_ABAJO = 80;
@@ -39,7 +44,7 @@ const MARGEN_ABAJO = 80;
  * aparece «Mensajes nuevos» y al pulsarlo baja. Al cargar mensajes anteriores, lo que estabas
  * leyendo se queda en su sitio.
  */
-export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnteriores, errorAnteriores, cargarAnteriores, reintentarPendiente }: Props) {
+export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnteriores, errorAnteriores, cargarAnteriores, reintentarPendiente, nombreCliente = "Cliente" }: Props) {
     const caja = useRef<HTMLDivElement>(null);
     const contenido = useRef<HTMLDivElement>(null);
     const abajo = useRef(true);
@@ -48,6 +53,11 @@ export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnter
     const altoAntes = useRef(0);
     const previo = useRef<{ primero: string | undefined; ultimo: string | undefined; cuantos: number; pendientes: number }>({ primero: undefined, ultimo: undefined, cuantos: 0, pendientes: 0 });
     const [nuevos, setNuevos] = useState(0);
+    // Visor: todas las fotos listas del hilo, en orden; se abre en la que se tocó.
+    const fotos = useMemo(() => fotosDelHilo(mensajes, nombreCliente), [mensajes, nombreCliente]);
+    const [visor, setVisor] = useState<string | null>(null);
+    const indiceVisor = visor === null ? -1 : fotos.findIndex((f) => f.id === visor);
+    const abrirFoto = useCallback((id: string) => setVisor(id), []);
 
     const irAlFinal = useCallback(() => {
         const el = caja.current;
@@ -117,6 +127,7 @@ export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnter
         <div className="relative flex min-h-0 flex-1 flex-col">
             <div ref={caja} role="log" aria-label="Mensajes" aria-live="polite" tabIndex={0} className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset">
                 <div ref={contenido} className="flex min-w-0 flex-col gap-2 px-[clamp(0.75rem,3cqw,2rem)] py-4">
+                    <AbrirFoto value={abrirFoto}>
                     <Mensajes
                         mensajes={mensajes}
                         pendientes={pendientes}
@@ -127,8 +138,10 @@ export function Hilo({ mensajes, pendientes, ahora, hayAnteriores, cargandoAnter
                         cargarAnteriores={cargarAnteriores}
                         reintentarPendiente={reintentarPendiente}
                     />
+                    </AbrirFoto>
                 </div>
             </div>
+            <VisorFotos fotos={fotos} indice={indiceVisor >= 0 ? indiceVisor : null} alCambiar={(i) => setVisor(i === null ? null : (fotos[i]?.id ?? null))} />
             {nuevos > 0 ? (
                 <Boton variante="tinta" tamano="sm" data-slot="mensajes-nuevos" className="absolute bottom-3 left-1/2 h-8 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-full px-3 shadow-md" onClick={irAlFinal}>
                     <span className="truncate">Mensajes nuevos</span>
@@ -153,12 +166,14 @@ function Mensajes({ mensajes, pendientes, separadores, hayAnteriores, cargandoAn
                     </Boton>
                 </div>
             ) : null}
-            {mensajes.map((m, i) => {
-                const separador = separadores[i];
+            {agruparFotos(mensajes, separadores).map((g) => {
+                const primero = g.mensajes[0];
+                if (!primero) return null;
+                const separador = separadores[g.indice];
                 return (
-                    <Fragment key={m.id}>
+                    <Fragment key={primero.id}>
                         {separador ? <p className="self-center py-1.5 text-[0.71875rem] font-semibold tracking-wide text-muted-foreground uppercase">{separador}</p> : null}
-                        <Burbuja m={m} />
+                        {g.mensajes.length > 1 ? <Album ms={g.mensajes} /> : <Burbuja m={primero} />}
                     </Fragment>
                 );
             })}
@@ -274,6 +289,11 @@ function Burbuja({ m }: { m: Mensaje }) {
     ]
         .filter(Boolean)
         .join(" · ");
+    // Una foto: la burbuja se ajusta a ella (sin relleno) y la hora va sobre la foto si no hay
+    // texto; con texto, el pie va dentro de la burbuja, debajo.
+    const foto = esFoto(m);
+    const etiquetas = nota || (propia && delAsistente) || desdeTelefono || delHistorial || pidePermiso || delBot || m.buzonDeVoz || m.plantilla;
+    const horaSobreFoto = foto && !m.texto && m.estadoEntrega !== "fallido" && !(nota && (m.menciones?.length ?? 0) > 0);
     return (
         <>
             {nota && delAsistente ? (
@@ -288,8 +308,11 @@ function Burbuja({ m }: { m: Mensaje }) {
                 data-mensaje={m.id}
                 data-direccion={m.direccion}
                 data-autor={delAsistente ? "asistente_ia" : undefined}
+                data-foto={foto ? "" : undefined}
                 className={cn(
-                    "flex max-w-[min(72%,35rem)] min-w-0 flex-col gap-0.5 rounded-[0.875rem] px-3 py-2",
+                    "flex max-w-[min(72%,35rem)] min-w-0 flex-col gap-0.5 rounded-[0.875rem]",
+                    foto ? "p-[3px] [&>:not([data-slot=foto-mensaje])]:mx-2 [&>:not([data-slot=foto-mensaje]):last-child]:mb-1" : "px-3 py-2",
+                    foto && etiquetas && "pt-1.5",
                     m.direccion === "entrante" && "self-start rounded-bl-sm border border-border bg-card",
                     propia && !delBot && !delAsistente && !pidePermiso && "self-end rounded-br-sm bg-primary/10",
                     pidePermiso && "self-end rounded-br-sm border border-primary/40 bg-primary/[0.06]",
@@ -331,7 +354,7 @@ function Burbuja({ m }: { m: Mensaje }) {
                         Mensaje de voz del buzón
                     </span>
                 ) : null}
-                {m.adjunto ? <Adjunto m={m} /> : null}
+                {m.adjunto ? <Adjunto m={m} superpuesto={horaSobreFoto ? pie : undefined} /> : null}
                 {m.ubicacion ? (
                     <a
                         className="flex items-center gap-1.5 text-sm text-primary underline-offset-2 hover:underline"
@@ -348,7 +371,7 @@ function Burbuja({ m }: { m: Mensaje }) {
                 {nota && (m.menciones?.length ?? 0) > 0 ? (
                     <span className="text-xs text-muted-foreground [overflow-wrap:anywhere]">Para {(m.menciones ?? []).map((u) => `@${u.nombre}`).join(", ")}</span>
                 ) : null}
-                <span className={cn("self-end text-[0.71875rem] text-muted-foreground", m.estadoEntrega === "fallido" && "text-error")}>{pie}</span>
+                {horaSobreFoto ? null : <span className={cn("self-end text-[0.71875rem] text-muted-foreground", m.estadoEntrega === "fallido" && "text-error", foto && "pt-0.5")}>{pie}</span>}
                 {propia ? <FallaMensaje m={m} /> : null}
             </div>
         </>
@@ -356,32 +379,148 @@ function Burbuja({ m }: { m: Mensaje }) {
 }
 
 /** Imágenes que se muestran en línea. Otro `image/*` (un SVG, p. ej.) va como documento. */
-const IMAGEN_EN_LINEA: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "image/webp"]);
+const IMAGEN_EN_LINEA: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
+const esImagen = (m: Mensaje) => m.adjunto !== undefined && (IMAGEN_EN_LINEA.has(m.adjunto.mime.toLowerCase()) || (m.tipo === "imagen" && m.adjunto.mime === ""));
 
 /**
- * Adjunto: miniatura si es imagen lista; si no, nombre, tamaño y estado («Descargando…»). El enlace
- * se arma siempre desde el id validado (`rutaDescargaAdjunto`), nunca desde la URL de los datos.
+ * ¿El adjunto se dibuja como foto? Una imagen lista, la que todavía se descarga de WhatsApp (con
+ * su espacio reservado) o la que no se pudo descargar. Un adjunto sin id válido no es foto.
  */
-function Adjunto({ m }: { m: Mensaje }) {
+function esFoto(m: Mensaje): boolean {
+    const a = m.adjunto;
+    if (!a || !esImagen(m)) return false;
+    return a.estado !== "completo" || rutaDescargaAdjunto(a.id) !== undefined;
+}
+
+/** Hasta dos minutos entre fotos seguidas del mismo lado: van juntas en una cuadrícula. */
+const VENTANA_ALBUM_MS = 120_000;
+
+/** Foto sola (sin texto, sin etiquetas ni falla): la que puede ir en una cuadrícula. */
+function fotoDeAlbum(m: Mensaje): boolean {
+    return (
+        esFoto(m) &&
+        m.adjunto?.estado === "completo" &&
+        !m.texto &&
+        (m.direccion === "entrante" || m.direccion === "saliente") &&
+        !m.automatico &&
+        !m.origen &&
+        !m.buzonDeVoz &&
+        !m.plantilla &&
+        !esDelAsistente(m) &&
+        m.estadoEntrega !== "fallido"
+    );
+}
+
+type GrupoHilo = { indice: number; mensajes: Mensaje[] };
+
+/**
+ * Agrupa fotos seguidas del mismo lado (y del mismo autor), sin separador de día entre ellas y a
+ * menos de dos minutos una de otra, como un álbum de WhatsApp. Lo demás va de a uno.
+ */
+export function agruparFotos(mensajes: readonly Mensaje[], separadores: readonly (string | null)[]): GrupoHilo[] {
+    const grupos: GrupoHilo[] = [];
+    mensajes.forEach((m, i) => {
+        const ultimo = grupos.at(-1);
+        const anterior = ultimo?.mensajes.at(-1);
+        if (
+            ultimo &&
+            anterior &&
+            !separadores[i] &&
+            fotoDeAlbum(m) &&
+            fotoDeAlbum(anterior) &&
+            m.direccion === anterior.direccion &&
+            (m.autor?.id ?? null) === (anterior.autor?.id ?? null) &&
+            Math.abs(Date.parse(m.creadoEn) - Date.parse(anterior.creadoEn)) <= VENTANA_ALBUM_MS
+        ) {
+            ultimo.mensajes.push(m);
+            return;
+        }
+        grupos.push({ indice: i, mensajes: [m] });
+    });
+    return grupos;
+}
+
+/** Las fotos listas del hilo, en orden, para el visor. */
+function fotosDelHilo(mensajes: readonly Mensaje[], nombreCliente: string): FotoEnVisor[] {
+    const fotos: FotoEnVisor[] = [];
+    for (const m of mensajes) {
+        const a = m.adjunto;
+        const url = a && a.estado === "completo" && esImagen(m) ? rutaDescargaAdjunto(a.id) : undefined;
+        if (!url) continue;
+        const quien = m.direccion === "entrante" ? nombreCliente : (m.autor?.nombre ?? "Iris");
+        fotos.push({ id: m.id, src: url, descarga: url, titulo: quien, detalle: `${separadorDia(m.creadoEn, Date.now())} ${hora(m.creadoEn)}`, alt: `Foto de ${quien}, ${hora(m.creadoEn)}`, pie: m.texto ?? null });
+    }
+    return fotos;
+}
+
+function etiquetaFoto(m: Mensaje): string {
+    return `Ver foto de las ${hora(m.creadoEn)}${m.adjunto ? ` (${tamanoLegible(m.adjunto.tamano)})` : ""}`;
+}
+
+/** Varias fotos seguidas en una sola burbuja, en cuadrícula; la hora y la entrega, de la última. */
+function Album({ ms }: { ms: Mensaje[] }) {
+    const abrir = use(AbrirFoto);
+    const ultimo = ms.at(-1);
+    const primero = ms[0];
+    if (!ultimo || !primero) return null;
+    const propia = ultimo.direccion === "saliente";
+    const pie = [propia ? ultimo.autor?.nombre : null, hora(ultimo.creadoEn), propia ? textoEntrega(ultimo) : null].filter(Boolean).join(" · ");
+    return (
+        <div
+            data-mensaje={primero.id}
+            data-album={ms.map((m) => m.id).join(" ")}
+            data-direccion={ultimo.direccion}
+            className={cn("max-w-[min(72%,35rem)] min-w-0 rounded-[0.875rem] p-[3px]", propia ? "self-end rounded-br-sm bg-primary/10" : "self-start rounded-bl-sm border border-border bg-card")}
+        >
+            <AlbumFotos
+                etiqueta={`${ms.length} fotos`}
+                superpuesto={pie}
+                fotos={ms.map((m) => ({
+                    id: m.id,
+                    src: m.adjunto ? rutaDescargaAdjunto(m.adjunto.id) : undefined,
+                    ancho: m.adjunto?.ancho,
+                    alto: m.adjunto?.alto,
+                    estado: "lista" as const,
+                    etiqueta: etiquetaFoto(m),
+                    alAbrir: () => abrir(m.id),
+                }))}
+            />
+        </div>
+    );
+}
+
+/**
+ * Adjunto: foto (con su proporción reservada, ver `FotoMensaje`) o documento con nombre, tamaño y
+ * estado («descargando de WhatsApp…»). El enlace se arma siempre desde el id validado
+ * (`rutaDescargaAdjunto`), nunca desde la URL de los datos.
+ */
+function Adjunto({ m, superpuesto }: { m: Mensaje; superpuesto?: string | undefined }) {
+    const abrir = use(AbrirFoto);
     const a = m.adjunto;
     if (!a) return null;
     const url = rutaDescargaAdjunto(a.id);
     const listo = a.estado === "completo" && url !== undefined;
-    const imagen = IMAGEN_EN_LINEA.has(a.mime.toLowerCase());
-    const nombre = imagen ? "Foto" : a.mime === "application/pdf" ? "Documento PDF" : "Archivo";
-    if (listo && imagen) {
+    if (esFoto(m)) {
         return (
-            <a href={url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg" aria-label={`Abrir ${nombre.toLowerCase()} (${tamanoLegible(a.tamano)})`}>
-                {/* La imagen viene del módulo de adjuntos (mismo origen): sin optimizar. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt="" loading="lazy" className="max-h-64 w-auto max-w-full object-cover" />
-            </a>
+            <FotoMensaje
+                src={listo ? url : undefined}
+                ancho={a.ancho}
+                alto={a.alto}
+                estado={listo ? "lista" : a.estado === "rechazado" ? "rechazada" : "pendiente"}
+                textoPendiente={m.direccion === "entrante" ? "Descargando de WhatsApp…" : "Subiendo foto…"}
+                textoRechazada="No se pudo descargar la foto"
+                etiqueta={etiquetaFoto(m)}
+                alAbrir={() => abrir(m.id)}
+                superpuesto={superpuesto}
+            />
         );
     }
+    const nombre = a.mime === "application/pdf" ? "Documento PDF" : "Archivo";
     return (
         <span className="flex min-w-0 items-center gap-2.5 rounded-lg bg-background-secondary p-2">
             <span aria-hidden className="flex size-10 shrink-0 items-center justify-center rounded-md bg-elevated text-muted-foreground">
-                {imagen ? <Paperclip className="size-4" /> : <FileText className="size-4" />}
+                <FileText className="size-4" />
             </span>
             <span className="grid min-w-0">
                 {listo ? (
