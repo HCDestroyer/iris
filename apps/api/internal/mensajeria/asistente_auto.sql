@@ -283,9 +283,10 @@ UPDATE mensajeria.conversaciones SET bot_diferido_mensaje_id = sqlc.narg('mensaj
 
 -- name: InsertarReconexion :one
 INSERT INTO mensajeria.reconexiones (id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado,
-    promesa_argos_id, hasta, detalle, solicitada_por, por_asistente)
+    promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, caja_total, caja_disponibles)
 VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, @boleta_id, @comprobante_id, @cliente_id, sqlc.narg('servicio_id'), @motivo, @estado,
-    sqlc.narg('promesa_argos_id'), sqlc.narg('hasta'), sqlc.narg('detalle'), sqlc.narg('solicitada_por'), @por_asistente)
+    sqlc.narg('promesa_argos_id'), sqlc.narg('hasta'), sqlc.narg('detalle'), sqlc.narg('solicitada_por'), @por_asistente,
+    sqlc.narg('caja_total'), sqlc.narg('caja_disponibles'))
 ON CONFLICT (comprobante_id) DO NOTHING
 RETURNING *;
 
@@ -366,3 +367,72 @@ UPDATE mensajeria.asistente_ajustes SET visitas = @visitas, updated_at = now() W
 SELECT EXISTS (SELECT 1 FROM mensajeria.asistente_acciones
     WHERE conversacion_id = @conversacion_id AND accion = @accion AND resultado = 'ok' AND entidad_id = @entidad_id::text)::boolean;
 
+
+-- Reconexión sin personal de caja (contrato con Argos 0.8.0 §7.3, B4) ---------------------------------
+
+-- name: AjustesReconexion :one
+SELECT * FROM mensajeria.ajustes_reconexion WHERE coalesce(empresa_id, 0) = @empresa::bigint;
+
+-- name: AjustesReconexionParaActualizar :one
+SELECT * FROM mensajeria.ajustes_reconexion WHERE coalesce(empresa_id, 0) = @empresa::bigint FOR UPDATE;
+
+-- name: InsertarAjustesReconexion :one
+INSERT INTO mensajeria.ajustes_reconexion (empresa_id, sin_personal, actualizado_por)
+VALUES (sqlc.narg('empresa_id'), @sin_personal, sqlc.narg('actualizado_por'))
+ON CONFLICT DO NOTHING
+RETURNING *;
+
+-- name: ActualizarAjustesReconexion :one
+UPDATE mensajeria.ajustes_reconexion SET sin_personal = @sin_personal, actualizado_por = sqlc.narg('actualizado_por'),
+    version = version + 1, updated_at = now()
+WHERE id = @id RETURNING *;
+
+-- name: CajaDeEmpresa :one
+-- Personas activas con el rol caja (activo) que operan en la empresa (la tienen asignada o tienen
+-- empresas.todas sin límite; con empresa 0, sin multiempresa, todas), y cuántas están disponibles en
+-- la bandeja de esa empresa AHORA: con su sesión vigente, dentro de su horario y con actividad dentro
+-- de los minutos de inactividad (la misma regla que DisponiblesPorVencer: una fila «disponible» que el
+-- mantenimiento todavía no venció no cuenta).
+WITH r AS (SELECT @ahora::timestamptz AS ahora),
+caja AS (
+    SELECT DISTINCT u.id, u.activo
+    FROM nucleo.usuarios u
+    JOIN nucleo.usuarios_roles ur ON ur.usuario_id = u.id
+    JOIN nucleo.roles ro ON ro.id = ur.rol_id AND ro.activo AND ro.codigo = 'caja'
+    WHERE u.activo AND u.tipo = 'persona'
+      AND (@empresa::bigint = 0
+           OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = @empresa::bigint)
+           OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
+                      JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
+                      JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id
+                      WHERE ur2.usuario_id = u.id AND rp2.permiso = 'empresas.todas'
+                        AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL))
+)
+SELECT (SELECT count(*) FROM caja)::integer AS total,
+    (SELECT count(*) FROM r, caja
+     JOIN mensajeria.disponibilidad d ON d.usuario_id = caja.id AND coalesce(d.empresa_id, 0) = @empresa::bigint AND d.estado = 'disponible'
+     JOIN nucleo.sesiones s ON s.id = d.sesion_id AND s.revocada_en IS NULL
+     LEFT JOIN mensajeria.ajustes_bandeja a ON coalesce(a.empresa_id, 0) = coalesce(d.empresa_id, 0)
+     WHERE s.expira_en > r.ahora
+       AND (d.horario_hasta IS NULL OR d.horario_hasta > r.ahora)
+       AND d.ultima_actividad > r.ahora - make_interval(mins => coalesce(a.minutos_inactividad, 15)))::integer AS disponibles;
+
+-- name: ReconexionDePromesa :one
+-- La reconexión local de una promesa de Argos (webhooks promesa.*): por el comprobante, de la misma
+-- empresa y, si ya se sabe, de la misma promesa.
+SELECT * FROM mensajeria.reconexiones
+WHERE comprobante_id = @comprobante_id AND coalesce(empresa_id, 0) = @empresa::bigint
+  AND (promesa_argos_id IS NULL OR promesa_argos_id = @promesa_id::bigint)
+FOR UPDATE;
+
+-- name: ActualizarReconexionArgos :one
+-- Lo que Argos dice de la promesa. Un estado final (cumplida, incumplida, cancelada) no lo pisa un
+-- webhook atrasado, y el mismo entrante no se aplica dos veces.
+UPDATE mensajeria.reconexiones
+SET argos_estado = @argos_estado, argos_motivo = coalesce(sqlc.narg('argos_motivo'), argos_motivo),
+    argos_fin_motivo = sqlc.narg('argos_fin_motivo'), argos_entrante_id = @entrante_id, argos_actualizada_en = now(),
+    hasta = CASE WHEN @argos_estado = 'activa' AND estado = 'aceptada' THEN coalesce(sqlc.narg('vence'), hasta) ELSE hasta END
+WHERE id = @id
+  AND argos_entrante_id IS DISTINCT FROM @entrante_id
+  AND (argos_estado IS NULL OR argos_estado = 'activa')
+RETURNING *;

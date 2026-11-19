@@ -120,6 +120,134 @@ func (q *Queries) AccionesAsistenteRecientes(ctx context.Context, arg AccionesAs
 	return column_1, err
 }
 
+const actualizarAjustesReconexion = `-- name: ActualizarAjustesReconexion :one
+UPDATE mensajeria.ajustes_reconexion SET sin_personal = $1, actualizado_por = $2,
+    version = version + 1, updated_at = now()
+WHERE id = $3 RETURNING id, empresa_id, sin_personal, version, actualizado_por, created_at, updated_at
+`
+
+type ActualizarAjustesReconexionParams struct {
+	SinPersonal    bool
+	ActualizadoPor *int64
+	ID             int64
+}
+
+func (q *Queries) ActualizarAjustesReconexion(ctx context.Context, arg ActualizarAjustesReconexionParams) (MensajeriaAjustesReconexion, error) {
+	row := q.db.QueryRow(ctx, actualizarAjustesReconexion, arg.SinPersonal, arg.ActualizadoPor, arg.ID)
+	var i MensajeriaAjustesReconexion
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.SinPersonal,
+		&i.Version,
+		&i.ActualizadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const actualizarReconexionArgos = `-- name: ActualizarReconexionArgos :one
+UPDATE mensajeria.reconexiones
+SET argos_estado = $1, argos_motivo = coalesce($2, argos_motivo),
+    argos_fin_motivo = $3, argos_entrante_id = $4, argos_actualizada_en = now(),
+    hasta = CASE WHEN $1 = 'activa' AND estado = 'aceptada' THEN coalesce($5, hasta) ELSE hasta END
+WHERE id = $6
+  AND argos_entrante_id IS DISTINCT FROM $4
+  AND (argos_estado IS NULL OR argos_estado = 'activa')
+RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en
+`
+
+type ActualizarReconexionArgosParams struct {
+	ArgosEstado    *string
+	ArgosMotivo    *string
+	ArgosFinMotivo *string
+	EntranteID     *int64
+	Vence          *time.Time
+	ID             uuid.UUID
+}
+
+// Lo que Argos dice de la promesa. Un estado final (cumplida, incumplida, cancelada) no lo pisa un
+// webhook atrasado, y el mismo entrante no se aplica dos veces.
+func (q *Queries) ActualizarReconexionArgos(ctx context.Context, arg ActualizarReconexionArgosParams) (MensajeriaReconexione, error) {
+	row := q.db.QueryRow(ctx, actualizarReconexionArgos,
+		arg.ArgosEstado,
+		arg.ArgosMotivo,
+		arg.ArgosFinMotivo,
+		arg.EntranteID,
+		arg.Vence,
+		arg.ID,
+	)
+	var i MensajeriaReconexione
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.BoletaID,
+		&i.ComprobanteID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.Motivo,
+		&i.Estado,
+		&i.Intentos,
+		&i.ResueltaEn,
+		&i.PromesaArgosID,
+		&i.Hasta,
+		&i.Detalle,
+		&i.SolicitadaPor,
+		&i.PorAsistente,
+		&i.CreatedAt,
+		&i.CajaTotal,
+		&i.CajaDisponibles,
+		&i.ArgosMotivo,
+		&i.ArgosEstado,
+		&i.ArgosFinMotivo,
+		&i.ArgosEntranteID,
+		&i.ArgosActualizadaEn,
+	)
+	return i, err
+}
+
+const ajustesReconexion = `-- name: AjustesReconexion :one
+
+SELECT id, empresa_id, sin_personal, version, actualizado_por, created_at, updated_at FROM mensajeria.ajustes_reconexion WHERE coalesce(empresa_id, 0) = $1::bigint
+`
+
+// Reconexión sin personal de caja (contrato con Argos 0.8.0 §7.3, B4) ---------------------------------
+func (q *Queries) AjustesReconexion(ctx context.Context, empresa int64) (MensajeriaAjustesReconexion, error) {
+	row := q.db.QueryRow(ctx, ajustesReconexion, empresa)
+	var i MensajeriaAjustesReconexion
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.SinPersonal,
+		&i.Version,
+		&i.ActualizadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const ajustesReconexionParaActualizar = `-- name: AjustesReconexionParaActualizar :one
+SELECT id, empresa_id, sin_personal, version, actualizado_por, created_at, updated_at FROM mensajeria.ajustes_reconexion WHERE coalesce(empresa_id, 0) = $1::bigint FOR UPDATE
+`
+
+func (q *Queries) AjustesReconexionParaActualizar(ctx context.Context, empresa int64) (MensajeriaAjustesReconexion, error) {
+	row := q.db.QueryRow(ctx, ajustesReconexionParaActualizar, empresa)
+	var i MensajeriaAjustesReconexion
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.SinPersonal,
+		&i.Version,
+		&i.ActualizadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const bloquearVerificacionesCliente = `-- name: BloquearVerificacionesCliente :exec
 SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.verificaciones:' || $1::bigint || ':' || $2::bigint, 0))
 `
@@ -263,6 +391,54 @@ func (q *Queries) BotsDiferidosViejos(ctx context.Context, antes time.Time) ([]i
 		return nil, err
 	}
 	return items, nil
+}
+
+const cajaDeEmpresa = `-- name: CajaDeEmpresa :one
+WITH r AS (SELECT $2::timestamptz AS ahora),
+caja AS (
+    SELECT DISTINCT u.id, u.activo
+    FROM nucleo.usuarios u
+    JOIN nucleo.usuarios_roles ur ON ur.usuario_id = u.id
+    JOIN nucleo.roles ro ON ro.id = ur.rol_id AND ro.activo AND ro.codigo = 'caja'
+    WHERE u.activo AND u.tipo = 'persona'
+      AND ($1::bigint = 0
+           OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = $1::bigint)
+           OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
+                      JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
+                      JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id
+                      WHERE ur2.usuario_id = u.id AND rp2.permiso = 'empresas.todas'
+                        AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL))
+)
+SELECT (SELECT count(*) FROM caja)::integer AS total,
+    (SELECT count(*) FROM r, caja
+     JOIN mensajeria.disponibilidad d ON d.usuario_id = caja.id AND coalesce(d.empresa_id, 0) = $1::bigint AND d.estado = 'disponible'
+     JOIN nucleo.sesiones s ON s.id = d.sesion_id AND s.revocada_en IS NULL
+     LEFT JOIN mensajeria.ajustes_bandeja a ON coalesce(a.empresa_id, 0) = coalesce(d.empresa_id, 0)
+     WHERE s.expira_en > r.ahora
+       AND (d.horario_hasta IS NULL OR d.horario_hasta > r.ahora)
+       AND d.ultima_actividad > r.ahora - make_interval(mins => coalesce(a.minutos_inactividad, 15)))::integer AS disponibles
+`
+
+type CajaDeEmpresaParams struct {
+	Empresa int64
+	Ahora   time.Time
+}
+
+type CajaDeEmpresaRow struct {
+	Total       int32
+	Disponibles int32
+}
+
+// Personas activas con el rol caja (activo) que operan en la empresa (la tienen asignada o tienen
+// empresas.todas sin límite; con empresa 0, sin multiempresa, todas), y cuántas están disponibles en
+// la bandeja de esa empresa AHORA: con su sesión vigente, dentro de su horario y con actividad dentro
+// de los minutos de inactividad (la misma regla que DisponiblesPorVencer: una fila «disponible» que el
+// mantenimiento todavía no venció no cuenta).
+func (q *Queries) CajaDeEmpresa(ctx context.Context, arg CajaDeEmpresaParams) (CajaDeEmpresaRow, error) {
+	row := q.db.QueryRow(ctx, cajaDeEmpresa, arg.Empresa, arg.Ahora)
+	var i CajaDeEmpresaRow
+	err := row.Scan(&i.Total, &i.Disponibles)
+	return i, err
 }
 
 const cerrarVerificacion = `-- name: CerrarVerificacion :execrows
@@ -626,6 +802,34 @@ func (q *Queries) InsertarAccionAsistente(ctx context.Context, arg InsertarAccio
 	return id, err
 }
 
+const insertarAjustesReconexion = `-- name: InsertarAjustesReconexion :one
+INSERT INTO mensajeria.ajustes_reconexion (empresa_id, sin_personal, actualizado_por)
+VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING
+RETURNING id, empresa_id, sin_personal, version, actualizado_por, created_at, updated_at
+`
+
+type InsertarAjustesReconexionParams struct {
+	EmpresaID      *int64
+	SinPersonal    bool
+	ActualizadoPor *int64
+}
+
+func (q *Queries) InsertarAjustesReconexion(ctx context.Context, arg InsertarAjustesReconexionParams) (MensajeriaAjustesReconexion, error) {
+	row := q.db.QueryRow(ctx, insertarAjustesReconexion, arg.EmpresaID, arg.SinPersonal, arg.ActualizadoPor)
+	var i MensajeriaAjustesReconexion
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.SinPersonal,
+		&i.Version,
+		&i.ActualizadoPor,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertarOfertaVisita = `-- name: InsertarOfertaVisita :exec
 INSERT INTO mensajeria.asistente_ofertas_visita (empresa_id, conversacion_id, cliente_id, servicio_id, zona_id, tipo, clave, inicio, fin, motivo,
     ofrecida_en, vence_en)
@@ -667,28 +871,31 @@ func (q *Queries) InsertarOfertaVisita(ctx context.Context, arg InsertarOfertaVi
 
 const insertarReconexion = `-- name: InsertarReconexion :one
 INSERT INTO mensajeria.reconexiones (id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado,
-    promesa_argos_id, hasta, detalle, solicitada_por, por_asistente)
+    promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, caja_total, caja_disponibles)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10, $11, $12, $13, $14)
+    $10, $11, $12, $13, $14,
+    $15, $16)
 ON CONFLICT (comprobante_id) DO NOTHING
-RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at
+RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en
 `
 
 type InsertarReconexionParams struct {
-	ID             uuid.UUID
-	EmpresaID      *int64
-	ConversacionID int64
-	BoletaID       uuid.UUID
-	ComprobanteID  int64
-	ClienteID      int64
-	ServicioID     *int64
-	Motivo         string
-	Estado         string
-	PromesaArgosID *int64
-	Hasta          *time.Time
-	Detalle        *string
-	SolicitadaPor  *int64
-	PorAsistente   bool
+	ID              uuid.UUID
+	EmpresaID       *int64
+	ConversacionID  int64
+	BoletaID        uuid.UUID
+	ComprobanteID   int64
+	ClienteID       int64
+	ServicioID      *int64
+	Motivo          string
+	Estado          string
+	PromesaArgosID  *int64
+	Hasta           *time.Time
+	Detalle         *string
+	SolicitadaPor   *int64
+	PorAsistente    bool
+	CajaTotal       *int32
+	CajaDisponibles *int32
 }
 
 func (q *Queries) InsertarReconexion(ctx context.Context, arg InsertarReconexionParams) (MensajeriaReconexione, error) {
@@ -707,6 +914,8 @@ func (q *Queries) InsertarReconexion(ctx context.Context, arg InsertarReconexion
 		arg.Detalle,
 		arg.SolicitadaPor,
 		arg.PorAsistente,
+		arg.CajaTotal,
+		arg.CajaDisponibles,
 	)
 	var i MensajeriaReconexione
 	err := row.Scan(
@@ -727,6 +936,13 @@ func (q *Queries) InsertarReconexion(ctx context.Context, arg InsertarReconexion
 		&i.SolicitadaPor,
 		&i.PorAsistente,
 		&i.CreatedAt,
+		&i.CajaTotal,
+		&i.CajaDisponibles,
+		&i.ArgosMotivo,
+		&i.ArgosEstado,
+		&i.ArgosFinMotivo,
+		&i.ArgosEntranteID,
+		&i.ArgosActualizadaEn,
 	)
 	return i, err
 }
@@ -1047,8 +1263,55 @@ func (q *Queries) RechazosVerificacionConv(ctx context.Context, arg RechazosVeri
 	return column_1, err
 }
 
+const reconexionDePromesa = `-- name: ReconexionDePromesa :one
+SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en FROM mensajeria.reconexiones
+WHERE comprobante_id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+  AND (promesa_argos_id IS NULL OR promesa_argos_id = $3::bigint)
+FOR UPDATE
+`
+
+type ReconexionDePromesaParams struct {
+	ComprobanteID int64
+	Empresa       int64
+	PromesaID     int64
+}
+
+// La reconexión local de una promesa de Argos (webhooks promesa.*): por el comprobante, de la misma
+// empresa y, si ya se sabe, de la misma promesa.
+func (q *Queries) ReconexionDePromesa(ctx context.Context, arg ReconexionDePromesaParams) (MensajeriaReconexione, error) {
+	row := q.db.QueryRow(ctx, reconexionDePromesa, arg.ComprobanteID, arg.Empresa, arg.PromesaID)
+	var i MensajeriaReconexione
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ConversacionID,
+		&i.BoletaID,
+		&i.ComprobanteID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.Motivo,
+		&i.Estado,
+		&i.Intentos,
+		&i.ResueltaEn,
+		&i.PromesaArgosID,
+		&i.Hasta,
+		&i.Detalle,
+		&i.SolicitadaPor,
+		&i.PorAsistente,
+		&i.CreatedAt,
+		&i.CajaTotal,
+		&i.CajaDisponibles,
+		&i.ArgosMotivo,
+		&i.ArgosEstado,
+		&i.ArgosFinMotivo,
+		&i.ArgosEntranteID,
+		&i.ArgosActualizadaEn,
+	)
+	return i, err
+}
+
 const reconexionParaActualizar = `-- name: ReconexionParaActualizar :one
-SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at FROM mensajeria.reconexiones WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en FROM mensajeria.reconexiones WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) ReconexionParaActualizar(ctx context.Context, id uuid.UUID) (MensajeriaReconexione, error) {
@@ -1072,12 +1335,19 @@ func (q *Queries) ReconexionParaActualizar(ctx context.Context, id uuid.UUID) (M
 		&i.SolicitadaPor,
 		&i.PorAsistente,
 		&i.CreatedAt,
+		&i.CajaTotal,
+		&i.CajaDisponibles,
+		&i.ArgosMotivo,
+		&i.ArgosEstado,
+		&i.ArgosFinMotivo,
+		&i.ArgosEntranteID,
+		&i.ArgosActualizadaEn,
 	)
 	return i, err
 }
 
 const reconexionPorComprobante = `-- name: ReconexionPorComprobante :one
-SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at FROM mensajeria.reconexiones WHERE comprobante_id = $1
+SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en FROM mensajeria.reconexiones WHERE comprobante_id = $1
 `
 
 func (q *Queries) ReconexionPorComprobante(ctx context.Context, comprobanteID int64) (MensajeriaReconexione, error) {
@@ -1101,12 +1371,19 @@ func (q *Queries) ReconexionPorComprobante(ctx context.Context, comprobanteID in
 		&i.SolicitadaPor,
 		&i.PorAsistente,
 		&i.CreatedAt,
+		&i.CajaTotal,
+		&i.CajaDisponibles,
+		&i.ArgosMotivo,
+		&i.ArgosEstado,
+		&i.ArgosFinMotivo,
+		&i.ArgosEntranteID,
+		&i.ArgosActualizadaEn,
 	)
 	return i, err
 }
 
 const reconexionesPendientes = `-- name: ReconexionesPendientes :many
-SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at FROM mensajeria.reconexiones WHERE estado = 'pendiente' AND created_at < $1 ORDER BY created_at LIMIT 100
+SELECT id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en FROM mensajeria.reconexiones WHERE estado = 'pendiente' AND created_at < $1 ORDER BY created_at LIMIT 100
 `
 
 func (q *Queries) ReconexionesPendientes(ctx context.Context, antes time.Time) ([]MensajeriaReconexione, error) {
@@ -1136,6 +1413,13 @@ func (q *Queries) ReconexionesPendientes(ctx context.Context, antes time.Time) (
 			&i.SolicitadaPor,
 			&i.PorAsistente,
 			&i.CreatedAt,
+			&i.CajaTotal,
+			&i.CajaDisponibles,
+			&i.ArgosMotivo,
+			&i.ArgosEstado,
+			&i.ArgosFinMotivo,
+			&i.ArgosEntranteID,
+			&i.ArgosActualizadaEn,
 		); err != nil {
 			return nil, err
 		}
@@ -1211,7 +1495,7 @@ const resolverReconexion = `-- name: ResolverReconexion :one
 UPDATE mensajeria.reconexiones
 SET estado = $1, promesa_argos_id = $2, hasta = $3, detalle = $4, resuelta_en = now()
 WHERE id = $5 AND estado = 'pendiente'
-RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at
+RETURNING id, empresa_id, conversacion_id, boleta_id, comprobante_id, cliente_id, servicio_id, motivo, estado, intentos, resuelta_en, promesa_argos_id, hasta, detalle, solicitada_por, por_asistente, created_at, caja_total, caja_disponibles, argos_motivo, argos_estado, argos_fin_motivo, argos_entrante_id, argos_actualizada_en
 `
 
 type ResolverReconexionParams struct {
@@ -1249,6 +1533,13 @@ func (q *Queries) ResolverReconexion(ctx context.Context, arg ResolverReconexion
 		&i.SolicitadaPor,
 		&i.PorAsistente,
 		&i.CreatedAt,
+		&i.CajaTotal,
+		&i.CajaDisponibles,
+		&i.ArgosMotivo,
+		&i.ArgosEstado,
+		&i.ArgosFinMotivo,
+		&i.ArgosEntranteID,
+		&i.ArgosActualizadaEn,
 	)
 	return i, err
 }

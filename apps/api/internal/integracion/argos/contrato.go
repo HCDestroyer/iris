@@ -76,6 +76,27 @@ func SoportaAprobarComprobantes(contrato *string) bool {
 	return conector.VersionAlMenos(contrato, ContratoAprobarComprobantes)
 }
 
+// ContratoSinPersonal es el primer contrato con el que Argos acepta la reconexión temporal con
+// motivo sin_personal (§7.3, A25; §4.1). Un Argos anterior responde 422 validacion (motivo/enum).
+const ContratoSinPersonal = "0.8.0"
+
+// SoportaSinPersonal indica si Argos (por el contrato que informa) acepta motivo sin_personal.
+func SoportaSinPersonal(contrato *string) bool {
+	return conector.VersionAlMenos(contrato, ContratoSinPersonal)
+}
+
+// ReconexionSinPersonal indica si el conector Argos activo informa contrato ≥ 0.8.0 (false sin
+// conector activo: falla cerrado). q puede ser una transacción o el pool.
+func (m *Modulo) ReconexionSinPersonal(ctx context.Context, q conector.DBTX) (bool, error) {
+	var contrato *string
+	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return SoportaSinPersonal(contrato), err
+}
+
 // SoportaInventarioTecnico indica si Argos (por su version_argos) entiende `tecnico`.
 func SoportaInventarioTecnico(version *string) bool {
 	return conector.VersionAlMenos(version, VersionInventarioTecnico)
