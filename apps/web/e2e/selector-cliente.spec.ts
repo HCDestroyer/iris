@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
-import { ADMIN, EMPRESAS, conSesion, simularApi } from "./api-falsa";
+import { ADMIN, DESPACHO, EMPRESAS, conSesion, simularApi } from "./api-falsa";
 import { abrirSugerencias, buscarSugerencias, elegirConEnter, elegirSugerencia } from "./controles";
 import { abrirCuenta } from "./ayudas";
 
@@ -152,6 +152,16 @@ test("por IP elige el servicio de esa IP; vacío y error con «Reintentar»", as
     await buscarSugerencias(buscar, "10.20.31.9");
     await elegirConEnter(buscar, /Ana Morales/);
     await expect(dialogo.getByTestId("servicio-elegido")).toContainText("SV-503-B");
+});
+
+test("sin servicios.ver_red no se busca por IP: lo dice y no pregunta al servidor", async ({ page, context, baseURL }) => {
+    const api = await simularApi(page, { empresas: EMPRESAS });
+    await conSesion(context, baseURL ?? "", DESPACHO.correo);
+    await page.goto("/tickets/nuevo");
+    const buscar = page.getByRole("combobox", { name: "Cliente en Argos" });
+    await buscarSugerencias(buscar, "10.20.31.9");
+    await expect(page.getByTestId("sin-permiso-ip")).toHaveText("Tu rol no busca por IP.");
+    expect(api.peticiones.some((p) => p.ruta.startsWith("/api/v1/clientes"))).toBe(false);
 });
 
 test("Enter con lo escrito sin elegir no envía el formulario; «Crear» espera a elegir o borrar", async ({ page, context, baseURL }) => {

@@ -512,3 +512,23 @@ func TestServicios080PreciosPlanSegundoAviso(t *testing.T) {
 		t.Fatal("se quedó con un precio viejo")
 	}
 }
+
+// Buscar clientes por IP sin servicios.ver_red global: lista vacía y sin preguntar a Argos (oráculo).
+func TestServicios080BuscarPorIPSinVerRed(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	e.sembrar080(905)
+	antes := e.argos.llamadasA("/api/v1/clientes")
+	for _, q := range []string{"100.64.12.34", "100.64.12", "100.64.0.0/16"} {
+		r := e.usuario("caja").pedir(http.MethodGet, "/api/v1/clientes?q="+q, nil)
+		if r.status != 200 || len(r.cuerpo["data"].([]any)) != 0 {
+			t.Fatalf("caja busca %q: %d %s", q, r.status, r.crudo)
+		}
+	}
+	if e.argos.llamadasA("/api/v1/clientes") != antes {
+		t.Fatal("sin servicios.ver_red no se debía preguntar a Argos por una IP")
+	}
+	if r := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes?q=100.64.12.34", nil); r.status != 200 || e.argos.llamadasA("/api/v1/clientes") == antes {
+		t.Fatalf("soporte sí busca por IP: %d %s", r.status, r.crudo)
+	}
+}

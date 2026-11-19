@@ -37,3 +37,17 @@ func TestPrecioValido(t *testing.T) {
 		}
 	}
 }
+
+// Una IP, un prefijo o un trozo de IP en la búsqueda (oráculo de red, §2.4); lo demás no.
+func TestPareceIP(t *testing.T) {
+	for _, q := range []string{"100.64.12.34", "100.64.12.0/24", "100.64", "100.64.12.", "2001:db8::1", "2001:db8::/48", "fe80::"} {
+		if !pareceIP(q) {
+			t.Errorf("%q debía parecer IP", q)
+		}
+	}
+	for _, q := range []string{"María", "C-0503", "5512 3344", "5512-3344", "1234567-8", "zona 1", "S-4410"} {
+		if pareceIP(q) {
+			t.Errorf("%q no es una IP", q)
+		}
+	}
+}

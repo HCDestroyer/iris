@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/netip"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -238,6 +239,11 @@ func (b *BuscarClientes) Ejecutar(ctx context.Context, in EntradaBuscarClientes)
 	c, err := b.previo.Ejecutar(ctx, in)
 	if err != nil {
 		return ResultadoBusqueda{}, err
+	}
+	// Buscar por IP (o un trozo de IP) sería un oráculo de la red: Argos busca también en la IP. Sin
+	// servicios.ver_red global, lista vacía sin llamar a Argos (contrato 0.8.0 §2.4).
+	if pareceIP(in.Q) && !contexto.PermisosDe(ctx).TieneGlobal(string(nucleo.PermServiciosVerRed)) {
+		return ResultadoBusqueda{Data: []ClienteResumen{}}, nil
 	}
 	f := entradaBusquedaFinal{EntradaBuscarClientes: in}
 	cli := b.m.clienteDe(c)
@@ -888,4 +894,19 @@ func (s *SincronizarCatalogos) Ejecutar(ctx context.Context, _ struct{}) (Result
 		}
 	}
 	return s.guardar.Ejecutar(ctx, in)
+}
+
+// reTrozoIP: un trozo de IPv4 («100.64», «100.64.12.») o algo con forma de IPv6 («2001:db8»).
+var reTrozoIP = regexp.MustCompile(`^(\d{1,3}\.){1,3}\d{0,3}$|^[0-9a-fA-F]{0,4}(:[0-9a-fA-F]{0,4}){2,}(/\d{1,3})?$`)
+
+// pareceIP: q es una IP, un prefijo CIDR o un trozo de IP.
+func pareceIP(q string) bool {
+	q = strings.TrimSpace(q)
+	if _, err := netip.ParseAddr(q); err == nil {
+		return true
+	}
+	if _, err := netip.ParsePrefix(q); err == nil {
+		return true
+	}
+	return reTrozoIP.MatchString(q)
 }

@@ -404,6 +404,14 @@ partes (ficha, ticket, orden, comercial y app de campo).
   dirección del cliente (domicilio en la ficha del cliente, con `clientes.ver`). Si el servicio se
   instaló en el domicilio del cliente, esa dirección se ve. Es una decisión del contrato, no un
   descuido; cambiarla es otro pedido.
+- **Búsqueda por IP.** `GET /clientes?q=` con una IP, un prefijo o un trozo de IP, sin
+  `servicios.ver_red` global, responde lista vacía sin llamar a Argos (sería un oráculo de la red).
+  **Límite conocido:** Argos busca también en `user_ppp` dentro de `q`; un texto con el usuario PPPoE
+  todavía puede encontrar al cliente. Pedido a Argos (fuera de la 0.8.0): un parámetro para excluir los
+  campos de red de `q` (`.claude/integration/i1.md`).
+- **Conversaciones sin empresa.** Una conversación con `empresa_id` null creada antes de registrar la
+  primera empresa no muestra al cliente (podría ser de otra empresa) hasta que se adopten sus datos
+  con `empresas.adoptar`.
 - **App de campo.** `packages/sync` aplica la misma ventana: una orden que sale del paquete, reasignada,
   cancelada o terminada hace más de 24 h pierde en el teléfono (IndexedDB o SQLite) el router, la IP,
   la dirección y las coordenadas del servicio, aunque siga guardada por su cola.

@@ -132,16 +132,17 @@ function ClienteElegido({ seleccion, alCambiar, alQuitar }: { seleccion: Selecci
 }
 
 type Estado =
-    | { q: string; tipo: "listo"; datos: ClienteResumen[]; stale: boolean; servicioIP?: number | null }
+    | { q: string; tipo: "listo"; datos: ClienteResumen[]; stale: boolean; servicioIP?: number | null; sinPermisoIP?: boolean }
     | { q: string; tipo: "error"; error: unknown };
 
 /**
  * Lee los clientes del texto (o de la IP). Devuelve resultados con sus servicios. Buscar por IP
  * exige `servicios.ver_red` (la IP es un dato de red, contrato con Argos 0.8.0 §2.4): sin él, una IP
- * se busca como texto.
+ * no se busca (el servidor tampoco la buscaría).
  */
 async function buscarClientes(q: string, signal: AbortSignal, porIP: boolean): Promise<Extract<Estado, { tipo: "listo" }>> {
-    if (porIP && esIP(q)) {
+    if (!porIP && esIP(q)) return { q, tipo: "listo", datos: [], stale: false, sinPermisoIP: true };
+    if (esIP(q)) {
         try {
             const r = await resolver(api().GET("/api/v1/clientes/resolver-ip", { params: { query: { ip: q.trim() } }, signal }));
             if (r.clienteId === null) return { q, tipo: "listo", datos: [], stale: r.stale };
@@ -253,10 +254,12 @@ function Busqueda({
         ) : (
             "No se pudo buscar: el aviso con «Reintentar» está bajo el campo."
         )
+    ) : vigente?.tipo === "listo" && vigente.sinPermisoIP ? (
+        <span data-testid="sin-permiso-ip">Tu rol no busca por IP.</span>
     ) : (
         <span className="grid gap-0.5">
             <span className="font-medium text-foreground">{`Ningún cliente coincide con «${q}»`}</span>
-            <span>{porIP && esIP(q) ? "Ningún servicio de Argos tiene esa IP en esta empresa." : "Revisa la ortografía o prueba con el código, el teléfono o el NIT."}</span>
+            <span>{esIP(q) ? "Ningún servicio de Argos tiene esa IP en esta empresa." : "Revisa la ortografía o prueba con el código, el teléfono o el NIT."}</span>
         </span>
     );
 
