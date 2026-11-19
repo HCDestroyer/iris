@@ -294,3 +294,10 @@ func TestConversacionesSSEDespertaresSeguidosSiguenTocandoReceptores(t *testing.
 	default:
 	}
 }
+
+// avanzarReloj avanza el reloj del módulo sin carrera con un flujo SSE abierto que lo lee.
+func (e *entorno) avanzarReloj(d time.Duration) {
+	e.relojMu.Lock()
+	defer e.relojMu.Unlock()
+	*e.reloj = e.reloj.Add(d)
+}
