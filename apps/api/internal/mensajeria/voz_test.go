@@ -290,7 +290,7 @@ func (x *bandejaVoz) sql(sql string, args ...any) {
 }
 
 func (x *bandejaVoz) pasa(d time.Duration, vivos ...persona) {
-	*x.reloj = x.reloj.Add(d)
+	x.avanzarReloj(d) // sin carrera con un flujo SSE abierto que lee el reloj
 	for _, p := range vivos {
 		x.exigir(x.api(p, http.MethodPost, "/llamadas/recibir/encender", map[string]any{"navegador": fmt.Sprintf("navegador-%d", p.id)}), http.StatusOK)
 		// Y el latido de su pestaña (lo que hace su flujo de eventos) para la saliente que tenga viva.
