@@ -6,10 +6,11 @@ import (
 	"time"
 )
 
-// Ráfaga con ventana fija (fallo de 0.29.0 con Meta real): los reintentos que la ráfaga rechaza no la
-// renuevan y las salientes hacia el número no cuentan. Pasados 10 minutos desde la primera de las tres,
-// la siguiente vuelve a sonar.
-func TestRafagaVentanaFija(t *testing.T) {
+// Ráfaga: como máximo 3 llamadas que suenan por número cada 10 minutos, en ventana deslizante y sin
+// bloqueo adicional (fallo de 0.29.0 con Meta real: cada reintento rechazado renovaba el bloqueo). Los
+// reintentos que la ráfaga rechaza y las salientes hacia el número no cuentan: pasados 10 minutos desde
+// la primera de las tres que sonaron, la siguiente vuelve a sonar.
+func TestRafagaVentanaDeslizante(t *testing.T) {
 	x := nuevaBandejaVoz(t)
 	x.limitesVoz(1000, 100000)
 	x.recibe(x.agente)
@@ -24,7 +25,7 @@ func TestRafagaVentanaFija(t *testing.T) {
 		}
 	}
 	entrante := func(n int) (string, string) {
-		call := fmt.Sprintf("wacid.fija%d%s", n, num)
+		call := fmt.Sprintf("wacid.desliza%d%s", n, num)
 		x.connect(num, call)
 		_, estado, motivo := x.llamada(call)
 		if estado == "sonando" {

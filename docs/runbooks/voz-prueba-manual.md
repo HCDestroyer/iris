@@ -74,10 +74,11 @@ el servidor las quita antes de mandarla a Meta; comprobar que aun así el audio 
    `messages` (qué lo distingue de un audio normal).
 3. Sin nadie disponible: a los `segundosSonando` queda perdida, aparece en «Por devolver» y, si el
    cliente escribió en las últimas 24 h, sale el mensaje automático (una vez por hora).
-4. Cuatro llamadas seguidas del mismo teléfono en 10 minutos: la cuarta se rechaza. La ventana es
-   fija: cuenta solo las **entrantes** que sonaron (ni las que ya rechazó la ráfaga ni las salientes
-   a ese número). Pasados 10 minutos desde la primera de las tres, vuelve a sonar aunque se haya
-   seguido intentando (antes de 0.29.1 cada reintento renovaba el bloqueo).
+4. Como máximo 3 llamadas que suenan por número cada 10 minutos (ventana deslizante, sin bloqueo
+   adicional): la cuarta se rechaza. Cuentan solo las **entrantes** que sonaron (ni las que ya
+   rechazó la ráfaga ni las salientes a ese número). Pasados 10 minutos desde la primera de las tres,
+   vuelve a sonar aunque se haya seguido intentando (antes de 0.29.1 cada reintento renovaba el
+   bloqueo).
 
 ## 4b. Salientes y permiso de llamada (E1b)
 

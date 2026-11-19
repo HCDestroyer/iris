@@ -738,8 +738,9 @@ func ipDeMedio(texto string, admiteCero bool) bool {
 
 // ValidarSDP aplica las reglas de §6.2 (fila 11) a un SDP que se entrega tal cual: la oferta de
 // Meta hacia el navegador (y, más adelante, el del motor). Es una lista cerrada: solo las líneas y
-// los atributos conocidos, una sola sección de audio segura, solo Opus y telephone-event, a=setup y
-// huella DTLS, y ninguna dirección (c=, a=rtcp, candidatos y su raddr) hacia loopback, redes
+// los atributos conocidos, una sola sección de audio segura, Opus obligatorio y solo los códecs de
+// codecsSDP, rtpmap sin repetir y con número 0–127, a=setup (actpass, active o passive) y huella DTLS
+// (sha-256/384/512), y ninguna dirección (c=, a=rtcp, candidatos y su raddr) hacia loopback, redes
 // privadas, enlace local, CGNAT o NAT64. Máximo 8 KB y 32 candidatos.
 func ValidarSDP(sdp string) error {
 	_, _, err := revisarSDP(sdp, false)
@@ -776,18 +777,53 @@ func quitarFormatos(lineas []string, fuera map[string]bool) []string {
 	return r
 }
 
-// nombreSDP deja un nombre de atributo o códec para el registro: ASCII visible, como mucho 32 bytes.
+// nombreSDP deja un nombre de atributo o códec para el registro: hasta el primer «:», « » o «/», en
+// minúsculas, y solo si es [a-z0-9-] de 1 a 32 caracteres; si no, «otro». Así nunca sale un valor ni
+// una dirección al registro.
 func nombreSDP(s string) string {
-	s = strings.Map(func(r rune) rune {
-		if r <= ' ' || r > '~' {
-			return '_'
-		}
-		return r
-	}, s)
-	if len(s) > 32 {
-		return s[:32]
+	if i := strings.IndexAny(s, ": /"); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.ToLower(s)
+	if s == "" || len(s) > 32 || strings.ContainsFunc(s, func(r rune) bool { return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' }) {
+		return "otro"
 	}
 	return s
+}
+
+// MaxQuitadoSDP: cuántos nombres distintos de lo quitado se informan; el resto se cuenta.
+const MaxQuitadoSDP = 16
+
+// anotarQuitado agrega un nombre a lo quitado sin repetir y con tope; los que no caben se cuentan.
+func anotarQuitado(quitado []string, otros *int, nombre string) []string {
+	if slices.Contains(quitado, nombre) {
+		return quitado
+	}
+	if len(quitado) >= MaxQuitadoSDP {
+		*otros++
+		return quitado
+	}
+	return append(quitado, nombre)
+}
+
+// tiposCarga: el número de un formato RTP (0–127).
+func tipoCarga(pt string) bool {
+	n, err := strconv.Atoi(pt)
+	return err == nil && n >= 0 && n <= 127 && strconv.Itoa(n) == pt
+}
+
+// huellaDTLS: «sha-256 AB:CD:…» (sha-256, sha-384 o sha-512), bytes en hexadecimal separados por «:».
+func huellaDTLS(v string) bool {
+	alg, hex, ok := strings.Cut(strings.TrimSpace(v), " ")
+	if !ok || !slices.Contains([]string{"sha-256", "sha-384", "sha-512"}, strings.ToLower(alg)) {
+		return false
+	}
+	for _, b := range strings.Split(hex, ":") {
+		if len(b) != 2 || strings.ContainsFunc(b, func(r rune) bool { return !strings.ContainsRune("0123456789abcdefABCDEF", r) }) {
+			return false
+		}
+	}
+	return true
 }
 
 // SanearSDP prepara la respuesta SDP del navegador antes de mandarla a Meta. Un navegador con el
@@ -813,12 +849,16 @@ func SanearSDPQuitado(sdp string) (string, []string, error) {
 	return revisarSDP(sdp, true)
 }
 
+// SanearSDP y SanearSDPQuitado devuelven siempre algo que pasa ValidarSDP (también el tamaño: el
+// saneado se rearma con CRLF y podría crecer).
+
 func revisarSDP(sdp string, sanear bool) (string, []string, error) {
 	if len(sdp) == 0 || len(sdp) > MaxSDP {
 		return "", nil, errors.New("tamaño fuera de rango")
 	}
 	medios, candidatos, setup, huella := 0, 0, false, false
 	var formatos, salida, quitado []string
+	otros := 0
 	codecs := map[string]string{}
 	for _, l := range strings.Split(strings.ReplaceAll(sdp, "\r\n", "\n"), "\n") {
 		l = strings.TrimRight(l, "\r")
@@ -848,11 +888,16 @@ func revisarSDP(sdp string, sanear bool) (string, []string, error) {
 				return "", nil, errors.New("solo se admite una sección de audio segura")
 			}
 			formatos = p[3:]
+			for _, pt := range formatos {
+				if !tipoCarga(pt) {
+					return "", nil, errors.New("formato de audio con un número inválido")
+				}
+			}
 		case 'a':
 			nombre, resto, _ := strings.Cut(valor, ":")
 			if !atributosSDP[nombre] {
 				if sanear && nombre != "" && medios <= 1 {
-					quitado = append(quitado, "a="+nombreSDP(nombre))
+					quitado = anotarQuitado(quitado, &otros, "a="+nombreSDP(nombre))
 					continue
 				}
 				return "", nil, errors.New("atributo no permitido")
@@ -860,11 +905,23 @@ func revisarSDP(sdp string, sanear bool) (string, []string, error) {
 			switch nombre {
 			case "rtpmap":
 				pt, codec, _ := strings.Cut(resto, " ")
+				if !tipoCarga(pt) {
+					return "", nil, errors.New("rtpmap con un número de formato inválido")
+				}
+				if _, repetido := codecs[pt]; repetido {
+					return "", nil, errors.New("rtpmap repetido")
+				}
 				n, _, _ := strings.Cut(codec, "/")
 				codecs[pt] = strings.ToLower(n)
 			case "setup":
+				if !slices.Contains([]string{"actpass", "active", "passive"}, strings.TrimSpace(resto)) {
+					return "", nil, errors.New("a=setup inválido")
+				}
 				setup = true
 			case "fingerprint":
+				if !huellaDTLS(resto) {
+					return "", nil, errors.New("huella DTLS mal formada")
+				}
 				huella = true
 			case "rtcp":
 				// a=rtcp:<puerto> [IN IP4 <dirección>]
@@ -944,7 +1001,11 @@ func revisarSDP(sdp string, sanear bool) (string, []string, error) {
 				return "", nil, errors.New("formato de audio no admitido")
 			}
 			fuera[pt] = true
-			quitado = append(quitado, "codec="+nombreSDP(codecs[pt]))
+			if c, ok := codecs[pt]; ok {
+				quitado = anotarQuitado(quitado, &otros, "codec="+nombreSDP(c))
+			} else {
+				quitado = anotarQuitado(quitado, &otros, "codec=pt"+pt)
+			}
 		}
 	}
 	if !conOpus {
@@ -953,7 +1014,18 @@ func revisarSDP(sdp string, sanear bool) (string, []string, error) {
 	if len(fuera) > 0 {
 		salida = quitarFormatos(salida, fuera)
 	}
-	return strings.Join(salida, "\r\n") + "\r\n", quitado, nil
+	r := strings.Join(salida, "\r\n") + "\r\n"
+	if sanear {
+		// Lo saneado tiene que pasar la validación estricta tal cual viaja (H1: rearmado con CRLF,
+		// un SDP con LF y relleno puede pasar de MaxSDP).
+		if _, _, err := revisarSDP(r, false); err != nil {
+			return "", nil, err
+		}
+		if otros > 0 {
+			quitado = append(quitado, "otros="+strconv.Itoa(otros))
+		}
+	}
+	return r, quitado, nil
 }
 
 // Auditoría y feed ----------------------------------------------------------------------------------
