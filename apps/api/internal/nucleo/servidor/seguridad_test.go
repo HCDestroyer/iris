@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -134,8 +135,56 @@ func TestTokenParaOtroSoloIntegracion(t *testing.T) {
 	z.entrar(correoZ)
 	z.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "horus", "usuarioId": integ}).problema(t, 403, "prohibido")
 
+	// Contrato con Argos 0.8.0 §1.5 (S5): crear a mano el token de una integración es la vía de
+	// recuperación del conector: sin integraciones.conectar global, 403 aunque se tengan todos los
+	// permisos de la integración y tokens.crear.
+	idSinConectar, _ := e.usuario("lectura")
+	integID := int64(integ.(float64))
+	ctxSin := pruebas.ContextoUsuario(pruebas.Pool(t), idSinConectar, nucleo.PermTokensCrear, nucleo.PermTicketsVer, nucleo.PermTicketsCrear, nucleo.PermEmpresasTodas)
+	_, err := e.mod.CrearToken.Ejecutar(ctxSin, identidad.EntradaCrearToken{UsuarioID: integID, Nombre: "manual"})
+	var p *nucleo.Problema
+	if !errors.As(err, &p) || p.Status != http.StatusForbidden || !strings.Contains(p.Detail, "recuperación") {
+		t.Fatalf("sin integraciones.conectar debía ser 403 (vía de recuperación): %v", err)
+	}
+
 	if r := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "horus", "usuarioId": integ}); r.status != 201 {
 		t.Fatalf("token de integración por el admin global: %d %s", r.status, r.crudo)
+	}
+	var via string
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT coalesce(entrada->'auditoria'->>'via', '') FROM auditoria.acciones
+		WHERE accion = 'tokens.crear' AND resultado = 'ok' ORDER BY id DESC LIMIT 1`).Scan(&via); err != nil || via != "recuperacion" {
+		t.Fatalf("la vía de recuperación debía quedar marcada en la auditoría: %q %v", via, err)
+	}
+
+	// Revisión de seguridad de B7: también exige empresas.todas sin límite (un admin acotado a una
+	// empresa con un rol a medida que tiene integraciones.conectar y tokens.crear no puede).
+	ctxAcotado := pruebas.ContextoUsuario(pruebas.Pool(t), idSinConectar, nucleo.PermTokensCrear, nucleo.PermIntegracionesConectar,
+		nucleo.PermTicketsVer, nucleo.PermTicketsCrear)
+	if _, err := e.mod.CrearToken.Ejecutar(ctxAcotado, identidad.EntradaCrearToken{UsuarioID: integID, Nombre: "manual"}); !errors.As(err, &p) || p.Status != http.StatusForbidden {
+		t.Fatalf("sin empresas.todas debía ser 403: %v", err)
+	}
+	// Vence: 30 días por defecto y 90 como máximo.
+	var dias float64
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT extract(epoch FROM expira_en - now()) / 86400 FROM nucleo.tokens_api
+		WHERE usuario_id = $1 AND via = 'recuperacion' ORDER BY id DESC LIMIT 1`, integID).Scan(&dias); err != nil || dias < 29.9 || dias > 30.1 {
+		t.Fatalf("el token de recuperación debía vencer en 30 días: %v %v", dias, err)
+	}
+	lejos := time.Now().Add(100 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "horus", "usuarioId": integ, "expiraEn": lejos}).problema(t, 422, "validacion")
+
+	// Al confirmarse un canje nuevo de ese usuario de integración, la vía de recuperación deja de valer.
+	var entregado int64
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, expira_en)
+		VALUES ($1, 'canje', 'iris_pat_x', sha256(random()::text::bytea), now() + interval '15 minutes') RETURNING id`, integID).Scan(&entregado); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.mod.ConfirmarTokenCanje(pruebas.ContextoSistema(pruebas.Pool(t)), entregado); err != nil {
+		t.Fatal(err)
+	}
+	var vigentes int
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT count(*) FROM nucleo.tokens_api WHERE usuario_id = $1 AND via = 'recuperacion' AND revocado_en IS NULL`,
+		integID).Scan(&vigentes); err != nil || vigentes != 0 {
+		t.Fatalf("los tokens de recuperación debían revocarse al confirmar el canje: %d %v", vigentes, err)
 	}
 }
 

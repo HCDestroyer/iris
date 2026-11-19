@@ -3,6 +3,7 @@
 import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaDescripcion, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { ChevronRight, Hourglass } from "lucide-react";
 import Link from "next/link";
+import { AvisoTextosConCuentas } from "@/componentes/administracion/textos-con-cuentas";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { SECCIONES } from "@/lib/administracion/secciones";
 import { useSesion } from "@/lib/sesion";
@@ -14,6 +15,9 @@ export function IndiceAdministracion() {
     return (
         <>
             <EncabezadoPagina titulo="Administración" />
+            <div className="mb-4 empty:hidden">
+                <AvisoTextosConCuentas />
+            </div>
             <ul className="grid gap-3 sm:grid-cols-2" aria-label="Secciones de administración">
                 {visibles.map((s) => {
                     const cuerpo = (

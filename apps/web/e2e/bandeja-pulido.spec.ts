@@ -741,7 +741,8 @@ test.describe("bandeja › boleta y promesa contra Argos", () => {
         await abrir(page);
         await page.goto("/conversaciones/41/boleta");
         expect(new URL((await pedida).url()).searchParams.get("conversacionId")).toBe("41");
-        await expect(page.locator("main")).toContainText("Banco Industrial · 000-123456-7");
+        await expect(page.locator("main")).toContainText("Banco Industrial · Monetaria");
+        await expect(page.locator("main")).toContainText("000-123456-7");
     });
 
     test("promesa: tras un 503 de Argos el reintento lleva la misma Idempotency-Key; tras un 409, otra", async ({ page }) => {

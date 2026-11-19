@@ -23,7 +23,8 @@ describe("migas del panel", () => {
             { etiqueta: "Roles y permisos", href: "/administracion/roles" },
             { etiqueta: "Nuevo rol" },
         ]);
-        expect(migasDeRuta("/administracion/integraciones/argos/vuelta").map((m) => m.etiqueta)).toEqual(["Administración", "Integraciones", "Conectar con Argos"]);
+        expect(migasDeRuta("/administracion/integraciones/argos/vuelta").map((m) => m.etiqueta)).toEqual(["Administración", "Integraciones", "Argos", "Conectar con Argos"]);
+        expect(migasDeRuta("/administracion/integraciones/argos").map((m) => m.etiqueta)).toEqual(["Administración", "Integraciones", "Argos"]);
         expect(migasDeRuta("/cuenta/mfa/")).toEqual([{ etiqueta: "Mi perfil", href: "/cuenta" }, { etiqueta: "Verificación en dos pasos" }]);
     });
 });

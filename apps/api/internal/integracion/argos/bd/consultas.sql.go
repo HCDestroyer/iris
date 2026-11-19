@@ -8,7 +8,124 @@ package argosbd
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+const activacionDeConector = `-- name: ActivacionDeConector :one
+SELECT a.actor_id, a.actor_nombre, a.created_at FROM auditoria.acciones a
+WHERE a.accion = 'integraciones.activar' AND a.entidad = 'conector' AND a.entidad_id = ($1::bigint)::text AND a.resultado = 'ok'
+ORDER BY a.id DESC LIMIT 1
+`
+
+type ActivacionDeConectorRow struct {
+	ActorID     *int64
+	ActorNombre string
+	CreatedAt   time.Time
+}
+
+// Quién activó el conector por última vez (de la auditoría; el conector no lo guarda).
+func (q *Queries) ActivacionDeConector(ctx context.Context, conectorID int64) (ActivacionDeConectorRow, error) {
+	row := q.db.QueryRow(ctx, activacionDeConector, conectorID)
+	var i ActivacionDeConectorRow
+	err := row.Scan(&i.ActorID, &i.ActorNombre, &i.CreatedAt)
+	return i, err
+}
+
+const actualizarEtapa = `-- name: ActualizarEtapa :one
+UPDATE integracion.argos_sincronizacion_etapas
+SET estado = $1, procesados = $2, omitidos = $3, total = $4::integer, cursor = $5::text,
+    iniciada_en = $6::timestamptz, terminada_en = $7::timestamptz, error = $8::text
+WHERE sincronizacion_id = $9 AND recurso = $10
+RETURNING sincronizacion_id, recurso, orden, estado, procesados, omitidos, total, cursor, iniciada_en, terminada_en, error
+`
+
+type ActualizarEtapaParams struct {
+	Estado           string
+	Procesados       int32
+	Omitidos         int32
+	Total            *int32
+	Cursor           *string
+	IniciadaEn       *time.Time
+	TerminadaEn      *time.Time
+	Error            *string
+	SincronizacionID uuid.UUID
+	Recurso          string
+}
+
+func (q *Queries) ActualizarEtapa(ctx context.Context, arg ActualizarEtapaParams) (IntegracionArgosSincronizacionEtapa, error) {
+	row := q.db.QueryRow(ctx, actualizarEtapa,
+		arg.Estado,
+		arg.Procesados,
+		arg.Omitidos,
+		arg.Total,
+		arg.Cursor,
+		arg.IniciadaEn,
+		arg.TerminadaEn,
+		arg.Error,
+		arg.SincronizacionID,
+		arg.Recurso,
+	)
+	var i IntegracionArgosSincronizacionEtapa
+	err := row.Scan(
+		&i.SincronizacionID,
+		&i.Recurso,
+		&i.Orden,
+		&i.Estado,
+		&i.Procesados,
+		&i.Omitidos,
+		&i.Total,
+		&i.Cursor,
+		&i.IniciadaEn,
+		&i.TerminadaEn,
+		&i.Error,
+	)
+	return i, err
+}
+
+const actualizarSincronizacion = `-- name: ActualizarSincronizacion :one
+UPDATE integracion.argos_sincronizaciones
+SET estado = $1, actualizada_en = GREATEST($2::timestamptz, actualizada_en + interval '1 millisecond'),
+    terminada_en = $3::timestamptz
+WHERE id = $4
+RETURNING id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen
+`
+
+type ActualizarSincronizacionParams struct {
+	Estado        string
+	ActualizadaEn time.Time
+	TerminadaEn   *time.Time
+	ID            uuid.UUID
+}
+
+// actualizada_en siempre avanza (el informe a Argos compara por este instante).
+func (q *Queries) ActualizarSincronizacion(ctx context.Context, arg ActualizarSincronizacionParams) (IntegracionArgosSincronizacione, error) {
+	row := q.db.QueryRow(ctx, actualizarSincronizacion,
+		arg.Estado,
+		arg.ActualizadaEn,
+		arg.TerminadaEn,
+		arg.ID,
+	)
+	var i IntegracionArgosSincronizacione
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ExcluirRetirados,
+		&i.Informar,
+		&i.IniciadaEn,
+		&i.ActualizadaEn,
+		&i.TerminadaEn,
+		&i.InformeEstado,
+		&i.InformadoEn,
+		&i.InformadoHasta,
+		&i.InformeDetalle,
+		&i.IniciadaPor,
+		&i.Origen,
+	)
+	return i, err
+}
 
 const anonimizarCopiasDeCliente = `-- name: AnonimizarCopiasDeCliente :exec
 UPDATE integracion.argos_copias
@@ -73,6 +190,24 @@ DELETE FROM integracion.argos_clientes WHERE id = $1
 func (q *Queries) BorrarCliente(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, borrarCliente, id)
 	return err
+}
+
+const borrarCuentaBancaria = `-- name: BorrarCuentaBancaria :execrows
+DELETE FROM integracion.argos_cuentas_bancarias WHERE id = $1 AND sincronizado_en <= $2
+`
+
+type BorrarCuentaBancariaParams struct {
+	ID      int64
+	LeidoEn time.Time
+}
+
+// Una cuenta que Argos ya no le muestra a Iris (fuera del alcance del token). Argos nunca borra cuentas.
+func (q *Queries) BorrarCuentaBancaria(ctx context.Context, arg BorrarCuentaBancariaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarCuentaBancaria, arg.ID, arg.LeidoEn)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const borrarRouter = `-- name: BorrarRouter :exec
@@ -378,6 +513,90 @@ func (q *Queries) CambiarZonaCopiada(ctx context.Context, arg CambiarZonaCopiada
 	return result.RowsAffected(), nil
 }
 
+const certificadoPorHuella = `-- name: CertificadoPorHuella :one
+SELECT id, conector_id, huella_sha256, emisor, sujeto, host, vence_en, visto_en, ultimo_visto_en, anterior_id, cambiado FROM integracion.argos_certificados WHERE conector_id = $1 AND huella_sha256 = $2
+`
+
+type CertificadoPorHuellaParams struct {
+	ConectorID   int64
+	HuellaSha256 string
+}
+
+func (q *Queries) CertificadoPorHuella(ctx context.Context, arg CertificadoPorHuellaParams) (IntegracionArgosCertificado, error) {
+	row := q.db.QueryRow(ctx, certificadoPorHuella, arg.ConectorID, arg.HuellaSha256)
+	var i IntegracionArgosCertificado
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.HuellaSha256,
+		&i.Emisor,
+		&i.Sujeto,
+		&i.Host,
+		&i.VenceEn,
+		&i.VistoEn,
+		&i.UltimoVistoEn,
+		&i.AnteriorID,
+		&i.Cambiado,
+	)
+	return i, err
+}
+
+const certificadoPorID = `-- name: CertificadoPorID :one
+SELECT id, conector_id, huella_sha256, emisor, sujeto, host, vence_en, visto_en, ultimo_visto_en, anterior_id, cambiado FROM integracion.argos_certificados WHERE id = $1
+`
+
+func (q *Queries) CertificadoPorID(ctx context.Context, id int64) (IntegracionArgosCertificado, error) {
+	row := q.db.QueryRow(ctx, certificadoPorID, id)
+	var i IntegracionArgosCertificado
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.HuellaSha256,
+		&i.Emisor,
+		&i.Sujeto,
+		&i.Host,
+		&i.VenceEn,
+		&i.VistoEn,
+		&i.UltimoVistoEn,
+		&i.AnteriorID,
+		&i.Cambiado,
+	)
+	return i, err
+}
+
+const certificadoVuelveAVerse = `-- name: CertificadoVuelveAVerse :one
+UPDATE integracion.argos_certificados
+SET visto_en = $1, ultimo_visto_en = $1, cambiado = true, anterior_id = $2
+WHERE id = $3
+RETURNING id, conector_id, huella_sha256, emisor, sujeto, host, vence_en, visto_en, ultimo_visto_en, anterior_id, cambiado
+`
+
+type CertificadoVuelveAVerseParams struct {
+	VistoEn    time.Time
+	AnteriorID *int64
+	ID         int64
+}
+
+// Un certificado ya visto vuelve a aparecer después de otro (A → B → A): cuenta como cambio.
+func (q *Queries) CertificadoVuelveAVerse(ctx context.Context, arg CertificadoVuelveAVerseParams) (IntegracionArgosCertificado, error) {
+	row := q.db.QueryRow(ctx, certificadoVuelveAVerse, arg.VistoEn, arg.AnteriorID, arg.ID)
+	var i IntegracionArgosCertificado
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.HuellaSha256,
+		&i.Emisor,
+		&i.Sujeto,
+		&i.Host,
+		&i.VenceEn,
+		&i.VistoEn,
+		&i.UltimoVistoEn,
+		&i.AnteriorID,
+		&i.Cambiado,
+	)
+	return i, err
+}
+
 const clienteConfirmadoDesde = `-- name: ClienteConfirmadoDesde :one
 SELECT EXISTS (
     SELECT 1 FROM integracion.pendientes
@@ -442,6 +661,35 @@ func (q *Queries) ClientePorID(ctx context.Context, id int64) (IntegracionArgosC
 	return i, err
 }
 
+const clientesEnInstantanea = `-- name: ClientesEnInstantanea :many
+SELECT id, zona_id FROM integracion.argos_clientes WHERE id = ANY($1::bigint[])
+`
+
+type ClientesEnInstantaneaRow struct {
+	ID     int64
+	ZonaID *int64
+}
+
+func (q *Queries) ClientesEnInstantanea(ctx context.Context, ids []int64) ([]ClientesEnInstantaneaRow, error) {
+	rows, err := q.db.Query(ctx, clientesEnInstantanea, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ClientesEnInstantaneaRow
+	for rows.Next() {
+		var i ClientesEnInstantaneaRow
+		if err := rows.Scan(&i.ID, &i.ZonaID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const copiaDe = `-- name: CopiaDe :one
 SELECT entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en, copiado_en, anonimizada_en FROM integracion.argos_copias WHERE entidad = $1 AND entidad_id = $2
 `
@@ -466,6 +714,242 @@ func (q *Queries) CopiaDe(ctx context.Context, arg CopiaDeParams) (IntegracionAr
 		&i.AnonimizadaEn,
 	)
 	return i, err
+}
+
+const crearEtapa = `-- name: CrearEtapa :exec
+INSERT INTO integracion.argos_sincronizacion_etapas (sincronizacion_id, recurso, orden) VALUES ($1, $2, $3)
+`
+
+type CrearEtapaParams struct {
+	SincronizacionID uuid.UUID
+	Recurso          string
+	Orden            int16
+}
+
+func (q *Queries) CrearEtapa(ctx context.Context, arg CrearEtapaParams) error {
+	_, err := q.db.Exec(ctx, crearEtapa, arg.SincronizacionID, arg.Recurso, arg.Orden)
+	return err
+}
+
+const crearSincronizacion = `-- name: CrearSincronizacion :one
+
+INSERT INTO integracion.argos_sincronizaciones (id, conector_id, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, iniciada_por, origen)
+VALUES ($1, $2, $3::text, $4, $5, $6, $6, $7::bigint, $8)
+RETURNING id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen
+`
+
+type CrearSincronizacionParams struct {
+	ID               uuid.UUID
+	ConectorID       int64
+	ContratoRemoto   *string
+	ExcluirRetirados bool
+	Informar         bool
+	Ahora            time.Time
+	IniciadaPor      *int64
+	Origen           string
+}
+
+// Primera sincronización (contrato 0.8.0 §2.5, B7) ----------------------------------------------
+func (q *Queries) CrearSincronizacion(ctx context.Context, arg CrearSincronizacionParams) (IntegracionArgosSincronizacione, error) {
+	row := q.db.QueryRow(ctx, crearSincronizacion,
+		arg.ID,
+		arg.ConectorID,
+		arg.ContratoRemoto,
+		arg.ExcluirRetirados,
+		arg.Informar,
+		arg.Ahora,
+		arg.IniciadaPor,
+		arg.Origen,
+	)
+	var i IntegracionArgosSincronizacione
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ExcluirRetirados,
+		&i.Informar,
+		&i.IniciadaEn,
+		&i.ActualizadaEn,
+		&i.TerminadaEn,
+		&i.InformeEstado,
+		&i.InformadoEn,
+		&i.InformadoHasta,
+		&i.InformeDetalle,
+		&i.IniciadaPor,
+		&i.Origen,
+	)
+	return i, err
+}
+
+const cuentaBancariaInstantanea = `-- name: CuentaBancariaInstantanea :one
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE id = $1
+`
+
+func (q *Queries) CuentaBancariaInstantanea(ctx context.Context, id int64) (IntegracionArgosCuentasBancaria, error) {
+	row := q.db.QueryRow(ctx, cuentaBancariaInstantanea, id)
+	var i IntegracionArgosCuentasBancaria
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.BancoID,
+		&i.BancoNombre,
+		&i.Numero,
+		&i.Alias,
+		&i.Titular,
+		&i.Tipo,
+		&i.Moneda,
+		&i.Activa,
+		&i.SincronizadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const cuentaBancariaParaActualizar = `-- name: CuentaBancariaParaActualizar :one
+
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE id = $1 FOR UPDATE
+`
+
+// Cuentas bancarias (contrato 0.8.0 §7.8) ---------------------------------------------------------
+// La fila de la instantánea con su candado (para comparar antes de guardar y emitir el cambio).
+func (q *Queries) CuentaBancariaParaActualizar(ctx context.Context, id int64) (IntegracionArgosCuentasBancaria, error) {
+	row := q.db.QueryRow(ctx, cuentaBancariaParaActualizar, id)
+	var i IntegracionArgosCuentasBancaria
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.BancoID,
+		&i.BancoNombre,
+		&i.Numero,
+		&i.Alias,
+		&i.Titular,
+		&i.Tipo,
+		&i.Moneda,
+		&i.Activa,
+		&i.SincronizadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const cuentasBancariasDeEmpresa = `-- name: CuentasBancariasDeEmpresa :many
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE empresa_id = $1
+ORDER BY banco_nombre, alias, id
+`
+
+// Orden de Argos: banco, alias, id.
+func (q *Queries) CuentasBancariasDeEmpresa(ctx context.Context, empresaID int64) ([]IntegracionArgosCuentasBancaria, error) {
+	rows, err := q.db.Query(ctx, cuentasBancariasDeEmpresa, empresaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosCuentasBancaria
+	for rows.Next() {
+		var i IntegracionArgosCuentasBancaria
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.BancoID,
+			&i.BancoNombre,
+			&i.Numero,
+			&i.Alias,
+			&i.Titular,
+			&i.Tipo,
+			&i.Moneda,
+			&i.Activa,
+			&i.SincronizadoEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cuentasBancariasNoVistas = `-- name: CuentasBancariasNoVistas :many
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE sincronizado_en < $1 ORDER BY id
+`
+
+// Las de la instantánea que una lista completa (leída desde @desde) no trajo.
+func (q *Queries) CuentasBancariasNoVistas(ctx context.Context, desde time.Time) ([]IntegracionArgosCuentasBancaria, error) {
+	rows, err := q.db.Query(ctx, cuentasBancariasNoVistas, desde)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosCuentasBancaria
+	for rows.Next() {
+		var i IntegracionArgosCuentasBancaria
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.BancoID,
+			&i.BancoNombre,
+			&i.Numero,
+			&i.Alias,
+			&i.Titular,
+			&i.Tipo,
+			&i.Moneda,
+			&i.Activa,
+			&i.SincronizadoEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cuentasBancariasTodas = `-- name: CuentasBancariasTodas :many
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias ORDER BY empresa_id, banco_nombre, alias, id
+`
+
+func (q *Queries) CuentasBancariasTodas(ctx context.Context) ([]IntegracionArgosCuentasBancaria, error) {
+	rows, err := q.db.Query(ctx, cuentasBancariasTodas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosCuentasBancaria
+	for rows.Next() {
+		var i IntegracionArgosCuentasBancaria
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.BancoID,
+			&i.BancoNombre,
+			&i.Numero,
+			&i.Alias,
+			&i.Titular,
+			&i.Tipo,
+			&i.Moneda,
+			&i.Activa,
+			&i.SincronizadoEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const eliminado = `-- name: Eliminado :one
@@ -557,6 +1041,118 @@ func (q *Queries) EmpresasDeEliminadosDeCliente(ctx context.Context, clienteID *
 	return items, nil
 }
 
+const empresasPorIDs = `-- name: EmpresasPorIDs :many
+SELECT id, nombre, nit FROM nucleo.empresas WHERE id = ANY($1::bigint[]) ORDER BY id
+`
+
+type EmpresasPorIDsRow struct {
+	ID     int64
+	Nombre string
+	Nit    string
+}
+
+func (q *Queries) EmpresasPorIDs(ctx context.Context, ids []int64) ([]EmpresasPorIDsRow, error) {
+	rows, err := q.db.Query(ctx, empresasPorIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EmpresasPorIDsRow
+	for rows.Next() {
+		var i EmpresasPorIDsRow
+		if err := rows.Scan(&i.ID, &i.Nombre, &i.Nit); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const etapasDeSincronizacion = `-- name: EtapasDeSincronizacion :many
+SELECT sincronizacion_id, recurso, orden, estado, procesados, omitidos, total, cursor, iniciada_en, terminada_en, error FROM integracion.argos_sincronizacion_etapas WHERE sincronizacion_id = $1 ORDER BY orden
+`
+
+func (q *Queries) EtapasDeSincronizacion(ctx context.Context, sincronizacionID uuid.UUID) ([]IntegracionArgosSincronizacionEtapa, error) {
+	rows, err := q.db.Query(ctx, etapasDeSincronizacion, sincronizacionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosSincronizacionEtapa
+	for rows.Next() {
+		var i IntegracionArgosSincronizacionEtapa
+		if err := rows.Scan(
+			&i.SincronizacionID,
+			&i.Recurso,
+			&i.Orden,
+			&i.Estado,
+			&i.Procesados,
+			&i.Omitidos,
+			&i.Total,
+			&i.Cursor,
+			&i.IniciadaEn,
+			&i.TerminadaEn,
+			&i.Error,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const fijarInformeSincronizacion = `-- name: FijarInformeSincronizacion :one
+UPDATE integracion.argos_sincronizaciones
+SET informe_estado = $1, informado_en = coalesce($2::timestamptz, informado_en),
+    informado_hasta = GREATEST(informado_hasta, $3::timestamptz), informe_detalle = $4::text
+WHERE id = $5
+RETURNING id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen
+`
+
+type FijarInformeSincronizacionParams struct {
+	InformeEstado  string
+	InformadoEn    *time.Time
+	InformadoHasta *time.Time
+	InformeDetalle *string
+	ID             uuid.UUID
+}
+
+// informado_hasta solo avanza (un informe atrasado no lo retrocede).
+func (q *Queries) FijarInformeSincronizacion(ctx context.Context, arg FijarInformeSincronizacionParams) (IntegracionArgosSincronizacione, error) {
+	row := q.db.QueryRow(ctx, fijarInformeSincronizacion,
+		arg.InformeEstado,
+		arg.InformadoEn,
+		arg.InformadoHasta,
+		arg.InformeDetalle,
+		arg.ID,
+	)
+	var i IntegracionArgosSincronizacione
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ExcluirRetirados,
+		&i.Informar,
+		&i.IniciadaEn,
+		&i.ActualizadaEn,
+		&i.TerminadaEn,
+		&i.InformeEstado,
+		&i.InformadoEn,
+		&i.InformadoHasta,
+		&i.InformeDetalle,
+		&i.IniciadaPor,
+		&i.Origen,
+	)
+	return i, err
+}
+
 const guardarCliente = `-- name: GuardarCliente :exec
 
 INSERT INTO integracion.argos_clientes (
@@ -629,6 +1225,73 @@ func (q *Queries) GuardarCliente(ctx context.Context, arg GuardarClienteParams) 
 	return err
 }
 
+const guardarClienteLista = `-- name: GuardarClienteLista :exec
+INSERT INTO integracion.argos_clientes (
+    id, empresa_id, empresas, sin_servicios, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en,
+    tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, referencia
+) VALUES (
+    $1, 0, '{}'::bigint[], false, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11, $12, $13, $14, $15, $16, $17, $18
+)
+ON CONFLICT (id) DO UPDATE SET
+    codigo = excluded.codigo, nombre = excluded.nombre,
+    telefono = excluded.telefono, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
+    zona_id = excluded.zona_id, estado = excluded.estado, sincronizado_en = excluded.sincronizado_en,
+    tipo = excluded.tipo, tipo_documento_fiscal = excluded.tipo_documento_fiscal, nit_cui = excluded.nit_cui,
+    movil = excluded.movil, correo = excluded.correo,
+    zona_nombre = CASE WHEN excluded.zona_nombre <> '' THEN excluded.zona_nombre ELSE integracion.argos_clientes.zona_nombre END,
+    version_datos = excluded.version_datos, referencia = excluded.referencia, fallo_en = NULL, updated_at = now()
+WHERE integracion.argos_clientes.sincronizado_en <= excluded.sincronizado_en
+`
+
+type GuardarClienteListaParams struct {
+	ID                  int64
+	Codigo              string
+	Nombre              string
+	Telefono            string
+	Direccion           string
+	Lat                 *float64
+	Lon                 *float64
+	ZonaID              *int64
+	Estado              string
+	SincronizadoEn      time.Time
+	Tipo                string
+	TipoDocumentoFiscal string
+	NitCui              string
+	Movil               string
+	Correo              string
+	ZonaNombre          string
+	VersionDatos        int16
+	Referencia          string
+}
+
+// Cliente leído de GET /clientes (primera sincronización): la lista no trae sus servicios, así que
+// una fila que ya existe conserva sus empresas y sin_servicios (los recalcula la etapa de servicios).
+// Una fila nueva nace sin empresas: nadie la ve en una empresa hasta que llegan sus servicios.
+func (q *Queries) GuardarClienteLista(ctx context.Context, arg GuardarClienteListaParams) error {
+	_, err := q.db.Exec(ctx, guardarClienteLista,
+		arg.ID,
+		arg.Codigo,
+		arg.Nombre,
+		arg.Telefono,
+		arg.Direccion,
+		arg.Lat,
+		arg.Lon,
+		arg.ZonaID,
+		arg.Estado,
+		arg.SincronizadoEn,
+		arg.Tipo,
+		arg.TipoDocumentoFiscal,
+		arg.NitCui,
+		arg.Movil,
+		arg.Correo,
+		arg.ZonaNombre,
+		arg.VersionDatos,
+		arg.Referencia,
+	)
+	return err
+}
+
 const guardarCopia = `-- name: GuardarCopia :exec
 
 INSERT INTO integracion.argos_copias (entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en)
@@ -659,6 +1322,51 @@ func (q *Queries) GuardarCopia(ctx context.Context, arg GuardarCopiaParams) erro
 		arg.SincronizadoEn,
 	)
 	return err
+}
+
+const guardarCuentaBancaria = `-- name: GuardarCuentaBancaria :execrows
+INSERT INTO integracion.argos_cuentas_bancarias (id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, banco_id = excluded.banco_id, banco_nombre = excluded.banco_nombre, numero = excluded.numero,
+    alias = excluded.alias, titular = excluded.titular, tipo = excluded.tipo, moneda = excluded.moneda, activa = excluded.activa,
+    sincronizado_en = excluded.sincronizado_en, updated_at = now()
+WHERE integracion.argos_cuentas_bancarias.sincronizado_en <= excluded.sincronizado_en
+`
+
+type GuardarCuentaBancariaParams struct {
+	ID             int64
+	EmpresaID      int64
+	BancoID        *int64
+	BancoNombre    string
+	Numero         string
+	Alias          string
+	Titular        *string
+	Tipo           *string
+	Moneda         string
+	Activa         bool
+	SincronizadoEn time.Time
+}
+
+// Gana la lectura más reciente de Argos (una relectura vieja no pisa a una nueva).
+func (q *Queries) GuardarCuentaBancaria(ctx context.Context, arg GuardarCuentaBancariaParams) (int64, error) {
+	result, err := q.db.Exec(ctx, guardarCuentaBancaria,
+		arg.ID,
+		arg.EmpresaID,
+		arg.BancoID,
+		arg.BancoNombre,
+		arg.Numero,
+		arg.Alias,
+		arg.Titular,
+		arg.Tipo,
+		arg.Moneda,
+		arg.Activa,
+		arg.SincronizadoEn,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const guardarRouter = `-- name: GuardarRouter :exec
@@ -925,6 +1633,20 @@ func (q *Queries) IDsExternosVinculados(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const lecturaCuentasDe = `-- name: LecturaCuentasDe :one
+SELECT leido_en FROM integracion.argos_cuentas_lecturas WHERE empresa_id IN (0, $1::bigint)
+ORDER BY leido_en DESC LIMIT 1
+`
+
+// La última lista completa que cubre a la empresa (la suya o la de todas, empresa 0).
+// Sin filas: nunca se leyó.
+func (q *Queries) LecturaCuentasDe(ctx context.Context, empresaID int64) (time.Time, error) {
+	row := q.db.QueryRow(ctx, lecturaCuentasDe, empresaID)
+	var leido_en time.Time
+	err := row.Scan(&leido_en)
+	return leido_en, err
+}
+
 const marcarFalloCliente = `-- name: MarcarFalloCliente :exec
 UPDATE integracion.argos_clientes SET fallo_en = $1 WHERE id = $2
 `
@@ -937,6 +1659,21 @@ type MarcarFalloClienteParams struct {
 // Argos no respondió al leer el cliente: durante EsperaTrasFallo no se vuelve a pedir.
 func (q *Queries) MarcarFalloCliente(ctx context.Context, arg MarcarFalloClienteParams) error {
 	_, err := q.db.Exec(ctx, marcarFalloCliente, arg.FalloEn, arg.ID)
+	return err
+}
+
+const marcarLecturaCuentas = `-- name: MarcarLecturaCuentas :exec
+INSERT INTO integracion.argos_cuentas_lecturas (empresa_id, leido_en) VALUES ($1, $2)
+ON CONFLICT (empresa_id) DO UPDATE SET leido_en = greatest(integracion.argos_cuentas_lecturas.leido_en, excluded.leido_en)
+`
+
+type MarcarLecturaCuentasParams struct {
+	EmpresaID int64
+	LeidoEn   time.Time
+}
+
+func (q *Queries) MarcarLecturaCuentas(ctx context.Context, arg MarcarLecturaCuentasParams) error {
+	_, err := q.db.Exec(ctx, marcarLecturaCuentas, arg.EmpresaID, arg.LeidoEn)
 	return err
 }
 
@@ -969,6 +1706,124 @@ func (q *Queries) PistaEmpresaAlta(ctx context.Context, clienteID int64) (int64,
 	var empresa_id int64
 	err := row.Scan(&empresa_id)
 	return empresa_id, err
+}
+
+const reabrirEtapas = `-- name: ReabrirEtapas :exec
+UPDATE integracion.argos_sincronizacion_etapas
+SET estado = 'pendiente', error = NULL, terminada_en = NULL
+WHERE sincronizacion_id = $1 AND estado = 'con_errores'
+`
+
+// Las etapas con errores vuelven a pendiente; las listas por cursor siguen desde su último cursor.
+func (q *Queries) ReabrirEtapas(ctx context.Context, sincronizacionID uuid.UUID) error {
+	_, err := q.db.Exec(ctx, reabrirEtapas, sincronizacionID)
+	return err
+}
+
+const reabrirSincronizacion = `-- name: ReabrirSincronizacion :one
+UPDATE integracion.argos_sincronizaciones
+SET estado = 'en_curso', terminada_en = NULL, actualizada_en = GREATEST($1::timestamptz, actualizada_en + interval '1 millisecond'),
+    informe_estado = CASE WHEN informar THEN 'pendiente' ELSE informe_estado END,
+    origen = 'manual', iniciada_por = $2::bigint
+WHERE id = $3 AND estado = 'con_errores'
+RETURNING id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen
+`
+
+type ReabrirSincronizacionParams struct {
+	Ahora       time.Time
+	IniciadaPor *int64
+	ID          uuid.UUID
+}
+
+// Reanudar a mano una sincronización con_errores: vuelve a en_curso con el mismo id (Argos recibe un
+// informe más nuevo por actualizada_en).
+func (q *Queries) ReabrirSincronizacion(ctx context.Context, arg ReabrirSincronizacionParams) (IntegracionArgosSincronizacione, error) {
+	row := q.db.QueryRow(ctx, reabrirSincronizacion, arg.Ahora, arg.IniciadaPor, arg.ID)
+	var i IntegracionArgosSincronizacione
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ExcluirRetirados,
+		&i.Informar,
+		&i.IniciadaEn,
+		&i.ActualizadaEn,
+		&i.TerminadaEn,
+		&i.InformeEstado,
+		&i.InformadoEn,
+		&i.InformadoHasta,
+		&i.InformeDetalle,
+		&i.IniciadaPor,
+		&i.Origen,
+	)
+	return i, err
+}
+
+const recalcularEmpresasClientes = `-- name: RecalcularEmpresasClientes :exec
+UPDATE integracion.argos_clientes c
+SET empresas = s.empresas, empresa_id = s.empresas[1], sin_servicios = false, updated_at = now()
+FROM (
+    SELECT cliente_id, array_agg(DISTINCT empresa_id ORDER BY empresa_id)::bigint[] AS empresas
+    FROM integracion.argos_servicios
+    WHERE cliente_id = ANY($1::bigint[]) AND empresa_id > 0
+    GROUP BY cliente_id
+) s
+WHERE c.id = s.cliente_id AND c.empresas IS DISTINCT FROM s.empresas
+`
+
+// Después de guardar una página de servicios: las empresas de cada cliente son las de sus servicios
+// en la instantánea (las mayores que 0). Un cliente sin servicios en la instantánea no cambia.
+func (q *Queries) RecalcularEmpresasClientes(ctx context.Context, ids []int64) error {
+	_, err := q.db.Exec(ctx, recalcularEmpresasClientes, ids)
+	return err
+}
+
+const registrarCertificado = `-- name: RegistrarCertificado :one
+INSERT INTO integracion.argos_certificados (conector_id, huella_sha256, emisor, sujeto, host, vence_en, visto_en, ultimo_visto_en, anterior_id, cambiado)
+VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $7, $8::bigint, $9)
+RETURNING id, conector_id, huella_sha256, emisor, sujeto, host, vence_en, visto_en, ultimo_visto_en, anterior_id, cambiado
+`
+
+type RegistrarCertificadoParams struct {
+	ConectorID   int64
+	HuellaSha256 string
+	Emisor       string
+	Sujeto       string
+	Host         string
+	VenceEn      *time.Time
+	VistoEn      time.Time
+	AnteriorID   *int64
+	Cambiado     bool
+}
+
+func (q *Queries) RegistrarCertificado(ctx context.Context, arg RegistrarCertificadoParams) (IntegracionArgosCertificado, error) {
+	row := q.db.QueryRow(ctx, registrarCertificado,
+		arg.ConectorID,
+		arg.HuellaSha256,
+		arg.Emisor,
+		arg.Sujeto,
+		arg.Host,
+		arg.VenceEn,
+		arg.VistoEn,
+		arg.AnteriorID,
+		arg.Cambiado,
+	)
+	var i IntegracionArgosCertificado
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.HuellaSha256,
+		&i.Emisor,
+		&i.Sujeto,
+		&i.Host,
+		&i.VenceEn,
+		&i.VistoEn,
+		&i.UltimoVistoEn,
+		&i.AnteriorID,
+		&i.Cambiado,
+	)
+	return i, err
 }
 
 const registrarEliminado = `-- name: RegistrarEliminado :one
@@ -1071,6 +1926,88 @@ func (q *Queries) ResucitarEliminado(ctx context.Context, arg ResucitarEliminado
 		&i.CreatedAt,
 	)
 	return i, err
+}
+
+const resumenEntrantesFallidos = `-- name: ResumenEntrantesFallidos :one
+SELECT count(*)::bigint AS cuantos, max(recibido_en) AS ultimo
+FROM integracion.entrantes WHERE conector_id = $1 AND error IS NOT NULL AND procesado_en IS NULL
+`
+
+type ResumenEntrantesFallidosRow struct {
+	Cuantos int64
+	Ultimo  interface{}
+}
+
+// Webhooks de Argos de este conector que no se pudieron aplicar (con error al procesarlos).
+func (q *Queries) ResumenEntrantesFallidos(ctx context.Context, conectorID int64) (ResumenEntrantesFallidosRow, error) {
+	row := q.db.QueryRow(ctx, resumenEntrantesFallidos, conectorID)
+	var i ResumenEntrantesFallidosRow
+	err := row.Scan(&i.Cuantos, &i.Ultimo)
+	return i, err
+}
+
+const resumenInstantaneas = `-- name: ResumenInstantaneas :many
+SELECT 'clientes'::text AS recurso, count(*)::bigint AS cuantos, max(sincronizado_en) AS ultimo FROM integracion.argos_clientes
+UNION ALL SELECT 'servicios'::text, count(*)::bigint, max(sincronizado_en) FROM integracion.argos_servicios
+UNION ALL SELECT 'zonas'::text, count(*)::bigint, max(sincronizado_en) FROM integracion.argos_zonas
+UNION ALL SELECT 'routers'::text, count(*)::bigint, max(sincronizado_en) FROM integracion.argos_routers
+`
+
+type ResumenInstantaneasRow struct {
+	Recurso string
+	Cuantos int64
+	Ultimo  interface{}
+}
+
+// Pantalla de estado (§2.5 d): cuántos hay y el último sincronizado_en de cada instantánea.
+func (q *Queries) ResumenInstantaneas(ctx context.Context) ([]ResumenInstantaneasRow, error) {
+	rows, err := q.db.Query(ctx, resumenInstantaneas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ResumenInstantaneasRow
+	for rows.Next() {
+		var i ResumenInstantaneasRow
+		if err := rows.Scan(&i.Recurso, &i.Cuantos, &i.Ultimo); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resumenPendientesArgos = `-- name: ResumenPendientesArgos :many
+SELECT estado, count(*)::bigint AS cuantos FROM integracion.pendientes WHERE estado <> 'hecho' GROUP BY estado ORDER BY estado
+`
+
+type ResumenPendientesArgosRow struct {
+	Estado  string
+	Cuantos int64
+}
+
+// Acciones hacia Argos que no están hechas (integracion.pendientes), por estado.
+func (q *Queries) ResumenPendientesArgos(ctx context.Context) ([]ResumenPendientesArgosRow, error) {
+	rows, err := q.db.Query(ctx, resumenPendientesArgos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ResumenPendientesArgosRow
+	for rows.Next() {
+		var i ResumenPendientesArgosRow
+		if err := rows.Scan(&i.Estado, &i.Cuantos); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const routerPorID = `-- name: RouterPorID :one
@@ -1445,6 +2382,87 @@ func (q *Queries) ServiciosEliminadosTodasLasEmpresas(ctx context.Context, ids [
 	return items, nil
 }
 
+const sincronizacionEnCurso = `-- name: SincronizacionEnCurso :one
+SELECT id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen FROM integracion.argos_sincronizaciones WHERE conector_id = $1 AND estado = 'en_curso'
+`
+
+func (q *Queries) SincronizacionEnCurso(ctx context.Context, conectorID int64) (IntegracionArgosSincronizacione, error) {
+	row := q.db.QueryRow(ctx, sincronizacionEnCurso, conectorID)
+	var i IntegracionArgosSincronizacione
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ExcluirRetirados,
+		&i.Informar,
+		&i.IniciadaEn,
+		&i.ActualizadaEn,
+		&i.TerminadaEn,
+		&i.InformeEstado,
+		&i.InformadoEn,
+		&i.InformadoHasta,
+		&i.InformeDetalle,
+		&i.IniciadaPor,
+		&i.Origen,
+	)
+	return i, err
+}
+
+const sincronizacionParaActualizar = `-- name: SincronizacionParaActualizar :one
+SELECT id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen FROM integracion.argos_sincronizaciones WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) SincronizacionParaActualizar(ctx context.Context, id uuid.UUID) (IntegracionArgosSincronizacione, error) {
+	row := q.db.QueryRow(ctx, sincronizacionParaActualizar, id)
+	var i IntegracionArgosSincronizacione
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ExcluirRetirados,
+		&i.Informar,
+		&i.IniciadaEn,
+		&i.ActualizadaEn,
+		&i.TerminadaEn,
+		&i.InformeEstado,
+		&i.InformadoEn,
+		&i.InformadoHasta,
+		&i.InformeDetalle,
+		&i.IniciadaPor,
+		&i.Origen,
+	)
+	return i, err
+}
+
+const sincronizacionPorID = `-- name: SincronizacionPorID :one
+SELECT id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen FROM integracion.argos_sincronizaciones WHERE id = $1
+`
+
+func (q *Queries) SincronizacionPorID(ctx context.Context, id uuid.UUID) (IntegracionArgosSincronizacione, error) {
+	row := q.db.QueryRow(ctx, sincronizacionPorID, id)
+	var i IntegracionArgosSincronizacione
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ExcluirRetirados,
+		&i.Informar,
+		&i.IniciadaEn,
+		&i.ActualizadaEn,
+		&i.TerminadaEn,
+		&i.InformeEstado,
+		&i.InformadoEn,
+		&i.InformadoHasta,
+		&i.InformeDetalle,
+		&i.IniciadaPor,
+		&i.Origen,
+	)
+	return i, err
+}
+
 const tecnicosVinculadosArgos = `-- name: TecnicosVinculadosArgos :many
 SELECT t.id, t.usuario_id, t.argos_id_externo::text AS id_externo FROM agenda.tecnicos t
 WHERE t.argos_id_externo = ANY($1::text[])
@@ -1581,6 +2599,58 @@ func (q *Queries) TrasladosDeTecnico(ctx context.Context, arg TrasladosDeTecnico
 	return items, nil
 }
 
+const ultimaSincronizacion = `-- name: UltimaSincronizacion :one
+SELECT id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen FROM integracion.argos_sincronizaciones WHERE conector_id = $1 ORDER BY id DESC LIMIT 1
+`
+
+func (q *Queries) UltimaSincronizacion(ctx context.Context, conectorID int64) (IntegracionArgosSincronizacione, error) {
+	row := q.db.QueryRow(ctx, ultimaSincronizacion, conectorID)
+	var i IntegracionArgosSincronizacione
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ExcluirRetirados,
+		&i.Informar,
+		&i.IniciadaEn,
+		&i.ActualizadaEn,
+		&i.TerminadaEn,
+		&i.InformeEstado,
+		&i.InformadoEn,
+		&i.InformadoHasta,
+		&i.InformeDetalle,
+		&i.IniciadaPor,
+		&i.Origen,
+	)
+	return i, err
+}
+
+const ultimoCertificado = `-- name: UltimoCertificado :one
+
+SELECT id, conector_id, huella_sha256, emisor, sujeto, host, vence_en, visto_en, ultimo_visto_en, anterior_id, cambiado FROM integracion.argos_certificados WHERE conector_id = $1 ORDER BY ultimo_visto_en DESC, id DESC LIMIT 1
+`
+
+// Certificado TLS de la API de Argos (§1.5, «registrar y avisar») ------------------------------
+func (q *Queries) UltimoCertificado(ctx context.Context, conectorID int64) (IntegracionArgosCertificado, error) {
+	row := q.db.QueryRow(ctx, ultimoCertificado, conectorID)
+	var i IntegracionArgosCertificado
+	err := row.Scan(
+		&i.ID,
+		&i.ConectorID,
+		&i.HuellaSha256,
+		&i.Emisor,
+		&i.Sujeto,
+		&i.Host,
+		&i.VenceEn,
+		&i.VistoEn,
+		&i.UltimoVistoEn,
+		&i.AnteriorID,
+		&i.Cambiado,
+	)
+	return i, err
+}
+
 const usuarioDeVinculoArgos = `-- name: UsuarioDeVinculoArgos :one
 SELECT usuario_id FROM agenda.tecnicos
 WHERE argos_id_externo = $1::text OR ($1::text = '' AND $2::text <> '' AND lower(argos_correo) = lower($2::text))
@@ -1617,6 +2687,20 @@ func (q *Queries) VinculoDeUsuario(ctx context.Context, usuarioID int64) (Vincul
 	var i VinculoDeUsuarioRow
 	err := row.Scan(&i.IDExterno, &i.Correo)
 	return i, err
+}
+
+const volverAVerCertificado = `-- name: VolverAVerCertificado :exec
+UPDATE integracion.argos_certificados SET ultimo_visto_en = $1 WHERE id = $2 AND ultimo_visto_en < $1
+`
+
+type VolverAVerCertificadoParams struct {
+	VistoEn time.Time
+	ID      int64
+}
+
+func (q *Queries) VolverAVerCertificado(ctx context.Context, arg VolverAVerCertificadoParams) error {
+	_, err := q.db.Exec(ctx, volverAVerCertificado, arg.VistoEn, arg.ID)
+	return err
 }
 
 const zonaAgendaArgos = `-- name: ZonaAgendaArgos :one

@@ -420,6 +420,7 @@ func (c *Cliente) unaCuerpo(ctx context.Context, metodo, ruta string, consulta u
 		return &ErrorRemoto{Remoto: c.remoto, causa: limpiarErrorURL(err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
+	anotarTLS(ctx, req.URL.Hostname(), resp)
 	crudo, err := io.ReadAll(io.LimitReader(resp.Body, maxRespuesta))
 	if err != nil {
 		return &ErrorRemoto{Remoto: c.remoto, causa: err}

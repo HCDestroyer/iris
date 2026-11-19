@@ -273,6 +273,11 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 			return responder(k.DesactivarEtiqueta.Ejecutar(ctx, EntradaIDConv{ID: in.ID}))
 		})
 
+	revision := op("revisionCuentasMensajeria", http.MethodGet, "/revision-cuentas", "Textos con números de cuenta escritos a mano (§10.3 del contrato con Argos)", conf, http.StatusOK)
+	revision.Description += " Manuales, respuestas rápidas y respuestas de fuera de horario activos que parecen llevar un número de cuenta bancaria. Solo avisa: las cuentas salen de Argos con «Enviar cuentas». Nunca devuelve el número."
+	huma.Register(api, revision, func(ctx context.Context, _ *struct{}) (*cuerpo[RevisionCuentas], error) {
+		return responder(m.revisionCuentas.Ejecutar(ctx, struct{}{}))
+	})
 	huma.Register(api, op("listarRespuestasRapidas", http.MethodGet, "/respuestas-rapidas", "Respuestas rápidas (las de la cola y las generales)", resp, http.StatusOK),
 		func(ctx context.Context, in *EntradaListarRespuestas) (*cuerpo[ListaRespuestasRapidas], error) {
 			return responder(k.ListarRespuestas.Ejecutar(ctx, *in))
@@ -383,7 +388,15 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 	env.Responses = map[string]*huma.Response{"200": {Description: "Reenvío del mismo id: el mensaje tal como está ahora"}}
 	huma.Register(api, env, func(ctx context.Context, in *idCuerpoHTTP[EntradaResponder]) (*salidaMensajeConv, error) {
 		in.Body.ConversacionID, in.Body.IdempotencyKey = in.ID, in.IdempotencyKey
+		// «Enviar cuentas»: el texto lo arma el servidor con las cuentas de Argos (fuera de la transacción).
+		if err := m.prepararEnvioCuentas(ctx, &in.Body); err != nil {
+			return nil, err
+		}
 		return respMensaje(k.Responder.Ejecutar(ctx, in.Body))
+	})
+	huma.Register(api, op("textoCuentasConversacion", http.MethodGet, base+"/{id}/texto-cuentas", "Texto de «Enviar cuentas» (cuentas de Argos, §7.8)",
+		resp, http.StatusOK, http.StatusNotFound), func(ctx context.Context, in *EntradaTextoCuentas) (*cuerpo[TextoCuentasConv], error) {
+		return responder(m.TextoCuentasDe(ctx, in.ID))
 	})
 	reenvioConCuerpo(api, env.OperationID)
 	nota := op("notaConversacion", http.MethodPost, base+"/{id}/notas", "Nota interna (con menciones)", resp, http.StatusCreated, http.StatusNotFound, http.StatusConflict)

@@ -25,6 +25,7 @@ const token = (id: number, nombre: string, extra: Partial<TokenAPI> = {}): Token
     creadoPor: ADMIN.id,
     creadoEn: iso(-60 * 24 * 30),
     enUsoPorConector: false,
+    via: null,
     ...extra,
 });
 

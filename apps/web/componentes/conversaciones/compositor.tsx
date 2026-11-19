@@ -21,6 +21,7 @@ import { esSesionCambiada, verificarSesion, type Identidad } from "@/lib/convers
 import type { Conversacion, Mensaje, RespuestaRapida } from "@/lib/conversaciones/tipos";
 import { useSesion } from "@/lib/sesion";
 import { agentesDeCola, useCatalogos } from "./catalogos";
+import { BotonEnviarCuentas } from "./enviar-cuentas";
 import { SelectorPlantilla } from "./plantillas";
 
 type Modo = "responder" | "nota";
@@ -482,6 +483,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                     ) : null}
                     {soloPlantilla ? null : <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alReenvio={alReenvio} alActualizar={alActualizar} />}
                     {cerrada ? null : <MenuRespuestas respuestas={deLaCola} alElegir={usarRespuesta} />}
+                    {cerrada ? null : <BotonEnviarCuentas conv={conv} identidad={identidad} alEnviado={alConfirmado} />}
                     {/* «Sugerir» (asistente en modo botón): en el teléfono va en la fila, siempre a la vista. */}
                     {cerrada || !accesorio ? null : <span className="hidden @min-[34rem]/conv:contents">{accesorio}</span>}
                 </>

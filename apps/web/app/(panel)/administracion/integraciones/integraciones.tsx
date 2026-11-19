@@ -32,6 +32,7 @@ import { textoFechaHora } from "@/lib/reportes/presentacion";
 import { useSesion } from "@/lib/sesion";
 import { TarjetaServidorIa } from "@/componentes/servidor-ia/tarjeta";
 import { TarjetaCentralita } from "@/componentes/voz/tarjeta-centralita";
+import { EnlaceEstadoArgos } from "./argos/estado-argos";
 import { ConectarArgos } from "./conectar-argos";
 import { DiagnosticoArgos } from "./diagnostico-argos";
 
@@ -163,6 +164,7 @@ function FilaConector({ conector: c, todos, alCambiar }: { conector: Conector; t
             </p>
             {c.sistema === "argosisp" && c.id === conectorArgos(todos)?.id ? <DiagnosticoArgos conector={c} alRevisar={alCambiar} /> : null}
             <div className="flex flex-wrap gap-2 empty:hidden">
+                {c.sistema === "argosisp" && c.id === conectorArgos(todos)?.id ? <EnlaceEstadoArgos /> : null}
                 {c.estado === "apagado" && puede(["integraciones.activar"]) ? (
                     <Boton tamano="sm" onClick={() => setDialogo("activar")}>
                         <Power />
