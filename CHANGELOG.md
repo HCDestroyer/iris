@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.29.1](https://github.com/HCDestroyer/iris/compare/v0.29.0...v0.29.1) (2026-11-19)
+
+
+### Correcciones
+
+* **mensajeria:** llamadas salientes con el SDP real de Chrome y Meta, y ráfaga con ventana fija ([#217](https://github.com/HCDestroyer/iris/issues/217)) ([fdd87e0](https://github.com/HCDestroyer/iris/commit/fdd87e0a97dc73245b0e7db20e20cd6aefa6f4fa))
+
 ## [0.29.0](https://github.com/HCDestroyer/iris/compare/v0.28.2...v0.29.0) (2026-11-18)
 
 
