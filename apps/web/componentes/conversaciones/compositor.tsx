@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { AreaTexto, Boton, CampoBusqueda, Casilla, cn, DialogoConfirmar, GrupoSegmentado, MenuArchivos, PanelEmergente, useProteccionSalida, VistaPreviaArchivos, type ArchivoEnVista, type OpcionArchivo } from "@iris/ui";
-import { AtSign, BookOpen, Camera, Clock, FileText, Image as IconoImagen, Send, Smile, X, Zap } from "lucide-react";
+import { AtSign, BookOpen, Camera, Clock, FileText, Image as IconoImagen, Plus, Send, Smile, X, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ClipboardEvent, type KeyboardEvent, type ReactNode } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -83,9 +83,13 @@ function useTactil(): boolean {
  * se ve qué no sirve antes de subir nada. La API admite un adjunto por mensaje: cada archivo sale
  * en su mensaje, en orden, y el comentario va con el primero.
  *
- * Compositor único (diseño del PM): pestañas Responder / Nota interna, tiempo que queda de la
- * ventana de 24 h, el texto, la barra de íconos (adjuntar, plantillas, respuestas rápidas, emoji)
- * y «Enviar» en tinta. Fuera de la ventana, al cliente solo se le puede mandar una plantilla
+ * Compositor único (diseño del PM, nov. 2026: «teléfono primero»): pestañas Responder / Nota
+ * interna y el tiempo que queda de la ventana de 24 h en una línea fina; el texto crece de 1 a 6
+ * líneas con tope (24 % del alto en el teléfono, 30 % en escritorio) y después se desplaza por
+ * dentro, para que el hilo siga a la vista con el teclado abierto. En el teléfono va en una fila
+ * con «+» (despliega las herramientas) y «Enviar» redondo; en escritorio, la barra de íconos
+ * (adjuntar, plantillas, respuestas rápidas, emoji) siempre visible y «Enviar» en teal. Las
+ * respuestas rápidas salen en chips solo con la caja vacía. Fuera de la ventana, al cliente solo se le puede mandar una plantilla
  * aprobada en ese número (lo dice en una línea). Enter envía; Mayús + Enter baja de línea.
  *
  * Antes de guardar un borrador o de enviar, se comprueba con `GET /yo` que la sesión del navegador
@@ -107,6 +111,8 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
     const [enviandoArchivos, setEnviandoArchivos] = useState(false);
     const enviandoAhora = useRef(false);
     const tactil = useTactil();
+    // Teléfono: las herramientas (adjuntar, plantillas, respuestas, emoji…) se despliegan con «+».
+    const [herramientas, setHerramientas] = useState(false);
     const router = useRouter();
     // Con archivos por enviar o subiendo, cambiar de conversación (o salir) pregunta antes: al
     // salir, el envío se corta y lo que quede no sale.
@@ -455,8 +461,38 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
     // Borrar todo el texto suelta la sugerencia: lo que se escriba después ya no sale de ella.
     const { ref: refCampo, ...registro } = form.register("texto", { onChange: (e: { target: { value: string } }) => !e.target.value.trim() && setSugerenciaId(null) });
 
+    const vacio = !texto.trim();
+    const puedeEnviar = !enviandoArchivos && (!vacio || validos > 0);
+    const textoEnviar = modo === "nota" ? "Guardar nota" : "Enviar";
+    const barra = (
+        <>
+            {modo === "responder" ? (
+                <>
+                    <MenuArchivos
+                        etiqueta="Adjuntar"
+                        opciones={tactil ? [...OPCIONES_ADJUNTAR, OPCION_CAMARA] : OPCIONES_ADJUNTAR}
+                        alElegir={agregarArchivos}
+                        disabled={cerrada || enviandoArchivos || elegidos.length >= MAX_ARCHIVOS}
+                        className="text-muted-foreground"
+                    />
+                    {puede(["manuales.ver"]) ? (
+                        <Boton variante="fantasma" tamano="icono-sm" className="text-muted-foreground" aria-label="Manuales" title="Manuales" onClick={abrirAyuda}>
+                            <BookOpen />
+                        </Boton>
+                    ) : null}
+                    {soloPlantilla ? null : <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alReenvio={alReenvio} alActualizar={alActualizar} />}
+                    {cerrada ? null : <MenuRespuestas respuestas={deLaCola} alElegir={usarRespuesta} />}
+                    {cerrada ? null : accesorio}
+                </>
+            ) : (
+                <MenuMenciones candidatos={candidatos} elegidos={menciones} alCambiar={setMenciones} />
+            )}
+            {soloPlantilla ? null : <MenuEmoji alElegir={(e) => form.setValue("texto", `${form.getValues("texto")}${e}`, { shouldDirty: true })} />}
+        </>
+    );
+
     return (
-        <div className="shrink-0 px-3 pt-2 pb-3 @min-[700px]/conv:px-3.5" data-slot="compositor">
+        <div className="shrink-0 px-3 pt-1.5 pb-2.5 @min-[700px]/conv:px-3.5" data-slot="compositor">
             <DialogoConfirmar
                 open={proteccion.pendiente !== null}
                 onOpenChange={(abierto) => !abierto && proteccion.seguir()}
@@ -467,25 +503,36 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                 peligro
                 alConfirmar={proteccion.confirmar}
             />
-            {modo === "responder" && !cerrada && deLaCola.length > 0 ? (
+            {/* Las respuestas rápidas son atajos para empezar: solo con la caja vacía. */}
+            {modo === "responder" && !cerrada && vacio && deLaCola.length > 0 ? (
                 <div
                     role="group"
                     aria-label="Respuestas rápidas"
                     data-desborde-permitido
-                    className="flex gap-1.5 overflow-x-auto pb-2 [mask-image:linear-gradient(90deg,#000_85%,transparent)] [scrollbar-width:none]"
+                    data-slot="chips-respuestas"
+                    className="flex gap-1.5 overflow-x-auto pb-1.5 [mask-image:linear-gradient(90deg,#000_85%,transparent)] [scrollbar-width:none]"
                 >
                     {deLaCola.slice(0, 8).map((r) => (
                         <Boton key={r.id} variante="secundario" tamano="sm" className="h-7 shrink-0 rounded-full px-2.5 text-xs font-medium" onClick={() => usarRespuesta(r)} title={r.texto}>
+                            <Zap className="size-3.5 text-primary" />
                             {r.titulo}
                         </Boton>
                     ))}
                 </div>
             ) : null}
-            <div className={cn("overflow-hidden rounded-[0.875rem] border bg-card shadow-xs", modo === "nota" ? "border-warning/50 bg-warning/5" : "border-border")}>
-                <div className="flex min-w-0 items-center gap-1 px-2 pt-1.5">
+            {/* El foco se marca en toda la caja (no en el texto, que queda recortado por ella). */}
+            <div
+                data-slot="caja-compositor"
+                className={cn(
+                    "min-w-0 rounded-[0.875rem] border bg-card shadow-xs transition-[border-color,box-shadow] focus-within:border-primary focus-within:shadow-[0_0_0_1px_var(--hx-primary)] motion-reduce:transition-none",
+                    modo === "nota" ? "border-dashed border-warning/60 bg-warning/5" : "border-border",
+                )}
+            >
+                <div className="flex min-w-0 items-center gap-1 px-1.5 pt-1">
                     <GrupoSegmentado
                         etiqueta="Tipo de mensaje"
                         className="bg-transparent"
+                        claseOpcion="h-7 px-2.5 text-xs"
                         valor={modo}
                         alCambiar={(v) => {
                             setModo(v);
@@ -496,7 +543,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                             { valor: "nota", etiqueta: "Nota interna" },
                         ]}
                     />
-                    <span className="ml-auto flex min-w-0 items-center gap-1 text-xs text-muted-foreground" data-ventana={cerrada ? "cerrada" : "abierta"}>
+                    <span className="ml-auto flex min-w-0 items-center gap-1 pr-1 text-xs text-muted-foreground" data-ventana={cerrada ? "cerrada" : "abierta"}>
                         <Clock aria-hidden className="size-3.5 shrink-0" />
                         <span className="truncate @max-[30rem]/conv:hidden">{ventana ? ventana.largo : "Ventana de 24 h cerrada"}</span>
                         <span className="hidden whitespace-nowrap @max-[30rem]/conv:inline">{ventana ? ventana.corto : "Cerrada"}</span>
@@ -513,7 +560,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                 ) : (
                     <>
                         {modo === "nota" && menciones.length > 0 ? (
-                            <div className="flex flex-wrap gap-1 px-3 pt-2">
+                            <div className="flex flex-wrap gap-1 px-3 pt-1.5">
                                 {menciones.map((id) => {
                                     const a = candidatos.find((x) => x.id === id);
                                     return (
@@ -528,28 +575,55 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                             </div>
                         ) : null}
                         {porEnviar.length > 0 ? (
-                            <VistaPreviaArchivos etiqueta="Archivos por enviar" archivos={enVista} alQuitar={quitarElegido} alReintentar={() => void enviarArchivos()} className="px-2 pt-2">
-                                {validos > 1 ? <p className="px-1 text-xs text-muted-foreground">Cada archivo sale en su propio mensaje, en este orden. El comentario va con el primero.</p> : null}
+                            <VistaPreviaArchivos etiqueta="Archivos por enviar" archivos={enVista} alQuitar={quitarElegido} alReintentar={() => void enviarArchivos()} className="px-2 pt-1.5">
+                                {validos > 1 ? <p className="truncate px-1 text-xs text-muted-foreground">{validos} archivos · Cada archivo sale en su propio mensaje, en este orden. El comentario va con el primero.</p> : null}
                             </VistaPreviaArchivos>
                         ) : null}
                         <label className="sr-only" htmlFor={`compositor-${conv.id}`}>
                             {modo === "nota" ? "Nota interna (solo la ve el equipo)" : `Mensaje para ${conv.titulo}`}
                         </label>
-                        <AreaTexto
-                            id={`compositor-${conv.id}`}
-                            rows={2}
-                            maxLength={4096}
-                            placeholder={modo === "nota" ? "Nota para el equipo; el cliente no la ve" : validos > 0 ? "Comentario (opcional)" : "Escribe un mensaje"}
-                            className="block max-h-40 min-h-11 w-full min-w-0 resize-none rounded-none border-0 bg-transparent px-3 pt-2 pb-1 text-sm leading-relaxed [overflow-wrap:anywhere] shadow-none outline-none [field-sizing:content] focus:ring-0 focus-visible:ring-0 sm:text-sm"
-                            onKeyDown={alTeclear}
-                            onPaste={alPegar}
-                            aria-invalid={form.formState.errors.texto ? true : undefined}
-                            {...registro}
-                            ref={(el) => {
-                                refCampo(el);
-                                campo.current = el;
-                            }}
-                        />
+                        {/* Teléfono (contenedor angosto): «+», el texto y «Enviar» en una fila. */}
+                        <div className="flex min-w-0 items-end gap-1 px-1 pb-1 @min-[34rem]/conv:px-1.5 @min-[34rem]/conv:pb-0" data-slot="fila-compositor">
+                            <Boton
+                                variante="fantasma"
+                                tamano="icono"
+                                className="shrink-0 text-primary @min-[34rem]/conv:hidden"
+                                aria-label={herramientas ? "Ocultar herramientas" : "Adjuntar y más herramientas"}
+                                aria-expanded={herramientas}
+                                aria-controls={`herramientas-${conv.id}`}
+                                onClick={() => setHerramientas((v) => !v)}
+                                data-slot="mas-herramientas"
+                            >
+                                <Plus className={cn("transition-transform motion-reduce:transition-none", herramientas && "rotate-45")} />
+                            </Boton>
+                            <AreaTexto
+                                id={`compositor-${conv.id}`}
+                                rows={1}
+                                maxLength={4096}
+                                placeholder={modo === "nota" ? "Nota para el equipo; el cliente no la ve" : validos > 0 ? "Comentario (opcional)" : "Escribe un mensaje"}
+                                className="block max-h-[min(8.5rem,24dvh)] min-h-10 w-full min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-1.5 py-2 text-base leading-[1.4] [overflow-wrap:anywhere] shadow-none [field-sizing:content] focus:ring-0 focus-visible:ring-0 focus-visible:outline-none! @min-[34rem]/conv:max-h-[min(11rem,30dvh)] @min-[34rem]/conv:px-1.5 sm:text-sm"
+                                onKeyDown={alTeclear}
+                                onPaste={alPegar}
+                                aria-invalid={form.formState.errors.texto ? true : undefined}
+                                {...registro}
+                                ref={(el) => {
+                                    refCampo(el);
+                                    campo.current = el;
+                                }}
+                            />
+                            <Boton
+                                variante="primario"
+                                tamano="icono"
+                                className="shrink-0 rounded-full @min-[34rem]/conv:hidden"
+                                onClick={enviar}
+                                disabled={!puedeEnviar}
+                                aria-label={textoEnviar}
+                                title={`${textoEnviar} (Enter)`}
+                                data-slot="enviar-telefono"
+                            >
+                                <Send />
+                            </Boton>
+                        </div>
                     </>
                 )}
                 {form.formState.errors.texto?.message || error ? (
@@ -557,32 +631,15 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                         {form.formState.errors.texto?.message ?? error}
                     </p>
                 ) : null}
-                <div className="flex min-w-0 flex-wrap items-center gap-0.5 px-1.5 pt-0.5 pb-1.5" data-slot="barra-compositor">
-                    {modo === "responder" ? (
-                        <>
-                            <MenuArchivos
-                                etiqueta="Adjuntar"
-                                opciones={tactil ? [...OPCIONES_ADJUNTAR, OPCION_CAMARA] : OPCIONES_ADJUNTAR}
-                                alElegir={agregarArchivos}
-                                disabled={cerrada || enviandoArchivos || elegidos.length >= MAX_ARCHIVOS}
-                                className="text-muted-foreground"
-                            />
-                            {puede(["manuales.ver"]) ? (
-                                <Boton variante="fantasma" tamano="icono-sm" className="text-muted-foreground" aria-label="Manuales" title="Manuales" onClick={abrirAyuda}>
-                                    <BookOpen />
-                                </Boton>
-                            ) : null}
-                            {soloPlantilla ? null : <SelectorPlantilla conv={conv} identidad={identidad} alEnviado={alConfirmado} alReenvio={alReenvio} alActualizar={alActualizar} />}
-                            {cerrada ? null : <MenuRespuestas respuestas={deLaCola} alElegir={usarRespuesta} />}
-                            {cerrada ? null : accesorio}
-                        </>
-                    ) : (
-                        <MenuMenciones candidatos={candidatos} elegidos={menciones} alCambiar={setMenciones} />
-                    )}
-                    {soloPlantilla ? null : <MenuEmoji alElegir={(e) => form.setValue("texto", `${form.getValues("texto")}${e}`, { shouldDirty: true })} />}
+                <div
+                    id={`herramientas-${conv.id}`}
+                    className={cn("min-w-0 flex-wrap items-center gap-0.5 px-1.5 pt-0.5 pb-1.5", herramientas || soloPlantilla ? "flex" : "hidden", "@min-[34rem]/conv:flex")}
+                    data-slot="barra-compositor"
+                >
+                    {barra}
                     {soloPlantilla ? null : (
-                        <Boton variante="tinta" tamano="sm" className="ml-auto h-8 rounded-lg px-3" onClick={enviar} disabled={enviandoArchivos || (!texto.trim() && validos === 0)} title="Enviar (Enter)">
-                            {modo === "nota" ? "Guardar nota" : "Enviar"}
+                        <Boton variante="primario" tamano="sm" className="ml-auto hidden h-8 px-3 @min-[34rem]/conv:inline-flex" onClick={enviar} disabled={!puedeEnviar} title={`${textoEnviar} (Enter)`}>
+                            {textoEnviar}
                             <Send />
                         </Boton>
                     )}

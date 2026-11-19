@@ -83,7 +83,7 @@ export function FotoMensaje({ src, ancho, alto, estado, etiqueta, alAbrir, super
     const [intento, setIntento] = useState(0);
     const [natural, setNatural] = useState<{ ancho: number; alto: number } | null>(null);
     const m = medidasFoto(ancho ?? natural?.ancho, alto ?? natural?.alto);
-    const estilo: CSSProperties = enCuadricula ? { aspectRatio: "1" } : { width: `min(${m.ancho}px, 100%)`, aspectRatio: String(m.proporcion) };
+    const estilo: CSSProperties = enCuadricula ? { aspectRatio: "1" } : { width: `${m.ancho}px`, aspectRatio: String(m.proporcion) };
     const comun = cn("relative block overflow-hidden rounded-[0.6875rem] bg-elevated", enCuadricula ? "w-full rounded-[0.25rem]" : "max-w-full", className);
     const pie = superpuesto ? (
         <span data-slot="hora-foto" className="pointer-events-none absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-px text-[0.6875rem] text-white tabular-nums [&_svg]:size-3.5">
@@ -192,7 +192,7 @@ export function AlbumFotos({ fotos, superpuesto, etiqueta, className }: PropsAlb
     const visibles = fotos.slice(0, CELDAS_ALBUM);
     const resto = fotos.length - visibles.length;
     return (
-        <div role="group" aria-label={etiqueta} data-slot="album-fotos" data-fotos={fotos.length} className={cn("grid w-[min(18rem,100%)] grid-cols-2 gap-0.5 overflow-hidden rounded-[0.6875rem]", className)}>
+        <div role="group" aria-label={etiqueta} data-slot="album-fotos" data-fotos={fotos.length} className={cn("grid w-72 max-w-full grid-cols-2 gap-0.5 overflow-hidden rounded-[0.6875rem]", className)}>
             {visibles.map((f, i) => {
                 const ultima = i === visibles.length - 1;
                 const ancha = visibles.length === 3 && i === 2;

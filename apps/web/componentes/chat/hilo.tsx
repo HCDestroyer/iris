@@ -1,14 +1,17 @@
 "use client";
 
-import { Aviso, Boton, Cargando, cn, Esqueleto, MenuDesplegable, MenuDesplegableContenido, MenuDesplegableDisparador, MenuDesplegableElemento } from "@iris/ui";
+import { Aviso, Boton, Cargando, cn, Esqueleto, FotoMensaje, MenuDesplegable, MenuDesplegableContenido, MenuDesplegableDisparador, MenuDesplegableElemento, VisorFotos, type FotoEnVisor } from "@iris/ui";
 import { elementosHilo, enlaceUbicacion, estadoEnvio, horaMensaje, TEXTO_ELIMINADO, type MensajeVista, type MotorChat, type VistaConversacion } from "@iris/sync/chat";
-import { Ban, Check, CheckCheck, Clock, Ellipsis, ImageIcon, Map as IconoMapa, MapPin, RotateCcw, RotateCw, Trash2, TriangleAlert } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { Ban, Check, CheckCheck, Clock, Ellipsis, Map as IconoMapa, MapPin, RotateCcw, RotateCw, Trash2, TriangleAlert } from "lucide-react";
+import { createContext, use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { sePuedeEliminar } from "@/lib/chat/eliminar-diferido";
 import { mencionadosCon, segmentosChat, textoMotivo } from "@/lib/chat/presentacion";
 import { rutaDescargaAdjunto } from "@/lib/ordenes/adjuntos";
 import type { MiembroChat } from "@/lib/chat/api";
+
+/** Abre una foto del hilo en el visor (por id de mensaje). */
+const AbrirFoto = createContext<(mensajeId: string) => void>(() => undefined);
 
 type Props = {
     motor: MotorChat;
@@ -55,6 +58,15 @@ export function HiloChat({ motor, vista, miembros, yoId, eliminando, puedeElimin
     }, [motor, vista.id, ultimo?.id, ultimo?.seq, ultimo]);
 
     const roles = new Map(miembros.map((m) => [m.usuario_id, textoMotivo(m.motivo, tipo)]));
+    // Visor: las fotos listas de la conversación, en orden.
+    const fotos: FotoEnVisor[] = mensajes.flatMap((m) => {
+                const url = m.foto?.estado === "completo" && !m.eliminado ? rutaDescargaAdjunto(m.foto.id) : undefined;
+                if (!url) return [];
+                const quien = m.propio ? "Tú" : m.autorNombre || "Compañero";
+                return [{ id: m.id, src: url, descarga: url, titulo: quien, detalle: horaMensaje(m), alt: `Foto de ${quien}, ${horaMensaje(m)}`, pie: m.texto }];
+    });
+    const [visor, setVisor] = useState<string | null>(null);
+    const indiceVisor = visor === null ? -1 : fotos.findIndex((f) => f.id === visor);
 
     return (
         <div
@@ -98,6 +110,7 @@ export function HiloChat({ motor, vista, miembros, yoId, eliminando, puedeElimin
             ) : vista.mensajes.length === 0 ? (
                 <p className="py-10 text-center text-sm text-muted-foreground">Aún no hay mensajes. Escribe el primero.</p>
             ) : (
+                <AbrirFoto value={setVisor}>
                 <ol aria-label="Mensajes" className="grid gap-2">
                     {elementos.map((e) =>
                         e.tipo === "dia" ? (
@@ -119,7 +132,9 @@ export function HiloChat({ motor, vista, miembros, yoId, eliminando, puedeElimin
                         ),
                     )}
                 </ol>
+                </AbrirFoto>
             )}
+            <VisorFotos fotos={fotos} indice={indiceVisor >= 0 ? indiceVisor : null} alCambiar={(i) => setVisor(i === null ? null : (fotos[i]?.id ?? null))} />
         </div>
     );
 }
@@ -190,12 +205,13 @@ function Burbuja({
             <div className={cn("flex max-w-[min(34rem,88%)] min-w-0 items-start gap-1", propio && "flex-row-reverse")}>
                 <div
                     className={cn(
-                        "grid min-w-0 gap-1 rounded-2xl px-3.5 py-2 text-[0.875rem] break-words whitespace-pre-wrap",
+                        "grid min-w-0 gap-1 rounded-2xl text-[0.875rem] break-words whitespace-pre-wrap",
+                        m.foto ? "p-[3px] [&>:not([data-slot=foto-mensaje])]:mx-2.5 [&>:last-child]:mb-1.5" : "px-3.5 py-2",
                         propio ? "rounded-br-md bg-primary text-primary-foreground" : "rounded-bl-md border border-border bg-card",
                         m.envio === "fallido" && "ring-2 ring-error",
                     )}
                 >
-                    {m.foto ? <FotoMensaje m={m} /> : null}
+                    {m.foto ? <FotoChat m={m} /> : null}
                     {ubicacionValida(m) ? <UbicacionMensaje m={m} /> : null}
                     {m.texto ? <TextoMensaje texto={m.texto} mencionados={mencionadosCon(m.menciones, miembros)} yoId={yoId} propio={propio} /> : null}
                     {pie}
@@ -253,25 +269,23 @@ function TextoMensaje({ texto, mencionados, yoId, propio }: { texto: string; men
     );
 }
 
-function FotoMensaje({ m }: { m: MensajeVista }) {
+function FotoChat({ m }: { m: MensajeVista }) {
+    const abrir = use(AbrirFoto);
     const foto = m.foto;
     if (!foto) return null;
     // La ruta se arma siempre desde el id validado: nunca se sigue la URL que viene en los datos.
     const url = foto.estado === "completo" ? rutaDescargaAdjunto(foto.id) : undefined;
     if (foto.estado === "completo" && !url) return null;
-    if (url) {
-        return (
-            <a href={url} target="_blank" rel="noopener noreferrer" className="block overflow-hidden rounded-lg">
-                {/* eslint-disable-next-line @next/next/no-img-element -- adjunto privado servido por la API con la cookie */}
-                <img src={url} alt={`Foto de ${m.autorNombre || "tu mensaje"}`} className="max-h-64 w-full max-w-72 object-cover" loading="lazy" />
-            </a>
-        );
-    }
+    // El chat no trae medidas: reserva 4:3 y toma la proporción real al cargar.
     return (
-        <span className="inline-flex items-center gap-1.5 text-xs opacity-80">
-            <ImageIcon aria-hidden className="size-4" />
-            {foto.estado === "rechazado" ? "Foto no disponible" : "Foto subiendo…"}
-        </span>
+        <FotoMensaje
+            src={url}
+            estado={url ? "lista" : foto.estado === "rechazado" ? "rechazada" : "pendiente"}
+            etiqueta={`Ver foto de ${m.propio ? "tu mensaje" : m.autorNombre || "un compañero"}, ${horaMensaje(m)}`}
+            textoPendiente="Foto subiendo…"
+            textoRechazada="Foto no disponible"
+            alAbrir={() => abrir(m.id)}
+        />
     );
 }
 

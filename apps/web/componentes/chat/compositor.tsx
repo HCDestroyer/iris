@@ -150,7 +150,13 @@ export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, 
     }
 
     return (
-        <div className={cn("@container/compositor relative m-3 grid gap-2 rounded-xl border border-border bg-card p-2.5 focus-within:border-primary", className)} data-slot="compositor-chat">
+        <div
+            className={cn(
+                "@container/compositor relative m-3 grid gap-1.5 rounded-xl border border-border bg-card p-2 transition-[border-color,box-shadow] focus-within:border-primary focus-within:shadow-[0_0_0_1px_var(--hx-primary)] motion-reduce:transition-none",
+                className,
+            )}
+            data-slot="compositor-chat"
+        >
             {abierta ? (
                 <ListaSugerencias
                     id={idLista}
@@ -173,7 +179,7 @@ export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, 
             ) : null}
             <AreaTexto
                 ref={area}
-                rows={2}
+                rows={1}
                 value={texto}
                 maxLength={MAXIMO_TEXTO + 200}
                 placeholder={`Escribe en ${nombre}…`}
@@ -183,7 +189,9 @@ export function CompositorChat({ motor, conversacionId, tipo, nombre, miembros, 
                 aria-expanded={abierta}
                 aria-controls={abierta ? idLista : undefined}
                 aria-activedescendant={abierta ? idOpcion(idLista, activa) : undefined}
-                className="max-h-40 min-h-11 resize-none border-0 bg-transparent p-1 shadow-none focus-visible:ring-0"
+                // Crece de 1 a ~6 líneas (tope por alto de pantalla) y luego se desplaza por dentro; el foco
+                // se marca en la caja entera, no en el texto.
+                className="max-h-[min(8.5rem,24dvh)] min-h-10 resize-none border-0 bg-transparent px-1.5 py-2 leading-[1.4] [overflow-wrap:anywhere] shadow-none [field-sizing:content] focus-visible:ring-0 focus-visible:outline-none! sm:max-h-[min(11rem,30dvh)]"
                 onChange={(e) => {
                     setTexto(e.target.value);
                     leerConsulta(e.target.value, e.target.selectionStart);

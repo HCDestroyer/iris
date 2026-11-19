@@ -2,7 +2,7 @@
 
 import { avisar, Boton, cn, Esqueleto } from "@iris/ui";
 import { BookOpen, Check, ChevronDown, CircleAlert, CircleCheck, Eye, History, RefreshCw, Sparkles, Tag, ThumbsDown, ThumbsUp, WifiOff, X, type LucideIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { calificarSugerencia, descartarSugerencia, leerEstadoAsistente, leerSugerenciaActual, pedirSugerencia, usarSugerencia } from "@/lib/asistente/api";
@@ -21,6 +21,9 @@ import type { OyenteFeed } from "./bandeja";
  * él. El asistente nunca envía: «Usar» pasa el texto a la caja y la persona lo revisa y lo envía
  * (con `sugerenciaId`). Solo la ve quien tiene `conversaciones.sugerencias`.
  */
+
+/** Poco alto disponible (teléfono con el teclado abierto): la sugerencia empieza plegada. */
+const CONSULTA_BAJA = "(max-height: 650px)";
 
 export type Asistente = {
     /** Estado del asistente de la empresa; `null` sin permiso, leyendo o si no se pudo leer. */
@@ -176,7 +179,19 @@ type PropsTarjeta = {
 export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: PropsTarjeta) {
     const { puede } = useSesion();
     const { sugerencia: s, errorPedido, pidiendo } = asistente;
-    const [plegada, setPlegada] = useState(false);
+    // Con poco alto (el teclado del teléfono abierto) empieza plegada: una línea con el comienzo
+    // del texto, para que el hilo y la caja de texto sigan a la vista.
+    const baja = useSyncExternalStore(
+        (avisar) => {
+            const consulta = window.matchMedia(CONSULTA_BAJA);
+            consulta.addEventListener("change", avisar);
+            return () => consulta.removeEventListener("change", avisar);
+        },
+        () => window.matchMedia(CONSULTA_BAJA).matches,
+        () => false,
+    );
+    const [elegida, setPlegada] = useState<boolean | null>(null);
+    const plegada = elegida ?? baja;
     const [ocupado, setOcupado] = useState<"usar" | "etiquetar" | "calificar" | null>(null);
     const [errorAccion, setErrorAccion] = useState<string | null>(null);
     const claveAccion = useRef<string | null>(null);
@@ -262,11 +277,16 @@ export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: Pro
                     tamano="sm"
                     className="h-8 min-w-0 flex-1 justify-start gap-2 px-0 text-sm font-semibold text-primary hover:bg-transparent"
                     aria-expanded={!plegada}
-                    onClick={() => setPlegada((p) => !p)}
+                    onClick={() => setPlegada(!plegada)}
                     title={plegada ? "Mostrar la sugerencia" : "Plegar la sugerencia"}
                 >
                     <Sparkles aria-hidden className={cn("shrink-0", generando && "motion-safe:animate-pulse")} />
-                    <span className="truncate">{titulo}</span>
+                    <span className="shrink-0">{titulo}</span>
+                    {plegada && s?.estado === "lista" && s.texto ? (
+                        <span className="min-w-0 truncate font-normal text-muted-foreground" data-slot="resumen-sugerencia">
+                            · {s.texto}
+                        </span>
+                    ) : null}
                     <ChevronDown aria-hidden className={cn("shrink-0 transition-transform motion-reduce:transition-none", plegada && "-rotate-90")} />
                 </Boton>
                 {s?.estado === "lista" ? (
@@ -302,7 +322,8 @@ export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: Pro
                 </Boton>
             </div>
             {plegada ? null : (
-                <div className="grid max-h-[38dvh] min-w-0 gap-2.5 overflow-y-auto px-3 pb-3" data-desborde-permitido>
+                <>
+                <div className="grid max-h-[min(26dvh,14rem)] min-w-0 gap-2.5 overflow-y-auto px-3 pb-2 @min-[34rem]/conv:max-h-[min(34dvh,18rem)]" data-desborde-permitido data-slot="cuerpo-sugerencia">
                     {generando ? (
                         <div role="status" className="grid gap-1.5" aria-busy="true">
                             <span className="sr-only">Preparando sugerencia…</span>
@@ -321,28 +342,6 @@ export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: Pro
                                     ))}
                                 </ul>
                             ) : null}
-                            <div className="grid grid-cols-2 gap-2 @min-[30rem]/conv:flex @min-[30rem]/conv:flex-wrap">
-                                <Boton tamano="sm" onClick={() => void usar()} disabled={ocupado !== null} className="w-full min-w-0 @min-[30rem]/conv:w-auto">
-                                    <Check />
-                                    {ocupado === "usar" ? "Usando…" : "Usar"}
-                                </Boton>
-                                <Boton variante="secundario" tamano="sm" onClick={() => void asistente.pedir(true)} disabled={ocupado !== null || pidiendo} className="w-full min-w-0 @min-[30rem]/conv:w-auto">
-                                    <RefreshCw />
-                                    Otra
-                                </Boton>
-                                {accion && puede(["conversaciones.etiquetar"]) ? (
-                                    <Boton
-                                        variante="secundario"
-                                        tamano="sm"
-                                        onClick={() => void etiquetar()}
-                                        disabled={ocupado !== null || yaEtiquetada}
-                                        className="col-span-2 h-auto min-h-8 w-full min-w-0 py-1 whitespace-normal @min-[30rem]/conv:w-auto"
-                                    >
-                                        <Tag />
-                                        {yaEtiquetada ? `Ya tiene «${accion.etiqueta}»` : ocupado === "etiquetar" ? "Etiquetando…" : `Etiquetar «${accion.etiqueta}»`}
-                                    </Boton>
-                                ) : null}
-                            </div>
                             {errorAccion ? (
                                 <p role="alert" className="text-xs text-error">
                                     {errorAccion}
@@ -355,6 +354,34 @@ export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: Pro
                         </>
                     ) : null}
                 </div>
+                {/* «Usar» y «Otra» siempre a la vista, fuera de lo que se desplaza. */}
+                {!generando && !explicacion && s?.estado === "lista" && s.texto ? (
+                    <div className="border-t border-primary/15 px-3 pt-2 pb-2.5" data-slot="acciones-sugerencia">
+                            <div className="grid grid-cols-2 gap-2 @min-[30rem]/conv:flex @min-[30rem]/conv:flex-wrap">
+                            <Boton tamano="sm" onClick={() => void usar()} disabled={ocupado !== null} className="w-full min-w-0 @min-[30rem]/conv:w-auto">
+                                <Check />
+                                {ocupado === "usar" ? "Usando…" : "Usar"}
+                            </Boton>
+                            <Boton variante="secundario" tamano="sm" onClick={() => void asistente.pedir(true)} disabled={ocupado !== null || pidiendo} className="w-full min-w-0 @min-[30rem]/conv:w-auto">
+                                <RefreshCw />
+                                Otra
+                            </Boton>
+                            {accion && puede(["conversaciones.etiquetar"]) ? (
+                                <Boton
+                                    variante="secundario"
+                                    tamano="sm"
+                                    onClick={() => void etiquetar()}
+                                    disabled={ocupado !== null || yaEtiquetada}
+                                    className="col-span-2 h-auto min-h-8 w-full min-w-0 py-1 whitespace-normal @min-[30rem]/conv:w-auto"
+                                >
+                                    <Tag />
+                                    {yaEtiquetada ? `Ya tiene «${accion.etiqueta}»` : ocupado === "etiquetar" ? "Etiquetando…" : `Etiquetar «${accion.etiqueta}»`}
+                                </Boton>
+                            ) : null}
+                        </div>
+                    </div>
+                ) : null}
+                </>
             )}
         </section>
     );

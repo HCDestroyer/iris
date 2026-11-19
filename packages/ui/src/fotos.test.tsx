@@ -37,7 +37,8 @@ describe("FotoMensaje", () => {
     it("reserva la proporción antes de cargar: aspect-ratio y ancho acotado al 100 % de la burbuja", () => {
         const html = renderToStaticMarkup(<FotoMensaje src="/api/v1/adjuntos/x" ancho={900} alto={1600} estado="lista" etiqueta="Ver foto de Carlos, 06:49" superpuesto="06:49" />);
         expect(html).toContain('aria-label="Ver foto de Carlos, 06:49"');
-        expect(html).toContain("width:min(191px, 100%)");
+        expect(html).toContain("width:191px");
+        expect(html).toContain("max-w-full");
         expect(html).toContain("aspect-ratio:0.563");
         expect(html).toContain('data-estado-foto="cargando"');
         expect(html).toContain('width="900"');
