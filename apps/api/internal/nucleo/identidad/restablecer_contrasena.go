@@ -11,7 +11,7 @@ import (
 
 // EntradaRestablecerContrasena es la entrada de usuarios.restablecer_contrasena: un administrador
 // le pone a otra persona una contraseña temporal (la olvidó o hay que cortar un acceso), cierra
-// todas sus sesiones y se la entrega fuera de banda. No toca el MFA; los tokens, solo si se pide.
+// todas sus sesiones, borra sus vínculos de autologin y se la entrega fuera de banda. No toca el MFA; los tokens, solo si se pide.
 type EntradaRestablecerContrasena struct {
 	ID                 int64  `json:"-"`
 	Version            int32  `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
@@ -61,6 +61,10 @@ func nuevoRestablecerContrasena() *auditoria.Caso[EntradaRestablecerContrasena, 
 			}
 			cerradas, err := q.RevocarSesionesDeUsuario(ctx, in.ID)
 			if err != nil {
+				return ContrasenaRestablecida{}, err
+			}
+			// Quien tome la cuenta no hereda el autologin desde Argos (igual que editar y reiniciar MFA).
+			if err := borrarVinculosSSO(ctx, t, q, in.ID, "contrasena_reiniciada"); err != nil {
 				return ContrasenaRestablecida{}, err
 			}
 			revocados, conservados := []int64{}, int32(0)

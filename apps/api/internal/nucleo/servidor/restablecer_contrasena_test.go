@@ -120,6 +120,33 @@ func TestRestablecerContrasena(t *testing.T) {
 	}
 	bot.pedir(http.MethodGet, "/api/v1/yo", nil).problema(t, 401, "no_autenticado")
 
+	// Sus vínculos de autologin desde Argos se borran (quien tome la cuenta no los hereda).
+	var conector, vinculo int64
+	if err := pool.QueryRow(ctx, `INSERT INTO integracion.conectores (sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, estado)
+		VALUES ('argosisp', 'https://argos.prueba', 'enlace_remoto', '\x00', '\x00', 'apagado') RETURNING id`).Scan(&conector); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO nucleo.sso_vinculos (conector_id, usuario_externo, usuario_id) VALUES ($1, $2, $3) RETURNING id`,
+		conector, "ext-"+pruebas.Unico(), idU).Scan(&vinculo); err != nil {
+		t.Fatal(err)
+	}
+	if r := restablecer(admin, idU, version+2, "contrasenaTemporal", "tercera-temporal-larga-55"); r.status != 200 {
+		t.Fatalf("restablecer con vínculo: %d %s", r.status, r.crudo)
+	}
+	var vinculos, desvinculados int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM nucleo.sso_vinculos WHERE usuario_id = $1`, idU).Scan(&vinculos)
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM integracion.outbox WHERE evento = 'usuario.sso_desvinculado' AND payload->>'vinculo_id' = $1
+		AND payload->>'usuario_id' = $2 AND payload->>'motivo' = 'contrasena_reiniciada'`, fmt.Sprint(vinculo), fmt.Sprint(idU)).Scan(&desvinculados)
+	if vinculos != 0 || desvinculados != 1 {
+		t.Fatalf("vínculos SSO: quedan %d, eventos %d", vinculos, desvinculados)
+	}
+
+	// Sin superar al objetivo (sus permisos van más allá de los tuyos): 403.
+	_, correoAcotado := e.usuario(rolCon(t, "usuarios.restablecer_contrasena", "usuarios.ver"))
+	acotado := e.cliente()
+	acotado.entrar(correoAcotado)
+	restablecer(acotado, idAdmin, versionDe(t, idAdmin)).problema(t, 403, "prohibido")
+
 	// Un usuario de integración no tiene contraseña: 422.
 	var idBot int64
 	if err := pool.QueryRow(ctx, `INSERT INTO nucleo.usuarios (nombre, correo, tipo) VALUES ('Bot', $1, 'integracion') RETURNING id`, pruebas.Correo("bot")).Scan(&idBot); err != nil {
@@ -134,6 +161,7 @@ func TestRestablecerContrasenaRespetaEmpresas(t *testing.T) {
 	e := entornoEmpresas(t)
 	nuevo := empresasAB(t, e)
 	_, correoAdmin := nuevo("admin", 101)
+	idOtroAdmin, _ := nuevo("admin", 101) // con empresas.todas: solo lo administra un admin global
 	idA, _ := nuevo("lectura", 101)
 	idB, _ := nuevo("lectura", 102)
 	versionA, versionB := versionDe(t, idA), versionDe(t, idB)
@@ -146,6 +174,8 @@ func TestRestablecerContrasenaRespetaEmpresas(t *testing.T) {
 	for _, v := range []int{versionB, versionB + 7} {
 		restablecer(bot, idB, v).problema(t, 404, "no_encontrado")
 	}
+	// Acotado a una empresa contra un usuario con empresas.todas: 404, como si no existiera.
+	restablecer(bot, idOtroAdmin, versionDe(t, idOtroAdmin)).problema(t, 404, "no_encontrado")
 	restablecer(bot, idA, versionA+7).problema(t, 409, "conflicto_version")
 	if r := restablecer(bot, idA, versionA); r.status != 200 || r.cuerpo["cambioContrasenaRequerido"] != true {
 		t.Fatalf("restablecer en su empresa: %d %s", r.status, r.crudo)

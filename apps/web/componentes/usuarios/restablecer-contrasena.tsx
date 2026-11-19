@@ -148,6 +148,7 @@ function DialogoRestablecer({ usuario, alCambiar, alPerderAlcance, alCerrar }: {
                                             : "Se revocaron sus tokens de API."
                                         : "Su verificación en dos pasos y sus tokens de API siguen igual."}
                                 </li>
+                                <li>Se desvincularon sus accesos desde Argos; podrá volver a vincularlos.</li>
                                 <li>Al entrar con ella, Iris le pedirá elegir una contraseña nueva.</li>
                             </ul>
                         </div>
@@ -176,7 +177,7 @@ function DialogoRestablecer({ usuario, alCambiar, alPerderAlcance, alCerrar }: {
     return (
         <DialogoContenido
             titulo={`Restablecer contraseña de ${usuario.nombre}`}
-            descripcion="Reemplaza su contraseña por una temporal y cierra todas sus sesiones. Su verificación en dos pasos no cambia."
+            descripcion="Reemplaza su contraseña por una temporal y cierra todas sus sesiones; también se desvinculan sus accesos desde Argos. Su verificación en dos pasos no cambia."
         >
             <form noValidate onSubmit={formulario.handleSubmit(enviar)} className="grid gap-4" aria-label="Restablecer contraseña">
                 <AvisoError error={error} recargando={recargando} recargar={recargar} perderAlcance={alPerderAlcance} reintentar={formulario.handleSubmit(enviar)} />
