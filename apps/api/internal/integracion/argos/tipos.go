@@ -179,6 +179,46 @@ type ServicioArgos struct {
 	Referencia       string `json:"referencia"`
 	ContactoNombre   string `json:"contacto_nombre"`
 	ContactoTelefono string `json:"contacto_telefono"`
+	// Contrato 0.8.0 §2.4 (Argos ≥ 1.18.0). Precio y moneda los calcula Argos (con IVA); sin ellos
+	// (Argos anterior) quedan vacíos y Iris no muestra precio.
+	PrecioMensual     Decimal      `json:"precio_mensual"`
+	Moneda            string       `json:"moneda"`
+	PrefijoEnlaceV6   string       `json:"prefijo_enlace_v6"`
+	PrefijoDelegadoV6 string       `json:"prefijo_delegado_v6"`
+	Planta            *PlantaArgos `json:"planta"`
+	// LISTA BLANCA (§2.4): este struct es la lista. Lo que Argos mande de más (mac, ipv6_duid,
+	// ipv6_modo, local_address, servidor_pppoe_id, excepciones, costo_override,
+	// suspension_manual_motivo, externo…) no tiene campo: el decodificador lo descarta y nunca se
+	// guarda, registra ni sale por la API. Un campo nuevo de Argos se agrega aquí a propósito.
+}
+
+// PlantaArgos es la referencia de planta del servicio (A9, fuente OZmap): seis claves, todas texto
+// o null. Acepta también números por tolerancia (puerto 3 → "3").
+type PlantaArgos struct {
+	Caja        *TextoArgos `json:"caja"`
+	Puerto      *TextoArgos `json:"puerto"`
+	OLT         *TextoArgos `json:"olt"`
+	Slot        *TextoArgos `json:"slot"`
+	PON         *TextoArgos `json:"pon"`
+	PotenciaDBm *TextoArgos `json:"potencia_dbm"`
+}
+
+// TextoArgos acepta un texto o un número JSON y lo guarda como texto.
+type TextoArgos string
+
+// UnmarshalJSON acepta "3" o 3.
+func (t *TextoArgos) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*t = TextoArgos(s)
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(b, &n); err != nil {
+		return err
+	}
+	*t = TextoArgos(n.String())
+	return nil
 }
 
 // IPVigente: ipv4 (Argos 1.4.0) o ip.

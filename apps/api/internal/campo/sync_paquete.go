@@ -9,6 +9,8 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/formato"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -41,16 +43,21 @@ type ClienteCampo struct {
 	Telefonos []formato.Telefono `json:"telefonos" required:"false" doc:"Teléfono y móvil de Argos normalizados para mostrar (+502 5512 3344) y llamar (e164), con el original"`
 }
 
-// ServicioCampo es la instantánea del servicio de Argos (integracion.argos_servicios).
+// ServicioCampo es la instantánea del servicio de Argos (integracion.argos_servicios). Router e IP
+// solo con servicios.ver_red; dirección y coordenadas solo con servicios.ver_ubicacion (el técnico:
+// en los servicios de sus órdenes; contrato argosisp.md 0.8.0 §2.4). Sin el permiso no vienen.
 type ServicioCampo struct {
 	ID             int64     `json:"id"`
 	Codigo         string    `json:"codigo"`
 	Plan           string    `json:"plan"`
-	Router         string    `json:"router"`
-	IP             string    `json:"ip"`
-	Direccion      string    `json:"direccion"`
-	Lat            *float64  `json:"lat" nullable:"true"`
-	Lon            *float64  `json:"lon" nullable:"true"`
+	Zona           string    `json:"zona" required:"false" doc:"Nombre de la zona del servicio"`
+	PrecioMensual  *string   `json:"precioMensual,omitempty" doc:"Precio mensual del plan con IVA (Argos ≥ 1.18.0); ausente si Argos no lo informa"`
+	Moneda         *string   `json:"moneda,omitempty"`
+	Router         string    `json:"router,omitempty" doc:"Solo con servicios.ver_red"`
+	IP             string    `json:"ip,omitempty" doc:"Solo con servicios.ver_red"`
+	Direccion      string    `json:"direccion,omitempty" doc:"Solo con servicios.ver_ubicacion"`
+	Lat            *float64  `json:"lat,omitempty" doc:"Solo con servicios.ver_ubicacion"`
+	Lon            *float64  `json:"lon,omitempty"`
 	Estado         string    `json:"estado"`
 	SincronizadoEn time.Time `json:"sincronizadoEn"`
 }
@@ -454,7 +461,11 @@ func ordenesCampo(ctx context.Context, q *campobd.Queries, filas []campobd.Campo
 	if err != nil {
 		return nil, err
 	}
-	ss, err := q.ServiciosArgos(ctx, servicios)
+	filasSS, err := q.ServiciosArgos(ctx, servicios)
+	if err != nil {
+		return nil, err
+	}
+	ss, err := argos.ServiciosVisibles(ctx, nil, aFilasArgos(filasSS), 0)
 	if err != nil {
 		return nil, err
 	}
@@ -471,8 +482,9 @@ func ordenesCampo(ctx context.Context, q *campobd.Queries, filas []campobd.Campo
 		}
 		for _, s := range ss {
 			if d.ServicioID != nil && s.ID == *d.ServicioID && (d.EmpresaID == nil || *d.EmpresaID == s.EmpresaID) {
-				o.Servicio = &ServicioCampo{ID: s.ID, Codigo: s.Codigo, Plan: s.PlanNombre, Router: s.RouterNombre, IP: s.Ip,
-					Direccion: s.Direccion, Lat: s.Lat, Lon: s.Lon, Estado: s.Estado, SincronizadoEn: s.SincronizadoEn}
+				o.Servicio = &ServicioCampo{ID: s.ID, Codigo: s.Codigo, Plan: s.PlanNombre, Zona: s.ZonaNombre, PrecioMensual: s.PrecioMensual,
+					Moneda: s.Moneda, Router: s.RouterNombre, IP: s.IP, Direccion: s.Direccion, Lat: s.Lat, Lon: s.Lon,
+					Estado: s.Estado, SincronizadoEn: s.SincronizadoEn}
 			}
 		}
 		salida = append(salida, o)
@@ -580,4 +592,14 @@ func motivoInventario(err error) *string {
 		return ptr(MotivoSinConector)
 	}
 	return ptr(MotivoArgosNoDisponible)
+}
+
+// aFilasArgos convierte filas de la instantánea leídas con las consultas de campo (mismo esquema)
+// al tipo de argos, para su convertidor y su recorte por permisos (§2.4).
+func aFilasArgos(filas []campobd.IntegracionArgosServicio) []argosbd.IntegracionArgosServicio {
+	salida := make([]argosbd.IntegracionArgosServicio, len(filas))
+	for i, f := range filas {
+		salida[i] = argosbd.IntegracionArgosServicio(f)
+	}
+	return salida
 }

@@ -13,6 +13,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
@@ -221,13 +223,14 @@ type ParticipanteConversacion struct {
 	Origen string `json:"origen" enum:"mencion,guardia"`
 }
 
-// ServicioResumenConversacion es un servicio de la instantánea de Argos.
+// ServicioResumenConversacion es un servicio de la instantánea de Argos con lo que lo identifica
+// (contrato argosisp.md 0.8.0 §2.4): plan, precio, zona, estado y, según los permisos
+// servicios.ver_red y servicios.ver_ubicacion, router, IP y dirección (el servidor omite lo que el
+// actor no puede ver). plan y zona se conservan por compatibilidad (= planNombre, zonaNombre).
 type ServicioResumenConversacion struct {
-	ID     int64  `json:"id"`
-	Codigo string `json:"codigo"`
-	Plan   string `json:"plan"`
-	Estado string `json:"estado"`
-	Zona   string `json:"zona"`
+	argos.Servicio
+	Plan string `json:"plan" doc:"= planNombre (compatibilidad)"`
+	Zona string `json:"zona" doc:"= zonaNombre (compatibilidad)"`
 }
 
 // ClienteResumenConversacion sale de la instantánea de lectura de Argos (nunca se edita en Iris).
@@ -893,15 +896,20 @@ func (m *Modulo) detalleConv(ctx context.Context, q *mensajeriabd.Queries, usuar
 			return d, err
 		default:
 			res := &ClienteResumenConversacion{ID: cl.ID, Nombre: cl.Nombre, Codigo: cl.Codigo, Servicios: []ServicioResumenConversacion{}, SincronizadoEn: cl.SincronizadoEn}
-			ss, err := q.ServiciosInstantanea(ctx, cl.ID)
+			empresa := int64(0)
+			if c.EmpresaID != nil {
+				empresa = *c.EmpresaID
+			}
+			filas, err := q.ServiciosInstantanea(ctx, cl.ID)
+			if err != nil {
+				return d, err
+			}
+			ss, err := argos.ServiciosVisibles(ctx, nil, aFilasArgos(filas), empresa)
 			if err != nil {
 				return d, err
 			}
 			for _, s := range ss {
-				if c.EmpresaID != nil && s.EmpresaID != *c.EmpresaID {
-					continue
-				}
-				res.Servicios = append(res.Servicios, ServicioResumenConversacion{ID: s.ID, Codigo: s.Codigo, Plan: s.PlanNombre, Estado: s.Estado, Zona: s.ZonaNombre})
+				res.Servicios = append(res.Servicios, ServicioResumenConversacion{Servicio: s, Plan: s.PlanNombre, Zona: s.ZonaNombre})
 			}
 			d.ClienteResumen = res
 		}
@@ -1138,3 +1146,13 @@ func reglaConv(codigo, detalle string) *nucleo.Problema {
 }
 
 func nombrePtr(s string) *string { return &s }
+
+// aFilasArgos convierte filas de la instantánea leídas con las consultas de mensajería (mismo
+// esquema) al tipo de argos, para usar su convertidor y su recorte por permisos (§2.4).
+func aFilasArgos(filas []mensajeriabd.IntegracionArgosServicio) []argosbd.IntegracionArgosServicio {
+	salida := make([]argosbd.IntegracionArgosServicio, len(filas))
+	for i, f := range filas {
+		salida[i] = argosbd.IntegracionArgosServicio(f)
+	}
+	return salida
+}

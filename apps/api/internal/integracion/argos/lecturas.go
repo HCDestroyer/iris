@@ -194,6 +194,18 @@ func nuevoBuscarClientes(m *Modulo) *BuscarClientes {
 				return r, Problema(in.errArgos)
 			}
 			ids := make([]int64, 0, len(r.Data))
+			var todos []Servicio
+			if in.Servicios {
+				vis, err := LeerVisibilidad(ctx, t)
+				if err != nil {
+					return r, err
+				}
+				for i := range r.Data {
+					vis.RecortarTodos(r.Data[i].Servicios)
+					todos = append(todos, r.Data[i].Servicios...)
+				}
+				t.Anotar(vis.Anotacion(todos))
+			}
 			for _, c := range r.Data {
 				ids = append(ids, c.ID)
 			}
@@ -273,6 +285,7 @@ func serviciosDeEmpresa(c ClienteArgos, leidos []ServicioArgos, leidoEn time.Tim
 		srv.SincronizadoEn = leidoEn
 		salida = append(salida, srv)
 	}
+	Numerar(salida)
 	return salida
 }
 
@@ -485,8 +498,15 @@ func nuevoObtenerFicha(m *Modulo) *ObtenerFicha {
 				}
 				resumen.Estado = ResumenEstado(estados)
 			}
+			vistos := aServicios(servicios)
+			vis, err := LeerVisibilidad(ctx, t)
+			if err != nil {
+				return Ficha{}, err
+			}
+			vis.RecortarTodos(vistos)
+			t.Anotar(vis.Anotacion(vistos))
 			return Ficha{
-				Cliente: resumen, Servicios: aServicios(servicios), ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
+				Cliente: resumen, Servicios: vistos, ServiciosEliminados: aEliminados(eliminados), EstadoCuenta: in.estado,
 				EstadoCuentaError: in.errEstado, Stale: stale, SincronizadoEn: cliente.SincronizadoEn, RefrescoOmitido: in.omitido,
 			}, nil
 		},

@@ -2,12 +2,15 @@ package argos
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
@@ -143,6 +146,8 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 			ZonaID: v.ZonaID, ZonaNombre: v.ZonaNombre, Ip: v.IP, Direccion: v.Direccion, Lat: v.Lat, Lon: v.Lon,
 			Estado: v.Estado, SincronizadoEn: f.leidoEn, UserPpp: v.UserPPP, TipoConexion: v.TipoConexion,
 			Referencia: v.Referencia, ContactoNombre: v.ContactoNombre, ContactoTelefono: v.ContactoTelefono,
+			PrecioMensual: v.PrecioMensual, Moneda: v.Moneda, PrefijoEnlaceV6: v.PrefijoEnlaceV6,
+			PrefijoDelegadoV6: v.PrefijoDelegadoV6, Planta: plantaJSON(v.Planta),
 		}, vivoEn(f.vivos, s.ID)); err != nil {
 			return err
 		}
@@ -248,7 +253,7 @@ func AServicio(s ServicioArgos, zonaCliente *int64) Servicio {
 	if zona == nil {
 		zona = zonaCliente
 	}
-	return Servicio{
+	v := Servicio{
 		ID: s.ID, EmpresaID: s.EmpresaID, ClienteID: s.ClienteID, Codigo: s.Codigo,
 		PlanID: idDe(s.PlanID, s.Plan), PlanNombre: nombreDe(s.PlanNombre, s.Plan),
 		RouterID: idDe(s.RouterID, s.Router), RouterNombre: nombreDe(s.RouterNombre, s.Router),
@@ -256,7 +261,16 @@ func AServicio(s ServicioArgos, zonaCliente *int64) Servicio {
 		Lat: lat, Lon: lon, Estado: s.Estado, UserPPP: s.UserPPP, TipoConexion: s.TipoConexion,
 		Referencia: strings.TrimSpace(s.Referencia), ContactoNombre: strings.TrimSpace(s.ContactoNombre),
 		ContactoTelefono: strings.TrimSpace(s.ContactoTelefono), ContactoTelefonos: telefonosDe(s.ContactoTelefono, ""),
+		PrefijoEnlaceV6: strings.TrimSpace(s.PrefijoEnlaceV6), PrefijoDelegadoV6: strings.TrimSpace(s.PrefijoDelegadoV6),
+		Planta: aPlanta(s.Planta),
 	}
+	// Precio y moneda van juntos o no van (§4.1: con un Argos anterior a 1.18.0 no vienen).
+	if p := s.PrecioMensual.Texto(); p != nil && strings.TrimSpace(s.Moneda) != "" {
+		normal := normalizarPrecio(*p)
+		moneda := strings.TrimSpace(s.Moneda)
+		v.PrecioMensual, v.Moneda = &normal, &moneda
+	}
+	return v
 }
 
 func aServicio(f argosbd.IntegracionArgosServicio) Servicio {
@@ -267,6 +281,8 @@ func aServicio(f argosbd.IntegracionArgosServicio) Servicio {
 		UserPPP: f.UserPpp, TipoConexion: f.TipoConexion, SincronizadoEn: f.SincronizadoEn,
 		Referencia: f.Referencia, ContactoNombre: f.ContactoNombre, ContactoTelefono: f.ContactoTelefono,
 		ContactoTelefonos: telefonosDe(f.ContactoTelefono, ""),
+		PrefijoEnlaceV6:   f.PrefijoEnlaceV6, PrefijoDelegadoV6: f.PrefijoDelegadoV6,
+		PrecioMensual: precioDe(f.PrecioMensual), Moneda: f.Moneda, Planta: plantaDe(f.Planta),
 	}
 }
 
@@ -275,5 +291,78 @@ func aServicios(filas []argosbd.IntegracionArgosServicio) []Servicio {
 	for _, f := range filas {
 		salida = append(salida, aServicio(f))
 	}
+	Numerar(salida)
 	return salida
+}
+
+// normalizarPrecio deja el precio con dos decimales («250» → «250.00»); si no es un número, tal cual.
+func normalizarPrecio(p string) string {
+	f, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+	if err != nil {
+		return strings.TrimSpace(p)
+	}
+	return strconv.FormatFloat(f, 'f', 2, 64)
+}
+
+// precioDe lee el numeric(12,2) de la instantánea como texto («250.00»); nil sin precio.
+func precioDe(n pgtype.Numeric) *string {
+	if !n.Valid {
+		return nil
+	}
+	v, err := n.Value()
+	if err != nil {
+		return nil
+	}
+	t, ok := v.(string)
+	if !ok {
+		return nil
+	}
+	t = normalizarPrecio(t)
+	return &t
+}
+
+func textoPlanta(t *TextoArgos) *string {
+	if t == nil {
+		return nil
+	}
+	s := strings.TrimSpace(string(*t))
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// aPlanta: la planta de Argos con sus seis claves; nil si no viene o todas son null.
+func aPlanta(p *PlantaArgos) *Planta {
+	if p == nil {
+		return nil
+	}
+	v := Planta{Caja: textoPlanta(p.Caja), Puerto: textoPlanta(p.Puerto), OLT: textoPlanta(p.OLT),
+		Slot: textoPlanta(p.Slot), PON: textoPlanta(p.PON), PotenciaDBm: textoPlanta(p.PotenciaDBm)}
+	if v == (Planta{}) {
+		return nil
+	}
+	return &v
+}
+
+func plantaJSON(p *Planta) []byte {
+	if p == nil {
+		return nil
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+func plantaDe(b []byte) *Planta {
+	if len(b) == 0 {
+		return nil
+	}
+	var p Planta
+	if err := json.Unmarshal(b, &p); err != nil || p == (Planta{}) {
+		return nil
+	}
+	return &p
 }

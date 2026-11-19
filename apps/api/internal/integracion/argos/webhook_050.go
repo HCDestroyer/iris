@@ -97,6 +97,15 @@ type cambioCatalogo struct {
 	Lat      *float64 `json:"lat,omitempty"`
 	Lon      *float64 `json:"lon,omitempty"`
 	conCoord bool
+	// precios: con `precio` en campos[] de un plan (0.8.0), el precio_mensual releído de cada servicio
+	// del plan que Iris tiene en su instantánea (nil = sin aviso de precio).
+	precios []precioServicio
+}
+
+// precioServicio es el precio releído de un servicio (lista blanca: solo precio y moneda).
+type precioServicio struct {
+	id             int64
+	precio, moneda *string
 }
 
 // leerCatalogo relee de Argos el elemento del catálogo (fuera de transacción): zona en GET /zonas,
@@ -153,13 +162,23 @@ func (p *ProcesarEntrante) leerCatalogo(ctx context.Context, q conector.DBTX, e 
 		if err != nil {
 			return nil, "", err
 		}
+		encontrado := false
 		for _, pl := range planes {
 			if pl.ID == c.ID {
 				c.Nombre = textoNoVacio(pl.Nombre)
-				return c, "", nil
+				encontrado = true
 			}
 		}
-		return nil, "catalogo_no_encontrado", nil
+		if slices.Contains(d.Campos, "precio") {
+			if c.precios, err = p.preciosDePlan(ctx, q, cli, c.ID); err != nil {
+				return nil, "", err
+			}
+			return c, "", nil
+		}
+		if !encontrado {
+			return nil, "catalogo_no_encontrado", nil
+		}
+		return c, "", nil
 	}
 	return nil, "catalogo_desconocido", nil
 }
@@ -218,6 +237,16 @@ func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c
 			if n, err = q.CambiarPlanArgos(ctx, argosbd.CambiarPlanArgosParams{Nombre: *c.Nombre, ID: &c.ID}); err != nil {
 				return err
 			}
+		}
+		for _, pr := range c.precios {
+			m, err := q.CambiarPrecioServicio(ctx, argosbd.CambiarPrecioServicioParams{ID: pr.id, PlanID: c.ID, PrecioMensual: pr.precio, Moneda: pr.moneda})
+			if err != nil {
+				return err
+			}
+			n += m
+		}
+		if c.precios != nil {
+			t.Anotar(map[string]any{"precios": len(c.precios)})
 		}
 	}
 	t.Anotar(map[string]any{"catalogo": c.Catalogo, "catalogo_id": c.ID, "filas": n})
@@ -457,4 +486,33 @@ func cambiarZonaAgenda(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries,
 	t.FijarEmpresa(empresa)
 	defer t.FijarEmpresa(0)
 	return t.Emitir("zona.actualizada", map[string]any{"zona_id": despues.ID, "campos": campos, "activa": despues.Activa})
+}
+
+// preciosDePlan relee en Argos los servicios del plan (GET /servicios?plan_id=, paginado) y deja
+// solo el precio de los que Iris tiene en su instantánea (no crea instantáneas nuevas).
+func (p *ProcesarEntrante) preciosDePlan(ctx context.Context, q conector.DBTX, cli *Cliente, planID int64) ([]precioServicio, error) {
+	locales, err := argosbd.New(q).ServiciosDePlan(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	salida := []precioServicio{}
+	if len(locales) == 0 {
+		return salida, nil
+	}
+	conocidos := make(map[int64]bool, len(locales))
+	for _, l := range locales {
+		conocidos[l.ID] = true
+	}
+	leidos, err := cli.ServiciosDePlan(ctx, planID)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range leidos {
+		if !conocidos[s.ID] {
+			continue
+		}
+		v := AServicio(s, nil)
+		salida = append(salida, precioServicio{id: s.ID, precio: v.PrecioMensual, moneda: v.Moneda})
+	}
+	return salida, nil
 }

@@ -195,7 +195,7 @@ func TestWebhooks050(t *testing.T) {
 	e := nuevoEntorno(t)
 	e.argos.con(func() { e.argos.version = "1.6.0" })
 	_, id, secreto := e.conectado()
-	lectura := e.usuario("lectura")
+	lectura := e.usuario("soporte") // soporte ve red y ubicación (§2.4)
 	e.sembrarCliente(81, "Gabriela")
 	if f := lectura.pedir(http.MethodGet, "/api/v1/clientes/81", nil); f.status != 200 {
 		t.Fatalf("ficha: %s", f.crudo)

@@ -641,7 +641,7 @@ func secretoDelCanje(canje map[string]any) string {
 func TestBuscarClientesConServicios(t *testing.T) {
 	e := nuevoEntorno(t)
 	_, _, _ = e.conectado()
-	lectura := e.usuario("lectura")
+	lectura := e.usuario("soporte") // soporte ve red y ubicación (§2.4)
 	e.sembrarCliente(51, "Marta Ruiz")
 	e.argos.con(func() {
 		e.argos.servicios[51] = append(e.argos.servicios[51],

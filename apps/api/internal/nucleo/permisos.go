@@ -198,14 +198,14 @@ const (
 
 // Conector Argos (lectura) e integraciones.
 const (
-	PermClientesEstadoCuenta    Permiso = "clientes.estado_cuenta"
-	PermClientesVer             Permiso = "clientes.ver"
+	PermClientesEstadoCuenta Permiso = "clientes.estado_cuenta"
+	PermClientesVer          Permiso = "clientes.ver"
 	// Datos sensibles del servicio de Argos (contrato argosisp.md 0.8.0 §2.4, decidido por el PM en
 	// §10.2 puntos 4 y 5). Sin ellos la API de Iris OMITE los campos: el filtro es del servidor.
 	// servicios.ver_red: IP, prefijos IPv6, user_ppp, tipo de conexión, router y planta.
 	PermServiciosVerRed Permiso = "servicios.ver_red"
 	// servicios.ver_ubicacion: dirección, referencia, coordenadas y contacto en sitio del servicio.
-	PermServiciosVerUbicacion Permiso = "servicios.ver_ubicacion"
+	PermServiciosVerUbicacion   Permiso = "servicios.ver_ubicacion"
 	PermIntegracionesActivar    Permiso = "integraciones.activar"
 	PermIntegracionesConectar   Permiso = "integraciones.conectar"
 	PermIntegracionesDesactivar Permiso = "integraciones.desactivar"

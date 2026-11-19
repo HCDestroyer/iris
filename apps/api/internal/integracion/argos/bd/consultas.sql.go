@@ -192,6 +192,35 @@ func (q *Queries) CambiarPlanArgos(ctx context.Context, arg CambiarPlanArgosPara
 	return result.RowsAffected(), nil
 }
 
+const cambiarPrecioServicio = `-- name: CambiarPrecioServicio :execrows
+UPDATE integracion.argos_servicios
+SET precio_mensual = CAST($1::text AS numeric), moneda = $2::text, updated_at = now()
+WHERE id = $3 AND plan_id = $4::bigint
+    AND (precio_mensual IS DISTINCT FROM CAST($1::text AS numeric) OR moneda IS DISTINCT FROM $2::text)
+`
+
+type CambiarPrecioServicioParams struct {
+	PrecioMensual *string
+	Moneda        *string
+	ID            int64
+	PlanID        int64
+}
+
+// Precio releído de Argos por catalogo.cambiado de un plan (§2.4). Solo si el servicio sigue en ese
+// plan; null/null = Argos ya no lo informa.
+func (q *Queries) CambiarPrecioServicio(ctx context.Context, arg CambiarPrecioServicioParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cambiarPrecioServicio,
+		arg.PrecioMensual,
+		arg.Moneda,
+		arg.ID,
+		arg.PlanID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const cambiarRouterArgos = `-- name: CambiarRouterArgos :execrows
 UPDATE integracion.argos_routers SET nombre = coalesce($1::text, nombre), activo = coalesce($2::boolean, activo),
     lat = CASE WHEN $3::boolean THEN $4::double precision ELSE lat END,
@@ -646,10 +675,12 @@ func (q *Queries) GuardarRouter(ctx context.Context, arg GuardarRouterParams) er
 const guardarServicio = `-- name: GuardarServicio :exec
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
-    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono
+    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono,
+    precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta
 )
 SELECT $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21
+    $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+    CAST($22::text AS numeric), $23::text, $24, $25, $26::jsonb
 WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = $1)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
@@ -658,32 +689,39 @@ ON CONFLICT (id) DO UPDATE SET
     ip = excluded.ip, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     estado = excluded.estado, sincronizado_en = excluded.sincronizado_en, user_ppp = excluded.user_ppp,
     tipo_conexion = excluded.tipo_conexion, referencia = excluded.referencia, contacto_nombre = excluded.contacto_nombre,
-    contacto_telefono = excluded.contacto_telefono, updated_at = now()
+    contacto_telefono = excluded.contacto_telefono, precio_mensual = excluded.precio_mensual, moneda = excluded.moneda,
+    prefijo_enlace_v6 = excluded.prefijo_enlace_v6, prefijo_delegado_v6 = excluded.prefijo_delegado_v6,
+    planta = excluded.planta, updated_at = now()
 WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en
 `
 
 type GuardarServicioParams struct {
-	ID               int64
-	EmpresaID        int64
-	ClienteID        int64
-	Codigo           string
-	PlanID           *int64
-	PlanNombre       string
-	RouterID         *int64
-	RouterNombre     string
-	ZonaID           *int64
-	ZonaNombre       string
-	Ip               string
-	Direccion        string
-	Lat              *float64
-	Lon              *float64
-	Estado           string
-	SincronizadoEn   time.Time
-	UserPpp          string
-	TipoConexion     string
-	Referencia       string
-	ContactoNombre   string
-	ContactoTelefono string
+	ID                int64
+	EmpresaID         int64
+	ClienteID         int64
+	Codigo            string
+	PlanID            *int64
+	PlanNombre        string
+	RouterID          *int64
+	RouterNombre      string
+	ZonaID            *int64
+	ZonaNombre        string
+	Ip                string
+	Direccion         string
+	Lat               *float64
+	Lon               *float64
+	Estado            string
+	SincronizadoEn    time.Time
+	UserPpp           string
+	TipoConexion      string
+	Referencia        string
+	ContactoNombre    string
+	ContactoTelefono  string
+	PrecioMensual     *string
+	Moneda            *string
+	PrefijoEnlaceV6   string
+	PrefijoDelegadoV6 string
+	Planta            []byte
 }
 
 // Un servicio con lápida no se guarda desde una lista: solo un GET por id con 200 lo resucita
@@ -711,6 +749,11 @@ func (q *Queries) GuardarServicio(ctx context.Context, arg GuardarServicioParams
 		arg.Referencia,
 		arg.ContactoNombre,
 		arg.ContactoTelefono,
+		arg.PrecioMensual,
+		arg.Moneda,
+		arg.PrefijoEnlaceV6,
+		arg.PrefijoDelegadoV6,
+		arg.Planta,
 	)
 	return err
 }
@@ -1160,6 +1203,63 @@ func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]In
 			&i.PrefijoDelegadoV6,
 			&i.Planta,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const serviciosDeOrdenesAsignadas = `-- name: ServiciosDeOrdenesAsignadas :many
+SELECT DISTINCT servicio_id::bigint AS servicio_id FROM campo.ordenes
+WHERE tecnico_id = $1::bigint AND servicio_id IS NOT NULL
+`
+
+// Los servicios de las órdenes asignadas al técnico (servicios.ver_red / ver_ubicacion de quien
+// solo ve sus órdenes, contrato 0.8.0 §2.4).
+func (q *Queries) ServiciosDeOrdenesAsignadas(ctx context.Context, tecnicoID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, serviciosDeOrdenesAsignadas, tecnicoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var servicio_id int64
+		if err := rows.Scan(&servicio_id); err != nil {
+			return nil, err
+		}
+		items = append(items, servicio_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const serviciosDePlan = `-- name: ServiciosDePlan :many
+SELECT id, cliente_id FROM integracion.argos_servicios WHERE plan_id = $1::bigint ORDER BY id
+`
+
+type ServiciosDePlanRow struct {
+	ID        int64
+	ClienteID int64
+}
+
+// catalogo.cambiado de un plan con precio (§2.4): los servicios de la instantánea con ese plan.
+func (q *Queries) ServiciosDePlan(ctx context.Context, planID int64) ([]ServiciosDePlanRow, error) {
+	rows, err := q.db.Query(ctx, serviciosDePlan, planID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ServiciosDePlanRow
+	for rows.Next() {
+		var i ServiciosDePlanRow
+		if err := rows.Scan(&i.ID, &i.ClienteID); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
