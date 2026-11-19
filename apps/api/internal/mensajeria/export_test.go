@@ -294,7 +294,7 @@ func DecidirCuenta(empresa int64, k argos.CuentaBancariaArgos, err error, cuenta
 	return decidirCuenta(empresa, cuentaLeida{cuenta: k, err: err}, cuenta)
 }
 
-// MotivoNumeroCuentaPrueba y TextoCuentasPrueba exponen la revisión de textos y el texto fijo.
+// TaparTextoCuentas: el historial del modelo sin el texto de las cuentas (§7.8).
 var TaparTextoCuentas = taparTextoCuentas
 
 // EnviarBoleta: el despacho de una boleta (lo que hace cada corrida con cada id vencido).

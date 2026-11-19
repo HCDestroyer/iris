@@ -7,6 +7,7 @@ import { apiFase3 } from "./api-asistente3";
 import { recortarServicio } from "./recorte-servicio";
 import { PERMISO_CATEGORIZAR } from "../lib/asistente/permisos";
 import type { Contadores, Conversacion, Mensaje } from "../lib/conversaciones/tipos";
+import type { CuentaBancaria } from "../lib/conversaciones/cuentas";
 import { ANDREA, CANAL_AVISOS, CANAL_COBROS, CANAL_SOPORTE, CANAL_VENTAS, CONVERSACIONES, detalle, mensajesDe } from "./datos-conversaciones";
 
 /*
@@ -23,6 +24,25 @@ type Evento = Schema<"EventoConversacion">;
 const json = (route: Route, cuerpo: unknown, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(cuerpo) });
 const problema = (route: Route, p: Problema) => route.fulfill({ status: p.status, contentType: "application/problem+json", body: JSON.stringify(p) });
 const P = (codigo: string, status: number, title: string, extra: Partial<Problema> = {}): Problema => ({ type: `urn:iris:problema:${codigo}`, title, status, ...extra });
+
+/*
+ * Cuentas bancarias de Argos (contrato 0.8.0 §7.8) como las devuelve el servidor de Iris: ya
+ * filtradas (activas, de la empresa de la conversación y en quetzales). La de BAM no tiene titular:
+ * sirve para registrar una boleta, pero no va en «Enviar cuentas».
+ */
+export const CUENTAS_BANCARIAS: CuentaBancaria[] = [
+    { id: 1, nombre: "Principal", banco: "Banco Industrial", alias: "Principal", numero: "000-123456-7", moneda: "GTQ", titular: "Internet del Norte, S.A.", tipo: "monetaria", seOfrece: true },
+    { id: 2, nombre: "Cobros", banco: "Banrural", alias: "Cobros", numero: "3-445-00987-6", moneda: "GTQ", titular: "Internet del Norte, S.A.", tipo: "ahorro", seOfrece: true },
+    { id: 3, nombre: "BAM …5678", banco: "BAM", alias: "", numero: "90-1234567-8", moneda: "GTQ", titular: null, tipo: null, seOfrece: false },
+];
+
+/** El texto fijo de «Enviar cuentas», como lo arma el servidor (conv_enviar_cuentas.go). */
+export function textoCuentasFalso(cuentas: readonly CuentaBancaria[]): string | null {
+    const van = cuentas.filter((c) => c.seOfrece);
+    if (van.length === 0) return null;
+    const partes = van.map((c) => `\n• ${c.banco}${c.tipo ? ` · cuenta ${c.tipo}` : ""}\n  No. ${c.numero}\n  A nombre de: ${c.titular ?? ""}\n  Moneda: quetzales (GTQ)\n`);
+    return `Cuentas para depositar o transferir:\n${partes.join("")}\nDespués de pagar, envíenos por aquí la foto de la boleta. Deposite solo a estas cuentas.`;
+}
 
 export const PERMISOS_CONVERSACIONES: Permiso[] = [
     "conversaciones.ver",
@@ -57,12 +77,17 @@ export type OpcionesConversaciones = OpcionesBandeja11 & {
     flujoLargo?: boolean;
     /** Asistente de IA (§16, e2e/api-asistente.ts). */
     asistente?: OpcionesAsistente;
+    /** Las cuentas bancarias de Argos de la empresa (por defecto CUENTAS_BANCARIAS). */
+    cuentasBancarias?: CuentaBancaria[];
 };
 
 const BASE = "/api/v1/mensajeria";
 
 export function apiConversaciones(actorId: () => number, opciones: OpcionesConversaciones = {}) {
     const conversaciones: Conversacion[] = CONVERSACIONES.map((c) => structuredClone(c));
+    const cuentasBancarias = opciones.cuentasBancarias ?? CUENTAS_BANCARIAS;
+    /** Ids de los mensajes mandados con «Enviar cuentas». */
+    const enviadosCuentas: string[] = [];
     const mensajes = new Map<number, Mensaje[]>(conversaciones.map((c) => [c.id, mensajesDe(c.id)]));
     const eventos: Evento[] = [];
     let cursor = 100;
@@ -298,7 +323,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             if (ruta === `${BASE}/colas`) return (await json(route, { data: colas, nextCursor: null }), true);
             if (ruta === `${BASE}/etiquetas`) return (await json(route, { data: etiquetas, nextCursor: null }), true);
             if (ruta === `${BASE}/respuestas-rapidas`) return (await json(route, { data: query.get("incluirInactivas") ? respuestas : respuestas.filter((r) => r.activa), nextCursor: null }), true);
-            if (ruta === `${BASE}/conversaciones/cuentas-bancarias`) return (await json(route, { data: [{ id: 1, nombre: "Monetaria", banco: "Banco Industrial", numero: "000-123456-7", moneda: "GTQ" }], nextCursor: null }), true);
+            if (ruta === `${BASE}/conversaciones/cuentas-bancarias`) return (await json(route, { data: cuentasBancarias, nextCursor: null, sincronizadoEn: new Date().toISOString() }), true);
             if (ruta === `${BASE}/conversaciones/bancos`) return (await json(route, { data: [{ id: 1, nombre: "Banrural" }], nextCursor: null }), true);
             if (ruta === `${BASE}/conversaciones`) return (await json(route, { data: filtrar(query), nextCursor: null }), true);
             if (ruta === `${BASE}/conversaciones/contadores`) return (await json(route, contadores()), true);
@@ -357,6 +382,16 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                 return (await json(route, r ? { ...d, clienteResumen: { ...r, servicios: r.servicios.map((s) => recortarServicio(s, puede)) } } : d), true);
             }
             if (accion === "mensajes") return (await json(route, { data: mensajes.get(c.id) ?? [], nextCursor: null }), true);
+            if (accion === "texto-cuentas") {
+                if (!puede("conversaciones.responder")) return (await prohibido(), true);
+                const t: Schema<"TextoCuentasConv"> = {
+                    texto: textoCuentasFalso(cuentasBancarias),
+                    cuentas: cuentasBancarias.filter((k) => k.seOfrece).length,
+                    sinTitular: cuentasBancarias.filter((k) => !k.seOfrece).length,
+                    sincronizadoEn: new Date().toISOString(),
+                };
+                return (await json(route, t), true);
+            }
             if (accion === "plantillas") {
                 return (
                     await json(route, {
@@ -517,6 +552,14 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     const p = asistente.alResponder(c.id, cuerpo.sugerenciaId);
                     if (p) return (await problema(route, p), true);
                 }
+                // «Enviar cuentas» (§7.8): el texto lo arma el servidor; va solo.
+                if (accion === "mensajes" && cuerpo.cuentas === true) {
+                    if (cuerpo.texto || cuerpo.plantilla || cuerpo.adjuntoId) return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: "cuentas", message: "El texto de las cuentas va solo", rule: "exclusivo" }] })), true);
+                    const texto = textoCuentasFalso(cuentasBancarias);
+                    if (!texto) return (await problema(route, P("sin_cuentas_para_enviar", 422, "No se puede")), true);
+                    cuerpo.texto = texto;
+                    enviadosCuentas.push(id);
+                }
                 // §8: el adjunto tiene que estar completo y ser de esta conversación (422 `adjunto_no_listo`).
                 const subido = typeof cuerpo.adjuntoId === "string" ? ADJUNTOS_SUBIDOS.get(cuerpo.adjuntoId) : undefined;
                 if (accion === "mensajes" && cuerpo.adjuntoId !== undefined && (!subido || subido.recibido !== subido.tamano || subido.entidadId !== String(c.id))) {
@@ -563,6 +606,16 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         const prohibido = async () => (await problema(route, P("permiso_denegado", 403, "Sin permiso")), true);
         const noExiste = async () => (await problema(route, P("no_encontrado", 404, "No existe")), true);
         const conflicto = async () => (await problema(route, P("conflicto_version", 409, "Cambió")), true);
+        // Textos con números de cuenta escritos a mano (§10.3 del contrato con Argos, filas 12 a 14).
+        if (metodo === "GET" && ruta === `${BASE}/revision-cuentas`) {
+            if (!puede("canales.configurar")) return prohibido();
+            const parece = (t: string) => /(cuenta|dep[oó]sit|banco)/i.test(t) && /\d[\d\- ]{5,}\d/.test(t);
+            const data: Schema<"TextoConCuenta">[] = [
+                ...respuestas.filter((r) => r.activa && parece(r.texto)).map((r) => ({ tipo: "respuesta_rapida" as const, id: r.id, titulo: r.atajo, motivo: "parece_cuenta" as const })),
+                ...manuales.filter((m) => m.activo && parece(m.cuerpo)).map((m) => ({ tipo: "manual" as const, id: m.id, titulo: m.titulo, motivo: "parece_cuenta" as const })),
+            ];
+            return (await json(route, { data }), true);
+        }
         if (ruta === `${BASE}/horarios` || ruta.startsWith(`${BASE}/horarios/`)) {
             const id = Number(ruta.split("/")[5]);
             if (metodo === "GET" && ruta === `${BASE}/horarios`) return (await json(route, { data: horarios, nextCursor: null }), true);
@@ -650,7 +703,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
         return false;
     }
 
-    return { manejar, emitirEvento, flujoAbierto: () => flujosEnEspera > 0, conversaciones, mensajes, enviados, etiquetas, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11, asistente, fase3 };
+    return { manejar, enviadosCuentas, emitirEvento, flujoAbierto: () => flujosEnEspera > 0, conversaciones, mensajes, enviados, etiquetas, mensajeDelCliente, horarios, manuales, canales, configurados, respuestas, enlaces, consentimientos, colas, agentes, bandeja11: b11, asistente, fase3 };
 }
 
 export type ApiConversaciones = ReturnType<typeof apiConversaciones>;

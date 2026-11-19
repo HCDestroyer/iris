@@ -360,11 +360,28 @@ func (m *Modulo) CargarCuentasBancarias(ctx context.Context) (ResultadoCuentas, 
 	if !conector.VersionAlMenos(c.ContratoRemoto, ContratoCuentasSinCabeceras) {
 		return ResultadoCuentas{Omitido: OmitidoArgosAnterior080}, nil
 	}
+	return m.cargarCuentasCon(ctx, bd, m.clienteDe(c))
+}
+
+// CargaCuentasBancarias es el paso `cuentas_bancarias` de la primera sincronización (§2.5), con la
+// forma del gancho de B7 (FijarCargasBancarias): lee la lista completa con el cliente que da el job
+// (que ya respeta el ritmo, los 429 y Argos < 0.8.0) y devuelve cuántas cuentas guardó.
+func (m *Modulo) CargaCuentasBancarias(ctx context.Context, cli *Cliente) (int, error) {
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return 0, nucleo.ErrSinBD
+	}
+	r, err := m.cargarCuentasCon(ctx, bd, cli)
+	return r.Cuentas - r.Invalidas, err
+}
+
+func (m *Modulo) cargarCuentasCon(ctx context.Context, bd nucleo.BD, cli *Cliente) (ResultadoCuentas, error) {
 	in := lecturaCuentas{completa: true, marcar: true}
+	var err error
 	if in.leidoEn, err = relojAntes(ctx, bd); err != nil {
 		return ResultadoCuentas{}, err
 	}
-	cs, err := m.clienteDe(c).ListaCuentasBancarias(ctx)
+	cs, err := cli.ListaCuentasBancarias(ctx)
 	if err != nil {
 		return ResultadoCuentas{}, err
 	}

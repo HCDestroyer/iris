@@ -314,7 +314,8 @@ Escríbanos al [número de WhatsApp] o llame al [número de soporte].`,
     },
     {
         codigo: "pagos-y-reconexion",
-        revision: 2,
+        // 3: sin números de cuenta escritos a mano (contrato con Argos 0.8.0 §10.3, fila 11).
+        revision: 3,
         tecnologia: "general",
         titulo: "Pagos y reconexión: reportar un pago y promesa de pago",
         resumen: "Cómo reportar un pago con la foto de la boleta por WhatsApp, cómo pedir una promesa de pago y qué pasa con la reconexión del servicio.",
@@ -323,7 +324,9 @@ Escríbanos al [número de WhatsApp] o llame al [número de soporte].`,
 
 ## Dónde pagar
 
-[Complete aquí los bancos, números de cuenta, agencias y otros medios de pago de Nombre del ISP.]
+Pídanos las cuentas por WhatsApp al [número de WhatsApp]: se las enviamos con el banco, el número y a nombre de quién está cada una.
+
+[Complete aquí solo las agencias y otros medios de pago que no son un depósito a cuenta. No escriba números de cuenta: Iris los envía desde el catálogo de cuentas.]
 
 Pague siempre a nombre de **[Nombre del ISP]**. Nunca deposite a cuentas personales, aunque se lo pidan por teléfono o por WhatsApp.
 
