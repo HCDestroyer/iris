@@ -15,6 +15,9 @@ import { PasoQueFaltaLlamadas, usePasoQueFalta } from "./paso-que-falta";
 import { useDevoluciones } from "./devoluciones";
 import { useVoz } from "./proveedor";
 
+/** Hasta cuándo una perdida es «reciente»: se puede decir «No te sonó porque…» con el estado de ahora. */
+const PERDIDA_RECIENTE_MS = 2 * 60_000;
+
 const ICONO: Record<IconoLlamada, LucideIcon> = {
     contestada: PhoneIncoming,
     perdida: PhoneMissed,
@@ -56,26 +59,32 @@ export function LlamadaEnHilo({ m }: { m: Mensaje }) {
     const [colgando, setColgando] = useState(false);
     const [desbloqueando, setDesbloqueando] = useState(false);
     const paso = usePasoQueFalta();
-    // La hora de «vuelve a sonar»: se relee cada minuto para que el botón se vaya solo al pasar.
+    // La hora: la de «vuelve a sonar» (el botón se va solo al pasar) y la de una perdida reciente (pasado
+    // el rato, ya no se afirma por qué no sonó). Se relee cada 30 s mientras haga falta.
     const [ahora, setAhora] = useState(() => Date.now());
-    const conRafaga = m.llamada?.rafaga !== undefined && !m.llamada.rafaga.levantada;
+    const conReloj = (m.llamada?.rafaga !== undefined && !m.llamada.rafaga.levantada) || m.llamada?.estado === "perdida";
     useEffect(() => {
-        if (!conRafaga) return;
+        if (!conReloj) return;
         const id = window.setInterval(() => setAhora(Date.now()), 30_000);
         return () => window.clearInterval(id);
-    }, [conRafaga]);
+    }, [conReloj]);
     if (!m.llamada) return null;
     const l = m.llamada;
     const base = llamadaEnHilo(l);
     // Rechazada sola por la ráfaga: el motivo (con la hora, a quien configura llamadas) y no «La rechazó…».
     const rafaga = l.direccion === "entrante" && l.estado === "rechazada" && l.motivoFin === "limite" ? textoRafaga(l.rafaga, ahora, puede([PERMISO_CONFIGURAR_LLAMADAS])) : null;
     const v = rafaga ? { ...base, detalle: rafaga.detalle } : base;
-    const puedeDesbloquear = rafaga?.vigente === true && puede([PERMISO_DESBLOQUEAR_NUMERO]);
+    // El servidor dice si esta empresa puede (en un número prestado, la prestataria no).
+    const puedeDesbloquear = rafaga?.vigente === true && l.rafaga?.puedeLevantar === true && puede([PERMISO_DESBLOQUEAR_NUMERO]);
     // Una entrante que me está sonando: «Contestar» también aquí. Si no me suena (o no me sonó) por un
     // paso que me falta, se dice cuál y se ofrece en un toque.
     const entrante = l.direccion === "entrante";
     const meSuena = entrante && l.estado === "sonando" && voz?.estado.fase === "sonando" && voz.estado.llamada.id === l.id;
     const faltaPaso = entrante && !meSuena && paso !== null && (l.estado === "sonando" || (l.estado === "perdida" && l.motivoFin !== "agente_salio")) ? paso : null;
+    // Lo que falta se ve con el estado de AHORA: solo se afirma la causa mientras suena o en una perdida
+    // reciente; en una vieja se dice lo de ahora («Ahora no te sonaría…»), sin inventar el pasado.
+    const perdidaReciente = l.estado === "perdida" && ahora - Date.parse(m.creadoEn) < PERDIDA_RECIENTE_MS;
+    const cuando = l.estado === "sonando" ? "No te está sonando" : perdidaReciente ? "No te sonó" : "Ahora no te sonaría";
     const Icono = ICONO[v.icono];
     const clase = CLASE[v.tono];
     const pendiente = l.estado === "perdida" ? dev?.deLlamada(l.id) : undefined;
@@ -117,7 +126,7 @@ export function LlamadaEnHilo({ m }: { m: Mensaje }) {
                     </Boton>
                 </div>
             ) : null}
-            {faltaPaso ? <PasoQueFaltaLlamadas paso={faltaPaso} cuando={l.estado === "sonando" ? "No te está sonando" : "No te sonó"} /> : null}
+            {faltaPaso ? <PasoQueFaltaLlamadas paso={faltaPaso} cuando={cuando} /> : null}
             {puedeDesbloquear ? (
                 <div className="flex flex-wrap gap-1.5">
                     <Boton variante="secundario" tamano="sm" onClick={() => setDesbloqueando(true)}>

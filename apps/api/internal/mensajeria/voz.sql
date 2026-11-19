@@ -160,7 +160,9 @@ ON CONFLICT (canal_id, numero) DO UPDATE SET empresa_id = EXCLUDED.empresa_id, l
     levantada_por = EXCLUDED.levantada_por, origen = EXCLUDED.origen;
 
 -- name: RafagaLevantadaEn :one
-SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas WHERE canal_id = @canal_id AND numero = @numero;
+-- Solo la de la empresa que mira (en un número prestado, la prestataria no ve lo que hizo la dueña).
+SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas
+WHERE canal_id = @canal_id AND numero = @numero AND coalesce(empresa_id, 0) = @empresa::bigint;
 
 -- name: FijarRafagaHasta :exec
 UPDATE mensajeria.llamadas SET rafaga_hasta = @hasta WHERE id = @id;

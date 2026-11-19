@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 )
 
 // rafagaEnHilo: el objeto rafaga de la tarjeta de la llamada (leída como el panel, por la API).
@@ -92,6 +94,35 @@ func TestRafagaRastroAcotado(t *testing.T) {
 	}
 }
 
+// Con la ráfaga encima, un connect viejo (p. ej. reprocesado por el job) se rechaza sin fila: no deja
+// una perdida con mensaje, devolución y aviso al cliente.
+func TestRafagaConnectViejo(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente)
+	num := numeroCliente()
+	x.texto(num, "wamid.rafv"+num, "Hola")
+	conv := cid(x.conv(num))
+	for i := range 3 {
+		call := fmt.Sprintf("wacid.viejo%d%s", i, num)
+		x.connect(num, call)
+		x.webhook(x.eventoLlamada(num, call, "terminate", "", 0))
+		x.pasa(time.Second, x.agente)
+	}
+	mensajes := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1::bigint`, conv)
+	viejo := "wacid.viejo3" + num
+	x.webhook(x.eventoLlamada(num, viejo, "connect", fmt.Sprintf(`,"session":{"sdp_type":"offer","sdp":%q}`, sdpOfertaMeta), 2*time.Minute))
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id_externo = $1`, viejo); n != 0 || x.g.cuenta("reject:"+viejo) != 1 {
+		t.Fatalf("connect viejo con ráfaga: filas %d, reject %d", n, x.g.cuenta("reject:"+viejo))
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1::bigint`, conv); n != mensajes {
+		t.Fatalf("el connect viejo dejó mensajes: %d → %d", mensajes, n)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_devoluciones d JOIN mensajeria.llamadas l ON l.id = d.llamada_id
+		WHERE l.numero = $1 AND l.id_externo = $2`, "+"+num, viejo); n != 0 {
+		t.Fatalf("el connect viejo dejó una devolución: %d", n)
+	}
+}
+
 // Quitar el bloqueo a mano: «Dejar que vuelva a llamar» (llamadas.desbloquear_numero, supervisor y
 // admin). Las entrantes anteriores dejan de contar y la próxima suena; queda auditado y con su evento.
 func TestRafagaLevantadaAMano(t *testing.T) {
@@ -126,7 +157,7 @@ func TestRafagaLevantadaAMano(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.desbloquear_numero' AND resultado = 'ok' AND actor_id = $1`, x.supervisor.id); n != 1 {
 		t.Fatalf("auditoría: %d", n)
 	}
-	if rf := x.rafagaEnHilo(conv, id); rf["levantada"] != true {
+	if rf := x.rafagaEnHilo(conv, id); rf["levantada"] != true || rf["puedeLevantar"] != true {
 		t.Fatalf("la tarjeta debía decir que ya se levantó: %v", rf)
 	}
 	// La siguiente suena (sin esperar los 10 minutos).
@@ -134,9 +165,24 @@ func TestRafagaLevantadaAMano(t *testing.T) {
 	if _, estado, motivo := x.llamada(x.conectar(num, "wacid.mano4"+num)); estado != "sonando" {
 		t.Fatalf("tras levantar la ráfaga debía sonar: %s %s", estado, motivo)
 	}
-	// Repetirlo sin ráfaga no cambia nada (y responde igual).
+	// Repetirlo sin ráfaga no cambia nada: queda auditado, pero ni evento ni se mueve la marca.
+	var marca time.Time
+	if err := x.bd.QueryRow(x.ctx, `SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num).Scan(&marca); err != nil {
+		t.Fatal(err)
+	}
+	x.pasa(time.Second, x.agente)
 	if r := x.exigir(x.api(x.supervisor, http.MethodPost, ruta, nil), http.StatusOK); r.cuerpo["estabaActiva"] != false {
 		t.Fatalf("sin ráfaga: %s", crudo(r))
+	}
+	var marca2 time.Time
+	if err := x.bd.QueryRow(x.ctx, `SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num).Scan(&marca2); err != nil || !marca2.Equal(marca) {
+		t.Fatalf("la marca se movió sin ráfaga: %v %v %v", err, marca, marca2)
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.rafaga_levantada' AND payload->>'conversacion_id' = $1`, conv); n != 1 {
+		t.Fatalf("eventos tras repetir sin ráfaga: %d", n)
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.desbloquear_numero' AND resultado = 'ok' AND actor_id = $1`, x.supervisor.id); n != 2 {
+		t.Fatalf("la repetición debía quedar auditada: %d", n)
 	}
 	// I1: pasados 10 minutos la marca ya no cambia nada y guarda el número: el mantenimiento la borra.
 	if n := x.contar(`SELECT count(*) FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num); n != 1 {
@@ -167,10 +213,20 @@ func TestRafagaLevantadaAlLlamar(t *testing.T) {
 	if _, estado, _ := x.llamada("wacid.llam3" + num); estado != "rechazada" {
 		t.Fatalf("la cuarta: %s", estado)
 	}
+	// Si Meta rechaza el connect, la saliente no salió: la ráfaga sigue (ni marca ni evento).
+	x.g.falla("connect", &mensajeria.ErrMetaLlamada{Status: 400})
+	x.exigir(x.llamar(x.supervisor, conv, nil), http.StatusBadGateway)
+	x.g.falla("connect", nil)
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.rafaga_levantada' AND payload->>'conversacion_id' = $1`, conv) +
+		x.contar(`SELECT count(*) FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num); n != 0 {
+		t.Fatalf("una saliente que Meta rechazó levantó la ráfaga: %d", n)
+	}
+	x.pasa(time.Second, x.agente)
 	_, call := x.saliente(x.supervisor, conv, nil)
 	x.webhookSaliente(num, call, "terminate", `,"status":"FAILED"`)
-	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.rafaga_levantada' AND payload->>'origen' = 'llamada' AND payload->>'conversacion_id' = $1`, conv); n != 1 {
-		t.Fatalf("evento al llamar: %d", n)
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.rafaga_levantada' AND payload->>'origen' = 'llamada' AND payload->>'conversacion_id' = $1
+		AND NOT (payload::text LIKE '%' || $2 || '%')`, conv, num); n != 1 {
+		t.Fatalf("evento al llamar (sin el número): %d", n)
 	}
 	x.pasa(time.Second, x.agente)
 	if _, estado, motivo := x.llamada(x.conectar(num, "wacid.llam4"+num)); estado != "sonando" {

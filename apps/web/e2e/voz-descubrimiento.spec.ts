@@ -76,6 +76,15 @@ test.describe("voz › cuando no suena: el paso que falta, en un toque", () => {
         expect(api.voz.recibido.recibir.map((r) => r.accion)).toEqual(["encender"]);
     });
 
+    test("una perdida vieja no afirma por qué no sonó: dice lo de ahora («Ahora no te sonaría porque…»)", async ({ page }) => {
+        const api = await abrir(page, "/cuenta", { voz: {} });
+        api.voz.historica(41, "perdida", { duracionSeg: 25, motivoFin: "nadie_contesto", sonoEn: new Date(Date.now() - 30 * 60_000).toISOString() });
+        await page.goto("/conversaciones?c=41");
+        const paso = tarjeta(page, "perdida").locator('[data-slot="paso-que-falta"]');
+        await expect(paso).toContainText("Ahora no te sonaría porque «Recibir llamadas» está apagado en este navegador.");
+        await expect(paso).not.toContainText("No te sonó");
+    });
+
     test("sin ningún número con llamadas no se ofrece nada", async ({ page }) => {
         await abrir(page, "/cuenta", { voz: { sinNumeroConLlamadas: true } });
         await expect(page.getByRole("button", { name: /^Recibir llamadas|^Más/ }).first()).toBeVisible();
@@ -135,6 +144,15 @@ test.describe("voz › cuando no suena: el paso que falta, en un toque", () => {
         await expect(page.getByText("Listo: su próxima llamada vuelve a sonar")).toBeVisible();
         expect(api.voz.recibido.desbloqueos).toEqual([41]);
         await expect(rechazada).toContainText("Ya se dejó que vuelva a llamar");
+        await expect(rechazada.getByRole("button", { name: "Dejar que vuelva a llamar" })).toHaveCount(0);
+    });
+
+    test("en un número prestado la prestataria no puede dejar que vuelva a llamar (lo dice el servidor): sin botón", async ({ page }) => {
+        const api = await abrir(page, "/cuenta");
+        api.voz.rechazadaPorRafaga(41, new Date(Date.now() + 7 * 60_000), 0, false);
+        await page.goto("/conversaciones?c=41");
+        const rechazada = tarjeta(page, "rechazada");
+        await expect(rechazada).toContainText("Demasiadas llamadas seguidas de este número");
         await expect(rechazada.getByRole("button", { name: "Dejar que vuelva a llamar" })).toHaveCount(0);
     });
 

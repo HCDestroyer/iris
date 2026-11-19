@@ -1013,6 +1013,19 @@ func TestLlamadaEnNumeroPrestado(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'saliente' AND texto = $2`, conv, mensajeria.MensajePerdidaNeutro); n != 1 {
 		t.Fatalf("mensajes neutros tras la ráfaga: %d", n)
 	}
+	// La tarjeta de la prestataria dice que no puede levantarla (el panel no ofrece el botón).
+	hiloP := x.exigir(x.api(sup2, http.MethodGet, "/conversaciones/"+conv+"/mensajes?limit=100", nil), http.StatusOK)
+	puedeP := "sin tarjeta"
+	for _, m := range hiloP.cuerpo["data"].([]any) {
+		if l, _ := m.(map[string]any)["llamada"].(map[string]any); l != nil && l["id"] == idU {
+			if rf, _ := l["rafaga"].(map[string]any); rf != nil {
+				puedeP = fmt.Sprint(rf["puedeLevantar"])
+			}
+		}
+	}
+	if puedeP != "false" {
+		t.Fatalf("puedeLevantar de la prestataria: %s", puedeP)
+	}
 	// La ráfaga es del número: la prestataria no la levanta (solo la dueña), aunque tenga el permiso.
 	if r := x.exigir(x.api(sup2, http.MethodPost, "/conversaciones/"+conv+"/llamadas/desbloquear", nil), http.StatusConflict); !strings.Contains(crudo(r), "numero_prestado") {
 		t.Fatalf("la prestataria levantó la ráfaga: %s", crudo(r))
@@ -1374,6 +1387,12 @@ func TestLlamadaSeguridadE1(t *testing.T) {
 	}
 	x.exigir(x.api(ajena, http.MethodPost, "/llamadas/"+id+"/rechazar", map[string]any{"paraTodos": true}), http.StatusNotFound)
 	x.exigir(x.api(ajena, http.MethodPost, "/llamadas/"+id+"/contestar", map[string]any{"sdpRespuesta": sdpNavegador("")}), http.StatusNotFound)
+	// Tampoco levanta la ráfaga de una conversación de otra empresa, aunque tenga el permiso.
+	convSeg := cid(x.conv(num))
+	x.exigir(x.api(ajena, http.MethodPost, "/conversaciones/"+convSeg+"/llamadas/desbloquear", nil), http.StatusNotFound)
+	if n := x.contar(`SELECT count(*) FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num); n != 0 {
+		t.Fatalf("otra empresa dejó una marca de ráfaga levantada: %d", n)
+	}
 	x.exigir(x.api(ajena, http.MethodGet, "/llamadas/"+id, nil), http.StatusNotFound)
 	x.exigir(x.api(ajena, http.MethodGet, x.rutaCanal("/llamadas"), nil), http.StatusNotFound)
 	// (otra prueba puede haber dejado llamadas de la empresa 2: lo que no debe salir es nada de la 1)

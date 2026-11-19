@@ -16776,6 +16776,8 @@ export interface components {
             intentos: number;
             /** @description Alguien dejó que vuelva a llamar (a mano o llamándolo) después de esta llamada */
             levantada: boolean;
+            /** @description La empresa de la llamada puede dejar que el número vuelva a llamar (false en un número prestado, para la prestataria) */
+            puedeLevantar: boolean;
         };
         RafagaLevantada: {
             /** @description El número tenía la ráfaga encima: desde ahora su próxima llamada vuelve a sonar */

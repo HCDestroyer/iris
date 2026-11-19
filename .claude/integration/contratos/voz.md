@@ -59,7 +59,10 @@ técnica (§9)**; los que más pesan están listados en §10.
   en el feed como mucho cada 30 s). Se levanta con `POST /conversaciones/{id}/llamadas/desbloquear`
   (`llamadas.desbloquear_numero`) o con una saliente a ese número: en cuanto **Meta acepta la
   petición** de la saliente, aunque el cliente no conteste (lo pidió el PM: «si yo llamo»); queda
-  auditado (`llamadas.resultado_llamar`) y con su evento. Desde ese instante las entrantes anteriores no
+  auditado (`llamadas.resultado_llamar`) y con su evento. Sin ráfaga encima, levantarla no hace nada
+  (a mano queda solo la auditoría; no sale el evento ni se mueve la marca). La tarjeta trae
+  `rafaga.puedeLevantar` (false en un número prestado para la prestataria) y la ráfaga se cuenta con un
+  candado por (canal, número), también en un número prestado. Desde ese instante las entrantes anteriores no
   cuentan (`voz.rafaga_levantada`). En un número prestado la ráfaga es del número: solo la levanta la
   empresa dueña (la prestataria recibe 409 `numero_prestado` y tampoco puede llamar desde él). La marca
   (`voz_rafagas_levantadas`, guarda el número) se borra en el mantenimiento a los 10 minutos, cuando ya

@@ -613,6 +613,9 @@ Contrato: `.claude/integration/contratos/voz.md`. Código en `voz_*.go`, consult
   se rechazan en Meta. La levanta una persona con `POST /conversaciones/{id}/llamadas/desbloquear`
   (`llamadas.desbloquear_numero`: supervisor y admin) o una saliente a ese número que Meta acepta;
   queda en `voz_rafagas_levantadas` y la consulta de la ráfaga solo cuenta lo de después.
+  Limitación conocida (anotada, sin código): la tarjeta guarda solo el último `call_id` contado, así
+  que una secuencia A, B, A (Meta reintenta A después de B) cuenta A dos veces en `rafaga.intentos`.
+  Solo infla el contador; el rechazo es el mismo.
 - **Tablas:** `llamadas`, `llamada_tramos`, `llamada_candidatos`, `llamada_receptores`,
   `llamada_devoluciones`, `llamada_grabaciones`, `voz_ajustes`, `voz_ajustes_canal`,
   `voz_rafagas_levantadas`.

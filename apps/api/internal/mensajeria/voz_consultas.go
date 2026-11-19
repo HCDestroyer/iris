@@ -748,7 +748,12 @@ func llamadasDeMensajes(ctx context.Context, q *mensajeriabd.Queries, filas []me
 		if l.RafagaHasta != nil && l.CanalID != nil {
 			// Pocas (solo las rechazadas por ráfaga): una lectura por llamada.
 			r := RafagaDeLlamada{Hasta: *l.RafagaHasta, Intentos: l.RafagaIntentos}
-			if en, err := q.RafagaLevantadaEn(ctx, mensajeriabd.RafagaLevantadaEnParams{CanalID: *l.CanalID, Numero: l.Numero}); err == nil {
+			canal, err := q.CanalPorID(ctx, *l.CanalID)
+			if err != nil {
+				return nil, err
+			}
+			r.PuedeLevantar = derefEmpresa(canal.EmpresaID) == derefEmpresa(l.EmpresaID)
+			if en, err := q.RafagaLevantadaEn(ctx, mensajeriabd.RafagaLevantadaEnParams{CanalID: *l.CanalID, Numero: l.Numero, Empresa: derefEmpresa(l.EmpresaID)}); err == nil {
 				r.Levantada = en.After(l.SonoEn)
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return nil, err

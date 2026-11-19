@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -226,54 +227,65 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	if sono.After(ahora) {
 		sono = ahora
 	}
-	// 2. Ráfaga, ANTES de registrar nada: como máximo RafagaLlamadas llamadas que suenan por número cada
-	// RafagaVentana (deslizante). La primera que rechaza deja una sola tarjeta en el hilo, sin reabrir la
-	// conversación ni avisar de un mensaje nuevo; los reintentos de la misma ventana solo suman a esa
-	// tarjeta (sin fila, sin mensaje, sin evento por intento). Un connect viejo o sin oferta válida no
-	// suena de todos modos: sigue el camino de siempre (perdida).
+	// 2. Ráfaga, ANTES de registrar nada (y antes de mirar si el connect es viejo): como máximo
+	// RafagaLlamadas llamadas que suenan por número cada RafagaVentana (deslizante). La primera que
+	// rechaza deja una sola tarjeta en el hilo, sin reabrir la conversación ni avisar de un mensaje nuevo;
+	// los reintentos de la misma ventana solo suman a esa tarjeta (sin fila, sin mensaje, sin evento por
+	// intento). Con la ráfaga encima, un connect viejo o sin oferta válida (p. ej. reprocesado por el job)
+	// se rechaza sin fila: no deja una perdida con mensaje, devolución y aviso al cliente.
+	//
+	// Candado por (canal, número), no por conversación: en un número prestado el mismo número puede caer
+	// en conversaciones de empresas distintas, y dos connects simultáneos contarían lo mismo y se
+	// saltarían el máximo.
+	if err := q.CandadoChat(ctx, "voz:rafaga:"+strconv.FormatInt(canal.ID, 10)+":"+numero); err != nil {
+		return err
+	}
+	if _, err := q.LlamadaPorExterno(ctx, mensajeriabd.LlamadaPorExternoParams{CanalID: &canal.ID, IDExterno: ev.ID}); err == nil {
+		return nil // ya se recibió (Meta reintentó, o el job después del proceso en línea)
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
 	var rafaga *time.Time
-	if ahora.Sub(sono) <= ConnectViejo && sdp != nil {
-		if _, err := q.LlamadaPorExterno(ctx, mensajeriabd.LlamadaPorExternoParams{CanalID: &canal.ID, IDExterno: ev.ID}); err == nil {
-			return nil // ya se recibió (Meta reintentó, o el job después del proceso en línea)
-		} else if !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		recientes, err := q.LlamadasRecientesDeNumero(ctx, mensajeriabd.LlamadasRecientesDeNumeroParams{CanalID: &canal.ID, Numero: numero, Desde: ahora.Add(-RafagaVentana)})
-		if err != nil {
-			return err
-		}
-		if recientes.Cuantas >= RafagaLlamadas {
-			// Vuelve a sonar cuando la más vieja que cuenta sale de la ventana (las rechazadas no cuentan).
-			hasta := recientes.Primera.Add(RafagaVentana)
-			v, err := q.RafagaVigente(ctx, mensajeriabd.RafagaVigenteParams{CanalID: &canal.ID, Numero: numero, Ahora: ahora})
-			if err == nil {
-				r, err := q.SumarIntentoRafaga(ctx, mensajeriabd.SumarIntentoRafagaParams{ID: v.ID, Hasta: hasta, CallID: ev.ID,
-					AvisoDesde: ahora.Add(-AvisoRafagaCada), Ahora: ahora})
-				if errors.Is(err, pgx.ErrNoRows) {
-					return nil // el mismo connect otra vez (Meta reintentó): ya se contó y ya se rechazó
-				}
-				if err != nil {
-					return err
-				}
-				slog.InfoContext(ctx, "voz: llamada entrante rechazada por ráfaga (más de 3 del mismo número en 10 minutos); reintento contado en la tarjeta",
-					"llamada_id", v.ID, "canal_id", canal.ID, "intentos", r.RafagaIntentos, "vuelve_a_sonar", hasta)
-				m.rechazarEnMeta(ctx, t, canal.ID, ev.ID)
-				if err := taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute)); err != nil {
-					return err
-				}
-				// La tarjeta se refresca en el feed como mucho cada AvisoRafagaCada: una ráfaga larga no
-				// genera una fila de feed y un NOTIFY por intento (el contador sí sube siempre).
-				if !r.Avisar {
-					return nil
-				}
-				v.RafagaIntentos = r.RafagaIntentos
-				return m.emitirEventoLlamada(ctx, t, v, EventoLlamadaActualizada, nil)
+	recientes, err := q.LlamadasRecientesDeNumero(ctx, mensajeriabd.LlamadasRecientesDeNumeroParams{CanalID: &canal.ID, Numero: numero, Desde: ahora.Add(-RafagaVentana)})
+	if err != nil {
+		return err
+	}
+	if recientes.Cuantas >= RafagaLlamadas {
+		// Vuelve a sonar cuando la más vieja que cuenta sale de la ventana (las rechazadas no cuentan).
+		hasta := recientes.Primera.Add(RafagaVentana)
+		v, err := q.RafagaVigente(ctx, mensajeriabd.RafagaVigenteParams{CanalID: &canal.ID, Numero: numero, Ahora: ahora})
+		if err == nil {
+			r, err := q.SumarIntentoRafaga(ctx, mensajeriabd.SumarIntentoRafagaParams{ID: v.ID, Hasta: hasta, CallID: ev.ID,
+				AvisoDesde: ahora.Add(-AvisoRafagaCada), Ahora: ahora})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil // el mismo connect otra vez (Meta reintentó): ya se contó y ya se rechazó
 			}
-			if !errors.Is(err, pgx.ErrNoRows) {
+			if err != nil {
 				return err
 			}
-			rafaga = &hasta
+			slog.InfoContext(ctx, "voz: llamada entrante rechazada por ráfaga (más de 3 del mismo número en 10 minutos); reintento contado en la tarjeta",
+				"llamada_id", v.ID, "canal_id", canal.ID, "intentos", r.RafagaIntentos, "vuelve_a_sonar", hasta)
+			m.rechazarEnMeta(ctx, t, canal.ID, ev.ID)
+			if err := taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute)); err != nil {
+				return err
+			}
+			// La tarjeta se refresca en el feed como mucho cada AvisoRafagaCada: una ráfaga larga no
+			// genera una fila de feed y un NOTIFY por intento (el contador sí sube siempre).
+			if !r.Avisar {
+				return nil
+			}
+			v.RafagaIntentos = r.RafagaIntentos
+			return m.emitirEventoLlamada(ctx, t, v, EventoLlamadaActualizada, nil)
 		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if ahora.Sub(sono) > ConnectViejo || sdp == nil {
+			slog.InfoContext(ctx, "voz: connect viejo o sin oferta válida con la ráfaga encima; se rechaza sin registrar", "canal_id", canal.ID)
+			m.rechazarEnMeta(ctx, t, canal.ID, ev.ID)
+			return taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute))
+		}
+		rafaga = &hasta
 	}
 	l, err := q.InsertarLlamada(ctx, mensajeriabd.InsertarLlamadaParams{LlamadaID: id, EmpresaID: c.EmpresaID, CanalID: &canal.ID, ConversacionID: &c.ID,
 		Externo: ev.ID, Numero: numero, ClienteID: c.ClienteID, Servicio: c.ServicioID, ColaID: cola, SonoEn: sono,

@@ -25198,12 +25198,17 @@
           "levantada": {
             "description": "Alguien dejó que vuelva a llamar (a mano o llamándolo) después de esta llamada",
             "type": "boolean"
+          },
+          "puedeLevantar": {
+            "description": "La empresa de la llamada puede dejar que el número vuelva a llamar (false en un número prestado, para la prestataria)",
+            "type": "boolean"
           }
         },
         "required": [
           "hasta",
           "levantada",
-          "intentos"
+          "intentos",
+          "puedeLevantar"
         ],
         "type": "object"
       },

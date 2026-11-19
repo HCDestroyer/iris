@@ -215,9 +215,9 @@ export function apiVoz(
         };
     }
     /** Una entrante que Iris rechazó sola por la ráfaga: su tarjeta, con hasta cuándo y los reintentos. */
-    function rechazadaPorRafaga(conversacionId: number, hasta: Date, intentos = 0): Llamada {
+    function rechazadaPorRafaga(conversacionId: number, hasta: Date, intentos = 0, puedeLevantar = true): Llamada {
         const l = entrante(conversacionId, { estado: "rechazada", motivoFin: "limite", terminadaEn: new Date().toISOString() });
-        rafagas.set(l.id, { hasta: hasta.toISOString(), levantada: false, intentos });
+        rafagas.set(l.id, { hasta: hasta.toISOString(), levantada: false, intentos, puedeLevantar });
         alHilo(l);
         return l;
     }
@@ -380,7 +380,8 @@ export function apiVoz(
             tipo: "llamada",
             texto: null,
             automatico: null,
-            creadoEn: ahora,
+            // Como el servidor: el mensaje de la llamada es de cuando sonó.
+            creadoEn: l.sonoEn,
             enviadoEn: null,
             entregadoEn: null,
             leidoEn: null,
@@ -389,7 +390,7 @@ export function apiVoz(
             menciones: [],
         });
         mensajes.set(conversacionId, lista);
-        c.ultimoMensaje = { tipo: "llamada", direccion: "entrante", texto: null, evento: null, automatico: null, creadoEn: ahora };
+        c.ultimoMensaje = { tipo: "llamada", direccion: "entrante", texto: null, evento: null, automatico: null, creadoEn: l.sonoEn };
         alHilo(l);
         if (l.estado === "sonando") avisar("llamada_entrante", l);
         return l;

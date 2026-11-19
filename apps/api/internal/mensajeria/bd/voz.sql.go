@@ -2529,16 +2529,19 @@ func (q *Queries) QuitarWebhookAdelantado(ctx context.Context, arg QuitarWebhook
 }
 
 const rafagaLevantadaEn = `-- name: RafagaLevantadaEn :one
-SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas WHERE canal_id = $1 AND numero = $2
+SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas
+WHERE canal_id = $1 AND numero = $2 AND coalesce(empresa_id, 0) = $3::bigint
 `
 
 type RafagaLevantadaEnParams struct {
 	CanalID int64
 	Numero  string
+	Empresa int64
 }
 
+// Solo la de la empresa que mira (en un número prestado, la prestataria no ve lo que hizo la dueña).
 func (q *Queries) RafagaLevantadaEn(ctx context.Context, arg RafagaLevantadaEnParams) (time.Time, error) {
-	row := q.db.QueryRow(ctx, rafagaLevantadaEn, arg.CanalID, arg.Numero)
+	row := q.db.QueryRow(ctx, rafagaLevantadaEn, arg.CanalID, arg.Numero, arg.Empresa)
 	var levantada_en time.Time
 	err := row.Scan(&levantada_en)
 	return levantada_en, err
