@@ -15,7 +15,15 @@ import { recortarServicio } from "./recorte-servicio";
  */
 
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas-servicios");
-const captura = (page: Page, nombre: string) => page.screenshot({ path: path.join(carpeta, `${nombre}-${test.info().project.name}.png`), fullPage: true });
+const captura = (page: Page, nombre: string, completa = true) => page.screenshot({ path: path.join(carpeta, `${nombre}-${test.info().project.name}.png`), fullPage: completa });
+
+/** Nada de `elemento` queda debajo de la barra de guardar (fija al pie). */
+async function noTapado(page: Page, elemento: ReturnType<Page["locator"]>, que: string) {
+    const barra = await page.locator('[data-slot="barra-guardar"]').boundingBox();
+    const caja = await elemento.boundingBox();
+    expect(barra && caja, que).toBeTruthy();
+    if (barra && caja) expect(caja.y + caja.height, `${que}: no queda debajo de la barra de guardar`).toBeLessThanOrEqual(barra.y + 1);
+}
 
 type ServicioConv = Schema<"ServicioResumenConversacion">;
 
@@ -108,7 +116,20 @@ test.describe("servicios identificables", () => {
         await expect(grupo).toContainText("100.64.12.34");
         await expect(grupo).toContainText("Km 18 carretera a San Pedro");
         await sinDesbordes(page);
-        await captura(page, "orden-selector");
+        // Viewport real (sin página completa): el selector arriba, la barra fija al pie.
+        await grupo.evaluate((e) => {
+            e.scrollIntoView({ block: "start" });
+            window.scrollBy(0, -96);
+        });
+        await captura(page, "orden-selector", false);
+        // La tarjeta elegida, centrada en la pantalla, no queda tapada por la barra.
+        const elegida = grupo.locator('[data-testid="linea-servicio"][data-servicio="41020"]');
+        await elegida.evaluate((e) => e.scrollIntoView({ block: "center" }));
+        await noTapado(page, elegida, "la tarjeta elegida");
+        // Al final del scroll, el último campo queda por encima de la barra (hay espacio al pie).
+        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await noTapado(page, page.getByRole("combobox", { name: "Zona (opcional)" }).or(page.getByLabel("Zona (opcional)")).first(), "el último campo");
+        await captura(page, "orden-final", false);
         await grupo.getByRole("radio", { name: /Servicio 3 · Negocio 30 Mbps/ }).click();
         await expect(grupo.getByRole("radio", { name: /Servicio 3 · Negocio 30 Mbps/ })).toBeChecked();
         await page.getByRole("button", { name: "Crear orden" }).click();

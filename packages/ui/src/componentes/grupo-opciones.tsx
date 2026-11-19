@@ -76,14 +76,27 @@ export function GrupoOpciones<V extends string | number>({ leyenda, nombre, opci
                                     "data-focus-visible:outline-2 data-focus-visible:outline-offset-2 data-focus-visible:outline-primary",
                                     "data-disabled:cursor-not-allowed data-disabled:opacity-55",
                                     !apiladas && "sm:flex-col sm:justify-center sm:gap-1.5 sm:py-3 sm:text-center",
-                                    apiladas && "items-start pr-8",
+                                    apiladas && "items-start",
                                     marcado && "border-primary bg-primary/5 font-semibold shadow-[0_0_0_1px_var(--hx-primary)]",
                                     error && !marcado && "border-error",
                                 )}
                             >
-                                <Radio.Indicator className="absolute top-1.5 right-1.5 m-0 size-4 border-0 bg-transparent p-0 shadow-none">
-                                    <CircleCheck aria-hidden className={cn("size-4 text-primary", marcado ? "opacity-100" : "opacity-0")} />
-                                </Radio.Indicator>
+                                {apiladas ? (
+                                    // Apiladas: un radio a la derecha, alineado con la primera línea, que no tapa nada.
+                                    <Radio.Indicator
+                                        data-slot="grupo-opciones-radio"
+                                        className={cn(
+                                            "static order-last m-0 mt-0.5 ml-auto flex size-5 shrink-0 items-center justify-center rounded-full border-2 bg-transparent p-0 shadow-none",
+                                            marcado ? "border-primary" : "border-border",
+                                        )}
+                                    >
+                                        <span aria-hidden className={cn("size-2.5 rounded-full bg-primary", marcado ? "opacity-100" : "opacity-0")} />
+                                    </Radio.Indicator>
+                                ) : (
+                                    <Radio.Indicator className="absolute top-1.5 right-1.5 m-0 size-4 border-0 bg-transparent p-0 shadow-none">
+                                        <CircleCheck aria-hidden className={cn("size-4 text-primary", marcado ? "opacity-100" : "opacity-0")} />
+                                    </Radio.Indicator>
+                                )}
                                 {Icono ? <Icono aria-hidden className={cn("size-5 shrink-0 sm:size-6", marcado ? "text-primary" : "text-muted-foreground")} /> : null}
                                 {o.contenido ? (
                                     <span className="min-w-0 flex-1 font-normal">{o.contenido}</span>
