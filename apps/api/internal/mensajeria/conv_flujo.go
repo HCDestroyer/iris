@@ -304,7 +304,8 @@ func (m *Modulo) abrirFlujoConvSSE(ctx context.Context, desde string) (flujoConv
 }
 
 // revalidarConv vuelve a leer la credencial y los permisos de hoy. false = cortar.
-func (m *Modulo) revalidarConv(ctx context.Context, bd nucleo.BD) (alcanceConv, bool) {
+func (m *Modulo) revalidarConv(ctx context.Context, bd nucleo.BD, donde string) (alcanceConv, bool) {
+	m.contarRevalidacion(contexto.ActorDe(ctx).ID, donde)
 	nctx, err := identidad.Revalidar(ctx, bd)
 	if err != nil {
 		return alcanceConv{}, false
@@ -350,40 +351,77 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 	defer fin.Stop()
 	desde := f.desde
 	q := mensajeriabd.New(bd)
-	for {
-		a, ok := m.revalidarConv(ctx, bd)
-		if !ok {
-			return
-		}
-		// Este flujo es el «panel abierto» de quien recibe llamadas (contratos/voz.md §3.4).
-		// Con su navegador, el latido es solo de ese navegador: otra pestaña u otro equipo de la misma
-		// persona no lo mantiene vivo (ni su «Recibir llamadas» ni la saliente que hizo desde él).
-		toque := mensajeriabd.TocarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario, Ahora: m.ahora()}
+	// Este flujo es el «panel abierto» de quien recibe llamadas (contratos/voz.md §3.4): toca sus
+	// filas al abrirse y en cada latido, siempre con un alcance recién autorizado (el de apertura o el
+	// de la revalidación del latido). Con su navegador, el latido es solo de ese navegador: otra
+	// pestaña u otro equipo de la misma persona no lo mantiene vivo (ni su «Recibir llamadas» ni la
+	// saliente que hizo desde él).
+	var tocado time.Time
+	tocar := func(a alcanceConv) {
+		tocado = m.ahora()
+		toque := mensajeriabd.TocarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario, Ahora: tocado}
 		if f.navegador != "" {
 			toque.Navegador = &f.navegador
 		}
 		_ = q.TocarReceptores(ctx, toque)
 		// Y el de la saliente que se hizo desde esta misma pestaña (solo ella la sostiene).
 		if f.pestana != "" {
-			_ = q.TocarPestanaDeLlamada(ctx, mensajeriabd.TocarPestanaDeLlamadaParams{UsuarioID: &a.usuario, Pestana: f.pestana, Ahora: ptrT(m.ahora())})
+			_ = q.TocarPestanaDeLlamada(ctx, mensajeriabd.TocarPestanaDeLlamadaParams{UsuarioID: &a.usuario, Pestana: f.pestana, Ahora: ptrT(tocado)})
 		}
+	}
+	// Mismas reglas que el chat (ver transmitir): sin revalidar arriba, a es el alcance de la última
+	// autorización (apertura, revalidación posterior a la lectura o latido).
+	a := f.alcance
+	tocar(a)
+	for {
+		// Con despertares seguidos el select puede elegir sub.c una y otra vez antes que el latido: si
+		// ya pasó un latido desde el último toque, se revalida y se toca aquí (a lo más una vez por
+		// ChatLatido), para que el hueco entre toques no pase de FlujoVivo y la entrante le suene.
+		if m.ahora().Sub(tocado) >= m.cfg.ChatLatido {
+			ahora, ok := m.revalidarConv(ctx, bd, revalidaToque)
+			if !ok {
+				return
+			}
+			a = ahora
+			tocar(a)
+		}
+		relecturas := 0
 		for {
+			if m.antesDeLeerFlujo != nil {
+				m.antesDeLeerFlujo(a.usuario)
+			}
 			plazo()
-			evs, hayMas, siguiente, err := m.leerFeedConvLimitado(ctx, q, a, desde)
+			// Revalida después de leer y antes de entregar o de avanzar el cursor.
+			evs, hayMas, siguiente, ahora, vale, err := m.leerPaginaFlujoConv(ctx, bd, q, a, desde)
 			if err != nil {
 				if ctx.Err() == nil {
 					slog.WarnContext(ctx, "conversaciones: leer el feed del flujo", "err", err)
 				}
 				return
 			}
-			for _, e := range evs {
-				datos, _ := json.Marshal(e)
-				_, _ = fmt.Fprintf(bw, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Tipo, datos)
-			}
-			desde = siguiente
-			if len(evs) > 0 && !enviar() {
+			if !vale {
 				return
 			}
+			if ahora != a {
+				// Otro alcance: se relee sin mover el cursor, hasta maxRelecturasFlujo veces seguidas.
+				if relecturas++; relecturas > maxRelecturasFlujo {
+					cerrarPorRelecturas(ctx, "conversaciones", a.usuario)
+					return
+				}
+				a = ahora
+				continue
+			}
+			relecturas = 0
+			if len(evs) > 0 {
+				for _, e := range evs {
+					datos, _ := json.Marshal(e)
+					_, _ = fmt.Fprintf(bw, "id: %s\nevent: %s\ndata: %s\n\n", e.ID, e.Tipo, datos)
+				}
+				if !enviar() {
+					return
+				}
+			}
+			desde = siguiente
 			if !hayMas {
 				break
 			}
@@ -395,9 +433,13 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 			return
 		case <-sub.c:
 		case <-latido.C:
-			if _, ok := m.revalidarConv(ctx, bd); !ok {
+			// La única revalidación del latido: su alcance toca los receptores y lee lo que sigue.
+			ahora, ok := m.revalidarConv(ctx, bd, revalidaLatido)
+			if !ok {
 				return
 			}
+			a = ahora
+			tocar(a)
 			plazo()
 			_, _ = fmt.Fprintf(bw, ": latido\n\n")
 			if !enviar() {
@@ -407,14 +449,22 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 	}
 }
 
-func (m *Modulo) leerFeedConvLimitado(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, desde int64) ([]EventoConversacion, bool, int64, error) {
+// leerPaginaFlujoConv es leerPaginaFlujo para la bandeja: lee la página y, en el mismo turno del
+// semáforo, revalida si la página mueve el cursor.
+func (m *Modulo) leerPaginaFlujoConv(ctx context.Context, bd nucleo.BD, q *mensajeriabd.Queries, a alcanceConv, desde int64) (
+	evs []EventoConversacion, hayMas bool, siguiente int64, ahora alcanceConv, vale bool, err error) {
 	select {
 	case m.lecturas <- struct{}{}:
 	case <-ctx.Done():
-		return nil, false, desde, ctx.Err()
+		return nil, false, desde, a, false, ctx.Err()
 	}
 	defer func() { <-m.lecturas }()
-	return m.leerFeedConv(ctx, q, a, desde, 100)
+	evs, hayMas, siguiente, err = m.leerFeedConv(ctx, q, a, desde, 100)
+	if err != nil || (len(evs) == 0 && siguiente == desde) {
+		return evs, hayMas, siguiente, a, err == nil, err
+	}
+	ahora, vale = m.revalidarConv(ctx, bd, revalidaPagina)
+	return evs, hayMas, siguiente, ahora, vale, nil
 }
 
 // purgarFeedConv borra los eventos de la bandeja más viejos que ChatRetencion.
