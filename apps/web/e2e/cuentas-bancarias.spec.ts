@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, conSesion, simularApi } from "./api-falsa";
 import { simularAdjuntos } from "./api-adjuntos-conv";
 import { AHORA_CONV } from "./datos-conversaciones";
-import { esperarSinDesbordes } from "./desbordes";
+import { buscarDesbordes, esperarSinDesbordes } from "./desbordes";
 
 /*
  * Cuentas bancarias de Argos (contrato con Argos 0.8.0 §7.8, B5): la boleta elige la cuenta con su
@@ -52,7 +52,8 @@ test.describe("cuentas bancarias de Argos", () => {
         await expect(texto).toContainText("A nombre de: Internet del Norte, S.A.");
         await expect(texto).not.toContainText("90-1234567-8");
         await expect(d).toContainText("1 cuenta no va porque no tiene titular en Argos.");
-        await esperarSinDesbordes(page);
+        // El diálogo se agranda un poco al entrar: se espera a que se asiente.
+        await expect.poll(() => buscarDesbordes(page), "nada se desborda ni queda fuera de pantalla").toEqual([]);
         await captura(page, "enviar-cuentas");
         await d.getByRole("button", { name: "Enviar al cliente" }).click();
         await expect(d).toBeHidden();
