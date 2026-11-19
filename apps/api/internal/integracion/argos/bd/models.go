@@ -1712,6 +1712,10 @@ type MensajeriaLlamada struct {
 	PestanaVistaEn     *time.Time
 	ExternoWebhook     *string
 	AccionMetaNoExiste bool
+	RafagaHasta        *time.Time
+	RafagaIntentos     int32
+	RafagaUltimoCallID *string
+	RafagaAvisadaEn    *time.Time
 }
 
 type MensajeriaLlamadaCandidato struct {
@@ -2085,6 +2089,15 @@ type MensajeriaVozMotore struct {
 	RotacionDesde             *time.Time
 	SiguienteRechazos         int32
 	RotacionFallidaEn         *time.Time
+}
+
+type MensajeriaVozRafagasLevantada struct {
+	CanalID      int64
+	Numero       string
+	EmpresaID    *int64
+	LevantadaEn  time.Time
+	LevantadaPor *int64
+	Origen       string
 }
 
 type MensajeriaWebhooksSalida struct {

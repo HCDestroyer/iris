@@ -272,6 +272,8 @@ const (
 	PermLlamadasSolicitarPermiso Permiso = "llamadas.solicitar_permiso"
 	// PermLlamadasLlamar: llamar al contacto por WhatsApp (saliente: cuesta dinero). Sensible.
 	PermLlamadasLlamar Permiso = "llamadas.llamar"
+	// PermLlamadasDesbloquearNumero: levantar la ráfaga de un número («Dejar que vuelva a llamar»).
+	PermLlamadasDesbloquearNumero Permiso = "llamadas.desbloquear_numero"
 	// PermVozConfigurar: ajustes de voz de la empresa (grabación, límites). Sensible.
 	PermVozConfigurar Permiso = "voz.configurar"
 )
@@ -519,6 +521,7 @@ var Catalogo = []DefPermiso{
 	{PermLlamadasColgar, "Terminar la llamada que tienes (o cualquiera, si supervisas)"},
 	{PermLlamadasConfigurar, "Encender y configurar las llamadas de WhatsApp de un número (cola, horario, cuánto suena, fuera de horario)"},
 	{PermLlamadasContestar, "Recibir el timbre de las llamadas de WhatsApp en el panel y contestarlas"},
+	{PermLlamadasDesbloquearNumero, "Dejar que un número rechazado por llamar muchas veces seguidas vuelva a llamar"},
 	{PermLlamadasDescartarDevolucion, "Cerrar una llamada «por devolver» sin llamar, con motivo"},
 	{PermLlamadasLlamar, "Llamar por WhatsApp al contacto de una conversación que dio permiso (devolver la llamada); tiene coste"},
 	{PermLlamadasRechazar, "Dejar de recibir una llamada que suena; si supervisas, rechazarla para todos"},
@@ -679,7 +682,7 @@ var RolesBase = []DefRol{
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
-			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar,
+			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar, PermLlamadasDesbloquearNumero,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar},

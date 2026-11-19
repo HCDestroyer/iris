@@ -1,10 +1,11 @@
 "use client";
 
 import { Aviso, Boton, cn, Esqueleto, Interruptor, PanelEmergente } from "@iris/ui";
-import { Mic, Phone, RotateCw } from "lucide-react";
+import { Mic, Phone, RotateCw, UserCheck } from "lucide-react";
 import { useState } from "react";
 import { mensajeDeError } from "@/lib/api/errores";
 import { permisoMicrofono } from "@/lib/voz/medios";
+import { useDisponibilidad } from "@/lib/conversaciones/disponibilidad";
 import { useEstoyDisponible } from "../conversaciones/disponibilidad";
 import { EtiquetaEnPruebas } from "./en-pruebas";
 import { useVoz } from "./proveedor";
@@ -31,6 +32,7 @@ function useResumen(): Resumen | null {
 export function ControlRecibir({ className }: { className?: string }) {
     const voz = useVoz();
     const disponible = useEstoyDisponible();
+    const d = useDisponibilidad();
     const [explicando, setExplicando] = useState(false);
     // Quien solo llama (sin `llamadas.contestar`) no tiene «Recibir llamadas».
     if (!voz?.contesta) return null;
@@ -168,7 +170,15 @@ export function ControlRecibir({ className }: { className?: string }) {
             ) : null}
             {recibir.recibe ? (
                 disponible === false ? (
-                    <p className="text-xs font-medium text-warning">Estás «No disponible»: ahora no te suenan las llamadas.</p>
+                    <div className="grid gap-1.5" data-slot="recibir-no-disponible">
+                        <p className="text-xs font-medium text-warning">Estás «No disponible»: ahora no te suenan las llamadas.</p>
+                        {d ? (
+                            <Boton tamano="sm" className="justify-self-start" disabled={d.cambiando} onClick={() => void d.cambiar("disponible")}>
+                                <UserCheck />
+                                Ponerme disponible
+                            </Boton>
+                        ) : null}
+                    </div>
                 ) : voz.feed === "sin_conexion" || voz.feed === "sondeo" || voz.feed === "detenido" ? (
                     <p className="text-xs font-medium text-warning">Sin conexión en vivo: ahora no te suenan las llamadas. Se reconecta sola.</p>
                 ) : (

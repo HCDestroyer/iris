@@ -75,6 +75,8 @@ const (
 	// Ráfaga: la cuarta llamada de un número en 10 minutos se rechaza (límite de E1).
 	RafagaLlamadas = 3
 	RafagaVentana  = 10 * time.Minute
+	// AvisoRafagaCada: como mucho cada cuánto se refresca en el feed la tarjeta de una ráfaga.
+	AvisoRafagaCada = 30 * time.Second
 	// VenceDevolucion: una devolución pendiente vence a las 72 h.
 	VenceDevolucion = 72 * time.Hour
 	// AvisoPerdidaCada: el mensaje «No pudimos contestarte» sale una vez por hora y conversación.
@@ -503,6 +505,18 @@ type LlamadaEnMensaje struct {
 	Grabacion   *EstadoGrabacion `json:"grabacion,omitempty"`
 	// DevolucionID: la devolución que atiende una saliente («Devolver la llamada»).
 	DevolucionID *int64 `json:"devolucionId,omitempty"`
+	// Rafaga: solo en una entrante rechazada por la ráfaga (motivoFin = limite).
+	Rafaga *RafagaDeLlamada `json:"rafaga,omitempty" doc:"Solo en una entrante que Iris rechazó por ráfaga (motivoFin limite)"`
+}
+
+// RafagaDeLlamada dice hasta cuándo seguía la ráfaga que rechazó la llamada y si alguien ya la levantó.
+type RafagaDeLlamada struct {
+	Hasta     time.Time `json:"hasta" doc:"Desde este instante el número vuelve a sonar (si nadie levantó antes la ráfaga)"`
+	Levantada bool      `json:"levantada" doc:"Alguien dejó que vuelva a llamar (a mano o llamándolo) después de esta llamada"`
+	Intentos  int32     `json:"intentos" doc:"Reintentos que la ráfaga rechazó después de esta llamada, en la misma ventana (no dejan tarjeta propia)"`
+	// PuedeLevantar: la empresa de la llamada es la dueña del número (en uno prestado, la prestataria no
+	// puede: la ráfaga es del número). El permiso llamadas.desbloquear_numero lo mira el panel aparte.
+	PuedeLevantar bool `json:"puedeLevantar" doc:"La empresa de la llamada puede dejar que el número vuelva a llamar (false en un número prestado, para la prestataria)"`
 }
 
 // DevolucionLlamada es una fila de «Por devolver».
