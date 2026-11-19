@@ -38,6 +38,10 @@ export function textoAviso(motivo: MotivoAviso, quien?: string, saliente = false
                 return { titulo: "No se pudo hacer la llamada", detalle: "Se perdió la conexión. Revisa tu red y vuelve a intentarlo." };
             case "meta_rechazo":
                 return { titulo: "WhatsApp no aceptó la llamada", detalle: "Vuelve a intentarlo en un momento." };
+            case "medio_fallido":
+                return { titulo: "No se pudo conectar el audio", detalle: "La llamada no llegó a tener audio con WhatsApp y se colgó. Vuelve a llamar; si se repite, prueba desde otra red." };
+            case "audio_no_admitido":
+                return { titulo: "No se pudo preparar el audio de la llamada", detalle: "Iris no aceptó el audio de este navegador y no se llamó al cliente. Prueba con Chrome actualizado; si se repite, avisa al administrador." };
             case "otra_llamada":
                 return { titulo: "Ya hay una llamada en curso", detalle: "Tú o este contacto ya están en otra llamada. Espera a que termine." };
             case "otro_navegador":
@@ -70,6 +74,8 @@ export function textoAviso(motivo: MotivoAviso, quien?: string, saliente = false
             return { titulo: "Se perdió la conexión", detalle: "No se pudo contestar. La llamada sigue sonándoles a los demás." };
         case "medio_fallido":
             return { titulo: "No se pudo conectar el audio", detalle: "Tu red no dejó pasar la llamada. Prueba otra vez o desde otra red." };
+        case "audio_no_admitido":
+            return { titulo: "No se pudo contestar", detalle: "Iris no aceptó el audio de este navegador. Prueba con Chrome actualizado; si se repite, avisa al administrador." };
         case "meta_rechazo":
             return { titulo: "WhatsApp no aceptó la llamada", detalle: "Puede que el cliente ya haya colgado." };
         case "otro_navegador":
@@ -109,7 +115,8 @@ export function motivoDeCodigo(codigo: string, estado: number, regla?: string): 
     if (codigo === "limite_llamadas") return regla === "colgadas_marcando" ? "limite_colgadas" : "limite_llamadas";
     if (codigo === "tope_alcanzado") return "tope_alcanzado";
     if (codigo === "devolucion_cerrada") return "devolucion_cerrada";
-    if (codigo === "sdp_invalido") return "medio_fallido";
+    // No es la red: el servidor no aceptó la descripción del audio (antes se decía «tu red»).
+    if (codigo === "sdp_invalido") return "audio_no_admitido";
     return estado === 0 ? "sin_red" : "error";
 }
 

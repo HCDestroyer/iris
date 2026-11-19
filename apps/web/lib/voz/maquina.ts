@@ -23,6 +23,8 @@ export type MotivoAviso =
     | "no_recibe_llamadas"
     | "sin_red"
     | "medio_fallido"
+    /** 422 `sdp_invalido`: el servidor no aceptó el audio de este navegador (no es la red). */
+    | "audio_no_admitido"
     | "meta_rechazo"
     /** 409 `llamada_en_curso`: ya tengo otra llamada viva (en otra pestaña o navegador). */
     | "otra_llamada"

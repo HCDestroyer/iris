@@ -2097,7 +2097,9 @@ func (q *Queries) LlamadasPorIDs(ctx context.Context, ids []uuid.UUID) ([]Mensaj
 }
 
 const llamadasRecientesDeNumero = `-- name: LlamadasRecientesDeNumero :one
-SELECT count(*)::bigint FROM mensajeria.llamadas WHERE canal_id = $1 AND numero = $2 AND sono_en > $3
+SELECT count(*)::bigint FROM mensajeria.llamadas
+WHERE canal_id = $1 AND numero = $2 AND sono_en > $3 AND direccion = 'entrante'
+  AND NOT (estado = 'rechazada' AND motivo_fin IS NOT DISTINCT FROM 'limite')
 `
 
 type LlamadasRecientesDeNumeroParams struct {
@@ -2106,7 +2108,9 @@ type LlamadasRecientesDeNumeroParams struct {
 	Desde   time.Time
 }
 
-// Ráfaga: llamadas de ese número a ese canal desde un instante.
+// Ráfaga: llamadas ENTRANTES de ese número a ese canal desde un instante. Las que ya se rechazaron
+// por la ráfaga no la alimentan (si no, cada reintento la renovaría y el número no saldría nunca) y
+// las salientes hacia ese número no cuentan: la ventana es fija desde la primera.
 func (q *Queries) LlamadasRecientesDeNumero(ctx context.Context, arg LlamadasRecientesDeNumeroParams) (int64, error) {
 	row := q.db.QueryRow(ctx, llamadasRecientesDeNumero, arg.CanalID, arg.Numero, arg.Desde)
 	var column_1 int64

@@ -805,18 +805,18 @@ func TestSanearSDP(t *testing.T) {
 	}
 	// Lo estructuralmente inválido o fuera de la lista cerrada se sigue rechazando.
 	for nombre, malo := range map[string]string{
-		"vacío":                "",
-		"con video":            sdpChromium + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n",
-		"con datos":            sdpChromium + "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n",
-		"atributo desconocido": sdpChromium + "a=x-google-flag:conference\r\n",
-		"línea desconocida":    sdpChromium + "u=http://interno.ejemplo/\r\n",
-		"otro códec":           strings.Replace(sdpChromium, "opus/48000/2", "PCMU/8000", 1),
-		"sin huella":           strings.Replace(sdpChromium, "a=fingerprint:", "a=mid:", 1),
-		"RTP sin cifrar":       strings.Replace(sdpChromium, "UDP/TLS/RTP/SAVPF", "RTP/AVP", 1),
-		"candidato corto":      sdpChromium + "a=candidate:9 1 udp 1 190.56.10.7\r\n",
-		"c= mal formada":       strings.Replace(sdpChromium, "c=IN IP4 192.0.2.2", "c=IN IP4", 1),
-		"a=rtcp mal formado":   strings.Replace(sdpChromium, "a=rtcp:9 IN IP4 0.0.0.0", "a=rtcp:9 IN", 1),
-		"enorme":               sdpChromium + strings.Repeat("a=mid:"+strings.Repeat("y", 90)+"\r\n", 90),
+		"vacío":     "",
+		"con video": sdpChromium + "m=video 9 UDP/TLS/RTP/SAVPF 96\r\na=rtpmap:96 VP8/90000\r\n",
+		"con datos": sdpChromium + "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\n",
+		// Un atributo desconocido ya no rechaza: se quita (TestSanearSDPQuitaLoDesconocido).
+		"línea desconocida":  sdpChromium + "u=http://interno.ejemplo/\r\n",
+		"sin Opus":           strings.Replace(sdpChromium, "opus/48000/2", "PCMU/8000", 1),
+		"sin huella":         strings.Replace(sdpChromium, "a=fingerprint:", "a=mid:", 1),
+		"RTP sin cifrar":     strings.Replace(sdpChromium, "UDP/TLS/RTP/SAVPF", "RTP/AVP", 1),
+		"candidato corto":    sdpChromium + "a=candidate:9 1 udp 1 190.56.10.7\r\n",
+		"c= mal formada":     strings.Replace(sdpChromium, "c=IN IP4 192.0.2.2", "c=IN IP4", 1),
+		"a=rtcp mal formado": strings.Replace(sdpChromium, "a=rtcp:9 IN IP4 0.0.0.0", "a=rtcp:9 IN", 1),
+		"enorme":             sdpChromium + strings.Repeat("a=mid:"+strings.Repeat("y", 90)+"\r\n", 90),
 	} {
 		if _, err := mensajeria.SanearSDP(malo); err == nil {
 			t.Errorf("%s: debía rechazarse", nombre)

@@ -42,7 +42,8 @@ solo sitio (`graphHTTP`, `apps/api/internal/mensajeria/voz_modelo.go`) y la form
 ## 3. Lo que el diseño supone y hay que confirmar
 
 **Lo primero a mirar: la oferta SDP real de Meta.** Iris valida la oferta con una lista cerrada de
-líneas, atributos y códecs (solo Opus y `telephone-event`) antes de entregarla al navegador. Si la
+líneas, atributos y códecs de audio (Opus obligatorio; además `telephone-event`, `red`, G722, PCMU,
+PCMA y CN, que trae la respuesta real de Meta a una saliente) antes de entregarla al navegador. Si la
 oferta real trae un atributo o un códec fuera de la lista, **ninguna llamada suena**: falla cerrado,
 la llamada queda `perdida` y en el log del servidor aparece `voz: la oferta SDP de Meta no pasa la
 validación` con el motivo. Si en el paso 2 no suena nada, mirar ese log y el SDP del webhook crudo
@@ -61,7 +62,7 @@ el servidor las quita antes de mandarla a Meta; comprobar que aun así el audio 
 | 7 | Una llamada **no** abre la ventana de 24 h | Llamar desde un número que no ha escrito y ver si sale el mensaje de llamada perdida | Si la abre, quitar la condición |
 | 8 | Cómo se pide la grabación y qué trae `call_recording_available` | Con una página de prueba aparte (Iris no la pide: la grabación es E1c) | Define E1c |
 | 9 | La forma de `call_hours` en `POST /{phone_number_id}/settings` | Configurar un horario que quepa y mirar WhatsApp Manager | Ajustar `graphHTTP.FijarAjustes` |
-| 11 | `accept` no necesita el SDP otra vez (Iris lo manda solo en `pre_accept`; `confirmar-medio` manda `accept` sin `session`) | Contestar normal y mirar la respuesta de Meta al `accept`; repetir mandando el SDP en los dos | Guardar el SDP de la respuesta hasta el `accept` y mandarlo también ahí |
+| 11 | `accept` no necesita el SDP otra vez (Iris lo manda solo en `pre_accept`; `confirmar-medio` manda `accept` sin `session`) | **Validado el 2026-11-19 con Meta real (0.29.0, Chrome de escritorio):** la entrante se contestó y se oyó en los dos sentidos | Guardar el SDP de la respuesta hasta el `accept` y mandarlo también ahí |
 | 12 | Qué hace Meta con un **segundo `pre_accept`** de la misma llamada (después de soltar, otra persona contesta con otro SDP) | Reclamar y contestar con A, soltar, reclamar y contestar con B: ¿B oye al cliente? | Quien hace `pre_accept` se queda con la llamada: `soltar` después de `contestar` pasa a terminar la llamada |
 | 10 | Qué distingue el recado del buzón de un audio normal | Dejar un recado con `fueraDeHorario: buzon` y mirar el webhook `messages` | Cambiar la regla de los 5 minutos por la marca de Meta |
 
@@ -73,7 +74,10 @@ el servidor las quita antes de mandarla a Meta; comprobar que aun así el audio 
    `messages` (qué lo distingue de un audio normal).
 3. Sin nadie disponible: a los `segundosSonando` queda perdida, aparece en «Por devolver» y, si el
    cliente escribió en las últimas 24 h, sale el mensaje automático (una vez por hora).
-4. Cuatro llamadas seguidas del mismo teléfono en 10 minutos: la cuarta se rechaza.
+4. Cuatro llamadas seguidas del mismo teléfono en 10 minutos: la cuarta se rechaza. La ventana es
+   fija: cuenta solo las **entrantes** que sonaron (ni las que ya rechazó la ráfaga ni las salientes
+   a ese número). Pasados 10 minutos desde la primera de las tres, vuelve a sonar aunque se haya
+   seguido intentando (antes de 0.29.1 cada reintento renovaba el bloqueo).
 
 ## 4b. Salientes y permiso de llamada (E1b)
 
@@ -141,6 +145,79 @@ Además, con un número real:
   la respuesta real y ajustar.
 - Si el número también hace salientes desde otro sistema: comprobar que Iris no las corta (quedan
   en `mensajeria.llamadas_huerfanas` con estado `ajena`).
+
+## Si no conecta el audio
+
+Lo que ve la persona y qué significa:
+
+- **«No se pudo preparar el audio de la llamada»** (al llamar) o **«No se pudo contestar — Iris no
+  aceptó el audio de este navegador»**: no es la red. Iris no aceptó la descripción del audio que dio
+  el navegador y ni siquiera se llamó a WhatsApp. Pasó en 0.29.0 con toda llamada saliente desde
+  Chrome (Iris solo admitía Opus y Chrome ofrece también otros códecs); se corrigió en 0.29.1. Si
+  vuelve a pasar, el registro del servidor dice el motivo exacto (ver abajo) y hay que avisar a
+  desarrollo con esa línea.
+- **«No se pudo conectar el audio»**: la llamada llegó a WhatsApp pero el audio no pasó. Ahí sí puede
+  ser la red: probar desde otra red (por ejemplo, los datos del teléfono compartidos a la
+  computadora). Meta no exige servidores STUN ni TURN (su FAQ: usa ICE-lite y acepta al navegador
+  aunque no anuncie su dirección), pero una red que bloquea UDP no deja pasar el audio.
+
+Qué mirar, sin tocar nada:
+
+1. En la computadora, en Chrome, abrir la consola (F12 → Consola) durante la llamada: las líneas
+   `[voz] ICE:` dicen cómo va la conexión del audio (`checking`, `connected`, `failed`) y qué tipo de
+   candidatos tiene el navegador (`host`, `srflx`, `relay`), sin direcciones. Si no aparece ninguna
+   línea `[voz] ICE:`, no se llegó a intentar el audio (es el caso de «no se pudo preparar»).
+2. Para más detalle, abrir `chrome://webrtc-internals` en otra pestaña **antes** de llamar: en la
+   conexión, «ICE connection state» y la tabla de pares de candidatos. Si todos los pares quedan en
+   `failed`/`in-progress` sin respuesta, la red no deja pasar el audio hacia WhatsApp.
+3. En el servidor, el registro de voz de las últimas 3 horas (`irisctl logs` sigue la salida en vivo y
+   solo muestra las últimas 200 líneas, por eso no sirve con `grep`):
+
+   ```
+   sudo irisctl compose logs --no-color --since 3h api worker 2>&1 | grep -F 'voz:'
+   ```
+
+   Líneas útiles: `voz: la oferta SDP del navegador no pasa la validación; no se llama` (con
+   `motivo=`), `voz: la respuesta SDP del navegador no pasa la validación; no se contesta`,
+   `voz: la respuesta SDP de Meta a una saliente no pasa la validación; se cuelga`,
+   `voz: a la oferta SDP del navegador se le quitó lo que Meta no usa` (informativa: se quitaron
+   atributos o códecs desconocidos y la llamada siguió). Nunca se registra el SDP ni el token.
+4. Las últimas llamadas que intentó hacer cada persona y cómo terminaron, en la base:
+
+   ```
+   sudo irisctl compose exec -T postgres sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -At -c "select created_at, resultado, error->>'\''type'\'' from auditoria.acciones where accion = '\''llamadas.llamar'\'' order by id desc limit 5"'
+   ```
+
+   `error` con `sdp_invalido` = Iris no aceptó el audio del navegador (no es la red).
+
+## Si no aparece «Contestar»
+
+Una llamada entrante solo le suena (con el aviso y el botón «Contestar») a quien cumple **todo** esto
+en el momento:
+
+1. Está **Disponible** en Conversaciones (el punto de su foto en verde; «No disponible» es gris).
+2. Tiene **«Recibir llamadas»** encendido en ese navegador: es el botón del teléfono de la barra de
+   arriba. Al encenderlo, el navegador pide el micrófono: hay que permitirlo.
+3. Tiene el panel de Iris abierto (cualquier pantalla) en ese navegador.
+4. Es miembro o supervisor de la cola a la que entra la llamada (la del número en Administración →
+   Llamadas, o la de la conversación).
+5. Tiene el permiso de contestar llamadas (roles `soporte`, `despacho`, `ventas`, `supervisor` y `admin`).
+
+Si a nadie le suena, la llamada queda en la conversación como **«Llamada perdida — Nadie
+contestó»** y en «Por devolver». Si alguien se pone disponible o enciende «Recibir llamadas» mientras
+todavía suena, le empieza a sonar en unos segundos.
+
+**«Llamada rechazada» sin nadie que la rechazara**: es el límite contra abuso. La cuarta llamada del
+mismo número en 10 minutos se rechaza sola (el cliente oye que no se le contestó). Al probar, esperar
+10 minutos desde la primera de las tres o probar desde otro teléfono. Otras causas que se ven
+distinto: con las llamadas apagadas en Iris no queda nada en la conversación (registro: «voz: llegó
+una llamada y se rechazó porque las llamadas del número están apagadas en Iris»); fuera del horario
+queda «Llamó fuera de horario».
+
+En el registro del servidor (mismo comando de arriba): `voz: llamada entrante sin nadie que la pueda
+contestar ahora` (nadie cumplía los cinco puntos), `voz: llamada entrante rechazada por ráfaga`
+(el límite) y `voz: la oferta SDP de Meta no pasa la validación; la llamada no suena` (Iris no aceptó
+la oferta de Meta: avisar a desarrollo con esa línea).
 
 ## 5. Qué entregar
 

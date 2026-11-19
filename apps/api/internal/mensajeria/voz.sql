@@ -138,8 +138,12 @@ WHERE coalesce(empresa_id, 0) = @empresa::bigint AND estado IN ('conectando', 'e
 ORDER BY sono_en DESC LIMIT 1;
 
 -- name: LlamadasRecientesDeNumero :one
--- Ráfaga: llamadas de ese número a ese canal desde un instante.
-SELECT count(*)::bigint FROM mensajeria.llamadas WHERE canal_id = @canal_id AND numero = @numero AND sono_en > @desde;
+-- Ráfaga: llamadas ENTRANTES de ese número a ese canal desde un instante. Las que ya se rechazaron
+-- por la ráfaga no la alimentan (si no, cada reintento la renovaría y el número no saldría nunca) y
+-- las salientes hacia ese número no cuentan: la ventana es fija desde la primera.
+SELECT count(*)::bigint FROM mensajeria.llamadas
+WHERE canal_id = @canal_id AND numero = @numero AND sono_en > @desde AND direccion = 'entrante'
+  AND NOT (estado = 'rechazada' AND motivo_fin IS NOT DISTINCT FROM 'limite');
 
 -- name: AvisoPerdidaReciente :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas

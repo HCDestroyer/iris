@@ -149,7 +149,7 @@ export function apiVoz(
          * E1b: qué responde `llamar`. `sin_red`: no llega al servidor. `perdida`: el servidor crea la
          * llamada pero la respuesta no llega al navegador.
          */
-        llamar?: "sin_permiso_llamada" | "limite_llamadas" | "colgadas_marcando" | "tope_alcanzado" | "llamada_en_curso" | "devolucion_cerrada" | "meta_rechazo" | "llamadas_inactivas" | "sin_red" | "perdida" | "tardia";
+        llamar?: "sdp_invalido" | "sin_permiso_llamada" | "limite_llamadas" | "colgadas_marcando" | "tope_alcanzado" | "llamada_en_curso" | "devolucion_cerrada" | "meta_rechazo" | "llamadas_inactivas" | "sin_red" | "perdida" | "tardia";
         /** E1b: la respuesta SDP ya está lista cuando `llamar` responde (su aviso llegó antes y se perdió). */
         respuestaLista?: boolean;
         /** E1b: `respuesta-sdp` responde 409 `otra_pestana`. */
@@ -633,7 +633,7 @@ export function apiVoz(
             }
             if (p.sinContestar >= 3 && cuerpo.confirmarRiesgo !== true) return (await regla("confirmar_riesgo", "Lleva tres llamadas seguidas sin contestar"), true);
             const sdp = String(cuerpo.sdpOferta ?? "");
-            if (!sdp.includes("m=audio") || !sdp.includes("a=setup:") || !sdp.includes("a=fingerprint:")) return (await regla("sdp_invalido", "SDP inválido"), true);
+            if (forzar.llamar === "sdp_invalido" || !sdp.includes("m=audio") || !sdp.includes("a=setup:") || !sdp.includes("a=fingerprint:")) return (await regla("sdp_invalido", "SDP inválido"), true);
             if (forzar.llamar === "meta_rechazo") return (await problema(route, P("meta_rechazo", 502, "WhatsApp no aceptó la llamada")), true);
             const crear = () => crearSaliente(conversacionId, yo, nav, pestana, devolucionId);
             if (forzar.llamar === "tardia") {
