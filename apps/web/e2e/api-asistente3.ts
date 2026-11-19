@@ -228,7 +228,19 @@ export function apiFase3(e: Contexto, opciones: OpcionesFase3 | undefined) {
             estadoEntrega: null,
             automatico: null,
             autorTipo: "sistema",
-            evento: { tipo: "reconexion_pedida", actorNombre: "Asistente de IA", detalle: "aceptada" },
+            evento: { tipo: "reconexion_pedida", actorNombre: "Asistente de IA", detalle: "aceptada", motivo: "sin_personal", hasta: "2026-10-29T06:00:00.000Z" },
+        });
+        // B4 (0.8.0): lo que Argos contó después (webhook promesa.cancelada), con su motivo.
+        e.mensajes.get(42)?.push({
+            ...delAsistente(42, 9004, "saliente", "", "2026-10-28T16:31:00Z"),
+            id: "0193a100-0000-7000-8000-000000009004",
+            direccion: "sistema",
+            tipo: "sistema",
+            texto: null,
+            estadoEntrega: null,
+            automatico: null,
+            autorTipo: "sistema",
+            evento: { tipo: "reconexion_actualizada", actorNombre: "Argos", detalle: "cancelada", motivo: "sin_personal", fin: "comprobante_rechazado" },
         });
     }
 
