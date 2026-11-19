@@ -113,6 +113,9 @@ func nuevoPedirReconexion(m *Modulo) *PedirReconexion {
 			if err != nil {
 				return previaReconexion{}, err
 			}
+			// La entidad va desde aquí: un intento rechazado también queda auditado en la conversación.
+			t.FijarEmpresa(empresaDeConv(c))
+			t.FijarEntidad("conversacion", c.ID)
 			if lectura, err := soloLecturaConv(ctx, q, c); err != nil || lectura {
 				if err == nil {
 					err = conversacionSoloLectura()

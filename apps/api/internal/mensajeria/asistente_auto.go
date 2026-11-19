@@ -179,13 +179,13 @@ type turnoIA struct {
 	visitas      VisitasAsistente
 	desde        time.Time
 	// conSaldo: el mensaje final lleva el monto del saldo (se marca para enmascararlo en el historial).
-	conSaldo   bool
+	conSaldo bool
 	// fraseReconexion: la frase de FraseReconexion si una reconexión se aceptó en este turno (va en
 	// la marca {{reconexion}} o al final del mensaje).
 	fraseReconexion string
-	servicioID *int64
-	presentado bool
-	nombreISP  string
+	servicioID      *int64
+	presentado      bool
+	nombreISP       string
 	// preguntaSiEsPersona: el último mensaje pregunta si habla con una persona.
 	preguntaSiEsPersona bool
 	// vistos: los datos que recibió el modelo (para validar precios y plazos); enlaces: los que
