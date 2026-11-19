@@ -329,11 +329,20 @@ func TestChatReenvioIdempotente(t *testing.T) {
 	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'chat.enviar' AND entidad_id = $1 AND resultado = 'ok'`, id); n != 1 {
 		t.Fatalf("auditoría: %d", n)
 	}
-	// La auditoría guarda el id, no el texto.
-	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'chat.enviar' AND entrada::text LIKE '%dBm%'`); n != 0 {
+	// La auditoría guarda el id, no el texto. Se miran todas las filas de esta prueba (las acciones de
+	// sus dos personas, de la conversación y del mensaje, y sus cambios), no las de otras pruebas del
+	// paquete que comparten la base (chat_panel_test.go también escribe «dBm»).
+	const propias = `SELECT id FROM auditoria.acciones WHERE (actor_tipo = 'usuario' AND actor_id IN ($1, $2)) OR entidad_id IN ($3, $4)`
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'chat.enviar' AND (actor_tipo = 'usuario' AND actor_id IN ($1, $2) OR entidad_id IN ($3, $4))`,
+		a.id, b.id, c, id); n == 0 {
+		t.Fatal("la consulta acotada no ve la auditoría del envío")
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE id IN (`+propias+`) AND (entrada::text LIKE '%dBm%' OR coalesce(error::text, '') LIKE '%dBm%')`,
+		a.id, b.id, c, id); n != 0 {
 		t.Fatal("la auditoría guarda el texto")
 	}
-	if n := e.contar(`SELECT count(*) FROM auditoria.cambios WHERE despues::text LIKE '%dBm%'`); n != 0 {
+	if n := e.contar(`SELECT count(*) FROM auditoria.cambios WHERE (accion_id IN (`+propias+`) OR entidad_id IN ($3, $4))
+		AND (antes::text LIKE '%dBm%' OR despues::text LIKE '%dBm%')`, a.id, b.id, c, id); n != 0 {
 		t.Fatal("los cambios guardan el texto")
 	}
 	// El mismo id con otro contenido, o de otro autor: 409.
