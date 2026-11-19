@@ -45,7 +45,7 @@ export function BotonEnviarCuentas({ conv, identidad, alEnviado, deshabilitado =
                 variante="fantasma"
                 tamano="icono-sm"
                 className="text-muted-foreground"
-                aria-label="Enviar cuentas"
+                aria-label="Cuentas bancarias"
                 title="Enviar las cuentas para depositar"
                 disabled={deshabilitado}
                 onClick={() => setAbierto(true)}

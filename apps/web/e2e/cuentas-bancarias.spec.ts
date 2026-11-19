@@ -44,7 +44,7 @@ test.describe("cuentas bancarias de Argos", () => {
 
     test("«Enviar cuentas» muestra el texto fijo y lo manda al cliente", async ({ page }) => {
         const api = await abrir(page, "/conversaciones?c=41");
-        await page.getByRole("button", { name: "Enviar cuentas" }).click();
+        await page.getByRole("button", { name: "Cuentas bancarias" }).click();
         const d = page.getByRole("dialog", { name: "Enviar cuentas" });
         const texto = d.getByTestId("texto-cuentas");
         await expect(texto).toContainText("Cuentas para depositar o transferir");
