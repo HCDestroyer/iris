@@ -382,7 +382,9 @@ func TestPrimeraSincronizacionArgosAnterior(t *testing.T) {
 	}
 	var consultas []string
 	var cabeceras []string
-	e.argos.con(func() { consultas, cabeceras = slices.Clone(e.argos.sinc080.consultas), slices.Clone(e.argos.sinc080.cabeceras) })
+	e.argos.con(func() {
+		consultas, cabeceras = slices.Clone(e.argos.sinc080.consultas), slices.Clone(e.argos.sinc080.cabeceras)
+	})
 	for _, c := range consultas {
 		if strings.Contains(c, "excluir_retirados") {
 			t.Fatalf("con Argos anterior a 0.8.0 no se manda excluir_retirados: %s", c)

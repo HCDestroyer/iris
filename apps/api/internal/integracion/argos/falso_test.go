@@ -83,7 +83,7 @@ type argosFalso struct {
 	// alLeerPlan: se llama al atender GET /servicios?plan_id= (un aviso que llega mientras Iris lee).
 	alLeerPlan func()
 	// Contrato 0.8.0 §2.5 (sincronizacion080_test.go): listas completas, informes y bancos.
-	sinc080 sinc080
+	sinc080    sinc080
 	contratos  int      // PUT /integraciones/iris/contrato recibidos
 	informados []string // el contrato de cada PUT, tal como lo mandó Iris
 	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
