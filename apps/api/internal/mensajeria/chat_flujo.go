@@ -223,6 +223,7 @@ func (m *Modulo) leerPaginaFlujo(ctx context.Context, bd nucleo.BD, q *mensajeri
 const (
 	revalidaPagina = "pagina" // después de leer una página que mueve el cursor
 	revalidaLatido = "latido"
+	revalidaToque  = "toque" // bandeja: antes de tocar los receptores si el latido se atrasó
 )
 
 func (m *Modulo) contarRevalidacion(usuario int64, donde string) {

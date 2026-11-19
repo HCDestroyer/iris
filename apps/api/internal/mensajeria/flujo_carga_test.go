@@ -233,3 +233,64 @@ func TestChatSSERevocadaEntreDespertaresSeCorta(t *testing.T) {
 		}
 	})
 }
+
+// Bandeja con despertares sin parar: aunque el select elija sub.c una y otra vez y el latido no
+// llegue, el flujo toca sus receptores arriba del ciclo cada ChatLatido (25 s) del reloj del módulo,
+// así que pasados más de FlujoVivo (40 s) el agente sigue vivo y la entrante le suena. Solo avanza el
+// reloj del módulo: el latido real (25 s de verdad) no llega durante la prueba.
+func TestConversacionesSSEDespertaresSeguidosSiguenTocandoReceptores(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	cuenta := contarRevalidaciones(x.m)
+	x.recibe(x.agente)
+	url, ctx := x.servirSSE(t)
+	flujo := abrirSSEEn(t, ctx, url+rutaMsj+"/conversaciones/eventos", x.sesion(x.agente), "")
+	vistoEn := func() time.Time {
+		t.Helper()
+		var v time.Time
+		if err := x.bd.QueryRow(x.ctx, `SELECT max(visto_en) FROM mensajeria.llamada_receptores WHERE usuario_id = $1 AND recibe`,
+			x.agente.id).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	inicio := *x.reloj
+	// Seis despertares, uno cada 10 s del reloj del módulo (60 s en total, sin latidos).
+	for i := 1; i <= 6; i++ {
+		x.pasa(10 * time.Second)
+		antes := cuenta.total(x.agente.id)
+		x.texto(numeroCliente(), fmt.Sprintf("wamid.despertar.%d", i), "despierta el flujo")
+		limite := time.Now().Add(5 * time.Second)
+		for cuenta.total(x.agente.id) == antes && time.Now().Before(limite) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		// Tras el despertar, el último toque nunca queda más viejo que ChatLatido (25 s).
+		limite = time.Now().Add(5 * time.Second)
+		for x.reloj.Sub(vistoEn()) >= 25*time.Second && time.Now().Before(limite) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		if hueco := x.reloj.Sub(vistoEn()); hueco >= 25*time.Second {
+			t.Fatalf("despertar %d (%v desde el inicio): último toque hace %v", i, x.reloj.Sub(inicio), hueco)
+		}
+	}
+	// A lo más un toque extra por cada 25 s del reloj: a los 30 s y a los 60 s.
+	if v := cuenta.de(x.agente.id); v["toque"] < 1 || v["toque"] > 2 {
+		t.Fatalf("revalidaciones para tocar: %v (esperaba 1 o 2 en 60 s)", v)
+	}
+	// Una entrante ahora (60 s después de abrir, sin latidos): el agente es candidato y le suena.
+	num, call := numeroCliente(), "wacid.despertares"+numeroCliente()
+	x.connect(num, call)
+	id, estado, _ := x.llamada(call)
+	if estado != "sonando" {
+		t.Fatalf("la entrante quedó %s", estado)
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.llamada_candidatos WHERE llamada_id = $1::uuid AND usuario_id = $2`, id, x.agente.id); n != 1 {
+		t.Fatalf("el agente no es candidato de la entrante: %d", n)
+	}
+	select {
+	case _, ok := <-flujo:
+		if !ok {
+			t.Fatal("el flujo se cerró")
+		}
+	default:
+	}
+}

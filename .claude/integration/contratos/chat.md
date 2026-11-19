@@ -283,8 +283,10 @@ data: {"id":"1543","tipo":"mensaje_nuevo",…}
 - `: latido` cada 25 s. **En cada latido y antes de entregar cada página o de avanzar el cursor**
   (después de leer la página) el servidor revalida la credencial: nada que se envió después de
   perder el acceso llega al flujo, ni se salta nada que el alcance de ahora vea. Una página que no
-  trae eventos ni mueve el cursor no revalida (no entrega nada). Sesión cerrada o vencida, token revocado, usuario desactivado, fuera de la empresa o
-  sin `chat.ver` → cierra el flujo (al reconectar, 401/403: no reintentes; vuelve a iniciar sesión).
+  trae eventos ni mueve el cursor no revalida (no entrega nada): una credencial perdida sin eventos
+  que muevan el cursor se corta en el siguiente latido (≤ 25 s). Sesión cerrada o vencida, token
+  revocado, usuario desactivado, fuera de la empresa o sin `chat.ver` → cierra el flujo (al
+  reconectar, 401/403: no reintentes; vuelve a iniciar sesión).
   El alcance se recalcula de la base: quitar `chat.supervisar` deja de entregar lo de ese alcance
   sin cerrar el flujo, y si el alcance cambió entre la lectura y la revalidación la página se relee
   con el de ahora sin mover el cursor (tras 3 relecturas seguidas el flujo se cierra: reconecta).

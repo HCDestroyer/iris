@@ -219,7 +219,7 @@ type Modulo struct {
 	// que da el alcance y la lectura del feed; recibe el usuario del flujo). Se fija antes de abrirlos.
 	antesDeLeerFlujo func(usuario int64)
 	// alRevalidarFlujo: solo pruebas (cada revalidación de un flujo SSE del chat o la bandeja, con el
-	// usuario del flujo y dónde: pagina o latido). Se fija antes de abrirlos.
+	// usuario del flujo y dónde: pagina, latido o toque). Se fija antes de abrirlos.
 	alRevalidarFlujo func(usuario int64, donde string)
 	// sondeoSiguienteIA: solo pruebas (hace fallar el sondeo de lo «siguiente» del servidor de IA).
 	sondeoSiguienteIA func() error

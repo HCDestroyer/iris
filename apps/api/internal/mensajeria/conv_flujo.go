@@ -356,15 +356,17 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 	// de la revalidación del latido). Con su navegador, el latido es solo de ese navegador: otra
 	// pestaña u otro equipo de la misma persona no lo mantiene vivo (ni su «Recibir llamadas» ni la
 	// saliente que hizo desde él).
+	var tocado time.Time
 	tocar := func(a alcanceConv) {
-		toque := mensajeriabd.TocarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario, Ahora: m.ahora()}
+		tocado = m.ahora()
+		toque := mensajeriabd.TocarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario, Ahora: tocado}
 		if f.navegador != "" {
 			toque.Navegador = &f.navegador
 		}
 		_ = q.TocarReceptores(ctx, toque)
 		// Y el de la saliente que se hizo desde esta misma pestaña (solo ella la sostiene).
 		if f.pestana != "" {
-			_ = q.TocarPestanaDeLlamada(ctx, mensajeriabd.TocarPestanaDeLlamadaParams{UsuarioID: &a.usuario, Pestana: f.pestana, Ahora: ptrT(m.ahora())})
+			_ = q.TocarPestanaDeLlamada(ctx, mensajeriabd.TocarPestanaDeLlamadaParams{UsuarioID: &a.usuario, Pestana: f.pestana, Ahora: ptrT(tocado)})
 		}
 	}
 	// Mismas reglas que el chat (ver transmitir): sin revalidar arriba, a es el alcance de la última
@@ -372,6 +374,17 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 	a := f.alcance
 	tocar(a)
 	for {
+		// Con despertares seguidos el select puede elegir sub.c una y otra vez antes que el latido: si
+		// ya pasó un latido desde el último toque, se revalida y se toca aquí (a lo más una vez por
+		// ChatLatido), para que el hueco entre toques no pase de FlujoVivo y la entrante le suene.
+		if m.ahora().Sub(tocado) >= m.cfg.ChatLatido {
+			ahora, ok := m.revalidarConv(ctx, bd, revalidaToque)
+			if !ok {
+				return
+			}
+			a = ahora
+			tocar(a)
+		}
 		relecturas := 0
 		for {
 			if m.antesDeLeerFlujo != nil {
