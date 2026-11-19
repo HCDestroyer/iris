@@ -111,6 +111,8 @@ type entradaAplicar struct {
 	comprobante *comprobanteResuelto
 	// promesa: promesa.creada, .cumplida, .incumplida o .cancelada (§7.4): se emite el evento interno.
 	promesa *promesaCambiada
+	// cuenta: cuenta_bancaria.cambiada (0.8.0 §7.8): la cuenta releída de Argos para la instantánea.
+	cuenta *lecturaCuentas
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -188,6 +190,15 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 			return r, err
 		}
 		r.Resultado = "aplicado"
+	}
+	if in.cuenta != nil {
+		res, err := guardarCuentas(ctx, t, *in.cuenta)
+		if err != nil {
+			return r, err
+		}
+		if res.Cambiadas > 0 || res.Quitadas > 0 {
+			r.Resultado = "aplicado"
+		}
 	}
 	switch {
 	case in.catalogo != nil:
@@ -303,6 +314,9 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 			return ResultadoEntrante{}, err
 		}
 		in.promesa, in.omitido = promesaDe(e, con)
+	case EventoCuentaBancariaCambiada:
+		// Se relee la cuenta en Argos y se guarda lo que diga Argos, nunca el payload (§7.8).
+		in.cuenta, in.omitido, in.errArgos = p.leerCuentaWebhook(ctx, bd, e)
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoServicioDatosCambiados:
 		in.datosServicio = datos.servicio()

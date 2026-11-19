@@ -47,7 +47,12 @@ type EntradaResponder struct {
 	AdjuntoID         *uuid.UUID        `json:"adjuntoId,omitempty" doc:"Adjunto completo de esta conversación (POST /api/v1/adjuntos, entidad conversacion)"`
 	RespuestaRapidaID *int64            `json:"respuestaRapidaId,omitempty" minimum:"1" doc:"Si el texto salió de una respuesta rápida (métricas)"`
 	SugerenciaID      *uuid.UUID        `json:"sugerenciaId,omitempty" doc:"Si el texto salió de una sugerencia del asistente (lista o usada, de esta conversación; si no, 422 sugerencia_no_vigente): la marca usada y mide si se envió editada (§16.2)"`
+	Cuentas           bool              `json:"cuentas,omitempty" doc:"«Enviar cuentas» (contrato con Argos 0.8.0 §7.8): el servidor arma el texto con las cuentas de Argos (GET /conversaciones/{id}/texto-cuentas); va sin texto, plantilla ni adjunto, y con cuentasHash. 422 sin_cuentas_para_enviar si la empresa no tiene cuentas activas en quetzales con titular; 409 cuentas_cambiaron si el texto ya no es el que se mostró o la conversación cambió de empresa"`
+	CuentasHash       string            `json:"cuentasHash,omitempty" maxLength:"64" doc:"Con cuentas: el hash del texto que se mostró (TextoCuentasConv.hash). Lo que se ve es lo que se envía"`
 	IdempotencyKey    string            `json:"-"`
+	// cuentasEmpresa: la empresa con cuyas cuentas se armó el texto («Enviar cuentas» o la marca
+	// {{cuentas}} del asistente); ≠ 0 = el texto lleva cuentas y la conversación debe seguir en ella.
+	cuentasEmpresa int64
 }
 
 // MarshalJSON: a la auditoría van el id, el tipo y el hash; nunca el texto ni las variables.
@@ -57,7 +62,7 @@ func (e EntradaResponder) MarshalJSON() ([]byte, error) {
 		plantilla = &e.Plantilla.Codigo
 	}
 	return json.Marshal(map[string]any{"conversacion_id": e.ConversacionID, "id": e.ID, "con_texto": e.Texto != nil, "plantilla": plantilla,
-		"adjunto_id": e.AdjuntoID, "respuesta_rapida_id": e.RespuestaRapidaID, "sugerencia_id": e.SugerenciaID,
+		"adjunto_id": e.AdjuntoID, "respuesta_rapida_id": e.RespuestaRapidaID, "sugerencia_id": e.SugerenciaID, "cuentas": e.Cuentas,
 		"hash": hashContenidoConv(e.ConversacionID, e.Texto, e.Plantilla, e.AdjuntoID)})
 }
 
@@ -201,7 +206,7 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			if err != nil {
 				return MensajeConvEnviado{}, err
 			}
-			if a.asistente && (in.Texto == nil || in.Plantilla != nil || in.AdjuntoID != nil || in.RespuestaRapidaID != nil || in.SugerenciaID != nil) {
+			if a.asistente && (in.Cuentas || in.Texto == nil || in.Plantilla != nil || in.AdjuntoID != nil || in.RespuestaRapidaID != nil || in.SugerenciaID != nil) {
 				return MensajeConvEnviado{}, nucleo.Prohibido("El asistente de IA solo envía texto")
 			}
 			if in.ID == uuid.Nil {
@@ -245,6 +250,12 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 					return MensajeConvEnviado{}, err
 				}
 				return MensajeConvEnviado{MensajeConversacion: ms[0], Repetido: true}, nil
+			}
+			// «Enviar cuentas»: el texto se armó con las cuentas de una empresa; si la conversación pasó a
+			// otra mientras tanto, no se manda (§7.8: solo las cuentas de la empresa de la conversación).
+			// Igual con el texto de las cuentas que puso el asistente (marca {{cuentas}}).
+			if (in.Cuentas && in.cuentasEmpresa == 0) || (in.cuentasEmpresa != 0 && in.cuentasEmpresa != empresaDeConv(c)) {
+				return MensajeConvEnviado{}, cuentasCambiaron()
 			}
 			canal, err := q.CanalPorID(ctx, c.CanalID)
 			if err != nil {

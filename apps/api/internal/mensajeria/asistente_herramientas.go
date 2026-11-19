@@ -112,7 +112,7 @@ func (m *Modulo) herramientasDe(t *turnoIA) []HerramientaIA {
 			Parametros: map[string]any{"servicio_id": pEntero("Id de un servicio del cliente (de <datos> o de estado_del_servicio)"), "fecha": pTexto("Día en que promete pagar, AAAA-MM-DD")}})
 		si("promesa_pago", HerramientaIA{Nombre: HerrPedirPromesa, Descripcion: "Pide la promesa de pago al sistema de facturación, que decide. Úsala solo si el cliente confirmó el día.",
 			Parametros: map[string]any{"servicio_id": pEntero("Id de un servicio del cliente"), "fecha": pTexto("Día en que promete pagar, AAAA-MM-DD")}})
-		si("recibir_boleta", HerramientaIA{Nombre: HerrCuentasBoleta, Descripcion: "Lista las cuentas bancarias de la empresa y los bancos de origen, para registrar una boleta."})
+		si("recibir_boleta", HerramientaIA{Nombre: HerrCuentasBoleta, Descripcion: "Lista las cuentas bancarias de la empresa (sin números) y los bancos de origen, para registrar una boleta o darle al cliente las cuentas con la marca {{cuentas}}."})
 		si("recibir_boleta", HerramientaIA{Nombre: HerrRegistrarBoleta,
 			Descripcion: "Registra la boleta de pago que mandó el cliente (su última foto o PDF) para que caja la revise. No aprueba el pago. Pide al cliente los datos que falten.",
 			Parametros: map[string]any{"metodo": pOpcion("Cómo pagó", "deposito", "transferencia", "ach", "remesa"),
@@ -575,7 +575,8 @@ func (m *Modulo) herrCuentasBoleta(ctx context.Context, t *turnoIA, l LlamadaIA,
 	if args(l.Argumentos, &a) != nil {
 		return rechazo("esta herramienta no lleva argumentos."), h
 	}
-	cs, err := m.cfg.Argos.CuentasBancarias(ctx, m.atencionTurno(t))
+	// La instantánea de cuentas de la empresa (§7.8); si tiene más de 24 h y Argos no responde, falla.
+	ce, err := m.cuentasDe(ctx, m.atencionTurno(t))
 	if err != nil {
 		return resHerramienta{fallo: true}, h
 	}
@@ -584,13 +585,19 @@ func (m *Modulo) herrCuentasBoleta(ctx context.Context, t *turnoIA, l LlamadaIA,
 		return resHerramienta{fallo: true}, h
 	}
 	var b strings.Builder
-	b.WriteString("Cuentas de la empresa que reciben depósitos:\n")
-	for _, k := range cs {
-		// Solo las de la empresa de la conversación y en quetzales.
-		if !k.RecibeDe(t.empresa) || (k.Moneda != "" && k.Moneda != "GTQ") {
+	b.WriteString("Cuentas de la empresa que reciben depósitos (para registrar una boleta):\n")
+	ofrecibles := []argos.CuentaBancariaArgos{}
+	for _, k := range ce.Cuentas {
+		// Solo las activas de la empresa de la conversación y en quetzales. El modelo nunca recibe el
+		// número ni el titular: solo el id y el nombre.
+		t.numerosCuentas = append(t.numerosCuentas, k.Numero)
+		if !cuentaParaBoleta(k, t.empresa) {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("- cuenta id %d: %s\n", k.ID, limpiarDato(k.Nombre, 80)))
+		b.WriteString(fmt.Sprintf("- cuenta id %d: %s\n", k.ID, limpiarDato(nombreCuentaModelo(k), 80)))
+		if cuentaParaOfrecer(k, t.empresa) {
+			ofrecibles = append(ofrecibles, k)
+		}
 	}
 	b.WriteString("Bancos de origen (para transferencia o ach):\n")
 	for i, k := range bs {
@@ -598,6 +605,18 @@ func (m *Modulo) herrCuentasBoleta(ctx context.Context, t *turnoIA, l LlamadaIA,
 			break
 		}
 		b.WriteString(fmt.Sprintf("- banco id %d: %s\n", k.ID, limpiarDato(k.Nombre, 60)))
+	}
+	// Dar las cuentas al cliente (§7.8, decisión del PM §10.2 punto 6): solo a un número registrado;
+	// el texto lo pone el servidor en lugar de la marca, y solo con las cuentas que tienen titular.
+	switch {
+	case !t.verificado:
+		b.WriteString("Si el cliente pide las cuentas para depositar, no se las des: su número no está registrado. Usa pasar_a_persona.")
+	case len(ofrecibles) == 0:
+		b.WriteString("No hay cuentas que se le puedan dar al cliente. Si las pide, usa pasar_a_persona.")
+	default:
+		texto := TextoCuentas(ofrecibles)
+		t.textoCuentas = &texto
+		b.WriteString("Si el cliente pide dónde depositar, escribe la marca {{cuentas}} y el sistema pone las cuentas. Nunca escribas números de cuenta.")
 	}
 	return resHerramienta{contenido: b.String()}, h
 }
@@ -632,14 +651,17 @@ func (m *Modulo) herrRegistrarBoleta(ctx context.Context, t *turnoIA, l LlamadaI
 		return rechazo("faltan datos o no son válidos: método, cuenta, referencia, monto con 2 decimales y fecha AAAA-MM-DD. Pídeselos al cliente."), h
 	}
 	q := mensajeriabd.New(nucleo.BDDe(ctx))
-	// La cuenta debe ser de la empresa de la conversación (Argos también lo valida).
-	cs, err := m.cfg.Argos.CuentasBancarias(ctx, m.atencionTurno(t))
-	if err != nil {
+	// La cuenta se relee en Argos (§7.8: una instantánea vieja nunca decide a dónde se registra un
+	// pago) y debe ser una cuenta activa en quetzales de la empresa de la conversación, sin excepciones.
+	k, err := m.cfg.Argos.ReleerCuentaBancaria(ctx, a.CuentaBancariaID)
+	switch {
+	case argosNiegaCuenta(err):
+		return rechazo("esa cuenta no es de la empresa. Usa una de cuentas_para_boleta."), h
+	case err != nil:
 		return resHerramienta{fallo: true}, h
-	}
-	if !slices.ContainsFunc(cs, func(k argos.CuentaBancariaArgos) bool {
-		return k.ID == a.CuentaBancariaID && k.RecibeDe(t.empresa)
-	}) {
+	case !k.Activa && k.EmpresaID != nil && *k.EmpresaID == t.empresa:
+		return rechazo("esa cuenta está desactivada: no registres la boleta. Dile al cliente que una persona revisa su pago y usa pasar_a_persona."), h
+	case !cuentaParaBoleta(k, t.empresa):
 		return rechazo("esa cuenta no es de la empresa. Usa una de cuentas_para_boleta."), h
 	}
 	// Tope por conversación y día, y la foto debe ser de este periodo y posterior a la última boleta
@@ -668,6 +690,8 @@ func (m *Modulo) herrRegistrarBoleta(ctx context.Context, t *turnoIA, l LlamadaI
 	if a.BancoOrigenID > 0 {
 		in.BancoOrigenID = &a.BancoOrigenID
 	}
+	// La misma lectura vale para el caso de uso (Argos se lee una sola vez).
+	in.cuenta = &cuentaLeida{cuenta: k}
 	b, err := m.Conv.Boleta.Ejecutar(ctx, in)
 	if err != nil {
 		return deError(err), h

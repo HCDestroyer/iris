@@ -32,7 +32,10 @@ type ArgosAtencion interface {
 	RegistrarComprobante(ctx context.Context, a argos.AtencionIris, in argos.EntradaComprobante) (argos.ComprobanteArgos, error)
 	SimularPromesa(ctx context.Context, a argos.AtencionIris, servicioID int64, venceEn *time.Time) (argos.SimulacionPromesa, error)
 	CrearPromesa(ctx context.Context, a argos.AtencionIris, servicioID int64, venceEn time.Time, clave string) (argos.PromesaArgos, error)
-	CuentasBancarias(ctx context.Context, a argos.AtencionIris) ([]argos.CuentaBancariaArgos, error)
+	// Cuentas bancarias (contrato 0.8.0 §7.8): la instantánea de la empresa (se relee si tiene más de
+	// 24 h) y la relectura de una cuenta en Argos antes de registrar una boleta.
+	CuentasDeEmpresa(ctx context.Context, a argos.AtencionIris) (argos.CuentasEmpresa, error)
+	ReleerCuentaBancaria(ctx context.Context, id int64) (argos.CuentaBancariaArgos, error)
 	Bancos(ctx context.Context, a argos.AtencionIris) ([]argos.BancoArgos, error)
 	EquiposEnComodato(ctx context.Context, empresaID, servicioID int64) ([]argos.EquipoComodatoArgos, error)
 	// Aprobar y rechazar comprobantes desde la conversación (contrato 0.7.0 §7.7). ApruebaComprobantes:

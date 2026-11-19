@@ -1,8 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, Campo, CampoArea, CampoFecha, CampoSelector, cn, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
-import { FileText, RotateCw } from "lucide-react";
+import { avisar, Aviso, Boton, Campo, CampoArea, CampoFecha, CampoSelector, cn, FormularioPagina, liberarProteccion, ListaEleccion, SeccionFormulario } from "@iris/ui";
+import { FileText, Landmark, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
@@ -12,6 +12,7 @@ import { DesdeConversacion } from "@/componentes/conversaciones/desde-conversaci
 import { api, resolver } from "@/lib/api/cliente";
 import { mensajeDeError } from "@/lib/api/errores";
 import { leerMensajes } from "@/lib/conversaciones/api";
+import { aliasCuenta, titularCuenta, tituloCuenta, type CuentaBancaria } from "@/lib/conversaciones/cuentas";
 import { hora, tamanoLegible } from "@/lib/conversaciones/presentacion";
 import type { ConversacionDetalle } from "@/lib/conversaciones/tipos";
 import { useLectura } from "@/lib/lectura";
@@ -46,6 +47,22 @@ export const esquemaBoleta = z
         if (v.fechaDeposito > hoyEnGuatemala()) ctx.addIssue({ code: "custom", path: ["fechaDeposito"], message: "No puede ser una fecha futura" });
     });
 type Valores = z.infer<typeof esquemaBoleta>;
+
+/** Una cuenta en la lista: banco y tipo, alias, número y titular (§7.8). */
+function OpcionCuenta({ cuenta }: { cuenta: CuentaBancaria }) {
+    const alias = aliasCuenta(cuenta);
+    return (
+        <span className="grid min-w-0 gap-0.5" data-cuenta={cuenta.id}>
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-sm font-semibold">
+                <Landmark aria-hidden className="size-4 shrink-0 self-center text-muted-foreground" />
+                {tituloCuenta(cuenta)}
+                {alias ? <span className="text-xs font-normal text-muted-foreground">{alias}</span> : null}
+            </span>
+            <span className="font-mono text-sm tabular-nums [overflow-wrap:anywhere]">{cuenta.numero}</span>
+            <span className={cn("text-xs", cuenta.titular ? "text-muted-foreground" : "text-warning")}>{titularCuenta(cuenta)}</span>
+        </span>
+    );
+}
 
 /** «250» → «250.00» (el servidor pide 2 decimales). */
 export const montoConDecimales = (m: string) => (m.includes(".") ? m.padEnd(m.indexOf(".") + 3, "0") : `${m}.00`);
@@ -179,20 +196,34 @@ function FormularioBoleta({ conv }: { conv: ConversacionDetalle }) {
                     </p>
                 ) : null}
             </SeccionFormulario>
-            <SeccionFormulario titulo="2. El depósito">
+            <SeccionFormulario titulo="2. La cuenta" descripcion="La cuenta de la empresa a la que depositó el cliente, tal como está en Argos.">
+                {listo === null ? <p className="text-sm text-muted-foreground">Cargando…</p> : null}
+                {listo && listo.cuentas.length === 0 ? (
+                    <Aviso tono="warning" titulo="La empresa no tiene cuentas activas en quetzales en Argos">
+                        Las cuentas se crean y se activan en Argos. Si el cliente depositó en una cuenta desactivada, caja registra el pago a mano en Argos.
+                    </Aviso>
+                ) : null}
+                {listo && listo.cuentas.length > 0 ? (
+                    <ListaEleccion
+                        leyenda="Cuenta de la empresa"
+                        nombre="cuentaBancariaId"
+                        valor={v.cuentaBancariaId || undefined}
+                        alCambiar={(id) => form.setValue("cuentaBancariaId", id, { shouldDirty: true, shouldValidate: form.formState.isSubmitted })}
+                        error={errores.cuentaBancariaId?.message}
+                        opciones={listo.cuentas.map((c) => ({
+                            valor: String(c.id),
+                            texto: `${tituloCuenta(c)}, ${c.numero}`,
+                            contenido: <OpcionCuenta cuenta={c} />,
+                        }))}
+                    />
+                ) : null}
+            </SeccionFormulario>
+            <SeccionFormulario titulo="3. El depósito">
                 <div className="grid gap-4 sm:grid-cols-2">
                     <CampoSelector etiqueta="Método" error={errores.metodo?.message} {...form.register("metodo")}>
                         {METODOS.map(([valor, texto]) => (
                             <option key={valor} value={valor}>
                                 {texto}
-                            </option>
-                        ))}
-                    </CampoSelector>
-                    <CampoSelector etiqueta="Cuenta de la empresa" error={errores.cuentaBancariaId?.message} disabled={!listo} {...form.register("cuentaBancariaId")}>
-                        <option value="">Elegir…</option>
-                        {(listo?.cuentas ?? []).map((c) => (
-                            <option key={c.id} value={String(c.id)}>
-                                {c.banco} · {c.numero}
                             </option>
                         ))}
                     </CampoSelector>

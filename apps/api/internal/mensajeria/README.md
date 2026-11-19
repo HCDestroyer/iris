@@ -733,3 +733,29 @@ Eventos (todos con `empresa_id: null`): `voz.motor_enlazado`, `voz.motor_activad
 No consume eventos. Secretos cifrados con `IRIS_CLAVE_CIFRADO` (los rota `iris clave rotar`): el
 token y el token siguiente, la clave del certificado de cliente (la vigente y la siguiente) y el
 código de enlace pendiente.
+
+## Cuentas bancarias de Argos (contrato con Argos 0.8.0 §7.8, B5)
+
+- **Fuente única: Argos.** La bandeja lee las cuentas de la instantánea del conector
+  (`ArgosAtencion.CuentasDeEmpresa`, que relee si tiene más de 24 h) y, antes de registrar una boleta,
+  relee la cuenta elegida (`ReleerCuentaBancaria`, `GET /cuentas-bancarias/:id`). El filtro es del
+  servidor y no tiene excepciones: activa, de la empresa de la conversación y en `GTQ`; sin empresa,
+  ninguna (`conv_cuentas.go`). Una cuenta desactivada responde 422 con `rule: inactiva` y un texto claro.
+- **Boleta rechazada por cuenta inactiva** (`POST /comprobantes` → 422 `rule: inactiva`): queda
+  `fallida` sin reintento (`MotivoCuentaInactiva`: caja la registra a mano en Argos). Si la registró el
+  asistente y seguía atendiendo, la conversación pasa a una persona (nota interna, `espera_persona`,
+  `asistente.paso_a_persona` con `herramienta_fallo`).
+- **«Enviar cuentas»** (`conv_enviar_cuentas.go`): `GET /conversaciones/{id}/texto-cuentas` muestra el
+  texto fijo (banco, tipo, número, titular y moneda) y `POST …/mensajes` con `cuentas: true` lo manda;
+  el servidor vuelve a armarlo, así que nadie escribe ni cambia un dígito. Solo cuentas con titular
+  (§10.2, punto 14); sin ninguna, 422 `sin_cuentas_para_enviar`. Permiso `conversaciones.responder`.
+- **Asistente** (§10.2, punto 6): `cuentas_para_boleta` le da al modelo solo el id y el nombre; con
+  número registrado prepara la marca `{{cuentas}}`, que el servidor reemplaza por el texto fijo al
+  enviar. A un número desconocido no se las da. El historial que vuelve al modelo trae el texto tapado
+  (`TextoCuentasTapado`). `registrar_boleta` relee la cuenta una sola vez y le pasa la lectura al caso de uso.
+- **Textos escritos a mano** (`revision_cuentas.go`, §10.2 punto 11): `GET /revision-cuentas`
+  (`canales.configurar`) lista manuales, respuestas rápidas y respuestas de fuera de horario activos que
+  parecen llevar un número de cuenta. Solo avisa (en Administración): nunca bloquea guardar ni devuelve
+  el número.
+- No emite eventos nuevos (usa `conversacion.mensaje_enviado`, `boleta.fallida` y
+  `asistente.paso_a_persona`).
