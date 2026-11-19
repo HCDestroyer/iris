@@ -67,8 +67,8 @@ export function ProveedorCentralita({ children }: { children: ReactNode }) {
     const abrir = extension !== null && otras === 0;
     useEffect(() => {
         if (!abrir) return;
-        const fuente = anunciarFuente();
         propio.current = true;
+        const fuente = anunciarFuente();
         const cerrar = iniciarFeed<EventoBandeja>({
             abrirFlujo,
             leerCambios,

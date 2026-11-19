@@ -6,6 +6,7 @@ import { apiComercial, type ApiComercial } from "./api-comercial";
 import { PERMISO_CONFIGURAR } from "./api-asistente";
 import { recortarServicio } from "./recorte-servicio";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
+import { apiCentralita, type ApiCentralita, type OpcionesCentralita } from "./api-centralita";
 import { apiServidorIa, PERMISO_SIA_ADMINISTRAR, PERMISO_SIA_VER, PERMISO_SIA_VER_USO, type ApiServidorIa, type OpcionesServidorIa } from "./api-servidor-ia";
 import { apiVoz, PERMISO_LLAMAR, PERMISO_PEDIR, PERMISOS_LLAMADAS, PERMISOS_VOZ_ADMIN, type ApiVoz, type OpcionesVoz } from "./api-voz";
 import { apiPagos, PERMISOS_ABRIR_ARGOS, PERMISOS_PAGOS, type ApiPagos, type OpcionesPagos } from "./api-pagos";
@@ -345,6 +346,8 @@ export type OpcionesApi = {
      * Sin esta opción nadie los tiene.
      */
     servidorIa?: OpcionesServidorIa;
+    /** Centralita Issabel (E4a): conexión, extensiones y llamadas. Ana tiene centralita.configurar. */
+    centralita?: OpcionesCentralita;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -405,6 +408,8 @@ export type ApiFalsa = {
     voz: ApiVoz;
     /** Servidor de IA: la tarjeta, el tablero y lo que recibió el servidor. */
     servidorIa: ApiServidorIa;
+    /** Centralita (E4a): hacer sonar una extensión y lo que recibió el servidor. */
+    centralita: ApiCentralita;
     /** ¿Hay un flujo de eventos de conversaciones abierto ahora (esperando eventos)? */
     flujoAbierto: () => boolean;
     /** Números de WhatsApp: resultados de Meta, cuerpos recibidos y credenciales guardadas. */
@@ -550,6 +555,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const numeros = apiNumeros(conversaciones.canales, opciones.numeros);
     const meta = apiMeta(numeros.interno, conversaciones.conversaciones, opciones.meta);
     const servidorIa = apiServidorIa(opciones.servidorIa);
+    const centralita = apiCentralita(opciones.centralita ?? {}, conversaciones.emitirEvento);
     const voz = apiVoz(
         {
             actor: () => ({ id: enlaceActor.id, nombre: enlaceNombre.nombre }),
@@ -720,6 +726,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.legal && (actual.correo === CONSULTA.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_LEGAL.slice(0, 1) : []),
             ...(opciones.legal && actual.correo === CONSULTA.correo ? (["empresas.todas"] satisfies Permiso[]) : []),
             ...(opciones.servidorIa && actual.correo === ADMIN.correo ? [PERMISO_SIA_VER, PERMISO_SIA_ADMINISTRAR] : []),
+            ...(opciones.centralita && actual.correo === ADMIN.correo ? (["centralita.configurar", "centralita.asignar_extension", "llamadas.ver", "llamadas.anotar"] satisfies Permiso[]) : []),
             ...(opciones.servidorIa?.soloUso && actual.correo === LECTOR.correo ? [PERMISO_SIA_VER_USO] : []),
             ...(opciones.servidorIa && actual.correo === SUPERVISOR_ZONA.correo ? (opciones.servidorIa.zonaAdministra ? [PERMISO_SIA_VER, PERMISO_SIA_ADMINISTRAR] : [PERMISO_SIA_VER_USO]) : []),
         ];
@@ -1009,6 +1016,14 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (await meta.manejar({ route, metodo, ruta, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresaId })) {
             return;
         }
+        // Sin la opción, nadie tiene extensión (el panel lo pregunta siempre).
+        if (metodo === "GET" && ruta === "/api/v1/mensajeria/centralita/mi-extension" && !opciones.centralita) {
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ extension: null, centralitaId: null, estado: null }) });
+            return;
+        }
+        if (opciones.centralita && (await centralita.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, actor: actual.id, puede }))) {
+            return;
+        }
         if (opciones.servidorIa && (await servidorIa.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresas, empresaId }))) {
             return;
         }
@@ -1204,6 +1219,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         conversaciones,
         voz,
         servidorIa,
+        centralita,
         flujoAbierto: conversaciones.flujoAbierto,
         pagos,
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
