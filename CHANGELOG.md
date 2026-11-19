@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.31.0](https://github.com/HCDestroyer/iris/compare/v0.30.0...v0.31.0) (2026-11-19)
+
+
+### Funcionalidades
+
+* **integracion:** contrato con Argos 0.8.1, búsqueda sin datos de red (buscar_red) ([#222](https://github.com/HCDestroyer/iris/issues/222)) ([e83f50f](https://github.com/HCDestroyer/iris/commit/e83f50f89bc5c8df76220f231492711f0a145070))
+
 ## [0.30.0](https://github.com/HCDestroyer/iris/compare/v0.29.1...v0.30.0) (2026-11-19)
 
 
