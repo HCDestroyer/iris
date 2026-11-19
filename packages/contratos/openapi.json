@@ -4266,6 +4266,15 @@
             "format": "date-time",
             "type": "string"
           },
+          "eliminable": {
+            "description": "Solo en la lista: apagado y sin un activo que lo reemplace con la reconexión sin confirmar (POST …/eliminar respondería 200)",
+            "type": "boolean"
+          },
+          "eliminadoEn": {
+            "description": "Cuándo se eliminó (borrado lógico); solo en la respuesta de eliminar: la lista nunca trae eliminados",
+            "format": "date-time",
+            "type": "string"
+          },
           "empresas": {
             "description": "Empresas de Argos que cubre el token (vacío si el otro sistema no lo informó)",
             "items": {
@@ -4390,7 +4399,33 @@
           "ultimoWebhookEn",
           "version",
           "creadoEn",
-          "actualizadoEn"
+          "actualizadoEn",
+          "eliminable"
+        ],
+        "type": "object"
+      },
+      "ConectoresEliminados": {
+        "additionalProperties": false,
+        "properties": {
+          "eliminados": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ids": {
+            "description": "Ids de los conectores eliminados",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "eliminados",
+          "ids"
         ],
         "type": "object"
       },
@@ -11122,6 +11157,17 @@
         ],
         "type": "object"
       },
+      "EntradaEliminarConector": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "description": "Nota libre (opcional); va en la auditoría",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "EntradaEliminarNota": {
         "additionalProperties": false,
         "properties": {
@@ -11155,6 +11201,17 @@
           "notaId",
           "versionNota"
         ],
+        "type": "object"
+      },
+      "EntradaEliminarToken": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "description": "Nota libre (opcional); va en la auditoría",
+            "maxLength": 500,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "EntradaEmitirAccesoPortal": {
@@ -13801,6 +13858,18 @@
         "required": [
           "asunto"
         ],
+        "type": "object"
+      },
+      "EntradaTokensInactivos": {
+        "additionalProperties": false,
+        "properties": {
+          "usuarioId": {
+            "description": "Solo los tokens de este usuario",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "EntradaTransferirConv": {
@@ -23153,6 +23222,7 @@
           "integraciones.activar",
           "integraciones.conectar",
           "integraciones.desactivar",
+          "integraciones.eliminar",
           "integraciones.reintentar",
           "integraciones.resolver_pendiente",
           "integraciones.revisar_version",
@@ -23243,6 +23313,7 @@
           "tickets.ver",
           "tickets.ver_notas",
           "tokens.crear",
+          "tokens.eliminar",
           "tokens.revocar",
           "tokens.ver",
           "usuarios.asignar_empresa",
@@ -29273,6 +29344,11 @@
               "null"
             ]
           },
+          "eliminadoEn": {
+            "description": "Cuándo se eliminó (borrado lógico); ausente si no está eliminado",
+            "format": "date-time",
+            "type": "string"
+          },
           "expiraEn": {
             "format": "date-time",
             "type": [
@@ -29348,6 +29424,57 @@
         "required": [
           "valor",
           "token"
+        ],
+        "type": "object"
+      },
+      "TokensEliminables": {
+        "additionalProperties": false,
+        "properties": {
+          "cantidad": {
+            "description": "Tokens revocados o vencidos que se pueden eliminar",
+            "format": "int64",
+            "type": "integer"
+          },
+          "enUso": {
+            "description": "Revocados o vencidos que no se eliminan porque un conector activo depende de ellos",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cantidad",
+          "enUso"
+        ],
+        "type": "object"
+      },
+      "TokensEliminados": {
+        "additionalProperties": false,
+        "properties": {
+          "eliminados": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ids": {
+            "description": "Ids de los tokens eliminados",
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "omitidos": {
+            "description": "Revocados o vencidos que quedaron (un conector activo depende de ellos)",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "eliminados",
+          "omitidos",
+          "ids"
         ],
         "type": "object"
       },
@@ -39172,6 +39299,89 @@
         "x-permiso": "integraciones.ver"
       }
     },
+    "/api/v1/integraciones/conectores/eliminar-apagados": {
+      "post": {
+        "description": "Permiso: `integraciones.eliminar`. Los que tienen `eliminable: true` en la lista. Cada uno se audita por separado y emite `conector.eliminado` (motivo `lote`). Sin ninguno, responde `eliminados: 0`.",
+        "operationId": "eliminarConectoresApagados",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConectoresEliminados"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Eliminar todos los conectores apagados",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.eliminar"
+      }
+    },
     "/api/v1/integraciones/conectores/{id}/activar": {
       "post": {
         "description": "Permiso: `integraciones.activar`. A lo más uno activo por sistema: activar uno reemplaza al activo del mismo sistema, que queda apagado en la misma transacción (la integración no se corta al reconectar). Su token entregado se revoca en ese paso; con Argos (contrato 0.6.3) se revoca cuando Argos usa el token nuevo, o a las 24 h, salvo con revocarAnterior: true. Con Argos, encola la primera carga de zonas y routers.",
@@ -39416,6 +39626,129 @@
           "integraciones"
         ],
         "x-permiso": "integraciones.desactivar"
+      }
+    },
+    "/api/v1/integraciones/conectores/{id}/eliminar": {
+      "post": {
+        "description": "Permiso: `integraciones.eliminar`. Borrado lógico de un conector que ya no sirve: deja de salir en la lista, sus credenciales cifradas (token y secretos de webhooks) se borran y sus webhooks se rechazan; los avisos recibidos, las acciones pendientes y la auditoría lo siguen referenciando. El iris_pat_ que Iris le entregó se revoca si aún valía (`token.revocado`) y se elimina (`token.eliminado`, motivo `conector`). Uno activo responde 409 `conector_activo` (desactívalo primero); uno que el activo reemplazó con la reconexión de Argos sin confirmar, 409 `conector_en_uso`. Eliminarlo otra vez responde 200, sin evento. Emite `conector.eliminado` (motivo `manual`).",
+        "operationId": "eliminarConector",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEliminarConector"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Conector"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Eliminar un conector apagado",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.eliminar"
       }
     },
     "/api/v1/integraciones/conectores/{id}/revisar-version": {
@@ -76264,6 +76597,16 @@
               "minimum": 0,
               "type": "integer"
             }
+          },
+          {
+            "description": "Solo los que aún valen (sin revocar ni vencer). Los eliminados no salen nunca",
+            "explode": false,
+            "in": "query",
+            "name": "vigentes",
+            "schema": {
+              "description": "Solo los que aún valen (sin revocar ni vencer). Los eliminados no salen nunca",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -76442,6 +76785,307 @@
           "identidad"
         ],
         "x-permiso": "tokens.crear"
+      }
+    },
+    "/api/v1/tokens/eliminables": {
+      "get": {
+        "description": "Permiso: `tokens.eliminar`. Lo que eliminaría `POST /api/v1/tokens/eliminar-inactivos` con el mismo filtro (para la confirmación).",
+        "operationId": "contarTokensEliminables",
+        "parameters": [
+          {
+            "description": "Solo los tokens de este usuario",
+            "explode": false,
+            "in": "query",
+            "name": "usuario_id",
+            "schema": {
+              "description": "Solo los tokens de este usuario",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokensEliminables"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Contar los tokens revocados o vencidos que se pueden eliminar",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "tokens.eliminar"
+      }
+    },
+    "/api/v1/tokens/eliminar-inactivos": {
+      "post": {
+        "description": "Permiso: `tokens.eliminar`. Todos los revocados o vencidos que ves y administras (opcional: de un usuario), salvo los que usa un conector activo (`omitidos`). Cada uno se audita por separado y emite `token.eliminado` (motivo `lote`). Sin ninguno, responde `eliminados: 0`.",
+        "operationId": "eliminarTokensInactivos",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaTokensInactivos"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokensEliminados"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Eliminar todos los tokens revocados y vencidos",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "tokens.eliminar"
+      }
+    },
+    "/api/v1/tokens/{id}/eliminar": {
+      "post": {
+        "description": "Permiso: `tokens.eliminar`. Borrado lógico: el token deja de salir en `GET /api/v1/tokens` y su hash se borra; la auditoría y el historial siguen apuntando a él. Solo uno revocado o vencido: uno que aún vale responde 409 `token_vigente` (revócalo primero). Si un conector activo lo usa (el iris_pat_ entregado a Argos u Horus), 409 `token_en_uso_por_conector`. Fuera de tu alcance de empresas, 404. Eliminarlo otra vez responde 200 con el mismo token, sin evento. Emite `token.eliminado` (motivo `manual`).",
+        "operationId": "eliminarToken",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEliminarToken"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenAPI"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Eliminar un token de API revocado o vencido",
+        "tags": [
+          "identidad"
+        ],
+        "x-permiso": "tokens.eliminar"
       }
     },
     "/api/v1/tokens/{id}/revocar": {
