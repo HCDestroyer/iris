@@ -326,6 +326,41 @@ func TestAsegurarInstantaneaCuota(t *testing.T) {
 	}
 }
 
+// Revisión de seguridad de #233: con Argos caído o en espera, un cliente con copia de otra empresa
+// responde lo mismo que uno desconocido (503 argos_no_disponible), aunque no venga servicio. Antes
+// la copia de otra empresa seguía (nil) y el caso de uso respondía 422: un oráculo de existencia.
+func TestAsegurarInstantaneaSinOraculoConArgosCaido(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	srv := func(id int64) *int64 { return &id }
+	e.sembrarComoArgos14(470)
+	propia := pruebas.ContextoUsuarioEnEmpresa(e.pool, 999, 1)
+	if err := e.mod.AsegurarInstantanea(propia, 470, nil); err != nil {
+		t.Fatalf("cliente de la empresa: %v", err)
+	}
+	otra := pruebas.ContextoUsuarioEnEmpresa(e.pool, 999, 2)
+	// Desconocido con Argos caído (con servicio, el caso que Iris rechaza sin copia).
+	e.argos.con(func() { e.argos.caido = true })
+	if err := e.mod.AsegurarInstantanea(otra, 999471, srv(1)); !esProblemaStatus(err, 503, "argos_no_disponible") {
+		t.Fatalf("desconocido con Argos caído: %v", err)
+	}
+	// Copia de otra empresa, Argos caído (se relee y falla): el mismo 503, sin servicio.
+	e.exec(`UPDATE integracion.argos_clientes SET sincronizado_en = now() - interval '1 minute', fallo_en = NULL WHERE id = 470`)
+	if err := e.mod.AsegurarInstantanea(otra, 470, nil); !esProblemaStatus(err, 503, "argos_no_disponible") {
+		t.Fatalf("copia de otra empresa con Argos caído: %v", err)
+	}
+	// Copia de otra empresa, en espera tras la caída (no se llama a Argos): el mismo 503.
+	antes := e.argos.llamadasA("/api/v1/clientes/470")
+	if err := e.mod.AsegurarInstantanea(otra, 470, nil); !esProblemaStatus(err, 503, "argos_no_disponible") ||
+		e.argos.llamadasA("/api/v1/clientes/470") != antes {
+		t.Fatalf("copia de otra empresa en espera: %v", err)
+	}
+	// La empresa propia sigue sirviéndose de la copia aunque Argos esté caído.
+	if err := e.mod.AsegurarInstantanea(propia, 470, nil); err != nil {
+		t.Fatalf("empresa propia con Argos caído: %v", err)
+	}
+}
+
 func esProblemaStatus(err error, status int, codigo string) bool {
 	var p *nucleo.Problema
 	return errors.As(err, &p) && p.Status == status && p.Codigo() == codigo
