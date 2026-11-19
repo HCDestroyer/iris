@@ -1,5 +1,10 @@
 -- Voz E1 (contratos/voz.md): llamadas entrantes de WhatsApp contestadas por personas en el panel.
 
+-- name: EmpresaConLlamadas :one
+-- ¿La empresa tiene algún número con las llamadas encendidas en Iris? (para ofrecer «Recibir llamadas»)
+SELECT EXISTS (SELECT 1 FROM mensajeria.voz_ajustes_canal a JOIN mensajeria.canales c ON c.id = a.canal_id
+    WHERE a.llamadas_activas AND coalesce(c.empresa_id, 0) = @empresa::bigint)::boolean;
+
 -- name: InsertarLlamada :one
 -- La unicidad de origen, canal e id externo hace de un connect repetido un no-op.
 INSERT INTO mensajeria.llamadas (id, empresa_id, origen, canal_id, conversacion_id, id_externo, direccion, numero, cliente_id, servicio_id,
@@ -140,10 +145,39 @@ ORDER BY sono_en DESC LIMIT 1;
 -- name: LlamadasRecientesDeNumero :one
 -- Ráfaga (ventana deslizante): llamadas ENTRANTES de ese número a ese canal que sonaron desde un
 -- instante. Las que ya rechazó la ráfaga no la alimentan (si no, cada reintento la renovaría y el
--- número no saldría nunca) y las salientes hacia ese número no cuentan.
-SELECT count(*)::bigint FROM mensajeria.llamadas
-WHERE canal_id = @canal_id AND numero = @numero AND sono_en > @desde AND direccion = 'entrante'
-  AND NOT (estado = 'rechazada' AND motivo_fin IS NOT DISTINCT FROM 'limite');
+-- número no saldría nunca) y las salientes hacia ese número no cuentan. Si la ráfaga se levantó (a
+-- mano o con una saliente), solo cuentan las de después. primera: la más vieja que cuenta.
+SELECT count(*)::bigint AS cuantas, coalesce(min(l.sono_en), 'epoch'::timestamptz)::timestamptz AS primera FROM mensajeria.llamadas l
+WHERE l.canal_id = @canal_id AND l.numero = @numero AND l.sono_en > @desde AND l.direccion = 'entrante'
+  AND NOT (l.estado = 'rechazada' AND l.motivo_fin IS NOT DISTINCT FROM 'limite')
+  AND l.sono_en > coalesce((SELECT r.levantada_en FROM mensajeria.voz_rafagas_levantadas r
+                            WHERE r.canal_id = l.canal_id AND r.numero = l.numero), '-infinity'::timestamptz);
+
+-- name: LevantarRafaga :exec
+INSERT INTO mensajeria.voz_rafagas_levantadas (canal_id, numero, empresa_id, levantada_en, levantada_por, origen)
+VALUES (@canal_id, @numero, sqlc.narg('empresa_id'), @ahora, sqlc.narg('levantada_por'), @origen)
+ON CONFLICT (canal_id, numero) DO UPDATE SET empresa_id = EXCLUDED.empresa_id, levantada_en = EXCLUDED.levantada_en,
+    levantada_por = EXCLUDED.levantada_por, origen = EXCLUDED.origen;
+
+-- name: RafagaLevantadaEn :one
+SELECT levantada_en FROM mensajeria.voz_rafagas_levantadas WHERE canal_id = @canal_id AND numero = @numero;
+
+-- name: FijarRafagaHasta :exec
+UPDATE mensajeria.llamadas SET rafaga_hasta = @hasta WHERE id = @id;
+
+-- name: RafagaVigente :one
+-- La tarjeta de la ráfaga que sigue vigente para ese número (la primera llamada que rechazó en esta
+-- ventana): los reintentos se cuentan en ella en vez de dejar una tarjeta por intento.
+SELECT l.* FROM mensajeria.llamadas l
+WHERE l.canal_id = @canal_id AND l.numero = @numero AND l.direccion = 'entrante' AND l.estado = 'rechazada'
+  AND l.motivo_fin = 'limite' AND l.rafaga_hasta > @ahora::timestamptz
+  AND l.sono_en > coalesce((SELECT r.levantada_en FROM mensajeria.voz_rafagas_levantadas r
+                            WHERE r.canal_id = l.canal_id AND r.numero = l.numero), '-infinity'::timestamptz)
+ORDER BY l.sono_en DESC LIMIT 1;
+
+-- name: SumarIntentoRafaga :one
+UPDATE mensajeria.llamadas SET rafaga_intentos = rafaga_intentos + 1, rafaga_hasta = greatest(rafaga_hasta, @hasta::timestamptz)
+WHERE id = @id RETURNING *;
 
 -- name: AvisoPerdidaReciente :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas

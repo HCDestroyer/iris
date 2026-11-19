@@ -1,0 +1,164 @@
+package mensajeria_test
+
+import (
+	"fmt"
+	"net/http"
+	"testing"
+	"time"
+)
+
+// rafagaEnHilo: el objeto rafaga de la tarjeta de la llamada (leída como el panel, por la API).
+func (x *bandejaVoz) rafagaEnHilo(conv, llamadaID string) map[string]any {
+	x.t.Helper()
+	r := x.exigir(x.api(x.supervisor, http.MethodGet, "/conversaciones/"+conv+"/mensajes?limit=100", nil), http.StatusOK)
+	data, _ := r.cuerpo["data"].([]any)
+	for _, m := range data {
+		l, _ := m.(map[string]any)["llamada"].(map[string]any)
+		if l != nil && l["id"] == llamadaID {
+			rf, _ := l["rafaga"].(map[string]any)
+			return rf
+		}
+	}
+	x.t.Fatalf("la llamada %s no está en el hilo", llamadaID)
+	return nil
+}
+
+// P1 de la revisión de #217: la ráfaga se decide antes de registrar nada. La primera que rechaza deja una
+// sola tarjeta (sin reabrir la conversación ni emitir llamada.entrante ni conversacion.mensaje_recibido);
+// los reintentos de la misma ventana solo suman a esa tarjeta y se rechazan en Meta.
+func TestRafagaRastroAcotado(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente)
+	num := numeroCliente()
+	x.texto(num, "wamid.raf"+num, "Hola")
+	conv := cid(x.conv(num))
+	for i := range 3 {
+		call := fmt.Sprintf("wacid.acot%d%s", i, num)
+		x.connect(num, call)
+		x.webhook(x.eventoLlamada(num, call, "terminate", "", 0))
+		x.pasa(time.Second, x.agente)
+	}
+	// Se resuelve la conversación: la ráfaga no la reabre.
+	c := x.conv(num)
+	x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+conv+"/resolver", map[string]any{"version": c["version"]}), http.StatusOK)
+	mensajes := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1::bigint`, conv)
+	primera := "wacid.acot3" + num
+	x.connect(num, primera)
+	id, estado, motivo := x.llamada(primera)
+	if estado != "rechazada" || motivo != "limite" || x.g.cuenta("reject:"+primera) != 1 {
+		t.Fatalf("primera de la ráfaga: %s %s", estado, motivo)
+	}
+	if x.eventos("llamada.entrante", id) != 0 || x.eventos("llamada.rechazada", id) != 1 ||
+		x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.mensaje_recibido' AND payload->>'conversacion_id' = $1 AND payload->>'tipo' = 'llamada'`, conv) != 3 {
+		t.Fatal("la llamada que rechaza la ráfaga no debía emitir llamada.entrante ni mensaje_recibido")
+	}
+	if x.conv(num)["estado"] != "resuelta" {
+		t.Fatal("la ráfaga no debía reabrir la conversación")
+	}
+	// Reintentos: sin fila, sin mensaje, contados en la tarjeta y rechazados en Meta.
+	for i := 4; i < 7; i++ {
+		call := fmt.Sprintf("wacid.acot%d%s", i, num)
+		x.pasa(30*time.Second, x.agente)
+		x.connect(num, call)
+		if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id_externo = $1`, call); n != 0 || x.g.cuenta("reject:"+call) != 1 {
+			t.Fatalf("reintento %d: filas %d, reject %d", i, n, x.g.cuenta("reject:"+call))
+		}
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1::bigint`, conv); n != mensajes+1 {
+		t.Fatalf("mensajes en el hilo: %d, esperaba %d (una sola tarjeta)", n, mensajes+1)
+	}
+	rf := x.rafagaEnHilo(conv, id)
+	if rf == nil || rf["intentos"] != float64(3) || rf["levantada"] != false || rf["hasta"] == nil {
+		t.Fatalf("tarjeta de la ráfaga: %v", rf)
+	}
+}
+
+// Quitar el bloqueo a mano: «Dejar que vuelva a llamar» (llamadas.desbloquear_numero, supervisor y
+// admin). Las entrantes anteriores dejan de contar y la próxima suena; queda auditado y con su evento.
+func TestRafagaLevantadaAMano(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.recibe(x.agente)
+	num := numeroCliente()
+	x.texto(num, "wamid.rafm"+num, "Hola")
+	conv := cid(x.conv(num))
+	for i := range 4 {
+		call := fmt.Sprintf("wacid.mano%d%s", i, num)
+		x.connect(num, call)
+		if i < 3 {
+			x.webhook(x.eventoLlamada(num, call, "terminate", "", 0))
+		}
+		x.pasa(time.Second, x.agente)
+	}
+	id, estado, _ := x.llamada("wacid.mano3" + num)
+	if estado != "rechazada" {
+		t.Fatalf("la cuarta: %s", estado)
+	}
+	ruta := "/conversaciones/" + conv + "/llamadas/desbloquear"
+	x.exigir(x.api(x.agente, http.MethodPost, ruta, nil), http.StatusForbidden)
+	x.exigir(x.api(x.otro, http.MethodPost, ruta, nil), http.StatusForbidden)
+	r := x.exigir(x.api(x.supervisor, http.MethodPost, ruta, nil), http.StatusOK)
+	if r.cuerpo["estabaActiva"] != true {
+		t.Fatalf("desbloquear: %s", crudo(r))
+	}
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.rafaga_levantada' AND payload->>'origen' = 'manual'
+		AND payload->>'conversacion_id' = $1 AND NOT (payload::text LIKE '%' || $2 || '%')`, conv, num); n != 1 {
+		t.Fatalf("evento voz.rafaga_levantada (sin el número): %d", n)
+	}
+	if n := x.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'llamadas.desbloquear_numero' AND resultado = 'ok' AND actor_id = $1`, x.supervisor.id); n != 1 {
+		t.Fatalf("auditoría: %d", n)
+	}
+	if rf := x.rafagaEnHilo(conv, id); rf["levantada"] != true {
+		t.Fatalf("la tarjeta debía decir que ya se levantó: %v", rf)
+	}
+	// La siguiente suena (sin esperar los 10 minutos).
+	x.pasa(time.Second, x.agente)
+	if _, estado, motivo := x.llamada(x.conectar(num, "wacid.mano4"+num)); estado != "sonando" {
+		t.Fatalf("tras levantar la ráfaga debía sonar: %s %s", estado, motivo)
+	}
+	// Repetirlo sin ráfaga no cambia nada (y responde igual).
+	if r := x.exigir(x.api(x.supervisor, http.MethodPost, ruta, nil), http.StatusOK); r.cuerpo["estabaActiva"] != false {
+		t.Fatalf("sin ráfaga: %s", crudo(r))
+	}
+}
+
+// Llamar levanta el bloqueo: una saliente a ese número que WhatsApp acepta levanta la ráfaga.
+func TestRafagaLevantadaAlLlamar(t *testing.T) {
+	x := nuevaBandejaVoz(t)
+	x.limitesVoz(1000, 100000)
+	x.recibe(x.agente)
+	num, conv := x.convConPermiso()
+	for i := range 4 {
+		call := fmt.Sprintf("wacid.llam%d%s", i, num)
+		x.connect(num, call)
+		if i < 3 {
+			x.webhook(x.eventoLlamada(num, call, "terminate", "", 0))
+		}
+		x.pasa(time.Second, x.agente)
+	}
+	if _, estado, _ := x.llamada("wacid.llam3" + num); estado != "rechazada" {
+		t.Fatalf("la cuarta: %s", estado)
+	}
+	_, call := x.saliente(x.supervisor, conv, nil)
+	x.webhookSaliente(num, call, "terminate", `,"status":"FAILED"`)
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.rafaga_levantada' AND payload->>'origen' = 'llamada' AND payload->>'conversacion_id' = $1`, conv); n != 1 {
+		t.Fatalf("evento al llamar: %d", n)
+	}
+	x.pasa(time.Second, x.agente)
+	if _, estado, motivo := x.llamada(x.conectar(num, "wacid.llam4"+num)); estado != "sonando" {
+		t.Fatalf("tras llamarlo debía sonar: %s %s", estado, motivo)
+	}
+	x.webhook(x.eventoLlamada(num, "wacid.llam4"+num, "terminate", "", 0))
+	// Una saliente sin ráfaga encima no deja rastro.
+	_, call2 := x.saliente(x.supervisor, conv, nil)
+	x.webhookSaliente(num, call2, "terminate", `,"status":"FAILED"`)
+	if n := x.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'voz.rafaga_levantada' AND payload->>'conversacion_id' = $1`, conv); n != 1 {
+		t.Fatalf("una saliente sin ráfaga no debía emitir: %d", n)
+	}
+}
+
+// conectar: connect y devuelve el call_id (para encadenar con llamada()).
+func (x *bandejaVoz) conectar(num, call string) string {
+	x.t.Helper()
+	x.connect(num, call)
+	return call
+}

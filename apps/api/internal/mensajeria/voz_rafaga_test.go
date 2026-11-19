@@ -39,10 +39,17 @@ func TestRafagaVentanaDeslizante(t *testing.T) {
 		}
 		x.pasa(time.Second, x.agente)
 	}
-	// (c) La cuarta dentro de la ventana se rechaza, y los reintentos de los 9 minutos siguientes también.
-	for i := 3; i < 8; i++ {
-		if estado, motivo := entrante(i); estado != "rechazada" || motivo != "limite" {
-			t.Fatalf("reintento %d dentro de la ventana: %s %s", i+1, estado, motivo)
+	// (c) La cuarta dentro de la ventana se rechaza, y los reintentos de los 9 minutos siguientes también
+	// (se rechazan en Meta y se cuentan en la tarjeta de la cuarta, sin fila propia).
+	if estado, motivo := entrante(3); estado != "rechazada" || motivo != "limite" {
+		t.Fatalf("la cuarta dentro de la ventana: %s %s", estado, motivo)
+	}
+	x.pasa(2*time.Minute, x.agente)
+	for i := 4; i < 8; i++ {
+		call := fmt.Sprintf("wacid.desliza%d%s", i, num)
+		x.connect(num, call)
+		if x.g.cuenta("reject:"+call) != 1 || x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id_externo = $1`, call) != 0 {
+			t.Fatalf("reintento %d dentro de la ventana: debía rechazarse sin fila", i+1)
 		}
 		x.pasa(2*time.Minute, x.agente)
 	}

@@ -337,8 +337,10 @@ test.describe("voz salientes › llamar", () => {
             flujos.push(r.headers()["x-iris-navegador"]);
             pestanas.push(r.headers()["x-iris-pestana"]);
         });
-        // «Recibir llamadas» apagado: fuera de la bandeja este navegador no tendría el flujo abierto.
-        const api = await abrir(page, "/conversaciones?c=41", { voz: { ...CON_PERMISO, recibe: false } });
+        // «Recibir llamadas» apagado: fuera de la bandeja este navegador no tendría el flujo abierto. Sin
+        // número con llamadas, para que el aviso que ofrece encenderlo (arriba en el teléfono) no tape
+        // «Iris, inicio»: esta prueba es del flujo de eventos (el aviso tiene la suya en voz-descubrimiento).
+        const api = await abrir(page, "/conversaciones?c=41", { voz: { ...CON_PERMISO, recibe: false, sinNumeroConLlamadas: true } });
         const l = await llamar(page, api);
         const navegador = api.voz.recibido.llamar[0]?.navegador;
         await page.getByRole("link", { name: "Iris, inicio" }).click();

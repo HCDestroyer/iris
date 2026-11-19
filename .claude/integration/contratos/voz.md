@@ -52,7 +52,12 @@ técnica (§9)**; los que más pesan están listados en §10.
   máxima por llamada (`duracionMaxPersonaMin`); ráfaga: como máximo 3 llamadas que suenan por
   número y canal en cualquier ventana de 10 minutos (deslizante); la siguiente se rechaza
   (`motivo_fin: limite`), sin mensaje. Las que rechaza la ráfaga y las salientes a ese número no
-  cuentan, así que no hay bloqueo que se renueve solo. `voz_bloqueos` queda en E2.
+  cuentan, así que no hay bloqueo que se renueve solo. La ráfaga se decide antes de registrar nada:
+  la primera que rechaza deja una sola tarjeta (con `rafaga.hasta`, la hora a la que vuelve a sonar),
+  sin reabrir la conversación ni emitir `llamada.entrante`; los reintentos de la misma ventana se
+  cuentan en ella (`rafaga.intentos`). Se levanta con `POST /conversaciones/{id}/llamadas/desbloquear`
+  (`llamadas.desbloquear_numero`) o con una saliente a ese número que Meta acepta; desde ese instante
+  las entrantes anteriores no cuentan (`voz.rafaga_levantada`). `voz_bloqueos` queda en E2.
 - **Revisión de seguridad de E1 (17 nov 2026):**
   - **Acción con Meta en vuelo.** Mientras un `pre_accept` o un `accept` no ha respondido, `soltar`
     y `reclamar` responden **409 `accion_en_curso`** (el panel reintenta en unos segundos). El
@@ -2384,6 +2389,7 @@ Eventos que ya existen y ganan campos: `asistente.accion_ejecutada`, `asistente.
 | `llamadas.solicitar_permiso` | Pedir al contacto permiso para llamarlo | |
 | `llamadas.llamar` | Devolver la llamada (saliente, con coste) | Sí |
 | `llamadas.descartar_devolucion` | Cerrar una devolución pendiente sin llamar | |
+| `llamadas.desbloquear_numero` | «Dejar que vuelva a llamar»: levantar la ráfaga de un número (`supervisor`, `admin`) | |
 | `llamadas.tomar` (E3) | Tomar en vivo la llamada que atiende el asistente | |
 | `llamadas.transferir` (E3) | Pasar la llamada a otra persona o cola | |
 | `llamadas.escuchar_en_vivo` (E3) | Oír una llamada en curso de una cola que supervisa, sin hablar (§3.8.1) | Sí |

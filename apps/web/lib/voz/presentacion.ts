@@ -175,6 +175,21 @@ export function llamadaEnHilo(l: LlamadaEnMensaje): { icono: IconoLlamada; tono:
     }
 }
 
+/**
+ * Por qué Iris rechazó sola una entrante (motivoFin `limite`): demasiadas llamadas seguidas del mismo
+ * número (como máximo 3 que suenan cada 10 minutos). Para quien configura llamadas, con la hora a la
+ * que vuelve a sonar y los reintentos; para los demás, solo que fue automático.
+ */
+export function textoRafaga(rafaga: LlamadaEnMensaje["rafaga"], ahora: number, detallado: boolean): { detalle: string; vigente: boolean } {
+    if (!detallado) return { detalle: "Iris la rechazó sola: demasiadas llamadas seguidas", vigente: false };
+    if (!rafaga) return { detalle: "Iris la rechazó: demasiadas llamadas seguidas de este número", vigente: false };
+    const mas = rafaga.intentos > 0 ? ` · ${rafaga.intentos === 1 ? "1 intento más" : `${rafaga.intentos} intentos más`}` : "";
+    if (rafaga.levantada) return { detalle: `Iris la rechazó: demasiadas llamadas seguidas${mas}. Ya se dejó que vuelva a llamar`, vigente: false };
+    const hasta = Date.parse(rafaga.hasta);
+    if (Number.isNaN(hasta) || hasta <= ahora) return { detalle: `Iris la rechazó: demasiadas llamadas seguidas${mas}. Ya puede volver a llamar`, vigente: false };
+    return { detalle: `Demasiadas llamadas seguidas de este número; vuelve a sonar a las ${horaCorta.format(hasta)}${mas}`, vigente: true };
+}
+
 export const RESULTADOS: readonly { valor: ResultadoLlamada; texto: string }[] = [
     { valor: "resuelto", texto: "Quedó resuelto" },
     { valor: "ticket_creado", texto: "Se creó un ticket" },

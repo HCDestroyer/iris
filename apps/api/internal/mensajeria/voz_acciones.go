@@ -47,6 +47,7 @@ type casosVoz struct {
 	reintentarAjustes *auditoria.Caso[EntradaIDConv, LlamadasCanal]
 	VerPermiso        *auditoria.Caso[EntradaConvVoz, PermisoLlamada]
 	SolicitarPermiso  *auditoria.Caso[EntradaConvVoz, PermisoLlamada]
+	DesbloquearNumero *auditoria.Caso[EntradaConvVoz, RafagaLevantada]
 	previoLlamar      *auditoria.Caso[EntradaLlamar, previoLlamar]
 	llamar            *auditoria.Caso[EntradaLlamar, Llamada]
 	resultadoLlamar   *auditoria.Caso[resultadoLlamar, bool]
@@ -67,7 +68,7 @@ func nuevosCasosVoz(m *Modulo) casosVoz {
 		VerPermiso: nuevoVerPermisoLlamada(m), SolicitarPermiso: nuevoSolicitarPermisoLlamada(m), previoLlamar: nuevoPrevioLlamar(m),
 		llamar: nuevoLlamar(m), resultadoLlamar: nuevoResultadoLlamar(m), RespuestaSDP: nuevoRespuestaSDP(m), resolverSolicitud: nuevoResolverSolicitud(m), agotarAccion: nuevoAgotarAccionMeta(m),
 		mantener: nuevoMantenerLlamada(m), vencer: nuevoVencerDevoluciones(m), resultadoAjustes: nuevoResultadoAjustesMeta(m),
-		reintentarAjustes: nuevoReintentarAjustesMeta(m)}
+		reintentarAjustes: nuevoReintentarAjustesMeta(m), DesbloquearNumero: nuevoDesbloquearNumero(m)}
 }
 
 // EntradaLlamada identifica una llamada.

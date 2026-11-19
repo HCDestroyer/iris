@@ -226,6 +226,44 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	if sono.After(ahora) {
 		sono = ahora
 	}
+	// 2. Ráfaga, ANTES de registrar nada: como máximo RafagaLlamadas llamadas que suenan por número cada
+	// RafagaVentana (deslizante). La primera que rechaza deja una sola tarjeta en el hilo, sin reabrir la
+	// conversación ni avisar de un mensaje nuevo; los reintentos de la misma ventana solo suman a esa
+	// tarjeta (sin fila, sin mensaje, sin evento por intento). Un connect viejo o sin oferta válida no
+	// suena de todos modos: sigue el camino de siempre (perdida).
+	var rafaga *time.Time
+	if ahora.Sub(sono) <= ConnectViejo && sdp != nil {
+		if _, err := q.LlamadaPorExterno(ctx, mensajeriabd.LlamadaPorExternoParams{CanalID: &canal.ID, IDExterno: ev.ID}); err == nil {
+			return nil // ya se recibió (Meta reintentó, o el job después del proceso en línea)
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		recientes, err := q.LlamadasRecientesDeNumero(ctx, mensajeriabd.LlamadasRecientesDeNumeroParams{CanalID: &canal.ID, Numero: numero, Desde: ahora.Add(-RafagaVentana)})
+		if err != nil {
+			return err
+		}
+		if recientes.Cuantas >= RafagaLlamadas {
+			// Vuelve a sonar cuando la más vieja que cuenta sale de la ventana (las rechazadas no cuentan).
+			hasta := recientes.Primera.Add(RafagaVentana)
+			v, err := q.RafagaVigente(ctx, mensajeriabd.RafagaVigenteParams{CanalID: &canal.ID, Numero: numero, Ahora: ahora})
+			if err == nil {
+				if v, err = q.SumarIntentoRafaga(ctx, mensajeriabd.SumarIntentoRafagaParams{ID: v.ID, Hasta: hasta}); err != nil {
+					return err
+				}
+				slog.InfoContext(ctx, "voz: llamada entrante rechazada por ráfaga (más de 3 del mismo número en 10 minutos); reintento contado en la tarjeta",
+					"llamada_id", v.ID, "canal_id", canal.ID, "intentos", v.RafagaIntentos, "vuelve_a_sonar", hasta)
+				m.rechazarEnMeta(ctx, t, canal.ID, ev.ID)
+				if err := taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute)); err != nil {
+					return err
+				}
+				return m.emitirEventoLlamada(ctx, t, v, EventoLlamadaActualizada, nil)
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			rafaga = &hasta
+		}
+	}
 	l, err := q.InsertarLlamada(ctx, mensajeriabd.InsertarLlamadaParams{LlamadaID: id, EmpresaID: c.EmpresaID, CanalID: &canal.ID, ConversacionID: &c.ID,
 		Externo: ev.ID, Numero: numero, ClienteID: c.ClienteID, Servicio: c.ServicioID, ColaID: cola, SonoEn: sono,
 		SuenaHasta: ahora.Add(time.Duration(segundos) * time.Second), SdpOferta: sdp})
@@ -235,9 +273,9 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	if err != nil {
 		return err
 	}
-	// La llamada es actividad del cliente: reabre una conversación resuelta.
+	// La llamada es actividad del cliente: reabre una conversación resuelta (no la que rechaza la ráfaga).
 	antes := c
-	if c.Estado == EstadoConvResuelta {
+	if c.Estado == EstadoConvResuelta && rafaga == nil {
 		c.Estado, c.ReabiertaEn, c.ResueltaEn = EstadoConvAbierta, &ahora, nil
 		if err := m.conservarAsignacion(ctx, t, &c); err != nil {
 			return err
@@ -257,6 +295,15 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	if c, err = guardarConv(ctx, q, c, nueva || antes.Estado != c.Estado); err != nil {
 		return err
 	}
+	if rafaga != nil {
+		slog.InfoContext(ctx, "voz: llamada entrante rechazada por ráfaga (más de 3 del mismo número en 10 minutos)", "llamada_id", l.ID, "canal_id", canal.ID,
+			"vuelve_a_sonar", *rafaga)
+		if err := q.FijarRafagaHasta(ctx, mensajeriabd.FijarRafagaHastaParams{ID: l.ID, Hasta: rafaga}); err != nil {
+			return err
+		}
+		l.RafagaHasta = rafaga
+		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaRechazada, "limite", ahora, MetaRechazar)
+	}
 	if err := t.Emitir("llamada.entrante", map[string]any{"llamada_id": l.ID, "conversacion_id": c.ID, "empresa_id": c.EmpresaID, "canal_id": canal.ID,
 		"cola_id": l.ColaID, "cliente_id": l.ClienteID, "origen": "whatsapp"}); err != nil {
 		return err
@@ -268,15 +315,6 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 	// Un connect viejo (más de 60 s) no hace sonar nada: Meta ya dejó de llamar.
 	if ahora.Sub(sono) > ConnectViejo || sdp == nil {
 		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaPerdida, "nadie_contesto", ahora, "")
-	}
-	// 2. Ráfaga: la cuarta llamada del número en 10 minutos se rechaza, sin mensaje.
-	recientes, err := q.LlamadasRecientesDeNumero(ctx, mensajeriabd.LlamadasRecientesDeNumeroParams{CanalID: &canal.ID, Numero: numero, Desde: ahora.Add(-RafagaVentana)})
-	if err != nil {
-		return err
-	}
-	if recientes > RafagaLlamadas {
-		slog.InfoContext(ctx, "voz: llamada entrante rechazada por ráfaga (más de 3 del mismo número en 10 minutos)", "llamada_id", l.ID, "canal_id", canal.ID)
-		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaRechazada, "limite", ahora, MetaRechazar)
 	}
 	// En un número prestado, las llamadas de la empresa prestataria todavía no suenan (E1: los ajustes de
 	// llamadas son de la dueña del número). Queda como perdida en la prestataria, con su devolución
@@ -318,17 +356,23 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 // rechazarSinRegistro pide a Meta rechazar una llamada que no se registra (número sin llamadas
 // encendidas). Va después del COMMIT: la transacción no llama a nadie por red.
 func (m *Modulo) rechazarSinRegistro(ctx context.Context, t *auditoria.Tx, canalID int64, callID string) {
+	// Para quien mira los registros: en Meta el número tiene llamadas y en Iris están apagadas (o el
+	// número es por QR). Sin datos del cliente.
+	slog.WarnContext(ctx, "voz: llegó una llamada y se rechazó porque las llamadas del número están apagadas en Iris", "canal_id", canalID)
+	m.rechazarEnMeta(ctx, t, canalID, callID)
+}
+
+// rechazarEnMeta pide a Meta rechazar una llamada que no queda registrada como fila propia. Va después
+// del COMMIT: la transacción no llama a nadie por red.
+func (m *Modulo) rechazarEnMeta(ctx context.Context, t *auditoria.Tx, canalID int64, callID string) {
 	cg, err := m.canalGraphDe(ctx, mensajeriabd.New(t), canalID)
 	if err != nil {
 		return
 	}
 	t.Anotar(map[string]any{"llamada_rechazada_sin_registro": true})
-	// Para quien mira los registros: en Meta el número tiene llamadas y en Iris están apagadas (o el
-	// número es por QR). Sin datos del cliente.
-	slog.WarnContext(ctx, "voz: llegó una llamada y se rechazó porque las llamadas del número están apagadas en Iris", "canal_id", canalID)
 	t.AlConfirmar(func(ctx context.Context) {
 		if err := m.graph().Accion(context.WithoutCancel(ctx), cg, callID, MetaRechazar, "", false); err != nil {
-			slog.WarnContext(ctx, "voz: rechazar una llamada de un número sin llamadas encendidas", "canal_id", canalID, "err", err)
+			slog.WarnContext(ctx, "voz: rechazar en Meta una llamada sin fila propia (llamadas apagadas o reintento de ráfaga)", "canal_id", canalID, "err", err)
 		}
 	})
 }

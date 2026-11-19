@@ -503,6 +503,15 @@ type LlamadaEnMensaje struct {
 	Grabacion   *EstadoGrabacion `json:"grabacion,omitempty"`
 	// DevolucionID: la devolución que atiende una saliente («Devolver la llamada»).
 	DevolucionID *int64 `json:"devolucionId,omitempty"`
+	// Rafaga: solo en una entrante rechazada por la ráfaga (motivoFin = limite).
+	Rafaga *RafagaDeLlamada `json:"rafaga,omitempty" doc:"Solo en una entrante que Iris rechazó por ráfaga (motivoFin limite)"`
+}
+
+// RafagaDeLlamada dice hasta cuándo seguía la ráfaga que rechazó la llamada y si alguien ya la levantó.
+type RafagaDeLlamada struct {
+	Hasta     time.Time `json:"hasta" doc:"Desde este instante el número vuelve a sonar (si nadie levantó antes la ráfaga)"`
+	Levantada bool      `json:"levantada" doc:"Alguien dejó que vuelva a llamar (a mano o llamándolo) después de esta llamada"`
+	Intentos  int32     `json:"intentos" doc:"Reintentos que la ráfaga rechazó después de esta llamada, en la misma ventana (no dejan tarjeta propia)"`
 }
 
 // DevolucionLlamada es una fila de «Por devolver».
