@@ -215,6 +215,9 @@ type Modulo struct {
 	resumenes *cacheResumen
 	// trasLeerCabeza: solo pruebas (entre la cabeza y los eventos de leerFeed).
 	trasLeerCabeza func()
+	// antesDeLeerFlujo: solo pruebas (en los flujos SSE del chat y la bandeja, entre la revalidación
+	// que da el alcance y la lectura del feed; recibe el usuario del flujo). Se fija antes de abrirlos.
+	antesDeLeerFlujo func(usuario int64)
 	// sondeoSiguienteIA: solo pruebas (hace fallar el sondeo de lo «siguiente» del servidor de IA).
 	sondeoSiguienteIA func() error
 	// fallarFila: solo pruebas (un error en una fila del barrido de disponibilidad o del bot).

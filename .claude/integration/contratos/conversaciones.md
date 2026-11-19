@@ -758,7 +758,8 @@ chat (`seq` ascendente).
 Mismo patrón que el chat interno (`contratos/chat.md` §4): feed `mensajeria.conv_eventos`,
 `NOTIFY iris_conversaciones '<empresa>'`, `GET /conversaciones/cambios?cursor=` (sondeo) y
 `GET /conversaciones/eventos` (SSE con `Last-Event-ID`, latido 25 s, cierre a 30 min, 5 flujos por
-usuario, revalidación de la sesión o del token en cada latido, 410 `cursor_vencido` tras 7 días).
+usuario, revalidación de la sesión o del token en cada latido y antes de entregar cada página de
+eventos, como el chat; 410 `cursor_vencido` tras 7 días).
 Tipos: `mensaje_nuevo` (con el mensaje), `mensaje_actualizado` (estado de entrega o adjunto listo),
 `conversacion_actualizada` (con la conversación como la ve el usuario), `mencion` (solo al
 mencionado). Cada usuario recibe solo lo de las conversaciones que ve.
