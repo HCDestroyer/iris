@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -134,8 +135,25 @@ func TestTokenParaOtroSoloIntegracion(t *testing.T) {
 	z.entrar(correoZ)
 	z.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "horus", "usuarioId": integ}).problema(t, 403, "prohibido")
 
+	// Contrato con Argos 0.8.0 §1.5 (S5): crear a mano el token de una integración es la vía de
+	// recuperación del conector: sin integraciones.conectar global, 403 aunque se tengan todos los
+	// permisos de la integración y tokens.crear.
+	idSinConectar, _ := e.usuario("lectura")
+	integID := int64(integ.(float64))
+	ctxSin := pruebas.ContextoUsuario(pruebas.Pool(t), idSinConectar, nucleo.PermTokensCrear, nucleo.PermTicketsVer, nucleo.PermTicketsCrear, nucleo.PermEmpresasTodas)
+	_, err := e.mod.CrearToken.Ejecutar(ctxSin, identidad.EntradaCrearToken{UsuarioID: integID, Nombre: "manual"})
+	var p *nucleo.Problema
+	if !errors.As(err, &p) || p.Status != http.StatusForbidden || !strings.Contains(p.Detail, "recuperación") {
+		t.Fatalf("sin integraciones.conectar debía ser 403 (vía de recuperación): %v", err)
+	}
+
 	if r := admin.pedir(http.MethodPost, "/api/v1/tokens", map[string]any{"nombre": "horus", "usuarioId": integ}); r.status != 201 {
 		t.Fatalf("token de integración por el admin global: %d %s", r.status, r.crudo)
+	}
+	var via string
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT coalesce(entrada->'auditoria'->>'via', '') FROM auditoria.acciones
+		WHERE accion = 'tokens.crear' AND resultado = 'ok' ORDER BY id DESC LIMIT 1`).Scan(&via); err != nil || via != "recuperacion" {
+		t.Fatalf("la vía de recuperación debía quedar marcada en la auditoría: %q %v", via, err)
 	}
 }
 

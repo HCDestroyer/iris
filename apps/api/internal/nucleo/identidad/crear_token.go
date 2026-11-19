@@ -80,6 +80,12 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			if err := puedeEmitir(ctx, q, actor, u, limite); err != nil {
 				return TokenCreado{}, err
 			}
+			if conector, err := esDeConector(ctx, q, u.ID); err != nil {
+				return TokenCreado{}, err
+			} else if conector && (!actor.EsUsuario() || actor.ID != u.ID) {
+				// Vía de recuperación del conector (contrato con Argos 0.8.0 §1.5, S5): queda marcada.
+				t.Anotar(map[string]any{"via": "recuperacion"})
+			}
 
 			valor, err := NuevoTokenAPI()
 			if err != nil {
@@ -143,6 +149,32 @@ func puedeEmitir(ctx context.Context, q *identidadbd.Queries, actor contexto.Act
 		if dueno.Tipo != "integracion" {
 			return nucleo.ReglaNegocio("token_para_persona", "Solo se crean tokens para otro usuario si es de tipo integración; cada persona crea los suyos")
 		}
+		// Contrato con Argos 0.8.0 §1.5 (S5) y §10.1 punto 1: el token de un usuario de integración
+		// creado a mano (para pegarlo en Argos u Horus) es la vía de RECUPERACIÓN del conector: solo un
+		// administrador (integraciones.conectar sin límite de alcance), auditada y marcada así. Lo normal
+		// es la conexión de un paso, donde el token nunca se muestra.
+		conector, err := esDeConector(ctx, q, dueno.ID)
+		if err != nil {
+			return err
+		}
+		if conector && !quien.TieneGlobal(string(nucleo.PermIntegracionesConectar)) {
+			return nucleo.Prohibido("El token de un usuario de integración es la vía de recuperación del conector: solo lo crea un administrador (integraciones.conectar)")
+		}
 		return exigirSuperior(ctx, q, quien, dueno.ID, "crear tokens de este usuario")
 	}
+}
+
+// esDeConector: el usuario de integración es el de un conector (rol integracion_argos o
+// integracion_horus). Sus tokens a mano son la vía de recuperación (contrato con Argos 0.8.0 §1.5).
+func esDeConector(ctx context.Context, q *identidadbd.Queries, usuarioID int64) (bool, error) {
+	roles, err := q.RolesDeUsuarios(ctx, []int64{usuarioID})
+	if err != nil {
+		return false, err
+	}
+	for _, r := range roles {
+		if r.Codigo == "integracion_argos" || r.Codigo == "integracion_horus" {
+			return true, nil
+		}
+	}
+	return false, nil
 }

@@ -7566,7 +7566,7 @@ export interface paths {
         put?: never;
         /**
          * Crear un token de API
-         * @description Permiso: `tokens.crear`. Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo. Desde un token, el nuevo no puede tener más permisos que el que lo crea. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
+         * @description Permiso: `tokens.crear`. Para otro usuario (`usuarioId`), solo si es de tipo integración (422 `token_para_persona`) y si tienes sin límite de alcance cada permiso suyo y `integraciones.conectar` (403): el token de la integración de un conector (roles `integracion_argos` o `integracion_horus`) creado a mano es la **vía de recuperación** del conector (contrato con Argos 0.8.0 §1.5, S5), solo de un administrador y auditada con `via: recuperacion`; lo normal es conectar con un paso, donde el token nunca se muestra. Desde un token, el nuevo no puede tener más permisos que el que lo crea. La respuesta lleva un secreto que no se guarda para `Idempotency-Key`: repetir la clave responde 409 `idempotencia_no_repetible`.
          */
         post: operations["crearToken"];
         delete?: never;
