@@ -379,3 +379,13 @@ UPDATE integracion.argos_servicios
 SET precio_mensual = CAST(sqlc.narg('precio_mensual')::text AS numeric), moneda = sqlc.narg('moneda')::text, updated_at = now()
 WHERE id = @id AND plan_id = @plan_id::bigint
     AND (precio_mensual IS DISTINCT FROM CAST(sqlc.narg('precio_mensual')::text AS numeric) OR moneda IS DISTINCT FROM sqlc.narg('moneda')::text);
+
+-- name: AvisoPrecioPlanDesde :one
+-- ¿Llegó un catalogo.cambiado de este plan con precio después de @desde? (el job de precios vuelve a
+-- leer: un aviso que llegó mientras corría no encoló otro job, por único).
+SELECT EXISTS (
+    SELECT 1 FROM integracion.entrantes
+    WHERE conector_id = @conector_id::bigint AND evento = 'catalogo.cambiado' AND recibido_en > @desde::timestamptz
+        AND payload->>'catalogo' = 'plan' AND (payload->>'id') = (@plan_id::bigint)::text
+        AND payload->'campos' ? 'precio'
+)::boolean;

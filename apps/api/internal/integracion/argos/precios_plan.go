@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
@@ -28,11 +29,22 @@ type ArgsPreciosPlan struct {
 // Kind implementa river.JobArgs.
 func (ArgsPreciosPlan) Kind() string { return "integracion.argos_precios_plan" }
 
-// InsertOpts: único por (conector, plan) mientras esté pendiente o corriendo: una ráfaga de avisos
-// del mismo plan relee la lista una sola vez.
+// InsertOpts: único por (conector, plan) mientras esté pendiente (sin contar los completados: un
+// segundo cambio de precio el mismo día encola otro). River exige contar también `running`; un aviso
+// que llega mientras corre lo atiende el propio job (avisoDuranteLaLectura).
 func (ArgsPreciosPlan) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: integracion.ColaIntegracion, MaxAttempts: 8, UniqueOpts: river.UniqueOpts{ByArgs: true}}
+	return river.InsertOpts{Queue: integracion.ColaIntegracion, MaxAttempts: 8, UniqueOpts: unicoMientrasPendiente}
 }
+
+// unicoMientrasPendiente: único por argumentos mientras no haya terminado (los estados que River
+// exige; sin completed, cancelled ni discarded).
+var unicoMientrasPendiente = river.UniqueOpts{ByArgs: true, ByState: []rivertype.JobState{
+	rivertype.JobStateAvailable, rivertype.JobStatePending, rivertype.JobStateRunning,
+	rivertype.JobStateRetryable, rivertype.JobStateScheduled,
+}}
+
+// maxRelecturas: cuántas veces vuelve a leer el job si siguen llegando avisos mientras lee.
+const maxRelecturas = 5
 
 // ResultadoPreciosPlan dice cuántos servicios cambiaron.
 type ResultadoPreciosPlan struct {
@@ -41,6 +53,7 @@ type ResultadoPreciosPlan struct {
 	Invalidos  int  `json:"invalidos"`
 	Releidos   int  `json:"releidos"`
 	SinLocales bool `json:"sin_locales"`
+	Relecturas int  `json:"relecturas"`
 }
 
 type entradaPrecios struct {
@@ -79,12 +92,36 @@ func nuevoRefrescarPreciosPlan(m *Modulo) *RefrescarPreciosPlan {
 	return r
 }
 
-// Ejecutar relee la lista en Argos (sin transacción abierta) y guarda en una transacción corta.
+// Ejecutar relee la lista en Argos (sin transacción abierta) y guarda en una transacción corta. Si
+// mientras leía llegó otro aviso de precio del mismo plan (su job se descartó por único), vuelve a
+// leer: el último precio nunca se pierde.
 func (r *RefrescarPreciosPlan) Ejecutar(ctx context.Context, args ArgsPreciosPlan) (ResultadoPreciosPlan, error) {
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
 		return ResultadoPreciosPlan{}, nucleo.ErrSinBD
 	}
+	var res ResultadoPreciosPlan
+	relecturas := 0
+	for range maxRelecturas {
+		var inicio time.Time
+		if err := bd.QueryRow(ctx, `SELECT clock_timestamp()`).Scan(&inicio); err != nil {
+			return res, err
+		}
+		var err error
+		if res, err = r.unaLectura(ctx, bd, args); err != nil {
+			return res, err
+		}
+		res.Relecturas = relecturas
+		otro, err := argosbd.New(bd).AvisoPrecioPlanDesde(ctx, argosbd.AvisoPrecioPlanDesdeParams{ConectorID: args.ConectorID, PlanID: args.PlanID, Desde: inicio})
+		if err != nil || !otro {
+			return res, err
+		}
+		relecturas++
+	}
+	return res, nil
+}
+
+func (r *RefrescarPreciosPlan) unaLectura(ctx context.Context, bd nucleo.BD, args ArgsPreciosPlan) (ResultadoPreciosPlan, error) {
 	locales, err := argosbd.New(bd).ServiciosDePlan(ctx, args.PlanID)
 	if err != nil {
 		return ResultadoPreciosPlan{}, err

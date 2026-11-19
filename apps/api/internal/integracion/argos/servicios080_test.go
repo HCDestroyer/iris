@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -459,4 +460,55 @@ func TestServicios080AlcanceYOrdenes(t *testing.T) {
 	// Un técnico sin orden vigente en ese servicio: como una IP sin cliente.
 	tecHTTP, _ := e.usuarioConID("tecnico")
 	tecHTTP.pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=100.64.12.34", nil).problema(t, 404, "no_encontrado")
+}
+
+// El job de precios del plan es único solo mientras está pendiente: un segundo cambio de precio
+// después de completado encola otro; un aviso que llega mientras el job lee hace que vuelva a leer.
+func TestServicios080PreciosPlanSegundoAviso(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	con, _ := e.sembrar080(904)
+	if r := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes/904", nil); r.status != 200 {
+		t.Fatalf("ficha: %d %s", r.status, r.crudo)
+	}
+	aviso := func() {
+		t.Helper()
+		if r := e.procesarWebhook(id, secreto, "catalogo.cambiado", map[string]any{"catalogo": "plan", "id": 12, "empresa_id": nil, "campos": []string{"precio"}}); r.Resultado != "aplicado" {
+			t.Fatalf("catalogo.cambiado: %+v", r)
+		}
+	}
+	jobs := func(estado string) int {
+		return e.contar(`SELECT count(*) FROM river.river_job WHERE kind = 'integracion.argos_precios_plan' AND (args->>'plan_id')::bigint = 12
+			AND (args->>'conector_id')::bigint = $1 AND state = $2`, id, estado)
+	}
+	aviso()
+	if jobs("available") != 1 {
+		t.Fatal("el primer aviso debía encolar el job")
+	}
+	// Termina el job: el segundo cambio de precio del día encola otro (no lo bloquea el completado).
+	if _, err := e.pool.Exec(context.Background(), `UPDATE river.river_job SET state = 'completed', finalized_at = now()
+		WHERE kind = 'integracion.argos_precios_plan' AND state = 'available'`); err != nil {
+		t.Fatal(err)
+	}
+	aviso()
+	if jobs("available") != 1 || jobs("completed") < 1 {
+		t.Fatalf("el segundo aviso debía encolar otro job: available=%d completed=%d", jobs("available"), jobs("completed"))
+	}
+	// Un aviso que llega mientras el job lee la lista (su propio job se descarta por único): el job
+	// vuelve a leer y se queda con el último precio.
+	ctx := pruebas.ContextoSistema(e.pool)
+	e.argos.con(func() {
+		e.argos.servicios[904][0]["precio_mensual"] = "260.00"
+		e.argos.alLeerPlan = func() {
+			e.argos.servicios[904][0]["precio_mensual"] = "299.00"
+			e.enviar(id, secreto, "wh-precio-"+pruebas.Unico(), "catalogo.cambiado", map[string]any{"catalogo": "plan", "id": 12, "empresa_id": nil, "campos": []string{"precio"}}, time.Now())
+		}
+	})
+	res, err := e.mod.RefrescarPreciosPlan.Ejecutar(ctx, argos.ArgsPreciosPlan{ConectorID: id, PlanID: 12})
+	if err != nil || res.Relecturas != 1 {
+		t.Fatalf("debía volver a leer una vez: %+v %v", res, err)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = $1 AND precio_mensual = 299.00`, con); n != 1 {
+		t.Fatal("se quedó con un precio viejo")
+	}
 }

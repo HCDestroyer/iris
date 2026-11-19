@@ -76,6 +76,8 @@ type argosFalso struct {
 	// retrasoTecnicos: cuánto tarda cada página de GET /inventario/tecnicos (Argos lento).
 	retrasoTecnicos time.Duration
 	planes          []map[string]any
+	// alLeerPlan: se llama al atender GET /servicios?plan_id= (un aviso que llega mientras Iris lee).
+	alLeerPlan func()
 	contratos       int      // PUT /integraciones/iris/contrato recibidos
 	informados      []string // el contrato de cada PUT, tal como lo mandó Iris
 	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
@@ -478,6 +480,10 @@ func (a *argosFalso) serviciosDe(w http.ResponseWriter, r *http.Request) {
 	if plan := r.URL.Query().Get("plan_id"); plan != "" {
 		// GET /servicios?plan_id= (contrato 0.8.0 §2.3: catalogo.cambiado de un plan con precio).
 		planID, _ := strconv.ParseInt(plan, 10, 64)
+		if f := a.alLeerPlan; f != nil {
+			a.alLeerPlan = nil
+			f()
+		}
 		lista := []map[string]any{}
 		for _, servicios := range a.servicios {
 			for _, s := range servicios {

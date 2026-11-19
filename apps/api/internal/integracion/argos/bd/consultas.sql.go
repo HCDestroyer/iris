@@ -24,6 +24,30 @@ func (q *Queries) AnonimizarCopiasDeCliente(ctx context.Context, clienteID int64
 	return err
 }
 
+const avisoPrecioPlanDesde = `-- name: AvisoPrecioPlanDesde :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.entrantes
+    WHERE conector_id = $1::bigint AND evento = 'catalogo.cambiado' AND recibido_en > $2::timestamptz
+        AND payload->>'catalogo' = 'plan' AND (payload->>'id') = ($3::bigint)::text
+        AND payload->'campos' ? 'precio'
+)::boolean
+`
+
+type AvisoPrecioPlanDesdeParams struct {
+	ConectorID int64
+	Desde      time.Time
+	PlanID     int64
+}
+
+// ¿Llegó un catalogo.cambiado de este plan con precio después de @desde? (el job de precios vuelve a
+// leer: un aviso que llegó mientras corría no encoló otro job, por único).
+func (q *Queries) AvisoPrecioPlanDesde(ctx context.Context, arg AvisoPrecioPlanDesdeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, avisoPrecioPlanDesde, arg.ConectorID, arg.Desde, arg.PlanID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const bloquearArgos = `-- name: BloquearArgos :exec
 
 SELECT pg_advisory_xact_lock(hashtextextended($1::text || ':' || ($2::bigint)::text, 0))
