@@ -45,19 +45,8 @@ func nuevoReiniciarMFA() *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado] {
 			if actor := contexto.ActorDe(ctx); actor.EsUsuario() && actor.ID == in.ID {
 				return MFAReiniciado{}, nucleo.ReglaNegocio("reinicio_mfa_propio", "No puedes reiniciar tu propio MFA; pídeselo a otro administrador")
 			}
-			antes, err := q.UsuarioPorIDParaActualizar(ctx, in.ID)
+			antes, err := adminSobreOtro(ctx, q, in.ID, in.Version, "reiniciar el MFA de este usuario")
 			if err != nil {
-				return MFAReiniciado{}, err
-			}
-			// Fuera del alcance de empresas: 404, como si no existiera (ni su versión se revela).
-			if err := exigirVisible(ctx, q, in.ID, "reiniciar el MFA de este usuario"); err != nil {
-				return MFAReiniciado{}, err
-			}
-			if err := nucleo.ExigirVersion(in.Version, antes.Version, "usuario", in.ID); err != nil {
-				return MFAReiniciado{}, err
-			}
-			// Mismo alcance que editar o desactivar: además, sus permisos sin límite.
-			if err := exigirSuperior(ctx, q, contexto.PermisosDe(ctx), in.ID, "reiniciar el MFA de este usuario"); err != nil {
 				return MFAReiniciado{}, err
 			}
 			if antes.TotpSecreto == nil && !antes.TotpActivo {
@@ -78,22 +67,10 @@ func nuevoReiniciarMFA() *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado] {
 			if err := borrarVinculosSSO(ctx, t, q, in.ID, "mfa_reiniciado"); err != nil {
 				return MFAReiniciado{}, err
 			}
-			revocados := []int64{}
-			var conservados int32
+			revocados, conservados := []int64{}, int32(0)
 			if in.RevocarTokens == nil || *in.RevocarTokens {
-				if err := q.BloquearTokensDeUsuario(ctx, in.ID); err != nil {
+				if revocados, conservados, err = revocarTokensDe(ctx, t, q, in.ID, "mfa_reiniciado"); err != nil {
 					return MFAReiniciado{}, err
-				}
-				if revocados, err = q.RevocarTokensDeUsuario(ctx, in.ID); err != nil {
-					return MFAReiniciado{}, err
-				}
-				if conservados, err = q.TokensDeUsuarioEnUsoPorConector(ctx, in.ID); err != nil {
-					return MFAReiniciado{}, err
-				}
-				for _, id := range revocados {
-					if err := t.Emitir("token.revocado", map[string]any{"token_id": id, "usuario_id": in.ID, "motivo": "mfa_reiniciado"}); err != nil {
-						return MFAReiniciado{}, err
-					}
 				}
 			}
 			roles, err := rolesDe(ctx, q, in.ID)
