@@ -204,7 +204,7 @@ func CopiaDe(ctx context.Context, db argosbd.DBTX, entidad string, entidadID int
 		if err != nil {
 			return nil, err
 		}
-		if !vis.Ubicacion(copia.Servicio.ID) && copia.Servicio.Direccion != "" {
+		if !vis.Ubicacion(copia.Servicio.ID, nil) && copia.Servicio.Direccion != "" {
 			copia.Direccion = copia.Cliente.Direccion
 		}
 		vis.RecortarCopia(copia.Servicio)

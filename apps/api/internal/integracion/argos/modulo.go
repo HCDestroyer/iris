@@ -107,6 +107,8 @@ type Modulo struct {
 	ObtenerFicha          *ObtenerFicha
 	ResolverIP            *ResolverIP
 	SincronizarCatalogos  *SincronizarCatalogos
+	// RefrescarPreciosPlan: catalogo.cambiado de un plan con precio (0.8.0 §2.3), en su job.
+	RefrescarPreciosPlan *RefrescarPreciosPlan
 	// Contrato 0.5.0: versión de Argos e informe del contrato de Iris.
 	InformarContrato *InformarContrato
 	// RevisarVersion encola ya InformarContrato (POST /integraciones/conectores/{id}/revisar-version).
@@ -182,6 +184,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.ObtenerFicha = nuevoObtenerFicha(m)
 	m.ResolverIP = nuevoResolverIP(m)
 	m.SincronizarCatalogos = nuevoSincronizarCatalogos(m)
+	m.RefrescarPreciosPlan = nuevoRefrescarPreciosPlan(m)
 	m.InformarContrato = nuevoInformarContrato(m)
 	m.RevisarVersion = nuevoRevisarVersion(m)
 	m.ListarTecnicosArgos = nuevoListarTecnicosArgos(m)

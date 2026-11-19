@@ -15,35 +15,70 @@ import (
 //   - servicios.ver_red: router, IP, prefijos IPv6, user_ppp, tipo de conexión y planta.
 //   - servicios.ver_ubicacion: dirección, referencia, coordenadas y contacto en sitio.
 //
-// El filtro es del SERVIDOR: sin el permiso, el campo no sale por la API (ni vacío). Quien solo
-// ve sus órdenes (ordenes.ver_propias sin ordenes.ver, el técnico) recibe esos datos solo de los
-// servicios de las órdenes asignadas a él. El actor sistema tiene todos los permisos.
+// El filtro es del SERVIDOR: sin el permiso, el campo no sale por la API (ni vacío). Todo exige
+// además clientes.ver. Un servicio muestra el dato si el actor:
+//
+//  1. tiene el permiso global, o con alcance de la zona del servicio, o el servicio es de una de
+//     «sus órdenes» (abajo); y
+//  2. si sus órdenes están acotadas (ordenes.ver_propias, u ordenes.ver con alcance de zona o
+//     cuadrilla, sin ordenes.ver global): el servicio es de una de sus órdenes.
+//
+// «Sus órdenes» (mismo criterio que campo/comun.go): de la empresa activa, abiertas o terminadas
+// (cerrada, fallida) hace menos de 24 h (nunca canceladas), asignadas a él o en una zona o cuadrilla
+// que cubre su ordenes.ver. Una orden reasignada deja de ser suya. El actor sistema lo ve todo.
 // El precio, el plan, la zona y el estado los ve cualquiera con clientes.ver.
+
+// alcanceDato es lo que da un permiso servicios.ver_*.
+type alcanceDato struct {
+	tiene, global bool
+	zonas         map[int64]bool
+}
+
+func alcanceDe(p contexto.Permisos, permiso nucleo.Permiso) alcanceDato {
+	a := alcanceDato{tiene: p.Tiene(string(permiso))}
+	if !a.tiene {
+		return a
+	}
+	global, zonas, _ := p.Alcances(string(permiso))
+	a.global = global
+	a.zonas = map[int64]bool{}
+	for _, z := range zonas {
+		a.zonas[z] = true
+	}
+	return a
+}
 
 // Visibilidad dice qué datos sensibles del servicio puede ver el actor.
 type Visibilidad struct {
-	red, ubicacion bool
-	// propias != nil: solo los servicios de sus órdenes asignadas.
-	propias map[int64]bool
+	red, ubicacion alcanceDato
+	// deOrdenes: los servicios de sus órdenes (ver arriba).
+	deOrdenes map[int64]bool
+	// acotado: sus órdenes están acotadas (regla 2).
+	acotado bool
 }
 
 // VisibilidadTotal: lo ve todo (jobs, pruebas internas).
-var VisibilidadTotal = Visibilidad{red: true, ubicacion: true}
+var VisibilidadTotal = Visibilidad{red: alcanceDato{tiene: true, global: true}, ubicacion: alcanceDato{tiene: true, global: true}}
 
-// LeerVisibilidad arma la visibilidad del actor del contexto. Con ordenes.ver_propias sin
-// ordenes.ver lee los servicios de sus órdenes asignadas (una consulta, con bd o, si es nil, con
-// la transacción o la base del contexto).
+// LeerVisibilidad arma la visibilidad del actor del contexto (una consulta a campo.ordenes si hace
+// falta, con bd o, si es nil, con la transacción o la base del contexto).
 func LeerVisibilidad(ctx context.Context, bd argosbd.DBTX) (Visibilidad, error) {
 	p := contexto.PermisosDe(ctx)
-	v := Visibilidad{red: p.Tiene(string(nucleo.PermServiciosVerRed)), ubicacion: p.Tiene(string(nucleo.PermServiciosVerUbicacion))}
-	if !v.red && !v.ubicacion {
+	if !p.Tiene(string(nucleo.PermClientesVer)) {
+		return Visibilidad{}, nil
+	}
+	v := Visibilidad{red: alcanceDe(p, nucleo.PermServiciosVerRed), ubicacion: alcanceDe(p, nucleo.PermServiciosVerUbicacion)}
+	if !v.red.tiene && !v.ubicacion.tiene {
 		return v, nil
 	}
-	if p.Tiene(string(nucleo.PermOrdenesVer)) || !p.Tiene(string(nucleo.PermOrdenesVerPropias)) {
+	ordenesGlobal := p.TieneGlobal(string(nucleo.PermOrdenesVer))
+	v.acotado = !ordenesGlobal && (p.Tiene(string(nucleo.PermOrdenesVer)) || p.Tiene(string(nucleo.PermOrdenesVerPropias)))
+	if ordenesGlobal || (!v.acotado && v.red.global == v.red.tiene && v.ubicacion.global == v.ubicacion.tiene) {
+		// Sin regla de órdenes y con permisos globales: no hace falta leer órdenes.
 		return v, nil
 	}
+	v.deOrdenes = map[int64]bool{}
 	a := contexto.ActorDe(ctx)
-	v.propias = map[int64]bool{}
 	if !a.EsUsuario() {
 		return v, nil
 	}
@@ -56,33 +91,59 @@ func LeerVisibilidad(ctx context.Context, bd argosbd.DBTX) (Visibilidad, error) 
 			return Visibilidad{}, nucleo.ErrSinBD
 		}
 	}
-	ids, err := argosbd.New(bd).ServiciosDeOrdenesAsignadas(ctx, a.ID)
+	_, zonas, cuadrillas := p.Alcances(string(nucleo.PermOrdenesVer))
+	if !p.Tiene(string(nucleo.PermOrdenesVer)) {
+		zonas, cuadrillas = nil, nil
+	}
+	ids, err := argosbd.New(bd).ServiciosDeOrdenesVisibles(ctx, argosbd.ServiciosDeOrdenesVisiblesParams{
+		UsuarioID: a.ID, EmpresaID: contexto.EmpresaDe(ctx), Zonas: nuncaNilIDs(zonas), Cuadrillas: nuncaNilIDs(cuadrillas),
+	})
 	if err != nil {
 		return Visibilidad{}, err
 	}
 	for _, id := range ids {
-		v.propias[id] = true
+		v.deOrdenes[id] = true
 	}
 	return v, nil
 }
 
-// Red indica si el actor ve los datos de red del servicio.
-func (v Visibilidad) Red(servicioID int64) bool {
-	return v.red && (v.propias == nil || v.propias[servicioID])
+func nuncaNilIDs(ids []int64) []int64 {
+	if ids == nil {
+		return []int64{}
+	}
+	return ids
 }
 
-// Ubicacion indica si el actor ve la dirección y la ubicación del servicio.
-func (v Visibilidad) Ubicacion(servicioID int64) bool {
-	return v.ubicacion && (v.propias == nil || v.propias[servicioID])
+func (v Visibilidad) puede(a alcanceDato, servicioID int64, zonaID *int64) bool {
+	if !a.tiene {
+		return false
+	}
+	deOrden := v.deOrdenes[servicioID]
+	if v.acotado && !deOrden {
+		return false
+	}
+	return a.global || (zonaID != nil && a.zonas[*zonaID]) || deOrden
 }
+
+// Red indica si el actor ve los datos de red del servicio (zonaID: la zona del servicio, nil si no
+// se sabe).
+func (v Visibilidad) Red(servicioID int64, zonaID *int64) bool { return v.puede(v.red, servicioID, zonaID) }
+
+// Ubicacion indica si el actor ve la dirección y la ubicación del servicio.
+func (v Visibilidad) Ubicacion(servicioID int64, zonaID *int64) bool {
+	return v.puede(v.ubicacion, servicioID, zonaID)
+}
+
+// PuedeRed: el actor tiene servicios.ver_red con algún alcance (para cortar antes una lectura).
+func (v Visibilidad) PuedeRed() bool { return v.red.tiene }
 
 // Recortar quita del servicio lo que el actor no puede ver.
 func (v Visibilidad) Recortar(s *Servicio) {
-	if !v.Red(s.ID) {
+	if !v.Red(s.ID, s.ZonaID) {
 		s.RouterID, s.RouterNombre, s.IP, s.PrefijoEnlaceV6, s.PrefijoDelegadoV6 = nil, "", "", "", ""
 		s.UserPPP, s.TipoConexion, s.Planta = "", "", nil
 	}
-	if !v.Ubicacion(s.ID) {
+	if !v.Ubicacion(s.ID, s.ZonaID) {
 		s.Direccion, s.Lat, s.Lon, s.Referencia = "", nil, nil, ""
 		s.ContactoNombre, s.ContactoTelefono, s.ContactoTelefonos = "", "", nil
 	}
@@ -100,10 +161,10 @@ func (v Visibilidad) RecortarTodos(s []Servicio) {
 func (v Visibilidad) Anotacion(servicios []Servicio) map[string]any {
 	red, ubic := []int64{}, []int64{}
 	for _, s := range servicios {
-		if v.Red(s.ID) {
+		if v.Red(s.ID, s.ZonaID) {
 			red = append(red, s.ID)
 		}
-		if v.Ubicacion(s.ID) {
+		if v.Ubicacion(s.ID, s.ZonaID) {
 			ubic = append(ubic, s.ID)
 		}
 	}
@@ -117,10 +178,10 @@ func (v Visibilidad) RecortarCopia(c *CopiaServicio) {
 	if c == nil {
 		return
 	}
-	if !v.Red(c.ID) {
+	if !v.Red(c.ID, nil) {
 		c.IP, c.RouterNombre = "", ""
 	}
-	if !v.Ubicacion(c.ID) {
+	if !v.Ubicacion(c.ID, nil) {
 		c.Direccion, c.Lat, c.Lon = "", nil, nil
 	}
 }

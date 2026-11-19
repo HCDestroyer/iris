@@ -53,8 +53,13 @@ func empresaDeLectura(ctx context.Context) (int64, error) {
 
 // nuevoPrevio arma la fase 1 genérica: permiso + conector activo. No deja fila al terminar bien.
 func nuevoPrevio[In any](m *Modulo, accion string) *auditoria.Caso[In, conector.Leido] {
+	return nuevoPrevioCon[In](m, accion, nucleo.PermClientesVer)
+}
+
+// nuevoPrevioCon es nuevoPrevio con otro permiso.
+func nuevoPrevioCon[In any](m *Modulo, accion string, permiso nucleo.Permiso) *auditoria.Caso[In, conector.Leido] {
 	return auditoria.Nuevo(auditoria.Caso[In, conector.Leido]{
-		Accion: accion, Permiso: nucleo.PermClientesVer, AuditarExito: soloLecturas[conector.Leido],
+		Accion: accion, Permiso: permiso, AuditarExito: soloLecturas[conector.Leido],
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ In) (conector.Leido, error) {
 			c, err := m.conectorActivo(ctx, t)
 			if err != nil {
@@ -698,9 +703,11 @@ type ResolverIP struct {
 }
 
 func nuevoResolverIP(m *Modulo) *ResolverIP {
-	r := &ResolverIP{m: m, previo: nuevoPrevio[EntradaResolverIP](m, "clientes.resolver_ip")}
+	// La IP es un dato de red (contrato 0.8.0 §2.4): exige servicios.ver_red, además de clientes.ver,
+	// con el mismo alcance que la ficha (zona del servicio, órdenes del técnico).
+	r := &ResolverIP{m: m, previo: nuevoPrevioCon[EntradaResolverIP](m, "clientes.resolver_ip", nucleo.PermServiciosVerRed)}
 	r.final = auditoria.Nuevo(auditoria.Caso[entradaIPFinal, IPResuelta]{
-		Accion: "clientes.resolver_ip", Permiso: nucleo.PermClientesVer,
+		Accion: "clientes.resolver_ip", Permiso: nucleo.PermServiciosVerRed,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaIPFinal) (IPResuelta, error) {
 			salida := IPResuelta{IP: in.IP, Fuente: "argos"}
 			switch {
@@ -727,6 +734,24 @@ func nuevoResolverIP(m *Modulo) *ResolverIP {
 			if e := contexto.EmpresaDe(ctx); e != 0 && (salida.EmpresaID == nil || *salida.EmpresaID != e) {
 				// De otra empresa o sin empresa: igual que una IP sin cliente.
 				t.Anotar(map[string]any{"descartado": "otra_empresa"})
+				return IPResuelta{IP: in.IP}, nucleo.NoEncontrado("Argos no tiene un servicio con esa IP")
+			}
+			// Fuera del alcance de servicios.ver_red (zona del servicio, órdenes del técnico): igual que una
+			// IP sin cliente, sin revelar de quién es.
+			vis, err := LeerVisibilidad(ctx, t)
+			if err != nil {
+				return salida, err
+			}
+			var zona *int64
+			if salida.ServicioID != nil {
+				if f, err := argosbd.New(t).ServicioPorID(ctx, *salida.ServicioID); err == nil {
+					zona = f.ZonaID
+				} else if !errors.Is(err, pgx.ErrNoRows) {
+					return salida, err
+				}
+			}
+			if !vis.PuedeRed() || (salida.ServicioID == nil && !vis.red.global) || (salida.ServicioID != nil && !vis.Red(*salida.ServicioID, zona)) {
+				t.Anotar(map[string]any{"descartado": "fuera_de_alcance"})
 				return IPResuelta{IP: in.IP}, nucleo.NoEncontrado("Argos no tiene un servicio con esa IP")
 			}
 			if salida.EmpresaID != nil {

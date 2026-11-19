@@ -97,9 +97,10 @@ type cambioCatalogo struct {
 	Lat      *float64 `json:"lat,omitempty"`
 	Lon      *float64 `json:"lon,omitempty"`
 	conCoord bool
-	// precios: con `precio` en campos[] de un plan (0.8.0), el precio_mensual releído de cada servicio
-	// del plan que Iris tiene en su instantánea (nil = sin aviso de precio).
-	precios []precioServicio
+	// relerPrecios: `precio` en campos[] de un plan (0.8.0): se encola ArgsPreciosPlan (único por
+	// plan) para releer GET /servicios?plan_id= fuera del webhook.
+	relerPrecios bool
+	conectorID   int64
 }
 
 // precioServicio es el precio releído de un servicio (lista blanca: solo precio y moneda).
@@ -170,9 +171,7 @@ func (p *ProcesarEntrante) leerCatalogo(ctx context.Context, q conector.DBTX, e 
 			}
 		}
 		if slices.Contains(d.Campos, "precio") {
-			if c.precios, err = p.preciosDePlan(ctx, q, cli, c.ID); err != nil {
-				return nil, "", err
-			}
+			c.relerPrecios, c.conectorID = true, e.ConectorID
 			return c, "", nil
 		}
 		if !encontrado {
@@ -202,7 +201,7 @@ func activoDe(activo *bool, estado string) *bool {
 
 // aplicarCatalogo actualiza la instantánea (zonas, routers), los nombres copiados en servicios y
 // clientes, y la zona espejo de agenda (nombre y activa).
-func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c cambioCatalogo) error {
+func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c cambioCatalogo, encolar conector.Encolador) error {
 	var n int64
 	var err error
 	switch c.Catalogo {
@@ -238,15 +237,13 @@ func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c
 				return err
 			}
 		}
-		for _, pr := range c.precios {
-			m, err := q.CambiarPrecioServicio(ctx, argosbd.CambiarPrecioServicioParams{ID: pr.id, PlanID: c.ID, PrecioMensual: pr.precio, Moneda: pr.moneda})
-			if err != nil {
+		if c.relerPrecios && encolar != nil {
+			// Un job por plan (único mientras esté pendiente): varios avisos seguidos no releen la
+			// lista varias veces ni la leen dentro del webhook.
+			if err := encolar(ctx, t.Tx, ArgsPreciosPlan{ConectorID: c.conectorID, PlanID: c.ID}); err != nil {
 				return err
 			}
-			n += m
-		}
-		if c.precios != nil {
-			t.Anotar(map[string]any{"precios": len(c.precios)})
+			t.Anotar(map[string]any{"precios": "encolado"})
 		}
 	}
 	t.Anotar(map[string]any{"catalogo": c.Catalogo, "catalogo_id": c.ID, "filas": n})
@@ -486,33 +483,4 @@ func cambiarZonaAgenda(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries,
 	t.FijarEmpresa(empresa)
 	defer t.FijarEmpresa(0)
 	return t.Emitir("zona.actualizada", map[string]any{"zona_id": despues.ID, "campos": campos, "activa": despues.Activa})
-}
-
-// preciosDePlan relee en Argos los servicios del plan (GET /servicios?plan_id=, paginado) y deja
-// solo el precio de los que Iris tiene en su instantánea (no crea instantáneas nuevas).
-func (p *ProcesarEntrante) preciosDePlan(ctx context.Context, q conector.DBTX, cli *Cliente, planID int64) ([]precioServicio, error) {
-	locales, err := argosbd.New(q).ServiciosDePlan(ctx, planID)
-	if err != nil {
-		return nil, err
-	}
-	salida := []precioServicio{}
-	if len(locales) == 0 {
-		return salida, nil
-	}
-	conocidos := make(map[int64]bool, len(locales))
-	for _, l := range locales {
-		conocidos[l.ID] = true
-	}
-	leidos, err := cli.ServiciosDePlan(ctx, planID)
-	if err != nil {
-		return nil, err
-	}
-	for _, s := range leidos {
-		if !conocidos[s.ID] {
-			continue
-		}
-		v := AServicio(s, nil)
-		salida = append(salida, precioServicio{id: s.ID, precio: v.PrecioMensual, moneda: v.Moneda})
-	}
-	return salida, nil
 }

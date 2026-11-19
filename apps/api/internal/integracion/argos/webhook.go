@@ -183,7 +183,7 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 	}
 	switch {
 	case in.catalogo != nil:
-		if err := aplicarCatalogo(ctx, t, q, *in.catalogo); err != nil {
+		if err := aplicarCatalogo(ctx, t, q, *in.catalogo, p.m.cfg.Encolar); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"

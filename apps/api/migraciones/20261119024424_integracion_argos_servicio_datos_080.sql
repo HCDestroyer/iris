@@ -40,6 +40,23 @@ WITH propios AS (
     UPDATE nucleo.roles SET version = version + 1, updated_at = now()
     WHERE id IN (SELECT rol_id FROM dados)
     RETURNING id
+), por_rol AS (
+    SELECT rol_id, jsonb_agg(permiso ORDER BY permiso) AS permisos,
+        -- id uuid v7 (como los del outbox): milisegundos de ahora + aleatorio, versión 7 y variante 10.
+        lpad(to_hex((extract(epoch FROM clock_timestamp()) * 1000)::bigint), 12, '0')
+            || replace(gen_random_uuid()::text, '-', '') AS h
+    FROM dados GROUP BY rol_id
+), eventos AS (
+    -- rol.actualizado por cada rol propio tocado, en la misma transacción (catálogo de eventos).
+    INSERT INTO integracion.outbox (id, evento, empresa_id, payload, request_id)
+    SELECT (substr(h, 1, 8) || '-' || substr(h, 9, 4) || '-7' || substr(h, 14, 3) || '-'
+            || substr('89ab', (get_byte(decode(substr(h, 17, 2), 'hex'), 0) % 4) + 1, 1) || substr(h, 19, 3) || '-' || substr(h, 22, 12))::uuid,
+        'rol.actualizado', NULL,
+        jsonb_build_object('rol_id', rol_id, 'campos', jsonb_build_array('permisos'), 'permisos_agregados', permisos,
+            'permisos_quitados', '[]'::jsonb),
+        'migracion-20261119024424'
+    FROM por_rol
+    RETURNING id
 )
 INSERT INTO auditoria.acciones (actor_tipo, actor_nombre, canal, accion, entidad, entidad_id, entrada, resultado, request_id)
 SELECT 'sistema', 'migracion', 'consola', 'roles.permisos_agregados_por_migracion', 'rol', d.rol_id::text,

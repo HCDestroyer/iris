@@ -135,9 +135,13 @@ type Estado =
     | { q: string; tipo: "listo"; datos: ClienteResumen[]; stale: boolean; servicioIP?: number | null }
     | { q: string; tipo: "error"; error: unknown };
 
-/** Lee los clientes del texto (o de la IP). Devuelve resultados con sus servicios. */
-async function buscarClientes(q: string, signal: AbortSignal): Promise<Extract<Estado, { tipo: "listo" }>> {
-    if (esIP(q)) {
+/**
+ * Lee los clientes del texto (o de la IP). Devuelve resultados con sus servicios. Buscar por IP
+ * exige `servicios.ver_red` (la IP es un dato de red, contrato con Argos 0.8.0 §2.4): sin él, una IP
+ * se busca como texto.
+ */
+async function buscarClientes(q: string, signal: AbortSignal, porIP: boolean): Promise<Extract<Estado, { tipo: "listo" }>> {
+    if (porIP && esIP(q)) {
         try {
             const r = await resolver(api().GET("/api/v1/clientes/resolver-ip", { params: { query: { ip: q.trim() } }, signal }));
             if (r.clienteId === null) return { q, tipo: "listo", datos: [], stale: r.stale };
@@ -174,7 +178,8 @@ function Busqueda({
     alCancelar?: () => void;
     alConectorApagado?: (apagado: boolean) => void;
 }) {
-    const { yo } = useSesion();
+    const { yo, puede } = useSesion();
+    const porIP = puede(["servicios.ver_red"]);
     const clave = claveRecientes(yo.usuario.id, yo.empresaActiva?.id);
     // Solo en el navegador: los recientes se leen al montar la búsqueda (componente de cliente).
     const [recientes] = useState<ClienteReciente[]>(() => soloMinimo(leerLocalJson(clave, sonRecientes, [])));
@@ -199,7 +204,7 @@ function Busqueda({
     useEffect(() => {
         if (q.length < MIN_BUSQUEDA) return undefined;
         const control = new AbortController();
-        buscarClientes(q, control.signal).then(
+        buscarClientes(q, control.signal, porIP).then(
             (r) => {
                 if (control.signal.aborted) return;
                 setEstado(r);
@@ -212,7 +217,7 @@ function Busqueda({
             },
         );
         return () => control.abort();
-    }, [q, intento]);
+    }, [q, intento, porIP]);
 
     const terminar = useCallback(
         (cliente: ClienteResumen, servicio: ServicioCliente | null) => {
@@ -251,7 +256,7 @@ function Busqueda({
     ) : (
         <span className="grid gap-0.5">
             <span className="font-medium text-foreground">{`Ningún cliente coincide con «${q}»`}</span>
-            <span>{esIP(q) ? "Ningún servicio de Argos tiene esa IP en esta empresa." : "Revisa la ortografía o prueba con el código, el teléfono o el NIT."}</span>
+            <span>{porIP && esIP(q) ? "Ningún servicio de Argos tiene esa IP en esta empresa." : "Revisa la ortografía o prueba con el código, el teléfono o el NIT."}</span>
         </span>
     );
 

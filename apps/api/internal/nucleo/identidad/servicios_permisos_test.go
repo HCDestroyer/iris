@@ -99,12 +99,23 @@ func TestServiciosPermisosRolesPropiosMigracion(t *testing.T) {
 		AND entidad = 'rol' AND entidad_id = $1 AND entrada->'permisos' = '["servicios.ver_red", "servicios.ver_ubicacion"]'::jsonb`, itoa(conClientes)).Scan(&auditadas); err != nil || auditadas != 1 {
 		t.Fatalf("auditoría de la migración: %d %v", auditadas, err)
 	}
+	// rol.actualizado por outbox, en la misma transacción, con un id uuid v7.
+	var eventos int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM integracion.outbox WHERE evento = 'rol.actualizado'
+		AND (payload->>'rol_id')::bigint = $1 AND payload->'permisos_agregados' = '["servicios.ver_red", "servicios.ver_ubicacion"]'::jsonb
+		AND payload->'campos' = '["permisos"]'::jsonb AND payload->'permisos_quitados' = '[]'::jsonb
+		AND substr(id::text, 15, 1) = '7' AND substr(id::text, 20, 1) IN ('8', '9', 'a', 'b')`, conClientes).Scan(&eventos); err != nil || eventos != 1 {
+		t.Fatalf("rol.actualizado de la migración: %d %v", eventos, err)
+	}
 	// Una segunda pasada no duplica nada ni audita de nuevo.
 	if _, err := tx.Exec(ctx, texto[ini:fin]); err != nil {
 		t.Fatal(err)
 	}
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM auditoria.acciones WHERE accion = 'roles.permisos_agregados_por_migracion' AND entidad_id = $1`, itoa(conClientes)).Scan(&auditadas); err != nil || auditadas != 1 {
 		t.Fatalf("la segunda pasada no debía auditar: %d %v", auditadas, err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM integracion.outbox WHERE evento = 'rol.actualizado' AND (payload->>'rol_id')::bigint = $1`, conClientes).Scan(&eventos); err != nil || eventos != 1 {
+		t.Fatalf("la segunda pasada no debía emitir: %d %v", eventos, err)
 	}
 }
 

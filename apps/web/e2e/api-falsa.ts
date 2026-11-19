@@ -974,6 +974,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                 return route.fulfill({ json: { data, nextCursor: null, stale: false } satisfies Schema<"ResultadoBusqueda"> });
             }
             if (ruta === "/api/v1/clientes/resolver-ip") {
+                // La IP es un dato de red (contrato con Argos 0.8.0 §2.4).
+                if (!puede("servicios.ver_red")) return prohibido();
                 const ip = url.searchParams.get("ip") ?? "";
                 const s = CLIENTES.flatMap((c) => serviciosDe(c.id)).find((x) => x.ip === ip);
                 if (!s) return noEncontrado();

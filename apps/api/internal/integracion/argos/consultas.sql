@@ -357,11 +357,16 @@ FROM agenda.tecnicos WHERE usuario_id = @usuario_id AND activo;
 -- Solo los ids, para el selector «sin vincular».
 SELECT argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo IS NOT NULL;
 
--- name: ServiciosDeOrdenesAsignadas :many
--- Los servicios de las órdenes asignadas al técnico (servicios.ver_red / ver_ubicacion de quien
--- solo ve sus órdenes, contrato 0.8.0 §2.4).
+-- name: ServiciosDeOrdenesVisibles :many
+-- «Sus órdenes» para servicios.ver_red / ver_ubicacion (contrato 0.8.0 §2.4; visibilidad.go): de la
+-- empresa activa (0 = sin empresas registradas), abiertas o terminadas (cerrada, fallida) hace
+-- menos de 24 h, nunca canceladas; asignadas al usuario o en una zona o cuadrilla de su alcance.
 SELECT DISTINCT servicio_id::bigint AS servicio_id FROM campo.ordenes
-WHERE tecnico_id = @tecnico_id::bigint AND servicio_id IS NOT NULL;
+WHERE servicio_id IS NOT NULL
+    AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+    AND (estado IN ('pendiente', 'programada', 'en_camino', 'en_sitio', 'pausada')
+        OR (estado IN ('cerrada', 'fallida') AND finalizada_en > now() - interval '24 hours'))
+    AND (tecnico_id = @usuario_id::bigint OR zona_id = ANY(@zonas::bigint[]) OR cuadrilla_id = ANY(@cuadrillas::bigint[]));
 
 -- name: ServiciosDePlan :many
 -- catalogo.cambiado de un plan con precio (§2.4): los servicios de la instantánea con ese plan.

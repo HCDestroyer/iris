@@ -1213,15 +1213,32 @@ func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]In
 	return items, nil
 }
 
-const serviciosDeOrdenesAsignadas = `-- name: ServiciosDeOrdenesAsignadas :many
+const serviciosDeOrdenesVisibles = `-- name: ServiciosDeOrdenesVisibles :many
 SELECT DISTINCT servicio_id::bigint AS servicio_id FROM campo.ordenes
-WHERE tecnico_id = $1::bigint AND servicio_id IS NOT NULL
+WHERE servicio_id IS NOT NULL
+    AND ($1::bigint = 0 OR empresa_id = $1::bigint)
+    AND (estado IN ('pendiente', 'programada', 'en_camino', 'en_sitio', 'pausada')
+        OR (estado IN ('cerrada', 'fallida') AND finalizada_en > now() - interval '24 hours'))
+    AND (tecnico_id = $2::bigint OR zona_id = ANY($3::bigint[]) OR cuadrilla_id = ANY($4::bigint[]))
 `
 
-// Los servicios de las órdenes asignadas al técnico (servicios.ver_red / ver_ubicacion de quien
-// solo ve sus órdenes, contrato 0.8.0 §2.4).
-func (q *Queries) ServiciosDeOrdenesAsignadas(ctx context.Context, tecnicoID int64) ([]int64, error) {
-	rows, err := q.db.Query(ctx, serviciosDeOrdenesAsignadas, tecnicoID)
+type ServiciosDeOrdenesVisiblesParams struct {
+	EmpresaID  int64
+	UsuarioID  int64
+	Zonas      []int64
+	Cuadrillas []int64
+}
+
+// «Sus órdenes» para servicios.ver_red / ver_ubicacion (contrato 0.8.0 §2.4; visibilidad.go): de la
+// empresa activa (0 = sin empresas registradas), abiertas o terminadas (cerrada, fallida) hace
+// menos de 24 h, nunca canceladas; asignadas al usuario o en una zona o cuadrilla de su alcance.
+func (q *Queries) ServiciosDeOrdenesVisibles(ctx context.Context, arg ServiciosDeOrdenesVisiblesParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, serviciosDeOrdenesVisibles,
+		arg.EmpresaID,
+		arg.UsuarioID,
+		arg.Zonas,
+		arg.Cuadrillas,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -265,10 +266,13 @@ func AServicio(s ServicioArgos, zonaCliente *int64) Servicio {
 		Planta: aPlanta(s.Planta),
 	}
 	// Precio y moneda van juntos o no van (§4.1: con un Argos anterior a 1.18.0 no vienen).
+	// Un precio que no es un monto válido (NaN, infinito, negativo o fuera de numeric(12,2)) queda
+	// sin precio: no rompe la ficha ni se inventa.
 	if p := s.PrecioMensual.Texto(); p != nil && strings.TrimSpace(s.Moneda) != "" {
-		normal := normalizarPrecio(*p)
-		moneda := strings.TrimSpace(s.Moneda)
-		v.PrecioMensual, v.Moneda = &normal, &moneda
+		if normal, ok := precioValido(*p); ok {
+			moneda := recortarTexto(strings.TrimSpace(s.Moneda), 8)
+			v.PrecioMensual, v.Moneda = &normal, &moneda
+		}
 	}
 	return v
 }
@@ -295,13 +299,24 @@ func aServicios(filas []argosbd.IntegracionArgosServicio) []Servicio {
 	return salida
 }
 
-// normalizarPrecio deja el precio con dos decimales («250» → «250.00»); si no es un número, tal cual.
-func normalizarPrecio(p string) string {
+// precioMaximo: el mayor que cabe en numeric(12,2).
+const precioMaximo = 9_999_999_999.99
+
+// precioValido deja el precio con dos decimales («250» → «250.00»); false si no es un monto
+// finito, no negativo y dentro de numeric(12,2).
+func precioValido(p string) (string, bool) {
 	f, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
-	if err != nil {
-		return strings.TrimSpace(p)
+	if err != nil || math.IsNaN(f) || math.IsInf(f, 0) || f < 0 || f > precioMaximo {
+		return "", false
 	}
-	return strconv.FormatFloat(f, 'f', 2, 64)
+	return strconv.FormatFloat(f, 'f', 2, 64), true
+}
+
+func recortarTexto(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }
 
 // precioDe lee el numeric(12,2) de la instantánea como texto («250.00»); nil sin precio.
@@ -317,8 +332,11 @@ func precioDe(n pgtype.Numeric) *string {
 	if !ok {
 		return nil
 	}
-	t = normalizarPrecio(t)
-	return &t
+	normal, ok := precioValido(t)
+	if !ok {
+		return nil
+	}
+	return &normal
 }
 
 func textoPlanta(t *TextoArgos) *string {

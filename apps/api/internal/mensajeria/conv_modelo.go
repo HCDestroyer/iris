@@ -888,7 +888,10 @@ func (m *Modulo) detalleConv(ctx context.Context, q *mensajeriabd.Queries, usuar
 	default:
 		d.Resumen = &ResumenGuardadoRef{ID: res.ID, GeneradoEn: res.GeneradoEn, Desactualizado: res.MensajesNuevos > 0, MensajesNuevos: res.MensajesNuevos}
 	}
-	if c.ClienteID != nil {
+	// Una conversación sin empresa cuando hay empresas registradas no muestra el cliente: podría ser
+	// de otra empresa (contrato argosisp.md 0.8.0 §2.4, revisión de seguridad).
+	sinEmpresa := c.EmpresaID == nil && contexto.EmpresasDe(ctx).Estado != contexto.EmpresaSinConector && contexto.EmpresasDe(ctx).Estado != contexto.EmpresaNoResuelta
+	if c.ClienteID != nil && !sinEmpresa {
 		cl, err := q.ClienteInstantanea(ctx, *c.ClienteID)
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
@@ -900,9 +903,12 @@ func (m *Modulo) detalleConv(ctx context.Context, q *mensajeriabd.Queries, usuar
 			if c.EmpresaID != nil {
 				empresa = *c.EmpresaID
 			}
-			filas, err := q.ServiciosInstantanea(ctx, cl.ID)
-			if err != nil {
-				return d, err
+			// Los servicios solo con clientes.ver (la visibilidad de red y ubicación también lo exige).
+			var filas []mensajeriabd.IntegracionArgosServicio
+			if contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesVer)) {
+				if filas, err = q.ServiciosInstantanea(ctx, cl.ID); err != nil {
+					return d, err
+				}
 			}
 			ss, err := argos.ServiciosVisibles(ctx, nil, aFilasArgos(filas), empresa)
 			if err != nil {

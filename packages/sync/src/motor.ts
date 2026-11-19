@@ -407,6 +407,25 @@ export function compararOrdenesDelDia(paradas: ReadonlyMap<number, number>) {
         parada(a) - parada(b) || cita(a) - cita(b) || a.numero.localeCompare(b.numero);
 }
 
+/** Ventana en que el servidor manda la red y la ubicación de una orden terminada (§2.4). */
+export const VENTANA_DATOS_SERVICIO_MS = 24 * 60 * 60 * 1000;
+
+const CAMPOS_SENSIBLES_SERVICIO = new Set(["router", "ip", "direccion", "lat", "lon"]);
+
+/** La orden guarda red o ubicación de su servicio. */
+export function conDatosSensibles(base: OrdenCampo): boolean {
+    const s = base.servicio;
+    return s !== undefined && s !== null && Object.keys(s).some((k) => CAMPOS_SENSIBLES_SERVICIO.has(k));
+}
+
+/** La orden sin la red (router, IP) ni la ubicación (dirección, coordenadas) de su servicio. */
+export function sinRedNiUbicacion(base: OrdenCampo): OrdenCampo {
+    const s = base.servicio;
+    if (!s) return base;
+    const servicio = Object.fromEntries(Object.entries(s).filter(([k]) => !CAMPOS_SENSIBLES_SERVICIO.has(k))) as typeof s;
+    return { ...base, servicio };
+}
+
 export class MotorSync {
     private readonly almacen: Almacen;
     private readonly transporte: Transporte;
@@ -918,6 +937,7 @@ export class MotorSync {
     sincronizar(): Promise<void> {
         return this.serializar(async () => {
             await this.verificarCaducidad();
+            await this.recortarCaducas();
             // Primero lo que no depende de archivos (el estado llega rápido aunque la señal sea
             // mala), luego las subidas, y otra vuelta para lo que ellas liberaron. Lo que el
             // servidor no contestó no se repite en la misma pasada.
@@ -1130,6 +1150,28 @@ export class MotorSync {
     }
 
     // --- Internos: caducidad --------------------------------------------------------------
+
+    /**
+     * Red y ubicación del servicio (contrato con Argos 0.8.0 §2.4): el servidor solo las manda de las
+     * órdenes del técnico abiertas o terminadas hace menos de 24 h. Lo guardado en el teléfono sigue
+     * la misma regla: una orden terminada hace más de 24 h, cancelada o reasignada las pierde aquí,
+     * aunque no llegue un cambio que lo diga.
+     */
+    private async recortarCaducas(): Promise<void> {
+        const limite = this.reloj.ahora() - VENTANA_DATOS_SERVICIO_MS;
+        const poner: OrdenLocal[] = [];
+        for (const o of this.ordenes.values()) {
+            if (!conDatosSensibles(o.base)) continue;
+            const fin = o.base.finalizadaEn ? Date.parse(o.base.finalizadaEn) : Number.NaN;
+            const terminada = o.base.estado === "cerrada" || o.base.estado === "fallida";
+            if (o.reasignada || o.base.estado === "cancelada" || (terminada && (Number.isNaN(fin) || fin < limite))) {
+                poner.push({ ...o, base: sinRedNiUbicacion(o.base) });
+            }
+        }
+        if (poner.length > 0) {
+            await this.guardar({ ordenes: { poner, borrar: [] } });
+        }
+    }
 
     private async verificarCaducidad(): Promise<void> {
         const ultima = this.meta.ultimaSincronizacion;
@@ -1664,7 +1706,8 @@ export class MotorSync {
                 const local = poner.get(cambio.ordenId) ?? this.ordenes.get(cambio.ordenId);
                 if (cambio.tipo === "reasignada") {
                     if (conOps.has(cambio.ordenId) && local) {
-                        poner.set(local.id, { ...local, reasignada: true });
+                        // Ya no es suya: se conserva por su cola, sin la red ni la ubicación del servicio.
+                        poner.set(local.id, { ...local, base: sinRedNiUbicacion(local.base), reasignada: true });
                     } else {
                         poner.delete(cambio.ordenId);
                         borrar.add(cambio.ordenId);
@@ -1675,7 +1718,7 @@ export class MotorSync {
                     borrar.delete(cambio.ordenId);
                     poner.set(cambio.ordenId, { id: cambio.ordenId, base: cambio.orden, reasignada: false });
                 } else if (cambio.tipo === "cancelada" && local) {
-                    poner.set(local.id, { ...local, base: { ...local.base, estado: "cancelada" } });
+                    poner.set(local.id, { ...local, base: sinRedNiUbicacion({ ...local.base, estado: "cancelada" }) });
                 }
             }
             // Si la API manda el turno (hoy solo viene en el paquete), es el del día del paquete.
@@ -1711,8 +1754,10 @@ export class MotorSync {
         const enPaquete = new Set(ordenes.map((o) => o.id));
         const conOps = this.ordenesConOps();
         const borrar = [...this.ordenes.keys()].filter((id) => !enPaquete.has(id) && !conOps.has(id));
+        // Las que quedan solo por su cola (ya no vienen en el paquete) pierden la red y la ubicación.
+        const fuera = [...this.ordenes.values()].filter((o) => !enPaquete.has(o.id) && conOps.has(o.id) && conDatosSensibles(o.base));
         await this.guardar({
-            ordenes: { poner: ordenes.map((base) => ({ id: base.id, base, reasignada: false })), borrar },
+            ordenes: { poner: [...ordenes.map((base) => ({ id: base.id, base, reasignada: false })), ...fuera.map((o) => ({ ...o, base: sinRedNiUbicacion(o.base) }))], borrar },
             meta: {
                 cursor: paquete.cursor,
                 fecha: paquete.fecha,
