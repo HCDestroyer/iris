@@ -500,7 +500,9 @@ func sugerenciaParaResponder(ctx context.Context, q *mensajeriabd.Queries, c men
 	return &s, nil
 }
 
-var reEspacios = regexp.MustCompile(`\s+`)
+// reEspacios: espacios, separadores Unicode (U+2028, U+2029…) y controles (U+0085, \v…) se
+// colapsan a un espacio: un dato nunca parte la línea que ve el modelo.
+var reEspacios = regexp.MustCompile(`[\s\p{Z}\p{Cc}]+`)
 
 func normalizarTexto(s string) string {
 	return strings.TrimSpace(reEspacios.ReplaceAllString(s, " "))

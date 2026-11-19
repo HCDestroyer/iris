@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
@@ -43,21 +44,29 @@ func etiquetaServicioIA(s mensajeriabd.ServiciosClienteAsistenteRow) string {
 // precioServicioIA: «Q250.00» con la moneda de Argos; "" sin precio (Argos anterior a 1.18.0).
 func precioServicioIA(s mensajeriabd.ServiciosClienteAsistenteRow) string {
 	precio := strings.TrimSpace(s.PrecioMensual)
-	if precio == "" {
+	if precio == "" || !rePrecioServicioIA.MatchString(precio) || !reMonedaServicioIA.MatchString(s.Moneda) {
+		// Sin precio, o con un precio o una moneda que no tienen forma de serlo: se omite.
 		return ""
 	}
 	if s.Moneda == "GTQ" {
 		return "Q" + precio
 	}
-	return limpiarDato(sinComillas.Replace(s.Moneda), 5) + " " + precio
+	return s.Moneda + " " + precio
 }
+
+var (
+	rePrecioServicioIA = regexp.MustCompile(`^\d{1,10}\.\d{2}$`)
+	reMonedaServicioIA = regexp.MustCompile(`^[A-Z]{3}$`)
+	// estadosServicioIA: los estados de Argos que el modelo puede ver; otro valor va como «desconocido».
+	estadosServicioIA = map[string]bool{"pendiente_instalacion": true, "activo": true, "limitado": true, "suspendido": true, "retirado": true}
+)
 
 // lineaServicioIA: una línea para el modelo con la etiqueta, el estado y, con número registrado,
 // el precio mensual del plan.
 func lineaServicioIA(s mensajeriabd.ServiciosClienteAsistenteRow, registrado bool) string {
-	estado := limpiarDato(sinComillas.Replace(s.Estado), 30)
-	if estado == "" {
-		estado = "sin estado"
+	estado := strings.TrimSpace(s.Estado)
+	if !estadosServicioIA[estado] {
+		estado = "desconocido"
 	}
 	linea := fmt.Sprintf("%s: estado %s.", etiquetaServicioIA(s), estado)
 	if p := precioServicioIA(s); p != "" && registrado {

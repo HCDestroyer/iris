@@ -410,19 +410,23 @@ export function compararOrdenesDelDia(paradas: ReadonlyMap<number, number>) {
 /** Ventana en que el servidor manda la red y la ubicación de una orden terminada (§2.4). */
 export const VENTANA_DATOS_SERVICIO_MS = 24 * 60 * 60 * 1000;
 
-const CAMPOS_SENSIBLES_SERVICIO = new Set(["router", "ip", "direccion", "lat", "lon"]);
+/**
+ * Lista blanca de lo que se conserva del servicio de una orden que ya no es del técnico: todo lo
+ * demás (router, IP, dirección, coordenadas y cualquier campo nuevo) se borra del teléfono.
+ */
+const CAMPOS_CONSERVADOS_SERVICIO = new Set(["id", "codigo", "plan", "zona", "precioMensual", "moneda", "estado", "sincronizadoEn"]);
 
-/** La orden guarda red o ubicación de su servicio. */
+/** La orden guarda del servicio algo fuera de la lista blanca (red, ubicación u otro campo). */
 export function conDatosSensibles(base: OrdenCampo): boolean {
     const s = base.servicio;
-    return s !== undefined && s !== null && Object.keys(s).some((k) => CAMPOS_SENSIBLES_SERVICIO.has(k));
+    return s !== undefined && s !== null && Object.keys(s).some((k) => !CAMPOS_CONSERVADOS_SERVICIO.has(k));
 }
 
-/** La orden sin la red (router, IP) ni la ubicación (dirección, coordenadas) de su servicio. */
+/** La orden con su servicio reducido a la lista blanca (sin red ni ubicación). */
 export function sinRedNiUbicacion(base: OrdenCampo): OrdenCampo {
     const s = base.servicio;
     if (!s) return base;
-    const servicio = Object.fromEntries(Object.entries(s).filter(([k]) => !CAMPOS_SENSIBLES_SERVICIO.has(k))) as typeof s;
+    const servicio = Object.fromEntries(Object.entries(s).filter(([k]) => CAMPOS_CONSERVADOS_SERVICIO.has(k))) as typeof s;
     return { ...base, servicio };
 }
 

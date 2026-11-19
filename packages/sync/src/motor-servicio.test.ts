@@ -47,6 +47,10 @@ describe("red y ubicación del servicio en el teléfono", () => {
         const sin = sinRedNiUbicacion(base);
         expect(conDatosSensibles(sin)).toBe(false);
         expect(sin.servicio).toEqual({ id: 4401, codigo: "S-4410", plan: "Fibra 50", zona: "Chitá", precioMensual: "250.00", moneda: "GTQ", estado: "activo", sincronizadoEn: "2026-10-28T15:00:00Z" });
+        // Un campo nuevo que no está en la lista blanca también se borra.
+        const conNuevo = { ...base, servicio: { ...SERVICIO, mac: "AA:BB" } } as OrdenCampo;
+        expect(conDatosSensibles(conNuevo)).toBe(true);
+        expect(sinRedNiUbicacion(conNuevo).servicio).not.toHaveProperty("mac");
         // La dirección de la orden (su propia copia) no se toca.
         expect(sin.direccion).toBe(base.direccion);
     });
