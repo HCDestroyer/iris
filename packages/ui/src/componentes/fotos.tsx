@@ -107,7 +107,7 @@ export function FotoMensaje({ src, ancho, alto, estado, etiqueta, alAbrir, super
     if (carga === "error") {
         return (
             <span data-slot="foto-mensaje" data-estado-foto="error" className={comun} style={estilo}>
-                <span role="alert" className="absolute inset-0 grid place-content-center justify-items-center gap-1.5 p-3 text-center text-xs text-error">
+                <span role="alert" className="absolute inset-0 grid place-content-center justify-items-center gap-1.5 p-3 pb-8 text-center text-xs text-error">
                     <ImageOff aria-hidden className="size-5" />
                     <span>No se pudo cargar la foto</span>
                     <Boton

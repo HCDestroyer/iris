@@ -614,7 +614,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                             <Boton
                                 variante="primario"
                                 tamano="icono"
-                                className="shrink-0 rounded-full @min-[34rem]/conv:hidden"
+                                className="shrink-0 rounded-full! @min-[34rem]/conv:hidden"
                                 onClick={enviar}
                                 disabled={!puedeEnviar}
                                 aria-label={textoEnviar}
