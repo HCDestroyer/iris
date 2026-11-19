@@ -406,9 +406,16 @@ partes (ficha, ticket, orden, comercial y app de campo).
   descuido; cambiarla es otro pedido.
 - **Búsqueda por IP.** `GET /clientes?q=` con una IP, un prefijo o un trozo de IP, sin
   `servicios.ver_red` global, responde lista vacía sin llamar a Argos (sería un oráculo de la red).
-  **Límite conocido:** Argos busca también en `user_ppp` dentro de `q`; un texto con el usuario PPPoE
-  todavía puede encontrar al cliente. Pedido a Argos (fuera de la 0.8.0): un parámetro para excluir los
-  campos de red de `q` (`.claude/integration/i1.md`).
+  **`user_ppp` y prefijos (contrato 0.8.1 §2.1, A29): resuelto con Argos ≥ 1.21.0.** Sin
+  `servicios.ver_red` global (también con alcance solo por zona), `BuscarClientes` manda
+  `buscar_red=false` siempre, sin depender de la versión de Argos (falla cerrado), y Argos ≥ 1.21.0
+  deja fuera de `q` la IPv4 vigente, los prefijos IPv6 y el `user_ppp` de los servicios. La decisión
+  es del caso de uso (`lecturas.go`); el cliente HTTP solo agrega el parámetro. Con
+  `servicios.ver_red` global no se manda. Un Argos anterior (o que no informó versión) lo ignora:
+  sigue el **límite conocido** de antes (un texto con el usuario PPPoE todavía puede encontrar al
+  cliente). La auditoría de `clientes.buscar` anota `buscar_red`: `efectivo` (Argos ≥ 1.21.0 según
+  `version_remota`, con `SoportaBuscarSinRed`), `ignorado` (Argos anterior o sin versión) o
+  `no_enviado` (con `ver_red` global).
 - **Conversaciones sin empresa.** Una conversación con `empresa_id` null creada antes de registrar la
   primera empresa no muestra al cliente (podría ser de otra empresa) hasta que se adopten sus datos
   con `empresas.adoptar`.

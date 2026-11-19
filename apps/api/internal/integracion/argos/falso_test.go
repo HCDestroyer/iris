@@ -13,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 )
 
 // argosFalso es un servidor de Argos que cumple el contrato (§1.3 y §2.1) para las pruebas.
@@ -41,6 +43,8 @@ type argosFalso struct {
 	rutaExtra http.HandlerFunc
 	// empresaPedida: X-Empresa-Id de la última búsqueda.
 	empresaPedida string
+	// buscarRed: buscar_red de cada GET /clientes, tal como llegó ("" = no vino; contrato 0.8.1 §2.1).
+	buscarRed []string
 	// alcance: empresas del token de Iris en Argos (vacío = global). Sin global, ?empresas=todas
 	// responde 403 y /servicios solo devuelve las de su alcance.
 	alcance map[int64]bool
@@ -443,13 +447,48 @@ func (a *argosFalso) buscar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.empresaPedida = r.Header.Get("X-Empresa-Id") // conToken ya tiene el candado
+	// Contrato 0.8.1 §2.1 (Argos ≥ 1.21.0): buscar_red=false deja fuera los datos de red de q; un
+	// valor que no sea true, false, 1 ni 0 es 422 validacion (field buscar_red). Un Argos anterior ignora
+	// el parámetro.
+	valor, vino := r.URL.Query()["buscar_red"]
+	a.buscarRed = append(a.buscarRed, r.URL.Query().Get("buscar_red"))
+	conRed := true
+	if vino && conector.VersionAlMenos(&a.version, "1.21.0") {
+		switch valor[0] {
+		case "true", "1":
+		case "false", "0":
+			conRed = false
+		default:
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"type": "urn:argosisp:problema:validacion", "title": "Unprocessable Entity", "status": 422,
+				"detail": "Los datos enviados no son válidos",
+				"errors": []any{map[string]any{"field": "buscar_red", "rule": "boolean", "message": "Debe ser true o false"}},
+			})
+			return
+		}
+	}
 	data := []any{}
-	for _, c := range a.clientes {
-		if strings.Contains(strings.ToLower(c["nombre"].(string)), q) {
+	for id, c := range a.clientes {
+		if strings.Contains(strings.ToLower(c["nombre"].(string)), q) || (conRed && q != "" && a.coincideRed(id, q)) {
 			data = append(data, c)
 		}
 	}
 	escribir(w, map[string]any{"data": data, "nextCursor": nil})
+}
+
+// coincideRed: como Argos, q coincide también con los datos de red de los servicios del cliente
+// (IPv4 vigente, prefijos IPv6 y user_ppp). La MAC y el router nunca forman parte de q.
+func (a *argosFalso) coincideRed(cliente int64, q string) bool {
+	for _, s := range a.servicios[cliente] {
+		for _, campo := range []string{"ipv4", "prefijo_enlace_v6", "prefijo_delegado_v6", "user_ppp"} {
+			if v, ok := s[campo].(string); ok && v != "" && strings.Contains(strings.ToLower(v), q) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func idDe(r *http.Request) int64 {
