@@ -97,6 +97,8 @@ func LeerVisibilidad(ctx context.Context, bd argosbd.DBTX) (Visibilidad, error) 
 	}
 	ids, err := argosbd.New(bd).ServiciosDeOrdenesVisibles(ctx, argosbd.ServiciosDeOrdenesVisiblesParams{
 		UsuarioID: a.ID, EmpresaID: contexto.EmpresaDe(ctx), Zonas: nuncaNilIDs(zonas), Cuadrillas: nuncaNilIDs(cuadrillas),
+		// Las asignadas a él cuentan solo si ve sus órdenes (ordenes.ver_propias).
+		Propias: p.Tiene(string(nucleo.PermOrdenesVerPropias)),
 	})
 	if err != nil {
 		return Visibilidad{}, err
@@ -176,14 +178,14 @@ func (v Visibilidad) Anotacion(servicios []Servicio) map[string]any {
 // RecortarCopia quita de la copia del servicio de un ticket u orden lo que el actor no puede ver.
 // La dirección general de la copia (CopiaArgos.Direccion) la decide quien la expone: la orden
 // conserva su propia dirección con los permisos de la orden (§2.4).
-func (v Visibilidad) RecortarCopia(c *CopiaServicio) {
+func (v Visibilidad) RecortarCopia(c *CopiaServicio, zonaID *int64) {
 	if c == nil {
 		return
 	}
-	if !v.Red(c.ID, nil) {
+	if !v.Red(c.ID, zonaID) {
 		c.IP, c.RouterNombre = "", ""
 	}
-	if !v.Ubicacion(c.ID, nil) {
+	if !v.Ubicacion(c.ID, zonaID) {
 		c.Direccion, c.Lat, c.Lon = "", nil, nil
 	}
 }

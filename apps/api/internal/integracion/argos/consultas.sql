@@ -360,13 +360,14 @@ SELECT argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_
 -- name: ServiciosDeOrdenesVisibles :many
 -- «Sus órdenes» para servicios.ver_red / ver_ubicacion (contrato 0.8.0 §2.4; visibilidad.go): de la
 -- empresa activa (0 = sin empresas registradas), abiertas o terminadas (cerrada, fallida) hace
--- menos de 24 h, nunca canceladas; asignadas al usuario o en una zona o cuadrilla de su alcance.
+-- menos de 24 h, nunca canceladas; asignadas al usuario (solo con ordenes.ver_propias) o en una zona o
+-- cuadrilla de su alcance de ordenes.ver.
 SELECT DISTINCT servicio_id::bigint AS servicio_id FROM campo.ordenes
 WHERE servicio_id IS NOT NULL
     AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
     AND (estado IN ('pendiente', 'programada', 'en_camino', 'en_sitio', 'pausada')
         OR (estado IN ('cerrada', 'fallida') AND finalizada_en > now() - interval '24 hours'))
-    AND (tecnico_id = @usuario_id::bigint OR zona_id = ANY(@zonas::bigint[]) OR cuadrilla_id = ANY(@cuadrillas::bigint[]));
+    AND ((@propias::boolean AND tecnico_id = @usuario_id::bigint) OR zona_id = ANY(@zonas::bigint[]) OR cuadrilla_id = ANY(@cuadrillas::bigint[]));
 
 -- name: ServiciosDePlan :many
 -- catalogo.cambiado de un plan con precio (§2.4): los servicios de la instantánea con ese plan.

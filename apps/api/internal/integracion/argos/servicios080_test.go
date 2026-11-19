@@ -344,7 +344,7 @@ func TestServicios080VisiblesParaOtrosModulos(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := &argos.CopiaServicio{ID: con, IP: "100.64.12.34", RouterNombre: "Nodo Centro", Direccion: "3a calle", PlanNombre: "Fibra"}
-	vis.RecortarCopia(c)
+	vis.RecortarCopia(c, nil)
 	if c.IP != "" || c.RouterNombre != "" || c.Direccion != "" || c.PlanNombre != "Fibra" {
 		t.Fatalf("copia sin permisos: %+v", c)
 	}
@@ -530,5 +530,74 @@ func TestServicios080BuscarPorIPSinVerRed(t *testing.T) {
 	}
 	if r := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes?q=100.64.12.34", nil); r.status != 200 || e.argos.llamadasA("/api/v1/clientes") == antes {
 		t.Fatalf("soporte sí busca por IP: %d %s", r.status, r.crudo)
+	}
+}
+
+// Revisión final (C, D, E): resolver-ip sin servicio con órdenes acotadas es 404; la copia de un
+// ticket u orden respeta la zona del servicio; la orden asignada cuenta solo con ordenes.ver_propias.
+func TestServicios080AlcanceCopiaYPropias(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, _, _ = e.conectado()
+	con, _ := e.sembrar080(906)
+	if r := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes/906", nil); r.status != 200 {
+		t.Fatalf("ficha: %d %s", r.status, r.crudo)
+	}
+	// C: Argos resuelve la IP a un cliente sin servicio; con órdenes acotadas (técnico), 404.
+	e.argos.con(func() { e.argos.ips["100.64.99.1"] = map[string]any{"cliente_id": 906, "servicio_id": nil, "empresa_id": 1} })
+	tec, _ := e.usuarioConID("tecnico")
+	tec.pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=100.64.99.1", nil).problema(t, 404, "no_encontrado")
+	if r := e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=100.64.99.1", nil); r.status != 200 {
+		t.Fatalf("soporte (global, sin órdenes acotadas): %d %s", r.status, r.crudo)
+	}
+
+	// D: la copia con la zona del servicio (zona 3, la del cliente en la instantánea).
+	_, usuario := e.usuarioConID("lectura")
+	copia := fmt.Sprintf(`{"cliente": {"id": 906, "codigo": "C-080", "nombre": "María Pérez", "direccion": "Zona 1", "lat": null, "lon": null, "zonaNombre": "Chitá", "estado": "activo"},
+		"servicio": {"id": %d, "planNombre": "Fibra", "estado": "activo", "direccion": "3a calle", "ip": "100.64.12.34", "routerNombre": "Nodo Centro", "zonaNombre": "Chitá"},
+		"direccion": "3a calle", "completa": true, "anonimizada": false}`, con)
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO integracion.argos_copias (entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en)
+		VALUES ('orden', 906906, NULL, 906, $1, $2::jsonb, now()) ON CONFLICT DO NOTHING`, con, copia); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = e.pool.Exec(context.Background(), `DELETE FROM integracion.argos_copias WHERE cliente_id = 906`) })
+	ipDeCopia := func(zona int64) string {
+		t.Helper()
+		ctx := conAlcances(e.pool, usuario, map[nucleo.Permiso][]contexto.Alcance{nucleo.PermClientesVer: nil, nucleo.PermServiciosVerRed: {{ZonaID: zona}}})
+		c, err := argos.CopiaDe(ctx, e.pool, argos.CopiaOrden, 906906, nil)
+		if err != nil || c == nil || c.Servicio == nil {
+			t.Fatalf("copia: %+v %v", c, err)
+		}
+		return c.Servicio.IP
+	}
+	if ip := ipDeCopia(3); ip != "100.64.12.34" {
+		t.Fatalf("ver_red de la zona del servicio debía ver la IP de la copia: %q", ip)
+	}
+	if ip := ipDeCopia(9); ip != "" {
+		t.Fatalf("ver_red de otra zona no ve la IP de la copia: %q", ip)
+	}
+
+	// E: una orden asignada a él cuenta solo si tiene ordenes.ver_propias.
+	if _, err := e.pool.Exec(context.Background(), `INSERT INTO campo.ordenes (tipo_id, direccion, empresa_id, cliente_id, servicio_id, tecnico_id)
+		SELECT id, 'Zona 1', 1, 906, $1, $2 FROM campo.tipos_orden WHERE codigo = 'visita'`, con, usuario); err != nil {
+		t.Fatal(err)
+	}
+	ve := func(permisos map[nucleo.Permiso][]contexto.Alcance) bool {
+		t.Helper()
+		ss, err := argos.ServiciosVisiblesDeCliente(conAlcances(e.pool, usuario, permisos), e.pool, 906, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range ss {
+			if s.ID == con {
+				return s.IP != ""
+			}
+		}
+		return false
+	}
+	if ve(map[nucleo.Permiso][]contexto.Alcance{nucleo.PermClientesVer: nil, nucleo.PermServiciosVerRed: {{ZonaID: 9}}}) {
+		t.Fatal("sin ordenes.ver_propias, una orden asignada no da la red")
+	}
+	if !ve(map[nucleo.Permiso][]contexto.Alcance{nucleo.PermClientesVer: nil, nucleo.PermServiciosVerRed: {{ZonaID: 9}}, nucleo.PermOrdenesVerPropias: nil}) {
+		t.Fatal("con ordenes.ver_propias, su orden asignada da la red")
 	}
 }

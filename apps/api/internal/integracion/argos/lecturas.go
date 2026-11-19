@@ -756,7 +756,7 @@ func nuevoResolverIP(m *Modulo) *ResolverIP {
 					return salida, err
 				}
 			}
-			if !vis.PuedeRed() || (salida.ServicioID == nil && !vis.red.global) || (salida.ServicioID != nil && !vis.Red(*salida.ServicioID, zona)) {
+			if !vis.PuedeRed() || (salida.ServicioID == nil && (!vis.red.global || vis.acotado)) || (salida.ServicioID != nil && !vis.Red(*salida.ServicioID, zona)) {
 				t.Anotar(map[string]any{"descartado": "fuera_de_alcance"})
 				return IPResuelta{IP: in.IP}, nucleo.NoEncontrado("Argos no tiene un servicio con esa IP")
 			}

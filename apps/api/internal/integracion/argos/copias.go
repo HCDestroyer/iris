@@ -204,10 +204,18 @@ func CopiaDe(ctx context.Context, db argosbd.DBTX, entidad string, entidadID int
 		if err != nil {
 			return nil, err
 		}
-		if !vis.Ubicacion(copia.Servicio.ID, nil) && copia.Servicio.Direccion != "" {
+		// La zona del servicio (de la instantánea): quien tiene servicios.ver_* por zona ve la copia
+		// de su zona. Sin instantánea, solo con el permiso global o por sus órdenes.
+		var zona *int64
+		if f, err := q.ServicioPorID(ctx, copia.Servicio.ID); err == nil {
+			zona = f.ZonaID
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if !vis.Ubicacion(copia.Servicio.ID, zona) && copia.Servicio.Direccion != "" {
 			copia.Direccion = copia.Cliente.Direccion
 		}
-		vis.RecortarCopia(copia.Servicio)
+		vis.RecortarCopia(copia.Servicio, zona)
 	}
 	return &copia, nil
 }
