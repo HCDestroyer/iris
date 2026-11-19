@@ -64,14 +64,17 @@ func (g *graphFalso) ultima() string {
 	return g.ultimaSaliente
 }
 
-// ofertaNavegador: la oferta SDP del navegador de quien llama (con su dirección local, que se quita).
+// ofertaNavegador: la oferta SDP real de Chromium (testdata/oferta_chromium_saliente.sdp: red, G722,
+// PCMU, PCMA, CN y a=rtcp-xr) con un candidato de su red local, que se quita. El doble anterior solo
+// traía Opus y por eso no se vio que la oferta real se rechazaba (sdp_invalido en producción).
 func ofertaNavegador() string {
-	return strings.Replace(sdpNavegador("a=candidate:9 1 udp 1 192.168.1.50 9 typ host\r\n"), "a=setup:active", "a=setup:actpass", 1)
+	return sdpOfertaChromiumSal + "a=candidate:9 1 udp 2122260223 192.168.1.50 51000 typ host generation 0 network-id 1\r\n"
 }
 
-// respuestaMeta: la respuesta SDP de Meta a una saliente.
+// respuestaMeta: la respuesta SDP de Meta a una saliente, tal cual el «Sample call connect webhook»
+// de la doc (a=setup:active, Opus, G722, PCMU, PCMA y telephone-event).
 func respuestaMeta() string {
-	return strings.Replace(sdpOfertaMeta, "a=setup:actpass", "a=setup:passive", 1)
+	return sdpRespuestaMetaSalDoc
 }
 
 // webhookSaliente: un evento de calls[] de una saliente (connect con la respuesta SDP, o terminate).
@@ -475,7 +478,7 @@ func TestLlamadaSalienteDevolucionYSinContestar(t *testing.T) {
 	num2, conv2 := x.convConPermiso()
 	id5, c5 := x.saliente(x.supervisor, conv2, nil)
 	x.webhookSaliente(num2, c5, "connect", fmt.Sprintf(`,"session":{"sdp_type":"answer","sdp":%q}`,
-		strings.Replace(respuestaMeta(), "2113937151 157.240.19.130", "2113937151 10.0.0.9", 1)))
+		strings.Replace(respuestaMeta(), "2113937151 31.13.65.130", "2113937151 10.0.0.9", 1)))
 	if _, estado, motivo := x.llamada(c5); estado != "fallida" || motivo != "error_meta" || x.g.cuenta("terminate:"+c5) != 1 {
 		t.Fatalf("respuesta de Meta inválida: %s %s", estado, motivo)
 	}

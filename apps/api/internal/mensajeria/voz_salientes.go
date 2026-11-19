@@ -763,8 +763,14 @@ func derefTexto(s *string) string {
 // 60 s), guarda la llamada marcando con la intención connect, manda el connect con la oferta saneada
 // y guarda el call_id. Si Meta lo rechaza: 502 meta_rechazo y la llamada queda fallida.
 func (m *Modulo) Llamar(ctx context.Context, in EntradaLlamar) (Llamada, error) {
-	if s, err := SanearSDP(in.SDPOferta); err == nil {
+	// Diagnóstico (nunca el SDP: lleva direcciones): por qué no se aceptó la oferta, o qué se le quitó.
+	if s, quitado, err := SanearSDPQuitado(in.SDPOferta); err == nil {
 		in.saneado, in.Huella = s, huellaSDP(s)
+		if len(quitado) > 0 {
+			slog.InfoContext(ctx, "voz: a la oferta SDP del navegador se le quitó lo que Meta no usa", "conversacion_id", in.ID, "quitado", quitado)
+		}
+	} else {
+		slog.WarnContext(ctx, "voz: la oferta SDP del navegador no pasa la validación; no se llama", "conversacion_id", in.ID, "motivo", err.Error())
 	}
 	pre, err := m.Voz.previoLlamar.Ejecutar(ctx, in)
 	if err != nil {
@@ -958,6 +964,7 @@ func (m *Modulo) eventoSaliente(ctx context.Context, t *auditoria.Tx, canal mens
 		}
 		// La respuesta de Meta pasa la validación estricta antes de entregarse al navegador.
 		if err := ValidarSDP(ev.Session.SDP); err != nil {
+			slog.WarnContext(ctx, "voz: la respuesta SDP de Meta a una saliente no pasa la validación; se cuelga", "llamada_id", l.ID, "motivo", err.Error())
 			return cerrar(LlamadaFallida, "error_meta", MetaTerminar)
 		}
 		if err := q.FijarRespuestaSDP(ctx, mensajeriabd.FijarRespuestaSDPParams{ID: l.ID, Sdp: &ev.Session.SDP}); err != nil {

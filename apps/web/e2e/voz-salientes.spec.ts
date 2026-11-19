@@ -461,6 +461,8 @@ test.describe("voz salientes › llamar", () => {
             ["meta_rechazo", "meta_rechazo", "WhatsApp no aceptó la llamada"],
             ["sin_permiso_llamada", "sin_permiso", "Este contacto no ha dado permiso para que lo llamen"],
             ["llamadas_inactivas", "llamadas_inactivas", "Este número no puede llamar"],
+            // 0.29.0 con Meta real: el servidor no aceptó la oferta del navegador. No es «tu red».
+            ["sdp_invalido", "audio_no_admitido", "No se pudo preparar el audio de la llamada"],
         ] as const;
         for (const [forzar, motivo, texto] of casos) {
             api.voz.forzar.llamar = forzar;

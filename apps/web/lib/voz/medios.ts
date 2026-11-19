@@ -85,6 +85,7 @@ function montar(servidores: readonly string[], microfono: MediaStream): { pc: RT
         cerrada = true;
         window.clearTimeout(corte);
         pc.oniceconnectionstatechange = null;
+        pc.onicecandidate = null;
         pc.ontrack = null;
         try {
             pc.close();
@@ -105,9 +106,17 @@ function montar(servidores: readonly string[], microfono: MediaStream): { pc: RT
     };
     for (const pista of microfono.getAudioTracks()) pc.addTrack(pista, microfono);
 
+    // Diagnóstico en la consola del navegador: estados ICE y tipos de candidato locales (host, srflx,
+    // relay), nunca direcciones ni el SDP. Junto con chrome://webrtc-internals dice si fue la red.
+    const tipos: Record<string, number> = {};
+    pc.onicecandidate = (e) => {
+        const tipo = e.candidate?.type;
+        if (tipo) tipos[tipo] = (tipos[tipo] ?? 0) + 1;
+    };
     const conectado = new Promise<void>((resolver, rechazar) => {
         pc.oniceconnectionstatechange = () => {
             const estado = pc.iceConnectionState;
+            console.info("[voz] ICE:", estado, "candidatos locales:", { ...tipos });
             if (estado === "connected" || estado === "completed") {
                 window.clearTimeout(corte);
                 conecto = true;

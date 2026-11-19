@@ -685,7 +685,16 @@ func huellaSDP(sdp string) string {
 var atributosSDP = map[string]bool{"rtpmap": true, "fmtp": true, "rtcp-fb": true, "extmap": true, "extmap-allow-mixed": true, "mid": true, "msid": true,
 	"msid-semantic": true, "group": true, "ice-ufrag": true, "ice-pwd": true, "ice-options": true, "ice-lite": true, "fingerprint": true, "setup": true,
 	"candidate": true, "end-of-candidates": true, "sendrecv": true, "sendonly": true, "recvonly": true, "inactive": true, "rtcp-mux": true,
-	"rtcp-rsize": true, "rtcp": true, "ssrc": true, "ssrc-group": true, "ptime": true, "maxptime": true}
+	"rtcp-rsize": true, "rtcp": true, "ssrc": true, "ssrc-group": true, "ptime": true, "maxptime": true,
+	// Chromium 153 lo pone en toda oferta de audio (informe RTCP de tiempo de ida y vuelta).
+	"rtcp-xr": true}
+
+// codecsSDP: los formatos de audio que se aceptan en una sección. No basta con Opus: la oferta real
+// del navegador trae también red, G722, PCMU, PCMA y CN, y la respuesta de Meta a una saliente trae
+// G722, PCMU y PCMA (doc de la Calling API, «Sample call connect webhook»); Meta además admite G.711
+// si el número lo tiene encendido (call settings, `additional_codecs`). Todo es audio: lo demás
+// (video, datos) se sigue rechazando.
+var codecsSDP = map[string]bool{"opus": true, "telephone-event": true, "red": true, "g722": true, "pcmu": true, "pcma": true, "cn": true}
 
 // redesSDPBloqueadas: además de loopback, privadas y enlace local: CGNAT, NAT64, protocolo y reservadas.
 var redesSDPBloqueadas = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.MustParsePrefix("64:ff9b::/96"), netip.MustParsePrefix("64:ff9b:1::/48"),
@@ -729,30 +738,127 @@ func ipDeMedio(texto string, admiteCero bool) bool {
 
 // ValidarSDP aplica las reglas de §6.2 (fila 11) a un SDP que se entrega tal cual: la oferta de
 // Meta hacia el navegador (y, más adelante, el del motor). Es una lista cerrada: solo las líneas y
-// los atributos conocidos, una sola sección de audio segura, solo Opus y telephone-event, a=setup y
-// huella DTLS, y ninguna dirección (c=, a=rtcp, candidatos y su raddr) hacia loopback, redes
+// los atributos conocidos, una sola sección de audio segura, Opus obligatorio y solo los códecs de
+// codecsSDP, rtpmap sin repetir y con número 0–127, a=setup (actpass, active o passive) y huella DTLS
+// (sha-256/384/512), y ninguna dirección (c=, a=rtcp, candidatos y su raddr) hacia loopback, redes
 // privadas, enlace local, CGNAT o NAT64. Máximo 8 KB y 32 candidatos.
 func ValidarSDP(sdp string) error {
-	_, err := revisarSDP(sdp, false)
+	_, _, err := revisarSDP(sdp, false)
 	return err
+}
+
+// quitarFormatos saca de un SDP ya revisado los formatos de audio indicados: del m= y sus líneas
+// rtpmap, fmtp y rtcp-fb.
+func quitarFormatos(lineas []string, fuera map[string]bool) []string {
+	r := lineas[:0:0]
+	for _, l := range lineas {
+		if strings.HasPrefix(l, "m=") {
+			p := strings.Fields(l[2:])
+			q := p[:3:3]
+			for _, pt := range p[3:] {
+				if !fuera[pt] {
+					q = append(q, pt)
+				}
+			}
+			r = append(r, "m="+strings.Join(q, " "))
+			continue
+		}
+		quitar := false
+		for _, pre := range []string{"a=rtpmap:", "a=fmtp:", "a=rtcp-fb:"} {
+			if resto, ok := strings.CutPrefix(l, pre); ok {
+				pt, _, _ := strings.Cut(resto, " ")
+				quitar = fuera[pt]
+			}
+		}
+		if !quitar {
+			r = append(r, l)
+		}
+	}
+	return r
+}
+
+// nombreSDP deja un nombre de atributo o códec para el registro: hasta el primer «:», « » o «/», en
+// minúsculas, y solo si es [a-z0-9-] de 1 a 32 caracteres; si no, «otro». Así nunca sale un valor ni
+// una dirección al registro.
+func nombreSDP(s string) string {
+	if i := strings.IndexAny(s, ": /"); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.ToLower(s)
+	if s == "" || len(s) > 32 || strings.ContainsFunc(s, func(r rune) bool { return (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' }) {
+		return "otro"
+	}
+	return s
+}
+
+// MaxQuitadoSDP: cuántos nombres distintos de lo quitado se informan; el resto se cuenta.
+const MaxQuitadoSDP = 16
+
+// anotarQuitado agrega un nombre a lo quitado sin repetir y con tope; los que no caben se cuentan.
+func anotarQuitado(quitado []string, otros *int, nombre string) []string {
+	if slices.Contains(quitado, nombre) {
+		return quitado
+	}
+	if len(quitado) >= MaxQuitadoSDP {
+		*otros++
+		return quitado
+	}
+	return append(quitado, nombre)
+}
+
+// tiposCarga: el número de un formato RTP (0–127).
+func tipoCarga(pt string) bool {
+	n, err := strconv.Atoi(pt)
+	return err == nil && n >= 0 && n <= 127 && strconv.Itoa(n) == pt
+}
+
+// huellaDTLS: «sha-256 AB:CD:…» (sha-256, sha-384 o sha-512), bytes en hexadecimal separados por «:».
+func huellaDTLS(v string) bool {
+	alg, hex, ok := strings.Cut(strings.TrimSpace(v), " ")
+	if !ok || !slices.Contains([]string{"sha-256", "sha-384", "sha-512"}, strings.ToLower(alg)) {
+		return false
+	}
+	for _, b := range strings.Split(hex, ":") {
+		if len(b) != 2 || strings.ContainsFunc(b, func(r rune) bool { return !strings.ContainsRune("0123456789abcdefABCDEF", r) }) {
+			return false
+		}
+	}
+	return true
 }
 
 // SanearSDP prepara la respuesta SDP del navegador antes de mandarla a Meta. Un navegador con el
 // micrófono concedido pone sus direcciones de red local en los candidatos host y en raddr: eso no se
 // rechaza, se quita. Salen los candidatos con dirección privada, CGNAT, loopback, enlace local, NAT64
 // o con nombre (mDNS .local), sale raddr/rport de los que quedan, y c= y a=rtcp quedan en 0.0.0.0
-// (Meta es ICE-lite con dirección pública: descubre al navegador por sus comprobaciones). Lo
-// estructuralmente inválido o fuera de la lista cerrada se rechaza igual que en ValidarSDP.
+// (Meta es ICE-lite con dirección pública: descubre al navegador por sus comprobaciones).
+//
+// Lo que el navegador agrega y Meta no necesita no tumba la llamada: un atributo a= fuera de la lista
+// cerrada y un formato de audio fuera de codecsSDP (con sus rtpmap, fmtp y rtcp-fb) se QUITAN de lo
+// que viaja a Meta; el navegador conserva su descripción local y Meta solo elige de lo ofrecido. Es
+// seguro porque solo se quita (nunca viaja algo que no esté en la lista) y DTLS, ICE y Opus son
+// obligatorios. Lo estructuralmente inválido (otra sección, video, datos, RTP sin cifrar, una línea
+// que no es v/o/s/t/b/c/m/a, sin Opus, sin a=setup o sin huella) se rechaza igual que en ValidarSDP.
 func SanearSDP(sdp string) (string, error) {
+	s, _, err := revisarSDP(sdp, true)
+	return s, err
+}
+
+// SanearSDPQuitado es SanearSDP y además dice qué se quitó por no estar en la lista (solo nombres de
+// atributos y códecs, nunca valores ni direcciones), para el registro de diagnóstico.
+func SanearSDPQuitado(sdp string) (string, []string, error) {
 	return revisarSDP(sdp, true)
 }
 
-func revisarSDP(sdp string, sanear bool) (string, error) {
+// SanearSDP y SanearSDPQuitado devuelven siempre algo que pasa ValidarSDP (también el tamaño: el
+// saneado se rearma con CRLF y podría crecer).
+
+func revisarSDP(sdp string, sanear bool) (string, []string, error) {
 	if len(sdp) == 0 || len(sdp) > MaxSDP {
-		return "", errors.New("tamaño fuera de rango")
+		return "", nil, errors.New("tamaño fuera de rango")
 	}
 	medios, candidatos, setup, huella := 0, 0, false, false
-	var formatos, salida []string
+	var formatos, salida, quitado []string
+	otros := 0
 	codecs := map[string]string{}
 	for _, l := range strings.Split(strings.ReplaceAll(sdp, "\r\n", "\n"), "\n") {
 		l = strings.TrimRight(l, "\r")
@@ -760,7 +866,7 @@ func revisarSDP(sdp string, sanear bool) (string, error) {
 			continue
 		}
 		if len(l) < 2 || l[1] != '=' || strings.ContainsFunc(l, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
-			return "", errors.New("línea mal formada")
+			return "", nil, errors.New("línea mal formada")
 		}
 		valor := l[2:]
 		switch l[0] {
@@ -768,64 +874,85 @@ func revisarSDP(sdp string, sanear bool) (string, error) {
 		case 'c':
 			p := strings.Fields(valor)
 			if len(p) != 3 || p[0] != "IN" || (p[1] != "IP4" && p[1] != "IP6") {
-				return "", errors.New("dirección de conexión mal formada")
+				return "", nil, errors.New("dirección de conexión mal formada")
 			}
 			if sanear {
 				l = "c=IN IP4 0.0.0.0"
 			} else if !ipDeMedio(p[2], true) {
-				return "", errors.New("dirección de conexión no permitida")
+				return "", nil, errors.New("dirección de conexión no permitida")
 			}
 		case 'm':
 			medios++
 			p := strings.Fields(valor)
 			if len(p) < 4 || p[0] != "audio" || !strings.Contains(p[2], "SAVPF") {
-				return "", errors.New("solo se admite una sección de audio segura")
+				return "", nil, errors.New("solo se admite una sección de audio segura")
 			}
 			formatos = p[3:]
+			for _, pt := range formatos {
+				if !tipoCarga(pt) {
+					return "", nil, errors.New("formato de audio con un número inválido")
+				}
+			}
 		case 'a':
 			nombre, resto, _ := strings.Cut(valor, ":")
 			if !atributosSDP[nombre] {
-				return "", errors.New("atributo no permitido")
+				if sanear && nombre != "" && medios <= 1 {
+					quitado = anotarQuitado(quitado, &otros, "a="+nombreSDP(nombre))
+					continue
+				}
+				return "", nil, errors.New("atributo no permitido")
 			}
 			switch nombre {
 			case "rtpmap":
 				pt, codec, _ := strings.Cut(resto, " ")
+				if !tipoCarga(pt) {
+					return "", nil, errors.New("rtpmap con un número de formato inválido")
+				}
+				if _, repetido := codecs[pt]; repetido {
+					return "", nil, errors.New("rtpmap repetido")
+				}
 				n, _, _ := strings.Cut(codec, "/")
 				codecs[pt] = strings.ToLower(n)
 			case "setup":
+				if !slices.Contains([]string{"actpass", "active", "passive"}, strings.TrimSpace(resto)) {
+					return "", nil, errors.New("a=setup inválido")
+				}
 				setup = true
 			case "fingerprint":
+				if !huellaDTLS(resto) {
+					return "", nil, errors.New("huella DTLS mal formada")
+				}
 				huella = true
 			case "rtcp":
 				// a=rtcp:<puerto> [IN IP4 <dirección>]
 				p := strings.Fields(resto)
 				if len(p) != 1 && (len(p) != 4 || p[1] != "IN" || (p[2] != "IP4" && p[2] != "IP6")) {
-					return "", errors.New("a=rtcp mal formado")
+					return "", nil, errors.New("a=rtcp mal formado")
 				}
 				if len(p) == 4 {
 					if sanear {
 						l = "a=rtcp:" + p[0] + " IN IP4 0.0.0.0"
 					} else if !ipDeMedio(p[3], true) {
-						return "", errors.New("dirección de RTCP no permitida")
+						return "", nil, errors.New("dirección de RTCP no permitida")
 					}
 				}
 			case "candidate":
 				p := strings.Fields(resto)
 				if len(p) < 8 || p[6] != "typ" {
-					return "", errors.New("candidato mal formado")
+					return "", nil, errors.New("candidato mal formado")
 				}
 				if !ipDeMedio(p[4], false) {
 					if sanear {
 						continue // red local del navegador, o un nombre (mDNS): no viaja a Meta
 					}
-					return "", errors.New("candidato a una red interna o con un nombre que no es una dirección")
+					return "", nil, errors.New("candidato a una red interna o con un nombre que no es una dirección")
 				}
 				candidatos++
 				if candidatos > MaxCandidatosSDP {
 					if sanear {
 						continue
 					}
-					return "", errors.New("candidatos de más")
+					return "", nil, errors.New("candidatos de más")
 				}
 				// raddr y rport se buscan en cualquier posición de las extensiones (no de dos en dos: una
 				// extensión suelta no puede esconderlos).
@@ -836,11 +963,11 @@ func revisarSDP(sdp string, sanear bool) (string, error) {
 						continue
 					}
 					if k+1 >= len(p) {
-						return "", errors.New("candidato mal formado")
+						return "", nil, errors.New("candidato mal formado")
 					}
 					if !sanear {
 						if p[k] == "raddr" && !ipDeMedio(p[k+1], true) {
-							return "", errors.New("candidato con una dirección relacionada interna")
+							return "", nil, errors.New("candidato con una dirección relacionada interna")
 						}
 						limpio = append(limpio, p[k], p[k+1])
 					}
@@ -851,25 +978,54 @@ func revisarSDP(sdp string, sanear bool) (string, error) {
 				}
 			}
 		default:
-			return "", errors.New("línea no permitida")
+			return "", nil, errors.New("línea no permitida")
 		}
 		salida = append(salida, l)
 	}
 	if medios != 1 {
-		return "", errors.New("debe traer una sola sección de audio")
+		return "", nil, errors.New("debe traer una sola sección de audio")
 	}
 	if !setup || !huella {
-		return "", errors.New("faltan a=setup o la huella DTLS")
+		return "", nil, errors.New("faltan a=setup o la huella DTLS")
 	}
 	if len(formatos) == 0 {
-		return "", errors.New("sin formatos de audio")
+		return "", nil, errors.New("sin formatos de audio")
 	}
+	// Opus siempre: Meta lo tiene encendido en todo número y no se puede quitar (call settings).
+	conOpus := false
+	fuera := map[string]bool{}
 	for _, pt := range formatos {
-		if c, ok := codecs[pt]; !ok || (c != "opus" && c != "telephone-event") {
-			return "", errors.New("solo Opus y telephone-event")
+		conOpus = conOpus || codecs[pt] == "opus"
+		if c, ok := codecs[pt]; !ok || !codecsSDP[c] {
+			if !sanear {
+				return "", nil, errors.New("formato de audio no admitido")
+			}
+			fuera[pt] = true
+			if c, ok := codecs[pt]; ok {
+				quitado = anotarQuitado(quitado, &otros, "codec="+nombreSDP(c))
+			} else {
+				quitado = anotarQuitado(quitado, &otros, "codec=pt"+pt)
+			}
 		}
 	}
-	return strings.Join(salida, "\r\n") + "\r\n", nil
+	if !conOpus {
+		return "", nil, errors.New("sin Opus")
+	}
+	if len(fuera) > 0 {
+		salida = quitarFormatos(salida, fuera)
+	}
+	r := strings.Join(salida, "\r\n") + "\r\n"
+	if sanear {
+		// Lo saneado tiene que pasar la validación estricta tal cual viaja (H1: rearmado con CRLF,
+		// un SDP con LF y relleno puede pasar de MaxSDP).
+		if _, _, err := revisarSDP(r, false); err != nil {
+			return "", nil, err
+		}
+		if otros > 0 {
+			quitado = append(quitado, "otros="+strconv.Itoa(otros))
+		}
+	}
+	return r, quitado, nil
 }
 
 // Auditoría y feed ----------------------------------------------------------------------------------

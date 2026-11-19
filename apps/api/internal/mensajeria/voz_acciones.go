@@ -3,6 +3,7 @@ package mensajeria
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -313,9 +314,14 @@ func nuevoContestarLlamada(m *Modulo) *auditoria.Caso[EntradaContestar, Llamada]
 func (m *Modulo) Contestar(ctx context.Context, in EntradaContestar) (Llamada, error) {
 	// A Meta va el SDP saneado, y su huella es la que queda en la auditoría. Si no es válido, lo dice
 	// el caso de uso (después de comprobar el permiso y de quién es la llamada).
-	saneado, errSDP := SanearSDP(in.SDPRespuesta)
+	saneado, quitado, errSDP := SanearSDPQuitado(in.SDPRespuesta)
 	if errSDP == nil {
 		in.Huella = huellaSDP(saneado)
+		if len(quitado) > 0 {
+			slog.InfoContext(ctx, "voz: a la respuesta SDP del navegador se le quitó lo que Meta no usa", "llamada_id", in.ID, "quitado", quitado)
+		}
+	} else {
+		slog.WarnContext(ctx, "voz: la respuesta SDP del navegador no pasa la validación; no se contesta", "llamada_id", in.ID, "motivo", errSDP.Error())
 	}
 	if _, err := m.Voz.contestar.Ejecutar(ctx, in); err != nil {
 		return Llamada{}, err

@@ -275,6 +275,7 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 		return err
 	}
 	if recientes > RafagaLlamadas {
+		slog.InfoContext(ctx, "voz: llamada entrante rechazada por ráfaga (más de 3 del mismo número en 10 minutos)", "llamada_id", l.ID, "canal_id", canal.ID)
 		return m.cerrarLlamada(ctx, t, &l, &c, LlamadaRechazada, "limite", ahora, MetaRechazar)
 	}
 	// En un número prestado, las llamadas de la empresa prestataria todavía no suenan (E1: los ajustes de
@@ -302,8 +303,14 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 		}
 	}
 	// 5 y 6. Personas candidatas: primero quien tiene la conversación (segundosAsignado); después, la cola.
-	if _, err := m.ofrecerLlamada(ctx, t, &l, c, voz, ahora); err != nil {
+	n, err := m.ofrecerLlamada(ctx, t, &l, c, voz, ahora)
+	if err != nil {
 		return err
+	}
+	if n == 0 {
+		// Para quien mira los registros: a nadie le suena todavía (sigue buscando hasta segundosSonando).
+		slog.InfoContext(ctx, "voz: llamada entrante sin nadie que la pueda contestar ahora (hace falta estar disponible, con «Recibir llamadas» encendido, el panel abierto y en la cola)",
+			"llamada_id", l.ID, "canal_id", canal.ID, "cola_id", l.ColaID)
 	}
 	return nil
 }

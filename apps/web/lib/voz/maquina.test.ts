@@ -256,6 +256,11 @@ describe("textos de la voz", () => {
         expect(motivoDeCodigo("llamada_terminada", 409)).toBe("termino_antes");
         expect(motivoDeCodigo("no_recibe_llamadas", 422)).toBe("no_recibe_llamadas");
         expect(motivoDeCodigo("meta_rechazo", 502)).toBe("meta_rechazo");
+        // 0.29.0 con Meta real: un 422 `sdp_invalido` al llamar se decía «Tu red no dejó pasar la llamada».
+        expect(motivoDeCodigo("sdp_invalido", 422)).toBe("audio_no_admitido");
+        expect(textoAviso("audio_no_admitido", undefined, true).detalle).not.toMatch(/red/);
+        expect(textoAviso("medio_fallido", undefined, true).titulo).toBe("No se pudo conectar el audio");
+        expect(textoAviso("medio_fallido", undefined, true).detalle).toContain("se colgó");
         expect(motivoDeCodigo("llamada_en_curso", 409)).toBe("otra_llamada");
         expect(motivoDeCodigo("llamada_ya_contestada", 409, "otro_navegador")).toBe("otro_navegador");
         expect(textoAviso("otro_navegador").titulo).toBe("La estás contestando en otro navegador");

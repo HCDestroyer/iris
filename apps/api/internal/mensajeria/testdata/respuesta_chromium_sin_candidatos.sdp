@@ -1,0 +1,26 @@
+v=0
+o=- 3661874446411720569 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE audio
+a=msid-semantic: WMS b80b0f73-178a-4629-9658-ec363d3366be
+m=audio 9 UDP/TLS/RTP/SAVPF 111 126
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:eX50
+a=ice-pwd:Nu0QPHDpc7Dv5W2o7tmsbHie
+a=ice-options:trickle
+a=fingerprint:sha-256 82:29:63:29:67:86:2F:E5:83:5F:0C:A0:72:AE:11:28:7C:CA:A8:CE:70:7E:06:39:C5:5E:51:C0:86:60:DE:BF
+a=setup:active
+a=mid:audio
+a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level
+a=extmap:2 http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time
+a=extmap:3 http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01
+a=sendrecv
+a=rtcp-mux
+a=rtpmap:111 opus/48000/2
+a=rtcp-fb:111 transport-cc
+a=fmtp:111 minptime=10;useinbandfec=1
+a=rtpmap:126 telephone-event/8000
+a=ssrc:448338413 cname:hwEiOpjVpnxo518q
+a=ssrc:448338413 msid:b80b0f73-178a-4629-9658-ec363d3366be b6469438-d1b0-462d-b9f4-e18d6e735f40
