@@ -205,7 +205,7 @@ Una tarea está terminada solo si:
 | `argos.datos_cambiados` | integracion (argos) | entidad (servicio \| cliente), cliente_id, servicio_id (o null), empresa_id (o null), campos[], entrante_id |
 | `argos.traslado_cambiado` | integracion (argos) | traslado_id, estado (enviado, recibido, cancelado), empresa_id, usuario_id (o null), entrante_id |
 | `argos.comprobante_resuelto` | integracion (argos, webhook de Argos) | comprobante_id, estado (aprobado, rechazado), empresa_id, cliente_id, servicio_id (o null), canal, pago_id (o null), servicio_estado (o null), entrante_id; es solo un aviso (sin monto, motivo ni causa) |
-| `argos.cuenta_bancaria_cambiada` (contrato con Argos 0.8.0: pendiente de implementar en Iris) | integracion (argos, webhook de Argos) | cuenta_bancaria_id, empresa_id, campos[], activa, creada, entrante_id (o null); nunca el número de cuenta ni el titular |
+| `argos.cuenta_bancaria_cambiada` | integracion (argos, webhook de Argos y relecturas) | cuenta_bancaria_id, empresa_id, campos[], activa, creada, entrante_id (o null); nunca el número de cuenta ni el titular |
 | `argos.sincronizacion_terminada` (contrato con Argos 0.8.0: pendiente de implementar en Iris) | integracion (argos, primera sincronización) | conector_id, sincronizacion_id, resultado (completa, con_errores), recursos[] (recurso, estado, filas), iniciada_en, terminada_en |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
