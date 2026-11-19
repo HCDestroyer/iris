@@ -247,15 +247,26 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 			hasta := recientes.Primera.Add(RafagaVentana)
 			v, err := q.RafagaVigente(ctx, mensajeriabd.RafagaVigenteParams{CanalID: &canal.ID, Numero: numero, Ahora: ahora})
 			if err == nil {
-				if v, err = q.SumarIntentoRafaga(ctx, mensajeriabd.SumarIntentoRafagaParams{ID: v.ID, Hasta: hasta}); err != nil {
+				r, err := q.SumarIntentoRafaga(ctx, mensajeriabd.SumarIntentoRafagaParams{ID: v.ID, Hasta: hasta, CallID: ev.ID,
+					AvisoDesde: ahora.Add(-AvisoRafagaCada), Ahora: ahora})
+				if errors.Is(err, pgx.ErrNoRows) {
+					return nil // el mismo connect otra vez (Meta reintentó): ya se contó y ya se rechazó
+				}
+				if err != nil {
 					return err
 				}
 				slog.InfoContext(ctx, "voz: llamada entrante rechazada por ráfaga (más de 3 del mismo número en 10 minutos); reintento contado en la tarjeta",
-					"llamada_id", v.ID, "canal_id", canal.ID, "intentos", v.RafagaIntentos, "vuelve_a_sonar", hasta)
+					"llamada_id", v.ID, "canal_id", canal.ID, "intentos", r.RafagaIntentos, "vuelve_a_sonar", hasta)
 				m.rechazarEnMeta(ctx, t, canal.ID, ev.ID)
 				if err := taparSDPDeLlamada(ctx, q, canal.ID, ev.ID, ahora.Add(-10*time.Minute)); err != nil {
 					return err
 				}
+				// La tarjeta se refresca en el feed como mucho cada AvisoRafagaCada: una ráfaga larga no
+				// genera una fila de feed y un NOTIFY por intento (el contador sí sube siempre).
+				if !r.Avisar {
+					return nil
+				}
+				v.RafagaIntentos = r.RafagaIntentos
 				return m.emitirEventoLlamada(ctx, t, v, EventoLlamadaActualizada, nil)
 			}
 			if !errors.Is(err, pgx.ErrNoRows) {
@@ -299,6 +310,10 @@ func (m *Modulo) recibirLlamada(ctx context.Context, t *auditoria.Tx, canal mens
 		slog.InfoContext(ctx, "voz: llamada entrante rechazada por ráfaga (más de 3 del mismo número en 10 minutos)", "llamada_id", l.ID, "canal_id", canal.ID,
 			"vuelve_a_sonar", *rafaga)
 		if err := q.FijarRafagaHasta(ctx, mensajeriabd.FijarRafagaHastaParams{ID: l.ID, Hasta: rafaga}); err != nil {
+			return err
+		}
+		// La tarjeta nace avisada (cerrarLlamada la pone en el feed): el primer reintento no la repite.
+		if err := q.FijarRafagaAvisada(ctx, mensajeriabd.FijarRafagaAvisadaParams{ID: l.ID, Ahora: &ahora}); err != nil {
 			return err
 		}
 		l.RafagaHasta = rafaga

@@ -55,14 +55,33 @@ func TestRafagaRastroAcotado(t *testing.T) {
 	if x.conv(num)["estado"] != "resuelta" {
 		t.Fatal("la ráfaga no debía reabrir la conversación")
 	}
-	// Reintentos: sin fila, sin mensaje, contados en la tarjeta y rechazados en Meta.
+	// Reintentos: sin fila, sin mensaje, contados en la tarjeta y rechazados en Meta. La tarjeta se
+	// refresca en el feed como mucho cada 30 s (B1): dos reintentos seguidos dejan un solo refresco.
+	feed := func() int {
+		return x.contar(`SELECT count(*) FROM mensajeria.conv_eventos WHERE llamada_id = $1::uuid AND tipo = 'llamada_actualizada'`, id)
+	}
+	antes := feed()
 	for i := 4; i < 7; i++ {
 		call := fmt.Sprintf("wacid.acot%d%s", i, num)
-		x.pasa(30*time.Second, x.agente)
+		if i == 4 {
+			x.pasa(31*time.Second, x.agente)
+		} else {
+			x.pasa(5*time.Second, x.agente)
+		}
 		x.connect(num, call)
 		if n := x.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE id_externo = $1`, call); n != 0 || x.g.cuenta("reject:"+call) != 1 {
 			t.Fatalf("reintento %d: filas %d, reject %d", i, n, x.g.cuenta("reject:"+call))
 		}
+	}
+	if n := feed() - antes; n != 1 {
+		t.Fatalf("refrescos de la tarjeta en el feed: %d, esperaba 1 (como mucho cada 30 s)", n)
+	}
+	// B2: el mismo call_id otra vez (Meta reintenta el webhook; aquí con otro timestamp para que no lo
+	// descarte antes la deduplicación de entrantes) no cuenta dos veces ni se rechaza otra vez.
+	x.pasa(time.Second, x.agente)
+	x.connect(num, "wacid.acot6"+num)
+	if x.g.cuenta("reject:wacid.acot6"+num) != 1 {
+		t.Fatal("un connect repetido no debía rechazarse otra vez")
 	}
 	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1::bigint`, conv); n != mensajes+1 {
 		t.Fatalf("mensajes en el hilo: %d, esperaba %d (una sola tarjeta)", n, mensajes+1)
@@ -118,6 +137,16 @@ func TestRafagaLevantadaAMano(t *testing.T) {
 	// Repetirlo sin ráfaga no cambia nada (y responde igual).
 	if r := x.exigir(x.api(x.supervisor, http.MethodPost, ruta, nil), http.StatusOK); r.cuerpo["estabaActiva"] != false {
 		t.Fatalf("sin ráfaga: %s", crudo(r))
+	}
+	// I1: pasados 10 minutos la marca ya no cambia nada y guarda el número: el mantenimiento la borra.
+	if n := x.contar(`SELECT count(*) FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num); n != 1 {
+		t.Fatalf("marca de la ráfaga levantada: %d", n)
+	}
+	x.webhook(x.eventoLlamada(num, "wacid.mano4"+num, "terminate", "", 0))
+	x.pasa(11*time.Minute, x.agente)
+	x.mantener()
+	if n := x.contar(`SELECT count(*) FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num); n != 0 {
+		t.Fatalf("la marca vieja debía borrarse: %d", n)
 	}
 }
 

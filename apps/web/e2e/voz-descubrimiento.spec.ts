@@ -146,4 +146,16 @@ test.describe("voz › cuando no suena: el paso que falta, en un toque", () => {
         await expect(rechazada).toContainText("Iris la rechazó sola: demasiadas llamadas seguidas");
         await expect(rechazada.getByRole("button", { name: "Dejar que vuelva a llamar" })).toHaveCount(0);
     });
+
+    test("el botón depende solo de `llamadas.desbloquear_numero`: sin `llamadas.configurar` no ve la hora, pero sí puede dejar que vuelva a llamar", async ({ page }) => {
+        const api = await abrir(page, "/cuenta", { voz: { recibe: true, soloAtender: true, desbloquear: true } });
+        api.voz.rechazadaPorRafaga(41, new Date(Date.now() + 7 * 60_000));
+        await page.goto("/conversaciones?c=41");
+        const rechazada = tarjeta(page, "rechazada");
+        await expect(rechazada).toContainText("Iris la rechazó sola: demasiadas llamadas seguidas");
+        await rechazada.getByRole("button", { name: "Dejar que vuelva a llamar" }).click();
+        await page.getByRole("alertdialog", { name: "¿Dejar que este número vuelva a llamar?" }).getByRole("button", { name: "Dejar que vuelva a llamar" }).click();
+        await expect(page.getByText("Listo: su próxima llamada vuelve a sonar")).toBeVisible();
+        expect(api.voz.recibido.desbloqueos).toEqual([41]);
+    });
 });

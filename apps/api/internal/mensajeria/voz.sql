@@ -176,8 +176,22 @@ WHERE l.canal_id = @canal_id AND l.numero = @numero AND l.direccion = 'entrante'
 ORDER BY l.sono_en DESC LIMIT 1;
 
 -- name: SumarIntentoRafaga :one
-UPDATE mensajeria.llamadas SET rafaga_intentos = rafaga_intentos + 1, rafaga_hasta = greatest(rafaga_hasta, @hasta::timestamptz)
-WHERE id = @id RETURNING *;
+-- Un reintento que la ráfaga rechazó, contado en la tarjeta. Un connect repetido (el mismo call_id que
+-- el último contado) no suma: sin fila. avisar: ya toca refrescar la tarjeta en el feed (la última vez
+-- fue antes de @aviso_desde, o nunca); se marca en la misma sentencia.
+UPDATE mensajeria.llamadas SET rafaga_intentos = rafaga_intentos + 1, rafaga_hasta = greatest(rafaga_hasta, @hasta::timestamptz),
+    rafaga_ultimo_call_id = @call_id::text,
+    rafaga_avisada_en = CASE WHEN rafaga_avisada_en IS NULL OR rafaga_avisada_en <= @aviso_desde::timestamptz
+                             THEN @ahora::timestamptz ELSE rafaga_avisada_en END
+WHERE id = @id AND rafaga_ultimo_call_id IS DISTINCT FROM @call_id::text
+RETURNING rafaga_intentos, (rafaga_avisada_en = @ahora::timestamptz)::boolean AS avisar;
+
+-- name: FijarRafagaAvisada :exec
+UPDATE mensajeria.llamadas SET rafaga_avisada_en = @ahora WHERE id = @id;
+
+-- name: BorrarRafagasLevantadasViejas :execrows
+-- Una marca de más de 10 minutos ya no cambia nada (la ventana de la ráfaga es de 10) y guarda el número.
+DELETE FROM mensajeria.voz_rafagas_levantadas WHERE levantada_en < @antes;
 
 -- name: AvisoPerdidaReciente :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas

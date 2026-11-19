@@ -75,6 +75,8 @@ const (
 	// Ráfaga: la cuarta llamada de un número en 10 minutos se rechaza (límite de E1).
 	RafagaLlamadas = 3
 	RafagaVentana  = 10 * time.Minute
+	// AvisoRafagaCada: como mucho cada cuánto se refresca en el feed la tarjeta de una ráfaga.
+	AvisoRafagaCada = 30 * time.Second
 	// VenceDevolucion: una devolución pendiente vence a las 72 h.
 	VenceDevolucion = 72 * time.Hour
 	// AvisoPerdidaCada: el mensaje «No pudimos contestarte» sale una vez por hora y conversación.

@@ -705,6 +705,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.voz?.salientes && (permisosPorCorreo[actual.correo] ?? []).includes("conversaciones.responder") ? [PERMISO_PEDIR] : []),
             ...(opciones.voz?.salientes && actual.correo === ADMIN.correo ? [PERMISO_LLAMAR] : []),
             ...(opciones.voz && !opciones.voz.soloAtender && actual.correo === ADMIN.correo ? PERMISOS_VOZ_ADMIN : []),
+            ...(opciones.voz?.soloAtender && opciones.voz.desbloquear && actual.correo === ADMIN.correo ? (["llamadas.desbloquear_numero"] satisfies Permiso[]) : []),
             ...(opciones.correo && (actual.correo === ADMIN.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_CORREO : []),
             ...(opciones.correo && actual.correo === CONSULTA.correo ? PERMISOS_CORREO.slice(0, 1) : []),
             ...(opciones.legal && actual.correo === ADMIN.correo ? PERMISOS_LEGAL : []),

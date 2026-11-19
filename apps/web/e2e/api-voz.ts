@@ -52,6 +52,8 @@ export type OpcionesVoz = {
      * Sin esta opción nadie tiene esos permisos y el panel no ofrece llamar.
      */
     salientes?: boolean;
+    /** Con `soloAtender`: Ana tiene además `llamadas.desbloquear_numero` (sin `llamadas.configurar`). */
+    desbloquear?: boolean;
     /** Ningún número de la empresa tiene las llamadas encendidas en Iris (por defecto, el 3 sí). */
     sinNumeroConLlamadas?: boolean;
     /** E1b: el permiso de llamada de cada conversación al empezar (por defecto, sin pedir). */

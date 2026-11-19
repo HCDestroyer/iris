@@ -922,6 +922,10 @@ func (m *Modulo) MantenerLlamadas(ctx context.Context, bd nucleo.BD) error {
 			slog.WarnContext(ctx, "voz: mantenimiento de una llamada", "llamada_id", l.ID, "err", err)
 		}
 	}
+	// Marcas de ráfaga levantada de más de 10 minutos: ya no cambian nada y guardan el número.
+	if _, err := q.BorrarRafagasLevantadasViejas(ctx, m.ahora().Add(-RafagaVentana)); err != nil {
+		slog.WarnContext(ctx, "voz: borrar marcas viejas de ráfaga levantada", "err", err)
+	}
 	_, err = m.Voz.vencer.Ejecutar(ctx, struct{}{})
 	return err
 }

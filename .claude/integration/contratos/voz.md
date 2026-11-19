@@ -55,9 +55,15 @@ técnica (§9)**; los que más pesan están listados en §10.
   cuentan, así que no hay bloqueo que se renueve solo. La ráfaga se decide antes de registrar nada:
   la primera que rechaza deja una sola tarjeta (con `rafaga.hasta`, la hora a la que vuelve a sonar),
   sin reabrir la conversación ni emitir `llamada.entrante`; los reintentos de la misma ventana se
-  cuentan en ella (`rafaga.intentos`). Se levanta con `POST /conversaciones/{id}/llamadas/desbloquear`
-  (`llamadas.desbloquear_numero`) o con una saliente a ese número que Meta acepta; desde ese instante
-  las entrantes anteriores no cuentan (`voz.rafaga_levantada`). `voz_bloqueos` queda en E2.
+  cuentan en ella (`rafaga.intentos`; el mismo `call_id` no cuenta dos veces y la tarjeta se refresca
+  en el feed como mucho cada 30 s). Se levanta con `POST /conversaciones/{id}/llamadas/desbloquear`
+  (`llamadas.desbloquear_numero`) o con una saliente a ese número: en cuanto **Meta acepta la
+  petición** de la saliente, aunque el cliente no conteste (lo pidió el PM: «si yo llamo»); queda
+  auditado (`llamadas.resultado_llamar`) y con su evento. Desde ese instante las entrantes anteriores no
+  cuentan (`voz.rafaga_levantada`). En un número prestado la ráfaga es del número: solo la levanta la
+  empresa dueña (la prestataria recibe 409 `numero_prestado` y tampoco puede llamar desde él). La marca
+  (`voz_rafagas_levantadas`, guarda el número) se borra en el mantenimiento a los 10 minutos, cuando ya
+  no cambia nada. `voz_bloqueos` queda en E2.
 - **Revisión de seguridad de E1 (17 nov 2026):**
   - **Acción con Meta en vuelo.** Mientras un `pre_accept` o un `accept` no ha respondido, `soltar`
     y `reclamar` responden **409 `accion_en_curso`** (el panel reintenta en unos segundos). El

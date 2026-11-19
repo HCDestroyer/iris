@@ -1013,6 +1013,13 @@ func TestLlamadaEnNumeroPrestado(t *testing.T) {
 	if n := x.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE conversacion_id = $1 AND direccion = 'saliente' AND texto = $2`, conv, mensajeria.MensajePerdidaNeutro); n != 1 {
 		t.Fatalf("mensajes neutros tras la ráfaga: %d", n)
 	}
+	// La ráfaga es del número: la prestataria no la levanta (solo la dueña), aunque tenga el permiso.
+	if r := x.exigir(x.api(sup2, http.MethodPost, "/conversaciones/"+conv+"/llamadas/desbloquear", nil), http.StatusConflict); !strings.Contains(crudo(r), "numero_prestado") {
+		t.Fatalf("la prestataria levantó la ráfaga: %s", crudo(r))
+	}
+	if n := x.contar(`SELECT count(*) FROM mensajeria.voz_rafagas_levantadas WHERE numero = $1`, "+"+num); n != 0 {
+		t.Fatalf("quedó una marca de la prestataria: %d", n)
+	}
 	// Un cliente desconocido en el mismo número sigue sonando a la dueña.
 	call3 := "wacid.propia" + numeroCliente()
 	x.connect(numeroCliente(), call3)

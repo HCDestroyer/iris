@@ -181,7 +181,11 @@ export function llamadaEnHilo(l: LlamadaEnMensaje): { icono: IconoLlamada; tono:
  * que vuelve a sonar y los reintentos; para los demás, solo que fue automático.
  */
 export function textoRafaga(rafaga: LlamadaEnMensaje["rafaga"], ahora: number, detallado: boolean): { detalle: string; vigente: boolean } {
-    if (!detallado) return { detalle: "Iris la rechazó sola: demasiadas llamadas seguidas", vigente: false };
+    // `vigente` (¿se ofrece «Dejar que vuelva a llamar»?) no depende de quién mira: el botón lo decide
+    // su propio permiso (`llamadas.desbloquear_numero`).
+    const hastaMs = rafaga ? Date.parse(rafaga.hasta) : NaN;
+    const vigente = rafaga !== undefined && !rafaga.levantada && !Number.isNaN(hastaMs) && hastaMs > ahora;
+    if (!detallado) return { detalle: "Iris la rechazó sola: demasiadas llamadas seguidas", vigente };
     if (!rafaga) return { detalle: "Iris la rechazó: demasiadas llamadas seguidas de este número", vigente: false };
     const mas = rafaga.intentos > 0 ? ` · ${rafaga.intentos === 1 ? "1 intento más" : `${rafaga.intentos} intentos más`}` : "";
     if (rafaga.levantada) return { detalle: `Iris la rechazó: demasiadas llamadas seguidas${mas}. Ya se dejó que vuelva a llamar`, vigente: false };

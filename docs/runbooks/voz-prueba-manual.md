@@ -218,7 +218,9 @@ todavía suena, le empieza a sonar en unos segundos.
 llamadas del mismo número cada 10 minutos; la siguiente se rechaza sola (el cliente oye que no se le
 contestó). La tarjeta dice «Demasiadas llamadas seguidas de este número; vuelve a sonar a las HH:MM» a
 quien configura llamadas, y trae **«Dejar que vuelva a llamar»** (supervisor y admin) para que la
-próxima suene ya. Llamar a ese número desde Iris también lo levanta. Al probar: usar ese botón,
+próxima suene ya. Llamar a ese número desde Iris también lo levanta, en cuanto WhatsApp acepta la
+llamada aunque el cliente no conteste (queda registrado quién llamó). En un número prestado solo lo
+puede hacer la empresa dueña del número. Al probar: usar ese botón,
 esperar a la hora que dice o probar desde otro teléfono. Otras causas que se ven
 distinto: con las llamadas apagadas en Iris no queda nada en la conversación (registro: «voz: llegó
 una llamada y se rechazó porque las llamadas del número están apagadas en Iris»); fuera del horario

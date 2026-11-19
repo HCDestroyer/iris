@@ -1,6 +1,6 @@
 "use client";
 
-import { avisar, DialogoConfirmar } from "@iris/ui";
+import { avisar, cerrarAviso, DialogoConfirmar } from "@iris/ui";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -543,8 +543,17 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
     // aquí: un aviso discreto que lo ofrece (una sola vez por persona y navegador). Sin esto la persona
     // no sabe que existe y las llamadas se pierden sin sonarle a nadie.
     const recibeListo = recibir.estado === "listo" ? recibir.recibe : null;
+    // Nunca durante una llamada: espera a que no la haya, y si una empieza con el aviso a la vista, se
+    // cierra (en el teléfono sale arriba y taparía la cabecera mientras se llama).
+    const sinLlamada = estado.fase === "libre";
+    const avisoOfrecer = useRef<string | null>(null);
     useEffect(() => {
-        if (!contesta || recibeListo !== false || !numeroConLlamadas || desplazado !== null || !admiteAhora()) return;
+        if (sinLlamada || avisoOfrecer.current === null) return;
+        cerrarAviso(avisoOfrecer.current);
+        avisoOfrecer.current = null;
+    }, [sinLlamada]);
+    useEffect(() => {
+        if (!contesta || !sinLlamada || recibeListo !== false || !numeroConLlamadas || desplazado !== null || !admiteAhora()) return;
         const clave = `iris-voz-ofrecer-recibir-${yoId}`;
         try {
             if (window.localStorage.getItem(clave)) return;
@@ -552,13 +561,13 @@ export function ProveedorVoz({ children, contesta = true }: { children: ReactNod
         } catch {
             // Sin almacenamiento (privado): se ofrece igual, una vez por carga.
         }
-        avisar({
+        avisoOfrecer.current = avisar({
             tono: "info",
             titulo: "Puedes contestar llamadas de WhatsApp aquí",
             descripcion: "Enciende «Recibir llamadas» (el teléfono de la barra de arriba) y ponte «Disponible» para que te suenen.",
             accion: { texto: "Encender recibir llamadas", alPresionar: () => void encender() },
         });
-    }, [contesta, recibeListo, numeroConLlamadas, desplazado, yoId, encender]);
+    }, [contesta, sinLlamada, recibeListo, numeroConLlamadas, desplazado, yoId, encender]);
 
     // --- El flujo de eventos -------------------------------------------------------------------
     const ajena = useSyncExternalStore(escucharFuente, fuenteAjena, () => null);

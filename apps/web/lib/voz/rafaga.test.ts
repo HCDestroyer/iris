@@ -26,7 +26,9 @@ describe("ráfaga en el hilo (entrante rechazada sola, motivoFin limite)", () =>
     });
 
     it("quien no configura solo sabe que fue automático; sin datos de la ráfaga, el motivo sin hora", () => {
-        expect(textoRafaga({ hasta, levantada: false, intentos: 3 }, ahora, false)).toEqual({ detalle: "Iris la rechazó sola: demasiadas llamadas seguidas", vigente: false });
+        // `vigente` no depende de quién mira: el botón lo decide `llamadas.desbloquear_numero`.
+        expect(textoRafaga({ hasta, levantada: false, intentos: 3 }, ahora, false)).toEqual({ detalle: "Iris la rechazó sola: demasiadas llamadas seguidas", vigente: true });
+        expect(textoRafaga({ hasta, levantada: true, intentos: 3 }, ahora, false).vigente).toBe(false);
         expect(textoRafaga(undefined, ahora, true)).toEqual({ detalle: "Iris la rechazó: demasiadas llamadas seguidas de este número", vigente: false });
     });
 });

@@ -187,9 +187,10 @@ func (m *Modulo) registrarVoz(api huma.API) {
 			return responder(k.SolicitarPermiso.Ejecutar(ctx, EntradaConvVoz{ID: in.ID}))
 		})
 	huma.Register(api, voz(op("desbloquearNumeroLlamadas", http.MethodPost, "/conversaciones/{id}/llamadas/desbloquear", "Dejar que el número vuelva a llamar",
-		nucleo.PermLlamadasDesbloquearNumero, http.StatusOK, http.StatusNotFound),
+		nucleo.PermLlamadasDesbloquearNumero, http.StatusOK, http.StatusNotFound, http.StatusConflict),
 		"Levanta la ráfaga del número de la conversación (como máximo 3 llamadas que suenan cada 10 minutos): desde ahora sus llamadas anteriores dejan de "+
 			"contar y la próxima vuelve a sonar. También la levanta una saliente a ese número que WhatsApp acepta. Idempotente; acepta `Idempotency-Key`. "+
+			"En un número prestado solo la empresa dueña: 409 `numero_prestado`. "+
 			"Emite `voz.rafaga_levantada` (sin el número)."),
 		func(ctx context.Context, in *conversacionAccionHTTP) (*cuerpo[RafagaLevantada], error) {
 			return responder(k.DesbloquearNumero.Ejecutar(ctx, EntradaConvVoz{ID: in.ID}))

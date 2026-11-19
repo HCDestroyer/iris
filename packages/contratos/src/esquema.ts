@@ -3732,7 +3732,7 @@ export interface paths {
         put?: never;
         /**
          * Dejar que el número vuelva a llamar
-         * @description Permiso: `llamadas.desbloquear_numero`. Levanta la ráfaga del número de la conversación (como máximo 3 llamadas que suenan cada 10 minutos): desde ahora sus llamadas anteriores dejan de contar y la próxima vuelve a sonar. También la levanta una saliente a ese número que WhatsApp acepta. Idempotente; acepta `Idempotency-Key`. Emite `voz.rafaga_levantada` (sin el número). Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
+         * @description Permiso: `llamadas.desbloquear_numero`. Levanta la ráfaga del número de la conversación (como máximo 3 llamadas que suenan cada 10 minutos): desde ahora sus llamadas anteriores dejan de contar y la próxima vuelve a sonar. También la levanta una saliente a ese número que WhatsApp acepta. Idempotente; acepta `Idempotency-Key`. En un número prestado solo la empresa dueña: 409 `numero_prestado`. Emite `voz.rafaga_levantada` (sin el número). Solo personas con sesión del panel y conversaciones.ver; lo que no se ve responde 404. Contrato: `.claude/integration/contratos/voz.md`.
          */
         post: operations["desbloquearNumeroLlamadas"];
         delete?: never;
@@ -33522,6 +33522,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

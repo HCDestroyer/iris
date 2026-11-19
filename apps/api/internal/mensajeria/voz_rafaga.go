@@ -3,6 +3,7 @@ package mensajeria
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -92,6 +93,16 @@ func nuevoDesbloquearNumero(m *Modulo) *auditoria.Caso[EntradaConvVoz, RafagaLev
 			c, err := convVisible(ctx, q, a, in.ID, true)
 			if err != nil {
 				return RafagaLevantada{}, err
+			}
+			// En un número prestado la ráfaga es del número (cuenta las llamadas de todas las empresas): solo
+			// la levanta la empresa dueña. La prestataria tampoco puede llamar desde él (canalParaSalientes).
+			canal, err := q.CanalPorID(ctx, c.CanalID)
+			if err != nil {
+				return RafagaLevantada{}, err
+			}
+			if derefEmpresa(canal.EmpresaID) != a.empresa {
+				return RafagaLevantada{}, nucleo.NuevoProblema(http.StatusConflict, "numero_prestado", "Conflicto",
+					"Este número es prestado: solo la empresa dueña del número puede dejar que vuelva a llamar")
 			}
 			usuario := a.usuario
 			activa, err := m.levantarRafaga(ctx, t, c.CanalID, c.Numero, c.EmpresaID, &c.ID, &usuario, OrigenRafagaManual, nil)

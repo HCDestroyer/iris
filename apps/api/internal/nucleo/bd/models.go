@@ -1709,6 +1709,8 @@ type MensajeriaLlamada struct {
 	AccionMetaNoExiste bool
 	RafagaHasta        *time.Time
 	RafagaIntentos     int32
+	RafagaUltimoCallID *string
+	RafagaAvisadaEn    *time.Time
 }
 
 type MensajeriaLlamadaCandidato struct {
