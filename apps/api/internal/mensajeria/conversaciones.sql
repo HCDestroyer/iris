@@ -380,11 +380,12 @@ SELECT * FROM mensajeria.canales WHERE coalesce(empresa_id, 0) = @empresa::bigin
 -- name: InsertarMensajeConversacion :one
 INSERT INTO mensajeria.conversacion_mensajes (id, conversacion_id, empresa_id, seq, direccion, tipo, texto, adjunto_id, medio_id,
     lat, lon, plantilla, variables, autor_id, menciones, evento, respuesta_rapida_id, estado_entrega, proveedor_id, hash_contenido,
-    idempotency_key, creado_en, automatico, origen)
+    idempotency_key, creado_en, automatico, origen, adjunto_ancho, adjunto_alto)
 VALUES (@id, @conversacion_id, sqlc.narg('empresa_id'), @seq, @direccion, @tipo, sqlc.narg('texto'), sqlc.narg('adjunto_id'),
     sqlc.narg('medio_id'), sqlc.narg('lat'), sqlc.narg('lon'), sqlc.narg('plantilla'), sqlc.narg('variables'), sqlc.narg('autor_id'),
     @menciones::bigint[], sqlc.narg('evento'), sqlc.narg('respuesta_rapida_id'), sqlc.narg('estado_entrega'), sqlc.narg('proveedor_id'),
-    sqlc.narg('hash_contenido'), sqlc.narg('idempotency_key'), @creado_en, sqlc.narg('automatico'), sqlc.narg('origen'))
+    sqlc.narg('hash_contenido'), sqlc.narg('idempotency_key'), @creado_en, sqlc.narg('automatico'), sqlc.narg('origen'),
+    sqlc.narg('adjunto_ancho')::integer, sqlc.narg('adjunto_alto')::integer)
 RETURNING *;
 
 -- name: MensajeConversacionPorID :one
@@ -430,7 +431,10 @@ WHERE id = @id
 RETURNING *;
 
 -- name: FijarAdjuntoMensaje :one
-UPDATE mensajeria.conversacion_mensajes SET adjunto_id = @adjunto_id, updated_at = now() WHERE id = @id RETURNING *;
+-- Con las medidas de la imagen (null si no es imagen o no se pudieron leer).
+UPDATE mensajeria.conversacion_mensajes
+SET adjunto_id = @adjunto_id, adjunto_ancho = sqlc.narg('adjunto_ancho')::integer, adjunto_alto = sqlc.narg('adjunto_alto')::integer, updated_at = now()
+WHERE id = @id RETURNING *;
 
 -- name: MarcarEnvioMensajeEntrante :one
 -- El medio de un mensaje del cliente no se pudo descargar: queda sin archivo y con el motivo.

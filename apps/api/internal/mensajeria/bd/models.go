@@ -1583,6 +1583,8 @@ type MensajeriaConversacionMensaje struct {
 	FallaStatus       *int32
 	FallaCodigo       *int32
 	FallaSubcodigo    *int32
+	AdjuntoAncho      *int32
+	AdjuntoAlto       *int32
 }
 
 type MensajeriaConversacionParticipante struct {

@@ -237,7 +237,12 @@ Las notas internas y los mensajes de sistema no cambian el estado.
   "tipo": "texto",                    // texto | imagen | documento | audio | video | ubicacion | plantilla | contacto | sistema
   "texto": "Ya lo reinicié y sigue igual.",   // texto plano (nunca HTML); null si no tiene
   "adjunto": { "id": "…", "estado": "completo", "mime": "image/jpeg", "tamano": 1258291,
-               "nombre": "modem.jpg", "urlDescarga": "/api/v1/adjuntos/…" },   // o ausente
+               "nombre": "modem.jpg", "urlDescarga": "/api/v1/adjuntos/…",
+               "ancho": 1600, "alto": 900 },   // o ausente. ancho/alto: imagen JPEG, PNG o GIF, en píxeles como se
+                                      //   ve (orientación EXIF aplicada), leídos solo de la cabecera (≤ 256 KiB)
+                                      //   al guardar el medio de WhatsApp o al enviar desde el panel; null sin
+                                      //   medidas (WebP, documento, mensaje anterior, cabecera ilegible): el
+                                      //   panel reserva 4:3
   "ubicacion": { "lat": 14.6, "lon": -90.5 },  // o ausente
   "plantilla": { "codigo": "tecnico_en_camino", "variables": { … } },          // saliente con plantilla
   "autor": { "id": 7, "nombre": "Andrea" },    // saliente y nota; null en entrante y sistema

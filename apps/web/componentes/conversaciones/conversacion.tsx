@@ -512,6 +512,7 @@ export function PanelConversacion({ id, identidad, suscribir, alActualizar, href
                 ) : (
                     <ProveedorCanal value={conv.canal.id}>
                         <Hilo
+                            nombreCliente={conv.titulo}
                             mensajes={mensajes}
                             pendientes={visiblesPendientes}
                             ahora={ahora}

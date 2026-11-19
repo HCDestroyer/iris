@@ -122,6 +122,22 @@ export { PanelLateral, type PropsPanelLateral } from "./componentes/panel-latera
 export { Pestanas, type Pestana, type PropsPestanas } from "./componentes/pestanas";
 export { SelectorArchivo, type PropsSelectorArchivo } from "./componentes/selector-archivo";
 export { VistaPreviaArchivos, type ArchivoEnVista, type PropsVistaPreviaArchivos } from "./componentes/vista-previa-archivos";
+export {
+    ALTO_MAX_FOTO,
+    AlbumFotos,
+    ANCHO_MAX_FOTO,
+    ANCHO_MIN_FOTO,
+    CELDAS_ALBUM,
+    FotoMensaje,
+    medidasFoto,
+    PROPORCION_POR_DEFECTO,
+    type EstadoFoto,
+    type FotoDeAlbum,
+    type MedidasFoto,
+    type PropsAlbumFotos,
+    type PropsFotoMensaje,
+} from "./componentes/fotos";
+export { VisorFotos, type FotoEnVisor, type PropsVisorFotos } from "./componentes/visor-fotos";
 export { CampoSelector, leerOpciones, Selector, type OpcionSelector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";
 export {
     aFecha,
