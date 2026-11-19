@@ -140,9 +140,9 @@ test.describe("Estado de la conexión con Argos", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         let datos = estado(CON_ERRORES, false);
         await page.route(RUTA_ESTADO, (r) => r.fulfill({ json: datos }));
-        let pedido: { idempotencia: string | null } | null = null;
+        let idempotencia: string | null = null;
         await page.route("**/api/v1/integraciones/conectores/1/sincronizar", async (r) => {
-            pedido = { idempotencia: r.request().headers()["idempotency-key"] ?? null };
+            idempotencia = r.request().headers()["idempotency-key"] ?? null;
             const reabierta: Sincronizacion = { ...CON_ERRORES, estado: "en_curso", origen: "manual", terminadaEn: null, informeEstado: "pendiente",
                 etapas: (CON_ERRORES.etapas ?? []).map((e) => (e.estado === "con_errores" ? { ...e, estado: "pendiente", error: null } : e)) };
             datos = { ...datos, sincronizacion: reabierta };
@@ -158,8 +158,7 @@ test.describe("Estado de la conexión con Argos", () => {
         await sinc.getByRole("button", { name: "Reanudar" }).click();
         await expect(page.getByText("Sincronización reanudada")).toBeVisible();
         await expect(sinc.getByText("En curso").first()).toBeVisible();
-        expect(pedido).not.toBeNull();
-        expect(pedido!.idempotencia).toBeTruthy();
+        expect(idempotencia).toBeTruthy();
         await sinDesbordar(page);
     });
 
