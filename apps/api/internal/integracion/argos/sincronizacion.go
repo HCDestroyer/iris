@@ -353,18 +353,18 @@ func nuevoGuardarAvance(m *Modulo) *auditoria.Caso[avanceEtapa, resultadoAvance]
 			if final == SincEnCurso {
 				return r, nil
 			}
-			conErrores := []string{}
+			// Payload de eventos.md (contrato 0.8.0 §2.5): los mismos estados y recursos que van a Argos.
+			recursos := make([]map[string]any, 0, len(etapas))
 			for _, x := range etapas {
-				estado := x.Estado
+				estado, filas := x.Estado, x.Procesados
 				if x.Recurso == in.Recurso {
-					estado = in.Estado
+					estado, filas = in.Estado, in.Procesados
 				}
-				if estado == SincConErrores {
-					conErrores = append(conErrores, x.Recurso)
-				}
+				recursos = append(recursos, map[string]any{"recurso": x.Recurso, "estado": estado, "filas": filas})
 			}
 			return r, t.Emitir(EventoSincronizacionTerminada, map[string]any{
-				"sincronizacion_id": s.ID, "conector_id": s.ConectorID, "estado": final, "etapas_con_errores": conErrores,
+				"sincronizacion_id": s.ID, "conector_id": s.ConectorID, "resultado": final, "recursos": recursos,
+				"iniciada_en": s.IniciadaEn, "terminada_en": ahora,
 			})
 		},
 	})

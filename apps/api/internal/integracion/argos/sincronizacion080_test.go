@@ -288,7 +288,7 @@ func TestPrimeraSincronizacion080(t *testing.T) {
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.sincronizacion_iniciada' AND payload->>'sincronizacion_id' = $1`, r.ID.String()); n != 1 {
 		t.Fatalf("argos.sincronizacion_iniciada: %d", n)
 	}
-	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.sincronizacion_terminada' AND payload->>'estado' = 'completa'`); n != 1 {
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.sincronizacion_terminada' AND payload->>'resultado' = 'completa' AND jsonb_array_length(payload->'recursos') = 8`); n != 1 {
 		t.Fatalf("argos.sincronizacion_terminada: %d", n)
 	}
 	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.sincronizar_avance' AND entidad_id = $1`, r.ID.String()); n == 0 || n > 17 {
