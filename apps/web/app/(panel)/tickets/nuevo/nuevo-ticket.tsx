@@ -1,18 +1,26 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Campo, CampoArea, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Campo, CampoArea, CampoSelector, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useForm } from "react-hook-form";
 import { ErrorAlta, errorEnCliente } from "@/componentes/clientes/error-alta";
 import { SelectorCliente, type SeleccionCliente } from "@/componentes/clientes/selector-cliente";
 import { useCategorias } from "@/componentes/tickets/catalogos";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
+import { vincularTicketCentralita } from "@/lib/centralita/api";
 import { erroresACampos } from "@/lib/formularios";
 import { useSesion } from "@/lib/sesion";
 import { entradaCrearTicket, esquemaCrearTicket, type DatosCrearTicket, type EntradaFormCrear } from "@/lib/tickets/esquemas";
 import { ORDEN_PRIORIDADES, PRIORIDADES } from "@/lib/tickets/presentacion";
+
+const sinSuscripcion = () => () => undefined;
+/** `?llamada=<uuid>`: la llamada de la centralita desde la que se crea el ticket. */
+function llamadaDeLaUrl(): string | null {
+    const id = new URLSearchParams(window.location.search).get("llamada");
+    return id && /^[0-9a-f-]{36}$/i.test(id) ? id : null;
+}
 
 const VACIO: EntradaFormCrear = {
     asunto: "",
@@ -41,6 +49,14 @@ export function NuevoTicket() {
     const form = useForm<EntradaFormCrear, unknown, DatosCrearTicket>({ resolver: zodResolver(esquemaCrearTicket), defaultValues: VACIO });
     const errores = form.formState.errors;
     const buscarCliente = puede(["clientes.ver"]);
+    // Desde el aviso de una llamada de la centralita (E4a): `?llamada=<id>&telefono=`. Al crear, la
+    // llamada se agrega al ticket (a elección de la persona: nunca automático).
+    const llamada = useSyncExternalStore(sinSuscripcion, llamadaDeLaUrl, () => null);
+    useEffect(() => {
+        const q = new URLSearchParams(window.location.search);
+        const tel = q.get("telefono");
+        if (tel && /^\+[0-9]{8,15}$/.test(tel) && !form.getValues("contacto.telefono")) form.setValue("contacto.telefono", tel);
+    }, [form]);
 
     async function crear(datos: DatosCrearTicket) {
         if (clienteAMedias) return;
@@ -56,6 +72,13 @@ export function NuevoTicket() {
             }
             const ticket = await resolver(api().POST("/api/v1/tickets", { body: cuerpo, params: { header: { "Idempotency-Key": clave.current } } }));
             avisar({ titulo: `Ticket ${ticket.numero} creado` });
+            if (llamada) {
+                try {
+                    await vincularTicketCentralita(llamada, ticket.id);
+                } catch {
+                    avisar({ tono: "warning", titulo: "El ticket se creó, pero la llamada no se pudo agregar", descripcion: "Agrégala desde el aviso o la ficha del cliente." });
+                }
+            }
             await liberarProteccion();
             router.replace(`/tickets/${ticket.id}`);
         } catch (error) {
@@ -84,6 +107,11 @@ export function NuevoTicket() {
             }}
             error={errorGeneral ? <ErrorAlta error={errorGeneral} que="el ticket" /> : null}
         >
+            {llamada ? (
+                <Aviso tono="info" titulo="Desde una llamada de la centralita" data-slot="ticket-desde-llamada">
+                    Al crear el ticket, la llamada queda agregada a él.
+                </Aviso>
+            ) : null}
             <SeccionFormulario titulo="1. El problema">
                 <Campo etiqueta="Asunto" autoFocus maxLength={200} error={errores.asunto?.message} {...form.register("asunto")} />
                 <div className="grid gap-4 sm:grid-cols-2">

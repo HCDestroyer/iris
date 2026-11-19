@@ -31,6 +31,7 @@ import { useLectura } from "@/lib/lectura";
 import { textoFechaHora } from "@/lib/reportes/presentacion";
 import { useSesion } from "@/lib/sesion";
 import { TarjetaServidorIa } from "@/componentes/servidor-ia/tarjeta";
+import { TarjetaCentralita } from "@/componentes/voz/tarjeta-centralita";
 import { ConectarArgos } from "./conectar-argos";
 import { DiagnosticoArgos } from "./diagnostico-argos";
 
@@ -119,6 +120,7 @@ export function Integraciones() {
                 </ul>
             )}
             <TarjetaServidorIa />
+            <TarjetaCentralita />
         </>
     );
 }
