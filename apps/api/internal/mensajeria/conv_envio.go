@@ -47,6 +47,7 @@ type EntradaResponder struct {
 	AdjuntoID         *uuid.UUID        `json:"adjuntoId,omitempty" doc:"Adjunto completo de esta conversación (POST /api/v1/adjuntos, entidad conversacion)"`
 	RespuestaRapidaID *int64            `json:"respuestaRapidaId,omitempty" minimum:"1" doc:"Si el texto salió de una respuesta rápida (métricas)"`
 	SugerenciaID      *uuid.UUID        `json:"sugerenciaId,omitempty" doc:"Si el texto salió de una sugerencia del asistente (lista o usada, de esta conversación; si no, 422 sugerencia_no_vigente): la marca usada y mide si se envió editada (§16.2)"`
+	Cuentas           bool              `json:"cuentas,omitempty" doc:"«Enviar cuentas» (contrato con Argos 0.8.0 §7.8): el servidor arma el texto con las cuentas de Argos (GET /conversaciones/{id}/texto-cuentas); va sin texto, plantilla ni adjunto. 422 sin_cuentas_para_enviar si la empresa no tiene cuentas activas en quetzales con titular"`
 	IdempotencyKey    string            `json:"-"`
 }
 
@@ -57,7 +58,7 @@ func (e EntradaResponder) MarshalJSON() ([]byte, error) {
 		plantilla = &e.Plantilla.Codigo
 	}
 	return json.Marshal(map[string]any{"conversacion_id": e.ConversacionID, "id": e.ID, "con_texto": e.Texto != nil, "plantilla": plantilla,
-		"adjunto_id": e.AdjuntoID, "respuesta_rapida_id": e.RespuestaRapidaID, "sugerencia_id": e.SugerenciaID,
+		"adjunto_id": e.AdjuntoID, "respuesta_rapida_id": e.RespuestaRapidaID, "sugerencia_id": e.SugerenciaID, "cuentas": e.Cuentas,
 		"hash": hashContenidoConv(e.ConversacionID, e.Texto, e.Plantilla, e.AdjuntoID)})
 }
 
@@ -201,7 +202,7 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 			if err != nil {
 				return MensajeConvEnviado{}, err
 			}
-			if a.asistente && (in.Texto == nil || in.Plantilla != nil || in.AdjuntoID != nil || in.RespuestaRapidaID != nil || in.SugerenciaID != nil) {
+			if a.asistente && (in.Cuentas || in.Texto == nil || in.Plantilla != nil || in.AdjuntoID != nil || in.RespuestaRapidaID != nil || in.SugerenciaID != nil) {
 				return MensajeConvEnviado{}, nucleo.Prohibido("El asistente de IA solo envía texto")
 			}
 			if in.ID == uuid.Nil {

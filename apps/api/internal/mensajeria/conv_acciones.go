@@ -285,8 +285,8 @@ type EntradaBoleta struct {
 	Monto            string    `json:"monto" pattern:"^[0-9]{1,10}\\.[0-9]{2}$" doc:"Decimal con 2 decimales, en GTQ"`
 	FechaDeposito    string    `json:"fechaDeposito" format:"date" doc:"AAAA-MM-DD, no futura"`
 	Nota             *string   `json:"nota,omitempty" maxLength:"500"`
-	// cuentas: las cuentas de Argos leídas antes de la transacción (RegistrarBoleta); nil = sin leer.
-	cuentas *cuentasLeidas
+	// cuenta: la cuenta releída en Argos antes de la transacción (RegistrarBoleta, el asistente); nil = sin leer.
+	cuenta *cuentaLeida
 }
 
 // MarshalJSON: sin la nota.
@@ -441,6 +441,9 @@ type resultadoBoleta struct {
 	Temporal      bool      `json:"temporal,omitempty"`
 	// CuentaRevalidada: el despacho comprobó con Argos la cuenta de una boleta registrada sin validar.
 	CuentaRevalidada bool `json:"cuenta_revalidada,omitempty"`
+	// CuentaRechazada: la cuenta se desactivó en Argos (§7.8): la boleta falla sin reintento y, si la
+	// registró el asistente, la conversación pasa a una persona.
+	CuentaRechazada bool `json:"cuenta_rechazada,omitempty"`
 }
 
 func nuevoPrepararBoleta(m *Modulo) *auditoria.Caso[uuid.UUID, boletaPorEnviar] {
@@ -536,7 +539,11 @@ func nuevoResultadoBoleta(m *Modulo) *auditoria.Caso[resultadoBoleta, struct{}] 
 			if err := m.sistema(ctx, t, &c, ev); err != nil {
 				return struct{}{}, err
 			}
-			if _, err := guardarConv(ctx, q, c, false); err != nil {
+			if g.Estado == "fallida" && in.CuentaRechazada && g.PorAsistente && c.AsistenteEstado != nil && *c.AsistenteEstado == AsistenteAtendiendo {
+				if err := m.pasarAPersonaPorCuenta(ctx, t, &c); err != nil {
+					return struct{}{}, err
+				}
+			} else if _, err := guardarConv(ctx, q, c, false); err != nil {
 				return struct{}{}, err
 			}
 			if g.Estado == "registrada" {
@@ -593,11 +600,15 @@ func (m *Modulo) enviarBoleta(ctx context.Context, id uuid.UUID) error {
 	// la marca (cuenta_validacion nula): se revalida antes de mandar el comprobante. Si no es una cuenta activa en GTQ de la empresa, la
 	// boleta falla sin hacer el POST; si Argos sigue sin responder, sigue el reintento normal.
 	if f.CuentaValidacion == nil || *f.CuentaValidacion != CuentaValidada {
-		cs, err := m.cfg.Argos.CuentasBancarias(ctx, p.a)
+		k, err := m.cfg.Argos.ReleerCuentaBancaria(ctx, f.CuentaBancariaID)
 		switch {
+		case argosNiegaCuenta(err):
+			res.Error = MotivoCuentaBoleta
 		case err != nil:
 			res.Error, res.Temporal = resumenErrorArgos(err)
-		case !cuentaEnLista(cs, p.a.EmpresaID, f.CuentaBancariaID):
+		case !k.Activa && k.EmpresaID != nil && *k.EmpresaID == p.a.EmpresaID:
+			res.Error, res.CuentaRechazada = MotivoCuentaInactiva, true
+		case !cuentaParaBoleta(k, p.a.EmpresaID):
 			res.Error = MotivoCuentaBoleta
 		default:
 			res.CuentaRevalidada = true
@@ -608,13 +619,63 @@ func (m *Modulo) enviarBoleta(ctx context.Context, id uuid.UUID) error {
 		}
 	}
 	r, errArgos := m.cfg.Argos.RegistrarComprobante(ctx, p.a, in)
-	if errArgos == nil {
+	switch {
+	case errArgos == nil:
 		res.ComprobanteID = &r.ID
-	} else {
+	case argos.EsCuentaInactiva(errArgos):
+		// La cuenta se desactivó en Argos después del depósito (§7.8, 0.8.0): no se reintenta; caja
+		// registra el pago a mano y, si la atendía el asistente, la conversación pasa a una persona.
+		res.Error, res.CuentaRechazada = MotivoCuentaInactiva, true
+	default:
 		res.Error, res.Temporal = resumenErrorArgos(errArgos)
 	}
 	_, err = m.resultadoBoleta.Ejecutar(context.WithoutCancel(ctx), res)
 	return err
+}
+
+// NotaCuentaInactiva: la nota interna cuando el asistente registró una boleta en una cuenta que Argos
+// tenía desactivada (nunca el número de cuenta).
+const NotaCuentaInactiva = "El asistente registró una boleta en una cuenta bancaria que Argos tiene desactivada. Caja registra el pago a mano en Argos; avísale al cliente."
+
+// pasarAPersonaPorCuenta deja para una persona la conversación cuya boleta (registrada por el
+// asistente) Argos rechazó porque la cuenta se desactivó (§7.8, decisión del PM §10.2 punto 13): nota
+// interna, espera con su SLA, el asistente en espera_persona y asistente.paso_a_persona.
+func (m *Modulo) pasarAPersonaPorCuenta(ctx context.Context, t *auditoria.Tx, c *mensajeriabd.MensajeriaConversacion) error {
+	q := mensajeriabd.New(t)
+	nota := NotaCuentaInactiva
+	if _, err := m.agregarMensaje(ctx, t, c, nuevoMensaje{direccion: DirNota, tipo: "texto", texto: &nota, automatico: nombrePtr(AutomaticoAsistente)}); err != nil {
+		return err
+	}
+	ahora := m.ahora()
+	c.Estado = EstadoConvAbierta
+	if c.EsperaDesde == nil {
+		c.EsperaDesde = &ahora
+		vence, err := m.slaDe(ctx, q, *c)
+		if err != nil {
+			return err
+		}
+		c.SlaVenceEn, c.SlaAvisado = vence, false
+	}
+	g, err := guardarConv(ctx, q, *c, true)
+	if err != nil {
+		return err
+	}
+	if g, err = q.FijarAsistenteConv(ctx, mensajeriabd.FijarAsistenteConvParams{ID: g.ID, Estado: nombrePtr(AsistenteEsperaPersona),
+		Turnos: g.AsistenteTurnos, PresentoEn: g.AsistentePresentoEn}); err != nil {
+		return err
+	}
+	*c = g
+	if err := fijarMotivoPaso(ctx, q, c, PasoHerramientaFallo); err != nil {
+		return err
+	}
+	if err := m.actividad(ctx, q, c, "espera_persona", "Espera a una persona"); err != nil {
+		return err
+	}
+	if err := m.emitirEventoConv(ctx, t, *c, EventoConvActualizada, nil, nil); err != nil {
+		return err
+	}
+	return t.Emitir("asistente.paso_a_persona", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "motivo": PasoHerramientaFallo,
+		"cola_id": c.ColaID, "turnos": c.AsistenteTurnos})
 }
 
 // DetalleArgosIlegible: el detalle de una boleta cuando Argos respondió algo que Iris no pudo leer.

@@ -87,6 +87,8 @@ type Modulo struct {
 	guardarFichaInterna *auditoria.Caso[entradaGuardarFicha, struct{}]
 	// guardarTrasladoLeido: el traslado confirmado con GET /inventario/traslados/:id.
 	guardarTrasladoLeido *auditoria.Caso[argosbd.GuardarTrasladoParams, struct{}]
+	// guardarCuentas: la instantánea de cuentas bancarias (0.8.0 §7.8).
+	guardarCuentas *auditoria.Caso[lecturaCuentas, ResultadoCuentas]
 	cfg                  Config
 	nucleo               *conector.Nucleo
 	conexion             *conector.Conexion
@@ -139,7 +141,7 @@ func Nuevo(cfg Config) *Modulo {
 		cfg.VigenciaInstantanea = 24 * time.Hour
 	}
 	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones(), refrescos: nuevosRefrescos(), guardarFichaInterna: nuevoGuardarFichaInterna(),
-		guardarTrasladoLeido: nuevoGuardarTrasladoLeido()}
+		guardarTrasladoLeido: nuevoGuardarTrasladoLeido(), guardarCuentas: nuevoGuardarCuentas()}
 	m.nucleo = conector.Nuevo(conector.Config{
 		Cifrador: cfg.Cifrador, BaseURL: cfg.BaseURL, VentanaWebhook: cfg.VentanaWebhook, VigenciaEnlace: cfg.VigenciaEnlace,
 		PermitirHTTP: cfg.PermitirHTTP, Encolar: cfg.Encolar, Version: cfg.Version,
@@ -156,6 +158,10 @@ func Nuevo(cfg Config) *Modulo {
 				return nil
 			}
 			if err := cfg.Encolar(ctx, tx, ArgsSincronizarCatalogos{Motivo: MotivoActivacion}); err != nil {
+				return err
+			}
+			// 0.8.0 §7.8: primera carga de las cuentas bancarias (sin efecto con un Argos anterior).
+			if err := cfg.Encolar(ctx, tx, ArgsSincronizarCuentas{Motivo: MotivoActivacion}); err != nil {
 				return err
 			}
 			return m.encolarInformarContrato(ctx, tx, conectorID)

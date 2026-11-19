@@ -1199,6 +1199,8 @@ func lineaHistorial(h mensajeriabd.HistorialAsistenteRow) string {
 		if h.ConSaldo {
 			crudo = reMontoQ.ReplaceAllString(crudo, "Q ***")
 		}
+		// El texto fijo de las cuentas bancarias (§7.8) vuelve al modelo sin números ni titulares.
+		crudo = taparTextoCuentas(crudo)
 		texto = neutralizarLinea(recortarIA(RedactarParaIA(crudo), 1000))
 		// El modelo no ve el documento: solo que el cliente lo envió (verificar_identidad lo toma del
 		// mensaje original, del lado del servidor).

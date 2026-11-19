@@ -390,3 +390,48 @@ SELECT EXISTS (
         AND payload->>'catalogo' = 'plan' AND (payload->>'id') = (@plan_id::bigint)::text
         AND payload->'campos' ? 'precio'
 )::boolean;
+
+-- Cuentas bancarias (contrato 0.8.0 §7.8) ---------------------------------------------------------
+
+-- name: CuentaBancariaParaActualizar :one
+-- La fila de la instantánea con su candado (para comparar antes de guardar y emitir el cambio).
+SELECT * FROM integracion.argos_cuentas_bancarias WHERE id = @id FOR UPDATE;
+
+-- name: CuentaBancariaInstantanea :one
+SELECT * FROM integracion.argos_cuentas_bancarias WHERE id = @id;
+
+-- name: CuentasBancariasDeEmpresa :many
+-- Orden de Argos: banco, alias, id.
+SELECT * FROM integracion.argos_cuentas_bancarias WHERE empresa_id = @empresa_id
+ORDER BY banco_nombre, alias, id;
+
+-- name: CuentasBancariasTodas :many
+SELECT * FROM integracion.argos_cuentas_bancarias ORDER BY empresa_id, banco_nombre, alias, id;
+
+-- name: GuardarCuentaBancaria :execrows
+-- Gana la lectura más reciente de Argos (una relectura vieja no pisa a una nueva).
+INSERT INTO integracion.argos_cuentas_bancarias (id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en)
+VALUES (@id, @empresa_id, @banco_id, @banco_nombre, @numero, @alias, @titular, @tipo, @moneda, @activa, @sincronizado_en)
+ON CONFLICT (id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, banco_id = excluded.banco_id, banco_nombre = excluded.banco_nombre, numero = excluded.numero,
+    alias = excluded.alias, titular = excluded.titular, tipo = excluded.tipo, moneda = excluded.moneda, activa = excluded.activa,
+    sincronizado_en = excluded.sincronizado_en, updated_at = now()
+WHERE integracion.argos_cuentas_bancarias.sincronizado_en <= excluded.sincronizado_en;
+
+-- name: BorrarCuentaBancaria :execrows
+-- Una cuenta que Argos ya no le muestra a Iris (fuera del alcance del token). Argos nunca borra cuentas.
+DELETE FROM integracion.argos_cuentas_bancarias WHERE id = @id AND sincronizado_en <= @leido_en;
+
+-- name: CuentasBancariasNoVistas :many
+-- Las de la instantánea que una lista completa (leída desde @desde) no trajo.
+SELECT * FROM integracion.argos_cuentas_bancarias WHERE sincronizado_en < @desde ORDER BY id;
+
+-- name: MarcarLecturaCuentas :exec
+INSERT INTO integracion.argos_cuentas_lecturas (empresa_id, leido_en) VALUES (@empresa_id, @leido_en)
+ON CONFLICT (empresa_id) DO UPDATE SET leido_en = greatest(integracion.argos_cuentas_lecturas.leido_en, excluded.leido_en);
+
+-- name: LecturaCuentasDe :one
+-- La última lista completa que cubre a la empresa (la suya o la de todas, empresa 0).
+-- Sin filas: nunca se leyó.
+SELECT leido_en FROM integracion.argos_cuentas_lecturas WHERE empresa_id IN (0, @empresa_id::bigint)
+ORDER BY leido_en DESC LIMIT 1;

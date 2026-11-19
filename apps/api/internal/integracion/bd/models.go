@@ -778,6 +778,27 @@ type IntegracionArgosCopia struct {
 	AnonimizadaEn  *time.Time
 }
 
+type IntegracionArgosCuentasBancaria struct {
+	ID             int64
+	EmpresaID      int64
+	BancoID        *int64
+	BancoNombre    string
+	Numero         string
+	Alias          string
+	Titular        *string
+	Tipo           *string
+	Moneda         string
+	Activa         bool
+	SincronizadoEn time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
+type IntegracionArgosCuentasLectura struct {
+	EmpresaID int64
+	LeidoEn   time.Time
+}
+
 type IntegracionArgosEliminado struct {
 	Tipo          string
 	ID            int64
