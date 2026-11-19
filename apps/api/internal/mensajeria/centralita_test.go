@@ -507,6 +507,9 @@ func TestCentralitaFeedSoloExtension(t *testing.T) {
 	x.exigir(x.api(tec, http.MethodGet, "/conversaciones/cambios", nil), http.StatusForbidden)
 	ext := x.asignar(tec, "210")
 	x.arrancar()
+	if r := x.api(tec, http.MethodGet, "/centralita/mi-extension", nil); r.status != http.StatusOK || r.cuerpo["extension"] != "210" {
+		t.Fatalf("mi extensión: %d %v", r.status, r.cuerpo)
+	}
 	cur := x.cursor(tec)
 	// Un mensaje de WhatsApp (evento de conversación de la cola) y una llamada a su extensión.
 	x.texto(numeroCliente(), "wamid.centralita."+pruebas.Unico(), "hola")
@@ -527,6 +530,9 @@ func TestCentralitaFeedSoloExtension(t *testing.T) {
 	flujo := abrirSSEEn(t, ctx, url+rutaMsj+"/conversaciones/eventos", tec, cur)
 	x.exigir(x.api(x.admin, http.MethodPost, fmt.Sprintf("%s/%d/quitar", x.ruta("/extensiones"), int64(ext)), nil), http.StatusOK)
 	x.exigir(x.api(tec, http.MethodGet, "/conversaciones/cambios?cursor="+cur, nil), http.StatusForbidden)
+	if r := x.api(tec, http.MethodGet, "/centralita/mi-extension", nil); r.cuerpo["extension"] != nil {
+		t.Fatalf("sin extensión: %v", r.cuerpo)
+	}
 	x.ami.Emitir("Event", "DialBegin", "Channel", "PJSIP/claro-1", "CallerIDNum", "55998877", "DestChannel", "PJSIP/210-1", "Linkedid", "1700.701")
 	limite := time.After(8 * time.Second)
 	for {

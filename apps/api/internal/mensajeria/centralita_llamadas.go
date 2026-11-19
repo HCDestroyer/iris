@@ -417,7 +417,7 @@ func (m *Modulo) cerrarLlamadaCentralita(ctx context.Context, t *auditoria.Tx, q
 		l.Estado, evento = LlamadaTerminada, "llamada.terminada"
 		d := seg
 		if d == nil && l.ContestadaEn != nil {
-			x := int32(max(ahora.Sub(*l.ContestadaEn).Seconds(), 0)) //nolint:gosec // acotado por CentralitaEnCursoMax
+			x := int32(max(ahora.Sub(*l.ContestadaEn).Seconds(), 0))
 			d = &x
 		}
 		l.DuracionSeg = d

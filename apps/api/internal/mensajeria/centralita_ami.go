@@ -41,12 +41,11 @@ func normalizarNumero(crudo string) string {
 	if s == "" || !soloDigitosCrudos.MatchString(s) {
 		return ""
 	}
-	mas := strings.HasPrefix(s, "+")
 	d := soloDigitos(s)
 	switch {
-	case mas:
+	case strings.HasPrefix(s, "+"):
 	case strings.HasPrefix(d, "00"):
-		d, mas = d[2:], true
+		d = d[2:]
 	case len(d) == 8:
 		d = "502" + d
 	case len(d) == 11 && strings.HasPrefix(d, "502"):

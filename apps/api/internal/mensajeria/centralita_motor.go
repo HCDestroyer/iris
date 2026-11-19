@@ -195,7 +195,6 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 		o := m.opcionesAMI(f.Host, f.Puerto, f.Usuario, secreto, *f.HuellaTls)
 		o.Eventos = "call,cdr"
 		c, err := ami.Conectar(ctx, o)
-		secreto = ""
 		if err != nil {
 			var eh *ami.ErrHuella
 			switch {
