@@ -70,8 +70,10 @@ type argosFalso struct {
 	// alComprobante corre mientras «Argos» atiende POST /comprobantes (fuera del candado).
 	alComprobante func()
 	errCuentas    error
-	// lecturasCuentas: cuántas veces se leyeron las cuentas en «Argos».
+	// lecturasCuentas: cuántas veces se leyeron las cuentas en «Argos»; empresaCuentas: de qué empresa
+	// son las cuentas base al releer una por id (0 = la 1).
 	lecturasCuentas int
+	empresaCuentas  int64
 	// caja: el Argos falso (httptest) que aprueba y rechaza comprobantes (boletas_decidir_test.go).
 	caja *cajaFalsa
 	// promesas: el Argos falso (httptest) de POST /promesas y /promesas/simular (promesas_argos_test.go).
@@ -216,9 +218,12 @@ func (f *argosFalso) CuentasDeEmpresa(_ context.Context, a argos.AtencionIris) (
 	return out, nil
 }
 
-// ReleerCuentaBancaria: GET /cuentas-bancarias/:id (las base, de la empresa 1). 404 si no existe.
+// ReleerCuentaBancaria: GET /cuentas-bancarias/:id (las base, de empresaCuentas o la 1). 404 si no existe.
 func (f *argosFalso) ReleerCuentaBancaria(_ context.Context, id int64) (argos.CuentaBancariaArgos, error) {
-	cs, err := f.cuentasDeArgos(1)
+	f.mu.Lock()
+	empresa := f.empresaCuentas
+	f.mu.Unlock()
+	cs, err := f.cuentasDeArgos(empresa)
 	if err != nil {
 		return argos.CuentaBancariaArgos{}, err
 	}
