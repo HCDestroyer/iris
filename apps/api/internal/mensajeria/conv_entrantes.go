@@ -572,7 +572,8 @@ func nuevoGuardarMedio(m *Modulo) *auditoria.Caso[medioBajado, struct{}] {
 				Entidad: EntidadAdjuntosConversacion, EntidadID: strconv.FormatInt(c.ID, 10), Tipo: tipo, Mime: in.Mime, Datos: in.datos}); err != nil {
 				return struct{}{}, err
 			}
-			if _, err := q.FijarAdjuntoMensaje(ctx, mensajeriabd.FijarAdjuntoMensajeParams{ID: f.ID, AdjuntoID: pgUUID(&id)}); err != nil {
+			md := medidasImagen(in.Mime, in.datos)
+			if _, err := q.FijarAdjuntoMensaje(ctx, mensajeriabd.FijarAdjuntoMensajeParams{ID: f.ID, AdjuntoID: pgUUID(&id), AdjuntoAncho: md.ancho, AdjuntoAlto: md.alto}); err != nil {
 				return struct{}{}, err
 			}
 			return struct{}{}, m.emitirEventoConv(ctx, t, c, EventoConvMensajeActualizad, &f.ID, nil)
