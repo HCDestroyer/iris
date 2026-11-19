@@ -175,6 +175,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "integraciones.activar",
     "integraciones.conectar",
     "integraciones.revisar_version",
+    "integraciones.sincronizar",
     "integraciones.desactivar",
     "integraciones.reintentar",
     "integraciones.resolver_pendiente",
