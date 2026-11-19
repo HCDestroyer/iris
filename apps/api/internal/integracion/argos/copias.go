@@ -197,5 +197,25 @@ func CopiaDe(ctx context.Context, db argosbd.DBTX, entidad string, entidadID int
 	}
 	copia.CopiadoEn, copia.SincronizadoEn = f.CopiadoEn, f.SincronizadoEn
 	copia.Anonimizada = f.AnonimizadaEn != nil
+	// Datos sensibles del servicio (§2.4): fuera lo que el actor no puede ver. Si la dirección que
+	// aplica era la de instalación, sin servicios.ver_ubicacion queda la del cliente.
+	if copia.Servicio != nil {
+		vis, err := LeerVisibilidad(ctx, db)
+		if err != nil {
+			return nil, err
+		}
+		// La zona del servicio (de la instantánea): quien tiene servicios.ver_* por zona ve la copia
+		// de su zona. Sin instantánea, solo con el permiso global o por sus órdenes.
+		var zona *int64
+		if f, err := q.ServicioPorID(ctx, copia.Servicio.ID); err == nil {
+			zona = f.ZonaID
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+		if !vis.Ubicacion(copia.Servicio.ID, zona) && copia.Servicio.Direccion != "" {
+			copia.Direccion = copia.Cliente.Direccion
+		}
+		vis.RecortarCopia(copia.Servicio, zona)
+	}
 	return &copia, nil
 }

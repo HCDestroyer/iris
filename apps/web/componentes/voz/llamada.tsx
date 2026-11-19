@@ -6,6 +6,8 @@ import { Banknote, CalendarPlus, LifeBuoy, Mic, MicOff, Phone, PhoneCall, PhoneI
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { LineaServicio } from "@/componentes/clientes/linea-servicio";
+import { lineaDeLlamada } from "@/lib/datos/servicio";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
@@ -46,8 +48,9 @@ function Senales({ llamada, saldoVencido }: { llamada: Llamada; saldoVencido: bo
     return (
         <ul aria-label="Datos del cliente" className="flex min-w-0 flex-wrap gap-1.5">
             {servicio ? (
-                <li className="min-w-0">
-                    <InsigniaEstado tono={servicio.estado === "suspendido" ? "warning" : "neutral"} texto={`${servicio.plan} · ${servicio.estado}`} className="max-w-full [&>span]:truncate" />
+                <li className="min-w-0" data-slot="servicio-llamada">
+                    {/* Línea de servicio compacta (contrato con Argos 0.8.0 §2.4): plan, estado, precio y zona. */}
+                    <LineaServicio servicio={lineaDeLlamada(servicio)} variante="compacta" />
                 </li>
             ) : null}
             {saldoVencido ? (

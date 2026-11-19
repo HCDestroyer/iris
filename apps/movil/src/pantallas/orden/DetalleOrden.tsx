@@ -391,11 +391,25 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                         </View>
                     ) : null}
                     {orden.servicio ? (
-                        <Texto suave>
-                            {orden.servicio.codigo || `Servicio #${orden.servicio.id}`}
-                            {orden.servicio.plan ? ` · ${orden.servicio.plan}` : ""}
-                            {orden.servicio.estado ? ` · ${orden.servicio.estado.replaceAll("_", " ")}` : ""}
-                        </Texto>
+                        // Línea de servicio (contrato con Argos 0.8.0 §2.4): plan y estado; debajo precio,
+                        // zona, router, IP y código. Router e IP solo llegan con servicios.ver_red.
+                        <View testID="linea-servicio">
+                            <Texto>
+                                {orden.servicio.plan || "Sin plan"}
+                                {orden.servicio.estado ? ` · ${orden.servicio.estado.replaceAll("_", " ")}` : ""}
+                            </Texto>
+                            <Texto suave>
+                                {[
+                                    orden.servicio.precioMensual ? `${orden.servicio.moneda && orden.servicio.moneda !== "GTQ" ? `${orden.servicio.moneda} ` : "Q"}${orden.servicio.precioMensual} al mes` : null,
+                                    orden.servicio.zona || null,
+                                    orden.servicio.router || null,
+                                    orden.servicio.ip || null,
+                                    orden.servicio.codigo || `Servicio #${orden.servicio.id}`,
+                                ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                            </Texto>
+                        </View>
                     ) : null}
                 </View>
                 <View style={estilos.botonesCliente}>

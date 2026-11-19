@@ -535,6 +535,11 @@ type ServicioDeLlamada struct {
 	Codigo string `json:"codigo"`
 	Plan   string `json:"plan"`
 	Estado string `json:"estado"`
+	// Línea de servicio (contrato argosisp.md 0.8.0 §2.4): zona y precio, que ve cualquiera con
+	// clientes.ver. Nunca la red ni la ubicación.
+	Zona          string  `json:"zona" required:"false" doc:"Nombre de la zona del servicio"`
+	PrecioMensual *string `json:"precioMensual,omitempty" doc:"Precio mensual del plan con IVA; ausente si Argos no lo informa"`
+	Moneda        *string `json:"moneda,omitempty"`
 }
 
 // TicketDeLlamada es un ticket abierto del cliente que llama.

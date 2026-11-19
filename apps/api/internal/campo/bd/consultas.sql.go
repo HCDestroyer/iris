@@ -3945,7 +3945,7 @@ func (q *Queries) RetiroAbiertoDeServicio(ctx context.Context, arg RetiroAbierto
 }
 
 const servicioArgos = `-- name: ServicioArgos :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE id = $1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta FROM integracion.argos_servicios WHERE id = $1
 `
 
 func (q *Queries) ServicioArgos(ctx context.Context, id int64) (IntegracionArgosServicio, error) {
@@ -3975,12 +3975,17 @@ func (q *Queries) ServicioArgos(ctx context.Context, id int64) (IntegracionArgos
 		&i.Referencia,
 		&i.ContactoNombre,
 		&i.ContactoTelefono,
+		&i.PrecioMensual,
+		&i.Moneda,
+		&i.PrefijoEnlaceV6,
+		&i.PrefijoDelegadoV6,
+		&i.Planta,
 	)
 	return i, err
 }
 
 const serviciosArgos = `-- name: ServiciosArgos :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE id = ANY($1::bigint[])
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta FROM integracion.argos_servicios WHERE id = ANY($1::bigint[])
 `
 
 func (q *Queries) ServiciosArgos(ctx context.Context, ids []int64) ([]IntegracionArgosServicio, error) {
@@ -4016,6 +4021,11 @@ func (q *Queries) ServiciosArgos(ctx context.Context, ids []int64) ([]Integracio
 			&i.Referencia,
 			&i.ContactoNombre,
 			&i.ContactoTelefono,
+			&i.PrecioMensual,
+			&i.Moneda,
+			&i.PrefijoEnlaceV6,
+			&i.PrefijoDelegadoV6,
+			&i.Planta,
 		); err != nil {
 			return nil, err
 		}

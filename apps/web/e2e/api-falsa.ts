@@ -4,6 +4,7 @@ import { apiAgenda, type ApiAgenda } from "./api-agenda";
 import { simularChatPanel, type ApiChatPanel } from "./api-chat-panel";
 import { apiComercial, type ApiComercial } from "./api-comercial";
 import { PERMISO_CONFIGURAR } from "./api-asistente";
+import { recortarServicio } from "./recorte-servicio";
 import { apiConversaciones, PERMISOS_CONVERSACIONES, type ApiConversaciones, type OpcionesConversaciones } from "./api-conversaciones";
 import { apiServidorIa, PERMISO_SIA_ADMINISTRAR, PERMISO_SIA_VER, PERMISO_SIA_VER_USO, type ApiServidorIa, type OpcionesServidorIa } from "./api-servidor-ia";
 import { apiVoz, PERMISO_LLAMAR, PERMISO_PEDIR, PERMISOS_LLAMADAS, PERMISOS_VOZ_ADMIN, type ApiVoz, type OpcionesVoz } from "./api-voz";
@@ -35,6 +36,7 @@ type Problema = Schema<"Problema">;
 type Permiso = Schema<"Permiso">;
 
 export const CSRF = "csrf-e2e";
+
 export const CONTRASENA = CONTRASENA_DEFECTO;
 export const CODIGO_OK = "123456";
 export const CODIGO_BLOQUEA = "999999";
@@ -119,6 +121,7 @@ const PERMISOS_ORDENES: Permiso[] = [
 
 /** Permisos comerciales del rol `ventas` (i2.md, «Seguimiento comercial»). */
 export const PERMISOS_VENTAS: Permiso[] = [
+    "servicios.ver_ubicacion",
     "adjuntos.ver",
     "agenda.ver",
     "contratos.crear",
@@ -193,6 +196,9 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "plantillas.desactivar",
     "clientes.estado_cuenta",
     "clientes.ver",
+    // Datos sensibles del servicio (contrato con Argos 0.8.0 §2.4).
+    "servicios.ver_red",
+    "servicios.ver_ubicacion",
     "empresas.adoptar",
     "empresas.todas",
     "encuestas.compartir",
@@ -237,15 +243,15 @@ const permisosPorCorreo: Record<string, Permiso[]> = {
     [TEMPORAL.correo]: ["tickets.ver", "usuarios.ver"],
     [CON_MFA.correo]: ["usuarios.ver"],
     [LECTOR.correo]: [],
-    [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "encuestas.compartir", "encuestas.ver", "usuarios.ver", ...PERMISOS_TICKETS],
+    [SOPORTE.correo]: ["clientes.ver", "clientes.estado_cuenta", "servicios.ver_red", "servicios.ver_ubicacion", "encuestas.compartir", "encuestas.ver", "usuarios.ver", ...PERMISOS_TICKETS],
     [CONSULTA.correo]: ["conversaciones.ver", "agenda.ver", "clientes.ver", "prospectos.ver", "reportes.ver", "rutas.ver", "tickets.ver", "usuarios.ver"],
     [VENDEDORA.correo]: PERMISOS_VENTAS,
-    [AGENTE_CONV.correo]: PERMISOS_CONVERSACIONES.filter((p) => p !== "conversaciones.supervisar"),
+    [AGENTE_CONV.correo]: [...PERMISOS_CONVERSACIONES.filter((p) => p !== "conversaciones.supervisar"), "servicios.ver_red", "servicios.ver_ubicacion"],
     [CREDENCIALES_WA.correo]: ["mensajeria.configurar"],
     // Con integraciones.conectar pero sin empresas.todas: no puede conectar (la API exige rol global).
     [SUPERVISOR_ZONA.correo]: [...PERMISOS_BUZONES, "integraciones.conectar", "integraciones.ver", "tickets.ver"],
     [ASIGNADOR.correo]: ["agenda.ver", "ordenes.asignar", "ordenes.ver"],
-    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "agenda.fijar_turnos", "agenda.registrar_ausencia", "agenda.anular_ausencia", "campo.ver_posiciones", "clientes.ver", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, ...PERMISOS_FORMULARIOS, "tickets.ver", "usuarios.ver"],
+    [DESPACHO.correo]: ["adjuntos.ver", "agenda.ver", "agenda.fijar_turnos", "agenda.registrar_ausencia", "agenda.anular_ausencia", "campo.ver_posiciones", "clientes.ver", "servicios.ver_ubicacion", "rutas.proponer", "rutas.publicar", "rutas.ver", "integraciones.ver_pendientes", ...PERMISOS_ORDENES, ...PERMISOS_FORMULARIOS, "tickets.ver", "usuarios.ver"],
 };
 /** Usuarios cuyos permisos `buzones.*` tienen alcance de zona (no global). */
 const alcanceDeZona = new Set([SUPERVISOR_ZONA.correo]);
@@ -965,10 +971,12 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
                 const conServicios = url.searchParams.get("servicios") === "true";
                 const data = CLIENTES.filter(
                     (c) => c.nombre.toLowerCase().includes(q) || c.codigo.toLowerCase().includes(q) || c.telefono.replace(/\s/g, "").includes(q.replace(/\s/g, "")),
-                ).map((c) => (conServicios ? { ...c, servicios: serviciosDe(c.id) } : c));
+                ).map((c) => (conServicios ? { ...c, servicios: serviciosDe(c.id).map((s) => recortarServicio(s, puede)) } : c));
                 return route.fulfill({ json: { data, nextCursor: null, stale: false } satisfies Schema<"ResultadoBusqueda"> });
             }
             if (ruta === "/api/v1/clientes/resolver-ip") {
+                // La IP es un dato de red (contrato con Argos 0.8.0 §2.4).
+                if (!puede("servicios.ver_red")) return prohibido();
                 const ip = url.searchParams.get("ip") ?? "";
                 const s = CLIENTES.flatMap((c) => serviciosDe(c.id)).find((x) => x.ip === ip);
                 if (!s) return noEncontrado();
@@ -979,7 +987,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             // lecturas a pedido está agotada (refrescoOmitido) y vuelve la misma instantánea.
             const refrescar = url.searchParams.get("refrescar") === "true";
             const f = refrescar && id === 502 ? { ...ficha(id, false), refrescoOmitido: "cuota" as const } : refrescar ? ficha(id, false, new Date().toISOString()) : ficha(id, id === 502);
-            return f ? route.fulfill({ json: f }) : noEncontrado();
+            return f ? route.fulfill({ json: { ...f, servicios: (f.servicios ?? []).map((s) => recortarServicio(s, puede)) } }) : noEncontrado();
         }
 
         if (await plantillas.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, hayEmpresas: hayRegistradas, empresaId })) {

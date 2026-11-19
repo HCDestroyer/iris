@@ -6,6 +6,7 @@ import { FileText, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
+import { LineaServicio, SelectorServicio } from "@/componentes/clientes/linea-servicio";
 import { AvisoAccion, useEnvio } from "@/componentes/comercial/comun";
 import { DesdeConversacion } from "@/componentes/conversaciones/desde-conversacion";
 import { api, resolver } from "@/lib/api/cliente";
@@ -208,17 +209,24 @@ function FormularioBoleta({ conv }: { conv: ConversacionDetalle }) {
                     <Campo etiqueta="Referencia" maxLength={60} autoComplete="off" error={errores.referencia?.message} {...form.register("referencia")} />
                     <Campo etiqueta="Monto (Q)" inputMode="decimal" placeholder="250.00" maxLength={14} autoComplete="off" error={errores.monto?.message} {...form.register("monto")} />
                     <CampoFecha etiqueta="Fecha del depósito" error={errores.fechaDeposito?.message} {...form.register("fechaDeposito")} />
-                    {servicios.length > 1 ? (
-                        <CampoSelector etiqueta="Servicio" error={errores.servicioId?.message} {...form.register("servicioId")}>
-                            <option value="">El de la conversación</option>
-                            {servicios.map((s) => (
-                                <option key={s.id} value={String(s.id)}>
-                                    {s.plan} · {s.codigo}
-                                </option>
-                            ))}
-                        </CampoSelector>
-                    ) : null}
                 </div>
+                {servicios.length > 1 ? (
+                    <SelectorServicio
+                        leyenda="¿De cuál servicio es el pago?"
+                        servicios={servicios}
+                        valor={v.servicioId ? Number(v.servicioId) : undefined}
+                        alCambiar={(id) => form.setValue("servicioId", String(id), { shouldDirty: true, shouldValidate: true })}
+                        error={errores.servicioId?.message}
+                        ayuda="Sin elegir, queda el servicio de la conversación."
+                    />
+                ) : servicios[0] ? (
+                    <div className="grid gap-1" data-testid="servicio-boleta">
+                        <span className="text-sm font-medium">Servicio</span>
+                        <div className="rounded-lg border border-border px-3 py-2.5">
+                            <LineaServicio servicio={servicios[0]} />
+                        </div>
+                    </div>
+                ) : null}
                 <CampoArea etiqueta="Nota (opcional)" rows={2} maxLength={500} error={errores.nota?.message} {...form.register("nota")} />
             </SeccionFormulario>
         </FormularioPagina>

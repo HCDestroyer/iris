@@ -500,7 +500,9 @@ func sugerenciaParaResponder(ctx context.Context, q *mensajeriabd.Queries, c men
 	return &s, nil
 }
 
-var reEspacios = regexp.MustCompile(`\s+`)
+// reEspacios: espacios, separadores Unicode (U+2028, U+2029…) y controles (U+0085, \v…) se
+// colapsan a un espacio: un dato nunca parte la línea que ve el modelo.
+var reEspacios = regexp.MustCompile(`[\s\p{Z}\p{Cc}]+`)
 
 func normalizarTexto(s string) string {
 	return strings.TrimSpace(reEspacios.ReplaceAllString(s, " "))
@@ -1070,8 +1072,7 @@ func (m *Modulo) contextoAsistente(ctx context.Context, q *mensajeriabd.Queries,
 			if s.PlanNombre != "" {
 				etq = fmt.Sprintf("Servicio %s, plan %s · Argos", limpiarDato(estado, 30), limpiarDato(s.PlanNombre, 40))
 			}
-			texto := fmt.Sprintf("(argos) Servicio %s: plan «%s», estado %s, zona %s.",
-				limpiarDato(s.Codigo, 30), limpiarDato(s.PlanNombre, 60), limpiarDato(estado, 30), limpiarDato(s.ZonaNombre, 60))
+			texto := "(argos) " + strings.TrimSpace(lineaServicioIA(s, out.verificado))
 			// El estado de cuenta (de la empresa, en vivo) va con el servicio de la conversación (el primero).
 			// Sin verificar, el modelo no recibe nada del estado de cuenta (la etiqueta es para el agente).
 			if i == 0 && cuenta != nil {
@@ -1100,7 +1101,7 @@ func (m *Modulo) contextoAsistente(ctx context.Context, q *mensajeriabd.Queries,
 				zona = "la zona del cliente"
 			}
 			sumar(FuenteSugerencia{Tipo: "horus", Etiqueta: "Falla en " + zona + " · Horus", EntidadID: &clave},
-				fmt.Sprintf("(horus) Falla abierta: el equipo de red «%s» de %s está caído (afecta al servicio del cliente).", limpiarDato(f.RouterNombre, 60), zona))
+				fmt.Sprintf("(horus) Falla abierta: un equipo de red de %s está caído (afecta al servicio del cliente).", zona))
 		}
 	}
 	hist, err := q.HistorialAsistente(ctx, mensajeriabd.HistorialAsistenteParams{ConversacionID: c.ID, Limite: HistorialAsistenteMax})

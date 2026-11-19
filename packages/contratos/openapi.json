@@ -5807,7 +5807,7 @@
         "additionalProperties": false,
         "properties": {
           "direccion": {
-            "description": "Dirección de instalación; vacía si Argos no tenía una propia",
+            "description": "Dirección de instalación; ausente si Argos no tenía una propia o sin servicios.ver_ubicacion",
             "type": "string"
           },
           "estado": {
@@ -5818,26 +5818,23 @@
             "type": "integer"
           },
           "ip": {
+            "description": "Ausente sin servicios.ver_red",
             "type": "string"
           },
           "lat": {
+            "description": "Ausente sin servicios.ver_ubicacion",
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
           },
           "lon": {
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
           },
           "planNombre": {
             "type": "string"
           },
           "routerNombre": {
+            "description": "Ausente sin servicios.ver_red",
             "type": "string"
           },
           "zonaNombre": {
@@ -5848,11 +5845,6 @@
           "id",
           "planNombre",
           "estado",
-          "direccion",
-          "lat",
-          "lon",
-          "ip",
-          "routerNombre",
           "zonaNombre"
         ],
         "type": "object"
@@ -23230,6 +23222,8 @@
           "rutas.proponer",
           "rutas.publicar",
           "rutas.ver",
+          "servicios.ver_red",
+          "servicios.ver_ubicacion",
           "servidor_ia.administrar",
           "servidor_ia.ver",
           "servidor_ia.ver_uso",
@@ -23458,6 +23452,57 @@
           "disponible",
           "motivo",
           "data"
+        ],
+        "type": "object"
+      },
+      "Planta": {
+        "additionalProperties": false,
+        "properties": {
+          "caja": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "olt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pon": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "potenciaDbm": {
+            "description": "Decimal con dos decimales, como -19.40",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "puerto": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "slot": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "caja",
+          "puerto",
+          "olt",
+          "slot",
+          "pon",
+          "potenciaDbm"
         ],
         "type": "object"
       },
@@ -27244,15 +27289,15 @@
             "type": "string"
           },
           "contactoNombre": {
-            "description": "Quien atiende en el sitio (si no es el titular); vacío si no hay",
+            "description": "Quien atiende en el sitio; solo con servicios.ver_ubicacion",
             "type": "string"
           },
           "contactoTelefono": {
-            "description": "Teléfono del contacto en sitio tal como está en Argos (+502 5512-3344)",
+            "description": "Teléfono del contacto en sitio tal como está en Argos; solo con servicios.ver_ubicacion",
             "type": "string"
           },
           "contactoTelefonos": {
-            "description": "El teléfono del contacto en sitio para mostrar y llamar (E.164)",
+            "description": "El teléfono del contacto en sitio para mostrar y llamar (E.164); solo con servicios.ver_ubicacion",
             "items": {
               "$ref": "#/components/schemas/Telefono"
             },
@@ -27262,7 +27307,7 @@
             ]
           },
           "direccion": {
-            "description": "Dirección de instalación del servicio. Vacía si Argos no tiene una propia: entonces aplica la del cliente",
+            "description": "Dirección de instalación del servicio; ausente si Argos no tiene una propia (aplica la del cliente) o sin servicios.ver_ubicacion",
             "type": "string"
           },
           "empresaId": {
@@ -27279,23 +27324,26 @@
             "type": "integer"
           },
           "ip": {
-            "description": "IPv4 vigente del servicio en Argos",
+            "description": "IPv4 vigente del servicio en Argos; ausente sin asignación o sin servicios.ver_red",
             "type": "string"
           },
           "lat": {
-            "description": "Coordenadas de instalación (6 decimales); null si Argos no las tiene",
+            "description": "Coordenadas de instalación (6 decimales); ausentes si Argos no las tiene o sin servicios.ver_ubicacion",
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
           },
           "lon": {
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
+          },
+          "moneda": {
+            "description": "Moneda de precioMensual (GTQ); ausente si no hay precio",
+            "type": "string"
+          },
+          "numero": {
+            "description": "Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA",
+            "format": "int64",
+            "type": "integer"
           },
           "planId": {
             "format": "int64",
@@ -27307,18 +27355,33 @@
           "planNombre": {
             "type": "string"
           },
+          "planta": {
+            "$ref": "#/components/schemas/Planta",
+            "description": "Referencia de planta (OZmap, de solo lectura); ausente sin datos o sin servicios.ver_red"
+          },
+          "precioMensual": {
+            "description": "Precio mensual con el que Argos factura el servicio, con IVA (texto decimal, 2 decimales). No es el total de la factura. Ausente con un Argos anterior a 1.18.0: no se muestra ni se calcula",
+            "type": "string"
+          },
+          "prefijoDelegadoV6": {
+            "description": "CIDR; ausente sin asignación o sin servicios.ver_red",
+            "type": "string"
+          },
+          "prefijoEnlaceV6": {
+            "description": "CIDR; ausente sin asignación o sin servicios.ver_red",
+            "type": "string"
+          },
           "referencia": {
-            "description": "Punto de referencia de la instalación; vacío si no hay",
+            "description": "Punto de referencia de la instalación; solo con servicios.ver_ubicacion",
             "type": "string"
           },
           "routerId": {
+            "description": "Solo con servicios.ver_red",
             "format": "int64",
-            "type": [
-              "integer",
-              "null"
-            ]
+            "type": "integer"
           },
           "routerNombre": {
+            "description": "Solo con servicios.ver_red",
             "type": "string"
           },
           "sincronizadoEn": {
@@ -27327,11 +27390,11 @@
             "type": "string"
           },
           "tipoConexion": {
-            "description": "pppoe, ip_estatica o dhcp_fija",
+            "description": "pppoe, ip_estatica o dhcp_fija; solo con servicios.ver_red",
             "type": "string"
           },
           "userPpp": {
-            "description": "Usuario PPPoE; vacío fuera de pppoe",
+            "description": "Usuario PPPoE; ausente fuera de pppoe o sin servicios.ver_red",
             "type": "string"
           },
           "zonaId": {
@@ -27350,19 +27413,12 @@
           "empresaId",
           "clienteId",
           "codigo",
+          "numero",
           "planId",
           "planNombre",
-          "routerId",
-          "routerNombre",
           "zonaId",
           "zonaNombre",
-          "ip",
-          "direccion",
-          "lat",
-          "lon",
           "estado",
-          "userPpp",
-          "tipoConexion",
           "sincronizadoEn"
         ],
         "type": "object"
@@ -27374,6 +27430,7 @@
             "type": "string"
           },
           "direccion": {
+            "description": "Solo con servicios.ver_ubicacion",
             "type": "string"
           },
           "estado": {
@@ -27384,30 +27441,38 @@
             "type": "integer"
           },
           "ip": {
+            "description": "Solo con servicios.ver_red",
             "type": "string"
           },
           "lat": {
+            "description": "Solo con servicios.ver_ubicacion",
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
           },
           "lon": {
             "format": "double",
-            "type": [
-              "number",
-              "null"
-            ]
+            "type": "number"
+          },
+          "moneda": {
+            "type": "string"
           },
           "plan": {
             "type": "string"
           },
+          "precioMensual": {
+            "description": "Precio mensual del plan con IVA (Argos ≥ 1.18.0); ausente si Argos no lo informa",
+            "type": "string"
+          },
           "router": {
+            "description": "Solo con servicios.ver_red",
             "type": "string"
           },
           "sincronizadoEn": {
             "format": "date-time",
+            "type": "string"
+          },
+          "zona": {
+            "description": "Nombre de la zona del servicio",
             "type": "string"
           }
         },
@@ -27415,11 +27480,6 @@
           "id",
           "codigo",
           "plan",
-          "router",
-          "ip",
-          "direccion",
-          "lat",
-          "lon",
           "estado",
           "sincronizadoEn"
         ],
@@ -27438,7 +27498,18 @@
             "format": "int64",
             "type": "integer"
           },
+          "moneda": {
+            "type": "string"
+          },
           "plan": {
+            "type": "string"
+          },
+          "precioMensual": {
+            "description": "Precio mensual del plan con IVA; ausente si Argos no lo informa",
+            "type": "string"
+          },
+          "zona": {
+            "description": "Nombre de la zona del servicio",
             "type": "string"
           }
         },
@@ -27499,29 +27570,155 @@
       "ServicioResumenConversacion": {
         "additionalProperties": false,
         "properties": {
+          "clienteId": {
+            "format": "int64",
+            "type": "integer"
+          },
           "codigo": {
             "type": "string"
           },
+          "contactoNombre": {
+            "description": "Quien atiende en el sitio; solo con servicios.ver_ubicacion",
+            "type": "string"
+          },
+          "contactoTelefono": {
+            "description": "Teléfono del contacto en sitio tal como está en Argos; solo con servicios.ver_ubicacion",
+            "type": "string"
+          },
+          "contactoTelefonos": {
+            "description": "El teléfono del contacto en sitio para mostrar y llamar (E.164); solo con servicios.ver_ubicacion",
+            "items": {
+              "$ref": "#/components/schemas/Telefono"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "direccion": {
+            "description": "Dirección de instalación del servicio; ausente si Argos no tiene una propia (aplica la del cliente) o sin servicios.ver_ubicacion",
+            "type": "string"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": "integer"
+          },
           "estado": {
+            "description": "Estado del servicio en Argos (pendiente_instalacion, activo, limitado, suspendido, retirado)",
             "type": "string"
           },
           "id": {
+            "description": "Id del servicio en Argos",
+            "format": "int64",
+            "type": "integer"
+          },
+          "ip": {
+            "description": "IPv4 vigente del servicio en Argos; ausente sin asignación o sin servicios.ver_red",
+            "type": "string"
+          },
+          "lat": {
+            "description": "Coordenadas de instalación (6 decimales); ausentes si Argos no las tiene o sin servicios.ver_ubicacion",
+            "format": "double",
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "type": "number"
+          },
+          "moneda": {
+            "description": "Moneda de precioMensual (GTQ); ausente si no hay precio",
+            "type": "string"
+          },
+          "numero": {
+            "description": "Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA",
             "format": "int64",
             "type": "integer"
           },
           "plan": {
+            "description": "= planNombre (compatibilidad)",
+            "type": "string"
+          },
+          "planId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "planNombre": {
+            "type": "string"
+          },
+          "planta": {
+            "$ref": "#/components/schemas/Planta",
+            "description": "Referencia de planta (OZmap, de solo lectura); ausente sin datos o sin servicios.ver_red"
+          },
+          "precioMensual": {
+            "description": "Precio mensual con el que Argos factura el servicio, con IVA (texto decimal, 2 decimales). No es el total de la factura. Ausente con un Argos anterior a 1.18.0: no se muestra ni se calcula",
+            "type": "string"
+          },
+          "prefijoDelegadoV6": {
+            "description": "CIDR; ausente sin asignación o sin servicios.ver_red",
+            "type": "string"
+          },
+          "prefijoEnlaceV6": {
+            "description": "CIDR; ausente sin asignación o sin servicios.ver_red",
+            "type": "string"
+          },
+          "referencia": {
+            "description": "Punto de referencia de la instalación; solo con servicios.ver_ubicacion",
+            "type": "string"
+          },
+          "routerId": {
+            "description": "Solo con servicios.ver_red",
+            "format": "int64",
+            "type": "integer"
+          },
+          "routerNombre": {
+            "description": "Solo con servicios.ver_red",
+            "type": "string"
+          },
+          "sincronizadoEn": {
+            "description": "Cuándo se leyó de Argos",
+            "format": "date-time",
+            "type": "string"
+          },
+          "tipoConexion": {
+            "description": "pppoe, ip_estatica o dhcp_fija; solo con servicios.ver_red",
+            "type": "string"
+          },
+          "userPpp": {
+            "description": "Usuario PPPoE; ausente fuera de pppoe o sin servicios.ver_red",
             "type": "string"
           },
           "zona": {
+            "description": "= zonaNombre (compatibilidad)",
+            "type": "string"
+          },
+          "zonaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "zonaNombre": {
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "codigo",
           "plan",
+          "zona",
+          "id",
+          "empresaId",
+          "clienteId",
+          "codigo",
+          "numero",
+          "planId",
+          "planNombre",
+          "zonaId",
+          "zonaNombre",
           "estado",
-          "zona"
+          "sincronizadoEn"
         ],
         "type": "object"
       },

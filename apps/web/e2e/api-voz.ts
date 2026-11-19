@@ -364,7 +364,7 @@ export function apiVoz(
             suenaHasta: new Date(Date.now() + 30_000).toISOString(),
             // Señales del cliente: solo en llamadas vivas con cliente. `saldoVencido` no viaja en el feed.
             ...(c.contacto.clienteId
-                ? { senales: { servicio: { id: c.contacto.servicioId ?? 0, codigo: `S-${c.contacto.clienteId}`, plan: "Fibra 100 Mb", estado: "activo" }, ...(conversacionId === 41 ? { ticketAbierto: { id: 4812, numero: "TK-004812", asunto: "Sin internet desde las 7" } } : {}) } }
+                ? { senales: { servicio: { id: c.contacto.servicioId ?? 0, codigo: `S-${c.contacto.clienteId}`, plan: "Fibra 100 Mb", estado: "activo", zona: "Villa Nueva", precioMensual: "250.00", moneda: "GTQ" }, ...(conversacionId === 41 ? { ticketAbierto: { id: 4812, numero: "TK-004812", asunto: "Sin internet desde las 7" } } : {}) } }
                 : {}),
             puede: { contestar: true, rechazar: true, colgar: false, anotar: false, tomar: false, transferir: false, escucharGrabacion: false },
             ...datos,

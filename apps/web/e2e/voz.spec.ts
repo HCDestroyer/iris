@@ -238,7 +238,12 @@ test.describe("voz › llamada entrante", () => {
         await expect(tarjeta).toContainText("Al número Soporte");
         // Servicio y ticket abierto: lo que manda el servidor en la propia llamada (`senales`).
         const datos = tarjeta.getByRole("list", { name: "Datos del cliente" });
-        await expect(datos).toContainText("Fibra 100 Mb · activo");
+        // La línea de servicio compacta: plan, estado, precio y zona (contrato con Argos 0.8.0 §2.4).
+        const servicio = datos.getByTestId("linea-servicio");
+        await expect(servicio).toContainText("Fibra 100 Mb");
+        await expect(servicio).toContainText("Activo");
+        await expect(servicio).toContainText("Q250.00 al mes");
+        await expect(servicio).toContainText("Villa Nueva");
         await expect(datos).toContainText("Ticket TK-004812");
         // Sin `saldoVencido: true` no se dice nada del saldo (ni «al día»).
         await expect(datos).not.toContainText(/[Ss]aldo|al día/);

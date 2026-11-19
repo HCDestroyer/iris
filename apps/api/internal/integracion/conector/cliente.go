@@ -561,8 +561,11 @@ func Todas[T any](ctx context.Context, c *Cliente, ruta string, v url.Values) ([
 		}
 		v.Set("cursor", p.NextCursor)
 	}
-	return nil, NuevoErrorRemoto(c.remoto, http.StatusBadGateway, "Lista demasiado larga", errors.New("más de 50 páginas en "+ruta))
+	return nil, NuevoErrorRemoto(c.remoto, http.StatusBadGateway, "Lista demasiado larga", fmt.Errorf("%w: más de 50 páginas en %s", ErrListaDemasiadoLarga, ruta))
 }
+
+// ErrListaDemasiadoLarga: Todas no terminó en maxPaginas. Reintentar no lo arregla (errors.Is).
+var ErrListaDemasiadoLarga = errors.New("lista demasiado larga")
 
 // Decodificación tolerante ---------------------------------------------------------------
 

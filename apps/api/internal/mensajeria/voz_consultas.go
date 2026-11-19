@@ -159,7 +159,11 @@ func senalesDe(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente in
 		f, err := q.ServicioPrincipal(ctx, mensajeriabd.ServicioPrincipalParams{ClienteID: cliente, Empresa: empresa, ServicioID: servicio})
 		switch {
 		case err == nil:
-			s.Servicio = &ServicioDeLlamada{ID: f.ID, Codigo: f.Codigo, Plan: f.PlanNombre, Estado: f.Estado}
+			s.Servicio = &ServicioDeLlamada{ID: f.ID, Codigo: f.Codigo, Plan: f.PlanNombre, Estado: f.Estado, Zona: f.ZonaNombre}
+			if f.PrecioMensual != "" && f.Moneda != "" {
+				precio, moneda := f.PrecioMensual, f.Moneda
+				s.Servicio.PrecioMensual, s.Servicio.Moneda = &precio, &moneda
+			}
 		case !errors.Is(err, pgx.ErrNoRows):
 			return nil, err
 		}

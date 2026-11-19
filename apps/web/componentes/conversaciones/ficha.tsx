@@ -18,13 +18,12 @@ import {
     DialogoContenido,
     DialogoPie,
     DialogoProtegido,
-    InsigniaEstado,
     useCambiosSinGuardar,
 } from "@iris/ui";
 import { AlertTriangle, ShieldCheck, Banknote, CalendarClock, ClipboardList, ExternalLink, Link2, LifeBuoy, RotateCw, UserPlus, UserRound, Wrench } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
@@ -39,6 +38,7 @@ import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
+import { LineaServicio, ListaServicios, NotaPermisosServicio, SelectorServicio, type ServicioLinea } from "@/componentes/clientes/linea-servicio";
 import { AyudaManuales } from "./ayuda";
 import { BoletasConversacion } from "./boletas";
 import { ResumenAsistente } from "./resumen-asistente";
@@ -117,7 +117,9 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
     const { puede } = useSesion();
     const ahora = useAhora(60_000);
     const r = conv.clienteResumen;
-    const servicio = (r?.servicios ?? []).find((s) => s.id === conv.contacto.servicioId) ?? r?.servicios?.[0];
+    const servicios = r?.servicios ?? [];
+    // El de la conversación (si lo tiene); con un solo servicio no hace falta marcarlo.
+    const servicio = servicios.find((s) => s.id === conv.contacto.servicioId);
     const [accion, setAccion] = useState<"ticket" | "promesa" | null>(null);
     const nombre = r?.nombre ?? conv.titulo;
     // Asociación manual sin coincidencia del número: hasta que un supervisor la confirme no hay
@@ -149,26 +151,20 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
                 ) : null}
             </div>
             {r ? (
+                servicios.length > 0 ? (
+                    <div className="grid gap-1.5" data-testid="servicios-conversacion">
+                        <span className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                            {servicios.length > 1 ? `Servicios (${servicios.length})` : "Servicio"}
+                        </span>
+                        <ListaServicios servicios={servicios} marcadoId={servicio?.id ?? null} />
+                        <NotaPermisosServicio />
+                    </div>
+                ) : (
+                    <p className="text-[0.8125rem] text-muted-foreground">Sin servicios en esta empresa</p>
+                )
+            ) : null}
+            {r ? (
                 <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[0.8125rem]">
-                    {servicio ? (
-                        <>
-                            <dt className="text-muted-foreground">Servicio</dt>
-                            <dd className="truncate text-right">
-                                {servicio.plan} · {servicio.codigo}
-                            </dd>
-                            <dt className="text-muted-foreground">Estado</dt>
-                            <dd className="flex justify-end">
-                                <InsigniaEstado tono={servicio.estado === "activo" ? "success" : servicio.estado === "suspendido" ? "warning" : "neutral"} texto={servicio.estado} />
-                            </dd>
-                            <dt className="text-muted-foreground">Zona</dt>
-                            <dd className="truncate text-right">{servicio.zona || "—"}</dd>
-                        </>
-                    ) : (
-                        <>
-                            <dt className="text-muted-foreground">Servicio</dt>
-                            <dd className="text-right text-muted-foreground">Sin servicios en esta empresa</dd>
-                        </>
-                    )}
                     <dt className="text-muted-foreground">Teléfono</dt>
                     <dd className="truncate text-right tabular-nums">{formatearNumero(conv.numero)}</dd>
                     {nivelVerificacion(conv.contacto) !== undefined ? (
@@ -220,7 +216,7 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
             ) : null}
             {sinConfirmar ? <ClienteSinConfirmar conv={conv} alActualizar={alActualizar} /> : null}
             {r ? <p className="text-xs text-muted-foreground">Datos de Argos {haceCuanto(r.sincronizadoEn, ahora)}</p> : null}
-            {accion === "ticket" ? <DialogoTicket conv={conv} cerrar={() => setAccion(null)} alHecho={alActualizar} /> : null}
+            {accion === "ticket" ? <DialogoTicket conv={conv} cerrar={() => setAccion(null)} alHecho={alActualizar} servicio={servicio ?? (servicios.length === 1 ? servicios[0] : undefined)} /> : null}
             {accion === "promesa" ? <DialogoPromesa conv={conv} cerrar={() => setAccion(null)} /> : null}
         </div>
     );
@@ -770,7 +766,18 @@ const esquemaTicket = z.object({
 
 /** Ticket desde la conversación (cliente y servicio de la conversación): asunto y descripción. */
 /** «Crear ticket» con el cliente y el servicio de la conversación (también al terminar una llamada). */
-export function DialogoTicket({ conv, cerrar, alHecho }: { conv: Pick<ConversacionDetalle, "id" | "titulo" | "ultimoMensaje">; cerrar: () => void; alHecho: (c: Conversacion) => void }) {
+export function DialogoTicket({
+    conv,
+    cerrar,
+    alHecho,
+    servicio,
+}: {
+    conv: Pick<ConversacionDetalle, "id" | "titulo" | "ultimoMensaje">;
+    cerrar: () => void;
+    alHecho: (c: Conversacion) => void;
+    /** El servicio de la conversación, para que se vea en cuál queda el ticket. */
+    servicio?: ServicioLinea | undefined;
+}) {
     const form = useForm({ resolver: zodResolver(esquemaTicket), defaultValues: { asunto: "", descripcion: conv.ultimoMensaje?.direccion === "entrante" ? (conv.ultimoMensaje.texto ?? "") : "" } });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const clave = useClaveIdempotencia();
@@ -799,6 +806,12 @@ export function DialogoTicket({ conv, cerrar, alHecho }: { conv: Pick<Conversaci
                         }
                     })}
                 >
+                    {servicio ? (
+                        <div className="grid gap-1 rounded-lg border border-border px-3 py-2.5" data-testid="servicio-ticket">
+                            <span className="text-xs text-muted-foreground">Servicio</span>
+                            <LineaServicio servicio={servicio} />
+                        </div>
+                    ) : null}
                     <Campo etiqueta="Asunto" maxLength={200} autoComplete="off" error={form.formState.errors.asunto?.message} {...form.register("asunto")} />
                     <CampoArea etiqueta="Descripción (opcional)" rows={4} maxLength={4000} error={form.formState.errors.descripcion?.message} {...form.register("descripcion")} />
                     {error ? (
@@ -837,6 +850,7 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
         resolver: zodResolver(esquemaPromesa),
         defaultValues: { servicioId: String(conv.contacto.servicioId ?? (servicios.length === 1 ? (servicios[0]?.id ?? "") : "")), venceEl: "" },
     });
+    const servicioElegido = useWatch({ control: form.control, name: "servicioId" });
     useCambiosSinGuardar(form.formState.isDirty, form.formState.isSubmitting);
     const clave = useClaveIdempotencia();
     const [error, setError] = useState<unknown>(null);
@@ -888,14 +902,15 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
                         }
                     })}
                 >
-                    <CampoSelector etiqueta="Servicio" error={form.formState.errors.servicioId?.message} {...form.register("servicioId", { onChange: () => setSimulacion(null) })}>
-                        <option value="">Elegir…</option>
-                        {servicios.map((s) => (
-                            <option key={s.id} value={String(s.id)}>
-                                {s.plan} · {s.codigo}
-                            </option>
-                        ))}
-                    </CampoSelector>
+                    <SelectorServicio
+                        servicios={servicios}
+                        valor={servicioElegido ? Number(servicioElegido) : undefined}
+                        alCambiar={(id) => {
+                            form.setValue("servicioId", String(id), { shouldValidate: true, shouldDirty: true });
+                            setSimulacion(null);
+                        }}
+                        error={form.formState.errors.servicioId?.message}
+                    />
                     <CampoFecha etiqueta="Paga a más tardar el" error={form.formState.errors.venceEl?.message} {...form.register("venceEl", { onChange: () => setSimulacion(null) })} />
                     {simulacion ? (
                         <Aviso tono={simulacion.permitida ? "success" : "warning"} titulo={simulacion.permitida ? "Argos la aceptaría" : "Argos no la aceptaría"}>

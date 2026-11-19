@@ -2,7 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import { Aviso, Boton, Esqueleto, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { Archive, Clock, ExternalLink, History, IdCard, Mail, Map as IconoMapa, MapPin, Network, Phone, PlugZap, RefreshCw, Router, UserRound, Wifi } from "lucide-react";
+import { Archive, Clock, ExternalLink, History, IdCard, Mail, Map as IconoMapa, MapPin, Network, Phone, PlugZap, RefreshCw, UserRound } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { BotonAbrirArgos } from "@/componentes/integraciones/abrir-argos";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -16,6 +16,7 @@ import { formatearFecha } from "@/lib/fechas";
 import { useLectura } from "@/lib/lectura";
 import { enlaceMapa, textoCoordenadas } from "@/lib/ordenes/adjuntos";
 import { useSesion } from "@/lib/sesion";
+import { LineaServicio, type ServicioLinea } from "./linea-servicio";
 import { ListaTelefonos } from "./telefonos";
 
 export { ListaTelefonos };
@@ -37,8 +38,7 @@ export type CopiaArgos = Schema<"CopiaArgos">;
 /** Lo mínimo que se muestra de un cliente: la ficha trae todo; la copia, solo lo operativo. */
 type ClienteVista = Pick<ClienteArgos, "id" | "codigo" | "nombre" | "direccion" | "lat" | "lon" | "zonaNombre" | "estado"> &
     Partial<Pick<ClienteArgos, "tipo" | "tipoDocumentoFiscal" | "nitCuiMostrar" | "correo" | "telefonos" | "referencia">>;
-type ServicioVista = Pick<ServicioArgos, "id" | "planNombre" | "estado" | "direccion" | "lat" | "lon" | "ip" | "routerNombre"> &
-    Partial<Pick<ServicioArgos, "userPpp" | "tipoConexion" | "referencia" | "contactoNombre" | "contactoTelefonos">>;
+type ServicioVista = ServicioLinea & Partial<Pick<ServicioArgos, "lat" | "lon" | "userPpp" | "tipoConexion" | "referencia" | "contactoNombre" | "contactoTelefonos">>;
 
 /** El cliente de una copia, con su teléfono principal (la copia no guarda los demás). */
 function clienteDeCopia(copia: CopiaArgos): ClienteVista {
@@ -311,7 +311,7 @@ export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { client
                     <ul className="grid gap-3">
                         {servicios.map((s) => (
                             <li key={s.id}>
-                                <VistaServicio servicio={s} />
+                                <VistaServicio servicio={s} numerado={servicios.length > 1} />
                             </li>
                         ))}
                     </ul>
@@ -322,17 +322,16 @@ export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { client
     );
 }
 
-function VistaServicio({ servicio: s }: { servicio: ServicioVista }) {
-    const estado = presentacionEstado(s.estado);
+function VistaServicio({ servicio: s, numerado }: { servicio: ServicioVista; numerado: boolean }) {
+    // Sin servicios.ver_ubicacion el servidor no manda la dirección: no se dice «sin dirección propia».
+    const { puede } = useSesion();
+    const verUbicacion = puede(["servicios.ver_ubicacion"]);
     return (
         <div className="grid gap-1.5" data-testid="datos-servicio">
-            <div className="flex flex-wrap items-center gap-2">
-                <Wifi aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                <span className="font-medium">{s.planNombre || "Sin plan"}</span>
-                {estado ? <InsigniaEstado tono={estado.tono} icono={estado.icono} texto={estado.texto} /> : null}
-                <span className="text-xs text-muted-foreground tabular-nums">#{s.id}</span>
-            </div>
+            {/* La línea de servicio identifica el servicio; abajo, el detalle (referencia, coordenadas, contacto, PPPoE). */}
+            <LineaServicio servicio={s} numerado={numerado} sinDireccion />
             <dl className="grid gap-1.5 pl-6">
+                {verUbicacion || s.direccion ? (
                 <Fila icono={MapPin} etiqueta="Dirección de instalación">
                     <span className="grid">
                         <span className="text-xs text-muted-foreground">Dirección de instalación</span>
@@ -341,6 +340,7 @@ function VistaServicio({ servicio: s }: { servicio: ServicioVista }) {
                         <Coordenadas lat={s.lat} lon={s.lon} />
                     </span>
                 </Fila>
+                ) : null}
                 {s.contactoNombre || (s.contactoTelefonos ?? []).length > 0 ? (
                     <Fila icono={UserRound} etiqueta="Contacto en sitio">
                         <span className="grid" data-testid="contacto-en-sitio">
@@ -362,18 +362,12 @@ function VistaServicio({ servicio: s }: { servicio: ServicioVista }) {
                         </span>
                     </Fila>
                 ) : null}
-                {s.ip || s.userPpp ? (
+                {s.userPpp || s.tipoConexion ? (
                     <Fila icono={Network} etiqueta="Conexión">
                         <span className="flex flex-wrap gap-x-3">
-                            {s.ip ? <span className="font-mono">{s.ip}</span> : null}
                             {s.userPpp ? <span className="font-mono">{s.userPpp}</span> : null}
                             {TIPOS_CONEXION[s.tipoConexion ?? ""] ? <span className="text-muted-foreground">{TIPOS_CONEXION[s.tipoConexion ?? ""]}</span> : null}
                         </span>
-                    </Fila>
-                ) : null}
-                {s.routerNombre ? (
-                    <Fila icono={Router} etiqueta="Router">
-                        {s.routerNombre}
                     </Fila>
                 ) : null}
             </dl>
@@ -393,8 +387,8 @@ function Fila({ icono: Icono, etiqueta, children }: { icono: typeof Phone; etiqu
     );
 }
 
-function Coordenadas({ lat, lon }: { lat: number | null; lon: number | null }) {
-    if (lat === null || lon === null) return null;
+function Coordenadas({ lat, lon }: { lat?: number | null | undefined; lon?: number | null | undefined }) {
+    if (lat === null || lat === undefined || lon === null || lon === undefined) return null;
     const mapa = enlaceMapa(lat, lon);
     const texto = textoCoordenadas(lat, lon);
     return mapa ? (

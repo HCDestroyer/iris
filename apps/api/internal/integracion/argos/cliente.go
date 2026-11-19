@@ -84,6 +84,12 @@ func (c *Cliente) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]Se
 	return conector.Todas[ServicioArgos](ctx, c.Cliente, "/servicios", url.Values{"cliente_id": {strconv.FormatInt(clienteID, 10)}})
 }
 
+// ServiciosDePlan: GET /servicios?plan_id= (todas las páginas). catalogo.cambiado de un plan con
+// precio (contrato 0.8.0 §2.3): Iris relee los servicios del plan para refrescar precio_mensual.
+func (c *Cliente) ServiciosDePlan(ctx context.Context, planID int64) ([]ServicioArgos, error) {
+	return conector.Todas[ServicioArgos](ctx, c.Cliente, "/servicios", url.Values{"plan_id": {strconv.FormatInt(planID, 10)}})
+}
+
 // ServiciosDeClienteCompletos: GET /servicios?cliente_id=&empresas=todas, el consolidado de todas
 // las empresas. Sin «todas», Argos 1.3.0 filtra por las empresas del token (empresasDeLaLista):
 // una lista vacía no probaría que el cliente no tiene servicios. Si Argos no da el consolidado

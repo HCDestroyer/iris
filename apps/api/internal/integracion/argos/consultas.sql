@@ -40,10 +40,12 @@ LIMIT @limite;
 -- (ResucitarEliminado borra antes la lápida). Llamar con BloquearArgos tomado.
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
-    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono
+    ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono,
+    precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta
 )
 SELECT @id, @empresa_id, @cliente_id, @codigo, @plan_id, @plan_nombre, @router_id, @router_nombre, @zona_id, @zona_nombre,
-    @ip, @direccion, @lat, @lon, @estado, @sincronizado_en, @user_ppp, @tipo_conexion, @referencia, @contacto_nombre, @contacto_telefono
+    @ip, @direccion, @lat, @lon, @estado, @sincronizado_en, @user_ppp, @tipo_conexion, @referencia, @contacto_nombre, @contacto_telefono,
+    CAST(sqlc.narg('precio_mensual')::text AS numeric), sqlc.narg('moneda')::text, @prefijo_enlace_v6, @prefijo_delegado_v6, sqlc.narg('planta')::jsonb
 WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = @id)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
@@ -52,7 +54,9 @@ ON CONFLICT (id) DO UPDATE SET
     ip = excluded.ip, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
     estado = excluded.estado, sincronizado_en = excluded.sincronizado_en, user_ppp = excluded.user_ppp,
     tipo_conexion = excluded.tipo_conexion, referencia = excluded.referencia, contacto_nombre = excluded.contacto_nombre,
-    contacto_telefono = excluded.contacto_telefono, updated_at = now()
+    contacto_telefono = excluded.contacto_telefono, precio_mensual = excluded.precio_mensual, moneda = excluded.moneda,
+    prefijo_enlace_v6 = excluded.prefijo_enlace_v6, prefijo_delegado_v6 = excluded.prefijo_delegado_v6,
+    planta = excluded.planta, updated_at = now()
 WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: ServicioPorID :one
@@ -352,3 +356,37 @@ FROM agenda.tecnicos WHERE usuario_id = @usuario_id AND activo;
 -- Usuarios de Argos ya vinculados a una ficha de agenda (en cualquier empresa: el vínculo es único).
 -- Solo los ids, para el selector «sin vincular».
 SELECT argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo IS NOT NULL;
+
+-- name: ServiciosDeOrdenesVisibles :many
+-- «Sus órdenes» para servicios.ver_red / ver_ubicacion (contrato 0.8.0 §2.4; visibilidad.go): de la
+-- empresa activa (0 = sin empresas registradas), abiertas o terminadas (cerrada, fallida) hace
+-- menos de 24 h, nunca canceladas; asignadas al usuario (solo con ordenes.ver_propias) o en una zona o
+-- cuadrilla de su alcance de ordenes.ver.
+SELECT DISTINCT servicio_id::bigint AS servicio_id FROM campo.ordenes
+WHERE servicio_id IS NOT NULL
+    AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
+    AND (estado IN ('pendiente', 'programada', 'en_camino', 'en_sitio', 'pausada')
+        OR (estado IN ('cerrada', 'fallida') AND finalizada_en > now() - interval '24 hours'))
+    AND ((@propias::boolean AND tecnico_id = @usuario_id::bigint) OR zona_id = ANY(@zonas::bigint[]) OR cuadrilla_id = ANY(@cuadrillas::bigint[]));
+
+-- name: ServiciosDePlan :many
+-- catalogo.cambiado de un plan con precio (§2.4): los servicios de la instantánea con ese plan.
+SELECT id, cliente_id FROM integracion.argos_servicios WHERE plan_id = @plan_id::bigint ORDER BY id;
+
+-- name: CambiarPrecioServicio :execrows
+-- Precio releído de Argos por catalogo.cambiado de un plan (§2.4). Solo si el servicio sigue en ese
+-- plan; null/null = Argos ya no lo informa.
+UPDATE integracion.argos_servicios
+SET precio_mensual = CAST(sqlc.narg('precio_mensual')::text AS numeric), moneda = sqlc.narg('moneda')::text, updated_at = now()
+WHERE id = @id AND plan_id = @plan_id::bigint
+    AND (precio_mensual IS DISTINCT FROM CAST(sqlc.narg('precio_mensual')::text AS numeric) OR moneda IS DISTINCT FROM sqlc.narg('moneda')::text);
+
+-- name: AvisoPrecioPlanDesde :one
+-- ¿Llegó un catalogo.cambiado de este plan con precio después de @desde? (el job de precios vuelve a
+-- leer: un aviso que llegó mientras corría no encoló otro job, por único).
+SELECT EXISTS (
+    SELECT 1 FROM integracion.entrantes
+    WHERE conector_id = @conector_id::bigint AND evento = 'catalogo.cambiado' AND recibido_en > @desde::timestamptz
+        AND payload->>'catalogo' = 'plan' AND (payload->>'id') = (@plan_id::bigint)::text
+        AND payload->'campos' ? 'precio'
+)::boolean;

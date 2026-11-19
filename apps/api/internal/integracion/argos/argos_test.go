@@ -443,7 +443,9 @@ func TestPermisosYConectorApagado(t *testing.T) {
 	// Sin conector activo: problema claro para que el panel trabaje con datos locales.
 	lectura.pedir(http.MethodGet, "/api/v1/clientes?q=ana", nil).problema(t, 503, "conector_apagado")
 	lectura.pedir(http.MethodGet, "/api/v1/clientes/1", nil).problema(t, 503, "conector_apagado")
-	lectura.pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=10.0.0.1", nil).problema(t, 503, "conector_apagado")
+	// La IP es un dato de red (contrato 0.8.0 §2.4): sin servicios.ver_red, 403 antes que nada.
+	lectura.pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=10.0.0.1", nil).problema(t, 403, "prohibido")
+	e.usuario("soporte").pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=10.0.0.1", nil).problema(t, 503, "conector_apagado")
 }
 
 func TestFichaInstantaneaYStale(t *testing.T) {
@@ -560,7 +562,7 @@ func TestReintentosDelCliente(t *testing.T) {
 func TestResolverIP(t *testing.T) {
 	e := nuevoEntorno(t)
 	_, _, _ = e.conectado()
-	lectura := e.usuario("lectura")
+	lectura := e.usuario("soporte") // resolver una IP exige servicios.ver_red (§2.4)
 	e.argos.con(func() { e.argos.ips["10.0.0.7"] = map[string]any{"cliente_id": 7, "servicio_id": 70, "empresa_id": 1} })
 
 	r := lectura.pedir(http.MethodGet, "/api/v1/clientes/resolver-ip?ip=10.0.0.7", nil)
@@ -641,7 +643,7 @@ func secretoDelCanje(canje map[string]any) string {
 func TestBuscarClientesConServicios(t *testing.T) {
 	e := nuevoEntorno(t)
 	_, _, _ = e.conectado()
-	lectura := e.usuario("lectura")
+	lectura := e.usuario("soporte") // soporte ve red y ubicación (§2.4)
 	e.sembrarCliente(51, "Marta Ruiz")
 	e.argos.con(func() {
 		e.argos.servicios[51] = append(e.argos.servicios[51],

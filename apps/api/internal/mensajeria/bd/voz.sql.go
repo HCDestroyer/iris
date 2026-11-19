@@ -3060,7 +3060,9 @@ func (q *Queries) SegundosSalientes(ctx context.Context, arg SegundosSalientesPa
 }
 
 const servicioPrincipal = `-- name: ServicioPrincipal :one
-SELECT s.id, s.codigo, s.plan_nombre, s.estado FROM integracion.argos_servicios s
+SELECT s.id, s.codigo, s.plan_nombre, s.estado, s.zona_nombre, coalesce(s.precio_mensual::text, '')::text AS precio_mensual,
+    coalesce(s.moneda, '')::text AS moneda
+FROM integracion.argos_servicios s
 WHERE s.cliente_id = $1 AND s.empresa_id = $2::bigint
 ORDER BY (s.id = coalesce($3::bigint, 0)) DESC, (s.estado = 'activo') DESC, s.id
 LIMIT 1
@@ -3073,13 +3075,17 @@ type ServicioPrincipalParams struct {
 }
 
 type ServicioPrincipalRow struct {
-	ID         int64
-	Codigo     string
-	PlanNombre string
-	Estado     string
+	ID            int64
+	Codigo        string
+	PlanNombre    string
+	Estado        string
+	ZonaNombre    string
+	PrecioMensual string
+	Moneda        string
 }
 
 // El servicio que se muestra con la llamada: el de la conversación; si no, uno activo del cliente.
+// Con zona y precio (contrato argosisp.md 0.8.0 §2.4, línea de servicio); nunca red ni ubicación.
 func (q *Queries) ServicioPrincipal(ctx context.Context, arg ServicioPrincipalParams) (ServicioPrincipalRow, error) {
 	row := q.db.QueryRow(ctx, servicioPrincipal, arg.ClienteID, arg.Empresa, arg.ServicioID)
 	var i ServicioPrincipalRow
@@ -3088,6 +3094,9 @@ func (q *Queries) ServicioPrincipal(ctx context.Context, arg ServicioPrincipalPa
 		&i.Codigo,
 		&i.PlanNombre,
 		&i.Estado,
+		&i.ZonaNombre,
+		&i.PrecioMensual,
+		&i.Moneda,
 	)
 	return i, err
 }

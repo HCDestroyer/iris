@@ -37,6 +37,10 @@ export const PERMISOS_TECNICO: Schema<"Permiso">[] = [
     "ordenes.registrar",
     "ordenes.tomar",
     "ordenes.ver_propias",
+    // Red y ubicación del servicio, solo de sus órdenes (contrato con Argos 0.8.0 §2.4).
+    "clientes.ver",
+    "servicios.ver_red",
+    "servicios.ver_ubicacion",
 ];
 
 export const CABLE = 900;
@@ -131,12 +135,13 @@ export function ordenesDelDia(): OrdenCampo[] {
                 id: 4101,
                 codigo: "S-4101",
                 plan: "Fibra 100 Mbps",
+                zona: "Zona 1",
+                precioMensual: "250.00",
+                moneda: "GTQ",
+                router: "Nodo Norte",
+                ip: "100.64.41.1",
                 estado: "por_instalar",
                 direccion: "6a avenida 12-34, zona 1",
-                ip: "",
-                router: "",
-                lat: null,
-                lon: null,
                 sincronizadoEn: `${hoy}T12:00:00Z`,
             },
             comodato: { disponible: true, motivo: null, equipos: [] },

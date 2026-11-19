@@ -17,6 +17,8 @@ import {
     Route,
 } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { LineaServicio } from "@/componentes/clientes/linea-servicio";
+import { lineaDeServicioCampo } from "@/lib/datos/servicio";
 import { ListaTelefonos } from "@/componentes/clientes/telefonos";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { horaCorta } from "@/lib/campo/fechas";
@@ -422,11 +424,8 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                             </p>
                         ) : null}
                         {orden.servicio ? (
-                            <p className="text-muted-foreground">
-                                {orden.servicio.codigo || `Servicio #${orden.servicio.id}`}
-                                {orden.servicio.plan ? ` · ${orden.servicio.plan}` : ""}
-                                {orden.servicio.estado ? ` · ${orden.servicio.estado.replaceAll("_", " ")}` : ""}
-                            </p>
+                            // La misma línea de servicio del panel (plan, estado, precio, zona, router e IP según permisos).
+                            <LineaServicio servicio={lineaDeServicioCampo(orden.servicio)} sinDireccion className="mt-1" />
                         ) : null}
                     </div>
                     <div className="flex shrink-0 gap-2">

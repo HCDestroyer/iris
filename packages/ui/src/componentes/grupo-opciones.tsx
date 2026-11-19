@@ -13,6 +13,11 @@ export type OpcionGrupo<V extends string | number> = {
     icono?: LucideIcon;
     /** Texto pequeño bajo la etiqueta. */
     detalle?: string;
+    /**
+     * Contenido rico de la tarjeta (p. ej. la línea de un servicio): reemplaza a la vista la
+     * etiqueta y el detalle; la etiqueta sigue siendo el nombre accesible del radio.
+     */
+    contenido?: ReactNode;
 };
 
 export type PropsGrupoOpciones<V extends string | number> = {
@@ -27,6 +32,8 @@ export type PropsGrupoOpciones<V extends string | number> = {
     ayuda?: ReactNode;
     disabled?: boolean;
     className?: string;
+    /** Una tarjeta por fila, alineada a la izquierda (opciones con contenido largo). */
+    apiladas?: boolean;
 };
 
 /**
@@ -36,7 +43,7 @@ export type PropsGrupoOpciones<V extends string | number> = {
  * (p. ej. la calificación 1–5 de la encuesta), con área táctil ≥ 44 px. La elegida se marca con
  * borde, peso y una marca (nunca solo color).
  */
-export function GrupoOpciones<V extends string | number>({ leyenda, nombre, opciones, valor, alCambiar, error, ayuda, disabled, className }: PropsGrupoOpciones<V>) {
+export function GrupoOpciones<V extends string | number>({ leyenda, nombre, opciones, valor, alCambiar, error, ayuda, disabled, className, apiladas }: PropsGrupoOpciones<V>) {
     const id = useId();
     const idAyuda = `${id}-ayuda`;
     const idError = `${id}-error`;
@@ -56,31 +63,49 @@ export function GrupoOpciones<V extends string | number>({ leyenda, nombre, opci
             className={cn("grid gap-2", className)}
         >
             <Label className="mb-1 text-sm font-medium">{leyenda}</Label>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))]">
+            <div className={cn("grid grid-cols-1 gap-2", !apiladas && "sm:grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))]")}>
                 {opciones.map((o) => {
                     const Icono = o.icono;
                     const marcado = valor === o.valor;
                     return (
-                        <Radio key={String(o.valor)} value={String(o.valor)} className="contents">
+                        <Radio key={String(o.valor)} value={String(o.valor)} className="contents" {...(o.contenido ? { "aria-label": o.etiqueta } : {})}>
                             <Radio.Content
                                 className={cn(
                                     "iris-entrada-cubierta relative flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-lg border border-input bg-background px-3 py-2.5 text-sm",
                                     "transition-[border-color,box-shadow,background-color] duration-150 hover:bg-elevated",
                                     "data-focus-visible:outline-2 data-focus-visible:outline-offset-2 data-focus-visible:outline-primary",
                                     "data-disabled:cursor-not-allowed data-disabled:opacity-55",
-                                    "sm:flex-col sm:justify-center sm:gap-1.5 sm:py-3 sm:text-center",
+                                    !apiladas && "sm:flex-col sm:justify-center sm:gap-1.5 sm:py-3 sm:text-center",
+                                    apiladas && "items-start",
                                     marcado && "border-primary bg-primary/5 font-semibold shadow-[0_0_0_1px_var(--hx-primary)]",
                                     error && !marcado && "border-error",
                                 )}
                             >
-                                <Radio.Indicator className="absolute top-1.5 right-1.5 m-0 size-4 border-0 bg-transparent p-0 shadow-none">
-                                    <CircleCheck aria-hidden className={cn("size-4 text-primary", marcado ? "opacity-100" : "opacity-0")} />
-                                </Radio.Indicator>
+                                {apiladas ? (
+                                    // Apiladas: un radio a la derecha, alineado con la primera línea, que no tapa nada.
+                                    <Radio.Indicator
+                                        data-slot="grupo-opciones-radio"
+                                        className={cn(
+                                            "static order-last m-0 mt-0.5 ml-auto flex size-5 shrink-0 items-center justify-center rounded-full border-2 bg-transparent p-0 shadow-none",
+                                            marcado ? "border-primary" : "border-border",
+                                        )}
+                                    >
+                                        <span aria-hidden className={cn("size-2.5 rounded-full bg-primary", marcado ? "opacity-100" : "opacity-0")} />
+                                    </Radio.Indicator>
+                                ) : (
+                                    <Radio.Indicator className="absolute top-1.5 right-1.5 m-0 size-4 border-0 bg-transparent p-0 shadow-none">
+                                        <CircleCheck aria-hidden className={cn("size-4 text-primary", marcado ? "opacity-100" : "opacity-0")} />
+                                    </Radio.Indicator>
+                                )}
                                 {Icono ? <Icono aria-hidden className={cn("size-5 shrink-0 sm:size-6", marcado ? "text-primary" : "text-muted-foreground")} /> : null}
-                                <span className="grid gap-0.5">
-                                    <span>{o.etiqueta}</span>
-                                    {o.detalle ? <span className="text-xs font-normal text-muted-foreground">{o.detalle}</span> : null}
-                                </span>
+                                {o.contenido ? (
+                                    <span className="min-w-0 flex-1 font-normal">{o.contenido}</span>
+                                ) : (
+                                    <span className="grid gap-0.5">
+                                        <span>{o.etiqueta}</span>
+                                        {o.detalle ? <span className="text-xs font-normal text-muted-foreground">{o.detalle}</span> : null}
+                                    </span>
+                                )}
                             </Radio.Content>
                         </Radio>
                     );

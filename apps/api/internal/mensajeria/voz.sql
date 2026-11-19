@@ -258,7 +258,10 @@ WHERE coalesce(r.empresa_id, 0) = @empresa::bigint AND r.usuario_id = @usuario_i
 
 -- name: ServicioPrincipal :one
 -- El servicio que se muestra con la llamada: el de la conversación; si no, uno activo del cliente.
-SELECT s.id, s.codigo, s.plan_nombre, s.estado FROM integracion.argos_servicios s
+-- Con zona y precio (contrato argosisp.md 0.8.0 §2.4, línea de servicio); nunca red ni ubicación.
+SELECT s.id, s.codigo, s.plan_nombre, s.estado, s.zona_nombre, coalesce(s.precio_mensual::text, '')::text AS precio_mensual,
+    coalesce(s.moneda, '')::text AS moneda
+FROM integracion.argos_servicios s
 WHERE s.cliente_id = @cliente_id AND s.empresa_id = @empresa::bigint
 ORDER BY (s.id = coalesce(sqlc.narg('servicio_id')::bigint, 0)) DESC, (s.estado = 'activo') DESC, s.id
 LIMIT 1;

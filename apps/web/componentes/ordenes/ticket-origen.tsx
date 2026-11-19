@@ -1,6 +1,8 @@
 import type { Schema } from "@iris/contratos";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { LineaServicio } from "@/componentes/clientes/linea-servicio";
+import { lineaDeCopia } from "@/lib/datos/servicio";
 
 /**
  * De qué ticket sale la orden, con lo que se lee de la API (nunca de la URL): número (enlazado a
@@ -14,11 +16,11 @@ export function TicketOrigen({ ticket }: { ticket: Schema<"Ticket"> }) {
         : ticket.clienteId !== null
           ? `Cliente #${ticket.clienteId}`
           : (ticket.contacto.nombre ?? "Sin cliente de Argos");
-    const servicio = copia?.servicio
-        ? [copia.servicio.planNombre, copia.servicio.ip].filter(Boolean).join(" · ")
-        : ticket.servicioId !== null
-          ? `Servicio #${ticket.servicioId}`
-          : "Sin servicio";
+    const servicio = copia?.servicio ? (
+        <LineaServicio servicio={lineaDeCopia(copia.servicio)} variante="compacta" />
+    ) : ticket.servicioId !== null
+      ? `Servicio #${ticket.servicioId}`
+      : "Sin servicio";
     const direccion = copia?.direccion || copia?.cliente.direccion || "Sin dirección registrada";
     return (
         <dl className="grid gap-x-4 gap-y-2 rounded-md border bg-background-secondary p-3 text-sm sm:grid-cols-2" data-testid="ticket-origen" aria-label="Ticket de origen">

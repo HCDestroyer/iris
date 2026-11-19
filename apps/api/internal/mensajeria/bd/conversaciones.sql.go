@@ -3974,7 +3974,7 @@ func (q *Queries) SLAVencidosSinAvisar(ctx context.Context, ahora time.Time) ([]
 }
 
 const serviciosInstantanea = `-- name: ServiciosInstantanea :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
 `
 
 func (q *Queries) ServiciosInstantanea(ctx context.Context, clienteID int64) ([]IntegracionArgosServicio, error) {
@@ -4010,6 +4010,11 @@ func (q *Queries) ServiciosInstantanea(ctx context.Context, clienteID int64) ([]
 			&i.Referencia,
 			&i.ContactoNombre,
 			&i.ContactoTelefono,
+			&i.PrecioMensual,
+			&i.Moneda,
+			&i.PrefijoEnlaceV6,
+			&i.PrefijoDelegadoV6,
+			&i.Planta,
 		); err != nil {
 			return nil, err
 		}
