@@ -110,3 +110,10 @@ SELECT id, secreto_cifrado FROM mensajeria.centralitas WHERE secreto_cifrado IS 
 
 -- name: RecifrarCentralita :exec
 UPDATE mensajeria.centralitas SET secreto_cifrado = @secreto_cifrado WHERE id = @id;
+
+-- name: ExtensionesSIPCifradas :many
+-- Credencial SIP del navegador de cada extensión (E4c; vacía en E4a).
+SELECT id, sip_secreto_cifrado FROM mensajeria.centralita_extensiones WHERE sip_secreto_cifrado IS NOT NULL ORDER BY id;
+
+-- name: RecifrarExtensionSIP :exec
+UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = @sip_secreto_cifrado WHERE id = @id;

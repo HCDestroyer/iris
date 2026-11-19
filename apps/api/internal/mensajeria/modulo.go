@@ -203,6 +203,10 @@ type Modulo struct {
 	Asistente casosAsistente
 	// Centralita: conexión, extensiones y llamadas de la centralita Issabel (E4a).
 	Centralita casosCentralita
+	// despertarCentralitas: los NOTIFY iris_centralitas (los lee EscucharConversaciones).
+	despertarCentralitas chan string
+	// idProceso: el dueño del arriendo de las conexiones AMI de este proceso.
+	idProceso string
 	// difusorConv despierta los flujos SSE de la bandeja (NOTIFY iris_conversaciones).
 	difusorConv *difusor
 	// alRecibir: lo que pasa después de guardar un mensaje del cliente (fuera de horario, PR B).
@@ -395,6 +399,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.Meta = nuevosCasosMeta(m)
 	m.Asistente = nuevosCasosAsistente(m)
 	m.Centralita = nuevosCasosCentralita(m)
+	m.despertarCentralitas = make(chan string, 64)
+	m.idProceso = uuid.Must(uuid.NewV7()).String()
 	return m
 }
 

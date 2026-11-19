@@ -490,6 +490,27 @@ type Llamada struct {
 	DeEstaPestana *bool              `json:"deEstaPestana,omitempty" doc:"Solo en GET /llamadas/activa, para una saliente: true si se hizo desde la pestaña de la cabecera X-Iris-Pestana. false: es de otra pestaña (o de una que ya no existe): esta no tiene el audio"`
 	DevolucionID  *int64             `json:"devolucionId,omitempty" doc:"La devolución que atiende esta saliente"`
 	Devolucion    *DevolucionLlamada `json:"devolucion,omitempty"`
+	// TicketID: el ticket al que se agregó la llamada (centralita, E4a; a elección de la persona).
+	TicketID *int64 `json:"ticketId,omitempty" doc:"El ticket al que se agregó la llamada (centralita)"`
+	// Centralita: lo propio de una llamada de la centralita Issabel (origen centralita, E4a).
+	Centralita *CentralitaDeLlamada `json:"centralita,omitempty" doc:"Solo con origen centralita (contratos/voz.md §3.12)"`
+	Version    int32                `json:"version" doc:"Para editar la nota de una llamada de la centralita (409 conflicto_version)"`
+}
+
+// CentralitaDeLlamada es lo propio de una llamada de la centralita (E4a). En E4a no hay audio en
+// el panel: se contesta en el teléfono de la extensión (E4c sumará contestar en el navegador).
+type CentralitaDeLlamada struct {
+	ID int64 `json:"id"`
+	// Extension que contestó (entrante) o marcó (saliente).
+	Extension *string `json:"extension,omitempty"`
+	// TuExtension: en la que te sonó (o desde la que marcaste).
+	TuExtension   *string               `json:"tuExtension,omitempty"`
+	Receptores    []PersonaCentralita   `json:"receptores" doc:"A quiénes les sonó (nombre de pila y extensión)"`
+	Coincidencias int32                 `json:"coincidencias" doc:"Clientes con ese número al llegar (0, 1 o varios)"`
+	Candidatos    []CandidatoCentralita `json:"candidatos" doc:"Con varias coincidencias y sin cliente elegido; solo con clientes.ver"`
+	Asociacion    *string               `json:"asociacion,omitempty" enum:"automatica,manual"`
+	// Asociar: puede elegir el cliente (le sonó o supervisa, con llamadas.anotar y clientes.ver).
+	Asociar bool `json:"asociar"`
 }
 
 // LlamadaEnMensaje es el objeto llamada de un mensaje de tipo llamada del hilo.

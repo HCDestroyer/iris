@@ -3,6 +3,7 @@ package mensajeria
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strconv"
@@ -42,32 +43,6 @@ type CandidatoCentralita struct {
 	Codigo    string `json:"codigo"`
 }
 
-// LlamadaCentralita es la llamada como la ve el panel.
-type LlamadaCentralita struct {
-	ID            uuid.UUID             `json:"id"`
-	Direccion     string                `json:"direccion" enum:"entrante,saliente"`
-	Estado        string                `json:"estado" enum:"sonando,en_curso,terminada,perdida"`
-	Numero        string                `json:"numero" doc:"E.164; vacío si la centralita no lo dio (número oculto) o tenía un formato que no se reconoce"`
-	ClienteID     *int64                `json:"clienteId" nullable:"true"`
-	ServicioID    *int64                `json:"servicioId" nullable:"true"`
-	ClienteNombre *string               `json:"clienteNombre" nullable:"true" doc:"De la instantánea de Argos; solo con clientes.ver"`
-	Asociacion    *string               `json:"asociacion" nullable:"true" enum:"automatica,manual"`
-	Coincidencias int32                 `json:"coincidencias" doc:"Clientes con ese número al llegar (0, 1 o varios)"`
-	Candidatos    []CandidatoCentralita `json:"candidatos" doc:"Con varias coincidencias y sin cliente elegido (solo con clientes.ver)"`
-	Contesto      *PersonaCentralita    `json:"contesto,omitempty" doc:"Quién contestó (entrante) o quién marcó (saliente); ausente si nadie"`
-	Receptores    []PersonaCentralita   `json:"receptores" doc:"A quiénes les sonó"`
-	TuExtension   *string               `json:"tuExtension" nullable:"true" doc:"La extensión en la que te sonó (o desde la que marcaste)"`
-	SonoEn        time.Time             `json:"sonoEn"`
-	ContestadaEn  *time.Time            `json:"contestadaEn" nullable:"true"`
-	TerminadaEn   *time.Time            `json:"terminadaEn" nullable:"true"`
-	DuracionSeg   *int32                `json:"duracionSeg" nullable:"true"`
-	Nota          *string               `json:"nota" nullable:"true"`
-	Resultado     *string               `json:"resultado" nullable:"true" enum:"resuelto,devolver,equivocado,otro"`
-	TicketID      *int64                `json:"ticketId" nullable:"true"`
-	PuedeAnotar   bool                  `json:"puedeAnotar" doc:"Te sonó (o la contestaste) o supervisas las extensiones"`
-	Version       int32                 `json:"version"`
-}
-
 func nombreDePila(n string) string {
 	n = strings.TrimSpace(n)
 	if i := strings.IndexAny(n, " \t"); i > 0 {
@@ -78,25 +53,26 @@ func nombreDePila(n string) string {
 
 // vistaCentralita: quién mira y qué puede ver o hacer.
 type vistaCentralita struct {
-	usuario                                   int64
-	verClientes, anota, supervisa, candidatos bool
+	usuario, empresa                                      int64
+	verClientes, verTickets, anota, supervisa, candidatos bool
 }
 
 func vistaDe(ctx context.Context, candidatos bool) vistaCentralita {
 	p := contexto.PermisosDe(ctx)
-	return vistaCentralita{usuario: contexto.ActorDe(ctx).ID, verClientes: p.Tiene(string(nucleo.PermClientesVer)),
-		anota: p.Tiene(string(nucleo.PermLlamadasAnotar)), supervisa: p.Tiene(string(nucleo.PermCentralitaAsignarExtension)), candidatos: candidatos}
+	return vistaCentralita{usuario: contexto.ActorDe(ctx).ID, empresa: empresaDeCtx(ctx), verClientes: p.Tiene(string(nucleo.PermClientesVer)),
+		verTickets: p.Tiene(string(nucleo.PermTicketsVer)), anota: p.Tiene(string(nucleo.PermLlamadasAnotar)),
+		supervisa: p.Tiene(string(nucleo.PermCentralitaAsignarExtension)), candidatos: candidatos}
 }
 
-// llamadasCentralitaDelFeed arma las llamadas de los eventos centralita_llamada del feed.
-func (m *Modulo) llamadasCentralitaDelFeed(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, filas []mensajeriabd.MensajeriaConvEvento) (map[uuid.UUID]LlamadaCentralita, error) {
+// llamadasCentralitaDelFeed arma las llamadas de los eventos dirigidos (sin conversación) del feed.
+func (m *Modulo) llamadasCentralitaDelFeed(ctx context.Context, q *mensajeriabd.Queries, a alcanceConv, filas []mensajeriabd.MensajeriaConvEvento) (map[uuid.UUID]Llamada, error) {
 	var ids []uuid.UUID
 	for _, f := range filas {
-		if id := uuidDe(f.CentralitaLlamadaID); id != nil && f.ConversacionID == nil {
+		if id := uuidDe(f.LlamadaID); id != nil && f.ConversacionID == nil {
 			ids = append(ids, *id)
 		}
 	}
-	out := map[uuid.UUID]LlamadaCentralita{}
+	out := map[uuid.UUID]Llamada{}
 	if len(ids) == 0 {
 		return out, nil
 	}
@@ -104,17 +80,15 @@ func (m *Modulo) llamadasCentralitaDelFeed(ctx context.Context, q *mensajeriabd.
 	if err != nil {
 		return nil, err
 	}
-	ls := make([]mensajeriabd.MensajeriaCentralitaLlamada, 0, len(fs))
-	nombres := map[uuid.UUID]*string{}
+	ls := make([]mensajeriabd.MensajeriaLlamada, 0, len(fs))
 	for _, f := range fs {
-		if derefEmpresa(f.MensajeriaCentralitaLlamada.EmpresaID) != a.empresa {
-			continue
+		if derefEmpresa(f.EmpresaID) == a.empresa {
+			ls = append(ls, f)
 		}
-		ls = append(ls, f.MensajeriaCentralitaLlamada)
-		nombres[f.MensajeriaCentralitaLlamada.ID] = f.UsuarioNombre
 	}
-	v, err := m.vistaLlamadas(ctx, q, ls, nombres, vistaCentralita{usuario: a.usuario, verClientes: a.verClientes, anota: a.anotaLlamadas,
-		supervisa: a.supervisaExtensiones, candidatos: true})
+	p := contexto.PermisosDe(ctx)
+	v, err := m.vistaLlamadas(ctx, q, ls, vistaCentralita{usuario: a.usuario, empresa: a.empresa, verClientes: a.verClientes,
+		verTickets: p.Tiene(string(nucleo.PermTicketsVer)), anota: a.anotaLlamadas, supervisa: a.supervisaExtensiones, candidatos: true})
 	if err != nil {
 		return nil, err
 	}
@@ -124,16 +98,20 @@ func (m *Modulo) llamadasCentralitaDelFeed(ctx context.Context, q *mensajeriabd.
 	return out, nil
 }
 
-// vistaLlamadas arma las llamadas como las ve quien mira (nombres solo con clientes.ver).
-func (m *Modulo) vistaLlamadas(ctx context.Context, q *mensajeriabd.Queries, filas []mensajeriabd.MensajeriaCentralitaLlamada, nombres map[uuid.UUID]*string,
-	vv vistaCentralita) ([]LlamadaCentralita, error) {
-	usuario, candidatos := vv.usuario, vv.candidatos
+// vistaLlamadas arma las llamadas de la centralita como el mismo Llamada de WhatsApp (los mismos
+// componentes del panel). Nombres de clientes y servicio solo con clientes.ver; ticket abierto con
+// tickets.ver.
+func (m *Modulo) vistaLlamadas(ctx context.Context, q *mensajeriabd.Queries, filas []mensajeriabd.MensajeriaLlamada, vv vistaCentralita) ([]Llamada, error) {
 	if len(filas) == 0 {
-		return []LlamadaCentralita{}, nil
+		return []Llamada{}, nil
 	}
 	ids := make([]uuid.UUID, 0, len(filas))
+	var usuarios []int64
 	for _, f := range filas {
 		ids = append(ids, f.ID)
+		if f.UsuarioID != nil {
+			usuarios = append(usuarios, *f.UsuarioID)
+		}
 	}
 	rs, err := q.ReceptoresDeLlamadas(ctx, ids)
 	if err != nil {
@@ -143,49 +121,74 @@ func (m *Modulo) vistaLlamadas(ctx context.Context, q *mensajeriabd.Queries, fil
 	for _, r := range rs {
 		receptores[r.LlamadaID] = append(receptores[r.LlamadaID], PersonaCentralita{UsuarioID: r.UsuarioID, Nombre: nombreDePila(r.Nombre), Extension: r.Extension})
 	}
-	verClientes, supervisa, anota := vv.verClientes, vv.supervisa, vv.anota
-	out := make([]LlamadaCentralita, 0, len(filas))
+	nombres := map[int64]string{}
+	if len(usuarios) > 0 {
+		ns, err := q.NombresUsuarios(ctx, usuarios)
+		if err != nil {
+			return nil, err
+		}
+		for _, n := range ns {
+			nombres[n.ID] = n.Nombre
+		}
+	}
+	out := make([]Llamada, 0, len(filas))
 	for _, f := range filas {
-		l := LlamadaCentralita{ID: f.ID, Direccion: f.Direccion, Estado: f.Estado, Numero: f.Numero, ClienteID: f.ClienteID, ServicioID: f.ServicioID,
-			Asociacion: f.Asociacion, Coincidencias: f.Coincidencias, Candidatos: []CandidatoCentralita{}, Receptores: receptores[f.ID],
-			SonoEn: f.SonoEn, ContestadaEn: f.ContestadaEn, TerminadaEn: f.TerminadaEn, DuracionSeg: f.DuracionSeg, Nota: f.Nota, Resultado: f.Resultado,
-			TicketID: f.TicketID, Version: f.Version}
-		if l.Receptores == nil {
-			l.Receptores = []PersonaCentralita{}
+		if f.Origen != "centralita" || f.CentralitaID == nil {
+			continue
 		}
-		if f.UsuarioID != nil && f.Extension != nil {
-			n := ""
-			if p := nombres[f.ID]; p != nil {
-				n = nombreDePila(*p)
-			}
-			l.Contesto = &PersonaCentralita{UsuarioID: *f.UsuarioID, Nombre: n, Extension: *f.Extension}
+		c := &CentralitaDeLlamada{ID: *f.CentralitaID, Extension: f.Extension, Receptores: receptores[f.ID], Coincidencias: f.Coincidencias,
+			Candidatos: []CandidatoCentralita{}, Asociacion: f.Asociacion}
+		if c.Receptores == nil {
+			c.Receptores = []PersonaCentralita{}
 		}
-		mia := f.UsuarioID != nil && *f.UsuarioID == usuario
-		for _, r := range l.Receptores {
-			if r.UsuarioID == usuario {
-				mia, l.TuExtension = true, &r.Extension
+		l := Llamada{ID: f.ID, EmpresaID: f.EmpresaID, Origen: f.Origen, Direccion: f.Direccion, Numero: f.Numero, Titulo: f.Numero,
+			Contacto: ContactoDeLlamada{Tipo: "desconocido"}, Estado: f.Estado, AtendidaPor: f.AtendidaPor, Tramos: []TramoLlamada{}, SonoEn: f.SonoEn,
+			ContestadaEn: f.ContestadaEn, TerminadaEn: f.TerminadaEn, DuracionSeg: f.DuracionSeg, MotivoFin: f.MotivoFin, Nota: f.Nota,
+			Resultado: f.Resultado, TicketID: f.TicketID, Centralita: c, Version: f.Version}
+		if f.Numero == "" {
+			l.Titulo = "Número oculto"
+		}
+		if f.UsuarioID != nil {
+			// Solo el nombre de pila de quien contestó (o marcó).
+			l.Usuario = &UsuarioRef{ID: *f.UsuarioID, Nombre: nombreDePila(nombres[*f.UsuarioID])}
+		}
+		mia := f.UsuarioID != nil && *f.UsuarioID == vv.usuario
+		for _, r := range c.Receptores {
+			if r.UsuarioID == vv.usuario {
+				ext := r.Extension
+				mia, c.TuExtension = true, &ext
 			}
 		}
 		if f.Direccion == "saliente" && mia {
-			l.TuExtension = f.Extension
+			c.TuExtension = f.Extension
 		}
-		l.PuedeAnotar = anota && (mia || supervisa)
-		if verClientes {
-			if f.ClienteID != nil {
-				if c, err := q.ClienteInstantanea(ctx, *f.ClienteID); err == nil {
-					n := c.Nombre
-					l.ClienteNombre = &n
+		puedeActuar := vv.anota && (mia || vv.supervisa)
+		l.Puede = PuedeLlamada{Anotar: puedeActuar}
+		c.Asociar = puedeActuar && vv.verClientes
+		if f.ClienteID != nil {
+			l.Contacto = ContactoDeLlamada{Tipo: "cliente", ClienteID: f.ClienteID, ServicioID: f.ServicioID}
+			if vv.verClientes {
+				cl, err := q.ClienteInstantanea(ctx, *f.ClienteID)
+				if err == nil {
+					l.Titulo = cl.Nombre
 				} else if !errors.Is(err, pgx.ErrNoRows) {
 					return nil, err
 				}
-			} else if candidatos && f.Coincidencias > 1 && f.Numero != "" {
-				cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(f.Numero), Empresa: derefEmpresa(f.EmpresaID)})
+			}
+			if !llamadaFinal(f.Estado) {
+				s, err := senalesDe(ctx, q, derefEmpresa(f.EmpresaID), *f.ClienteID, f.ServicioID, vv.verClientes, vv.verTickets)
 				if err != nil {
 					return nil, err
 				}
-				for _, c := range cs {
-					l.Candidatos = append(l.Candidatos, CandidatoCentralita{ClienteID: c.ID, Nombre: c.Nombre, Codigo: c.Codigo})
-				}
+				l.Senales = s
+			}
+		} else if vv.verClientes && vv.candidatos && f.Coincidencias > 1 && f.Numero != "" {
+			cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(f.Numero), Empresa: derefEmpresa(f.EmpresaID)})
+			if err != nil {
+				return nil, err
+			}
+			for _, x := range cs {
+				c.Candidatos = append(c.Candidatos, CandidatoCentralita{ClienteID: x.ID, Nombre: x.Nombre, Codigo: x.Codigo})
 			}
 		}
 		out = append(out, l)
@@ -244,7 +247,7 @@ func nuevoProcesarHechoAMI(m *Modulo) *auditoria.Caso[entradaHechoAMI, bool] {
 			t.FijarEntidad("centralita_llamada", l.ID)
 			switch h.tipo {
 			case hechoContesta:
-				if l.Estado != "sonando" {
+				if l.Estado != LlamadaSonando && l.Estado != LlamadaMarcando {
 					return false, nil
 				}
 				x, err := q.ExtensionActivaPorNumero(ctx, mensajeriabd.ExtensionActivaPorNumeroParams{CentralitaID: c.ID, Extension: h.extension})
@@ -257,7 +260,7 @@ func nuevoProcesarHechoAMI(m *Modulo) *auditoria.Caso[entradaHechoAMI, bool] {
 				if l.Direccion == "entrante" {
 					l.UsuarioID, l.Extension = &x.UsuarioID, &x.Extension
 				}
-				l.Estado, l.ContestadaEn = "en_curso", &ahora
+				l.Estado, l.ContestadaEn, l.AtendidaPor = LlamadaEnCurso, &ahora, texto("persona")
 				if l, err = guardarLlamadaCentralita(ctx, q, l); err != nil {
 					return false, err
 				}
@@ -270,15 +273,15 @@ func nuevoProcesarHechoAMI(m *Modulo) *auditoria.Caso[entradaHechoAMI, bool] {
 			case hechoCuelga:
 				return m.cerrarLlamadaCentralita(ctx, t, q, l, ahora, nil)
 			case hechoRegistro:
-				if l.Estado == "sonando" || l.Estado == "en_curso" {
-					if h.contestada && l.Estado == "sonando" {
+				if l.Estado == LlamadaSonando || l.Estado == LlamadaMarcando || l.Estado == LlamadaEnCurso {
+					if h.contestada && l.Estado != LlamadaEnCurso {
 						// El CDR dice que se contestó y no vimos el DialEnd: queda contestada sin persona.
-						l.Estado, l.ContestadaEn = "en_curso", &ahora
+						l.Estado, l.ContestadaEn, l.AtendidaPor = LlamadaEnCurso, &ahora, texto("persona")
 					}
 					seg := int32(h.segundos) //nolint:gosec // acotado a 24 h
 					return m.cerrarLlamadaCentralita(ctx, t, q, l, ahora, &seg)
 				}
-				if l.Estado == "terminada" && h.segundos > 0 {
+				if l.Estado == LlamadaTerminada && h.segundos > 0 {
 					seg := int32(h.segundos) //nolint:gosec // acotado a 24 h
 					if l.DuracionSeg == nil || *l.DuracionSeg != seg {
 						l.DuracionSeg = &seg
@@ -321,7 +324,7 @@ func (m *Modulo) centralitaSuena(ctx context.Context, t *auditoria.Tx, q *mensaj
 		}
 	} else {
 		t.FijarEntidad("centralita_llamada", l.ID)
-		if l.Direccion != "entrante" || l.Estado != "sonando" {
+		if l.Direccion != "entrante" || l.Estado != LlamadaSonando {
 			return false, nil
 		}
 	}
@@ -333,7 +336,7 @@ func (m *Modulo) centralitaSuena(ctx context.Context, t *auditoria.Tx, q *mensaj
 	if err != nil {
 		return false, err
 	}
-	return true, m.eventoCentralita(ctx, q, l, []int64{r})
+	return true, m.eventoCentralita(ctx, q, l, []int64{r}, EventoLlamadaEntrante)
 }
 
 func (m *Modulo) centralitaMarca(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaCentralita, h hechoAMI, ahora time.Time) (bool, error) {
@@ -352,7 +355,7 @@ func (m *Modulo) centralitaMarca(ctx context.Context, t *auditoria.Tx, q *mensaj
 	if p.Coincidencias == 0 {
 		return false, nil
 	}
-	p.UsuarioID, p.Extension = &x.UsuarioID, &x.Extension
+	p.UsuarioID, p.Extension, p.Estado = &x.UsuarioID, &x.Extension, LlamadaMarcando
 	l, err := q.InsertarLlamadaCentralita(ctx, p)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil // ya registrada
@@ -374,7 +377,7 @@ func (m *Modulo) paramsLlamadaCentralita(ctx context.Context, q *mensajeriabd.Qu
 		return mensajeriabd.InsertarLlamadaCentralitaParams{}, err
 	}
 	p := mensajeriabd.InsertarLlamadaCentralitaParams{ID: id, EmpresaID: c.EmpresaID, CentralitaID: c.ID, IDExterno: h.linkedid, Direccion: direccion,
-		Numero: h.numero, Estado: "sonando", SonoEn: ahora}
+		Numero: h.numero, Estado: LlamadaSonando, SonoEn: ahora, SuenaHasta: ahora.Add(CentralitaSonandoMax)}
 	if h.numero == "" {
 		return p, nil
 	}
@@ -396,22 +399,22 @@ func (m *Modulo) paramsLlamadaCentralita(ctx context.Context, q *mensajeriabd.Qu
 	return p, nil
 }
 
-func guardarLlamadaCentralita(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaCentralitaLlamada) (mensajeriabd.MensajeriaCentralitaLlamada, error) {
+func guardarLlamadaCentralita(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaLlamada) (mensajeriabd.MensajeriaLlamada, error) {
 	return q.GuardarLlamadaCentralita(ctx, mensajeriabd.GuardarLlamadaCentralitaParams{ID: l.ID, Estado: l.Estado, UsuarioID: l.UsuarioID, Extension: l.Extension,
 		ContestadaEn: l.ContestadaEn, TerminadaEn: l.TerminadaEn, DuracionSeg: l.DuracionSeg, ClienteID: l.ClienteID, ServicioID: l.ServicioID,
-		Asociacion: l.Asociacion, Nota: l.Nota, Resultado: l.Resultado, AnotadaPor: l.AnotadaPor, TicketID: l.TicketID})
+		AtendidaPor: l.AtendidaPor, MotivoFin: l.MotivoFin, Asociacion: l.Asociacion, Nota: l.Nota, Resultado: l.Resultado, AnotadaPor: l.AnotadaPor, TicketID: l.TicketID})
 }
 
 // cerrarLlamadaCentralita: terminada si se contestó, perdida si no. seg: los del CDR si llegaron.
-func (m *Modulo) cerrarLlamadaCentralita(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaCentralitaLlamada,
+func (m *Modulo) cerrarLlamadaCentralita(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaLlamada,
 	ahora time.Time, seg *int32) (bool, error) {
-	if l.Estado != "sonando" && l.Estado != "en_curso" {
+	if l.Estado != LlamadaSonando && l.Estado != LlamadaMarcando && l.Estado != LlamadaEnCurso {
 		return false, nil
 	}
 	l.TerminadaEn = &ahora
 	evento := "llamada.perdida"
-	if l.Estado == "en_curso" {
-		l.Estado, evento = "terminada", "llamada.terminada"
+	if l.Estado == LlamadaEnCurso {
+		l.Estado, evento = LlamadaTerminada, "llamada.terminada"
 		d := seg
 		if d == nil && l.ContestadaEn != nil {
 			x := int32(max(ahora.Sub(*l.ContestadaEn).Seconds(), 0)) //nolint:gosec // acotado por CentralitaEnCursoMax
@@ -419,7 +422,7 @@ func (m *Modulo) cerrarLlamadaCentralita(ctx context.Context, t *auditoria.Tx, q
 		}
 		l.DuracionSeg = d
 	} else {
-		l.Estado = "perdida"
+		l.Estado, l.MotivoFin = LlamadaPerdida, texto("nadie_contesto")
 	}
 	l, err := guardarLlamadaCentralita(ctx, q, l)
 	if err != nil {
@@ -439,7 +442,7 @@ func (m *Modulo) cerrarLlamadaCentralita(ctx context.Context, t *auditoria.Tx, q
 }
 
 // avisarReceptores pone la llamada en el feed de cada persona a la que le sonó.
-func (m *Modulo) avisarReceptores(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaCentralitaLlamada) error {
+func (m *Modulo) avisarReceptores(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaLlamada) error {
 	if l.Direccion != "entrante" {
 		return nil
 	}
@@ -451,11 +454,15 @@ func (m *Modulo) avisarReceptores(ctx context.Context, q *mensajeriabd.Queries, 
 	for _, r := range rs {
 		us = append(us, r.UsuarioID)
 	}
-	return m.eventoCentralita(ctx, q, l, us)
+	tipo := EventoLlamadaActualizada
+	if llamadaFinal(l.Estado) {
+		tipo = EventoLlamadaTerminada
+	}
+	return m.eventoCentralita(ctx, q, l, us, tipo)
 }
 
 // eventoCentralita escribe un evento dirigido por usuario (sin conversación) y despierta los flujos.
-func (m *Modulo) eventoCentralita(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaCentralitaLlamada, usuarios []int64) error {
+func (m *Modulo) eventoCentralita(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaLlamada, usuarios []int64, tipo string) error {
 	if len(usuarios) == 0 {
 		return nil
 	}
@@ -464,7 +471,7 @@ func (m *Modulo) eventoCentralita(ctx context.Context, q *mensajeriabd.Queries, 
 		return err
 	}
 	for _, u := range usuarios {
-		if _, err := q.InsertarEventoCentralita(ctx, mensajeriabd.InsertarEventoCentralitaParams{EmpresaID: l.EmpresaID, UsuarioID: u, OcurridoEn: m.ahora(),
+		if _, err := q.InsertarEventoCentralita(ctx, mensajeriabd.InsertarEventoCentralitaParams{EmpresaID: l.EmpresaID, Tipo: tipo, UsuarioID: u, OcurridoEn: m.ahora(),
 			LlamadaID: l.ID}); err != nil {
 			return err
 		}
@@ -488,10 +495,10 @@ func nuevoCerrarViejasCentralita(m *Modulo) *auditoria.Caso[int64, int] {
 			}
 			n := 0
 			for _, l := range fs {
-				if l.Estado == "en_curso" && l.ContestadaEn != nil && ahora.Sub(*l.ContestadaEn) < CentralitaEnCursoMax {
+				if l.Estado == LlamadaEnCurso && l.ContestadaEn != nil && ahora.Sub(*l.ContestadaEn) < CentralitaEnCursoMax {
 					continue
 				}
-				if l.Estado == "en_curso" {
+				if l.Estado == LlamadaEnCurso {
 					// No se sabe cuánto duró: queda sin duración.
 					l.ContestadaEn = nil
 				}
@@ -523,8 +530,8 @@ type EntradaListarLlamadasCentralita struct {
 
 // ListaLlamadasCentralita es la respuesta paginada.
 type ListaLlamadasCentralita struct {
-	Data       []LlamadaCentralita `json:"data"`
-	NextCursor *string             `json:"nextCursor" nullable:"true"`
+	Data       []Llamada `json:"data"`
+	NextCursor *string   `json:"nextCursor" nullable:"true"`
 }
 
 // EntradaLlamadaCentralita es GET /centralitas/llamadas/{id}.
@@ -538,6 +545,15 @@ type EntradaAnotarCentralita struct {
 	Version   int32     `json:"version" minimum:"1"`
 	Nota      *string   `json:"nota,omitempty" maxLength:"2000"`
 	Resultado *string   `json:"resultado,omitempty" enum:"resuelto,devolver,equivocado,otro"`
+}
+
+// MarshalJSON: a la auditoría va si hay nota y su largo, nunca el texto (puede tener datos del cliente).
+func (e EntradaAnotarCentralita) MarshalJSON() ([]byte, error) {
+	largo := 0
+	if e.Nota != nil {
+		largo = len([]rune(*e.Nota))
+	}
+	return json.Marshal(map[string]any{"id": e.ID, "version": e.Version, "resultado": e.Resultado, "largo_nota": largo})
 }
 
 // EntradaAsociarCentralita es POST /centralitas/llamadas/{id}/asociar-cliente.
@@ -580,7 +596,7 @@ func leerCursorLlamadas(c string) (*time.Time, *uuid.UUID, error) {
 }
 
 // leerLlamadaVisible: la llamada de la empresa activa (FOR UPDATE).
-func leerLlamadaVisible(ctx context.Context, q *mensajeriabd.Queries, id uuid.UUID) (mensajeriabd.MensajeriaCentralitaLlamada, error) {
+func leerLlamadaVisible(ctx context.Context, q *mensajeriabd.Queries, id uuid.UUID) (mensajeriabd.MensajeriaLlamada, error) {
 	l, err := q.LlamadaCentralitaParaActualizar(ctx, mensajeriabd.LlamadaCentralitaParaActualizarParams{ID: id, Empresa: empresaDeCtx(ctx)})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return l, llamadaCentralitaNoEncontrada()
@@ -589,7 +605,7 @@ func leerLlamadaVisible(ctx context.Context, q *mensajeriabd.Queries, id uuid.UU
 }
 
 // puedeActuar: le sonó, la contestó o la marcó; o supervisa las extensiones.
-func puedeActuar(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaCentralitaLlamada) error {
+func puedeActuar(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaLlamada) error {
 	usuario := contexto.ActorDe(ctx).ID
 	if contexto.PermisosDe(ctx).Tiene(string(nucleo.PermCentralitaAsignarExtension)) || (l.UsuarioID != nil && *l.UsuarioID == usuario) {
 		return nil
@@ -604,25 +620,17 @@ func puedeActuar(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.Me
 	return nil
 }
 
-func (m *Modulo) unaLlamada(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaCentralitaLlamada, candidatos bool) (LlamadaCentralita, error) {
-	fs, err := q.LlamadasCentralitaPorIDs(ctx, []uuid.UUID{l.ID})
+func (m *Modulo) unaLlamada(ctx context.Context, q *mensajeriabd.Queries, l mensajeriabd.MensajeriaLlamada, candidatos bool) (Llamada, error) {
+	v, err := m.vistaLlamadas(ctx, q, []mensajeriabd.MensajeriaLlamada{l}, vistaDe(ctx, candidatos))
 	if err != nil {
-		return LlamadaCentralita{}, err
-	}
-	nombres := map[uuid.UUID]*string{}
-	for _, f := range fs {
-		nombres[f.MensajeriaCentralitaLlamada.ID] = f.UsuarioNombre
-	}
-	v, err := m.vistaLlamadas(ctx, q, []mensajeriabd.MensajeriaCentralitaLlamada{l}, nombres, vistaDe(ctx, candidatos))
-	if err != nil {
-		return LlamadaCentralita{}, err
+		return Llamada{}, err
 	}
 	return v[0], nil
 }
 
 func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlamadasCentralita, ListaLlamadasCentralita],
-	*auditoria.Caso[EntradaLlamadaCentralita, LlamadaCentralita], *auditoria.Caso[EntradaAnotarCentralita, LlamadaCentralita],
-	*AsociarClienteCentralita, *auditoria.Caso[EntradaVincularTicket, LlamadaCentralita]) {
+	*auditoria.Caso[EntradaLlamadaCentralita, Llamada], *auditoria.Caso[EntradaAnotarCentralita, Llamada],
+	*AsociarClienteCentralita, *auditoria.Caso[EntradaVincularTicket, Llamada]) {
 	listar := auditoria.Nuevo(auditoria.Caso[EntradaListarLlamadasCentralita, ListaLlamadasCentralita]{
 		Accion: "centralita.llamadas", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[ListaLlamadasCentralita],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarLlamadasCentralita) (ListaLlamadasCentralita, error) {
@@ -639,7 +647,9 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 				limite = 20
 			}
 			usuario := contexto.ActorDe(ctx).ID
-			p := mensajeriabd.ListarLlamadasCentralitaParams{Empresa: empresaDeCtx(ctx), CursorEn: en, CursorID: pgUUID(id), Limite: int32(limite + 1)} //nolint:gosec // ≤ 101
+			ac, errConv := alcanceConvDe(ctx)
+			p := mensajeriabd.ListarLlamadasClienteParams{Empresa: empresaDeCtx(ctx), CursorEn: en, CursorID: pgUUID(id), Limite: int32(limite + 1), //nolint:gosec // ≤ 101
+				Conversaciones: errConv == nil, Usuario: usuario, Supervisa: ac.supervisa}
 			if in.ClienteID > 0 {
 				p.ClienteID = &in.ClienteID
 			}
@@ -647,57 +657,81 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 				p.TicketID = &in.TicketID
 			}
 			if in.Mias {
-				p.Usuario = &usuario
+				p.Receptor = &usuario
 			}
 			if in.Hoy {
 				d := inicioDia(m.ahora())
 				p.Desde = &d
 			}
-			fs, err := q.ListarLlamadasCentralita(ctx, p)
+			fs, err := q.ListarLlamadasCliente(ctx, p)
 			if err != nil {
 				return ListaLlamadasCentralita{}, err
 			}
 			var sig *string
 			if len(fs) > limite {
 				fs = fs[:limite]
-				ult := fs[len(fs)-1].MensajeriaCentralitaLlamada
-				s := cursorLlamadas(ult.SonoEn, ult.ID)
+				s := cursorLlamadas(fs[len(fs)-1].SonoEn, fs[len(fs)-1].ID)
 				sig = &s
 			}
-			filas := make([]mensajeriabd.MensajeriaCentralitaLlamada, 0, len(fs))
-			nombres := map[uuid.UUID]*string{}
+			// Las de WhatsApp con su vista de siempre; las de la centralita con la suya; en el mismo orden.
+			var wa, ce []mensajeriabd.MensajeriaLlamada
 			for _, f := range fs {
-				filas = append(filas, f.MensajeriaCentralitaLlamada)
-				nombres[f.MensajeriaCentralitaLlamada.ID] = f.UsuarioNombre
+				if f.Origen == "centralita" {
+					ce = append(ce, f)
+				} else {
+					wa = append(wa, f)
+				}
 			}
-			v, err := m.vistaLlamadas(ctx, q, filas, nombres, vistaDe(ctx, false))
+			vistas := map[uuid.UUID]Llamada{}
+			if len(wa) > 0 && errConv == nil {
+				ls, err := m.aLlamadas(ctx, q, ac, wa)
+				if err != nil {
+					return ListaLlamadasCentralita{}, err
+				}
+				for _, l := range ls {
+					vistas[l.ID] = l
+				}
+			}
+			ls, err := m.vistaLlamadas(ctx, q, ce, vistaDe(ctx, false))
+			if err != nil {
+				return ListaLlamadasCentralita{}, err
+			}
+			for _, l := range ls {
+				vistas[l.ID] = l
+			}
+			v := make([]Llamada, 0, len(fs))
+			for _, f := range fs {
+				if l, ok := vistas[f.ID]; ok {
+					v = append(v, l)
+				}
+			}
 			return ListaLlamadasCentralita{Data: v, NextCursor: sig}, err
 		},
 	})
-	ver := auditoria.Nuevo(auditoria.Caso[EntradaLlamadaCentralita, LlamadaCentralita]{
-		Accion: "centralita.ver_llamada", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[LlamadaCentralita],
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaLlamadaCentralita) (LlamadaCentralita, error) {
+	ver := auditoria.Nuevo(auditoria.Caso[EntradaLlamadaCentralita, Llamada]{
+		Accion: "centralita.ver_llamada", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[Llamada],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaLlamadaCentralita) (Llamada, error) {
 			q := mensajeriabd.New(t)
 			l, err := leerLlamadaVisible(ctx, q, in.ID)
 			if err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			return m.unaLlamada(ctx, q, l, true)
 		},
 	})
-	anotar := auditoria.Nuevo(auditoria.Caso[EntradaAnotarCentralita, LlamadaCentralita]{
+	anotar := auditoria.Nuevo(auditoria.Caso[EntradaAnotarCentralita, Llamada]{
 		Accion: "centralita.anotar_llamada", Permiso: nucleo.PermLlamadasAnotar,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAnotarCentralita) (LlamadaCentralita, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAnotarCentralita) (Llamada, error) {
 			q := mensajeriabd.New(t)
 			l, err := leerLlamadaVisible(ctx, q, in.ID)
 			if err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			if err := puedeActuar(ctx, q, l); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			if l.Version != in.Version {
-				return LlamadaCentralita{}, nucleo.ConflictoVersion("llamada", l.ID)
+				return Llamada{}, nucleo.ConflictoVersion("llamada", l.ID)
 			}
 			t.FijarEntidad("centralita_llamada", l.ID)
 			antes := map[string]any{"nota": l.Nota != nil, "resultado": l.Resultado}
@@ -714,42 +748,42 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 			u := contexto.ActorDe(ctx).ID
 			l.AnotadaPor = &u
 			if l, err = guardarLlamadaCentralita(ctx, q, l); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			// La nota no va a la auditoría (puede tener datos del cliente): solo si hay.
 			t.RegistrarCambios("centralita_llamada", l.ID, antes, map[string]any{"nota": l.Nota != nil, "resultado": l.Resultado})
 			if err := t.Emitir("llamada.anotada", map[string]any{"llamada_id": l.ID, "conversacion_id": nil, "empresa_id": l.EmpresaID, "usuario_id": u,
 				"resultado": l.Resultado, "origen": "centralita"}); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			return m.unaLlamada(ctx, q, l, false)
 		},
 	})
-	vincular := auditoria.Nuevo(auditoria.Caso[EntradaVincularTicket, LlamadaCentralita]{
+	vincular := auditoria.Nuevo(auditoria.Caso[EntradaVincularTicket, Llamada]{
 		Accion: "centralita.vincular_ticket", Permiso: nucleo.PermLlamadasAnotar,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaVincularTicket) (LlamadaCentralita, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaVincularTicket) (Llamada, error) {
 			if m.cfg.Soporte == nil {
-				return LlamadaCentralita{}, noDisponible("Vincular tickets")
+				return Llamada{}, noDisponible("Vincular tickets")
 			}
 			q := mensajeriabd.New(t)
 			l, err := leerLlamadaVisible(ctx, q, in.ID)
 			if err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			if err := puedeActuar(ctx, q, l); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			// El ticket tiene que verlo quien vincula (tickets.ver y su alcance): si no, 404.
 			tk, err := m.cfg.Soporte.VerTicket.Ejecutar(ctx, soporte.EntradaVerTicket{ID: in.TicketID})
 			if err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			t.FijarEntidad("centralita_llamada", l.ID)
 			if l.TicketID != nil && *l.TicketID == tk.ID {
 				return m.unaLlamada(ctx, q, l, false)
 			}
 			if l.ClienteID != nil && tk.ClienteID != nil && *l.ClienteID != *tk.ClienteID {
-				return LlamadaCentralita{}, nucleo.ReglaNegocio("cliente_distinto", "El ticket es de otro cliente")
+				return Llamada{}, nucleo.ReglaNegocio("cliente_distinto", "El ticket es de otro cliente")
 			}
 			antes := map[string]any{"ticket_id": l.TicketID, "cliente_id": l.ClienteID}
 			if l.ClienteID == nil && tk.ClienteID != nil {
@@ -757,12 +791,12 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 			}
 			l.TicketID = &tk.ID
 			if l, err = guardarLlamadaCentralita(ctx, q, l); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			t.RegistrarCambios("centralita_llamada", l.ID, antes, map[string]any{"ticket_id": l.TicketID, "cliente_id": l.ClienteID})
 			if err := t.Emitir("llamada.vinculada", map[string]any{"llamada_id": l.ID, "empresa_id": l.EmpresaID, "ticket_id": tk.ID,
 				"cliente_id": l.ClienteID, "usuario_id": contexto.ActorDe(ctx).ID, "origen": "centralita"}); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			return m.unaLlamada(ctx, q, l, false)
 		},
@@ -775,7 +809,7 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 type AsociarClienteCentralita struct {
 	m      *Modulo
 	previo *auditoria.Caso[EntradaAsociarCentralita, struct{}]
-	final  *auditoria.Caso[EntradaAsociarCentralita, LlamadaCentralita]
+	final  *auditoria.Caso[EntradaAsociarCentralita, Llamada]
 }
 
 func nuevoAsociarClienteCentralita(m *Modulo) *AsociarClienteCentralita {
@@ -794,55 +828,55 @@ func nuevoAsociarClienteCentralita(m *Modulo) *AsociarClienteCentralita {
 			return struct{}{}, puedeActuar(ctx, q, l)
 		},
 	})
-	k.final = auditoria.Nuevo(auditoria.Caso[EntradaAsociarCentralita, LlamadaCentralita]{
+	k.final = auditoria.Nuevo(auditoria.Caso[EntradaAsociarCentralita, Llamada]{
 		Accion: "centralita.asociar_cliente", Permiso: nucleo.PermLlamadasAnotar,
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAsociarCentralita) (LlamadaCentralita, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAsociarCentralita) (Llamada, error) {
 			if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesVer)) {
-				return LlamadaCentralita{}, nucleo.Prohibido("Te falta el permiso clientes.ver")
+				return Llamada{}, nucleo.Prohibido("Te falta el permiso clientes.ver")
 			}
 			q := mensajeriabd.New(t)
 			l, err := leerLlamadaVisible(ctx, q, in.ID)
 			if err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			if err := puedeActuar(ctx, q, l); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			t.FijarEntidad("centralita_llamada", l.ID)
 			c, err := q.ClienteInstantanea(ctx, in.ClienteID)
 			empresa := empresaDeCtx(ctx)
 			if errors.Is(err, pgx.ErrNoRows) || (err == nil && empresa != 0 && c.EmpresaID != empresa && !slices.Contains(c.Empresas, empresa)) {
-				return LlamadaCentralita{}, nucleo.ReglaNegocio("cliente_no_valido", "Ese cliente no está en la empresa")
+				return Llamada{}, nucleo.ReglaNegocio("cliente_no_valido", "Ese cliente no está en la empresa")
 			}
 			if err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			servicio := in.ServicioID
 			ss, err := q.ServiciosInstantanea(ctx, c.ID)
 			if err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			if servicio != nil && !slices.ContainsFunc(ss, func(s mensajeriabd.IntegracionArgosServicio) bool { return s.ID == *servicio }) {
-				return LlamadaCentralita{}, nucleo.ReglaNegocio("servicio_no_valido", "Ese servicio no es del cliente")
+				return Llamada{}, nucleo.ReglaNegocio("servicio_no_valido", "Ese servicio no es del cliente")
 			}
 			if servicio == nil && len(ss) == 1 {
 				servicio = &ss[0].ID
 			}
 			if l.TicketID != nil && l.ClienteID != nil && *l.ClienteID != c.ID {
-				return LlamadaCentralita{}, nucleo.ReglaNegocio("cliente_distinto", "La llamada ya está en un ticket de otro cliente")
+				return Llamada{}, nucleo.ReglaNegocio("cliente_distinto", "La llamada ya está en un ticket de otro cliente")
 			}
 			antes := map[string]any{"cliente_id": l.ClienteID, "servicio_id": l.ServicioID}
 			l.ClienteID, l.ServicioID, l.Asociacion = &c.ID, servicio, texto("manual")
 			if l, err = guardarLlamadaCentralita(ctx, q, l); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			t.RegistrarCambios("centralita_llamada", l.ID, antes, map[string]any{"cliente_id": l.ClienteID, "servicio_id": l.ServicioID})
 			if err := t.Emitir("llamada.cliente_asociado", map[string]any{"llamada_id": l.ID, "empresa_id": l.EmpresaID, "cliente_id": c.ID,
 				"servicio_id": servicio, "usuario_id": contexto.ActorDe(ctx).ID, "origen": "centralita"}); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			if err := m.avisarReceptores(ctx, q, l); err != nil {
-				return LlamadaCentralita{}, err
+				return Llamada{}, err
 			}
 			return m.unaLlamada(ctx, q, l, false)
 		},
@@ -851,13 +885,13 @@ func nuevoAsociarClienteCentralita(m *Modulo) *AsociarClienteCentralita {
 }
 
 // Ejecutar asocia el cliente.
-func (k *AsociarClienteCentralita) Ejecutar(ctx context.Context, in EntradaAsociarCentralita) (LlamadaCentralita, error) {
+func (k *AsociarClienteCentralita) Ejecutar(ctx context.Context, in EntradaAsociarCentralita) (Llamada, error) {
 	if _, err := k.previo.Ejecutar(ctx, in); err != nil {
-		return LlamadaCentralita{}, err
+		return Llamada{}, err
 	}
 	if k.m.cfg.Argos != nil {
 		if err := k.m.cfg.Argos.AsegurarInstantanea(ctx, in.ClienteID, in.ServicioID); err != nil {
-			return LlamadaCentralita{}, err
+			return Llamada{}, err
 		}
 	}
 	return k.final.Ejecutar(ctx, in)

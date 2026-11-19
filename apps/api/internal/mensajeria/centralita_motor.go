@@ -16,7 +16,8 @@ import (
 
 // El motor de la centralita (E4a): una conexión AMI por centralita activa, de solo lectura, en el
 // proceso de mensajería. Con varias réplicas solo una conecta cada centralita: la que tiene su
-// advisory lock (en una conexión de Postgres dedicada mientras dura la sesión).
+// arriendo (motor_dueno, motor_hasta), que renueva en cada latido. No retiene conexiones de
+// Postgres: el aviso de cambios llega por el mismo LISTEN de la bandeja (EscucharConversaciones).
 //
 //   - Reconexión con espera exponencial (1 s a 60 s). Una caída de menos de 60 s no cambia el estado
 //     (ni avisa): así un corte breve no inunda de eventos.
@@ -53,8 +54,7 @@ func (m *Modulo) CorrerCentralitas(ctx context.Context, pool *pgxpool.Pool, log 
 	if log == nil {
 		log = slog.Default()
 	}
-	despertar := make(chan string, 64)
-	go m.escucharCentralitas(ctx, pool, log, despertar)
+	despertar := m.despertarCentralitas
 	corridas := map[int64]*corridaCentralita{}
 	var mu sync.Mutex
 	revisar := func() {
@@ -128,64 +128,25 @@ func (m *Modulo) CorrerCentralitas(ctx context.Context, pool *pgxpool.Pool, log 
 	}
 }
 
-func (m *Modulo) escucharCentralitas(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, despertar chan<- string) {
-	espera := time.Second
-	for ctx.Err() == nil {
-		err := func() error {
-			conn, err := pool.Acquire(ctx)
-			if err != nil {
-				return err
-			}
-			defer conn.Release()
-			if _, err := conn.Exec(ctx, "LISTEN "+CanalCentralitas); err != nil {
-				return err
-			}
-			espera = time.Second
-			for {
-				n, err := conn.Conn().WaitForNotification(ctx)
-				if err != nil {
-					return err
-				}
-				select {
-				case despertar <- n.Payload:
-				default:
-				}
-			}
-		}()
-		if ctx.Err() != nil {
-			return
-		}
-		log.WarnContext(ctx, "centralita: se perdió el LISTEN; reintentando", "err", err)
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(espera):
-		}
-		espera = min(espera*2, 30*time.Second)
-	}
-}
-
-// correrCentralita toma el candado de la centralita y mantiene su sesión AMI.
+// correrCentralita toma el arriendo de la centralita y mantiene su sesión AMI.
 func (m *Modulo) correrCentralita(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, id int64, version int32, refrescar <-chan struct{}) {
+	q := mensajeriabd.New(pool)
 	for ctx.Err() == nil {
-		conn, err := pool.Acquire(ctx)
-		if err != nil {
-			esperar(ctx, m.cfg.CentralitaRevision)
-			continue
-		}
-		clave := "centralita:" + strconv.FormatInt(id, 10)
-		var tengo bool
-		if err := conn.QueryRow(ctx, "SELECT pg_try_advisory_lock(hashtextextended($1, 0))", clave).Scan(&tengo); err != nil || !tengo {
-			conn.Release()
+		if !m.tomarMotor(ctx, q, id) {
 			esperar(ctx, m.cfg.CentralitaRevision) // otra réplica la tiene
 			continue
 		}
 		m.sesionesCentralita(ctx, pool, log, id, version, refrescar)
-		// Suelta el candado antes de devolver la conexión al pool (el candado es de la sesión).
-		_, _ = conn.Exec(context.WithoutCancel(ctx), "SELECT pg_advisory_unlock(hashtextextended($1, 0))", clave)
-		conn.Release()
+		_ = q.SoltarMotorCentralita(context.WithoutCancel(ctx), mensajeriabd.SoltarMotorCentralitaParams{ID: id, Dueno: &m.idProceso})
 		return
 	}
+}
+
+// tomarMotor toma o renueva el arriendo (vale 3 latidos).
+func (m *Modulo) tomarMotor(ctx context.Context, q *mensajeriabd.Queries, id int64) bool {
+	seg := int32(max(3*m.cfg.CentralitaPing/time.Second, 3)) //nolint:gosec // segundos acotados
+	_, err := q.TomarMotorCentralita(ctx, mensajeriabd.TomarMotorCentralitaParams{ID: id, Dueno: &m.idProceso, Segundos: seg})
+	return err == nil
 }
 
 func esperar(ctx context.Context, d time.Duration) bool {
@@ -252,7 +213,7 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 				}
 				continue
 			}
-			ahora := m.ahora()
+			ahora := time.Now()
 			if caida == nil {
 				caida = &ahora
 			}
@@ -278,7 +239,7 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 		caida, avisada, espera = nil, false, time.Second
 		m.escucharAMI(ctx, sctx, q, log, f, c, refrescar)
 		c.Cerrar()
-		ahora := m.ahora()
+		ahora := time.Now()
 		caida = &ahora
 	}
 }
@@ -314,7 +275,7 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 	recarga := time.NewTicker(m.cfg.CentralitaRevision)
 	defer recarga.Stop()
 	var tocado time.Time
-	ventana, enVentana, descartados := m.ahora(), 0, int64(0)
+	ventana, enVentana, descartados := time.Now(), 0, int64(0)
 	avisarDescarte := time.Time{}
 	for {
 		select {
@@ -328,13 +289,17 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 			if _, err := m.Centralita.cerrarViejas.Ejecutar(sctx, f.ID); err != nil && ctx.Err() == nil {
 				log.WarnContext(ctx, "centralita: cerrar llamadas viejas", "err", err)
 			}
-			limite := m.ahora().Add(-CentralitaEnCursoMax)
+			limite := time.Now().Add(-CentralitaEnCursoMax)
 			for k, en := range seguidas {
 				if en.Before(limite) {
 					delete(seguidas, k)
 				}
 			}
 		case <-ping.C:
+			if !m.tomarMotor(ctx, q, f.ID) {
+				log.WarnContext(ctx, "centralita: se perdió el arriendo de la conexión (otra réplica la tomó)")
+				return
+			}
 			pctx, cancelar := context.WithTimeout(ctx, 10*time.Second)
 			_, err := c.Accion(pctx, "Ping")
 			cancelar()
@@ -349,7 +314,7 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 				}
 				return
 			}
-			ahora := m.ahora()
+			ahora := time.Now()
 			if ahora.Sub(tocado) >= time.Minute {
 				tocado = ahora
 				_ = q.TocarCentralita(ctx, mensajeriabd.TocarCentralitaParams{ID: f.ID, Ahora: &ahora, HaceMinuto: ahora.Add(-time.Minute)})
@@ -391,7 +356,8 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 			if err != nil && ctx.Err() == nil {
 				log.WarnContext(ctx, "centralita: procesar un evento", "tipo", h.tipo, "err", err)
 			}
-			if h.tipo == hechoRegistro || (h.tipo == hechoCuelga && cambio) {
+			// Tras colgar se sigue esperando el CDR (trae la duración exacta); el CDR cierra el seguimiento.
+			if h.tipo == hechoRegistro {
 				delete(seguidas, h.linkedid)
 			}
 			if (h.tipo == hechoMarca || h.tipo == hechoSuena) && !cambio && err == nil {

@@ -48,6 +48,12 @@ func DatosAsociadosCentralita(id int64) []byte {
 	return fmt.Appendf(nil, "mensajeria.centralita:%d:secreto", id)
 }
 
+// DatosAsociadosExtensionSIP ata la credencial SIP del navegador de una extensión (E4c, prevista y
+// sin usar en E4a) a su fila.
+func DatosAsociadosExtensionSIP(id int64) []byte {
+	return fmt.Appendf(nil, "mensajeria.centralita_extension:%d:sip", id)
+}
+
 // Centralita es la conexión como la ve el panel. Nunca trae el secreto.
 type Centralita struct {
 	ID                int64      `json:"id"`
@@ -240,10 +246,10 @@ type casosCentralita struct {
 	Quitar          *auditoria.Caso[EntradaQuitarExtension, Extension]
 
 	Llamadas     *auditoria.Caso[EntradaListarLlamadasCentralita, ListaLlamadasCentralita]
-	VerLlamada   *auditoria.Caso[EntradaLlamadaCentralita, LlamadaCentralita]
-	Anotar       *auditoria.Caso[EntradaAnotarCentralita, LlamadaCentralita]
+	VerLlamada   *auditoria.Caso[EntradaLlamadaCentralita, Llamada]
+	Anotar       *auditoria.Caso[EntradaAnotarCentralita, Llamada]
 	Asociar      *AsociarClienteCentralita
-	Vincular     *auditoria.Caso[EntradaVincularTicket, LlamadaCentralita]
+	Vincular     *auditoria.Caso[EntradaVincularTicket, Llamada]
 	procesar     *auditoria.Caso[entradaHechoAMI, bool]
 	fijarEstado  *auditoria.Caso[entradaEstadoCentralita, struct{}]
 	probada      *auditoria.Caso[entradaProbada, Centralita]

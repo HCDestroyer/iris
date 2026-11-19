@@ -15,10 +15,10 @@ ON CONFLICT (origen, canal_id, id_externo) DO NOTHING
 RETURNING *;
 
 -- name: LlamadaPorID :one
-SELECT * FROM mensajeria.llamadas WHERE id = @id;
+SELECT * FROM mensajeria.llamadas WHERE id = @id AND origen = 'whatsapp';
 
 -- name: LlamadaParaActualizar :one
-SELECT * FROM mensajeria.llamadas WHERE id = @id FOR UPDATE;
+SELECT * FROM mensajeria.llamadas WHERE id = @id AND origen = 'whatsapp' FOR UPDATE;
 
 -- name: LlamadaPorExterno :one
 SELECT * FROM mensajeria.llamadas WHERE origen = 'whatsapp' AND canal_id = @canal_id AND id_externo = @id_externo FOR UPDATE;
@@ -138,7 +138,7 @@ WHERE usuario_id = @usuario_id AND pestana = @pestana::text AND direccion = 'sal
 
 -- name: LlamadaActivaDeUsuario :one
 SELECT * FROM mensajeria.llamadas
-WHERE coalesce(empresa_id, 0) = @empresa::bigint AND estado IN ('conectando', 'en_curso', 'marcando')
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND estado IN ('conectando', 'en_curso', 'marcando') AND origen = 'whatsapp'
   AND (usuario_id = @usuario_id OR reclamada_por = @usuario_id)
 ORDER BY sono_en DESC LIMIT 1;
 
@@ -201,12 +201,12 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas
 
 -- name: LlamadasVivas :many
 -- Para el mantenimiento (cada 5 s): todo lo que no terminó.
-SELECT * FROM mensajeria.llamadas WHERE estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY sono_en LIMIT 200;
+SELECT * FROM mensajeria.llamadas WHERE estado IN ('sonando', 'marcando', 'conectando', 'en_curso') AND origen = 'whatsapp' ORDER BY sono_en LIMIT 200;
 
 -- name: LlamadasConAccionPendiente :many
 -- Intenciones pre_accept o accept que quedaron a medias (el proceso murió entre la intención y el
 -- resultado): las revisa el mantenimiento, que no las repite a ciegas.
-SELECT * FROM mensajeria.llamadas WHERE accion_meta_estado = 'pendiente' AND accion_meta_en < @antes
+SELECT * FROM mensajeria.llamadas WHERE accion_meta_estado = 'pendiente' AND accion_meta_en < @antes AND origen = 'whatsapp'
   AND estado IN ('sonando', 'marcando', 'conectando', 'en_curso') ORDER BY accion_meta_en LIMIT 100;
 
 -- name: TomarAccionesMeta :many
@@ -469,7 +469,7 @@ UPDATE mensajeria.llamadas_huerfanas SET estado = @estado, updated_at = now() WH
 -- colgó el agente y las que cortó el servidor porque la pestaña que llamó murió (timbrar y colgar, o
 -- timbrar y cerrar la pestaña).
 SELECT count(*)::bigint FROM mensajeria.llamadas
-WHERE coalesce(empresa_id, 0) = @empresa::bigint AND numero = @numero AND direccion = 'saliente' AND estado = 'terminada'
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND numero = @numero AND direccion = 'saliente' AND estado = 'terminada' AND origen = 'whatsapp'
   AND motivo_fin IN ('agente_colgo', 'error_medio') AND contestada_en IS NULL AND sono_en >= @desde;
 
 -- name: SolicitudesDeNumero :many
@@ -482,7 +482,7 @@ UPDATE mensajeria.llamadas SET sdp_respuesta = sqlc.narg('sdp'), updated_at = no
 -- name: SalientesDesde :one
 -- Salientes de la empresa desde un instante (límite por día).
 SELECT count(*)::bigint FROM mensajeria.llamadas
-WHERE coalesce(empresa_id, 0) = @empresa::bigint AND direccion = 'saliente' AND sono_en >= @desde AND estado <> 'fallida';
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND direccion = 'saliente' AND sono_en >= @desde AND estado <> 'fallida' AND origen = 'whatsapp';
 
 -- name: ConectadasDelCanalDesde :one
 -- Salientes conectadas de un número desde un instante (Meta: 100 por 24 h).
@@ -495,12 +495,12 @@ WHERE canal_id = @canal_id AND direccion = 'saliente' AND contestada_en IS NOT N
 SELECT (coalesce(sum(duracion_seg) FILTER (WHERE estado <> 'en_curso'), 0)
     + coalesce(sum(GREATEST(0, floor(extract(epoch FROM (sqlc.arg('ahora')::timestamptz - contestada_en))))) FILTER (WHERE estado = 'en_curso'), 0))::bigint
 FROM mensajeria.llamadas
-WHERE coalesce(empresa_id, 0) = @empresa::bigint AND direccion = 'saliente' AND contestada_en IS NOT NULL
+WHERE coalesce(empresa_id, 0) = @empresa::bigint AND direccion = 'saliente' AND contestada_en IS NOT NULL AND origen = 'whatsapp'
   AND sono_en >= @desde AND sono_en < @hasta AND id <> @menos;
 
 -- name: SalienteVivaDeUsuario :one
 -- En cualquier empresa: una persona hace una sola saliente a la vez (es lo que impone el índice único).
-SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE usuario_id = @usuario_id AND direccion = 'saliente' AND estado IN ('marcando', 'en_curso'))::boolean;
+SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE usuario_id = @usuario_id AND direccion = 'saliente' AND estado IN ('marcando', 'en_curso') AND origen = 'whatsapp')::boolean;
 
 -- name: LlamadaVivaDeNumero :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.llamadas WHERE canal_id = @canal_id AND numero = @numero

@@ -557,7 +557,7 @@ WHERE e.id > @desde::bigint
       -- Las sugerencias del asistente solo a quien tiene conversaciones.sugerencias (§16.2).
       AND (e.tipo <> 'sugerencia' OR @sugerencias::boolean)
       AND mensajeria.conv_visible(@usuario::bigint, @supervisa::boolean, c.id, c.cola_id, c.asignado_a))
-    OR (e.tipo = 'centralita_llamada' AND e.conversacion_id IS NULL AND e.usuario_id = @usuario::bigint
+    OR (e.conversacion_id IS NULL AND e.llamada_id IS NOT NULL AND e.usuario_id = @usuario::bigint
       AND EXISTS (SELECT 1 FROM mensajeria.centralita_extensiones x JOIN mensajeria.centralitas ce ON ce.id = x.centralita_id
                   WHERE x.usuario_id = @usuario::bigint AND x.activa AND ce.activa AND coalesce(ce.empresa_id, 0) = @empresa::bigint))
   )

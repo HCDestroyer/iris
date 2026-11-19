@@ -48,6 +48,8 @@ const (
 	ColumnaMotorClaveCertSig   = "mensajeria.voz_motores.cert_cliente_clave_siguiente"
 	// ColumnaCentralita: contraseña del usuario AMI de la centralita Issabel (contratos/voz.md §2.10).
 	ColumnaCentralita = "mensajeria.centralitas.secreto_cifrado"
+	// ColumnaExtensionSIP: credencial SIP del navegador de una extensión (E4c; prevista, vacía en E4a).
+	ColumnaExtensionSIP = "mensajeria.centralita_extensiones.sip_secreto_cifrado"
 	// ColumnaCorreoSistema: contraseña del SMTP del correo del sistema (contratos/correo-sistema.md).
 	ColumnaCorreoSistema = "notificaciones.correo_ajustes.contrasena_cifrada"
 )
@@ -55,7 +57,7 @@ const (
 // Columnas en el orden en que se rotan y se informan.
 var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador,
 	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta, ColumnaAsistente, ColumnaMotorToken, ColumnaMotorTokenSiguiente, ColumnaMotorClaveCert,
-	ColumnaMotorCodigoEnlace, ColumnaMotorClaveCertSig, ColumnaCorreoSistema, ColumnaCentralita}
+	ColumnaMotorCodigoEnlace, ColumnaMotorClaveCertSig, ColumnaCorreoSistema, ColumnaCentralita, ColumnaExtensionSIP}
 
 // datoAsociadoBuzon es el de internal/soporte (buzones.go, de I2): "soporte.buzon:<id>:imap|smtp".
 // La prueba de la rotación lo verifica leyendo el buzón con el módulo de soporte.
@@ -437,6 +439,21 @@ func (r *rotador) centralitas(ctx context.Context, q *clavebd.Queries, simular b
 		}
 		if cambio && !simular {
 			if err := q.RecifrarCentralita(ctx, clavebd.RecifrarCentralitaParams{ID: f.ID, SecretoCifrado: nuevo}); err != nil {
+				return err
+			}
+		}
+	}
+	xs, err := q.ExtensionesSIPCifradas(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range xs {
+		nuevo, cambio, err := r.valor(ColumnaExtensionSIP, f.ID, f.SipSecretoCifrado, mensajeria.DatosAsociadosExtensionSIP(f.ID))
+		if err != nil {
+			return err
+		}
+		if cambio && !simular {
+			if err := q.RecifrarExtensionSIP(ctx, clavebd.RecifrarExtensionSIPParams{ID: f.ID, SipSecretoCifrado: nuevo}); err != nil {
 				return err
 			}
 		}

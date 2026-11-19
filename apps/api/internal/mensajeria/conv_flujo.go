@@ -27,15 +27,14 @@ import (
 // EventoConversacion es un cambio del feed: el mismo cuerpo en SSE (data) y en /cambios.
 type EventoConversacion struct {
 	ID             string               `json:"id" doc:"Cursor del feed (el id de SSE / Last-Event-ID)"`
-	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender,sugerencia,llamada_entrante,llamada_actualizada,llamada_terminada,devolucion_actualizada,llamada_respuesta,centralita_llamada"`
+	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender,sugerencia,llamada_entrante,llamada_actualizada,llamada_terminada,devolucion_actualizada,llamada_respuesta"`
 	Llamada        *Llamada             `json:"llamada,omitempty" doc:"llamada_entrante (solo a quien le suena), llamada_actualizada, llamada_terminada y devolucion_actualizada: la llamada como la ves ahora, sin SDP"`
-	ConversacionID int64                `json:"conversacionId" doc:"0 en centralita_llamada (no es de una conversación)"`
+	ConversacionID int64                `json:"conversacionId" doc:"0 en las llamadas de la centralita (llamada.origen = centralita: no son de una conversación)"`
 	OcurridoEn     time.Time            `json:"ocurridoEn"`
 	NoLeidos       int64                `json:"noLeidos" doc:"Tus no leídos de la conversación al leer el evento"`
 	Mensaje        *MensajeConversacion `json:"mensaje,omitempty" doc:"mensaje_nuevo, mensaje_actualizado, mencion y guardia (estado actual del mensaje)"`
 	Conversacion   *ConversacionCliente `json:"conversacion,omitempty" doc:"conversacion_actualizada, mencion y guardia (como la ves ahora)"`
 	Sugerencia     *Sugerencia          `json:"sugerencia,omitempty" doc:"sugerencia: la sugerencia del asistente como está ahora (§16.2)"`
-	Centralita     *LlamadaCentralita   `json:"centralita,omitempty" doc:"centralita_llamada: la llamada de la centralita como la ves ahora (solo a quien le sonó; contratos/voz.md §3.12)"`
 }
 
 // CambiosConversaciones es el feed desde un cursor.
@@ -151,7 +150,7 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 	llamadas := map[uuid.UUID]Llamada{}
 	var llIDs []uuid.UUID
 	for _, f := range filas {
-		if id := uuidDe(f.LlamadaID); id != nil {
+		if id := uuidDe(f.LlamadaID); id != nil && f.ConversacionID != nil {
 			llIDs = append(llIDs, *id)
 		}
 	}
@@ -180,9 +179,9 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 	for _, f := range filas {
 		if f.ConversacionID == nil {
 			e := EventoConversacion{ID: strconv.FormatInt(f.ID, 10), Tipo: f.Tipo, OcurridoEn: f.OcurridoEn}
-			if id := uuidDe(f.CentralitaLlamadaID); id != nil {
+			if id := uuidDe(f.LlamadaID); id != nil {
 				if x, ok := centralita[*id]; ok {
-					e.Centralita = &x
+					e.Llamada = &x
 				}
 			}
 			out = append(out, e)
@@ -265,11 +264,22 @@ func (m *Modulo) EscucharConversaciones(ctx context.Context, pool *pgxpool.Pool,
 			if _, err := conn.Exec(ctx, "LISTEN "+CanalConversaciones); err != nil {
 				return err
 			}
+			// En la misma conexión, los cambios de la centralita (E4a): así su motor no retiene otra.
+			if _, err := conn.Exec(ctx, "LISTEN "+CanalCentralitas); err != nil {
+				return err
+			}
 			m.difusorConv.avisar("*")
 			for {
 				n, err := conn.Conn().WaitForNotification(ctx)
 				if err != nil {
 					return err
+				}
+				if n.Channel == CanalCentralitas {
+					select {
+					case m.despertarCentralitas <- n.Payload:
+					default:
+					}
+					continue
 				}
 				m.difusorConv.avisar(n.Payload)
 			}

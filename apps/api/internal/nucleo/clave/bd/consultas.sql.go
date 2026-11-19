@@ -267,6 +267,36 @@ func (q *Queries) CorreosSistemaCifrados(ctx context.Context) ([]CorreosSistemaC
 	return items, nil
 }
 
+const extensionesSIPCifradas = `-- name: ExtensionesSIPCifradas :many
+SELECT id, sip_secreto_cifrado FROM mensajeria.centralita_extensiones WHERE sip_secreto_cifrado IS NOT NULL ORDER BY id
+`
+
+type ExtensionesSIPCifradasRow struct {
+	ID                int64
+	SipSecretoCifrado []byte
+}
+
+// Credencial SIP del navegador de cada extensión (E4c; vacía en E4a).
+func (q *Queries) ExtensionesSIPCifradas(ctx context.Context) ([]ExtensionesSIPCifradasRow, error) {
+	rows, err := q.db.Query(ctx, extensionesSIPCifradas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ExtensionesSIPCifradasRow
+	for rows.Next() {
+		var i ExtensionesSIPCifradasRow
+		if err := rows.Scan(&i.ID, &i.SipSecretoCifrado); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const motoresIACifrados = `-- name: MotoresIACifrados :many
 SELECT id, token, token_siguiente, cert_cliente_clave, cert_cliente_clave_siguiente, enlace_codigo FROM mensajeria.voz_motores
 WHERE token IS NOT NULL OR token_siguiente IS NOT NULL OR cert_cliente_clave IS NOT NULL OR cert_cliente_clave_siguiente IS NOT NULL
@@ -423,6 +453,20 @@ type RecifrarCorreoSistemaParams struct {
 
 func (q *Queries) RecifrarCorreoSistema(ctx context.Context, arg RecifrarCorreoSistemaParams) error {
 	_, err := q.db.Exec(ctx, recifrarCorreoSistema, arg.ContrasenaCifrada, arg.ID)
+	return err
+}
+
+const recifrarExtensionSIP = `-- name: RecifrarExtensionSIP :exec
+UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = $1 WHERE id = $2
+`
+
+type RecifrarExtensionSIPParams struct {
+	SipSecretoCifrado []byte
+	ID                int64
+}
+
+func (q *Queries) RecifrarExtensionSIP(ctx context.Context, arg RecifrarExtensionSIPParams) error {
+	_, err := q.db.Exec(ctx, recifrarExtensionSIP, arg.SipSecretoCifrado, arg.ID)
 	return err
 }
 

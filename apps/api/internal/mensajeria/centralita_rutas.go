@@ -135,20 +135,20 @@ func (m *Modulo) registrarCentralita(api huma.API) {
 		})
 	huma.Register(api, d(op("verLlamadaCentralita", http.MethodGet, "/centralitas/llamadas/{id}", "Una llamada de la centralita", nucleo.PermLlamadasVer,
 		http.StatusOK, http.StatusNotFound), "Con varios clientes posibles y sin cliente elegido trae `candidatos` (con `clientes.ver`)."),
-		func(ctx context.Context, in *llamadaCentralitaHTTP) (*cuerpo[LlamadaCentralita], error) {
+		func(ctx context.Context, in *llamadaCentralitaHTTP) (*cuerpo[Llamada], error) {
 			return responder(k.VerLlamada.Ejecutar(ctx, EntradaLlamadaCentralita{ID: in.ID}))
 		})
 	huma.Register(api, d(op("anotarLlamadaCentralita", http.MethodPost, "/centralitas/llamadas/{id}/anotar", "Nota y resultado de una llamada de la centralita",
 		nucleo.PermLlamadasAnotar, http.StatusOK, http.StatusConflict, http.StatusNotFound),
 		"Solo quien la recibió, contestó o marcó, o quien supervisa las extensiones (`centralita.asignar_extension`); si no, 404. Con `version`. Evento `llamada.anotada`."),
-		func(ctx context.Context, in *llamadaCentralitaAccionHTTP[EntradaAnotarCentralita]) (*cuerpo[LlamadaCentralita], error) {
+		func(ctx context.Context, in *llamadaCentralitaAccionHTTP[EntradaAnotarCentralita]) (*cuerpo[Llamada], error) {
 			in.Body.ID = in.ID
 			return responder(k.Anotar.Ejecutar(ctx, in.Body))
 		})
 	huma.Register(api, d(op("asociarClienteCentralita", http.MethodPost, "/centralitas/llamadas/{id}/asociar-cliente", "Elegir el cliente de una llamada",
 		nucleo.PermLlamadasAnotar, http.StatusOK, http.StatusNotFound),
 		"Varios posibles o número desconocido. Exige además `clientes.ver`. 422 `cliente_no_valido`, `servicio_no_valido`, `cliente_distinto`. Evento `llamada.cliente_asociado`."),
-		func(ctx context.Context, in *llamadaCentralitaAccionHTTP[EntradaAsociarCentralita]) (*cuerpo[LlamadaCentralita], error) {
+		func(ctx context.Context, in *llamadaCentralitaAccionHTTP[EntradaAsociarCentralita]) (*cuerpo[Llamada], error) {
 			in.Body.ID = in.ID
 			return responder(k.Asociar.Ejecutar(ctx, in.Body))
 		})
@@ -156,7 +156,7 @@ func (m *Modulo) registrarCentralita(api huma.API) {
 		nucleo.PermLlamadasAnotar, http.StatusOK, http.StatusNotFound),
 		"El ticket debe verse con `tickets.ver` (si no, 404). Si la llamada no tenía cliente toma el del ticket; si tenía otro, 422 `cliente_distinto`. "+
 			"Para crear un ticket desde la llamada, el panel crea el ticket (`POST /tickets`) y después lo vincula aquí. Evento `llamada.vinculada`."),
-		func(ctx context.Context, in *llamadaCentralitaAccionHTTP[EntradaVincularTicket]) (*cuerpo[LlamadaCentralita], error) {
+		func(ctx context.Context, in *llamadaCentralitaAccionHTTP[EntradaVincularTicket]) (*cuerpo[Llamada], error) {
 			in.Body.ID = in.ID
 			return responder(k.Vincular.Ejecutar(ctx, in.Body))
 		})
