@@ -554,6 +554,21 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             };
             return json(route, yo);
         }
+        /**
+         * Como el servidor (contrato con Argos 0.8.0 §2.4): la red y la ubicación del servicio solo con
+         * el permiso y en «sus órdenes» (asignadas a él, abiertas o terminadas hace menos de 24 h).
+         */
+        const permisosYo = opciones.permisos ?? PERMISOS_TECNICO;
+        const recortar = (o: Schema<"OrdenCampo">): Schema<"OrdenCampo"> => {
+            if (!o.servicio) return o;
+            const fin = o.finalizadaEn ? Date.parse(o.finalizadaEn) : Number.NaN;
+            const terminada = o.estado === "cerrada" || o.estado === "fallida";
+            const suya = o.tecnicoId === usuario.id && o.estado !== "cancelada" && (!terminada || Date.now() - fin < 24 * 60 * 60 * 1000);
+            const red = suya && permisosYo.includes("servicios.ver_red");
+            const ubicacion = suya && permisosYo.includes("servicios.ver_ubicacion");
+            const fuera = new Set([...(red ? [] : ["router", "ip"]), ...(ubicacion ? [] : ["direccion", "lat", "lon"])]);
+            return { ...o, servicio: Object.fromEntries(Object.entries(o.servicio).filter(([k]) => !fuera.has(k))) as Schema<"ServicioCampo"> };
+        };
         if (ruta === "/api/v1/campo/paquete") {
             const fecha = url.searchParams.get("fecha") ?? new Date().toISOString().slice(0, 10);
             api.fechasPaquete.push(fecha);
@@ -568,7 +583,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 ordenes: [
                     ...[...api.ordenes.values()].filter((o) => o.tecnicoId === usuario.id && !["cerrada", "fallida", "cancelada"].includes(o.estado)),
                     ...(opciones.ordenesFuturas ?? []).filter((o) => diaGuatemala(o.cita?.inicio ?? o.programadaInicio) <= fecha),
-                ].map((o) => structuredClone(o)),
+                ].map((o) => recortar(structuredClone(o))),
                 existencias: existenciasDelTecnico(),
                 ...(opciones.ruta ? { ruta: opciones.ruta } : {}),
                 ...(turno ? { turno } : {}),
@@ -584,7 +599,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
                 cursor += 1;
             }
             const r: Schema<"Cambios"> = {
-                cambios,
+                cambios: cambios.map((c) => (c.orden ? { ...c, orden: recortar(structuredClone(c.orden)) } : c)),
                 cursor: String(cursor),
                 hayMas: false,
                 plantillas: structuredClone(api.plantillas),

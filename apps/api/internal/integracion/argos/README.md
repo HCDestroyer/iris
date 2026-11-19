@@ -378,26 +378,43 @@ partes (ficha, ticket, orden, comercial y app de campo).
   `servidor_pppoe_id`, `excepciones`, `costo_override`, `suspension_manual_motivo` y `externo` no
   tienen campo: el decodificador los descarta y nunca se guardan, registran ni salen por la API.
 - **Precio.** `precio_mensual` (numeric) y `moneda` van juntos o son null (Argos anterior a 1.18.0: no
-  se muestra ni se calcula; nunca «Q0»). Se refresca con la ficha (más de 24 h), con
-  `servicio.config_cambiada` (cualquier `campos[]`, también `precio`) y con `catalogo.cambiado` de un
-  plan con `precio` en `campos[]`: relee `GET /servicios?plan_id=` (paginado) y actualiza solo los
-  servicios de ese plan que Iris ya tiene (`CambiarPrecioServicio`).
+  se muestra ni se calcula; nunca «Q0»). Un precio NaN, infinito, negativo o fuera de numeric(12,2)
+  queda null. Se refresca con la ficha (más de 24 h), con `servicio.config_cambiada` (cualquier
+  `campos[]`, también `precio`) y con `catalogo.cambiado` de un plan con `precio` en `campos[]`, que
+  encola `ArgsPreciosPlan` (job único por conector y plan): relee `GET /servicios?plan_id=`
+  (paginado) y actualiza solo los servicios de ese plan que Iris ya tiene. «Lista demasiado larga»
+  (más de 50 páginas) cancela el job sin reintentos.
 - **Permisos (`visibilidad.go`).** `servicios.ver_red` (router, IP, prefijos, `user_ppp`, tipo de
   conexión, planta) y `servicios.ver_ubicacion` (dirección, referencia, coordenadas, contacto en
-  sitio). Sin el permiso **el servidor omite** el campo (`omitempty`): ficha, búsqueda con servicios,
-  copia de ticket u orden (`CopiaDe`: sin ubicación, la dirección que aplica vuelve a ser la del
-  cliente), ficha de la conversación (`ServiciosVisibles`) y paquete de la app de campo. Quien solo
-  ve sus órdenes (`ordenes.ver_propias` sin `ordenes.ver`, el técnico) recibe esos datos solo de los
-  servicios de las órdenes asignadas a él. El alcance por zona o cuadrilla de estos dos permisos no
-  se usa (se mira si el actor los tiene). Plan, zona, estado y precio los ve cualquiera con
-  `clientes.ver`.
+  sitio); todo exige además `clientes.ver`. Sin el permiso **el servidor omite** el campo
+  (`omitempty`): ficha, búsqueda con servicios, copia de ticket u orden (`CopiaDe`: sin ubicación, la
+  dirección que aplica vuelve a ser la del cliente), ficha de la conversación (`ServiciosVisibles`,
+  sin servicios si falta `clientes.ver`; una conversación sin empresa, habiendo empresas, no trae al
+  cliente), paquete y cambios de la app de campo, y `GET /clientes/resolver-ip` (exige
+  `servicios.ver_red`; fuera de su alcance, 404 como una IP sin cliente). Un servicio muestra el dato
+  si el permiso es global, o con alcance de la zona del servicio, o el servicio es de «sus órdenes»;
+  y, si sus órdenes están acotadas (`ordenes.ver_propias`, u `ordenes.ver` con alcance de zona o
+  cuadrilla, sin `ordenes.ver` global), solo los servicios de sus órdenes. «Sus órdenes»: de la
+  empresa activa, abiertas o terminadas (cerrada, fallida) hace menos de 24 h, nunca canceladas;
+  asignadas a él o en una zona o cuadrilla de su `ordenes.ver` (criterio de `campo/comun.go`). Una
+  orden reasignada deja de ser suya. Plan, zona, estado y precio los ve cualquiera con `clientes.ver`.
+- **Límite conocido de `servicios.ver_ubicacion`.** Quita la dirección y las coordenadas **del
+  servicio**, pero un rol sin él puede seguir viendo una dirección por otros caminos que no son de
+  este permiso: la dirección propia de la orden (su copia, con los permisos de la orden, §2.4) y la
+  dirección del cliente (domicilio en la ficha del cliente, con `clientes.ver`). Si el servicio se
+  instaló en el domicilio del cliente, esa dirección se ve. Es una decisión del contrato, no un
+  descuido; cambiarla es otro pedido.
+- **App de campo.** `packages/sync` aplica la misma ventana: una orden que sale del paquete, reasignada,
+  cancelada o terminada hace más de 24 h pierde en el teléfono (IndexedDB o SQLite) el router, la IP,
+  la dirección y las coordenadas del servicio, aunque siga guardada por su cola.
 - **Roles.** Base: `ver_red` a admin, supervisor, soporte y técnico; `ver_ubicacion` a admin,
   supervisor, despacho, soporte, ventas y técnico (caja y lectura dejan de ver la ubicación; los
   roles de integración, ninguno). La migración `20261119024424` da los dos a los **roles propios**
   que tenían `clientes.ver`, una sola vez, con una fila `roles.permisos_agregados_por_migracion` en
-  `auditoria.acciones` por rol (el admin se los quita si quiere).
+  `auditoria.acciones` y un `rol.actualizado` (`permisos_agregados[]`) en el outbox por rol, en la
+  misma transacción (el admin se los quita si quiere).
 - **Auditoría.** La lectura (`clientes.ver`, `clientes.buscar`) anota `servicios_ver_red` y
   `servicios_ver_ubicacion` con los ids de los servicios cuyos datos salieron; nunca los valores.
 - **Número del servicio.** `numero` (1, 2, 3…, por id, en la lista de la empresa activa): «Servicio 2»
   en el panel y en el asistente.
-- No emite ni consume eventos nuevos.
+- No emite ni consume eventos nuevos (la migración emite `rol.actualizado`, que ya existe).
