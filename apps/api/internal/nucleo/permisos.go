@@ -28,7 +28,7 @@ const (
 	PermTokensCrear        Permiso = "tokens.crear"
 	PermTokensRevocar      Permiso = "tokens.revocar" //nolint:gosec // nombre de permiso, no una credencial
 	// PermTokensEliminar: borrado lógico de un token revocado o vencido (POST /tokens/{id}/eliminar).
-	PermTokensEliminar Permiso = "tokens.eliminar" //nolint:gosec // nombre de permiso, no una credencial
+	PermTokensEliminar Permiso = "tokens.eliminar"
 
 	// Roles propios (los base no se editan ni se desactivan) y su asignación con alcance.
 	PermRolesCrear             Permiso = "roles.crear"
