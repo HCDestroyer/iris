@@ -13537,8 +13537,13 @@
             "type": "string"
           },
           "cuentas": {
-            "description": "«Enviar cuentas» (contrato con Argos 0.8.0 §7.8): el servidor arma el texto con las cuentas de Argos (GET /conversaciones/{id}/texto-cuentas); va sin texto, plantilla ni adjunto. 422 sin_cuentas_para_enviar si la empresa no tiene cuentas activas en quetzales con titular",
+            "description": "«Enviar cuentas» (contrato con Argos 0.8.0 §7.8): el servidor arma el texto con las cuentas de Argos (GET /conversaciones/{id}/texto-cuentas); va sin texto, plantilla ni adjunto, y con cuentasHash. 422 sin_cuentas_para_enviar si la empresa no tiene cuentas activas en quetzales con titular; 409 cuentas_cambiaron si el texto ya no es el que se mostró o la conversación cambió de empresa",
             "type": "boolean"
+          },
+          "cuentasHash": {
+            "description": "Con cuentas: el hash del texto que se mostró (TextoCuentasConv.hash). Lo que se ve es lo que se envía",
+            "maxLength": 64,
+            "type": "string"
           },
           "id": {
             "description": "uuid v7 generado en el cliente: el servidor es idempotente por él",
@@ -28906,6 +28911,18 @@
             "format": "int64",
             "type": "integer"
           },
+          "hash": {
+            "description": "Hash del texto: se manda como cuentasHash al enviar (lo que se ve es lo que se envía)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sinLugar": {
+            "description": "Cuentas que se podían dar pero no van porque el texto lleva como mucho 8",
+            "format": "int64",
+            "type": "integer"
+          },
           "sinTitular": {
             "description": "Cuentas activas en quetzales de la empresa que no van porque Argos no tiene su titular (§10.2, punto 14): el admin lo escribe en Argos",
             "format": "int64",
@@ -28930,6 +28947,8 @@
         "required": [
           "texto",
           "cuentas",
+          "sinLugar",
+          "hash",
           "sinTitular",
           "sincronizadoEn"
         ],

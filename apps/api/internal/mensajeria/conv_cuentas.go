@@ -84,9 +84,25 @@ func nuevoAlcanceCuentas(accion string, permiso nucleo.Permiso) *auditoria.Caso[
 }
 
 // cuentaParaBoleta: la cuenta recibe depósitos de esa empresa (activa, suya y en quetzales). Falla
-// cerrado: una cuenta sin empresa_id o de otra empresa no se ofrece ni se acepta.
+// cerrado: una cuenta sin empresa_id, de otra empresa o sin moneda no se ofrece ni se acepta.
 func cuentaParaBoleta(c argos.CuentaBancariaArgos, empresa int64) bool {
-	return c.RecibeDe(empresa) && (c.Moneda == "" || c.Moneda == "GTQ")
+	return c.RecibeDe(empresa) && c.Moneda == "GTQ"
+}
+
+// nombreCuentaModelo: cómo ve el modelo una cuenta: banco, tipo y los últimos 4 dígitos. Nunca el
+// alias (texto libre de la empresa) ni el titular.
+func nombreCuentaModelo(c argos.CuentaBancariaArgos) string {
+	n := datoCuenta(c.Banco, 60)
+	if c.Tipo != nil {
+		n += " " + *c.Tipo
+	}
+	if d := soloDigitos(c.Numero); d != "" {
+		if len(d) > 4 {
+			d = d[len(d)-4:]
+		}
+		n += " …" + d
+	}
+	return strings.TrimSpace(n)
 }
 
 // cuentaParaOfrecer: además tiene titular (§10.2, punto 14: decirle a un cliente dónde depositar sin

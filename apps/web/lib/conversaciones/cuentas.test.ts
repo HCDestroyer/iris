@@ -29,6 +29,7 @@ describe("cuentas bancarias de Argos (contrato 0.8.0 §7.8)", () => {
         expect(textoErrorCuentas(e("sin_cuentas_para_enviar"))).toContain("falta el titular");
         expect(textoErrorCuentas(e("fuera_de_ventana"))).toContain("24 h");
         expect(textoErrorCuentas(e("argos_no_disponible", 503))).toContain("Argos no responde");
+        expect(textoErrorCuentas(e("cuentas_cambiaron", 409))).toBe("Las cuentas cambiaron, revisa de nuevo antes de enviarlas.");
     });
 
     it("aviso al admin de textos con números de cuenta", () => {

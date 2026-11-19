@@ -83,9 +83,10 @@ func nuevaRevisionCuentas() *auditoria.Caso[struct{}, RevisionCuentas] {
 			}
 			out := RevisionCuentas{Data: []TextoConCuenta{}}
 			consultas := []struct{ tipo, sql string }{
-				{"manual", `SELECT id, titulo, cuerpo FROM mensajeria.manuales WHERE activo AND ($1::bigint = 0 OR empresa_id IS NULL OR empresa_id = $1) ORDER BY id`},
-				{"respuesta_rapida", `SELECT id, atajo, texto FROM mensajeria.respuestas_rapidas WHERE activa AND ($1::bigint = 0 OR empresa_id IS NULL OR empresa_id = $1) ORDER BY id`},
-				{"fuera_de_horario", `SELECT id, nombre, coalesce(fuera_horario->>'mensaje', '') FROM mensajeria.canales WHERE ($1::bigint = 0 OR empresa_id IS NULL OR empresa_id = $1) ORDER BY id`},
+				// Acotado: los primeros 20 000 caracteres de cada texto y hasta 500 filas por tipo.
+				{"manual", `SELECT id, titulo, left(cuerpo, 20000) FROM mensajeria.manuales WHERE activo AND ($1::bigint = 0 OR empresa_id IS NULL OR empresa_id = $1) ORDER BY id LIMIT 500`},
+				{"respuesta_rapida", `SELECT id, atajo, left(texto, 20000) FROM mensajeria.respuestas_rapidas WHERE activa AND ($1::bigint = 0 OR empresa_id IS NULL OR empresa_id = $1) ORDER BY id LIMIT 500`},
+				{"fuera_de_horario", `SELECT id, nombre, left(coalesce(fuera_horario->>'mensaje', ''), 20000) FROM mensajeria.canales WHERE ($1::bigint = 0 OR empresa_id IS NULL OR empresa_id = $1) ORDER BY id LIMIT 500`},
 			}
 			for _, c := range consultas {
 				filas, err := t.Query(ctx, c.sql, empresa)

@@ -222,6 +222,8 @@ type Modulo struct {
 	// antesDeLeerFlujo: solo pruebas (en los flujos SSE del chat y la bandeja, entre la autorización
 	// que da el alcance y la lectura del feed; recibe el usuario del flujo). Se fija antes de abrirlos.
 	antesDeLeerFlujo func(usuario int64)
+	// trasPrepararCuentas: pruebas; corre entre armar el texto de «Enviar cuentas» y la transacción.
+	trasPrepararCuentas func(empresa *int64)
 	// alRevalidarFlujo: solo pruebas (cada revalidación de un flujo SSE del chat o la bandeja, con el
 	// usuario del flujo y dónde: pagina, latido o toque). Se fija antes de abrirlos.
 	alRevalidarFlujo func(usuario int64, donde string)

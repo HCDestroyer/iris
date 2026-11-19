@@ -1206,14 +1206,22 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 		texto = reMarcaSaldo.ReplaceAllString(texto, "Q "+*t.saldo)
 		t.conSaldo = true
 	}
+	// Un número de cuenta nunca lo escribe el modelo (§7.8): ni uno que parezca de cuenta ni 7 o más
+	// dígitos seguidos (falla cerrado: un teléfono o un id largo también pasan a una persona).
+	if pareceNumeroDeCuenta(texto) {
+		return "", false
+	}
 	// Las cuentas bancarias solo las pone el servidor, y solo si este turno las leyó para un número
-	// registrado (§7.8). Una sola vez por mensaje.
+	// registrado (§7.8). Una sola vez por mensaje, y el mensaje entero tiene que caber.
 	if n := len(reMarcaCuentas.FindAllStringIndex(texto, -1)); n > 0 {
 		if n > 1 || t.textoCuentas == nil || !t.verificado {
 			return "", false
 		}
 		texto = reMarcaCuentas.ReplaceAllLiteralString(texto, "\n\n"+*t.textoCuentas+"\n\n")
 		texto = strings.TrimSpace(reLineasVacias.ReplaceAllString(texto, "\n\n"))
+		if len([]rune(texto)) > MaxLargoTextoCuentas {
+			return "", false
+		}
 	}
 	if strings.Contains(texto, "{{") {
 		return "", false
@@ -1223,6 +1231,14 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 
 // reLineasVacias: tres o más saltos de línea seguidos (al insertar el texto de las cuentas).
 var reLineasVacias = regexp.MustCompile(`\n{3,}`)
+
+// reSieteDigitos: 7 o más dígitos seguidos.
+var reSieteDigitos = regexp.MustCompile(`\d{7,}`)
+
+// pareceNumeroDeCuenta: el texto del modelo trae algo con forma de número de cuenta (§7.8).
+func pareceNumeroDeCuenta(texto string) bool {
+	return MotivoNumeroCuenta(texto, nil) != "" || reSieteDigitos.MatchString(texto)
+}
 
 // presentar arma el mensaje final: el primero se presenta como asistente virtual de la empresa, y si
 // el cliente preguntó si habla con una persona, dice la verdad aunque el modelo no lo haya dicho.

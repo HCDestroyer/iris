@@ -314,3 +314,16 @@ func FijarPlazoMedidas(d time.Duration) func() {
 	plazoMedidas = d
 	return func() { plazoMedidas = antes }
 }
+
+// FijarTrasPrepararCuentas: corre entre armar el texto de «Enviar cuentas» y la transacción (la
+// empresa con que se armó, para simular que la conversación cambió de empresa en medio).
+func (m *Modulo) FijarTrasPrepararCuentas(f func(empresa *int64)) { m.trasPrepararCuentas = f }
+
+// TextoAutonomoConCuentas: las reglas de envío con el texto de las cuentas del turno (marca {{cuentas}}).
+func TextoAutonomoConCuentas(texto string, textoCuentas *string, verificado bool) (string, bool) {
+	t := &turnoIA{hechas: map[string]bool{}, textoCuentas: textoCuentas, verificado: verificado}
+	return validarMensajeAutonomo(t, texto)
+}
+
+// NombreCuentaModelo: cómo ve el modelo una cuenta.
+var NombreCuentaModelo = nombreCuentaModelo

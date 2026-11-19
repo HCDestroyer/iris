@@ -13062,8 +13062,10 @@ export interface components {
         EntradaResponder: {
             /** @description Adjunto completo de esta conversación (POST /api/v1/adjuntos, entidad conversacion) */
             adjuntoId?: string;
-            /** @description «Enviar cuentas» (contrato con Argos 0.8.0 §7.8): el servidor arma el texto con las cuentas de Argos (GET /conversaciones/{id}/texto-cuentas); va sin texto, plantilla ni adjunto. 422 sin_cuentas_para_enviar si la empresa no tiene cuentas activas en quetzales con titular */
+            /** @description «Enviar cuentas» (contrato con Argos 0.8.0 §7.8): el servidor arma el texto con las cuentas de Argos (GET /conversaciones/{id}/texto-cuentas); va sin texto, plantilla ni adjunto, y con cuentasHash. 422 sin_cuentas_para_enviar si la empresa no tiene cuentas activas en quetzales con titular; 409 cuentas_cambiaron si el texto ya no es el que se mostró o la conversación cambió de empresa */
             cuentas?: boolean;
+            /** @description Con cuentas: el hash del texto que se mostró (TextoCuentasConv.hash). Lo que se ve es lo que se envía */
+            cuentasHash?: string;
             /** @description uuid v7 generado en el cliente: el servidor es idempotente por él */
             id: string;
             /** @description Plantilla aprobada en el número (la única opción fuera de la ventana de 24 h) */
@@ -18154,6 +18156,13 @@ export interface components {
              * @description Cuántas cuentas lleva el texto
              */
             cuentas: number;
+            /** @description Hash del texto: se manda como cuentasHash al enviar (lo que se ve es lo que se envía) */
+            hash: string | null;
+            /**
+             * Format: int64
+             * @description Cuentas que se podían dar pero no van porque el texto lleva como mucho 8
+             */
+            sinLugar: number;
             /**
              * Format: int64
              * @description Cuentas activas en quetzales de la empresa que no van porque Argos no tiene su titular (§10.2, punto 14): el admin lo escribe en Argos

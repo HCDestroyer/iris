@@ -36,6 +36,9 @@ export const CUENTAS_BANCARIAS: CuentaBancaria[] = [
     { id: 3, nombre: "BAM …5678", banco: "BAM", alias: "", numero: "90-1234567-8", moneda: "GTQ", titular: null, tipo: null, seOfrece: false },
 ];
 
+/** Hash del texto de las cuentas (el servidor usa SHA-256; aquí basta con que sea estable). */
+export const hashCuentasFalso = (texto: string) => `h${texto.length}-${[...texto].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7)}`;
+
 /** El texto fijo de «Enviar cuentas», como lo arma el servidor (conv_enviar_cuentas.go). */
 export function textoCuentasFalso(cuentas: readonly CuentaBancaria[]): string | null {
     const van = cuentas.filter((c) => c.seOfrece);
@@ -384,8 +387,11 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
             if (accion === "mensajes") return (await json(route, { data: mensajes.get(c.id) ?? [], nextCursor: null }), true);
             if (accion === "texto-cuentas") {
                 if (!puede("conversaciones.responder")) return (await prohibido(), true);
+                const texto = textoCuentasFalso(cuentasBancarias);
                 const t: Schema<"TextoCuentasConv"> = {
-                    texto: textoCuentasFalso(cuentasBancarias),
+                    texto,
+                    hash: texto ? hashCuentasFalso(texto) : null,
+                    sinLugar: 0,
                     cuentas: cuentasBancarias.filter((k) => k.seOfrece).length,
                     sinTitular: cuentasBancarias.filter((k) => !k.seOfrece).length,
                     sincronizadoEn: new Date().toISOString(),
@@ -557,6 +563,7 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                     if (cuerpo.texto || cuerpo.plantilla || cuerpo.adjuntoId) return (await problema(route, P("validacion", 422, "Datos inválidos", { errors: [{ field: "cuentas", message: "El texto de las cuentas va solo", rule: "exclusivo" }] })), true);
                     const texto = textoCuentasFalso(cuentasBancarias);
                     if (!texto) return (await problema(route, P("sin_cuentas_para_enviar", 422, "No se puede")), true);
+                    if (cuerpo.cuentasHash !== hashCuentasFalso(texto)) return (await problema(route, P("cuentas_cambiaron", 409, "Las cuentas cambiaron")), true);
                     cuerpo.texto = texto;
                     enviadosCuentas.push(id);
                 }

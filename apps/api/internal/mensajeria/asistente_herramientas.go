@@ -593,7 +593,7 @@ func (m *Modulo) herrCuentasBoleta(ctx context.Context, t *turnoIA, l LlamadaIA,
 		if !cuentaParaBoleta(k, t.empresa) {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("- cuenta id %d: %s\n", k.ID, limpiarDato(k.Nombre, 80)))
+		b.WriteString(fmt.Sprintf("- cuenta id %d: %s\n", k.ID, limpiarDato(nombreCuentaModelo(k), 80)))
 		if cuentaParaOfrecer(k, t.empresa) {
 			ofrecibles = append(ofrecibles, k)
 		}

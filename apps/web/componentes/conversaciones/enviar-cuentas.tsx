@@ -21,6 +21,8 @@ export function textoErrorCuentas(e: unknown): string {
     switch (e.codigo) {
         case "fuera_de_ventana":
             return "Pasaron más de 24 h desde el último mensaje del cliente: solo se le pueden mandar plantillas.";
+        case "cuentas_cambiaron":
+            return "Las cuentas cambiaron, revisa de nuevo antes de enviarlas.";
         case "sin_cuentas_para_enviar":
             return "No hay cuentas para enviar: en Argos falta el titular de las cuentas o no hay cuentas activas en quetzales.";
         case "argos_no_disponible":
@@ -74,7 +76,7 @@ export function DialogoEnviarCuentas({ conv, identidad, cerrar, alEnviado }: { c
             const m = await resolver(
                 api().POST("/api/v1/mensajeria/conversaciones/{id}/mensajes", {
                     params: { path: { id: conv.id }, header: cabeceraIdem(id) },
-                    body: { id, cuentas: true },
+                    body: { id, cuentas: true, cuentasHash: datos?.hash ?? "" },
                 }),
             );
             envio.renovar();
@@ -84,6 +86,8 @@ export function DialogoEnviarCuentas({ conv, identidad, cerrar, alEnviado }: { c
         } catch (e) {
             envio.trasError(e);
             setError(e);
+            // Lo que se ve es lo que se envía: si cambiaron, se vuelve a mostrar el texto de ahora.
+            if (e instanceof ErrorApi && e.codigo === "cuentas_cambiaron") void lectura.refrescar();
         } finally {
             setEnviando(false);
         }

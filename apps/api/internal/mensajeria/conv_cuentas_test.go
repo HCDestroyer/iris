@@ -395,12 +395,12 @@ func TestAutonomoCuentasDeLaEmpresa(t *testing.T) {
 	}
 	// Lo que leyó el modelo: las dos cuentas de la empresa con su nombre, y ninguna de las otras.
 	cuerpos := strings.Join(x.ia.cuerposAutonomos(), "\n")
-	for _, s := range []string{"cuenta id 3: Monetaria", "cuenta id 5: Banrural …9876"} {
+	for _, s := range []string{"cuenta id 3: Banco Industrial …4567", "cuenta id 5: Banrural …9876"} {
 		if !strings.Contains(cuerpos, s) {
 			t.Fatalf("falta %q en lo que leyó el asistente:\n%s", s, cuerpos)
 		}
 	}
-	for _, s := range []string{"cuenta id 4", "cuenta id 8", "cuenta id 9", "cuenta id 10", "De otra empresa", "Sin empresa", "Inactiva"} {
+	for _, s := range []string{"cuenta id 4", "cuenta id 8", "cuenta id 9", "cuenta id 10", "De otra empresa", "Sin empresa", "Inactiva", "cuenta id 3: Monetaria", "000-123456-7"} {
 		if strings.Contains(cuerpos, s) {
 			t.Fatalf("el asistente no debía ver %q", s)
 		}
