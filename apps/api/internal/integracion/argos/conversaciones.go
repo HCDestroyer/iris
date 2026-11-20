@@ -143,22 +143,30 @@ func (m *Modulo) RegistrarComprobante(ctx context.Context, a AtencionIris, in En
 	return r, err
 }
 
-// CuentaBancariaArgos es una cuenta de la empresa que recibe depósitos (GET /cuentas-bancarias).
-// Argos manda id, empresa_id, banco_id, banco_nombre, numero, alias, moneda y activa (más campos
-// contables que Iris no usa). No manda «nombre» ni «banco»: Nombre se arma al leer.
+// CuentaBancariaArgos es una cuenta de la empresa que recibe depósitos (GET /cuentas-bancarias y
+// GET /cuentas-bancarias/:id, §7.8). Argos manda id, empresa_id, banco_id, banco_nombre, numero,
+// alias, moneda y activa, y desde 0.8.0 titular y tipo (más campos contables que Iris no guarda). No
+// manda «nombre» ni «banco»: Nombre se arma al leer.
 type CuentaBancariaArgos struct {
 	ID int64 `json:"id"`
 	// EmpresaID: la empresa dueña. Argos siempre la manda; sin ella la cuenta no se ofrece.
 	EmpresaID *int64 `json:"empresa_id"`
+	BancoID   *int64 `json:"banco_id"`
 	// Banco: el nombre del banco (banco_nombre).
 	Banco  string `json:"banco_nombre"`
 	Numero string `json:"numero"`
 	// Alias: el nombre que la empresa le puso a la cuenta; puede venir vacío.
-	Alias  string `json:"alias"`
-	Moneda string `json:"moneda"`
-	Activa bool   `json:"activa"`
+	Alias string `json:"alias"`
+	// Titular: a nombre de quién está (0.8.0); nil con un Argos anterior o en una cuenta vieja.
+	Titular *string `json:"titular"`
+	// Tipo: monetaria o ahorro (0.8.0); nil si no vino.
+	Tipo   *string `json:"tipo"`
+	Moneda string  `json:"moneda"`
+	Activa bool    `json:"activa"`
 	// Nombre: el alias o, si viene vacío, el banco y los últimos 4 dígitos del número.
 	Nombre string `json:"-"`
+	// SincronizadoEn: cuándo se leyó de Argos (instantánea).
+	SincronizadoEn time.Time `json:"-"`
 }
 
 // UnmarshalJSON lee la cuenta y arma Nombre.
@@ -169,12 +177,17 @@ func (c *CuentaBancariaArgos) UnmarshalJSON(crudo []byte) error {
 		return err
 	}
 	*c = CuentaBancariaArgos(p)
+	c.armarNombre()
+	return nil
+}
+
+// armarNombre: el alias o, sin alias, el banco y los últimos 4 dígitos.
+func (c *CuentaBancariaArgos) armarNombre() {
 	c.Alias, c.Banco = strings.TrimSpace(c.Alias), strings.TrimSpace(c.Banco)
 	c.Nombre = c.Alias
 	if c.Nombre == "" {
 		c.Nombre = strings.TrimSpace(c.Banco + " " + ultimosDigitos(c.Numero, 4))
 	}
-	return nil
 }
 
 // ultimosDigitos: «…1234» con los últimos n dígitos del número (vacío si no tiene dígitos).
@@ -204,17 +217,6 @@ func (c CuentaBancariaArgos) RecibeDe(empresa int64) bool {
 type BancoArgos struct {
 	ID     int64  `json:"id"`
 	Nombre string `json:"nombre"`
-}
-
-// CuentasBancarias: GET /cuentas-bancarias?activa=true (§7.2, cuentas_bancarias.ver). Argos responde
-// un arreglo plano sin paginar (ignora limit): no se manda.
-func (m *Modulo) CuentasBancarias(ctx context.Context, a AtencionIris) ([]CuentaBancariaArgos, error) {
-	cli, err := m.clienteAtencion(ctx, a)
-	if err != nil {
-		return nil, err
-	}
-	p, err := conector.ListaDe[CuentaBancariaArgos](ctx, cli.Cliente, "/cuentas-bancarias", url.Values{"activa": {"true"}})
-	return p.Data, err
 }
 
 // Bancos: GET /bancos (§7.2).

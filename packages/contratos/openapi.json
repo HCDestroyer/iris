@@ -6487,7 +6487,12 @@
       "CuentaBancaria": {
         "additionalProperties": false,
         "properties": {
+          "alias": {
+            "description": "El nombre que la empresa le puso en Argos; puede venir vacío",
+            "type": "string"
+          },
           "banco": {
+            "description": "Nombre del banco (banco_nombre de Argos)",
             "type": "string"
           },
           "id": {
@@ -6498,18 +6503,45 @@
             "type": "string"
           },
           "nombre": {
+            "description": "El alias o, sin alias, el banco y los últimos 4 dígitos",
             "type": "string"
           },
           "numero": {
             "type": "string"
+          },
+          "seOfrece": {
+            "description": "Tiene titular: «Enviar cuentas» y el asistente se la pueden dar al cliente. Sin titular solo sirve para registrar una boleta ya depositada (§10.2, punto 14)",
+            "type": "boolean"
+          },
+          "tipo": {
+            "description": "null si Argos no lo informó",
+            "enum": [
+              "monetaria",
+              "ahorro"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "titular": {
+            "description": "A nombre de quién está la cuenta; null si Argos no lo tiene",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "id",
           "nombre",
           "banco",
+          "alias",
           "numero",
-          "moneda"
+          "moneda",
+          "titular",
+          "tipo",
+          "seOfrece"
         ],
         "type": "object"
       },
@@ -13799,6 +13831,15 @@
             "description": "Adjunto completo de esta conversación (POST /api/v1/adjuntos, entidad conversacion)",
             "type": "string"
           },
+          "cuentas": {
+            "description": "«Enviar cuentas» (contrato con Argos 0.8.0 §7.8): el servidor arma el texto con las cuentas de Argos (GET /conversaciones/{id}/texto-cuentas); va sin texto, plantilla ni adjunto, y con cuentasHash. 422 sin_cuentas_para_enviar si la empresa no tiene cuentas activas en quetzales con titular; 409 cuentas_cambiaron si el texto ya no es el que se mostró o la conversación cambió de empresa",
+            "type": "boolean"
+          },
+          "cuentasHash": {
+            "description": "Con cuentas: el hash del texto que se mostró (TextoCuentasConv.hash). Lo que se ve es lo que se envía",
+            "maxLength": 64,
+            "type": "string"
+          },
           "id": {
             "description": "uuid v7 generado en el cliente: el servidor es idempotente por él",
             "type": "string"
@@ -17734,11 +17775,20 @@
               "string",
               "null"
             ]
+          },
+          "sincronizadoEn": {
+            "description": "Cuándo se leyó de Argos la lista de cuentas de la empresa (null si la conversación no tiene empresa)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
           "data",
-          "nextCursor"
+          "nextCursor",
+          "sincronizadoEn"
         ],
         "type": "object"
       },
@@ -27161,6 +27211,24 @@
         ],
         "type": "object"
       },
+      "RevisionCuentas": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/TextoConCuenta"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
       "Rol": {
         "additionalProperties": false,
         "properties": {
@@ -29542,6 +29610,95 @@
           "original",
           "e164",
           "mostrar"
+        ],
+        "type": "object"
+      },
+      "TextoConCuenta": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Id del manual, de la respuesta rápida o del número de WhatsApp",
+            "format": "int64",
+            "type": "integer"
+          },
+          "motivo": {
+            "description": "cuenta_de_argos: trae el número de una cuenta de Argos; parece_cuenta: un número largo junto a «cuenta», «depósito» o un banco",
+            "enum": [
+              "cuenta_de_argos",
+              "parece_cuenta"
+            ],
+            "type": "string"
+          },
+          "tipo": {
+            "description": "Dónde está: un manual, una respuesta rápida o la respuesta de fuera de horario de un número",
+            "enum": [
+              "manual",
+              "respuesta_rapida",
+              "fuera_de_horario"
+            ],
+            "type": "string"
+          },
+          "titulo": {
+            "description": "El título del manual, el atajo de la respuesta o el nombre del número",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "id",
+          "titulo",
+          "motivo"
+        ],
+        "type": "object"
+      },
+      "TextoCuentasConv": {
+        "additionalProperties": false,
+        "properties": {
+          "cuentas": {
+            "description": "Cuántas cuentas lleva el texto",
+            "format": "int64",
+            "type": "integer"
+          },
+          "hash": {
+            "description": "Hash del texto: se manda como cuentasHash al enviar (lo que se ve es lo que se envía)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sinLugar": {
+            "description": "Cuentas que se podían dar pero no van porque el texto lleva como mucho 8",
+            "format": "int64",
+            "type": "integer"
+          },
+          "sinTitular": {
+            "description": "Cuentas activas en quetzales de la empresa que no van porque Argos no tiene su titular (§10.2, punto 14): el admin lo escribe en Argos",
+            "format": "int64",
+            "type": "integer"
+          },
+          "sincronizadoEn": {
+            "description": "Cuándo se leyó de Argos la lista de cuentas de la empresa",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "texto": {
+            "description": "El texto fijo con las cuentas que se le pueden dar al cliente; null si no hay ninguna",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "texto",
+          "cuentas",
+          "sinLugar",
+          "hash",
+          "sinTitular",
+          "sincronizadoEn"
         ],
         "type": "object"
       },
@@ -56262,6 +56419,98 @@
         "x-permiso": "conversaciones.sugerencias"
       }
     },
+    "/api/v1/mensajeria/conversaciones/{id}/texto-cuentas": {
+      "get": {
+        "description": "Permiso: `conversaciones.responder`.",
+        "operationId": "textoCuentasConversacion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TextoCuentasConv"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Texto de «Enviar cuentas» (cuentas de Argos, §7.8)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.responder"
+      }
+    },
     "/api/v1/mensajeria/conversaciones/{id}/tomar": {
       "post": {
         "description": "Permiso: `conversaciones.tomar`.",
@@ -61019,6 +61268,77 @@
           }
         ],
         "summary": "Desactivar una respuesta rápida",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "conversaciones.configurar"
+      }
+    },
+    "/api/v1/mensajeria/revision-cuentas": {
+      "get": {
+        "description": "Permiso: `conversaciones.configurar`. Manuales, respuestas rápidas y respuestas de fuera de horario activos que parecen llevar un número de cuenta bancaria. Solo avisa: las cuentas salen de Argos con «Enviar cuentas». Nunca devuelve el número.",
+        "operationId": "revisionCuentasMensajeria",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevisionCuentas"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Textos con números de cuenta escritos a mano (§10.3 del contrato con Argos)",
         "tags": [
           "mensajeria"
         ],

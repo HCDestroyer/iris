@@ -94,6 +94,7 @@ func (m *Modulo) RegistrarWorkers(workers *river.Workers, bd nucleo.BD) {
 	river.AddWorker(workers, &trabajadorEntrante{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorCatalogos{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorPreciosPlan{m: m, bd: bd})
+	river.AddWorker(workers, &trabajadorCuentas{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorContrato{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorRevisarContrato{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorPrimeraSincronizacion{m: m, bd: bd})
@@ -117,5 +118,9 @@ func TrabajosPeriodicos(intervalo time.Duration) []*river.PeriodicJob {
 		&river.PeriodicJobOpts{RunOnStart: true}),
 		river.NewPeriodicJob(river.PeriodicInterval(intervalo),
 			func() (river.JobArgs, *river.InsertOpts) { return ArgsRevisarContrato{}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true}),
+		// 0.8.0 §7.8: relectura de las cuentas bancarias (la instantánea nunca pasa de 24 h).
+		river.NewPeriodicJob(river.PeriodicInterval(intervalo),
+			func() (river.JobArgs, *river.InsertOpts) { return ArgsSincronizarCuentas{}, nil },
 			&river.PeriodicJobOpts{RunOnStart: true})}
 }
