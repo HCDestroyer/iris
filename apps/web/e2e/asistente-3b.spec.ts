@@ -291,7 +291,12 @@ test.describe("Asistente 3b › bandeja", () => {
         await expect(indicador(page)).toHaveAttribute("data-verificacion", "fuerte");
         await expect(indicador(page)).toContainText("Identidad verificada");
         const evento = page.getByRole("log", { name: "Mensajes" }).locator('[data-evento="reconexion_pedida"]');
-        await expect(evento).toContainText("Reconexión temporal: Argos la aceptó (la pidió Asistente de IA)");
+        // B4: con el motivo y hasta cuándo vale (hora de Guatemala), nunca una hora de corte.
+        await expect(evento).toContainText("Reconexión temporal: Argos la aceptó · nadie de caja disponible · vale hasta");
+        await expect(evento).toContainText("00:00 (la pidió Asistente de IA)");
+        const fin = page.getByRole("log", { name: "Mensajes" }).locator('[data-evento="reconexion_actualizada"]');
+        await expect(fin).toContainText("Reconexión temporal cancelada: caja rechazó el comprobante · nadie de caja disponible");
+        await expect(page.getByRole("log", { name: "Mensajes" })).not.toContainText(/se corta|medianoche/i);
         // Cada intento de verificar la identidad, con texto fijo por resultado; el escudo con la marca solo si quedó verificada.
         const intento = (detalle: string) => page.getByRole("log", { name: "Mensajes" }).locator(`[data-evento="identidad_verificada"][data-detalle="${detalle}"]`);
         await expect(intento("coincide")).toContainText("Asistente de IA verificó la identidad del cliente");

@@ -311,7 +311,7 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 				if in.Plantilla.Variables == nil {
 					in.Plantilla.Variables = map[string]string{}
 				}
-				if err := p.validarVariables(in.Plantilla.Variables); err != nil {
+				if err := p.validarVariables(in.Plantilla.Variables, m.ahora()); err != nil {
 					return MensajeConvEnviado{}, err
 				}
 				if err := permisoPlantilla(ctx, q, c, !ventana.Abierta); err != nil {

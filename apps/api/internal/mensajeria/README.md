@@ -205,8 +205,49 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
 
 Emite (detalle en `contratos/eventos.md`, «Conversaciones con clientes»): `conversacion.*`,
 `contacto_iris.*` (también `contacto_iris.consentimiento`), `cola.*`, `etiqueta.*`, `respuesta_rapida.*`, `boleta.*`, `promesa.solicitada`.
-Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «Aprobar y rechazar boletas»). Los
-webhooks `promesa.*` quedan para la fase 1.1.
+Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «Aprobar y rechazar boletas») y
+`argos.promesa_cambiada` (webhooks `promesa.*`; ver «Reconexión sin personal de caja»).
+
+### Reconexión sin personal de caja (`conv_reconexion_sin_personal.go`, contrato con Argos 0.8.0 §7.3, B4)
+
+- **Motivo, lo decide el servidor:** fuera del horario hábil, `fuera_de_horario` (como en 0.7.1). En horario
+  hábil, `sin_personal` solo si la empresa lo encendió (`mensajeria.ajustes_reconexion`, apagado de fábrica,
+  `GET /asistente/reconexion` y `POST /asistente/reconexion/actualizar`, permiso `mensajeria.asistente_configurar`,
+  solo admin), el Argos activo informa contrato ≥ 0.8.0 (`argos.SoportaSinPersonal`; `ContratoIris` sigue en
+  0.7.1 hasta que el líder lo suba) y la empresa tiene personas con el rol `caja` pero ninguna disponible en la
+  bandeja en ese momento (`CajaDeEmpresa`: sesión vigente, dentro de su horario y con actividad reciente).
+  Un rol `caja` asignado con alcance de zona o cuadrilla cuenta igual para toda la empresa (la disponibilidad
+  de la bandeja es por empresa, no por zona). `GET /asistente/reconexion` dice además si la acción
+  `reconexion_temporal` está encendida en algún perfil (`accionEncendida`): sin ella no se pide ninguna. Si no,
+  `422 reconexion_no_corresponde` sin llamar a Argos. La herramienta `pedir_reconexion` no lleva argumentos: el
+  cliente ni el modelo pueden elegir el motivo. Verificación fuerte y boleta registrada, siempre.
+- **Auditoría:** el intento (también rechazado) anota el criterio: `fuera_de_horario`, `sin_personal_encendido`,
+  `argos_080`, `caja_total`, `caja_disponibles`; la fila guarda `caja_total` y `caja_disponibles`.
+- **Lo que lee el cliente:** el modelo escribe la marca `{{reconexion}}` y el servidor pone
+  `FraseReconexion` («La reconexión temporal vale hasta las 10:00 de la mañana del jueves 19 de noviembre; su
+  comprobante queda pendiente de revisión»; a las 00:00, «la medianoche del miércoles 18 (00:00 del jueves 19)»).
+  Si falta la marca, la frase se agrega al final. Un texto con «medianoche», una hora de corte («se corta», «se
+  le suspende») o que le pone fecha u hora a la reconexión no se envía. La plantilla `reconexion_temporal` pasa
+  `hasta` a hora de Guatemala con el mismo texto.
+- **Webhooks `promesa.*`:** `argos.promesa_cambiada` → `conversaciones.reconexion_argos` guarda `argos_estado`,
+  `argos_motivo` (el `motivo_reconexion` de Argos), `argos_fin_motivo` y, si sigue activa, `hasta`; deja
+  `reconexion_actualizada` en el hilo y emite `reconexion.actualizada`. Un `vence` pasado o a más de 49 h no
+  se copia a `hasta`; tampoco se cree un `hasta` así en la respuesta de Argos (queda aceptada sin fecha, no
+  se le dice nada al cliente y pasa a una persona). Una reconexión repetida que ya terminó o venció
+  responde `NoVigente` y el asistente no la vuelve a anunciar.
+- **Aviso al cliente de cómo terminó (§7.3 «Cómo termina»):** el final deja `argos_aviso = pendiente`; el
+  mantenimiento del proceso de mensajería (que encola los envíos) manda una sola vez el texto del servidor
+  (`TextoFinReconexion`: cumplida, incumplida, cancelada por comprobante rechazado o vencida sin revisar),
+  sin montos ni hora de corte, solo dentro de la ventana de 24 h. Fuera de la ventana no hay plantilla
+  aprobada para los finales (§6.3), así que queda `sin_aviso` y el final se ve en el hilo. Solo se avisa el
+  final de una reconexión aceptada y con `hasta` (la que Iris anunció), a la misma empresa y el mismo cliente
+  de la reconexión (si la conversación pasó a otra empresa o se desasoció, `sin_aviso`), con el
+  consentimiento de ese cliente. Un error de negocio o un final con más de 24 h cierra el aviso como
+  `sin_aviso` para no bloquear la cola. Candados en el orden de `PedirReconexion`: conversación y después
+  reconexión. Los `promesa.*` de una empresa fuera del alcance del conector se descartan, y los de otro
+  cliente no tocan la reconexión. Emite `reconexion.cliente_avisado`.
+- **Emite:** `reconexion.solicitada` (motivo `sin_personal`), `reconexion.actualizada`, `reconexion.cliente_avisado`,
+  `reconexion.ajustes_cambiados`.
 
 ### Aprobar y rechazar boletas (`boletas_decidir.go`, `boletas_rutas.go`, `boletas.sql`)
 

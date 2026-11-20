@@ -10,6 +10,7 @@ import {
     type ClaveAccion,
     type PerfilAsistente,
 } from "./fase3";
+import { hastaCorto, textoMotivoReconexion } from "./reconexion-presentacion";
 import type { AjustesAsistente, EntradaAjustesAsistente } from "./tipos";
 
 /*
@@ -217,11 +218,41 @@ export function trasFallarRelectura(error: unknown): "detener" | "reintentar" {
  * Texto del mensaje de sistema `reconexion_pedida`: llega cuando Argos ya decidió (`detalle`:
  * aceptada o rechazada). Otro valor no se interpreta.
  */
-export function textoReconexion(actor: string, estado: string | undefined): string {
-    // Lo que decidió Argos va primero: en el teléfono la línea se corta por el final.
-    if (estado === "aceptada") return `Reconexión temporal: Argos la aceptó (la pidió ${actor})`;
-    if (estado === "rechazada") return `Reconexión temporal: Argos no la aceptó (la pidió ${actor})`;
-    return `Reconexión temporal pedida por ${actor}`;
+export function textoReconexion(actor: string, estado: string | undefined, motivo?: string, hasta?: string): string {
+    // Lo que decidió Argos va primero: en el teléfono la línea se corta por el final. El motivo
+    // (0.8.0: fuera de horario o nadie de caja disponible) y, aceptada, hasta cuándo vale.
+    const porque = textoMotivoReconexion(motivo);
+    const cuando = estado === "aceptada" ? hastaCorto(hasta) : null;
+    const extra = `${porque ? ` · ${porque}` : ""}${cuando ? ` · vale hasta ${cuando}` : ""}`;
+    if (estado === "aceptada") return `Reconexión temporal: Argos la aceptó${extra} (la pidió ${actor})`;
+    if (estado === "rechazada") return `Reconexión temporal: Argos no la aceptó${extra} (la pidió ${actor})`;
+    return `Reconexión temporal pedida por ${actor}${extra}`;
+}
+
+/** Cómo terminó la reconexión en Argos (`reconexion_actualizada`, webhooks promesa.*). */
+const FIN_RECONEXION: Record<string, string> = {
+    comprobante_rechazado: "caja rechazó el comprobante",
+    vencida_sin_revisar: "venció sin que caja revisara el comprobante",
+};
+
+/** Texto del mensaje de sistema `reconexion_actualizada` (`detalle`: activa, cumplida, incumplida o cancelada). */
+export function textoReconexionActualizada(estado: string | undefined, motivo?: string, fin?: string, hasta?: string): string {
+    const porque = textoMotivoReconexion(motivo);
+    const sufijo = porque ? ` · ${porque}` : "";
+    switch (estado) {
+        case "activa": {
+            const cuando = hastaCorto(hasta);
+            return `Reconexión temporal activa en Argos${cuando ? ` hasta ${cuando}` : ""}${sufijo}`;
+        }
+        case "cumplida":
+            return `Reconexión temporal: el pago se confirmó${sufijo}`;
+        case "incumplida":
+            return `Reconexión temporal: venció sin saldar lo vencido${sufijo}`;
+        case "cancelada":
+            return `Reconexión temporal cancelada${fin && FIN_RECONEXION[fin] ? `: ${FIN_RECONEXION[fin]}` : ""}${sufijo}`;
+        default:
+            return `Reconexión temporal actualizada en Argos${sufijo}`;
+    }
 }
 
 /** Resultados de un intento de verificar la identidad (`evento.detalle`, lista cerrada, §17.8.2). */

@@ -29,8 +29,10 @@ import (
 //     guardarlo: un cliente de otra empresa no entra a la instantánea. Cualquier incumplimiento, y
 //     un cliente que Argos no tiene, da el mismo 422.
 //   - Un 404 de Argos borra la instantánea y anonimiza las copias, como la ficha.
-//   - Argos caído: con servicioId, 503 argos_no_disponible (nunca se acepta un servicio sin
-//     verificar); solo con clienteId, se sigue (no hay servicio que atar).
+//   - Argos caído (o en espera tras una caída): con servicioId, 503 argos_no_disponible (nunca se
+//     acepta un servicio sin verificar). Solo con clienteId: sin instantánea se sigue (no hay
+//     servicio que atar); con una instantánea que no sirve para la empresa activa, el mismo 503
+//     (no se revela que el cliente existe en otra empresa).
 func (m *Modulo) AsegurarInstantanea(ctx context.Context, clienteID int64, servicioID *int64) error {
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
@@ -62,9 +64,9 @@ func (m *Modulo) AsegurarInstantanea(ctx context.Context, clienteID int64, servi
 			return errNoDisponible()
 		}
 		if enEspera(previa, ahora) {
-			if servicioID == nil {
-				return nil
-			}
+			// La copia no sirve para la empresa activa y Argos falló hace poco: el mismo 503 que un
+			// cliente desconocido durante la caída, aunque no venga servicio (sin oráculo de
+			// existencia: «de otra empresa» no se distingue de «no existe»).
 			return Problema(errEnEspera())
 		}
 	}
@@ -99,9 +101,11 @@ func (m *Modulo) AsegurarInstantanea(ctx context.Context, clienteID int64, servi
 		return errNoDisponible()
 	case EsCaido(err):
 		if previa != nil {
-			if _, err := m.guardarFichaInterna.Ejecutar(ctx, entradaGuardarFicha{ClienteID: clienteID, fallo: true}); err != nil {
-				return err
+			if _, errFallo := m.guardarFichaInterna.Ejecutar(ctx, entradaGuardarFicha{ClienteID: clienteID, fallo: true}); errFallo != nil {
+				return errFallo
 			}
+			// Hay copia pero no sirve para la empresa activa: 503, como en la espera.
+			return Problema(err)
 		}
 		if servicioID == nil {
 			return nil

@@ -552,7 +552,7 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 	if in.Plantilla.Variables == nil {
 		in.Plantilla.Variables = map[string]string{}
 	}
-	if err := p.validarVariables(in.Plantilla.Variables); err != nil {
+	if err := p.validarVariables(in.Plantilla.Variables, m.ahora()); err != nil {
 		return ConversacionIniciada{}, err
 	}
 	// Destinatario: el número lo pone Iris.

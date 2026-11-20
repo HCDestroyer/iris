@@ -46,6 +46,19 @@ func (m *Modulo) registrarAsistente(api huma.API) {
 	huma.Register(api, act, func(ctx context.Context, in *cuerpoHTTP[EntradaAjustesAsistente]) (*cuerpo[AjustesAsistente], error) {
 		return responder(k.FijarAjustes.Ejecutar(ctx, in.Body))
 	})
+	// Reconexión temporal sin personal de caja (contrato con Argos 0.8.0 §7.3, B4).
+	huma.Register(api, op("verAjustesReconexion", http.MethodGet, "/asistente/reconexion", "Reconexión temporal: ajustes de la empresa", conf, http.StatusOK),
+		func(ctx context.Context, _ *struct{}) (*cuerpo[AjustesReconexion], error) {
+			return responder(k.VerReconexion.Ejecutar(ctx, struct{}{}))
+		})
+	rec := op("actualizarAjustesReconexion", http.MethodPost, "/asistente/reconexion/actualizar", "Encender o apagar la reconexión sin personal de caja", conf,
+		http.StatusOK, http.StatusConflict)
+	rec.Description += " `sinPersonal`: también en horario hábil cuando ninguna persona con el rol caja está disponible (apagado de fábrica). Solo se pide si " +
+		"el Argos conectado informa contrato ≥ 0.8.0 (`argosLoPermite`) y la empresa tiene a alguien con el rol caja. `version` 0 la primera vez (409 " +
+		"`conflicto_version`). Evento `reconexion.ajustes_cambiados`."
+	huma.Register(api, rec, func(ctx context.Context, in *cuerpoHTTP[EntradaAjustesReconexion]) (*cuerpo[AjustesReconexion], error) {
+		return responder(k.FijarReconexion.Ejecutar(ctx, in.Body))
+	})
 	prob := op("probarAsistente", http.MethodPost, "/asistente/probar", "Probar la conexión con el proveedor de IA", conf, http.StatusOK, http.StatusConflict, http.StatusBadGateway)
 	prob.Description += " Manda un pedido corto real (no cuenta para el tope). Cualquier falla responde lo mismo (`estado: error`, `latenciaMs: 0`, " +
 		"`detalle` único) para no servir como escáner de puertos. Sin `clave` usa la guardada solo si proveedor y URL son los guardados. No guarda nada. " +

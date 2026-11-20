@@ -272,7 +272,7 @@ type PlantillaMensaje struct {
 
 // EventoSistema es un mensaje de sistema («Andrea creó TK-004812»): el panel arma el texto.
 type EventoSistema struct {
-	Tipo           string  `json:"tipo" doc:"conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, bot_sin_respuesta (el bot no pudo escribirle al cliente), menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor); §17.11: asistente_pausado (detalle: el motivo de la pausa), asistente_reanudado (detalle: pausado | persona_presente | espera_persona)"`
+	Tipo           string  `json:"tipo" doc:"conversacion_creada, asignada, tomada, transferida, resuelta, reabierta, etiquetada, cliente_asociado, contacto_iris_creado, ticket_creado, orden_creada, prospecto_creado, boleta_registrada, boleta_fallida, promesa_creada, respondio_aviso, fuera_de_horario, guardia_avisada, manual_enviado; 1.1: aviso_sin_atender, bot_atendio, bot_sin_respuesta (el bot no pudo escribirle al cliente), menu_elegido, pasada, iniciada; 3b: reconexion_pedida (detalle: aceptada | rechazada; motivo; hasta), reconexion_actualizada (detalle: activa | cumplida | incumplida | cancelada; motivo; fin: comprobante_rechazado | vencida_sin_revisar | otro al cancelarse), identidad_verificada (detalle: coincide | no_coincide | no_disponible | demasiados_intentos | supervisor); §17.11: asistente_pausado (detalle: el motivo de la pausa), asistente_reanudado (detalle: pausado | persona_presente | espera_persona)"`
 	ActorNombre    *string `json:"actorNombre,omitempty"`
 	AsignadoNombre *string `json:"asignadoNombre,omitempty"`
 	ColaNombre     *string `json:"colaNombre,omitempty"`
@@ -282,6 +282,12 @@ type EventoSistema struct {
 	Detalle        *string `json:"detalle,omitempty"`
 	Minutos        *int32  `json:"minutos,omitempty" doc:"bot_atendio: minutos que esperó"`
 	Disponibles    *int64  `json:"disponibles,omitempty" doc:"aviso_sin_atender: a cuántos se avisó"`
+	// Motivo: reconexion_pedida y reconexion_actualizada: con qué motivo se pidió (fuera_de_horario | sin_personal).
+	Motivo *string `json:"motivo,omitempty" doc:"reconexion_pedida, reconexion_actualizada: fuera_de_horario | sin_personal (contrato con Argos 0.8.0 §7.3)"`
+	// Fin: reconexion_actualizada cancelada: por qué terminó (lista cerrada).
+	Fin *string `json:"fin,omitempty" doc:"reconexion_actualizada (cancelada): comprobante_rechazado | vencida_sin_revisar | otro"`
+	// Hasta: reconexion_pedida (aceptada) y reconexion_actualizada (activa): hasta cuándo vale (instante de Argos).
+	Hasta *time.Time `json:"hasta,omitempty" doc:"reconexion_pedida (aceptada), reconexion_actualizada (activa): hasta cuándo vale la reconexión temporal; no es la hora del corte"`
 }
 
 // MensajeConversacion es un mensaje de la conversación.

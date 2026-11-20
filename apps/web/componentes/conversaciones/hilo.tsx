@@ -243,7 +243,7 @@ function Burbuja({ m }: { m: Mensaje }) {
                   ? Timer
                   : tipo === "pasada"
                     ? ArrowLeftRight
-                    : tipo === "reconexion_pedida"
+                    : tipo === "reconexion_pedida" || tipo === "reconexion_actualizada"
                       ? Plug
                       : tipo === "identidad_verificada" && identidadQuedoVerificada(m.evento?.detalle)
                         ? ShieldCheck

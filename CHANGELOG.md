@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.32.0](https://github.com/HCDestroyer/iris/compare/v0.31.0...v0.32.0) (2026-11-20)
+
+
+### Funcionalidades
+
+* **integracion:** B5 · cuentas bancarias de Argos como única fuente (contrato 0.8.0) ([#228](https://github.com/HCDestroyer/iris/issues/228)) ([1f675b8](https://github.com/HCDestroyer/iris/commit/1f675b855e054b3f183e7883bccdc6f04d82b7cb))
+* **integracion:** B7 conexión de un paso, primera sincronización con Argos y pantalla de estado ([#231](https://github.com/HCDestroyer/iris/issues/231)) ([17bbcfe](https://github.com/HCDestroyer/iris/commit/17bbcfec55313a274bee48abc8fdbd6bcf4364be))
+* **nucleo:** eliminar tokens de API revocados o vencidos y conectores apagados ([#229](https://github.com/HCDestroyer/iris/issues/229)) ([b747019](https://github.com/HCDestroyer/iris/commit/b7470198db857f7c5f7c0aa582fdc50866cff636))
+* **nucleo:** restablecer la contraseña de otro usuario desde el panel ([#234](https://github.com/HCDestroyer/iris/issues/234)) ([847ef52](https://github.com/HCDestroyer/iris/commit/847ef52c029aa97788a96fcf40e2fc962984b97a))
+* **web:** compositor de una fila e imágenes naturales en la bandeja y el chat ([#225](https://github.com/HCDestroyer/iris/issues/225)) ([241d7f2](https://github.com/HCDestroyer/iris/commit/241d7f28e84c1d9abb5deac22f3ef1c4e2af5f52))
+
+
+### Correcciones
+
+* **mensajeria:** revalidar la sesión del flujo SSE justo antes de escribir ([#224](https://github.com/HCDestroyer/iris/issues/224)) ([4ca5567](https://github.com/HCDestroyer/iris/commit/4ca5567acd3caf06148f181a1c0d4e8773281d05))
+
+
+### Rendimiento
+
+* **mensajeria:** una revalidación por despertar y por latido en los flujos SSE ([#227](https://github.com/HCDestroyer/iris/issues/227)) ([70df32a](https://github.com/HCDestroyer/iris/commit/70df32a44651787649ea25eb84d41e4936fe1f02))
+
 ## [0.31.0](https://github.com/HCDestroyer/iris/compare/v0.30.0...v0.31.0) (2026-11-19)
 
 

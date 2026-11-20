@@ -269,6 +269,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
                 <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                     <EnlaceSeguir href={`${BASE}/limites`}>Ajustar límites</EnlaceSeguir>
                     <EnlaceSeguir href={`${BASE}/perfiles`}>Distinto según el horario</EnlaceSeguir>
+                    <EnlaceSeguir href={`${BASE}/reconexion`}>Reconexión sin nadie de caja</EnlaceSeguir>
                 </p>
                 <p className="flex items-start gap-1.5 text-sm text-muted-foreground">
                     <UserRound aria-hidden className="mt-0.5 size-4 shrink-0" />
@@ -302,6 +303,7 @@ function Formulario({ datos, alGuardar }: { datos: Datos; alGuardar: (d: Datos) 
                 <EnlaceSeguir href={`${BASE}/limites`}>Límites</EnlaceSeguir>
                 <EnlaceSeguir href={`${BASE}/perfiles`}>Perfiles por horario</EnlaceSeguir>
                 {conVisitas(ajustes) ? <EnlaceSeguir href={`${BASE}/visitas`}>Cómo agenda visitas</EnlaceSeguir> : null}
+                <EnlaceSeguir href={`${BASE}/reconexion`}>Reconexión temporal</EnlaceSeguir>
                 <EnlaceSeguir href={`${BASE}/categorias`}>Categorías</EnlaceSeguir>
             </nav>
         </FormularioPagina>
