@@ -145,7 +145,7 @@ func TestCentralitaArriendoConDosReplicas(t *testing.T) {
 		}
 	}
 	medir(500 * time.Millisecond)
-	// La centralita deja de responder más que el arriendo (3 latidos de 300 ms → 3 s): la réplica que
+	// La centralita deja de responder más que el arriendo (3 s): la réplica que
 	// reconecta tiene que seguir siendo la dueña.
 	x.ami.Pausar(true)
 	x.ami.Cortar()
@@ -220,7 +220,7 @@ func TestCentralitaListCommandsSinRespuestaReconecta(t *testing.T) {
 	x.ami.SinListCommands(true)
 	antes, _ := x.ami.Logins()
 	x.arrancarSinEsperar()
-	// Entra, ListCommands no contesta en el plazo (3 s en la prueba) y vuelve a entrar.
+	// Entra, ListCommands no contesta en el plazo y vuelve a entrar.
 	x.hasta(func() bool { ok, _ := x.ami.Logins(); return ok >= antes+2 }, "con ListCommands sin respuesta no reconectó")
 	r := x.api(x.admin, http.MethodGet, "/centralita", nil)
 	x.exigir(r, http.StatusOK)
@@ -406,13 +406,13 @@ func TestCentralitaFilaBloqueadaNoTrabaElMotor(t *testing.T) {
 		t.Fatal(err)
 	}
 	antes := pings()
-	time.Sleep(2 * time.Second) // ~6 latidos de 300 ms, menos que el arriendo (3 s)
+	time.Sleep(1500 * time.Millisecond) // más que el plazo de la base, menos de lo que alcanza el arriendo
 	durante := pings() - antes
 	if err := tx.Commit(x.ctx); err != nil {
 		t.Fatal(err)
 	}
-	if durante < 3 {
-		t.Fatalf("con la fila bloqueada el motor se trabó: %d Ping en 2 s", durante)
+	if durante < 2 {
+		t.Fatalf("con la fila bloqueada el motor se trabó: %d Ping en 1,5 s", durante)
 	}
 	if ok, _ := x.ami.Logins(); ok != logins || x.ami.Conectados() != 1 {
 		t.Fatalf("se desconectó por la fila bloqueada: logins %d→%d, conectados %d", logins, ok, x.ami.Conectados())
@@ -612,7 +612,7 @@ func TestCentralitaEstadoPendienteSeReintenta(t *testing.T) {
 	x.ami.Cortar()
 	x.esperarEstado("desconectada")
 	// Al volver, la fila queda bloqueada justo mientras se comprueban los permisos.
-	x.ami.DemorarListCommands(500 * time.Millisecond)
+	x.ami.DemorarListCommands(200 * time.Millisecond) // menos que el plazo (250 ms)
 	antes, _ := x.ami.Logins()
 	x.ami.Pausar(false)
 	x.hasta(func() bool { ok, _ := x.ami.Logins(); return ok > antes }, "no volvió a entrar")
@@ -624,7 +624,7 @@ func TestCentralitaEstadoPendienteSeReintenta(t *testing.T) {
 	if _, err := tx.Exec(x.ctx, `SELECT id FROM mensajeria.centralitas WHERE id = $1 FOR UPDATE`, x.id); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3500 * time.Millisecond) // más que el plazo de la conexión (3 s)
+	time.Sleep(1200 * time.Millisecond) // más que el plazo de la base
 	if err := tx.Commit(x.ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -653,4 +653,82 @@ func TestCentralitaSinComprobarBorraLaPrueba(t *testing.T) {
 		t.Fatalf("sin_comprobar dejó la prueba anterior: %v", r.cuerpo)
 	}
 	x.exigirProblema(x.api(x.admin, http.MethodPost, x.ruta("/activar"), map[string]any{"version": c["version"]}), http.StatusUnprocessableEntity, "sin_probar")
+}
+
+// Cuarta revisión (1): si el estado de error (permisos de más) no se pudo guardar porque la fila
+// estaba bloqueada, se reintenta en cada latido aunque la conexión esté detenida.
+func TestCentralitaDetenidaReintentaElEstado(t *testing.T) {
+	x := nuevoBancoCentralita(t)
+	x.conectar()
+	x.arrancar()
+	// Al reconectar, el usuario ya puede escribir; la fila se bloquea mientras se comprueba.
+	x.ami.PermitirEscritura("Originate")
+	x.ami.DemorarListCommands(200 * time.Millisecond) // menos que el plazo (250 ms)
+	antes, _ := x.ami.Logins()
+	x.ami.Cortar()
+	x.hasta(func() bool { ok, _ := x.ami.Logins(); return ok > antes }, "no volvió a entrar")
+	tx, err := x.bd.(*pgxpool.Pool).Begin(x.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(x.ctx, `SELECT id FROM mensajeria.centralitas WHERE id = $1 FOR UPDATE`, x.id); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(1200 * time.Millisecond) // más que el plazo de la base
+	if err := tx.Commit(x.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if c := x.esperarEstado("error"); c["errorCodigo"] != "permisos_de_mas" {
+		t.Fatalf("estado: %v", c)
+	}
+}
+
+// Cuarta revisión (2): con la fila bloqueada, el motor igual se apaga (soltar el arriendo tiene plazo).
+func TestCentralitaApagarConLaFilaBloqueada(t *testing.T) {
+	x := nuevoBancoCentralita(t)
+	x.conectar()
+	x.arrancar()
+	tx, err := x.bd.(*pgxpool.Pool).Begin(x.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(x.ctx, `SELECT id FROM mensajeria.centralitas WHERE id = $1 FOR UPDATE`, x.id); err != nil {
+		t.Fatal(err)
+	}
+	x.cancelar()
+	select {
+	case <-x.motorHecho:
+	case <-time.After(3 * time.Second):
+		t.Fatal("con la fila bloqueada el motor no se apagó")
+	}
+}
+
+// Cuarta revisión (3): el plazo tiene que ser menor que el latido; si no, el motor no arranca.
+func TestCentralitaPlazoMayorQueElLatidoNoArranca(t *testing.T) {
+	x := nuevoBancoCentralita(t)
+	x.conectar()
+	if err := x.m.ValidarCentralitas(); err != nil {
+		t.Fatalf("la configuración de la prueba es válida: %v", err)
+	}
+	cfg := x.m.Config()
+	cfg.CentralitaPlazo = cfg.CentralitaPing
+	malo := mensajeria.Nuevo(cfg)
+	if err := malo.ValidarCentralitas(); err == nil {
+		t.Fatal("un plazo igual al latido debe rechazarse")
+	}
+	hecho := make(chan struct{})
+	go func() {
+		defer close(hecho)
+		malo.CorrerCentralitas(context.Background(), x.bd.(*pgxpool.Pool), nil)
+	}()
+	select {
+	case <-hecho:
+	case <-time.After(2 * time.Second):
+		t.Fatal("con un plazo inválido el motor arrancó")
+	}
+	if x.ami.Conectados() != 0 {
+		t.Fatal("con un plazo inválido se conectó al AMI")
+	}
 }

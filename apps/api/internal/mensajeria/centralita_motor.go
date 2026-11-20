@@ -58,10 +58,15 @@ type corridaCentralita struct {
 	refrescar chan struct{}
 }
 
-// CorrerCentralitas mantiene una sesión AMI por centralita activa hasta que termina ctx.
+// CorrerCentralitas mantiene una sesión AMI por centralita activa hasta que termina ctx. Con una
+// configuración que no cumple ValidarCentralitas no arranca.
 func (m *Modulo) CorrerCentralitas(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger) {
 	if log == nil {
 		log = slog.Default()
+	}
+	if err := m.ValidarCentralitas(); err != nil {
+		log.ErrorContext(ctx, "centralita: el motor no arranca", "err", err)
+		return
 	}
 	despertar := m.despertarCentralitas
 	corridas := map[int64]*corridaCentralita{}
@@ -150,7 +155,11 @@ func (m *Modulo) correrCentralita(ctx context.Context, pool *pgxpool.Pool, log *
 			esperar(ctx, m.cfg.CentralitaRevision)
 			continue
 		}
-		_ = q.SoltarMotorCentralita(context.WithoutCancel(ctx), mensajeriabd.SoltarMotorCentralitaParams{ID: id, Dueno: &m.idProceso})
+		// Con plazo: con la fila bloqueada (rotación de claves) la corrida igual termina (revisar la espera
+		// con el candado tomado, y el apagado también). Si no se suelta, el arriendo vence solo.
+		sctx, cancelar := context.WithTimeout(context.WithoutCancel(ctx), m.plazoBD())
+		_ = q.SoltarMotorCentralita(sctx, mensajeriabd.SoltarMotorCentralitaParams{ID: id, Dueno: &m.idProceso})
+		cancelar()
 		return
 	}
 }
@@ -269,9 +278,14 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 			guardar(*pendiente)
 		}
 	}
+	// detenida: guarda el error y espera a que un administrador lo resuelva (cambia la versión). Si el
+	// estado no se pudo guardar (fila bloqueada), lo reintenta en cada latido hasta que quede.
 	detenida := func(codigo string, huella *string) {
 		fijar(CentralitaError, &codigo, huella)
-		<-ctx.Done() // hasta que un administrador lo resuelva (cambia la versión)
+		for pendiente != nil && esperar(ctx, m.cfg.CentralitaPing) {
+			reintentarEstado()
+		}
+		<-ctx.Done()
 	}
 	// reintentar: la conexión falló; tras la gracia sin conectar avisa y espera (exponencial) con el
 	// arriendo renovado.
@@ -322,7 +336,10 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 		if !time.Now().Before(m.finArriendo(desde)) {
 			continue // se fue el tiempo del arriendo antes de conectar: se renueva primero
 		}
-		c, err := ami.Conectar(ctx, o)
+		// Conectar (TCP, TLS y Login) no pasa del arriendo.
+		cctx, cancelar := context.WithDeadline(ctx, m.finArriendo(desde))
+		c, err := ami.Conectar(cctx, o)
+		cancelar()
 		if err != nil {
 			var eh *ami.ErrHuella
 			switch {

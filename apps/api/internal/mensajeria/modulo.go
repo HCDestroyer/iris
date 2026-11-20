@@ -412,6 +412,16 @@ func Nuevo(cfg Config) *Modulo {
 	return m
 }
 
+// ValidarCentralitas comprueba los tiempos del motor de la centralita: el plazo de la conexión y de
+// la base tiene que ser menor que el latido. Si no, el arriendo no alcanza para la renovación
+// siguiente y dos réplicas podrían quedar conectadas a la vez. cmd/mensajeria no arranca sin esto.
+func (m *Modulo) ValidarCentralitas() error {
+	if m.cfg.CentralitaPlazo >= m.cfg.CentralitaPing {
+		return fmt.Errorf("mensajeria: CentralitaPlazo (%s) tiene que ser menor que CentralitaPing (%s)", m.cfg.CentralitaPlazo, m.cfg.CentralitaPing)
+	}
+	return nil
+}
+
 // Config devuelve la configuración (con los valores por defecto).
 func (m *Modulo) Config() Config { return m.cfg }
 

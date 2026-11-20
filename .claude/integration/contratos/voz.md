@@ -1128,7 +1128,10 @@ Lo que quedó al construirla (manda sobre lo anterior de esta sección donde dif
   antes del UPDATE** y la sesión se corta cuando lo transcurrido más un latido y un plazo de la base
   alcanza su duración (60 s): un vigía independiente del bucle (`time.AfterFunc`, que se reinicia en
   cada renovación buena) cierra la sesión AMI aunque el bucle esté colgado, así que otra réplica nunca
-  conecta mientras esta sigue conectada. Solo pasan a la base los eventos de extensiones
+  conecta mientras esta sigue conectada. Conectar (TCP, TLS y Login) tampoco pasa del arriendo, y
+  `CentralitaPlazo` tiene que ser menor que `CentralitaPing` (si no, `cmd/mensajeria` no arranca y el
+  motor no corre). Detenida por huella o permisos, sigue reintentando guardar ese estado en cada
+  latido; soltar el arriendo al apagar también tiene plazo (si no, vence solo). Solo pasan a la base los eventos de extensiones
   registradas o de llamadas que Iris ya sigue. Las llamadas vivas de la centralita no cuentan para las
   reglas de WhatsApp de «una llamada viva por persona» (reservar y recibir timbre filtran
   `origen = 'whatsapp'`).

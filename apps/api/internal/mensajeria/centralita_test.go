@@ -42,8 +42,10 @@ func nuevoBancoCentralita(t *testing.T, ajustes ...func(*mensajeria.Config)) *ba
 		c.CentralitaPuertos = []int{falso.Puerto()}
 		c.CentralitaRevision = 100 * time.Millisecond
 		c.CentralitaGracia = 400 * time.Millisecond
-		c.CentralitaPing = 300 * time.Millisecond
-		c.CentralitaPlazo = 3 * time.Second
+		// El plazo tiene que ser menor que el latido (ValidarCentralitas): arriendo de 3 s, que se
+		// renueva cada 600 ms y alcanza hasta 2,15 s sin renovar.
+		c.CentralitaPing = 600 * time.Millisecond
+		c.CentralitaPlazo = 250 * time.Millisecond
 		c.ChatLatido = 150 * time.Millisecond
 		for _, f := range ajustes {
 			f(c)
