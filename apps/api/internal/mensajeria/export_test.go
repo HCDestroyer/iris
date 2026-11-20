@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/netip"
 	"time"
@@ -307,6 +308,36 @@ func (m *Modulo) EnviarBoleta(ctx context.Context, id uuid.UUID) error {
 
 // DescribirServiciosIA: cómo ve el asistente los servicios del cliente (contrato argosisp.md 0.8.0 §2.4).
 var DescribirServiciosIA = describirServiciosIA
+
+// TextoAutonomoTrasReconexion: el texto final del asistente en un turno en que se aceptó una
+// reconexión temporal con ese `hasta` (marca {{reconexion}}, §7.3). ok = false si no se enviaría.
+func TextoAutonomoTrasReconexion(texto string, hasta time.Time, zona *time.Location) (string, bool) {
+	t := &turnoIA{hechas: map[string]bool{}, fraseReconexion: FraseReconexion(hasta, zona)}
+	t.permitir(ResReconectar, ResActivo, ResAceptar, ResConfirmar)
+	return validarMensajeAutonomo(t, texto)
+}
+
+// AplicarPromesaArgos corre lo que hace el suscriptor de argos.promesa_cambiada (sin el bus).
+func (m *Modulo) AplicarPromesaArgos(ctx context.Context, bd nucleo.BD, payload []byte) (bool, error) {
+	var in entradaPromesaArgos
+	if err := json.Unmarshal(payload, &in); err != nil {
+		return false, err
+	}
+	r, err := m.Asistente.reconexionArgos.Ejecutar(ctxSistema(ctx, bd), in)
+	return r.Aplicada, err
+}
+
+// RenderPlantilla: el texto que lee el cliente con esas variables.
+func RenderPlantilla(codigo string, v map[string]string) string {
+	p, _ := PlantillaPorCodigo(codigo)
+	return p.Render(v)
+}
+
+// ValidarVariablesPlantilla: la validación de §6.2 de una plantilla del catálogo.
+func ValidarVariablesPlantilla(codigo string, v map[string]string, ahora time.Time) error {
+	p, _ := PlantillaPorCodigo(codigo)
+	return p.validarVariables(v, ahora)
+}
 
 // FijarPlazoMedidas cambia el plazo para leer la cabecera de una foto al enviarla (pruebas).
 func FijarPlazoMedidas(d time.Duration) func() {

@@ -717,13 +717,23 @@ func (m *Modulo) herrReconexion(ctx context.Context, t *turnoIA, l LlamadaIA, h 
 		return deError(err), h
 	}
 	h.Entidad, h.EntidadID = "reconexion", r.ID.String()
-	if r.Estado != "aceptada" || r.Hasta == nil {
+	if r.Repetida && r.NoVigente {
+		return rechazo("la reconexión temporal de esta boleta ya no está vigente: no la anuncies ni des fechas. Si el cliente insiste, pasa a una persona."), h
+	}
+	if r.Estado == "aceptada" && r.Hasta == nil {
+		// Argos la aceptó pero sin una fecha creíble: no se dice nada que no se sepa; sigue una persona.
+		return resHerramienta{paso: PasoHerramientaFallo, resumen: "Argos aceptó la reconexión temporal pero no dio una fecha válida: confirma en Argos hasta cuándo vale antes de decírselo al cliente."}, h
+	}
+	if r.Estado != "aceptada" {
 		return rechazo("el sistema de facturación no permite la reconexión temporal para este servicio. No la prometas; pasa a una persona si el cliente insiste."), h
 	}
 	h.actividadTipo, h.actividadTexto = "reconexion_pedida", "Pidió una reconexión temporal"
 	t.permitir(ResReconectar, ResActivo, ResAceptar, ResConfirmar)
-	return resHerramienta{contenido: "Reconexión temporal aceptada hasta " + r.Hasta.In(m.cfg.Zona).Format("2006-01-02 15:04") +
-		" mientras caja revisa la boleta. Explícaselo al cliente."}, h
+	// La fecha y la hora las pone el servidor (§7.3): el modelo nunca ve ni escribe `hasta`.
+	t.fraseReconexion = FraseReconexion(*r.Hasta, m.cfg.Zona)
+	return resHerramienta{contenido: "Reconexión temporal aceptada mientras caja revisa la boleta. Escribe {{reconexion}} donde va: el sistema pone " +
+		"hasta cuándo vale y que el comprobante queda pendiente de revisión. No escribas tú fechas, horas, «medianoche» ni cuándo se corta el servicio. " +
+		"Si el cliente pregunta qué pasa después: si el pago se confirma antes, no pasa nada; si no, el servicio puede volver a suspenderse después de esa hora."}, h
 }
 
 // herrVerificarIdentidad hace el desafío de identidad de Argos (§7.5) con el documento que el cliente

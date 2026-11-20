@@ -1076,6 +1076,16 @@ type MensajeriaAjustesBandeja struct {
 	UpdatedAt          time.Time
 }
 
+type MensajeriaAjustesReconexion struct {
+	ID             int64
+	EmpresaID      *int64
+	SinPersonal    bool
+	Version        int32
+	ActualizadoPor *int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type MensajeriaAsistenteAccione struct {
 	ID             int64
 	TurnoID        uuid.UUID
@@ -1944,23 +1954,32 @@ type MensajeriaPromesa struct {
 }
 
 type MensajeriaReconexione struct {
-	ID             uuid.UUID
-	EmpresaID      *int64
-	ConversacionID int64
-	BoletaID       uuid.UUID
-	ComprobanteID  int64
-	ClienteID      int64
-	ServicioID     *int64
-	Motivo         string
-	Estado         string
-	Intentos       int32
-	ResueltaEn     *time.Time
-	PromesaArgosID *int64
-	Hasta          *time.Time
-	Detalle        *string
-	SolicitadaPor  *int64
-	PorAsistente   bool
-	CreatedAt      time.Time
+	ID                  uuid.UUID
+	EmpresaID           *int64
+	ConversacionID      int64
+	BoletaID            uuid.UUID
+	ComprobanteID       int64
+	ClienteID           int64
+	ServicioID          *int64
+	Motivo              string
+	Estado              string
+	Intentos            int32
+	ResueltaEn          *time.Time
+	PromesaArgosID      *int64
+	Hasta               *time.Time
+	Detalle             *string
+	SolicitadaPor       *int64
+	PorAsistente        bool
+	CreatedAt           time.Time
+	CajaTotal           *int32
+	CajaDisponibles     *int32
+	ArgosMotivo         *string
+	ArgosEstado         *string
+	ArgosFinMotivo      *string
+	ArgosEntranteID     *int64
+	ArgosActualizadaEn  *time.Time
+	ArgosAviso          *string
+	ArgosAvisoMensajeID pgtype.UUID
 }
 
 type MensajeriaRegistrosQr struct {

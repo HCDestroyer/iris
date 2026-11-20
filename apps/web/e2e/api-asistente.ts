@@ -64,6 +64,12 @@ export type OpcionesAsistente = {
     fase3?: OpcionesFase3;
     /** §17.10: tope del servidor para `visitas.visitasPorDiaEmpresa` (más bajo que el del esquema): responde 422 junto al campo. */
     topeVisitasEmpresa?: number;
+    /** B4 (contrato con Argos 0.8.0 §7.3): la reconexión sin personal de caja. */
+    reconexion?: Partial<Schema<"AjustesReconexion">>;
+    /** El primer guardado de la reconexión responde 409. */
+    conflictoReconexion?: boolean;
+    /** La lectura de la reconexión falla (500) esta cantidad de veces (para «Reintentar»). */
+    fallasReconexion?: number;
 };
 
 /** El `detail` único de §16.1 cuando el proveedor falla (no sirve para escanear puertos). */
@@ -134,6 +140,12 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
     const consultasModelos: unknown[] = [];
     const sugerencias: Sugerencia[] = [];
     const guardados: unknown[] = [];
+    let reconexion: Schema<"AjustesReconexion"> = {
+        sinPersonal: false, version: 0, argosLoPermite: true, contratoMinimo: "0.8.0", caja: { total: 2, disponibles: 0 }, accionEncendida: true, actualizadoEn: null, ...opciones.reconexion,
+    };
+    let conflictoReconexion = opciones.conflictoReconexion ?? false;
+    let fallasReconexion = opciones.fallasReconexion ?? 0;
+    const guardadosReconexion: unknown[] = [];
     const pruebas: unknown[] = [];
     let n = 0;
 
@@ -258,6 +270,23 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
         if (ruta.startsWith(`${BASE}/asistente/`)) {
             if (!puede(PERMISO_CONFIGURAR)) return prohibido();
             if (ruta === `${BASE}/asistente/ajustes` && metodo === "GET") return (await json(route, ajustes), true);
+            if (ruta === `${BASE}/asistente/reconexion` && metodo === "GET") {
+                if (fallasReconexion > 0) {
+                    fallasReconexion--;
+                    return (await problema(route, P("interno", 500, "Error interno")), true);
+                }
+                return (await json(route, reconexion), true);
+            }
+            if (ruta === `${BASE}/asistente/reconexion/actualizar` && metodo === "POST") {
+                e.enviados.push({ ruta, cuerpo, idempotencia });
+                guardadosReconexion.push(cuerpo);
+                if (conflictoReconexion || cuerpo.version !== reconexion.version) {
+                    conflictoReconexion = false;
+                    return (await problema(route, P("conflicto_version", 409, "Alguien más cambió los ajustes")), true);
+                }
+                reconexion = { ...reconexion, sinPersonal: Boolean(cuerpo.sinPersonal), version: reconexion.version + 1, actualizadoEn: ahora() };
+                return (await json(route, reconexion), true);
+            }
             if (ruta === `${BASE}/asistente/ajustes/actualizar` && metodo === "POST") {
                 e.enviados.push({ ruta, cuerpo, idempotencia });
                 guardados.push(cuerpo);
@@ -405,6 +434,7 @@ export function apiAsistente(e: Contexto, opcionesDadas: OpcionesAsistente | und
         alResponder,
         sugerencias,
         guardados,
+        guardadosReconexion,
         pruebas,
         consultasModelos,
         /** Pasa la conversación a otra empresa: desde ahora, 404 en la sugerencia y sus acciones. */

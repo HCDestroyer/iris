@@ -200,7 +200,7 @@ func nuevoEnviarAviso(m *Modulo) *EnviarAviso {
 		Accion: "mensajeria.enviar", Permiso: nucleo.PermMensajeriaEnviar, SinEmpresa: true,
 		AuditarExito: func(*AvisoCreado) bool { return false },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAviso) (*AvisoCreado, error) {
-			if err := validarAviso(ctx, in); err != nil {
+			if err := validarAviso(ctx, in, m.ahora()); err != nil {
 				return nil, err
 			}
 			if err := exigirEmpresa(ctx, t, in.EmpresaID); err != nil {
@@ -216,7 +216,7 @@ func nuevoEnviarAviso(m *Modulo) *EnviarAviso {
 	return k
 }
 
-func validarAviso(ctx context.Context, in EntradaAviso) error {
+func validarAviso(ctx context.Context, in EntradaAviso, ahora time.Time) error {
 	p, ok := PlantillaPorCodigo(in.Plantilla)
 	if !ok {
 		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "plantilla_desconocida", "Plantilla desconocida",
@@ -235,7 +235,7 @@ func validarAviso(ctx context.Context, in EntradaAviso) error {
 			return nucleo.Validacion(nucleo.ErrorCampo{Field: "prioridad", Message: "Una integración no pide avisos urgentes (§6.2)", Rule: "prioridad"})
 		}
 	}
-	if err := p.validarVariables(in.Variables); err != nil {
+	if err := p.validarVariables(in.Variables, ahora); err != nil {
 		return err
 	}
 	if in.Prioridad == "urgente" && !p.Urgente {

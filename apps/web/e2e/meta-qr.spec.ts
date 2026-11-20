@@ -319,6 +319,15 @@ test.describe("compartir números entre empresas", () => {
         await dialogo.getByRole("button", { name: "Dejar de compartir" }).click();
         await expect(page.getByText("«Avisos» ya no se comparte con Cable Norte")).toBeVisible();
         await expect(cable).toHaveCount(0);
+        // El diálogo se cierra con una animación y, mientras sigue en pantalla, React Aria deja el resto
+        // de la página inerte: un clic en «Guardar» en ese momento no hace nada. Se espera a que cierre.
+        await expect(dialogo).toBeHidden();
+        // El aviso emergente entra abajo, sobre la barra de guardar: si el clic cae mientras se anima, lo
+        // recibe el aviso y no «Guardar» (Playwright comprueba el destino antes de que el aviso termine de
+        // moverse). Con el puntero fuera, el aviso se va solo a los 5 s; se espera a que se vaya.
+        const avisoRevocado = page.locator('[data-region="avisos-emergentes"]').getByRole("alertdialog", { name: "«Avisos» ya no se comparte con Cable Norte" });
+        await page.mouse.move(0, 0);
+        await expect(avisoRevocado).toBeHidden({ timeout: 15_000 });
         expect(api.meta.cuerpos.find((c) => c.ruta.endsWith("/prestamos/2/revocar"))?.cuerpo).toEqual({ version: 1, motivo: "Cable Norte ya tiene su propio número" });
 
         await form.getByRole("button", { name: "Guardar" }).click();

@@ -92,7 +92,9 @@ var Catalogo = []Plantilla{
 	{Codigo: "boleta_falta_dato", Pide: PideIris, Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
 		Texto: "A tu boleta de {{moneda}} {{monto}} le falta un dato: {{motivo}}. Envíala de nuevo, por favor."},
 	{Codigo: "reconexion_temporal", Pide: PideIris, Variables: vars("hasta", formatoInstante), Caducidad: "hasta",
-		Texto: "Reconectamos tu servicio de forma temporal hasta {{hasta}} mientras revisamos tu pago."},
+		// `hasta` es el instante de Argos; al cliente le llega en hora de Guatemala y en llano
+		// (HastaReconexionTexto, §6.3 y §7.3): nunca una hora de corte.
+		Texto: "Reconectamos tu servicio de forma temporal: la reconexión vale hasta {{hasta}}. Tu comprobante queda pendiente de revisión."},
 	{Codigo: "promesa_aceptada", Pide: PideIris, Variables: vars("vence_en", formatoFecha, "monto", formatoMonto), Caducidad: "vence_en",
 		Texto: "Registramos tu promesa de pago de {{monto}} para el {{vence_en}}."},
 }
@@ -123,7 +125,7 @@ var (
 )
 
 // validarVariables aplica §6.2: solo las claves declaradas, todas presentes y con su formato.
-func (p Plantilla) validarVariables(v map[string]string) error {
+func (p Plantilla) validarVariables(v map[string]string, ahora time.Time) error {
 	var errs []nucleo.ErrorCampo
 	desconocidas := []string{}
 	for k := range v {
@@ -149,6 +151,16 @@ func (p Plantilla) validarVariables(v map[string]string) error {
 		if !ok {
 			if d.Obligatoria {
 				errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: "Falta la variable", Rule: "requerida"})
+			}
+			continue
+		}
+		if p.Codigo == "reconexion_temporal" && d.Nombre == "hasta" {
+			// El instante de Argos, con su zona (RFC 3339): nunca una hora local sin zona (§7.3).
+			if h, err := time.Parse(time.RFC3339, valor); err != nil {
+				errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: "Instante RFC 3339 con zona (2026-11-19T06:00:00Z)", Rule: "instante_con_zona"})
+			} else if !HastaCreible(h, ahora) {
+				// Tampoco desde una plantilla manual: un hasta pasado o a más de 49 h no se le dice al cliente.
+				errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: "Debe ser posterior a ahora y a lo más 49 horas después", Rule: "hasta_no_creible"})
 			}
 			continue
 		}
@@ -232,16 +244,36 @@ func (p Plantilla) venceEn(v map[string]string, zona *time.Location) *time.Time 
 func (p Plantilla) Parametros(v map[string]string) []string {
 	salida := make([]string, 0, len(p.Variables))
 	for _, d := range p.Variables {
-		salida = append(salida, v[d.Nombre])
+		salida = append(salida, p.valor(d, v))
 	}
 	return salida
+}
+
+// zonaPlantillas: la hora de Guatemala para lo que lee el cliente (CLAUDE.md: zona solo al mostrar).
+var zonaPlantillas = func() *time.Location {
+	if z, err := time.LoadLocation("America/Guatemala"); err == nil {
+		return z
+	}
+	return time.FixedZone("America/Guatemala", -6*60*60)
+}()
+
+// valor: lo que lee el cliente de una variable. El `hasta` de reconexion_temporal (un instante de
+// Argos) va en hora de Guatemala y en llano (contrato con Argos §6.3, §7.3).
+func (p Plantilla) valor(d Variable, v map[string]string) string {
+	if p.Codigo == "reconexion_temporal" && d.Nombre == "hasta" {
+		// Un valor sin zona (que la validación ya rechaza) se lee en hora de Guatemala, nunca como UTC.
+		if t, ok := parsearInstante(v[d.Nombre], zonaPlantillas); ok {
+			return HastaReconexionTexto(t, zonaPlantillas)
+		}
+	}
+	return v[d.Nombre]
 }
 
 // Render arma el texto con las variables (canal simulado).
 func (p Plantilla) Render(v map[string]string) string {
 	t := p.Texto
 	for _, d := range p.Variables {
-		t = strings.ReplaceAll(t, "{{"+d.Nombre+"}}", v[d.Nombre])
+		t = strings.ReplaceAll(t, "{{"+d.Nombre+"}}", p.valor(d, v))
 	}
 	return t
 }

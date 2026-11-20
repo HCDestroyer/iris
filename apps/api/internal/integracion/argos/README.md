@@ -144,7 +144,11 @@ comunes de conectores); aquí queda lo propio de Argos.
   `servicio.config_cambiada`, `asignacion.cambiada` y `servicio.estado_cambiado` → refrescan la
   instantánea del cliente si ya está en ella (si no, «ignorado»); `servicio.eliminado` y
   `router.eliminado` (arriba); `comprobante.aprobado` y `comprobante.rechazado` →
-  `argos.comprobante_resuelto`. Los demás se guardan como «ignorado» (Fase 2).
+  `argos.comprobante_resuelto`; `promesa.creada`, `promesa.cumplida`, `promesa.incumplida` y
+  `promesa.cancelada` → `argos.promesa_cambiada` (con `motivo_reconexion` de 0.8.0, sin monto). Los demás se
+  guardan como «ignorado» (Fase 2).
+- **Reconexión `sin_personal` (0.8.0 §7.3):** `SoportaSinPersonal(contrato)` y
+  `Modulo.ReconexionSinPersonal` (conector activo con contrato ≥ 0.8.0); `PromesaArgos.MotivoReconexion`.
 
 ## Jobs (cmd/worker)
 

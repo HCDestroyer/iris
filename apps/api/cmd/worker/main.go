@@ -175,6 +175,9 @@ func correr() error {
 	// argos.comprobante_resuelto → la resolución queda en la boleta; el proceso de mensajería la
 	// aplica (mensaje de sistema y aviso al cliente, una sola vez).
 	msj.SuscribirComprobantes(bus, pool)
+	// Reconexión temporal (contrato 0.8.0 §7.3): promesa.* de Argos → argos.promesa_cambiada → la
+	// reconexión de la conversación guarda cómo terminó y con qué motivo la guardó Argos.
+	msj.SuscribirPromesas(bus, pool)
 	// Notificaciones push por FCM (contratos/push.md): suscriptor de chat, menciones, bandeja y
 	// órdenes; un job por envío y la purga de cada hora. Sin IRIS_FCM_* no manda nada.
 	fcm, estPush := notificaciones.ConfigDesdeEntorno()

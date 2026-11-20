@@ -1,6 +1,6 @@
 import { ZONA } from "../fechas";
 import { textoEventoAsistente } from "../asistente/atencion";
-import { textoIdentidad, textoReconexion } from "../asistente/fase3b";
+import { textoIdentidad, textoReconexion, textoReconexionActualizada } from "../asistente/fase3b";
 import { textoEventoBot } from "./atencion";
 import type { CanalRef, Conversacion, EventoSistema, Mensaje } from "./tipos";
 
@@ -188,7 +188,10 @@ export function textoEvento(e: EventoSistema): string {
             return `${actor} registró una promesa de pago`;
         case "reconexion_pedida":
             // 3b (§17.8.2): llega cuando Argos ya decidió (`detalle` = aceptada | rechazada).
-            return textoReconexion(actor, e.detalle);
+            return textoReconexion(actor, e.detalle, e.motivo, e.hasta);
+        case "reconexion_actualizada":
+            // 0.8.0 (§7.3): lo que Argos contó de la reconexión (webhooks promesa.*), con su motivo.
+            return textoReconexionActualizada(e.detalle, e.motivo, e.fin, e.hasta);
         case "identidad_verificada":
             // Un intento de verificar la identidad; texto fijo por resultado, nunca el documento.
             return textoIdentidad(actor, e.detalle);

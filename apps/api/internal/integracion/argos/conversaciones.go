@@ -268,9 +268,13 @@ func (c *Cliente) simularPromesa(ctx context.Context, servicioID int64, venceEn 
 
 // PromesaArgos es la respuesta 201 de POST /promesas (también la rechazada).
 type PromesaArgos struct {
-	ID                  int64           `json:"id"`
-	Estado              string          `json:"estado"`
-	Monto               json.RawMessage `json:"monto"`
+	ID     int64           `json:"id"`
+	Estado string          `json:"estado"`
+	Monto  json.RawMessage `json:"monto"`
+	// MotivoReconexion (0.8.0, §7.3): fuera_de_horario | sin_personal en una reconexion_temporal;
+	// null en una promesa normal o con un Argos anterior (que no lo manda). Leer con
+	// MotivoReconexionValido.
+	MotivoReconexion    *string `json:"motivo_reconexion"`
 	ResultadoEvaluacion *struct {
 		Regla  *string `json:"regla"`
 		Motivo *string `json:"motivo"`
