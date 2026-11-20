@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria/ami"
@@ -25,8 +26,11 @@ import (
 //     resuelva (eso sube la versión de la centralita y el motor la vuelve a arrancar).
 //   - Ping cada 20 s; sin respuesta en 10 s se reconecta.
 //   - Solo pasan a la base los eventos de extensiones registradas o de llamadas que Iris ya sigue;
-//     los demás se descartan sin mirar. El tope de eventos por segundo se aplica después de filtrar,
-//     a lo que va a la base, y nunca a los cierres (Hangup y CDR) de las llamadas seguidas.
+//     los demás se descartan sin mirar. El tope de eventos por segundo se aplica después de filtrar y
+//     solo a las llamadas nuevas: lo de las llamadas ya seguidas (contestar, colgar, CDR) nunca se
+//     descarta. La cola del lector guarda lugar para los cierres (Hangup y Cdr).
+//   - Cada consulta propia del motor (arriendo, última señal, estado) tiene plazo: una fila bloqueada
+//     (rotación de claves) no lo traba.
 //   - El arriendo se renueva antes de cada conexión y durante cada espera de reconexión: si otra
 //     réplica lo tomó, esta no se conecta.
 //   - Las llamadas que suenan o están en curso mientras Iris no escucha no se recuperan (fuera de
@@ -135,8 +139,8 @@ func (m *Modulo) CorrerCentralitas(ctx context.Context, pool *pgxpool.Pool, log 
 func (m *Modulo) correrCentralita(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, id int64, version int32, refrescar <-chan struct{}) {
 	q := mensajeriabd.New(pool)
 	for ctx.Err() == nil {
-		if !m.tomarMotor(ctx, q, id) {
-			esperar(ctx, m.cfg.CentralitaRevision) // otra réplica la tiene
+		if m.tomarMotor(ctx, q, id) != arriendoTomado {
+			esperar(ctx, m.cfg.CentralitaRevision) // otra réplica la tiene (o la base no contestó a tiempo)
 			continue
 		}
 		if perdido := m.sesionesCentralita(ctx, pool, log, id, version, refrescar); perdido {
@@ -149,11 +153,40 @@ func (m *Modulo) correrCentralita(ctx context.Context, pool *pgxpool.Pool, log *
 	}
 }
 
-// tomarMotor toma o renueva el arriendo (vale 3 latidos).
-func (m *Modulo) tomarMotor(ctx context.Context, q *mensajeriabd.Queries, id int64) bool {
-	seg := int32(max(3*m.cfg.CentralitaPing/time.Second, 3)) //nolint:gosec // segundos acotados
-	_, err := q.TomarMotorCentralita(ctx, mensajeriabd.TomarMotorCentralitaParams{ID: id, Dueno: &m.idProceso, Segundos: seg})
-	return err == nil
+// arriendo: lo que pasó al tomar o renovar el arriendo.
+type arriendo int
+
+const (
+	arriendoTomado   arriendo = iota // es de esta réplica
+	arriendoAjeno                    // lo tiene otra réplica (o la centralita se apagó)
+	arriendoIncierto                 // la base no contestó a tiempo (p. ej. la fila está bloqueada por una rotación de claves)
+)
+
+// segundosArriendo: el arriendo vale 3 latidos.
+func (m *Modulo) segundosArriendo() int32 {
+	return int32(max(3*m.cfg.CentralitaPing/time.Second, 3)) //nolint:gosec // segundos acotados
+}
+
+// plazoBD: lo que el motor espera a la base en cada consulta propia (el arriendo, la última señal,
+// el estado). Una fila bloqueada (la rotación de IRIS_CLAVE_CIFRADO la lee con FOR UPDATE) no lo deja
+// trabado: sigue haciendo Ping y vuelve a intentar en el latido siguiente.
+func (m *Modulo) plazoBD() time.Duration {
+	return min(m.cfg.CentralitaPlazo, m.cfg.CentralitaPing)
+}
+
+// tomarMotor toma o renueva el arriendo, con plazo.
+func (m *Modulo) tomarMotor(ctx context.Context, q *mensajeriabd.Queries, id int64) arriendo {
+	tctx, cancelar := context.WithTimeout(ctx, m.plazoBD())
+	defer cancelar()
+	_, err := q.TomarMotorCentralita(tctx, mensajeriabd.TomarMotorCentralitaParams{ID: id, Dueno: &m.idProceso, Segundos: m.segundosArriendo()})
+	switch {
+	case err == nil:
+		return arriendoTomado
+	case errors.Is(err, pgx.ErrNoRows):
+		return arriendoAjeno
+	default:
+		return arriendoIncierto
+	}
 }
 
 // esperarConArriendo espera d renovando el arriendo en cada latido (una espera de reconexión de
@@ -169,7 +202,7 @@ func (m *Modulo) esperarConArriendo(ctx context.Context, q *mensajeriabd.Queries
 		if !esperar(ctx, min(resta, m.cfg.CentralitaPing)) {
 			return false, false
 		}
-		if !m.tomarMotor(ctx, q, id) {
+		if m.tomarMotor(ctx, q, id) != arriendoTomado {
 			return false, ctx.Err() == nil
 		}
 	}
@@ -197,7 +230,9 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 	avisada := false
 	fijar := func(estado string, codigo, huella *string) {
 		e := entradaEstadoCentralita{ID: id, Version: version, Estado: estado, Codigo: codigo, Huella: huella, Desde: caida}
-		if _, err := m.Centralita.fijarEstado.Ejecutar(sctx, e); err != nil && ctx.Err() == nil {
+		fctx, cancelar := context.WithTimeout(sctx, m.cfg.CentralitaPlazo)
+		defer cancelar()
+		if _, err := m.Centralita.fijarEstado.Ejecutar(fctx, e); err != nil && ctx.Err() == nil {
 			log.WarnContext(ctx, "centralita: guardar el estado", "err", err)
 		}
 	}
@@ -222,11 +257,14 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 	}
 	for ctx.Err() == nil {
 		// Cada vuelta (también cada reconexión) renueva el arriendo: si otra réplica lo tomó, no se conecta.
-		if !m.tomarMotor(ctx, q, id) {
+		// Sin confirmar el arriendo (otra réplica lo tiene o la base no contestó a tiempo) no se conecta.
+		if a := m.tomarMotor(ctx, q, id); a != arriendoTomado {
 			if ctx.Err() != nil {
 				return false
 			}
-			log.WarnContext(ctx, "centralita: otra réplica tiene el arriendo de la conexión; esta no se conecta")
+			if a == arriendoAjeno {
+				log.WarnContext(ctx, "centralita: otra réplica tiene el arriendo de la conexión; esta no se conecta")
+			}
 			return true
 		}
 		f, err := q.CentralitaDelMotor(ctx, id)
@@ -274,12 +312,15 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 		lctx, cancelar := context.WithTimeout(ctx, m.cfg.CentralitaPlazo)
 		p, err := c.Accion(lctx, "ListCommands")
 		cancelar()
+		if err == nil && !ami.Exito(p) {
+			err = ami.ErrProtocolo // sin Success no hay permisos comprobados: como no contestar
+		}
 		if err != nil {
 			c.Cerrar()
 			if ctx.Err() != nil {
 				return false
 			}
-			log.InfoContext(ctx, "centralita: el AMI no contestó ListCommands; se reconecta")
+			log.InfoContext(ctx, "centralita: el AMI no contestó bien ListCommands; se reconecta")
 			if seguir, perd := reintentar(); !seguir {
 				return perd
 			}
@@ -332,6 +373,7 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 	recarga := time.NewTicker(m.cfg.CentralitaRevision)
 	defer recarga.Stop()
 	var tocado time.Time
+	renovado := time.Now() // sesionesCentralita lo acaba de tomar
 	ventana, enVentana, descartados := time.Now(), 0, int64(0)
 	avisarDescarte := time.Time{}
 	for {
@@ -353,9 +395,22 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 				}
 			}
 		case <-ping.C:
-			if !m.tomarMotor(ctx, q, f.ID) {
+			switch m.tomarMotor(ctx, q, f.ID) {
+			case arriendoTomado:
+				renovado = time.Now()
+			case arriendoAjeno:
 				log.WarnContext(ctx, "centralita: se perdió el arriendo de la conexión (otra réplica la tomó)")
 				return
+			case arriendoIncierto:
+				// La base no contestó a tiempo: se sigue (nadie más puede tomarlo mientras la fila esté
+				// bloqueada) salvo que el arriendo ya pudiera haber vencido.
+				if ctx.Err() != nil {
+					return
+				}
+				if time.Since(renovado) >= time.Duration(m.segundosArriendo())*time.Second-m.cfg.CentralitaPing {
+					log.WarnContext(ctx, "centralita: no se pudo renovar el arriendo a tiempo; se reconecta")
+					return
+				}
 			}
 			pctx, cancelar := context.WithTimeout(ctx, 10*time.Second)
 			_, err := c.Accion(pctx, "Ping")
@@ -374,7 +429,9 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 			ahora := time.Now()
 			if ahora.Sub(tocado) >= time.Minute {
 				tocado = ahora
-				_ = q.TocarCentralita(ctx, mensajeriabd.TocarCentralitaParams{ID: f.ID, Ahora: &ahora, HaceMinuto: ahora.Add(-time.Minute)})
+				tctx, cancelar := context.WithTimeout(ctx, m.plazoBD())
+				_ = q.TocarCentralita(tctx, mensajeriabd.TocarCentralitaParams{ID: f.ID, Ahora: &ahora, HaceMinuto: ahora.Add(-time.Minute)})
+				cancelar()
 			}
 			// Primero se traduce y se filtra (en memoria, sin tocar la base): los eventos ajenos (de
 			// extensiones no registradas o de llamadas que Iris no sigue) se descartan sin contar.
@@ -399,10 +456,10 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 					continue
 				}
 			}
-			// Tope de lo que va a la base por segundo (una centralita que inunda no tumba a Iris). Los
-			// cierres (Hangup y CDR) de las llamadas seguidas nunca se descartan: una avalancha no deja
-			// llamadas abiertas.
-			if h.tipo != hechoCuelga && h.tipo != hechoRegistro {
+			// Tope por segundo de llamadas nuevas que van a la base (una centralita que inunda no tumba a
+			// Iris). Lo de las llamadas ya seguidas (contestar, colgar, CDR, otro teléfono que suena en el
+			// mismo grupo) nunca se descarta: una avalancha no deja llamadas a medias.
+			if (h.tipo == hechoSuena || h.tipo == hechoMarca) && !seguida {
 				if ahora.Sub(ventana) >= time.Second {
 					ventana, enVentana = ahora, 0
 				}

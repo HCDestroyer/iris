@@ -45,6 +45,8 @@ type Servidor struct {
 	sinRespuestaPing bool
 	// sinRespuestaLC: no contesta ListCommands.
 	sinRespuestaLC bool
+	// errorLC: contesta ListCommands con «Response: Error».
+	errorLC bool
 }
 
 type sesion struct {
@@ -137,6 +139,13 @@ func (s *Servidor) SinPing(v bool) {
 func (s *Servidor) SinListCommands(v bool) {
 	s.mu.Lock()
 	s.sinRespuestaLC = v
+	s.mu.Unlock()
+}
+
+// ErrorListCommands contesta ListCommands con «Response: Error» (sin lista).
+func (s *Servidor) ErrorListCommands(v bool) {
+	s.mu.Lock()
+	s.errorLC = v
 	s.mu.Unlock()
 }
 
@@ -296,6 +305,11 @@ func (s *Servidor) atender(raw net.Conn) {
 			s.mu.Lock()
 			if s.sinRespuestaLC {
 				s.mu.Unlock()
+				continue
+			}
+			if s.errorLC {
+				s.mu.Unlock()
+				escribir("Response: Error\r\nActionID: " + id + "\r\nMessage: Permission denied\r\n\r\n")
 				continue
 			}
 			// Las que no exigen clase salen siempre, con «<none>»; las demás, si el write= las deja.

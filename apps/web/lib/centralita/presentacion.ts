@@ -73,6 +73,13 @@ export function textoPrueba(p: PruebaCentralita): { tono: Tono; titulo: string; 
                 detalle: "La centralita presentó otro certificado. Compara la huella nueva con la de Issabel antes de confiar en ella.",
                 listo: false,
             };
+        case "sin_comprobar":
+            return {
+                tono: "error",
+                titulo: "No se pudieron revisar los permisos",
+                detalle: "Iris entró a la centralita, pero no le dejó ver qué puede hacer el usuario. Revisa que sea un usuario AMI normal con «write» vacío y vuelve a probar.",
+                listo: false,
+            };
         default:
             return {
                 tono: "error",

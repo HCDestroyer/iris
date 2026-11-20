@@ -326,3 +326,115 @@ func TestCentralitaHistorialRespetaPermisosYNota(t *testing.T) {
 		}
 	}
 }
+
+// Segunda revisión (A): el tope de llamadas nuevas no descarta lo de las llamadas ya seguidas (la
+// contestación).
+func TestCentralitaTopeNoDescartaLaContestacion(t *testing.T) {
+	x := nuevoBancoCentralita(t, func(c *mensajeria.Config) { c.CentralitaEventosSeg = 2 })
+	x.conectar()
+	x.asignar(x.agente, "201")
+	x.arrancar()
+	movil := movilUnico()
+	x.clienteConMovil(movil, "Marta Díaz")
+	var b strings.Builder
+	evento := func(campos ...string) {
+		for i := 0; i+1 < len(campos); i += 2 {
+			fmt.Fprintf(&b, "%s: %s\r\n", campos[i], campos[i+1])
+		}
+		b.WriteString("\r\n")
+	}
+	evento("Event", "DialBegin", "Channel", "PJSIP/claro-1", "CallerIDNum", movil, "DestChannel", "PJSIP/201-1", "Linkedid", "2000.1", "Uniqueid", "2000.1")
+	evento("Event", "DialBegin", "Channel", "PJSIP/claro-2", "CallerIDNum", "55998877", "DestChannel", "PJSIP/201-2", "Linkedid", "2000.2", "Uniqueid", "2000.2")
+	evento("Event", "DialEnd", "Channel", "PJSIP/claro-1", "DestChannel", "PJSIP/201-1", "DialStatus", "ANSWER", "Linkedid", "2000.1")
+	x.ami.Crudo(b.String())
+	x.hasta(func() bool {
+		var estado string
+		_ = x.bd.QueryRow(x.ctx, `SELECT estado FROM mensajeria.llamadas WHERE origen = 'centralita' AND id_externo = '2000.1'`).Scan(&estado)
+		return estado == "en_curso"
+	}, "la contestación de la llamada seguida se descartó por el tope")
+}
+
+// Segunda revisión (B): «Probar» contra una centralita muda no cuelga la petición.
+func TestCentralitaProbarConPlazo(t *testing.T) {
+	x := nuevoBancoCentralita(t)
+	for _, caso := range []struct {
+		nombre string
+		poner  func(bool)
+	}{{"Ping", x.ami.SinPing}, {"ListCommands", x.ami.SinListCommands}} {
+		caso.poner(true)
+		hecho := make(chan respuesta, 1)
+		go func() { hecho <- x.api(x.admin, http.MethodPost, "/centralitas/probar", x.datos()) }()
+		select {
+		case r := <-hecho:
+			x.exigir(r, http.StatusOK)
+			if r.cuerpo["estado"] != "no_conecta" {
+				t.Fatalf("sin %s: %v", caso.nombre, r.cuerpo)
+			}
+		case <-time.After(8 * time.Second):
+			t.Fatalf("sin respuesta a %s, «Probar» se quedó colgado", caso.nombre)
+		}
+		caso.poner(false)
+	}
+}
+
+// Segunda revisión (C): con la fila de la centralita bloqueada (rotación de claves), el motor no se
+// traba: sigue haciendo Ping y no se desconecta.
+func TestCentralitaFilaBloqueadaNoTrabaElMotor(t *testing.T) {
+	x := nuevoBancoCentralita(t)
+	x.conectar()
+	x.arrancar()
+	logins, _ := x.ami.Logins()
+	pings := func() int {
+		n := 0
+		for _, a := range x.ami.Recibido() {
+			if strings.EqualFold(a, "ping") {
+				n++
+			}
+		}
+		return n
+	}
+	tx, err := x.bd.(*pgxpool.Pool).Begin(x.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(x.ctx, `SELECT id FROM mensajeria.centralitas WHERE id = $1 FOR UPDATE`, x.id); err != nil {
+		t.Fatal(err)
+	}
+	antes := pings()
+	time.Sleep(2 * time.Second) // ~6 latidos de 300 ms, menos que el arriendo (3 s)
+	durante := pings() - antes
+	if err := tx.Commit(x.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if durante < 3 {
+		t.Fatalf("con la fila bloqueada el motor se trabó: %d Ping en 2 s", durante)
+	}
+	if ok, _ := x.ami.Logins(); ok != logins || x.ami.Conectados() != 1 {
+		t.Fatalf("se desconectó por la fila bloqueada: logins %d→%d, conectados %d", logins, ok, x.ami.Conectados())
+	}
+}
+
+// Segunda revisión (E): ListCommands con «Response: Error» no es «sin permisos de más».
+func TestCentralitaListCommandsConError(t *testing.T) {
+	x := nuevoBancoCentralita(t)
+	x.ami.ErrorListCommands(true)
+	r := x.api(x.admin, http.MethodPost, "/centralitas/probar", x.datos())
+	x.exigir(r, http.StatusOK)
+	if r.cuerpo["estado"] != "sin_comprobar" {
+		t.Fatalf("probar: %v", r.cuerpo)
+	}
+	x.ami.ErrorListCommands(false)
+	x.conectar()
+	x.ami.ErrorListCommands(true)
+	antes, _ := x.ami.Logins()
+	x.arrancarSinEsperar()
+	x.hasta(func() bool { ok, _ := x.ami.Logins(); return ok >= antes+2 }, "con ListCommands en error no reconectó")
+	r = x.api(x.admin, http.MethodGet, "/centralita", nil)
+	x.exigir(r, http.StatusOK)
+	if c := r.cuerpo["centralita"].(map[string]any); c["estado"] == "conectada" {
+		t.Fatalf("quedó conectada sin comprobar los permisos: %v", c)
+	}
+	x.ami.ErrorListCommands(false)
+	x.esperarEstado("conectada")
+}

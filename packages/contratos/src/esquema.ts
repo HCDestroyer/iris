@@ -17716,7 +17716,7 @@ export interface components {
             accionesDeMas: string[] | null;
             centralita?: components["schemas"]["Centralita"];
             /** @enum {string} */
-            estado: "ok" | "permisos_de_mas" | "huella_distinta" | "no_conecta";
+            estado: "ok" | "permisos_de_mas" | "huella_distinta" | "no_conecta" | "sin_comprobar";
             huella: string | null;
             version: string | null;
         };

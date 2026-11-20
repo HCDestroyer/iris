@@ -44,6 +44,9 @@ const (
 	MaxPaquete = 64 << 10
 	// ColaEventos: eventos leídos que esperan a quien los procesa; los que no caben se descartan.
 	ColaEventos = 1000
+	// ReservaCierres: lugares de la cola que solo pueden ocupar los cierres (Hangup y Cdr): con la cola
+	// llena de otros eventos, un cierre todavía entra (si no, la llamada quedaría abierta).
+	ReservaCierres = 200
 )
 
 var (
@@ -219,7 +222,7 @@ func Conectar(ctx context.Context, o Opciones) (*Conexion, error) {
 		_ = tc.Close()
 		return nil, ErrProtocolo
 	}
-	c := &Conexion{conn: tc, huella: vista, version: saludo, eventos: make(chan Paquete, ColaEventos), cerrada: make(chan struct{})}
+	c := &Conexion{conn: tc, huella: vista, version: saludo, eventos: make(chan Paquete, ColaEventos+ReservaCierres), cerrada: make(chan struct{})}
 	// Login sincrónico (aún sin lector): la respuesta es el siguiente paquete con su ActionID.
 	id := "iris-login"
 	if err := c.escribirAccion("Login", id, [][2]string{{"Username", o.Usuario}, {"Secret", o.Secreto}, {"Events", o.Eventos}}); err != nil {
@@ -337,12 +340,27 @@ func (c *Conexion) leer(r *bufio.Reader) {
 		if !p.Tiene("Event") {
 			continue
 		}
+		// Este lector es el único que escribe en la cola: len solo puede bajar mientras se mira. Lo que
+		// no es un cierre usa hasta ColaEventos; los cierres, también la reserva.
+		if len(c.eventos) >= ColaEventos && !EsCierre(p) {
+			c.Descartados.Add(1)
+			continue
+		}
 		select {
 		case c.eventos <- p:
 		default:
 			c.Descartados.Add(1)
 		}
 	}
+}
+
+// Exito: la respuesta a una acción trae «Response: Success».
+func Exito(p Paquete) bool { return strings.EqualFold(p.Valor("Response"), "Success") }
+
+// EsCierre: Hangup o Cdr (lo que cierra una llamada y nunca se descarta primero).
+func EsCierre(p Paquete) bool {
+	e := p.Valor("Event")
+	return strings.EqualFold(e, "Hangup") || strings.EqualFold(e, "Cdr")
 }
 
 // leerLinea lee una línea sin su fin (CRLF o LF) con tope de MaxLinea.
@@ -399,11 +417,12 @@ func leerPaquete(r *bufio.Reader) (Paquete, error) {
 
 // ClasesDeEscritura son las clases de permiso del AMI (`write=` de manager.conf) que dejan cambiar
 // algo en la centralita: marcar, colgar, transferir, ejecutar comandos de consola, tocar la
-// configuración, colas y agentes, mandar DTMF, eventos de usuario, AGI o mensajes. ListCommands
+// configuración, colas y agentes, mandar DTMF, eventos de usuario, AGI, mensajes, avisos de cobro
+// (AOCMessage), CC o acciones de prueba. ListCommands
 // anota en cada acción las clases que la habilitan («(Priv: originate,all)»); una acción con
 // cualquiera de estas clases es permiso de más para E4a. El usuario de Iris debe tener `write=` vacío:
 // así ListCommands solo trae acciones sin clase («(Priv: <none>)»: Ping, Logoff, ListCommands…).
-var ClasesDeEscritura = []string{"system", "call", "originate", "config", "command", "agent", "user", "dtmf", "agi", "message"}
+var ClasesDeEscritura = []string{"system", "call", "originate", "config", "command", "agent", "user", "dtmf", "agi", "message", "aoc", "cc", "test"}
 
 // AccionesDeEscritura: segunda red para AMI que no anotan las clases en ListCommands (versiones
 // viejas). Si ListCommands devuelve cualquiera de ellas, el usuario tiene permisos de más.

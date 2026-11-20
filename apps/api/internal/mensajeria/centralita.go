@@ -41,6 +41,9 @@ const (
 	PruebaPermisosDeMas  = "permisos_de_mas"
 	PruebaHuellaDistinta = "huella_distinta"
 	PruebaNoConecta      = "no_conecta"
+	// PruebaSinComprobar: entró, pero ListCommands no respondió Success: no se pudieron comprobar los
+	// permisos (nunca se toma como «solo lectura»).
+	PruebaSinComprobar = "sin_comprobar"
 )
 
 // DatosAsociadosCentralita ata el secreto cifrado a su fila (rotación de IRIS_CLAVE_CIFRADO).
@@ -501,9 +504,10 @@ type EntradaProbarCentralita struct {
 }
 
 // PruebaCentralita es la respuesta de probar. Un solo «no_conecta» para todo lo que no sea huella o
-// permisos: así la prueba no sirve para escanear la red.
+// permisos: así la prueba no sirve para escanear la red. sin_comprobar: entró con la contraseña, pero
+// la centralita no dejó comprobar los permisos (ListCommands sin Success).
 type PruebaCentralita struct {
-	Estado string `json:"estado" enum:"ok,permisos_de_mas,huella_distinta,no_conecta"`
+	Estado string `json:"estado" enum:"ok,permisos_de_mas,huella_distinta,no_conecta,sin_comprobar"`
 	// Huella del certificado que presentó la centralita (para compararla con la de Issabel).
 	Huella *string `json:"huella" nullable:"true"`
 	// Version del AMI (p. ej. «Asterisk Call Manager/7.0.3»).
@@ -614,7 +618,8 @@ func (m *Modulo) opcionesAMI(host string, puerto int32, usuario, secreto, huella
 		Plazo: m.cfg.CentralitaPlazo, Control: controlIA(m.cfg.CentralitaLoopback)}
 }
 
-// probarAMI conecta, entra, hace Ping y ListCommands. Nunca devuelve el detalle del error.
+// probarAMI conecta, entra, hace Ping y ListCommands, cada uno con el plazo de la conexión (una
+// centralita muda no cuelga la petición). Nunca devuelve el detalle del error.
 func probarAMI(ctx context.Context, o ami.Opciones) PruebaCentralita {
 	r := PruebaCentralita{AccionesDeMas: []string{}}
 	o.Eventos = "off"
@@ -631,13 +636,26 @@ func probarAMI(ctx context.Context, o ami.Opciones) PruebaCentralita {
 	defer c.Cerrar()
 	h, v := c.Huella(), c.Version()
 	r.Huella, r.Version = &h, &v
-	if _, err := c.Accion(ctx, "Ping"); err != nil {
+	plazo := o.Plazo
+	if plazo <= 0 {
+		plazo = 10 * time.Second
+	}
+	pctx, cancelar := context.WithTimeout(ctx, plazo)
+	_, err = c.Accion(pctx, "Ping")
+	cancelar()
+	if err != nil {
 		r.Estado = PruebaNoConecta
 		return r
 	}
-	p, err := c.Accion(ctx, "ListCommands")
+	lctx, cancelar := context.WithTimeout(ctx, plazo)
+	p, err := c.Accion(lctx, "ListCommands")
+	cancelar()
 	if err != nil {
 		r.Estado = PruebaNoConecta
+		return r
+	}
+	if !ami.Exito(p) {
+		r.Estado = PruebaSinComprobar
 		return r
 	}
 	if de := ami.PermisosDeMas(p); len(de) > 0 {

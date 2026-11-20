@@ -36,6 +36,12 @@ respaldo de la base sin la clave, no hace falta: sin la clave los secretos no se
   sola transacción** (con candado sobre las filas). Queda en `auditoria.acciones` como acción
   `clave.rotar` del actor `sistema`, canal `consola`, con los conteos por columna y los ids
   ilegibles; nunca valores ni claves. No sube `version` ni `updated_at` (el valor no cambia).
+- **Mientras dura esa transacción, las filas quedan bloqueadas.** En la centralita Issabel
+  (`mensajeria.centralitas`), el motor de `cmd/mensajeria` no puede renovar su arriendo, ni guardar la
+  última señal ni el estado, ni guardar llamadas nuevas. No se traba: cada consulta suya tiene plazo
+  (el menor entre 10 s y el latido), sigue con el Ping al AMI y vuelve a intentar en el latido
+  siguiente; si la rotación dura más que el arriendo (60 s), se reconecta sola al terminar. Los eventos
+  de ese rato esperan en la cola del lector. Corre la rotación en un horario de poco tráfico.
 - Es **idempotente**: lo que ya está con la nueva se cuenta como «ya» y no se toca. Correrla otra
   vez es seguro.
 - **`--simular`** cuenta (total, por rotar, ya rotadas, ilegibles) sin escribir.

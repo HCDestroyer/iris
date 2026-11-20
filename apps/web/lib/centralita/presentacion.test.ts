@@ -37,6 +37,9 @@ describe("prueba y huella", () => {
         expect(textoPrueba({ estado: "ok", accionesDeMas: [], huella: "ab", version: null }).listo).toBe(true);
         expect(textoPrueba({ estado: "permisos_de_mas", accionesDeMas: ["Originate"], huella: null, version: null }).detalle).toContain("Originate");
         expect(textoPrueba({ estado: "no_conecta", accionesDeMas: [], huella: null, version: null }).titulo).toBe("No se pudo conectar");
+        const sinComprobar = textoPrueba({ estado: "sin_comprobar", accionesDeMas: [], huella: "ab", version: null });
+        expect(sinComprobar.listo).toBe(false);
+        expect(sinComprobar.titulo).toBe("No se pudieron revisar los permisos");
     });
 });
 

@@ -26303,7 +26303,8 @@
               "ok",
               "permisos_de_mas",
               "huella_distinta",
-              "no_conecta"
+              "no_conecta",
+              "sin_comprobar"
             ],
             "type": "string"
           },

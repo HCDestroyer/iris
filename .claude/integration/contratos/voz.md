@@ -1098,9 +1098,11 @@ Lo que quedó al construirla (manda sobre lo anterior de esta sección donde dif
   existe. Siempre a elección de la persona, nunca automático (PM).
 - **Probar:** `ok`, `permisos_de_mas` (alguna acción de ListCommands trae una clase de escritura en su
   `(Priv: …)`: `system`, `call`, `originate`, `config`, `command`, `agent`, `user`, `dtmf`, `agi`,
-  `message`, o solo `all`; en un AMI que no anota clases, la lista de acciones conocidas: Originate,
+  `message`, `aoc`, `cc`, `test`, o solo `all`; en un AMI que no anota clases, la lista de acciones conocidas: Originate,
   Command…; el usuario de Iris debe tener `write =` vacío), `huella_distinta` o `no_conecta` (un solo
-  error para todo lo demás). **La contraseña guardada solo viaja al certificado fijado:** probar con
+  error para todo lo demás), o `sin_comprobar` (entró, pero ListCommands no respondió `Success`: no se
+  pudieron comprobar los permisos y no deja encender). Ping y ListCommands tienen el plazo de la
+  conexión. **La contraseña guardada solo viaja al certificado fijado:** probar con
   `centralitaId` sin `secreto` exige la huella guardada (sin ella, 422 `clave_requerida`; con otra,
   `huella_distinta` sin mandar el Login). Solo con la contraseña escrita se acepta un certificado nuevo.
   Encender exige `probada_en`; el motor vuelve a comprobar los permisos en cada conexión y se detiene
@@ -1113,9 +1115,12 @@ Lo que quedó al construirla (manda sobre lo anterior de esta sección donde dif
   conecta. El aviso de cambios llega por el mismo LISTEN de la bandeja. Reconexión de 1 s a 60 s; una
   caída de menos de 60 s no cambia el estado; Ping cada 20 s; ListCommands sin respuesta en 10 s es un
   error de conexión (nunca queda `conectada` sin comprobar los permisos). Topes: línea 2 KB, paquete
-  64 KB o 600 líneas (si no, se corta), 2 000 llamadas seguidas en memoria y 200 eventos por segundo
-  **a la base**: el tope se aplica después de traducir y filtrar (lo ajeno no cuenta) y nunca a los
-  cierres (`Hangup` y `Cdr`) de las llamadas seguidas. Solo pasan a la base los eventos de extensiones
+  64 KB o 600 líneas (si no, se corta), cola de 1 000 eventos más 200 lugares reservados para
+  `Hangup` y `Cdr`, 2 000 llamadas seguidas en memoria y 200 **llamadas nuevas** por segundo a la base:
+  el tope se aplica después de traducir y filtrar (lo ajeno no cuenta) y nunca a lo de las llamadas ya
+  seguidas (contestar, colgar, CDR). ListCommands tiene que responder `Success` (si no, se reconecta;
+  en «Probar», `sin_comprobar`). Las consultas propias del motor (arriendo, última señal, estado)
+  tienen plazo: la rotación de claves, que bloquea la fila, no lo traba. Solo pasan a la base los eventos de extensiones
   registradas o de llamadas que Iris ya sigue. Las llamadas vivas de la centralita no cuentan para las
   reglas de WhatsApp de «una llamada viva por persona» (reservar y recibir timbre filtran
   `origen = 'whatsapp'`).

@@ -207,3 +207,58 @@ func TestPermisosDeMasPorClases(t *testing.T) {
 		t.Fatalf("de más: %v", d)
 	}
 }
+
+// Con la cola del lector llena de otros eventos, los cierres (Hangup y Cdr) todavía entran.
+func TestColaLlenaGuardaLosCierres(t *testing.T) {
+	s := falso(t)
+	o := opciones(s)
+	o.Eventos = "call,cdr"
+	o.Huella = s.Huella()
+	c, err := ami.Conectar(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Cerrar()
+	var b strings.Builder
+	for i := range ami.ColaEventos + 300 {
+		b.WriteString("Event: Newstate\r\nChannel: PJSIP/301-1\r\nLinkedid: 17." + strings.Repeat("1", 1+i%5) + "\r\n\r\n")
+	}
+	b.WriteString("Event: Hangup\r\nChannel: PJSIP/claro-1\r\nUniqueid: 1700.1\r\nLinkedid: 1700.1\r\n\r\n")
+	b.WriteString("Event: Cdr\r\nUniqueID: 1700.1\r\nDisposition: ANSWERED\r\nBillableSeconds: 12\r\n\r\n")
+	s.Crudo(b.String())
+	limite := time.Now().Add(5 * time.Second)
+	for c.Descartados.Load() < 300 {
+		if time.Now().After(limite) {
+			t.Fatalf("no se llenó la cola: %d descartados", c.Descartados.Load())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond) // el lector termina de leer el Hangup y el Cdr
+	vistos := map[string]bool{}
+	for {
+		select {
+		case p := <-c.Eventos():
+			vistos[p.Valor("Event")] = true
+			continue
+		default:
+		}
+		break
+	}
+	if !vistos["Hangup"] || !vistos["Cdr"] {
+		t.Fatalf("con la cola llena se descartó un cierre: %v", vistos)
+	}
+}
+
+// aoc, cc y test también son clases de escritura (AOCMessage, CC…).
+func TestPermisosDeMasClasesAOCCCTest(t *testing.T) {
+	p := ami.Paquete{Campos: [][2]string{
+		{"Response", "Success"},
+		{"AOCMessage", "Generate an Advice of Charge message on a channel.  (Priv: aoc,all)"},
+		{"CCAlgo", "Algo de CC.  (Priv: cc,all)"},
+		{"TestAlgo", "Algo de prueba.  (Priv: test,all)"},
+		{"Ping", "Keepalive command.  (Priv: <none>)"},
+	}}
+	if d := ami.PermisosDeMas(p); strings.Join(d, ",") != "AOCMessage,CCAlgo,TestAlgo" {
+		t.Fatalf("de más: %v", d)
+	}
+}
