@@ -218,6 +218,7 @@ export const PERMISOS_ADMIN: Permiso[] = [
     "usuarios.desactivar",
     "usuarios.editar",
     "usuarios.reiniciar_mfa",
+    "usuarios.restablecer_contrasena",
     "usuarios.ver",
     // Pedido 10: accesos, actividad de la app y roles propios (e2e/api-accesos.ts).
     "accesos.ver",
@@ -396,7 +397,7 @@ export type ApiFalsa = {
     /** Prospectos, cotizaciones y contratos del escenario comercial. */
     comercial: Pick<ApiComercial, "escenario" | "cambiarVersion">;
     /** Cuenta y reinicio de MFA: subir la versión de un usuario, sacarlo del alcance, cuerpos recibidos. */
-    cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios" | "tokens">;
+    cuenta: Pick<ApiCuenta, "cambiarVersion" | "sacarDelAlcance" | "reinicios" | "restablecimientos" | "tokens">;
     /** Reportes: hacer que el próximo CSV responda 422 `exportacion_excedida`. */
     reportes: Pick<ApiReportes, "exportacionExcedida">;
     /** Pedido B3: boletas, decisiones recibidas y enlaces a Argos pedidos. */
@@ -1224,7 +1225,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         flujoAbierto: conversaciones.flujoAbierto,
         pagos,
         encuestas: { encuestas: encuestas.encuestas, publicasConSesion: encuestas.publicasConSesion, respuestas: encuestas.respuestas, enlacesPedidos: encuestas.enlacesPedidos },
-        cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios, tokens: cuenta.tokens },
+        cuenta: { cambiarVersion: cuenta.cambiarVersion, sacarDelAlcance: cuenta.sacarDelAlcance, reinicios: cuenta.reinicios, restablecimientos: cuenta.restablecimientos, tokens: cuenta.tokens },
         cambiarVersionOrden: (ordenId) => {
             const o = ordenes.escenario.ordenes.find((x) => x.id === ordenId);
             if (o) o.version++;

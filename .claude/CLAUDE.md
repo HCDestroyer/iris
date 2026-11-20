@@ -194,6 +194,7 @@ Una tarea está terminada solo si:
 | `horus.hallazgo_abierto` / `horus.hallazgo_resuelto` | integracion (horus) | hallazgo_id, categoria, severidad, ip, cliente_id/servicio_id/empresa_id (o null + motivo_sin_cliente), url_horus |
 | `usuario.creado` / `usuario.actualizado` / `usuario.desactivado` | identidad (núcleo) | usuario_id; tipo (creado), campos[] (actualizado), motivo (desactivado) |
 | `usuario.mfa_reiniciado` | identidad (núcleo) | usuario_id, motivo, sesiones_cerradas, tokens_revocados, tokens_conservados |
+| `usuario.contrasena_restablecida` | identidad (núcleo) | usuario_id, motivo, sesiones_cerradas, tokens_revocados, tokens_conservados; nunca la contraseña |
 | `usuario.sso_vinculado` / `usuario.sso_desvinculado` | identidad (núcleo, autologin) | usuario_id, vinculo_id, conector_id, usuario_externo; sistema, origen (usuario, admin) (vinculado); motivo (desvinculado) |
 | `usuario.sesiones_cerradas` | identidad (núcleo) | usuario_id, sesiones[], todas, motivo (o null) |
 | `usuario.argos_abierto` | integracion (núcleo, autologin Iris → Argos) | usuario_id, conector_id, con_destino; nunca la URL ni el ticket |

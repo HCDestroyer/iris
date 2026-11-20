@@ -64,6 +64,15 @@ SET totp_secreto = NULL, totp_activo = false, totp_ultimo_paso = 0,
 WHERE id = @id AND version = @version
 RETURNING *;
 
+-- name: RestablecerContrasena :one
+-- Restablecimiento por un administrador: reemplaza la contraseña por una temporal que hay que
+-- cambiar al entrar. No toca el MFA.
+UPDATE nucleo.usuarios
+SET contrasena_hash = @contrasena_hash, debe_cambiar_contrasena = true,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
 -- name: CambiarContrasenaPropia :one
 -- El propio usuario cambia su contraseña (y deja de tener una temporal).
 UPDATE nucleo.usuarios

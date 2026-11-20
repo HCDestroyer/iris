@@ -67,6 +67,15 @@ export function cuerpoReiniciarMfa(d: DatosReiniciarMfa, version: number): Schem
     return { version, motivo: d.motivo, contrasenaTemporal: d.contrasenaTemporal, revocarTokens: d.revocarTokens };
 }
 
+/** Restablecer la contraseña de otro (EntradaRestablecerContrasena): los mismos campos que reiniciar MFA. */
+export const esquemaRestablecerContrasena = esquemaReiniciarMfa;
+
+export type DatosRestablecerContrasena = DatosReiniciarMfa;
+
+export function cuerpoRestablecerContrasena(d: DatosRestablecerContrasena, version: number): Schema<"EntradaRestablecerContrasena"> {
+    return { version, motivo: d.motivo, contrasenaTemporal: d.contrasenaTemporal, revocarTokens: d.revocarTokens };
+}
+
 /**
  * Alfabeto de la contraseña temporal: sin caracteres que se confunden al dictarla por teléfono
  * (0/O, 1/l/I) ni símbolos. 56 símbolos × 16 ≈ 93 bits.

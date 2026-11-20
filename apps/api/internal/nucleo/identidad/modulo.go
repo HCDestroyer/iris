@@ -78,8 +78,10 @@ type Modulo struct {
 	EditarUsuario     *auditoria.Caso[EntradaEditarUsuario, Usuario]
 	DesactivarUsuario *auditoria.Caso[EntradaDesactivarUsuario, Usuario]
 	ReiniciarMFA      *auditoria.Caso[EntradaReiniciarMFA, MFAReiniciado]
-	ListarUsuarios    *auditoria.Caso[EntradaListarUsuarios, nucleo.Pagina[Usuario]]
-	VerUsuario        *auditoria.Caso[EntradaVerUsuario, Usuario]
+	// RestablecerContrasena pone una contraseña temporal a otra persona.
+	RestablecerContrasena *auditoria.Caso[EntradaRestablecerContrasena, ContrasenaRestablecida]
+	ListarUsuarios        *auditoria.Caso[EntradaListarUsuarios, nucleo.Pagina[Usuario]]
+	VerUsuario            *auditoria.Caso[EntradaVerUsuario, Usuario]
 
 	IniciarSesion *auditoria.Caso[EntradaIniciarSesion, SesionIniciada]
 	VerificarMFA  *auditoria.Caso[EntradaVerificarMFA, SesionIniciada]
@@ -192,6 +194,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.EditarUsuario = nuevoEditarUsuario()
 	m.DesactivarUsuario = nuevoDesactivarUsuario()
 	m.ReiniciarMFA = nuevoReiniciarMFA()
+	m.RestablecerContrasena = nuevoRestablecerContrasena()
 	m.ListarUsuarios = nuevoListarUsuarios()
 	m.VerUsuario = nuevoVerUsuario()
 	m.IniciarSesion = nuevoIniciarSesion(cfg)

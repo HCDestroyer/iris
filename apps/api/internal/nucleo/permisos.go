@@ -196,6 +196,9 @@ const (
 	PermUsuariosQuitarEmpresa  Permiso = "usuarios.quitar_empresa"
 	// PermUsuariosReiniciarMFA borra el TOTP de otro usuario y cierra sus sesiones (solo admin).
 	PermUsuariosReiniciarMFA Permiso = "usuarios.reiniciar_mfa"
+	// PermUsuariosRestablecerContrasena pone una contraseña temporal a otra persona y cierra sus
+	// sesiones (solo admin).
+	PermUsuariosRestablecerContrasena Permiso = "usuarios.restablecer_contrasena"
 )
 
 // Conector Argos (lectura) e integraciones.
@@ -404,7 +407,7 @@ const (
 // debe agregarse aquí (lo verifica TestPermisosSensiblesCubrenLaAdministracion).
 var PermisosSensibles = map[Permiso]bool{
 	PermUsuariosCrear: true, PermUsuariosEditar: true, PermUsuariosDesactivar: true, PermUsuariosReiniciarMFA: true,
-	PermUsuariosAsignarEmpresa: true, PermUsuariosQuitarEmpresa: true,
+	PermUsuariosRestablecerContrasena: true, PermUsuariosAsignarEmpresa: true, PermUsuariosQuitarEmpresa: true,
 	PermTokensCrear: true, PermTokensRevocar: true, PermTokensEliminar: true,
 	PermRolesCrear: true, PermRolesEditar: true, PermRolesActivar: true, PermRolesDesactivar: true,
 	PermUsuariosAsignarRol: true, PermUsuariosQuitarRol: true, PermUsuariosCerrarSesiones: true,
@@ -636,6 +639,7 @@ var Catalogo = []DefPermiso{
 	{PermUsuariosQuitarEmpresa, "Quitar a un usuario una empresa (solo empresas en que operas tú)"},
 	{PermUsuariosQuitarRol, "Quitar un rol (o una asignación con alcance) a un usuario"},
 	{PermUsuariosReiniciarMFA, "Reiniciar el MFA de otro usuario (borra su TOTP y cierra sus sesiones)"},
+	{PermUsuariosRestablecerContrasena, "Restablecer la contraseña de otro usuario (le pone una temporal y cierra sus sesiones)"},
 	{PermUsuariosVer, "Ver y buscar usuarios"},
 	{PermVozConfigurar, "Configurar la voz de la empresa: duración máxima de una llamada y a quién le suena primero"},
 }
