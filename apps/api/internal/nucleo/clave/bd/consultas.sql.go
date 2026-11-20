@@ -141,7 +141,10 @@ func (q *Queries) CanalesMensajeriaCifrados(ctx context.Context) ([]CanalesMensa
 }
 
 const centralitasCifradas = `-- name: CentralitasCifradas :many
-SELECT id, secreto_cifrado FROM mensajeria.centralitas WHERE secreto_cifrado IS NOT NULL ORDER BY id
+SELECT id, secreto_cifrado FROM mensajeria.centralitas
+WHERE secreto_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE
 `
 
 type CentralitasCifradasRow struct {
@@ -268,7 +271,10 @@ func (q *Queries) CorreosSistemaCifrados(ctx context.Context) ([]CorreosSistemaC
 }
 
 const extensionesSIPCifradas = `-- name: ExtensionesSIPCifradas :many
-SELECT id, sip_secreto_cifrado FROM mensajeria.centralita_extensiones WHERE sip_secreto_cifrado IS NOT NULL ORDER BY id
+SELECT id, sip_secreto_cifrado FROM mensajeria.centralita_extensiones
+WHERE sip_secreto_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE
 `
 
 type ExtensionesSIPCifradasRow struct {

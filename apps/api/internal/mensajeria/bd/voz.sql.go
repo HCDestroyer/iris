@@ -2765,8 +2765,8 @@ WHERE coalesce(d.empresa_id, 0) = $1::bigint AND d.estado = 'disponible'
   AND ($3::bigint IS NULL
        OR EXISTS (SELECT 1 FROM mensajeria.cola_miembros m WHERE m.cola_id = $3::bigint AND m.usuario_id = d.usuario_id)
        OR EXISTS (SELECT 1 FROM mensajeria.cola_supervisores s WHERE s.cola_id = $3::bigint AND s.usuario_id = d.usuario_id))
-  -- Quien ya tiene una llamada viva no recibe otra.
-  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.estado IN ('conectando', 'en_curso', 'marcando')
+  -- Quien ya tiene una llamada viva de WhatsApp no recibe otra (las de la centralita no cuentan).
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.origen = 'whatsapp' AND l.estado IN ('conectando', 'en_curso', 'marcando')
        AND (l.usuario_id = d.usuario_id OR l.reclamada_por = d.usuario_id))
 ORDER BY d.usuario_id
 `
@@ -2832,8 +2832,10 @@ WHERE l.id = $4 AND coalesce(l.empresa_id, 0) = $5::bigint AND l.estado = 'sonan
   -- Todavía suena, y no hay una acción con Meta a medias (un pre_accept o accept de la reserva anterior).
   AND l.suena_hasta > $6::timestamptz AND l.accion_meta_estado IS DISTINCT FROM 'pendiente'
   AND EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c WHERE c.llamada_id = l.id AND c.usuario_id = $1 AND c.retirado_en IS NULL)
-  -- Quien ya tiene una llamada viva no reclama otra.
-  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas o WHERE o.id <> l.id AND o.estado IN ('conectando', 'en_curso', 'marcando')
+  -- Quien ya tiene una llamada viva de WhatsApp no reclama otra (las de la centralita, E4a, van por
+  -- su propio teléfono y no bloquean: una colgada sin cierre no deja a nadie sin WhatsApp).
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas o WHERE o.id <> l.id AND o.origen = 'whatsapp'
+      AND o.estado IN ('conectando', 'en_curso', 'marcando')
       AND (o.usuario_id = $1 OR o.reclamada_por = $1))
 RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version
 `

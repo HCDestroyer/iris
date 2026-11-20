@@ -1,8 +1,9 @@
 -- +goose Up
 -- Voz, etapa E4a (contratos/voz.md §2.10 y §3.12): centralita Issabel de solo lectura. Iris escucha
 -- el AMI (eventos de llamadas y CDR) y, cuando suena la extensión de un usuario, le muestra quién
--- llama. Las llamadas de la centralita van en su propia tabla (no en mensajeria.llamadas): así ningún
--- proceso de las llamadas de WhatsApp (mantenimiento, Meta, salientes) puede tocarlas.
+-- llama. Las llamadas de la centralita van en mensajeria.llamadas con origen = 'centralita' (sin canal
+-- ni conversación); todo proceso de las llamadas de WhatsApp (mantenimiento, Meta, salientes, reservas
+-- y receptores) filtra origen = 'whatsapp', así ninguno puede tocarlas ni quedar bloqueado por ellas.
 
 CREATE TABLE mensajeria.centralitas (
     id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

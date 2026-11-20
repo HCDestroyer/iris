@@ -188,3 +188,22 @@ func TestPaqueteConDemasiadosCampos(t *testing.T) {
 		t.Fatal("no cortó")
 	}
 }
+
+// Las clases (Priv) de cada línea de ListCommands deciden; sin clases (AMI viejo), la lista de
+// acciones conocidas.
+func TestPermisosDeMasPorClases(t *testing.T) {
+	p := ami.Paquete{Campos: [][2]string{
+		{"Response", "Success"}, {"ActionID", "iris-1"},
+		{"Ping", "Keepalive command.  (Priv: <none>)"},
+		{"ListCommands", "List available manager commands.  (Priv: <none>)"},
+		{"QueueChangePriorityCaller", "Change priority of a caller on queue.  (Priv: agent,all)"},
+		{"CoreSettings", "Show PBX core settings (version etc).  (Priv: system,reporting,all)"},
+		{"Raro", "Sin clase conocida.  (Priv: all)"},
+		{"Status", "List channel status.  (Priv: reporting)"},
+		{"Originate", "Originate a call."}, // AMI viejo sin Priv
+		{"Ping", "otra vez.  (Priv: <none>)"},
+	}}
+	if d := ami.PermisosDeMas(p); strings.Join(d, ",") != "QueueChangePriorityCaller,CoreSettings,Raro,Originate" {
+		t.Fatalf("de más: %v", d)
+	}
+}

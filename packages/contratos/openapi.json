@@ -24277,9 +24277,9 @@
           "campo.ver_actividad",
           "campo.ver_bodega",
           "campo.ver_posiciones",
+          "canales.configurar",
           "centralita.asignar_extension",
           "centralita.configurar",
-          "canales.configurar",
           "chat.enviar",
           "chat.supervisar",
           "chat.ver",
@@ -47286,7 +47286,7 @@
     },
     "/api/v1/mensajeria/centralitas/llamadas": {
       "get": {
-        "description": "Permiso: `llamadas.ver`. Por cliente (`clienteId`, ficha del cliente), por ticket (`ticketId`) o las tuyas (`mias=true`, con `hoy=true` las de hoy). `{ data, nextCursor }`, de la más nueva a la más vieja. Nombres de clientes solo con `clientes.ver`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).",
+        "description": "Permiso: `llamadas.ver`. Por cliente (`clienteId`, ficha del cliente; exige `clientes.ver`), por ticket (`ticketId`; el ticket tiene que ser visible para ti: si no, 404) o las tuyas (`mias=true`, con `hoy=true` las de hoy). `{ data, nextCursor }`, de la más nueva a la más vieja. Nombres de clientes solo con `clientes.ver`. La `nota` solo viene en las llamadas que te sonaron, contestaste o marcaste, o si supervisas las extensiones; si no, null. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).",
         "operationId": "listarLlamadasCentralita",
         "parameters": [
           {
@@ -47386,6 +47386,16 @@
             },
             "description": "Forbidden"
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -47424,7 +47434,7 @@
     },
     "/api/v1/mensajeria/centralitas/llamadas/{id}": {
       "get": {
-        "description": "Permiso: `llamadas.ver`. Con varios clientes posibles y sin cliente elegido trae `candidatos` (con `clientes.ver`). Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).",
+        "description": "Permiso: `llamadas.ver`. Con varios clientes posibles y sin cliente elegido trae `candidatos` (con `clientes.ver`). La `nota` solo viene si te sonó, la contestaste o la marcaste, o si supervisas las extensiones; si no, null. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).",
         "operationId": "verLlamadaCentralita",
         "parameters": [
           {

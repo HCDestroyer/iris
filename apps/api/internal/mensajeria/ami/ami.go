@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -396,26 +397,82 @@ func leerPaquete(r *bufio.Reader) (Paquete, error) {
 	}
 }
 
-// AccionesDeEscritura son las acciones del AMI que cambian algo en la centralita. Si ListCommands
-// devuelve cualquiera de ellas, el usuario tiene permisos de más para E4a.
+// ClasesDeEscritura son las clases de permiso del AMI (`write=` de manager.conf) que dejan cambiar
+// algo en la centralita: marcar, colgar, transferir, ejecutar comandos de consola, tocar la
+// configuración, colas y agentes, mandar DTMF, eventos de usuario, AGI o mensajes. ListCommands
+// anota en cada acción las clases que la habilitan («(Priv: originate,all)»); una acción con
+// cualquiera de estas clases es permiso de más para E4a. El usuario de Iris debe tener `write=` vacío:
+// así ListCommands solo trae acciones sin clase («(Priv: <none>)»: Ping, Logoff, ListCommands…).
+var ClasesDeEscritura = []string{"system", "call", "originate", "config", "command", "agent", "user", "dtmf", "agi", "message"}
+
+// AccionesDeEscritura: segunda red para AMI que no anotan las clases en ListCommands (versiones
+// viejas). Si ListCommands devuelve cualquiera de ellas, el usuario tiene permisos de más.
 var AccionesDeEscritura = []string{
 	"Originate", "Redirect", "Hangup", "Command", "Atxfer", "BlindTransfer", "Bridge", "Park", "Setvar",
 	"UpdateConfig", "CreateConfig", "ModuleLoad", "Reload", "QueueAdd", "QueueRemove", "QueuePause",
 	"PlayDTMF", "Monitor", "StopMonitor", "MixMonitor", "StopMixMonitor", "SendText", "UserEvent", "DBPut", "DBDel", "DBDelTree",
-	"AbsoluteTimeout", "MuteAudio", "Atxfer", "SIPnotify", "PJSIPNotify", "ConfbridgeKick", "MeetmeKick",
+	"AbsoluteTimeout", "MuteAudio", "SIPnotify", "PJSIPNotify", "ConfbridgeKick", "MeetmeKick",
 }
 
-// PermisosDeMas revisa la respuesta de ListCommands: devuelve las acciones de escritura que el
-// usuario puede ejecutar (Asterisk solo lista las que su `write=` permite).
+// clasesDeAccion lee las clases de la descripción de ListCommands («Texto.  (Priv: a,b,all)»). ok
+// es false si la línea no las trae.
+func clasesDeAccion(desc string) (clases []string, ok bool) {
+	i := strings.LastIndex(strings.ToLower(desc), "(priv:")
+	if i < 0 {
+		return nil, false
+	}
+	resto := desc[i+len("(priv:"):]
+	if j := strings.Index(resto, ")"); j >= 0 {
+		resto = resto[:j]
+	}
+	for _, c := range strings.Split(resto, ",") {
+		if c = strings.ToLower(strings.TrimSpace(c)); c != "" {
+			clases = append(clases, c)
+		}
+	}
+	return clases, true
+}
+
+// deEscritura: alguna clase de escritura, o solo «all» (no se sabe cuál: se toma por escritura).
+func deEscritura(clases []string) bool {
+	propias := 0
+	for _, c := range clases {
+		if c == "all" || c == "<none>" || c == "none" {
+			continue
+		}
+		propias++
+		if slices.Contains(ClasesDeEscritura, c) {
+			return true
+		}
+	}
+	return propias == 0 && slices.Contains(clases, "all")
+}
+
+// PermisosDeMas revisa la respuesta de ListCommands (Asterisk solo lista las acciones que el `write=`
+// del usuario permite, más las que no exigen clase): devuelve las acciones que el usuario puede
+// ejecutar y que cambian algo, por su clase (Priv) o, si la línea no la trae, por la lista de
+// AccionesDeEscritura.
 func PermisosDeMas(p Paquete) []string {
 	var out []string
 	vistas := map[string]bool{}
 	for _, c := range p.Campos {
-		for _, a := range AccionesDeEscritura {
-			if strings.EqualFold(c[0], a) && !vistas[a] {
-				vistas[a] = true
-				out = append(out, a)
+		accion := c[0]
+		if strings.EqualFold(accion, "Response") || strings.EqualFold(accion, "ActionID") || strings.EqualFold(accion, "Message") || strings.EqualFold(accion, "EventList") {
+			continue
+		}
+		clases, ok := clasesDeAccion(c[1])
+		escritura := ok && deEscritura(clases)
+		if !escritura {
+			for _, a := range AccionesDeEscritura {
+				if strings.EqualFold(accion, a) {
+					escritura = true
+					break
+				}
 			}
+		}
+		if escritura && !vistas[strings.ToLower(accion)] {
+			vistas[strings.ToLower(accion)] = true
+			out = append(out, accion)
 		}
 	}
 	return out

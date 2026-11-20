@@ -29,8 +29,11 @@ type Servidor struct {
 	cert    tls.Certificate
 	usuario string
 	secreto string
-	// Acciones que ListCommands devuelve (lo que el usuario puede escribir, además de Ping).
-	acciones []string
+	// Acciones que ListCommands devuelve (lo que el usuario puede escribir, además de Ping), con
+	// sus clases (Priv) como las anota Asterisk.
+	acciones [][2]string
+	// pausado: corta cada conexión nueva antes del TLS (la centralita no responde).
+	pausado  bool
 	conns    map[*sesion]bool
 	logins   int
 	fallidos int
@@ -40,6 +43,8 @@ type Servidor struct {
 	clases []string
 	// sinRespuestaPing: no contesta Ping (para probar el corte por latido).
 	sinRespuestaPing bool
+	// sinRespuestaLC: no contesta ListCommands.
+	sinRespuestaLC bool
 }
 
 type sesion struct {
@@ -86,10 +91,38 @@ func (s *Servidor) CambiarCertificado() error {
 	return nil
 }
 
-// PermitirEscritura hace que ListCommands devuelva estas acciones (p. ej. Originate, Command).
+// clasesDe: las clases (Priv) con que Asterisk anota algunas acciones de escritura.
+var clasesDe = map[string]string{
+	"originate": "originate,all", "command": "command,all", "hangup": "system,call,all", "redirect": "call,all",
+	"updateconfig": "config,all", "queueadd": "agent,all", "playdtmf": "call,all", "userevent": "user,all",
+}
+
+// PermitirEscritura hace que ListCommands devuelva estas acciones (p. ej. Originate, Command), con
+// sus clases de escritura.
 func (s *Servidor) PermitirEscritura(acciones ...string) {
 	s.mu.Lock()
-	s.acciones = acciones
+	s.acciones = nil
+	for _, a := range acciones {
+		c, ok := clasesDe[strings.ToLower(a)]
+		if !ok {
+			c = "system,call,all"
+		}
+		s.acciones = append(s.acciones, [2]string{a, c})
+	}
+	s.mu.Unlock()
+}
+
+// PermitirAccion suma a ListCommands una acción con las clases dadas (p. ej. "agent,all").
+func (s *Servidor) PermitirAccion(accion, clases string) {
+	s.mu.Lock()
+	s.acciones = append(s.acciones, [2]string{accion, clases})
+	s.mu.Unlock()
+}
+
+// Pausar: con true, cada conexión nueva se corta antes del TLS (como una centralita que no responde).
+func (s *Servidor) Pausar(v bool) {
+	s.mu.Lock()
+	s.pausado = v
 	s.mu.Unlock()
 }
 
@@ -97,6 +130,13 @@ func (s *Servidor) PermitirEscritura(acciones ...string) {
 func (s *Servidor) SinPing(v bool) {
 	s.mu.Lock()
 	s.sinRespuestaPing = v
+	s.mu.Unlock()
+}
+
+// SinListCommands deja de contestar ListCommands.
+func (s *Servidor) SinListCommands(v bool) {
+	s.mu.Lock()
+	s.sinRespuestaLC = v
 	s.mu.Unlock()
 }
 
@@ -182,8 +222,12 @@ func (s *Servidor) aceptar() {
 
 func (s *Servidor) atender(raw net.Conn) {
 	s.mu.Lock()
-	cert := s.cert
+	cert, pausado := s.cert, s.pausado
 	s.mu.Unlock()
+	if pausado {
+		_ = raw.Close()
+		return
+	}
 	c := tls.Server(raw, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
 	if err := c.Handshake(); err != nil {
 		_ = raw.Close()
@@ -250,12 +294,17 @@ func (s *Servidor) atender(raw net.Conn) {
 				return
 			}
 			s.mu.Lock()
-			acc := append([]string{"Ping", "Logoff", "ListCommands", "Events"}, s.acciones...)
+			if s.sinRespuestaLC {
+				s.mu.Unlock()
+				continue
+			}
+			// Las que no exigen clase salen siempre, con «<none>»; las demás, si el write= las deja.
+			acc := append([][2]string{{"Ping", "<none>"}, {"Logoff", "<none>"}, {"ListCommands", "<none>"}, {"Events", "<none>"}}, s.acciones...)
 			s.mu.Unlock()
 			var b strings.Builder
 			b.WriteString("Response: Success\r\nActionID: " + id + "\r\n")
 			for _, a := range acc {
-				fmt.Fprintf(&b, "%s: %s.  (Priv: all)\r\n", a, a)
+				fmt.Fprintf(&b, "%s: %s.  (Priv: %s)\r\n", a[0], a[0], a[1])
 			}
 			b.WriteString("\r\n")
 			escribir(b.String())

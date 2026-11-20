@@ -40,8 +40,10 @@ WHERE l.id = @id AND coalesce(l.empresa_id, 0) = @empresa::bigint AND l.estado =
   -- Todavía suena, y no hay una acción con Meta a medias (un pre_accept o accept de la reserva anterior).
   AND l.suena_hasta > @ahora::timestamptz AND l.accion_meta_estado IS DISTINCT FROM 'pendiente'
   AND EXISTS (SELECT 1 FROM mensajeria.llamada_candidatos c WHERE c.llamada_id = l.id AND c.usuario_id = @usuario_id AND c.retirado_en IS NULL)
-  -- Quien ya tiene una llamada viva no reclama otra.
-  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas o WHERE o.id <> l.id AND o.estado IN ('conectando', 'en_curso', 'marcando')
+  -- Quien ya tiene una llamada viva de WhatsApp no reclama otra (las de la centralita, E4a, van por
+  -- su propio teléfono y no bloquean: una colgada sin cierre no deja a nadie sin WhatsApp).
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas o WHERE o.id <> l.id AND o.origen = 'whatsapp'
+      AND o.estado IN ('conectando', 'en_curso', 'marcando')
       AND (o.usuario_id = @usuario_id OR o.reclamada_por = @usuario_id))
 RETURNING *;
 
@@ -101,8 +103,8 @@ WHERE coalesce(d.empresa_id, 0) = @empresa::bigint AND d.estado = 'disponible'
   AND (sqlc.narg('cola_id')::bigint IS NULL
        OR EXISTS (SELECT 1 FROM mensajeria.cola_miembros m WHERE m.cola_id = sqlc.narg('cola_id')::bigint AND m.usuario_id = d.usuario_id)
        OR EXISTS (SELECT 1 FROM mensajeria.cola_supervisores s WHERE s.cola_id = sqlc.narg('cola_id')::bigint AND s.usuario_id = d.usuario_id))
-  -- Quien ya tiene una llamada viva no recibe otra.
-  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.estado IN ('conectando', 'en_curso', 'marcando')
+  -- Quien ya tiene una llamada viva de WhatsApp no recibe otra (las de la centralita no cuentan).
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.llamadas l WHERE l.origen = 'whatsapp' AND l.estado IN ('conectando', 'en_curso', 'marcando')
        AND (l.usuario_id = d.usuario_id OR l.reclamada_por = d.usuario_id))
 ORDER BY d.usuario_id;
 

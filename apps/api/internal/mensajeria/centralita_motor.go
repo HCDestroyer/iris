@@ -24,8 +24,11 @@ import (
 //   - Huella distinta o permisos de más: la conexión se detiene hasta que un administrador lo
 //     resuelva (eso sube la versión de la centralita y el motor la vuelve a arrancar).
 //   - Ping cada 20 s; sin respuesta en 10 s se reconecta.
-//   - Solo pasan a la base los eventos de extensiones registradas o de llamadas que Iris ya sigue,
-//     con un tope de eventos por segundo; los demás se descartan sin mirar.
+//   - Solo pasan a la base los eventos de extensiones registradas o de llamadas que Iris ya sigue;
+//     los demás se descartan sin mirar. El tope de eventos por segundo se aplica después de filtrar,
+//     a lo que va a la base, y nunca a los cierres (Hangup y CDR) de las llamadas seguidas.
+//   - El arriendo se renueva antes de cada conexión y durante cada espera de reconexión: si otra
+//     réplica lo tomó, esta no se conecta.
 //   - Las llamadas que suenan o están en curso mientras Iris no escucha no se recuperan (fuera de
 //     alcance de E4a); las que quedaron abiertas se cierran solas (CentralitaSonandoMax/EnCursoMax).
 
@@ -136,7 +139,11 @@ func (m *Modulo) correrCentralita(ctx context.Context, pool *pgxpool.Pool, log *
 			esperar(ctx, m.cfg.CentralitaRevision) // otra réplica la tiene
 			continue
 		}
-		m.sesionesCentralita(ctx, pool, log, id, version, refrescar)
+		if perdido := m.sesionesCentralita(ctx, pool, log, id, version, refrescar); perdido {
+			// Otra réplica tomó el arriendo: no se conecta; se vuelve a esperar a que lo suelte.
+			esperar(ctx, m.cfg.CentralitaRevision)
+			continue
+		}
 		_ = q.SoltarMotorCentralita(context.WithoutCancel(ctx), mensajeriabd.SoltarMotorCentralitaParams{ID: id, Dueno: &m.idProceso})
 		return
 	}
@@ -147,6 +154,25 @@ func (m *Modulo) tomarMotor(ctx context.Context, q *mensajeriabd.Queries, id int
 	seg := int32(max(3*m.cfg.CentralitaPing/time.Second, 3)) //nolint:gosec // segundos acotados
 	_, err := q.TomarMotorCentralita(ctx, mensajeriabd.TomarMotorCentralitaParams{ID: id, Dueno: &m.idProceso, Segundos: seg})
 	return err == nil
+}
+
+// esperarConArriendo espera d renovando el arriendo en cada latido (una espera de reconexión de
+// hasta 60 s, o de 5 min con credenciales rechazadas, no lo deja vencer). seguir es false si terminó
+// ctx o se perdió el arriendo; perdido dice cuál.
+func (m *Modulo) esperarConArriendo(ctx context.Context, q *mensajeriabd.Queries, id int64, d time.Duration) (seguir, perdido bool) {
+	fin := time.Now().Add(d)
+	for {
+		resta := time.Until(fin)
+		if resta <= 0 {
+			return true, false
+		}
+		if !esperar(ctx, min(resta, m.cfg.CentralitaPing)) {
+			return false, false
+		}
+		if !m.tomarMotor(ctx, q, id) {
+			return false, ctx.Err() == nil
+		}
+	}
 }
 
 func esperar(ctx context.Context, d time.Duration) bool {
@@ -160,8 +186,10 @@ func esperar(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// sesionesCentralita conecta, escucha y reconecta mientras la centralita siga activa con esta versión.
-func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, id int64, version int32, refrescar <-chan struct{}) {
+// sesionesCentralita conecta, escucha y reconecta mientras la centralita siga activa con esta versión
+// y esta réplica tenga el arriendo: lo renueva antes de cada conexión y durante cada espera. Devuelve
+// perdido = true si otra réplica lo tomó (entonces no conecta).
+func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, id int64, version int32, refrescar <-chan struct{}) (perdido bool) {
 	sctx := ctxSistema(ctx, pool)
 	q := mensajeriabd.New(pool)
 	espera := time.Second
@@ -177,20 +205,43 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 		fijar(CentralitaError, &codigo, huella)
 		<-ctx.Done() // hasta que un administrador lo resuelva (cambia la versión)
 	}
+	// reintentar: la conexión falló; tras la gracia sin conectar avisa y espera (exponencial) con el
+	// arriendo renovado.
+	reintentar := func() (sigue, perd bool) {
+		ahora := time.Now()
+		if caida == nil {
+			caida = &ahora
+		}
+		if !avisada && ahora.Sub(*caida) >= m.cfg.CentralitaGracia {
+			avisada = true
+			fijar(CentralitaDesconectada, nil, nil)
+		}
+		sigue, perd = m.esperarConArriendo(ctx, q, id, espera)
+		espera = min(espera*2, centralitaEsperaMax)
+		return sigue, perd
+	}
 	for ctx.Err() == nil {
+		// Cada vuelta (también cada reconexión) renueva el arriendo: si otra réplica lo tomó, no se conecta.
+		if !m.tomarMotor(ctx, q, id) {
+			if ctx.Err() != nil {
+				return false
+			}
+			log.WarnContext(ctx, "centralita: otra réplica tiene el arriendo de la conexión; esta no se conecta")
+			return true
+		}
 		f, err := q.CentralitaDelMotor(ctx, id)
 		if err != nil || !f.Activa || f.Version != version || f.HuellaTls == nil {
-			return
+			return false
 		}
 		if f.ErrorCodigo != nil && (*f.ErrorCodigo == "huella_cambiada" || *f.ErrorCodigo == "permisos_de_mas") {
 			<-ctx.Done()
-			return
+			return false
 		}
 		secreto, err := m.descifrarCentralita(f)
 		if err != nil {
 			log.WarnContext(ctx, "centralita: no se pudo descifrar la contraseña del AMI")
 			detenida("credenciales", nil)
-			return
+			return false
 		}
 		o := m.opcionesAMI(f.Host, f.Puerto, f.Usuario, secreto, *f.HuellaTls)
 		o.Eventos = "call,cdr"
@@ -202,37 +253,43 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 				log.WarnContext(ctx, "centralita: la huella del certificado cambió; la conexión se detiene hasta que un administrador la confirme")
 				v := eh.Vista
 				detenida("huella_cambiada", &v)
-				return
+				return false
 			case errors.Is(err, ami.ErrCredenciales):
 				log.WarnContext(ctx, "centralita: el AMI rechazó el usuario o la contraseña")
 				cod := "credenciales"
 				fijar(CentralitaError, &cod, nil)
-				if !esperar(ctx, 5*centralitaEsperaMax) {
-					return
+				if seguir, perd := m.esperarConArriendo(ctx, q, id, 5*centralitaEsperaMax); !seguir {
+					return perd
 				}
 				continue
 			}
-			ahora := time.Now()
-			if caida == nil {
-				caida = &ahora
+			if seguir, perd := reintentar(); !seguir {
+				return perd
 			}
-			if !avisada && ahora.Sub(*caida) >= m.cfg.CentralitaGracia {
-				avisada = true
-				fijar(CentralitaDesconectada, nil, nil)
-			}
-			if !esperar(ctx, espera) {
-				return
-			}
-			espera = min(espera*2, centralitaEsperaMax)
 			continue
 		}
-		// El mínimo privilegio se comprueba en cada conexión, no solo al probar.
-		p, err := c.Accion(ctx, "ListCommands")
-		if err == nil && len(ami.PermisosDeMas(p)) > 0 {
+		// El mínimo privilegio se comprueba en cada conexión, no solo al probar. Sin respuesta en el
+		// plazo (o con la conexión caída) es un error de conexión: se reconecta, nunca queda conectada
+		// sin haber comprobado los permisos.
+		lctx, cancelar := context.WithTimeout(ctx, m.cfg.CentralitaPlazo)
+		p, err := c.Accion(lctx, "ListCommands")
+		cancelar()
+		if err != nil {
 			c.Cerrar()
-			log.WarnContext(ctx, "centralita: el usuario AMI tiene permisos de escritura; la conexión se detiene", "acciones", ami.PermisosDeMas(p))
+			if ctx.Err() != nil {
+				return false
+			}
+			log.InfoContext(ctx, "centralita: el AMI no contestó ListCommands; se reconecta")
+			if seguir, perd := reintentar(); !seguir {
+				return perd
+			}
+			continue
+		}
+		if de := ami.PermisosDeMas(p); len(de) > 0 {
+			c.Cerrar()
+			log.WarnContext(ctx, "centralita: el usuario AMI tiene permisos de escritura; la conexión se detiene", "acciones", de)
 			detenida("permisos_de_mas", nil)
-			return
+			return false
 		}
 		fijar(CentralitaConectada, nil, nil)
 		caida, avisada, espera = nil, false, time.Second
@@ -241,6 +298,7 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 		ahora := time.Now()
 		caida = &ahora
 	}
+	return false
 }
 
 // escucharAMI procesa los eventos de una sesión hasta que se corta.
@@ -318,18 +376,8 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 				tocado = ahora
 				_ = q.TocarCentralita(ctx, mensajeriabd.TocarCentralitaParams{ID: f.ID, Ahora: &ahora, HaceMinuto: ahora.Add(-time.Minute)})
 			}
-			// Tope de eventos por segundo (una centralita que inunda no tumba a Iris).
-			if ahora.Sub(ventana) >= time.Second {
-				ventana, enVentana = ahora, 0
-			}
-			if enVentana++; enVentana > m.cfg.CentralitaEventosSeg {
-				descartados++
-				if ahora.Sub(avisarDescarte) >= time.Minute {
-					avisarDescarte = ahora
-					log.WarnContext(ctx, "centralita: demasiados eventos por segundo; se descartan", "descartados", descartados, "cola", c.Descartados.Load())
-				}
-				continue
-			}
+			// Primero se traduce y se filtra (en memoria, sin tocar la base): los eventos ajenos (de
+			// extensiones no registradas o de llamadas que Iris no sigue) se descartan sin contar.
 			if p.Valor("Event") == "Cdr" {
 				p = linkedidDeCDR(p)
 			}
@@ -337,19 +385,38 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 			if h.tipo == hechoSinInteres {
 				continue
 			}
+			_, seguida := seguidas[h.linkedid]
 			switch h.tipo {
 			case hechoSuena, hechoMarca:
 				if h.interno {
 					continue
 				}
-				if _, ok := seguidas[h.linkedid]; !ok && len(seguidas) >= centralitaSeguidas {
+				if !seguida && len(seguidas) >= centralitaSeguidas {
 					continue
 				}
-				seguidas[h.linkedid] = ahora
 			default:
-				if _, ok := seguidas[h.linkedid]; !ok {
+				if !seguida {
 					continue
 				}
+			}
+			// Tope de lo que va a la base por segundo (una centralita que inunda no tumba a Iris). Los
+			// cierres (Hangup y CDR) de las llamadas seguidas nunca se descartan: una avalancha no deja
+			// llamadas abiertas.
+			if h.tipo != hechoCuelga && h.tipo != hechoRegistro {
+				if ahora.Sub(ventana) >= time.Second {
+					ventana, enVentana = ahora, 0
+				}
+				if enVentana++; enVentana > m.cfg.CentralitaEventosSeg {
+					descartados++
+					if ahora.Sub(avisarDescarte) >= time.Minute {
+						avisarDescarte = ahora
+						log.WarnContext(ctx, "centralita: demasiados eventos por segundo; se descartan", "descartados", descartados, "cola", c.Descartados.Load())
+					}
+					continue
+				}
+			}
+			if h.tipo == hechoSuena || h.tipo == hechoMarca {
+				seguidas[h.linkedid] = ahora
 			}
 			cambio, err := m.Centralita.procesar.Ejecutar(sctx, entradaHechoAMI{CentralitaID: f.ID, Hecho: h, Tipo: h.tipo, Extension: h.extension})
 			if err != nil && ctx.Err() == nil {

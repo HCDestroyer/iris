@@ -132,14 +132,17 @@ func (m *Modulo) registrarCentralita(api huma.API) {
 			return responder(k.Quitar.Ejecutar(ctx, EntradaQuitarExtension{CentralitaID: in.ID, ExtensionID: in.ExtensionID}))
 		})
 	// Llamadas.
-	huma.Register(api, d(op("listarLlamadasCentralita", http.MethodGet, "/centralitas/llamadas", "Llamadas de la centralita", nucleo.PermLlamadasVer, http.StatusOK),
-		"Por cliente (`clienteId`, ficha del cliente), por ticket (`ticketId`) o las tuyas (`mias=true`, con `hoy=true` las de hoy). `{ data, nextCursor }`, "+
-			"de la más nueva a la más vieja. Nombres de clientes solo con `clientes.ver`."),
+	huma.Register(api, d(op("listarLlamadasCentralita", http.MethodGet, "/centralitas/llamadas", "Llamadas de la centralita", nucleo.PermLlamadasVer, http.StatusOK,
+		http.StatusNotFound),
+		"Por cliente (`clienteId`, ficha del cliente; exige `clientes.ver`), por ticket (`ticketId`; el ticket tiene que ser visible para ti: si no, 404) "+
+			"o las tuyas (`mias=true`, con `hoy=true` las de hoy). `{ data, nextCursor }`, de la más nueva a la más vieja. Nombres de clientes solo con "+
+			"`clientes.ver`. La `nota` solo viene en las llamadas que te sonaron, contestaste o marcaste, o si supervisas las extensiones; si no, null."),
 		func(ctx context.Context, in *EntradaListarLlamadasCentralita) (*cuerpo[ListaLlamadasCentralita], error) {
 			return responder(k.Llamadas.Ejecutar(ctx, *in))
 		})
 	huma.Register(api, d(op("verLlamadaCentralita", http.MethodGet, "/centralitas/llamadas/{id}", "Una llamada de la centralita", nucleo.PermLlamadasVer,
-		http.StatusOK, http.StatusNotFound), "Con varios clientes posibles y sin cliente elegido trae `candidatos` (con `clientes.ver`)."),
+		http.StatusOK, http.StatusNotFound), "Con varios clientes posibles y sin cliente elegido trae `candidatos` (con `clientes.ver`). La `nota` solo "+
+		"viene si te sonó, la contestaste o la marcaste, o si supervisas las extensiones; si no, null."),
 		func(ctx context.Context, in *llamadaCentralitaHTTP) (*cuerpo[Llamada], error) {
 			return responder(k.VerLlamada.Ejecutar(ctx, EntradaLlamadaCentralita{ID: in.ID}))
 		})

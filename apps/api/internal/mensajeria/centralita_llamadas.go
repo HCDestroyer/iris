@@ -162,6 +162,11 @@ func (m *Modulo) vistaLlamadas(ctx context.Context, q *mensajeriabd.Queries, fil
 		if f.Direccion == "saliente" && mia {
 			c.TuExtension = f.Extension
 		}
+		// La nota (puede traer datos del cliente) solo para quien puede actuar sobre la llamada (le
+		// sonó, la contestó o la marcó) o supervisa las extensiones; los demás la ven vacía (null).
+		if !mia && !vv.supervisa {
+			l.Nota = nil
+		}
 		puedeActuar := vv.anota && (mia || vv.supervisa)
 		l.Puede = PuedeLlamada{Anotar: puedeActuar}
 		c.Asociar = puedeActuar && vv.verClientes
@@ -636,6 +641,20 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarLlamadasCentralita) (ListaLlamadasCentralita, error) {
 			if in.ClienteID == 0 && in.TicketID == 0 && !in.Mias {
 				return ListaLlamadasCentralita{}, campoCentralita("clienteId", "Pide las de un cliente, las de un ticket o las tuyas (mias=true)")
+			}
+			// Filtrar por cliente o por ticket no salta sus permisos: el historial de un cliente exige
+			// clientes.ver, y el de un ticket que quien pide lo vea (tickets.ver, su alcance y la empresa
+			// activa; si no, 404 como en el ticket).
+			if in.ClienteID > 0 && !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesVer)) {
+				return ListaLlamadasCentralita{}, nucleo.Prohibido("Te falta el permiso clientes.ver")
+			}
+			if in.TicketID > 0 {
+				if m.cfg.Soporte == nil {
+					return ListaLlamadasCentralita{}, noDisponible("Las llamadas del ticket")
+				}
+				if _, err := m.cfg.Soporte.VerTicket.Ejecutar(ctx, soporte.EntradaVerTicket{ID: in.TicketID}); err != nil {
+					return ListaLlamadasCentralita{}, err
+				}
 			}
 			q := mensajeriabd.New(t)
 			en, id, err := leerCursorLlamadas(in.Cursor)

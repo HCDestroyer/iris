@@ -73,7 +73,10 @@ eventfilter = !Event: Newexten
 ```
 
 - `read = call,cdr` y **`write =` vacío**: Iris comprueba al probar y en cada conexión que el usuario
-  no pueda ejecutar acciones de escritura (Originate, Command…). Si puede, Iris no se enciende.
+  no pueda ejecutar acciones de escritura. Mira la clase de cada acción que el AMI le permite: con
+  cualquiera de `system`, `call`, `originate`, `config`, `command`, `agent`, `user`, `dtmf`, `agi`,
+  `message` (o `all`) en `write`, Iris no se enciende. Iris no necesita ninguna clase de escritura: deja
+  `write =` vacío (ni siquiera `reporting`).
 - `permit`: solo la IP de Iris.
 - Los `eventfilter` quitan eventos que Iris no usa (menos tráfico).
 

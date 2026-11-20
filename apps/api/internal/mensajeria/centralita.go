@@ -569,11 +569,13 @@ func nuevoProbarCentralita(m *Modulo) *ProbarCentralita {
 			if host != f.Host || in.Puerto != f.Puerto || in.Usuario != f.Usuario {
 				return destinoPrueba{}, nucleo.ReglaNegocio("clave_requerida", "Cambiaste la dirección, el puerto o el usuario: escribe otra vez la contraseña del AMI")
 			}
+			// La contraseña guardada solo viaja al certificado fijado: sin huella guardada no se usa, y
+			// una huella distinta corta antes del Login (huella_distinta), nunca se acepta a ciegas.
 			s, err := m.descifrarCentralita(f)
-			if err != nil {
+			if err != nil || f.HuellaTls == nil {
 				return destinoPrueba{}, nucleo.ReglaNegocio("clave_requerida", "Escribe otra vez la contraseña del AMI")
 			}
-			return destinoPrueba{opciones: m.opcionesAMI(host, in.Puerto, in.Usuario, s, "")}, nil
+			return destinoPrueba{opciones: m.opcionesAMI(host, in.Puerto, in.Usuario, s, *f.HuellaTls)}, nil
 		},
 	})
 	k.guardada = auditoria.Nuevo(auditoria.Caso[EntradaVerCentralita, destinoPrueba]{

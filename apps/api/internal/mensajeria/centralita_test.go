@@ -30,7 +30,7 @@ type bancoCentralita struct {
 	motorHecho chan struct{}
 }
 
-func nuevoBancoCentralita(t *testing.T) *bancoCentralita {
+func nuevoBancoCentralita(t *testing.T, ajustes ...func(*mensajeria.Config)) *bancoCentralita {
 	t.Helper()
 	falso, err := amifalso.Nuevo("iris_lectura", secretoAMI)
 	if err != nil {
@@ -45,6 +45,9 @@ func nuevoBancoCentralita(t *testing.T) *bancoCentralita {
 		c.CentralitaPing = 300 * time.Millisecond
 		c.CentralitaPlazo = 3 * time.Second
 		c.ChatLatido = 150 * time.Millisecond
+		for _, f := range ajustes {
+			f(c)
+		}
 	})
 	x := &bancoCentralita{bandeja: b, ami: falso}
 	x.admin = b.persona([]int64{1}, rolBase("admin"))

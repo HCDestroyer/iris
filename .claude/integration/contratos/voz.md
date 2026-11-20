@@ -1096,18 +1096,35 @@ Lo que quedó al construirla (manda sobre lo anterior de esta sección donde dif
 - **Crear un ticket desde la llamada:** el panel abre «Nuevo ticket» (`?llamada=`) y, al crearlo, lo
   vincula (`vincular-ticket`). No hay `crear-ticket` propio: el formulario tiene más de 3 campos y ya
   existe. Siempre a elección de la persona, nunca automático (PM).
-- **Probar:** `ok`, `permisos_de_mas` (ListCommands devuelve acciones de escritura: Originate,
-  Command…), `huella_distinta` (solo la guardada) o `no_conecta` (un solo error para todo lo demás).
+- **Probar:** `ok`, `permisos_de_mas` (alguna acción de ListCommands trae una clase de escritura en su
+  `(Priv: …)`: `system`, `call`, `originate`, `config`, `command`, `agent`, `user`, `dtmf`, `agi`,
+  `message`, o solo `all`; en un AMI que no anota clases, la lista de acciones conocidas: Originate,
+  Command…; el usuario de Iris debe tener `write =` vacío), `huella_distinta` o `no_conecta` (un solo
+  error para todo lo demás). **La contraseña guardada solo viaja al certificado fijado:** probar con
+  `centralitaId` sin `secreto` exige la huella guardada (sin ella, 422 `clave_requerida`; con otra,
+  `huella_distinta` sin mandar el Login). Solo con la contraseña escrita se acepta un certificado nuevo.
   Encender exige `probada_en`; el motor vuelve a comprobar los permisos en cada conexión y se detiene
   con `permisos_de_mas` o `huella_cambiada` hasta que un admin lo resuelva (`confirmar-huella` exige
   exactamente `huellaVista`).
 - **Motor** (`cmd/mensajeria`, `centralita_motor.go`): cliente AMI propio (`internal/mensajeria/ami`,
   solo Login, Ping, ListCommands y lectura de eventos; no sabe mandar Originate). Una sesión por
-  centralita activa con arriendo en la fila (sin retener conexiones de Postgres); el aviso de cambios
-  llega por el mismo LISTEN de la bandeja. Reconexión de 1 s a 60 s; una caída de menos de 60 s no
-  cambia el estado; Ping cada 20 s. Topes: línea 2 KB, paquete 64 KB o 600 líneas (si no, se corta),
-  200 eventos por segundo, 2 000 llamadas seguidas en memoria. Solo pasan a la base los eventos de
-  extensiones registradas o de llamadas que Iris ya sigue.
+  centralita activa con arriendo en la fila (sin retener conexiones de Postgres), que se renueva antes de
+  cada conexión, en cada latido y durante cada espera de reconexión: si otra réplica lo tomó, esta no se
+  conecta. El aviso de cambios llega por el mismo LISTEN de la bandeja. Reconexión de 1 s a 60 s; una
+  caída de menos de 60 s no cambia el estado; Ping cada 20 s; ListCommands sin respuesta en 10 s es un
+  error de conexión (nunca queda `conectada` sin comprobar los permisos). Topes: línea 2 KB, paquete
+  64 KB o 600 líneas (si no, se corta), 2 000 llamadas seguidas en memoria y 200 eventos por segundo
+  **a la base**: el tope se aplica después de traducir y filtrar (lo ajeno no cuenta) y nunca a los
+  cierres (`Hangup` y `Cdr`) de las llamadas seguidas. Solo pasan a la base los eventos de extensiones
+  registradas o de llamadas que Iris ya sigue. Las llamadas vivas de la centralita no cuentan para las
+  reglas de WhatsApp de «una llamada viva por persona» (reservar y recibir timbre filtran
+  `origen = 'whatsapp'`).
+- **Historial y nota (quién ve qué):** `GET /centralitas/llamadas` exige `llamadas.ver`; con
+  `clienteId` además `clientes.ver` (si no, 403); con `ticketId`, que quien pide vea el ticket
+  (`tickets.ver`, su alcance y la empresa activa, como `GET /tickets/{id}`: si no, el mismo error).
+  La **nota** de una llamada de la centralita (en el listado y en `GET /centralitas/llamadas/{id}`)
+  solo se muestra a quien puede actuar sobre ella (le sonó, la contestó o la marcó) o tiene
+  `centralita.asignar_extension`; a los demás va `null`.
 - **Asterisk 18 / Issabel 5:** extensión solo de canales `PJSIP/<ext>-…`, `SIP/<ext>-…` o `IAX2/…`.
   Los `Local/<ext>@from-queue-…;1|;2` de colas y grupos se ignoran: el DialBegin del `;2` al teléfono
   (mismo Linkedid) es el que hace sonar, una vez por persona. Internas (desde otro teléfono o con
