@@ -26,6 +26,7 @@ import { puedeReiniciarMfa } from "@/lib/cuenta/sesion";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { DialogoReiniciarMfa } from "./reiniciar-mfa";
+import { BotonRestablecerContrasena } from "@/componentes/usuarios/restablecer-contrasena";
 import Link from "next/link";
 
 type Usuario = Schema<"Usuario">;
@@ -101,7 +102,7 @@ export function ListaUsuarios() {
     const [cargandoMas, setCargandoMas] = useState(false);
     const [errorMas, setErrorMas] = useState<unknown>(null);
     const { permisos, puede } = useSesion();
-    const conAcciones = permisos.includes("usuarios.reiniciar_mfa");
+    const conAcciones = permisos.includes("usuarios.reiniciar_mfa") || permisos.includes("usuarios.restablecer_contrasena");
     // Lo que devolvieron las acciones (versión y MFA nuevos) sobre lo leído.
     const [cambios, setCambios] = useState<Record<number, Usuario>>({});
     const [reinicio, setReinicio] = useState<Usuario | null>(null);
@@ -215,8 +216,9 @@ export function ListaUsuarios() {
                                 <Activo u={u} />
                             </div>
                             <p className="text-sm text-muted-foreground">{textoRoles(u)}</p>
-                            <div className="empty:hidden">
+                            <div className="flex flex-wrap gap-2 empty:hidden">
                                 <BotonReiniciar u={u} alAbrir={setReinicio} />
+                                <BotonRestablecerContrasena usuario={u} alCambiar={actualizar} alPerderAlcance={recargarLista} tamano="sm" />
                             </div>
                         </li>
                     ))}
@@ -261,7 +263,10 @@ export function ListaUsuarios() {
                                     </TablaCelda>
                                     {conAcciones ? (
                                         <TablaCelda className="text-right">
-                                            <BotonReiniciar u={u} alAbrir={setReinicio} />
+                                            <div className="flex flex-wrap justify-end gap-2">
+                                                <BotonReiniciar u={u} alAbrir={setReinicio} />
+                                                <BotonRestablecerContrasena usuario={u} alCambiar={actualizar} alPerderAlcance={recargarLista} tamano="sm" />
+                                            </div>
                                         </TablaCelda>
                                     ) : null}
                                 </TablaFila>

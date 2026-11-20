@@ -224,6 +224,9 @@ function Busqueda({
         (cliente: ClienteResumen, servicio: ServicioCliente | null) => {
             // En el navegador solo id, código y nombre.
             escribirLocal(clave, JSON.stringify(agregarReciente(recientes, cliente)));
+            // La confirmación terminó: si la pantalla no deja el cliente elegido (la conversación
+            // asocia y sigue mostrando la búsqueda), se vuelve a buscar y no queda «Leyendo la ficha…».
+            setPendiente(null);
             alElegir({ cliente, servicio });
         },
         [alElegir, clave, recientes],

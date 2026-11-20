@@ -564,6 +564,12 @@ export function textoCoincidencia(en: readonly string[]): string {
     return "";
 }
 
+/** El mensaje real del servidor: título y, si lo hay, el detalle. */
+function textoError(error: unknown): string {
+    const m = mensajeDeError(error);
+    return m.detalle ? `${m.titulo}: ${m.detalle}` : m.titulo;
+}
+
 /** Sin cliente asociado: coincidencias por el número, buscar en Argos, prospecto o contacto de Iris. */
 function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActualizar: (c: Conversacion) => void }) {
     const { puede } = useSesion();
@@ -571,10 +577,13 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
     const [contacto, setContacto] = useState(false);
     const [error, setError] = useState<unknown>(null);
     const [asociando, setAsociando] = useState<number | null>(null);
+    // El último intento, para «Reintentar» si falló.
+    const [ultimo, setUltimo] = useState<{ clienteId: number; servicioId: number | null } | null>(null);
     const coincidencias = useLectura(async (signal) => await resolver(api().GET(`${BASE}/coincidencias`, { params: { path: { id: conv.id } }, signal })));
 
     async function asociar(clienteId: number, servicioId: number | null) {
         setError(null);
+        setUltimo({ clienteId, servicioId });
         setAsociando(clienteId);
         try {
             const c = await resolver(
@@ -664,8 +673,19 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
                         ) : null}
                     </section>
                     {error ? (
-                        <Aviso tono="error" titulo="No se pudo asociar">
-                            {error instanceof ErrorApi && error.estado === 409 ? "Alguien más cambió la conversación; vuelve a intentarlo." : mensajeDeError(error).titulo}
+                        <Aviso
+                            tono="error"
+                            titulo="No se pudo asociar"
+                            accion={
+                                ultimo ? (
+                                    <Boton variante="secundario" tamano="sm" disabled={asociando !== null} onClick={() => void asociar(ultimo.clienteId, ultimo.servicioId)}>
+                                        <RotateCw />
+                                        Reintentar
+                                    </Boton>
+                                ) : undefined
+                            }
+                        >
+                            {error instanceof ErrorApi && error.estado === 409 ? "Alguien más cambió la conversación; vuelve a intentarlo." : textoError(error)}
                         </Aviso>
                     ) : null}
                     {conv.contacto.tipo === "desconocido" ? (
