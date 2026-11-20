@@ -50,7 +50,7 @@ func TestContrato071ConArgos115SigueCompatible(t *testing.T) {
 		t.Fatalf("con Argos 1.15.0 se sigue pudiendo aprobar: %v %v", ok, err)
 	}
 	// Con un Argos que ya habla 0.7.1, lo mismo.
-	e.argos.con(func() { e.argos.version, e.argos.contratoMax = "1.16.0", "" })
+	e.argos.con(func() { e.argos.version, e.argos.contratoMax = "1.16.0", "0.7.1" })
 	con = revisar()
 	if con["versionRemota"] != "1.16.0" || con["contratoRemoto"] != "0.7.1" || con["versionEstado"] != "ok" {
 		t.Fatalf("Argos 1.16.0: %v", con)
