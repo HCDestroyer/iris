@@ -158,7 +158,7 @@ function AvisoCentralita({ yoId }: { yoId: number }) {
             aria-label={`Llamada de la centralita: ${quien.nombre}`}
             data-slot="aviso-centralita"
             data-estado={otro ? "otro" : llamada.estado}
-            className={MARCO_AVISO + " border-primary/50 bg-card ring-2 ring-primary/25"}
+            className={MARCO_AVISO + " border-primary/50 bg-[var(--overlay)] ring-2 ring-primary/25"}
         >
             <CabeceraLlamada
                 conocido={quien.conocido}

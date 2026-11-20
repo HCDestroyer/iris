@@ -136,7 +136,6 @@ function Formulario({ centralita: c }: { centralita: Centralita | null }) {
                     <Campo etiqueta="Nombre" ayuda="Para reconocerla en Iris." error={errores.nombre?.message} {...form.register("nombre")} />
                     <Campo
                         etiqueta="Dirección"
-                        className="font-mono"
                         autoComplete="off"
                         spellCheck={false}
                         placeholder="10.20.0.5"

@@ -23,7 +23,9 @@ async function abrir(page: Page, ruta: string, centralita: OpcionesCentralita = 
     return api;
 }
 
-const captura = (page: Page, nombre: string) => page.screenshot({ path: path.join(carpeta, `${nombre}-${test.info().project.name}.png`), fullPage: true });
+// Las de la ventana, sin la página entera de fondo (la ventana flota arriba).
+const captura = (page: Page, nombre: string) =>
+    page.screenshot({ path: path.join(carpeta, `${nombre}-${test.info().project.name}.png`), fullPage: !/^[4-7]/.test(nombre) });
 const slot = (page: Page, nombre: string) => page.locator(`[data-slot="${nombre}"]`);
 
 test.describe("Centralita: administración", () => {
@@ -191,7 +193,8 @@ test.describe("Centralita: cuando suena tu extensión", () => {
         const l = llamadaCentralita();
         api.centralita.sonar(l);
         await expect(slot(page, "aviso-centralita")).toBeVisible();
-        api.centralita.actualizar({ ...l, estado: "en_curso", usuario: { id: 15, nombre: "Luis" }, centralita: { ...l.centralita!, extension: "205" } });
+        const ext = { id: 7, tuExtension: "204", receptores: [], coincidencias: 1, candidatos: [], asociar: true, extension: "205" };
+        api.centralita.actualizar({ ...l, estado: "en_curso", usuario: { id: 15, nombre: "Luis" }, centralita: ext });
         await expect(slot(page, "aviso-centralita")).toContainText("Contestó Luis (ext. 205)", { timeout: 15_000 });
         await captura(page, "7-contesto-otro");
     });
