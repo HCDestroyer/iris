@@ -220,6 +220,15 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.ReiniciarMFA.Ejecutar(ctx, e))
 		})
 
+	restablecer := operacion("restablecerContrasenaUsuario", http.MethodPost, "/api/v1/usuarios/{id}/restablecer-contrasena", "Restablecer la contraseña de otro usuario", nucleo.PermUsuariosRestablecerContrasena, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	restablecer.Description += " Reemplaza su contraseña por `contrasenaTemporal` (mínimo 12 caracteres, distinta de la actual), que el admin le entrega fuera de banda, cierra todas sus sesiones y borra sus vínculos de autologin desde Argos (`usuario.sso_desvinculado`, motivo `contrasena_reiniciada`). Al entrar con la temporal, el usuario debe cambiarla (`POST /api/v1/yo/contrasena`) antes de cualquier otra cosa. No toca el MFA; con `revocarTokens: true` revoca también sus tokens (`token.revocado` por cada uno) menos los que usa un conector activo (`tokensConservados`). Un usuario fuera de tu alcance de empresas responde 404, como si no existiera. No sirve para la propia contraseña (422 `restablecer_propia`: se cambia con `POST /api/v1/yo/contrasena`), para usuarios de tipo integración (422 `usuario_integracion`) ni desactivados (422 `usuario_inactivo`). Emite `usuario.contrasena_restablecida`. " + descAdminPorEmpresa
+	huma.Register(api, restablecer,
+		func(ctx context.Context, in *conID[EntradaRestablecerContrasena]) (*cuerpo[ContrasenaRestablecida], error) {
+			e := in.Body
+			e.ID = in.ID
+			return responder(m.RestablecerContrasena.Ejecutar(ctx, e))
+		})
+
 	// Empresas y membresía --------------------------------------------------------------
 	huma.Register(api, operacion("listarEmpresas", http.MethodGet, "/api/v1/empresas", "Listar las empresas registradas", nucleo.PermEmpresasVer, http.StatusOK),
 		func(ctx context.Context, in *nucleo.ParamsPagina) (*cuerpo[nucleo.Pagina[Empresa]], error) {

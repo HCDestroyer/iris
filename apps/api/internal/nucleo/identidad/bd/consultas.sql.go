@@ -2231,6 +2231,44 @@ func (q *Queries) ReiniciarMFA(ctx context.Context, arg ReiniciarMFAParams) (Nuc
 	return i, err
 }
 
+const restablecerContrasena = `-- name: RestablecerContrasena :one
+UPDATE nucleo.usuarios
+SET contrasena_hash = $1, debe_cambiar_contrasena = true,
+    version = version + 1, updated_at = now()
+WHERE id = $2 AND version = $3
+RETURNING id, nombre, correo, tipo, contrasena_hash, totp_secreto, totp_activo, totp_ultimo_paso, activo, usuario_argos_id, version, created_at, updated_at, debe_cambiar_contrasena
+`
+
+type RestablecerContrasenaParams struct {
+	ContrasenaHash *string
+	ID             int64
+	Version        int32
+}
+
+// Restablecimiento por un administrador: reemplaza la contraseña por una temporal que hay que
+// cambiar al entrar. No toca el MFA.
+func (q *Queries) RestablecerContrasena(ctx context.Context, arg RestablecerContrasenaParams) (NucleoUsuario, error) {
+	row := q.db.QueryRow(ctx, restablecerContrasena, arg.ContrasenaHash, arg.ID, arg.Version)
+	var i NucleoUsuario
+	err := row.Scan(
+		&i.ID,
+		&i.Nombre,
+		&i.Correo,
+		&i.Tipo,
+		&i.ContrasenaHash,
+		&i.TotpSecreto,
+		&i.TotpActivo,
+		&i.TotpUltimoPaso,
+		&i.Activo,
+		&i.UsuarioArgosID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DebeCambiarContrasena,
+	)
+	return i, err
+}
+
 const revocarOtrasSesionesDeUsuario = `-- name: RevocarOtrasSesionesDeUsuario :execrows
 UPDATE nucleo.sesiones SET revocada_en = now(), updated_at = now()
 WHERE usuario_id = $1 AND id <> $2 AND revocada_en IS NULL

@@ -34,6 +34,8 @@ import {
     type Usuario,
 } from "@/lib/usuarios/esquemas";
 import { avisoEstado } from "@/lib/avisos";
+import { puedeRestablecerContrasena } from "@/lib/cuenta/sesion";
+import { BotonRestablecerContrasena } from "./restablecer-contrasena";
 
 type Props = {
     usuario: Usuario;
@@ -47,17 +49,19 @@ function releer(id: number): Promise<Usuario> {
 }
 
 /**
- * Acciones de la ficha del usuario: «Editar» (`usuarios.editar`) y «Desactivar»
+ * Acciones de la ficha del usuario: «Editar» (`usuarios.editar`), «Restablecer contraseña»
+ * (`usuarios.restablecer_contrasena`, otra persona activa) y «Desactivar»
  * (`usuarios.desactivar`, con motivo y confirmación). Cada botón solo con su permiso; desactivar,
  * nunca a uno mismo ni a un usuario ya inactivo (Iris no tiene acción para reactivarlo).
  */
 export function AccionesUsuario({ usuario, alCambiar }: Props) {
-    const { yo, puede } = useSesion();
+    const { yo, puede, permisos } = useSesion();
     const propio = usuario.id === yo.usuario.id;
     const [desactivando, setDesactivando] = useState(false);
     const puedeEditar = puede(["usuarios.editar"]);
     const puedeDesactivar = puede(["usuarios.desactivar"]) && usuario.activo && !propio;
-    if (!puedeEditar && !puedeDesactivar) return null;
+    const puedeRestablecer = puedeRestablecerContrasena(permisos, yo.usuario.id, usuario);
+    if (!puedeEditar && !puedeDesactivar && !puedeRestablecer) return null;
     return (
         <div className="flex flex-wrap gap-2">
             {puedeEditar ? (
@@ -68,6 +72,7 @@ export function AccionesUsuario({ usuario, alCambiar }: Props) {
                     </Link>
                 </Boton>
             ) : null}
+            <BotonRestablecerContrasena usuario={usuario} alCambiar={alCambiar} alPerderAlcance={() => window.location.reload()} />
             {puedeDesactivar ? (
                 <Boton variante="contorno" className="border-error/40 text-error hover:bg-error/10" onClick={() => setDesactivando(true)}>
                     <UserX />

@@ -10,7 +10,9 @@ import type { Route } from "@playwright/test";
  *    `demasiados_intentos` con `Retry-After` que además cierra la sesión;
  *  - `POST /yo/mfa` y `/yo/mfa/activar`;
  *  - `POST /usuarios/{id}/reiniciar-mfa` con `version` (409), `Idempotency-Key`, 404 fuera de
- *    alcance, 422 `reinicio_mfa_propio` / `mfa_no_configurado` / `validacion`.
+ *    alcance, 422 `reinicio_mfa_propio` / `mfa_no_configurado` / `validacion`;
+ *  - `POST /usuarios/{id}/restablecer-contrasena` igual, con 422 `restablecer_propia` /
+ *    `usuario_integracion` / `usuario_inactivo`.
  */
 
 type Usuario = Schema<"Usuario">;
@@ -61,6 +63,8 @@ export type ApiCuenta = {
     sacarDelAlcance: (id: number) => void;
     /** Cuerpos recibidos en `POST /usuarios/{id}/reiniciar-mfa`. */
     reinicios: { id: number; cuerpo: Schema<"EntradaReiniciarMFA">; idempotencia: string | undefined }[];
+    /** Cuerpos recibidos en `POST /usuarios/{id}/restablecer-contrasena`. */
+    restablecimientos: { id: number; cuerpo: Schema<"EntradaRestablecerContrasena">; idempotencia: string | undefined }[];
     /** Lo que el próximo reinicio informa de sus tokens (como la API): revocados y los conservados del conector activo. */
     tokens: { revocados: number; conservados: number };
 };
@@ -71,6 +75,7 @@ export function apiCuenta(todos: () => Usuario[]): ApiCuenta {
     const secretoPendiente = new Set<number>();
     const fuera = new Set<number>();
     const reinicios: ApiCuenta["reinicios"] = [];
+    const restablecimientos: ApiCuenta["restablecimientos"] = [];
     const tokens: ApiCuenta["tokens"] = { revocados: 0, conservados: 0 };
 
     const ver = (u: Usuario): Usuario => {
@@ -93,6 +98,7 @@ export function apiCuenta(todos: () => Usuario[]): ApiCuenta {
     return {
         ver,
         reinicios,
+        restablecimientos,
         tokens,
         contrasenaValida: (u, c) => c === contrasena(u),
         fueraDeAlcance: (id) => fuera.has(id),
@@ -217,6 +223,51 @@ export function apiCuenta(todos: () => Usuario[]): ApiCuenta {
                     tokensRevocados: revoca ? tokens.revocados : 0,
                     tokensConservados: revoca ? tokens.conservados : 0,
                 });
+                return true;
+            }
+            const restablecer = /^\/api\/v1\/usuarios\/(\d+)\/restablecer-contrasena$/.exec(ruta);
+            if (metodo === "POST" && restablecer) {
+                const id = Number(restablecer[1]);
+                const e = cuerpo as Schema<"EntradaRestablecerContrasena">;
+                restablecimientos.push({ id, cuerpo: e, idempotencia });
+                if (!puede("usuarios.restablecer_contrasena")) {
+                    await problema(route, { type: "urn:iris:problema:prohibido", title: "Sin permiso", status: 403 });
+                    return true;
+                }
+                if (!idempotencia) {
+                    await problema(route, { type: "urn:iris:problema:validacion", title: "Falta Idempotency-Key", status: 422 });
+                    return true;
+                }
+                if (id === actual.id) {
+                    await problema(route, { type: "urn:iris:problema:restablecer_propia", title: "Regla de negocio", status: 422, detail: "No puedes restablecer tu propia contraseña; usa «Cambiar mi contraseña»" });
+                    return true;
+                }
+                const objetivo = todos().find((x) => x.id === id);
+                if (!objetivo || fuera.has(id)) {
+                    await problema(route, { type: "urn:iris:problema:no_encontrado", title: "No encontrado", status: 404 });
+                    return true;
+                }
+                const vigente = ver(objetivo);
+                if (e.version !== vigente.version) {
+                    await problema(route, { type: "urn:iris:problema:conflicto_version", title: "Conflicto de versión", status: 409, detail: `La versión actual es ${vigente.version}` });
+                    return true;
+                }
+                if (vigente.tipo === "integracion") {
+                    await problema(route, { type: "urn:iris:problema:usuario_integracion", title: "Regla de negocio", status: 422, detail: "Las integraciones entran solo con token; no tienen contraseña" });
+                    return true;
+                }
+                if (runas(e.contrasenaTemporal) < 12) {
+                    await validacion(route, "contrasenaTemporal", "Mínimo 12 caracteres");
+                    return true;
+                }
+                contrasenas.set(id, e.contrasenaTemporal);
+                const revoca = e.revocarTokens === true;
+                await json(route, {
+                    ...cambiar(objetivo, { cambioContrasenaRequerido: true }),
+                    sesionesCerradas: 2,
+                    tokensRevocados: revoca ? tokens.revocados : 0,
+                    tokensConservados: revoca ? tokens.conservados : 0,
+                } satisfies Schema<"ContrasenaRestablecida">);
                 return true;
             }
             return false;
