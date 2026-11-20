@@ -410,9 +410,16 @@ partes (ficha, ticket, orden, comercial y app de campo).
   `GET /comprobantes/:id` antes de aplicar nada: lo que cambia el estado y lo que se le dice al cliente
   sale de esa lectura, nunca del payload.
 
+## Contrato 0.8.1: lo que Iris informa
+
+- `ContratoIris = "0.8.1"` desde que B4 (reconexión `sin_personal`), B5 (cuentas bancarias) y B7 (conexión de
+  un paso) están en Iris; B6 y `buscar_red` (0.8.1 §2.1) ya estaban. Iris lo manda en el canje y en
+  `PUT /integraciones/iris/contrato`. Cada función nueva sigue dependiendo del contrato que informó Argos
+  (§4.1): con un Argos de contrato < 0.8.0 se comporta como en 0.7.1 y el conector queda en `ok`.
+
 ## Contrato 0.7.1 (A24)
 
-- `ContratoIris = "0.7.1"`. Es aditivo: con un Argos 1.15.x (que solo conoce 0.7.0) todo sigue igual. Iris informa
+- Iris informó `0.7.1` hasta la 0.8.1. Es aditivo: con un Argos 1.15.x (que solo conoce 0.7.0) todo sigue igual. Iris informa
   0.7.1, Argos responde 0.7.0, el conector queda en `versionEstado: ok` con sus capacidades y el panel solo
   muestra las dos versiones (`contratoInformado` y `contratoRemoto`). Ninguna capacidad depende de 0.7.1.
 - `Comprobante.VerificadoIrisActor` (`verificado_iris_actor`): quién aprobó o rechazó desde Iris. `IrisActor` es

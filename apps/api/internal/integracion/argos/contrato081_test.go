@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
 // Contrato argosisp.md 0.8.1 §2.1 (A29): sin servicios.ver_red global (también con alcance por
@@ -140,5 +142,38 @@ func TestContrato081BuscarRedInvalido(t *testing.T) {
 	}
 	if !strings.HasPrefix(argos.VersionBuscarSinRed, "1.21.") || argos.SoportaBuscarSinRed(nil) {
 		t.Fatal("VersionBuscarSinRed")
+	}
+}
+
+// Con B4 (sin_personal), B5 (cuentas bancarias) y B7 (conexión de un paso) en Iris, Iris informa el
+// contrato 0.8.1: en el canje y en el PUT …/contrato. Con un Argos que habla 0.8.1 el conector queda
+// en ok; con uno de contrato 0.7.0 también (§4.1: cada función nueva depende del contrato del otro).
+func TestContratoIris081SeInforma(t *testing.T) {
+	if argos.ContratoIris != "0.8.1" {
+		t.Fatalf("ContratoIris: %s", argos.ContratoIris)
+	}
+	e := nuevoEntorno(t)
+	admin, id := e.conectado070()
+	var canje map[string]any
+	e.argos.con(func() { canje = e.argos.canjes[len(e.argos.canjes)-1] })
+	if canje["contrato"] != "0.8.1" {
+		t.Fatalf("el canje debía mandar contrato 0.8.1: %v", canje["contrato"])
+	}
+	e.argos.con(func() { e.argos.version, e.argos.contratoMax = "1.22.1", "0.8.1" })
+	r := admin.pedir(http.MethodPost, "/api/v1/integraciones/conectores/"+strconv.FormatInt(id, 10)+"/revisar-version", map[string]any{})
+	if r.status != http.StatusOK && r.status != http.StatusAccepted {
+		t.Fatalf("revisar ahora: %d %s", r.status, r.crudo)
+	}
+	if _, err := e.mod.InformarContrato.Ejecutar(pruebas.ContextoSistema(e.pool), id); err != nil {
+		t.Fatal(err)
+	}
+	var informados []string
+	e.argos.con(func() { informados = append(informados, e.argos.informados...) })
+	if len(informados) == 0 || informados[len(informados)-1] != "0.8.1" {
+		t.Fatalf("el PUT …/contrato debía informar 0.8.1: %v", informados)
+	}
+	con := e.conectorPaginado(admin, id)
+	if con["contratoInformado"] != "0.8.1" || con["versionEstado"] != "ok" || con["estado"] != "activo" {
+		t.Fatalf("conector con Argos 1.22.1: %v", con)
 	}
 }

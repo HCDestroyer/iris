@@ -68,7 +68,7 @@ func TestWebhookPromesaEmiteEventoInterno(t *testing.T) {
 	}
 }
 
-// §4.1: sin_personal solo con contrato ≥ 0.8.0. ContratoIris sigue en 0.7.1 (lo sube el líder).
+// §4.1: sin_personal solo con contrato ≥ 0.8.0 de Argos; Iris ya informa 0.8.1 (B4, B5 y B7 en main).
 func TestSoportaSinPersonal(t *testing.T) {
 	v := func(s string) *string { return &s }
 	for _, c := range []struct {
@@ -79,7 +79,7 @@ func TestSoportaSinPersonal(t *testing.T) {
 			t.Errorf("%v: %v", c.contrato, got)
 		}
 	}
-	if argos.ContratoIris != "0.7.1" {
+	if argos.ContratoIris != "0.8.1" {
 		t.Errorf("ContratoIris cambió: %s", argos.ContratoIris)
 	}
 }
