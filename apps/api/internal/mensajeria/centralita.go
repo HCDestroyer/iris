@@ -722,6 +722,9 @@ func nuevoMarcarProbada(m *Modulo) *auditoria.Caso[entradaProbada, Centralita] {
 				if f.Activa {
 					f.Activa, f.Estado, f.ErrorCodigo = false, CentralitaError, texto("permisos_de_mas")
 				}
+			case PruebaSinComprobar:
+				// Sin comprobar los permisos no queda como probada (encender vuelve a exigir una prueba).
+				f.ProbadaEn = nil
 			default:
 				return aCentralita(f), nil
 			}

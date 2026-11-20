@@ -29,8 +29,10 @@ import (
 //     los demás se descartan sin mirar. El tope de eventos por segundo se aplica después de filtrar y
 //     solo a las llamadas nuevas: lo de las llamadas ya seguidas (contestar, colgar, CDR) nunca se
 //     descarta. La cola del lector guarda lugar para los cierres (Hangup y Cdr).
-//   - Cada consulta propia del motor (arriendo, última señal, estado) tiene plazo: una fila bloqueada
-//     (rotación de claves) no lo traba.
+//   - Toda consulta del motor tiene plazo: una fila bloqueada (rotación de claves) o una base que no
+//     contesta no lo traban. El estado que no se pudo guardar se reintenta en cada latido.
+//   - El arriendo se mide desde antes del UPDATE; un vigía (time.AfterFunc) cierra la sesión AMI cuando
+//     ya no alcanza para la renovación siguiente, aunque el bucle esté colgado.
 //   - El arriendo se renueva antes de cada conexión y durante cada espera de reconexión: si otra
 //     réplica lo tomó, esta no se conecta.
 //   - Las llamadas que suenan o están en curso mientras Iris no escucha no se recuperan (fuera de
@@ -139,7 +141,7 @@ func (m *Modulo) CorrerCentralitas(ctx context.Context, pool *pgxpool.Pool, log 
 func (m *Modulo) correrCentralita(ctx context.Context, pool *pgxpool.Pool, log *slog.Logger, id int64, version int32, refrescar <-chan struct{}) {
 	q := mensajeriabd.New(pool)
 	for ctx.Err() == nil {
-		if m.tomarMotor(ctx, q, id) != arriendoTomado {
+		if a, _ := m.tomarMotor(ctx, q, id); a != arriendoTomado {
 			esperar(ctx, m.cfg.CentralitaRevision) // otra réplica la tiene (o la base no contestó a tiempo)
 			continue
 		}
@@ -174,19 +176,35 @@ func (m *Modulo) plazoBD() time.Duration {
 	return min(m.cfg.CentralitaPlazo, m.cfg.CentralitaPing)
 }
 
-// tomarMotor toma o renueva el arriendo, con plazo.
-func (m *Modulo) tomarMotor(ctx context.Context, q *mensajeriabd.Queries, id int64) arriendo {
+// conPlazo: el contexto de una consulta del motor (procesar un evento, leer extensiones o llamadas,
+// cerrar las viejas): ninguna espera a la base sin tope.
+func (m *Modulo) conPlazo(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, m.cfg.CentralitaPlazo)
+}
+
+// tomarMotor toma o renueva el arriendo, con plazo. desde es el instante de antes del UPDATE: el
+// arriendo vale, como mucho, desde ahí (la base pone motor_hasta con su now(), que es posterior).
+func (m *Modulo) tomarMotor(ctx context.Context, q *mensajeriabd.Queries, id int64) (arriendo, time.Time) {
+	desde := time.Now()
 	tctx, cancelar := context.WithTimeout(ctx, m.plazoBD())
 	defer cancelar()
 	_, err := q.TomarMotorCentralita(tctx, mensajeriabd.TomarMotorCentralitaParams{ID: id, Dueno: &m.idProceso, Segundos: m.segundosArriendo()})
 	switch {
 	case err == nil:
-		return arriendoTomado
+		return arriendoTomado, desde
 	case errors.Is(err, pgx.ErrNoRows):
-		return arriendoAjeno
+		return arriendoAjeno, desde
 	default:
-		return arriendoIncierto
+		return arriendoIncierto, desde
 	}
+}
+
+// finArriendo: hasta cuándo esta réplica puede seguir conectada con un arriendo tomado en desde. Se
+// corta cuando lo transcurrido más un latido y un plazo de la base (lo que puede tardar en llegar la
+// renovación siguiente) alcanza lo que dura el arriendo: así se suelta antes de que otra réplica
+// pueda tomarlo.
+func (m *Modulo) finArriendo(desde time.Time) time.Time {
+	return desde.Add(time.Duration(m.segundosArriendo())*time.Second - m.cfg.CentralitaPing - m.plazoBD())
 }
 
 // esperarConArriendo espera d renovando el arriendo en cada latido (una espera de reconexión de
@@ -202,7 +220,7 @@ func (m *Modulo) esperarConArriendo(ctx context.Context, q *mensajeriabd.Queries
 		if !esperar(ctx, min(resta, m.cfg.CentralitaPing)) {
 			return false, false
 		}
-		if m.tomarMotor(ctx, q, id) != arriendoTomado {
+		if a, _ := m.tomarMotor(ctx, q, id); a != arriendoTomado {
 			return false, ctx.Err() == nil
 		}
 	}
@@ -228,12 +246,27 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 	espera := time.Second
 	var caida *time.Time
 	avisada := false
-	fijar := func(estado string, codigo, huella *string) {
-		e := entradaEstadoCentralita{ID: id, Version: version, Estado: estado, Codigo: codigo, Huella: huella, Desde: caida}
-		fctx, cancelar := context.WithTimeout(sctx, m.cfg.CentralitaPlazo)
+	// El estado que no se pudo guardar (la base no contestó a tiempo: p. ej. la fila bloqueada por una
+	// rotación de claves) se vuelve a intentar en cada latido hasta que quede.
+	var pendiente *entradaEstadoCentralita
+	guardar := func(e entradaEstadoCentralita) {
+		fctx, cancelar := context.WithTimeout(sctx, m.plazoBD())
 		defer cancelar()
-		if _, err := m.Centralita.fijarEstado.Ejecutar(fctx, e); err != nil && ctx.Err() == nil {
-			log.WarnContext(ctx, "centralita: guardar el estado", "err", err)
+		if _, err := m.Centralita.fijarEstado.Ejecutar(fctx, e); err != nil {
+			if ctx.Err() == nil {
+				log.WarnContext(ctx, "centralita: guardar el estado; se reintenta en el latido", "err", err)
+				pendiente = &e
+			}
+			return
+		}
+		pendiente = nil
+	}
+	fijar := func(estado string, codigo, huella *string) {
+		guardar(entradaEstadoCentralita{ID: id, Version: version, Estado: estado, Codigo: codigo, Huella: huella, Desde: caida})
+	}
+	reintentarEstado := func() {
+		if pendiente != nil {
+			guardar(*pendiente)
 		}
 	}
 	detenida := func(codigo string, huella *string) {
@@ -258,7 +291,8 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 	for ctx.Err() == nil {
 		// Cada vuelta (también cada reconexión) renueva el arriendo: si otra réplica lo tomó, no se conecta.
 		// Sin confirmar el arriendo (otra réplica lo tiene o la base no contestó a tiempo) no se conecta.
-		if a := m.tomarMotor(ctx, q, id); a != arriendoTomado {
+		a, desde := m.tomarMotor(ctx, q, id)
+		if a != arriendoTomado {
 			if ctx.Err() != nil {
 				return false
 			}
@@ -267,7 +301,9 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 			}
 			return true
 		}
-		f, err := q.CentralitaDelMotor(ctx, id)
+		dctx, cancelar := m.conPlazo(ctx)
+		f, err := q.CentralitaDelMotor(dctx, id)
+		cancelar()
 		if err != nil || !f.Activa || f.Version != version || f.HuellaTls == nil {
 			return false
 		}
@@ -283,6 +319,9 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 		}
 		o := m.opcionesAMI(f.Host, f.Puerto, f.Usuario, secreto, *f.HuellaTls)
 		o.Eventos = "call,cdr"
+		if !time.Now().Before(m.finArriendo(desde)) {
+			continue // se fue el tiempo del arriendo antes de conectar: se renueva primero
+		}
 		c, err := ami.Conectar(ctx, o)
 		if err != nil {
 			var eh *ami.ErrHuella
@@ -306,6 +345,13 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 			}
 			continue
 		}
+		// Vigía del arriendo, independiente de lo que haga el bucle (aunque se cuelgue procesando un
+		// evento): si no se renueva a tiempo, cierra la sesión AMI antes de que otra réplica pueda
+		// tomar el arriendo.
+		vigia := time.AfterFunc(time.Until(m.finArriendo(desde)), func() {
+			log.WarnContext(ctx, "centralita: el arriendo no se renovó a tiempo; se cierra la sesión AMI")
+			c.Cerrar()
+		})
 		// El mínimo privilegio se comprueba en cada conexión, no solo al probar. Sin respuesta en el
 		// plazo (o con la conexión caída) es un error de conexión: se reconecta, nunca queda conectada
 		// sin haber comprobado los permisos.
@@ -316,6 +362,7 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 			err = ami.ErrProtocolo // sin Success no hay permisos comprobados: como no contestar
 		}
 		if err != nil {
+			vigia.Stop()
 			c.Cerrar()
 			if ctx.Err() != nil {
 				return false
@@ -327,14 +374,30 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 			continue
 		}
 		if de := ami.PermisosDeMas(p); len(de) > 0 {
+			vigia.Stop()
 			c.Cerrar()
 			log.WarnContext(ctx, "centralita: el usuario AMI tiene permisos de escritura; la conexión se detiene", "acciones", de)
 			detenida("permisos_de_mas", nil)
 			return false
 		}
+		// Conectar y comprobar los permisos pudo llevar su tiempo: se renueva antes de escuchar.
+		switch a, d := m.tomarMotor(ctx, q, id); {
+		case a == arriendoTomado:
+			desde = d
+			vigia.Reset(time.Until(m.finArriendo(desde)))
+		case a == arriendoAjeno || ctx.Err() != nil:
+			vigia.Stop()
+			c.Cerrar()
+			return ctx.Err() == nil
+		case !time.Now().Before(m.finArriendo(desde)):
+			vigia.Stop()
+			c.Cerrar()
+			continue
+		}
 		fijar(CentralitaConectada, nil, nil)
 		caida, avisada, espera = nil, false, time.Second
-		m.escucharAMI(ctx, sctx, q, log, f, c, refrescar)
+		m.escucharAMI(ctx, sctx, q, log, f, c, refrescar, sesionAMI{desde: desde, vigia: vigia, alLatido: reintentarEstado})
+		vigia.Stop()
 		c.Cerrar()
 		ahora := time.Now()
 		caida = &ahora
@@ -342,12 +405,22 @@ func (m *Modulo) sesionesCentralita(ctx context.Context, pool *pgxpool.Pool, log
 	return false
 }
 
+// sesionAMI: el arriendo con que se abrió la sesión (desde, para medir cuándo vence), su vigía y lo
+// que se hace en cada latido además de renovar (reintentar el estado pendiente).
+type sesionAMI struct {
+	desde    time.Time
+	vigia    *time.Timer
+	alLatido func()
+}
+
 // escucharAMI procesa los eventos de una sesión hasta que se corta.
 func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries, log *slog.Logger, f mensajeriabd.MensajeriaCentralita, c *ami.Conexion,
-	refrescar <-chan struct{}) {
+	refrescar <-chan struct{}, s sesionAMI) {
 	extensiones := map[string]bool{}
 	cargar := func() {
-		xs, err := q.ExtensionesDelMotor(ctx, f.ID)
+		cctx, cancelar := m.conPlazo(ctx)
+		defer cancelar()
+		xs, err := q.ExtensionesDelMotor(cctx, f.ID)
 		if err != nil {
 			return
 		}
@@ -361,11 +434,13 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 	registrada := func(ext string) bool { return extensiones[ext] }
 	// Las llamadas que Iris sigue (para que Hangup, DialEnd y CDR de otras ni toquen la base).
 	seguidas := map[string]time.Time{}
-	if vivas, err := q.LlamadasCentralitaVivas(ctx, mensajeriabd.LlamadasCentralitaVivasParams{CentralitaID: f.ID, Antes: m.ahora().Add(time.Hour)}); err == nil {
+	vctx, cancelar := m.conPlazo(ctx)
+	if vivas, err := q.LlamadasCentralitaVivas(vctx, mensajeriabd.LlamadasCentralitaVivasParams{CentralitaID: f.ID, Antes: m.ahora().Add(time.Hour)}); err == nil {
 		for _, l := range vivas {
 			seguidas[l.IDExterno] = l.SonoEn
 		}
 	}
+	cancelar()
 	ping := time.NewTicker(m.cfg.CentralitaPing)
 	defer ping.Stop()
 	mant := time.NewTicker(time.Minute)
@@ -373,7 +448,6 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 	recarga := time.NewTicker(m.cfg.CentralitaRevision)
 	defer recarga.Stop()
 	var tocado time.Time
-	renovado := time.Now() // sesionesCentralita lo acaba de tomar
 	ventana, enVentana, descartados := time.Now(), 0, int64(0)
 	avisarDescarte := time.Time{}
 	for {
@@ -385,7 +459,10 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 		case <-recarga.C:
 			cargar()
 		case <-mant.C:
-			if _, err := m.Centralita.cerrarViejas.Ejecutar(sctx, f.ID); err != nil && ctx.Err() == nil {
+			cctx, cancelar := m.conPlazo(sctx)
+			_, err := m.Centralita.cerrarViejas.Ejecutar(cctx, f.ID)
+			cancelar()
+			if err != nil && ctx.Err() == nil {
 				log.WarnContext(ctx, "centralita: cerrar llamadas viejas", "err", err)
 			}
 			limite := time.Now().Add(-CentralitaEnCursoMax)
@@ -395,23 +472,22 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 				}
 			}
 		case <-ping.C:
-			switch m.tomarMotor(ctx, q, f.ID) {
+			switch a, desde := m.tomarMotor(ctx, q, f.ID); a {
 			case arriendoTomado:
-				renovado = time.Now()
+				s.desde = desde
+				s.vigia.Reset(time.Until(m.finArriendo(s.desde)))
 			case arriendoAjeno:
 				log.WarnContext(ctx, "centralita: se perdió el arriendo de la conexión (otra réplica la tomó)")
 				return
 			case arriendoIncierto:
-				// La base no contestó a tiempo: se sigue (nadie más puede tomarlo mientras la fila esté
-				// bloqueada) salvo que el arriendo ya pudiera haber vencido.
-				if ctx.Err() != nil {
-					return
-				}
-				if time.Since(renovado) >= time.Duration(m.segundosArriendo())*time.Second-m.cfg.CentralitaPing {
+				// La base no contestó a tiempo: se sigue mientras el arriendo de la última renovación
+				// buena alcance para la siguiente (el vigía corta igual si no).
+				if ctx.Err() != nil || !time.Now().Before(m.finArriendo(s.desde)) {
 					log.WarnContext(ctx, "centralita: no se pudo renovar el arriendo a tiempo; se reconecta")
 					return
 				}
 			}
+			s.alLatido()
 			pctx, cancelar := context.WithTimeout(ctx, 10*time.Second)
 			_, err := c.Accion(pctx, "Ping")
 			cancelar()
@@ -475,7 +551,9 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 			if h.tipo == hechoSuena || h.tipo == hechoMarca {
 				seguidas[h.linkedid] = ahora
 			}
-			cambio, err := m.Centralita.procesar.Ejecutar(sctx, entradaHechoAMI{CentralitaID: f.ID, Hecho: h, Tipo: h.tipo, Extension: h.extension})
+			pctx, cancelar := m.conPlazo(sctx)
+			cambio, err := m.Centralita.procesar.Ejecutar(pctx, entradaHechoAMI{CentralitaID: f.ID, Hecho: h, Tipo: h.tipo, Extension: h.extension})
+			cancelar()
 			if err != nil && ctx.Err() == nil {
 				log.WarnContext(ctx, "centralita: procesar un evento", "tipo", h.tipo, "err", err)
 			}
@@ -485,9 +563,11 @@ func (m *Modulo) escucharAMI(ctx, sctx context.Context, q *mensajeriabd.Queries,
 			}
 			if (h.tipo == hechoMarca || h.tipo == hechoSuena) && !cambio && err == nil {
 				// No se guardó (saliente sin cliente): no se sigue.
-				if ex, e := q.LlamadaCentralitaExiste(ctx, mensajeriabd.LlamadaCentralitaExisteParams{CentralitaID: f.ID, IDExterno: h.linkedid}); e == nil && !ex {
+				ectx, cancelar := m.conPlazo(ctx)
+				if ex, e := q.LlamadaCentralitaExiste(ectx, mensajeriabd.LlamadaCentralitaExisteParams{CentralitaID: f.ID, IDExterno: h.linkedid}); e == nil && !ex {
 					delete(seguidas, h.linkedid)
 				}
+				cancelar()
 			}
 		}
 	}

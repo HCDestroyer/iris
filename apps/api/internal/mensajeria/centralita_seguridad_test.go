@@ -3,8 +3,11 @@ package mensajeria_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
 // Revisión de seguridad de E4a (PR #235): cada hallazgo con su prueba.
@@ -437,4 +441,216 @@ func TestCentralitaListCommandsConError(t *testing.T) {
 	}
 	x.ami.ErrorListCommands(false)
 	x.esperarEstado("conectada")
+}
+
+// proxyBD es un TCP entre una réplica y Postgres que se puede «congelar»: deja de pasar bytes sin
+// cerrar nada (la base no contesta, sin bloquear ninguna fila).
+type proxyBD struct {
+	ln        net.Listener
+	destino   string
+	mu        sync.Mutex
+	cond      *sync.Cond
+	congelado bool
+	conns     []net.Conn
+}
+
+func nuevoProxyBD(t *testing.T, destino string) *proxyBD {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &proxyBD{ln: ln, destino: destino}
+	p.cond = sync.NewCond(&p.mu)
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			d, err := net.Dial("tcp", destino)
+			if err != nil {
+				_ = c.Close()
+				continue
+			}
+			p.mu.Lock()
+			p.conns = append(p.conns, c, d)
+			p.mu.Unlock()
+			go p.copiar(d, c)
+			go p.copiar(c, d)
+		}
+	}()
+	t.Cleanup(func() {
+		p.Congelar(false)
+		_ = ln.Close()
+		p.mu.Lock()
+		for _, c := range p.conns {
+			_ = c.Close()
+		}
+		p.mu.Unlock()
+	})
+	return p
+}
+
+func (p *proxyBD) copiar(dst, src net.Conn) {
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			p.mu.Lock()
+			for p.congelado {
+				p.cond.Wait()
+			}
+			p.mu.Unlock()
+			if _, e := dst.Write(buf[:n]); e != nil {
+				return
+			}
+		}
+		if err != nil {
+			_ = dst.Close()
+			return
+		}
+	}
+}
+
+func (p *proxyBD) Congelar(v bool) {
+	p.mu.Lock()
+	p.congelado = v
+	p.mu.Unlock()
+	p.cond.Broadcast()
+}
+
+// poolPorProxy: un pool a la base de pruebas que pasa por un proxyBD.
+func poolPorProxy(t *testing.T) (*pgxpool.Pool, *proxyBD) {
+	t.Helper()
+	u, err := pruebas.URL()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := pgxpool.ParseConfig(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := cfg.ConnConfig.Host
+	if host == "" || strings.HasPrefix(host, "/") || host == "localhost" {
+		host = "127.0.0.1"
+	}
+	px := nuevoProxyBD(t, net.JoinHostPort(host, strconv.Itoa(int(cfg.ConnConfig.Port))))
+	cfg.ConnConfig.Host, cfg.ConnConfig.Port, cfg.ConnConfig.Fallbacks = "127.0.0.1", uint16(px.ln.Addr().(*net.TCPAddr).Port), nil
+	cfg.ConnConfig.ConnectTimeout = 2 * time.Second
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool, px
+}
+
+// Tercera revisión (1): con la base de la réplica conectada sin responder (sin ninguna fila
+// bloqueada) y su bucle colgado procesando un evento, el vigía cierra la sesión AMI antes de que
+// venza el arriendo; la otra réplica conecta después y nunca coinciden.
+func TestCentralitaBaseColgadaNoDejaDosConexiones(t *testing.T) {
+	x := nuevoBancoCentralita(t)
+	x.conectar()
+	x.asignar(x.agente, "201")
+	poolA, px := poolPorProxy(t)
+	ctxA, cancelarA := context.WithCancel(context.Background())
+	hechoA := make(chan struct{})
+	go func() {
+		defer close(hechoA)
+		x.m.CorrerCentralitas(ctxA, poolA, nil)
+	}()
+	t.Cleanup(func() {
+		px.Congelar(false)
+		cancelarA()
+		<-hechoA
+	})
+	x.hasta(func() bool { return x.ami.Conectados() == 1 }, "la réplica A no conectó")
+	x.esperarEstado("conectada")
+	x.replica()
+	time.Sleep(500 * time.Millisecond)
+	var resta float64
+	if err := x.bd.QueryRow(x.ctx, `SELECT extract(epoch FROM motor_hasta - now()) FROM mensajeria.centralitas WHERE id = $1`, x.id).Scan(&resta); err != nil {
+		t.Fatal(err)
+	}
+	px.Congelar(true)
+	vence := time.Now().Add(time.Duration(resta * float64(time.Second)))
+	// Un evento que A tiene que llevar a la base: su bucle se queda esperando.
+	x.ami.Emitir("Event", "DialBegin", "Channel", "PJSIP/claro-1", "CallerIDNum", "55998877", "DestChannel", "PJSIP/201-1", "Linkedid", "2100.1", "Uniqueid", "2100.1")
+	maximo := 0
+	var cerro time.Time
+	antes, _ := x.ami.Logins()
+	fin := time.Now().Add(8 * time.Second)
+	for time.Now().Before(fin) {
+		n := x.ami.Conectados()
+		maximo = max(maximo, n)
+		if n == 0 && cerro.IsZero() {
+			cerro = time.Now()
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	logins, _ := x.ami.Logins()
+	if maximo > 1 {
+		t.Fatalf("las dos réplicas quedaron conectadas a la vez (%d)", maximo)
+	}
+	if cerro.IsZero() || !cerro.Before(vence) {
+		t.Fatalf("A no soltó la sesión AMI antes de que venciera el arriendo (cerró %v, vencía %v)", cerro, vence)
+	}
+	if logins <= antes || x.ami.Conectados() != 1 {
+		t.Fatalf("la réplica B no tomó la conexión: logins %d→%d, conectados %d", antes, logins, x.ami.Conectados())
+	}
+}
+
+// Tercera revisión (2): si el estado «conectada» no se pudo guardar (fila bloqueada más que el plazo),
+// no queda «desconectada» con el motor conectado.
+func TestCentralitaEstadoPendienteSeReintenta(t *testing.T) {
+	x := nuevoBancoCentralita(t)
+	x.conectar()
+	x.arrancar()
+	// Una caída larga deja el estado «desconectada».
+	x.ami.Pausar(true)
+	x.ami.Cortar()
+	x.esperarEstado("desconectada")
+	// Al volver, la fila queda bloqueada justo mientras se comprueban los permisos.
+	x.ami.DemorarListCommands(500 * time.Millisecond)
+	antes, _ := x.ami.Logins()
+	x.ami.Pausar(false)
+	x.hasta(func() bool { ok, _ := x.ami.Logins(); return ok > antes }, "no volvió a entrar")
+	tx, err := x.bd.(*pgxpool.Pool).Begin(x.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(x.ctx, `SELECT id FROM mensajeria.centralitas WHERE id = $1 FOR UPDATE`, x.id); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3500 * time.Millisecond) // más que el plazo de la conexión (3 s)
+	if err := tx.Commit(x.ctx); err != nil {
+		t.Fatal(err)
+	}
+	x.ami.DemorarListCommands(0)
+	x.esperarEstado("conectada")
+	if x.ami.Conectados() != 1 {
+		t.Fatalf("conectados: %d", x.ami.Conectados())
+	}
+}
+
+// Tercera revisión (3): una prueba sin_comprobar también borra la prueba buena anterior.
+func TestCentralitaSinComprobarBorraLaPrueba(t *testing.T) {
+	x := nuevoBancoCentralita(t)
+	x.conectar()
+	x.exigir(x.api(x.admin, http.MethodPost, x.ruta("/desactivar"), map[string]any{"version": x.version}), http.StatusOK)
+	r := x.api(x.admin, http.MethodPost, x.ruta("/probar"), map[string]any{})
+	x.exigir(r, http.StatusOK)
+	if r.cuerpo["estado"] != "ok" || r.cuerpo["centralita"].(map[string]any)["probadaEn"] == nil {
+		t.Fatalf("probar: %v", r.cuerpo)
+	}
+	x.ami.ErrorListCommands(true)
+	r = x.api(x.admin, http.MethodPost, x.ruta("/probar"), map[string]any{})
+	x.exigir(r, http.StatusOK)
+	c := r.cuerpo["centralita"].(map[string]any)
+	if r.cuerpo["estado"] != "sin_comprobar" || c["probadaEn"] != nil {
+		t.Fatalf("sin_comprobar dejó la prueba anterior: %v", r.cuerpo)
+	}
+	x.exigirProblema(x.api(x.admin, http.MethodPost, x.ruta("/activar"), map[string]any{"version": c["version"]}), http.StatusUnprocessableEntity, "sin_probar")
 }

@@ -47,6 +47,8 @@ type Servidor struct {
 	sinRespuestaLC bool
 	// errorLC: contesta ListCommands con «Response: Error».
 	errorLC bool
+	// demoraLC: espera antes de contestar ListCommands.
+	demoraLC time.Duration
 }
 
 type sesion struct {
@@ -146,6 +148,13 @@ func (s *Servidor) SinListCommands(v bool) {
 func (s *Servidor) ErrorListCommands(v bool) {
 	s.mu.Lock()
 	s.errorLC = v
+	s.mu.Unlock()
+}
+
+// DemorarListCommands espera d antes de contestar ListCommands.
+func (s *Servidor) DemorarListCommands(d time.Duration) {
+	s.mu.Lock()
+	s.demoraLC = d
 	s.mu.Unlock()
 }
 
@@ -306,6 +315,11 @@ func (s *Servidor) atender(raw net.Conn) {
 			if s.sinRespuestaLC {
 				s.mu.Unlock()
 				continue
+			}
+			if d := s.demoraLC; d > 0 {
+				s.mu.Unlock()
+				time.Sleep(d)
+				s.mu.Lock()
 			}
 			if s.errorLC {
 				s.mu.Unlock()

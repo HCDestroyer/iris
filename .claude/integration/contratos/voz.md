@@ -1116,11 +1116,19 @@ Lo que quedó al construirla (manda sobre lo anterior de esta sección donde dif
   caída de menos de 60 s no cambia el estado; Ping cada 20 s; ListCommands sin respuesta en 10 s es un
   error de conexión (nunca queda `conectada` sin comprobar los permisos). Topes: línea 2 KB, paquete
   64 KB o 600 líneas (si no, se corta), cola de 1 000 eventos más 200 lugares reservados para
-  `Hangup` y `Cdr`, 2 000 llamadas seguidas en memoria y 200 **llamadas nuevas** por segundo a la base:
+  `Hangup` y `Cdr` (si el procesador está detenido en la base, una avalancha de llamadas ajenas puede
+  llenar también esa reserva: la red de seguridad es el cierre de las viejas, `CentralitaSonandoMax` y
+  `CentralitaEnCursoMax`), 2 000 llamadas seguidas en memoria y 200 **llamadas nuevas** por segundo a la base:
   el tope se aplica después de traducir y filtrar (lo ajeno no cuenta) y nunca a lo de las llamadas ya
   seguidas (contestar, colgar, CDR). ListCommands tiene que responder `Success` (si no, se reconecta;
-  en «Probar», `sin_comprobar`). Las consultas propias del motor (arriendo, última señal, estado)
-  tienen plazo: la rotación de claves, que bloquea la fila, no lo traba. Solo pasan a la base los eventos de extensiones
+  en «Probar», `sin_comprobar`, que además borra `probada_en`). Todas las consultas del motor tienen
+  plazo (arriendo, última señal y estado: el menor entre 10 s y el latido; procesar un evento, leer
+  extensiones o llamadas y cerrar las viejas: 10 s); la rotación de claves, que bloquea la fila, no lo
+  traba, y el estado que no se pudo guardar se reintenta en cada latido. **El arriendo se mide desde
+  antes del UPDATE** y la sesión se corta cuando lo transcurrido más un latido y un plazo de la base
+  alcanza su duración (60 s): un vigía independiente del bucle (`time.AfterFunc`, que se reinicia en
+  cada renovación buena) cierra la sesión AMI aunque el bucle esté colgado, así que otra réplica nunca
+  conecta mientras esta sigue conectada. Solo pasan a la base los eventos de extensiones
   registradas o de llamadas que Iris ya sigue. Las llamadas vivas de la centralita no cuentan para las
   reglas de WhatsApp de «una llamada viva por persona» (reservar y recibir timbre filtran
   `origen = 'whatsapp'`).
