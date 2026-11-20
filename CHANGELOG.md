@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.33.0](https://github.com/HCDestroyer/iris/compare/v0.32.0...v0.33.0) (2026-11-20)
+
+
+### Funcionalidades
+
+* **integracion:** informar el contrato 0.8.1 a Argos ([#237](https://github.com/HCDestroyer/iris/issues/237)) ([58d4e0f](https://github.com/HCDestroyer/iris/commit/58d4e0f8cab2905081fe6197d478242fa633ab9d))
+* **mensajeria:** B4 reconexión temporal sin personal de caja (contrato 0.8.0) ([#230](https://github.com/HCDestroyer/iris/issues/230)) ([7bdd453](https://github.com/HCDestroyer/iris/commit/7bdd4538316b96fba0d6b9dca566c1e2ca0ae279))
+
+
+### Correcciones
+
+* **mensajeria:** asociar cliente de Argos sin servicios y ficha que no se queda leyendo ([#233](https://github.com/HCDestroyer/iris/issues/233)) ([875ae2c](https://github.com/HCDestroyer/iris/commit/875ae2cfe39fc5f152cccd8a05394fb254641568))
+
 ## [0.32.0](https://github.com/HCDestroyer/iris/compare/v0.31.0...v0.32.0) (2026-11-20)
 
 
