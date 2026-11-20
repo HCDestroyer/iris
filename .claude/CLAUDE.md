@@ -287,6 +287,8 @@ Una tarea está terminada solo si:
 | `voz.motor_activado` / `voz.motor_desactivado` / `voz.motor_empresas_cambiadas` / `voz.motor_modelos_cambiados` | mensajeria (Servidor de IA, empresa_id null) | motor_id, usuario_id; version (activado); motivo (desactivado); empresas (o null), simultaneas_por_empresa (empresas); modelos (o null) (modelos) |
 | `servidor_ia.umbral_superado` / `servidor_ia.umbral_normalizado` / `servidor_ia.ajustes_cambiados` | mensajeria (Servidor de IA, empresa_id null) | motor_id; tipo (vram, disco, temperatura, saturacion), valor, umbral (umbral); campos[] (ajustes) |
 | `centralita.creada` / `centralita.actualizada` / `centralita.estado_cambiado` / `extension.asignada` / `extension.quitada` | mensajeria (voz, E4) | centralita_id, empresa_id; tipo, modo (creada); campos[], activa (actualizada); de, a (estado); extension_id, usuario_id (extensión); nunca el secreto |
+| `llamada.vinculada` | mensajeria (voz, E4a) | llamada_id, empresa_id, ticket_id, cliente_id (o null), usuario_id, origen (centralita) |
+| `llamada.cliente_asociado` | mensajeria (voz, E4a) | llamada_id, empresa_id, cliente_id, servicio_id (o null), usuario_id, origen (centralita) |
 | `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
 | `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | notificaciones (correo del sistema) | correo_id, usuario_id, tipo, clave, motivo (o null) |
 | `correo_sistema.ajustes_cambiados` | notificaciones (correo del sistema) | empresa_id (o null = global), campos[], activo; nunca la contraseña |
