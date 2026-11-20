@@ -85,7 +85,7 @@ func (m *Modulo) aLlamadas(ctx context.Context, q *mensajeriabd.Queries, a alcan
 		l := Llamada{ID: f.ID, EmpresaID: f.EmpresaID, Origen: f.Origen, Direccion: f.Direccion, ConversacionID: f.ConversacionID, MensajeID: uuidDe(f.MensajeID),
 			Numero: f.Numero, Titulo: f.Numero, Contacto: ContactoDeLlamada{Tipo: "desconocido"}, Estado: f.Estado, AtendidaPor: f.AtendidaPor,
 			Tramos: tramos[f.ID], SonoEn: f.SonoEn, ContestadaEn: f.ContestadaEn, TerminadaEn: f.TerminadaEn, DuracionSeg: f.DuracionSeg,
-			MotivoFin: f.MotivoFin, Nota: f.Nota, Resultado: f.Resultado, DevolucionID: f.DevolucionID}
+			MotivoFin: f.MotivoFin, Nota: f.Nota, Resultado: f.Resultado, DevolucionID: f.DevolucionID, Version: f.Version}
 		if l.Tramos == nil {
 			l.Tramos = []TramoLlamada{}
 		}

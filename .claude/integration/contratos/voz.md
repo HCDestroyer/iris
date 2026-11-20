@@ -1,6 +1,6 @@
 # Contrato de la fase de voz (llamadas de WhatsApp, asistente en voz y centralita)
 
-Estado (17 nov 2026): **E1 entrantes implementada en el servidor** (`voz_*.go`; ver «Estado de E1» al
+Estado (19 nov 2026): **E4a (centralita de solo lectura) hecha** (§3.12, «E4a hecha»). Antes, el 17 nov 2026: **E1 entrantes implementada en el servidor** (`voz_*.go`; ver «Estado de E1» al
 final de §1); el resto, diseño sin código. Lo implementa I1 en el servicio de mensajería
 (`apps/api/internal/mensajeria/voz_*.go`, schema `mensajeria`) y en un servicio nuevo, `cmd/voz`
 (motor de voz, en un servidor dedicado). Lo usará el panel (I3). Valen las reglas del inicio de
@@ -36,6 +36,7 @@ técnica (§9)**; los que más pesan están listados en §10.
 | **E3** Verificación fuerte y traspaso en vivo | Verificación `fuerte` por teclado (DTMF); `consultar_saldo`, visitas (`ofrecer_visita`, `agendar_visita`), promesa y reconexión con las reglas de §17 del chat **más** las de voz (todo eso pide `fuerte` en la llamada, §5.1.1); **escuchar en vivo**; una persona **toma la llamada en vivo** (`tomar`) y transferencia entre personas | E2 |
 | **E4a** Centralita Issabel, solo lectura | Conexión AMI de solo lectura + CDR: ventana con el cliente cuando suena la extensión del usuario; la llamada queda en la ficha del cliente y, si se elige, en un ticket | Independiente de E1–E3 |
 | **E4b** Centralita, llamar y grabaciones | Clic-para-llamar (`Originate`), extensión por usuario, grabaciones de Issabel servidas por Iris con su ACL | E4a |
+| **E4c** Contestar y llamar desde el navegador | SIP sobre WebRTC contra el Asterisk 18 de Issabel (PJSIP con WSS, 8089): la extensión `navegador` de cada persona contesta y llama en el panel con los mismos componentes y la misma máquina de estados que WhatsApp (una sola fuente de verdad, sin mezclar teléfonos de escritorio con la web). Solo el panel web al inicio; la app móvil después | E4a |
 
 **Estado de E1 (decisiones del líder, 17 nov 2026).** E1 se parte en dos PR:
 
@@ -581,15 +582,37 @@ devolver» del panel.
 
 ### 2.10 Centralita (E4)
 
-**`mensajeria.centralitas`**: `id`, `empresa_id`, `nombre`, `tipo` (`issabel`), `host`, `puerto`
-(5039, AMI sobre TLS), `usuario`, `secreto` (cifrado, solo escritura), `huella_tls`, `modo`
-(`lectura` \| `lectura_y_llamar`), `contexto_salida`, `prefijo_salida`, `grabaciones` (`no` \|
-`sftp` \| `https`) con su `grabaciones_url` y credencial cifrada, `estado` (`conectada` \|
-`desconectada` \| `error` \| `desactivada`), `ultimo_evento_en`, `activa`, `version`.
+**`mensajeria.centralitas`**: `id`, `empresa_id` (una por empresa en E4a), `nombre`, `tipo` (`issabel`),
+`host`, `puerto` (5039, AMI sobre TLS), `usuario`, `secreto_cifrado` (AES-256-GCM, datos asociados
+`mensajeria.centralita:<id>:secreto`, solo escritura: `secreto_guardado_en`), `huella_tls` (SHA-256 del
+certificado, confirmada por un admin), `huella_vista` (la distinta que presentó; detiene la conexión),
+`modo` (`lectura`; E4b suma `lectura_y_llamar`), `estado` (`conectada` \| `desconectada` \| `error` \|
+`desactivada`), `error_codigo` (`huella_cambiada`, `permisos_de_mas`, `credenciales`, `sin_conexion`),
+`probada_en` (la última prueba que pasó con los datos actuales; encender la exige), `conectada_en`,
+`desconectada_desde`, `ultimo_evento_en`, `motor_dueno` y `motor_hasta` (arriendo de la conexión: con
+varias réplicas solo una conecta), `activa`, `version` (solo la sube una persona; el estado que deja la
+conexión no). E4b sumará `contexto_salida`, `prefijo_salida` y `grabaciones`.
 
-**`mensajeria.centralita_extensiones`**: `id`, `empresa_id`, `centralita_id`, `extension` (2–8
-dígitos), `usuario_id`, `activa`. Única por `(centralita_id, extension)` y una extensión activa por
-`(centralita_id, usuario_id)`.
+**`mensajeria.centralita_extensiones`**: `id`, `empresa_id`, `centralita_id`, `extension` (2–8 dígitos),
+`usuario_id`, `tipo` (`escritorio` \| `navegador`; **E4c**, de fábrica `escritorio`), `sip_usuario` y
+`sip_secreto_cifrado` (**E4c**: credencial SIP del navegador, cifrada con datos asociados
+`mensajeria.centralita_extension:<id>:sip`; prevista y sin usar en E4a), `activa`, `quitada_en`. Únicas
+por `(centralita_id, extension)` y por `(centralita_id, usuario_id)` entre las activas.
+
+**Las llamadas de la centralita van en `mensajeria.llamadas`** (`origen = centralita`, decisión del PM:
+una sola fuente de verdad con WhatsApp; E4c les suma el audio): `centralita_id`, `id_externo` = el
+`Linkedid` de Asterisk (único por centralita), sin `canal_id` ni `conversacion_id`; `direccion`,
+`numero` (E.164 o vacío si es oculto), `cliente_id`/`servicio_id`, `asociacion` (`automatica` \|
+`manual`), `coincidencias` (clientes con ese número al llegar), `estado` (`sonando`, `marcando` en una
+saliente, `en_curso`, `terminada`, `perdida` con `motivo_fin = nadie_contesto`), `atendida_por =
+persona`, `usuario_id` y `extension` (quién contestó o marcó), `contestada_en`, `terminada_en`,
+`duracion_seg` (la del CDR si llega), `nota`, `resultado`, `anotada_por`, `ticket_id` y `version`.
+`suena_hasta` = `sono_en` + 15 min (no la usa ningún proceso de WhatsApp). Todo lo de WhatsApp
+(mantenimiento, Meta, salientes, `/llamadas/{id}`) filtra `origen = 'whatsapp'`, y el índice de una
+saliente viva por persona también.
+
+**`mensajeria.centralita_receptores`**: a quién le sonó (`llamada_id`, `usuario_id`, `extension`,
+`sono_en`); en un grupo de timbrado o cola, varias filas.
 
 ### 2.11 Relación con lo que ya existe
 
@@ -1055,6 +1078,100 @@ formato validado: WAV o el que confirme la prueba) y se sirven solo por
 
 Errores: `destino_no_permitido`, `sin_extension`, `centralita_desconectada` (503),
 `permisos_de_mas`, `limite_llamadas`, `url_no_permitida`, `clave_requerida`.
+
+#### E4a hecha (19 nov 2026)
+
+Lo que quedó al construirla (manda sobre lo anterior de esta sección donde difiera):
+
+- **Rutas** (base `/api/v1/mensajeria`): `GET /centralita` (la de la empresa activa; `centralita`
+  ausente si no hay), `GET /centralita/mi-extension` (sin permiso: la tuya o null; el panel lo usa para
+  escuchar), `POST /centralitas`, `POST /centralitas/probar` (datos sin guardar), `POST
+  /centralitas/{id}/actualizar|probar|activar|desactivar|confirmar-huella`, `GET
+  /centralitas/{id}/extensiones`, `POST …/extensiones/asignar`, `POST …/extensiones/{extensionId}/quitar`,
+  `GET /centralitas/llamadas?clienteId=&ticketId=&mias=&hoy=` (el historial: las de la centralita y, con
+  `conversaciones.ver`, las de WhatsApp de las conversaciones que ves), `GET /centralitas/llamadas/{id}`,
+  `POST /centralitas/llamadas/{id}/anotar|asociar-cliente|vincular-ticket`. Las llamadas son el mismo
+  `Llamada` de WhatsApp con `origen: centralita`, `centralita` (extensión, receptores, coincidencias,
+  candidatos, `asociar`) y `ticketId`; `puede.contestar` siempre false hasta E4c.
+- **Crear un ticket desde la llamada:** el panel abre «Nuevo ticket» (`?llamada=`) y, al crearlo, lo
+  vincula (`vincular-ticket`). No hay `crear-ticket` propio: el formulario tiene más de 3 campos y ya
+  existe. Siempre a elección de la persona, nunca automático (PM).
+- **Probar:** `ok`, `permisos_de_mas` (alguna acción de ListCommands trae una clase de escritura en su
+  `(Priv: …)`: `system`, `call`, `originate`, `config`, `command`, `agent`, `user`, `dtmf`, `agi`,
+  `message`, `aoc`, `cc`, `test`, o solo `all`; en un AMI que no anota clases, la lista de acciones conocidas: Originate,
+  Command…; el usuario de Iris debe tener `write =` vacío), `huella_distinta` o `no_conecta` (un solo
+  error para todo lo demás), o `sin_comprobar` (entró, pero ListCommands no respondió `Success`: no se
+  pudieron comprobar los permisos y no deja encender). Ping y ListCommands tienen el plazo de la
+  conexión. **La contraseña guardada solo viaja al certificado fijado:** probar con
+  `centralitaId` sin `secreto` exige la huella guardada (sin ella, 422 `clave_requerida`; con otra,
+  `huella_distinta` sin mandar el Login). Solo con la contraseña escrita se acepta un certificado nuevo.
+  Encender exige `probada_en`; el motor vuelve a comprobar los permisos en cada conexión y se detiene
+  con `permisos_de_mas` o `huella_cambiada` hasta que un admin lo resuelva (`confirmar-huella` exige
+  exactamente `huellaVista`).
+- **Motor** (`cmd/mensajeria`, `centralita_motor.go`): cliente AMI propio (`internal/mensajeria/ami`,
+  solo Login, Ping, ListCommands y lectura de eventos; no sabe mandar Originate). Una sesión por
+  centralita activa con arriendo en la fila (sin retener conexiones de Postgres), que se renueva antes de
+  cada conexión, en cada latido y durante cada espera de reconexión: si otra réplica lo tomó, esta no se
+  conecta. El aviso de cambios llega por el mismo LISTEN de la bandeja. Reconexión de 1 s a 60 s; una
+  caída de menos de 60 s no cambia el estado; Ping cada 20 s; ListCommands sin respuesta en 10 s es un
+  error de conexión (nunca queda `conectada` sin comprobar los permisos). Topes: línea 2 KB, paquete
+  64 KB o 600 líneas (si no, se corta), cola de 1 000 eventos más 200 lugares reservados para
+  `Hangup` y `Cdr` (si el procesador está detenido en la base, una avalancha de llamadas ajenas puede
+  llenar también esa reserva: la red de seguridad es el cierre de las viejas, `CentralitaSonandoMax` y
+  `CentralitaEnCursoMax`), 2 000 llamadas seguidas en memoria y 200 **llamadas nuevas** por segundo a la base:
+  el tope se aplica después de traducir y filtrar (lo ajeno no cuenta) y nunca a lo de las llamadas ya
+  seguidas (contestar, colgar, CDR). ListCommands tiene que responder `Success` (si no, se reconecta;
+  en «Probar», `sin_comprobar`, que además borra `probada_en`). Todas las consultas del motor tienen
+  plazo (arriendo, última señal y estado: el menor entre 10 s y el latido; procesar un evento, leer
+  extensiones o llamadas y cerrar las viejas: 10 s); la rotación de claves, que bloquea la fila, no lo
+  traba, y el estado que no se pudo guardar se reintenta en cada latido. **El arriendo se mide desde
+  antes del UPDATE** y la sesión se corta cuando lo transcurrido más un latido y un plazo de la base
+  alcanza su duración (60 s): un vigía independiente del bucle (`time.AfterFunc`, que se reinicia en
+  cada renovación buena) cierra la sesión AMI aunque el bucle esté colgado, así que otra réplica nunca
+  conecta mientras esta sigue conectada. Conectar (TCP, TLS y Login) tampoco pasa del arriendo, y
+  `CentralitaPlazo` tiene que ser menor que `CentralitaPing` (si no, `cmd/mensajeria` no arranca y el
+  motor no corre). Detenida por huella o permisos, sigue reintentando guardar ese estado en cada
+  latido; soltar el arriendo al apagar también tiene plazo (si no, vence solo). Solo pasan a la base los eventos de extensiones
+  registradas o de llamadas que Iris ya sigue. Las llamadas vivas de la centralita no cuentan para las
+  reglas de WhatsApp de «una llamada viva por persona» (reservar y recibir timbre filtran
+  `origen = 'whatsapp'`).
+- **Historial y nota (quién ve qué):** `GET /centralitas/llamadas` exige `llamadas.ver`; con
+  `clienteId` además `clientes.ver` (si no, 403); con `ticketId`, que quien pide vea el ticket
+  (`tickets.ver`, su alcance y la empresa activa, como `GET /tickets/{id}`: si no, el mismo error).
+  La **nota** de una llamada de la centralita (en el listado y en `GET /centralitas/llamadas/{id}`)
+  solo se muestra a quien puede actuar sobre ella (le sonó, la contestó o la marcó) o tiene
+  `centralita.asignar_extension`; a los demás va `null`.
+- **Asterisk 18 / Issabel 5:** extensión solo de canales `PJSIP/<ext>-…`, `SIP/<ext>-…` o `IAX2/…`.
+  Los `Local/<ext>@from-queue-…;1|;2` de colas y grupos se ignoran: el DialBegin del `;2` al teléfono
+  (mismo Linkedid) es el que hace sonar, una vez por persona. Internas (desde otro teléfono o con
+  CallerID de 2 a 7 dígitos) se ignoran. Salientes desde el teléfono de escritorio: solo si el número
+  es de un cliente, sin ventana. Contesta = `DialEnd ANSWER` al teléfono; cierra = `Hangup` del canal
+  de origen (`Uniqueid = Linkedid`); duración = `BillableSeconds` del `Cdr` (con el mapping `linkedid
+  => LinkedID` de `cdr_manager.conf`; sin él, `UniqueID`). Número: E.164 con +502 de fábrica.
+- **Ventana:** por el feed de la bandeja, como `llamada_entrante` / `llamada_actualizada` /
+  `llamada_terminada` dirigidos (`usuario_id`, `conversacion_id` null; `conversacionId: 0` en la API).
+  Quien no tiene `conversaciones.ver` entra al feed solo con una extensión activa y solo recibe esos
+  eventos, nunca de conversaciones; cada revalidación comprueba otra vez la extensión. «Contestó X»
+  solo con el nombre de pila. Lo que pasa mientras Iris no escucha **no se recupera** (lo dice la
+  pantalla).
+- **Panel:** el aviso es el de WhatsApp (`CabeceraLlamada`, `Senales`, `MARCO_AVISO`) en modo «suena
+  en tu extensión», sin «Contestar»; la máquina de voz de WhatsApp ignora `origen = centralita`.
+  `/administracion/integraciones/centralita` y `/conexion`. Guía para Issabel:
+  `docs/runbooks/centralita-issabel.md`.
+- **Pruebas:** `ami_test.go`, `centralita_ami_interno_test.go` y `centralita_test.go` contra un AMI
+  falso sobre TLS (`internal/mensajeria/ami/amifalso`); e2e `e2e/centralita.spec.ts`.
+
+#### E4c: requisitos (más adelante)
+
+- Asterisk: `http.conf` con TLS en 8089 (WSS) y un certificado válido para el nombre con que entra el
+  navegador; `pjsip.conf` con `transport-wss` y, por persona, un endpoint con `webrtc=yes` (DTLS,
+  ICE, `rtcp_mux`, opus/ulaw). ICE con STUN, y TURN si el navegador no llega por la VPN.
+- Iris: la extensión pasa a `tipo = navegador` con su credencial SIP cifrada solo en el servidor; al
+  navegador se le entrega **por sesión y con vida corta** (nunca en un log, nunca en la auditoría ni en
+  un evento). El panel usa la misma máquina y los mismos componentes que WhatsApp; la llamada de
+  la centralita gana «Contestar» (`puede.contestar`). Solo el panel web al inicio; la app móvil después.
+- Seguridad a revisar antes de construir: WSS solo desde la red o VPN de Iris, credencial por persona
+  (nunca compartida), corte al desactivar el usuario o quitarle la extensión.
 
 ## 4. Interfaz mensajería ↔ `cmd/voz`
 
@@ -2378,7 +2495,9 @@ cortada emite además su `llamada.fallida` **con** su empresa. El detalle está 
 | `voz.mal_uso_detectado` | mensajeria (voz) | llamada_id, conversacion_id, tipo, regla, accion (aviso, paso_a_persona, corte, bloqueo) | E2 |
 | `voz.numero_bloqueado` / `voz.numero_desbloqueado` | mensajeria (voz) | bloqueo_id, hasta, motivo, usuario_id (o null) | E2 |
 | `centralita.creada` / `centralita.actualizada` / `centralita.estado_cambiado` | mensajeria (voz) | centralita_id; tipo, modo (creada); campos[], activa (actualizada); de, a (estado) | E4a |
-| `extension.asignada` / `extension.quitada` | mensajeria (voz) | centralita_id, extension_id, usuario_id | E4a |
+| `extension.asignada` / `extension.quitada` | mensajeria (voz) | centralita_id, empresa_id, extension_id, usuario_id | E4a |
+| `llamada.vinculada` | mensajeria (voz) | llamada_id, empresa_id, ticket_id, cliente_id (o null), usuario_id, origen (centralita) | E4a |
+| `llamada.cliente_asociado` | mensajeria (voz) | llamada_id, empresa_id, cliente_id, servicio_id (o null), usuario_id, origen (centralita) | E4a |
 
 Eventos que ya existen y ganan campos: `asistente.accion_ejecutada`, `asistente.paso_a_persona` y
 `conversacion.identidad_verificada` suman `canal` (`whatsapp` \| `voz`; ausente = `whatsapp`) y

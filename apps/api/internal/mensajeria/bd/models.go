@@ -1363,6 +1363,56 @@ type MensajeriaCategoria struct {
 	UpdatedAt              time.Time
 }
 
+type MensajeriaCentralita struct {
+	ID                int64
+	EmpresaID         *int64
+	Nombre            string
+	Tipo              string
+	Host              string
+	Puerto            int32
+	Usuario           string
+	SecretoCifrado    []byte
+	SecretoGuardadoEn *time.Time
+	HuellaTls         *string
+	HuellaVista       *string
+	Modo              string
+	Estado            string
+	ErrorCodigo       *string
+	ProbadaEn         *time.Time
+	ConectadaEn       *time.Time
+	DesconectadaDesde *time.Time
+	UltimoEventoEn    *time.Time
+	Activa            bool
+	MotorDueno        *string
+	MotorHasta        *time.Time
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type MensajeriaCentralitaExtensione struct {
+	ID                int64
+	EmpresaID         *int64
+	CentralitaID      int64
+	Extension         string
+	UsuarioID         int64
+	Tipo              string
+	SipUsuario        *string
+	SipSecretoCifrado []byte
+	Activa            bool
+	QuitadaEn         *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
+type MensajeriaCentralitaReceptore struct {
+	LlamadaID uuid.UUID
+	UsuarioID int64
+	EmpresaID *int64
+	Extension string
+	SonoEn    time.Time
+}
+
 type MensajeriaChatConversacion struct {
 	ID              int64
 	EmpresaID       *int64
@@ -1541,7 +1591,7 @@ type MensajeriaContactoIris struct {
 type MensajeriaConvEvento struct {
 	ID             int64
 	EmpresaID      *int64
-	ConversacionID int64
+	ConversacionID *int64
 	Tipo           string
 	MensajeID      pgtype.UUID
 	UsuarioID      *int64
@@ -1797,6 +1847,13 @@ type MensajeriaLlamada struct {
 	RafagaIntentos     int32
 	RafagaUltimoCallID *string
 	RafagaAvisadaEn    *time.Time
+	CentralitaID       *int64
+	Extension          *string
+	TicketID           *int64
+	Asociacion         *string
+	Coincidencias      int32
+	AnotadaPor         *int64
+	Version            int32
 }
 
 type MensajeriaLlamadaCandidato struct {

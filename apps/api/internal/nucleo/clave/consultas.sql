@@ -103,3 +103,23 @@ FOR UPDATE;
 
 -- name: RecifrarCorreoSistema :exec
 UPDATE notificaciones.correo_ajustes SET contrasena_cifrada = @contrasena_cifrada WHERE id = @id;
+
+-- name: CentralitasCifradas :many
+-- Contraseña del usuario AMI de cada centralita Issabel.
+SELECT id, secreto_cifrado FROM mensajeria.centralitas
+WHERE secreto_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: RecifrarCentralita :exec
+UPDATE mensajeria.centralitas SET secreto_cifrado = @secreto_cifrado WHERE id = @id;
+
+-- name: ExtensionesSIPCifradas :many
+-- Credencial SIP del navegador de cada extensión (E4c; vacía en E4a).
+SELECT id, sip_secreto_cifrado FROM mensajeria.centralita_extensiones
+WHERE sip_secreto_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE;
+
+-- name: RecifrarExtensionSIP :exec
+UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = @sip_secreto_cifrado WHERE id = @id;

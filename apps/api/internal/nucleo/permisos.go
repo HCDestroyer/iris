@@ -288,6 +288,15 @@ const (
 	PermVozConfigurar Permiso = "voz.configurar"
 )
 
+// Centralita Issabel (contratos/voz.md §3.12 y §8.2), etapa E4a de solo lectura.
+const (
+	// PermCentralitaConfigurar: la conexión con el AMI de la centralita (dirección, usuario,
+	// contraseña, huella del certificado), probarla, encenderla y apagarla. Sensible.
+	PermCentralitaConfigurar Permiso = "centralita.configurar"
+	// PermCentralitaAsignarExtension: qué extensión de la centralita es de cada usuario.
+	PermCentralitaAsignarExtension Permiso = "centralita.asignar_extension"
+)
+
 // Servidor de IA («Iris Voz», contratos/voz.md §4.8 y §8.2): es de la instalación, así que ver y
 // administrar exigen además empresas.todas sin límite de alcance.
 const (
@@ -417,6 +426,8 @@ var PermisosSensibles = map[Permiso]bool{
 	PermDatosLegalesConfigurar: true,
 	// Voz: los ajustes de voz de la empresa (las grabaciones llegan con E1c, con sus permisos).
 	PermVozConfigurar: true,
+	// La conexión con la centralita: credenciales del AMI y huella de su certificado.
+	PermCentralitaConfigurar: true, PermCentralitaAsignarExtension: true,
 	// El servidor de IA de la instalación: sus credenciales y quién puede usarlo.
 	PermServidorIAAdministrar: true,
 	// Una saliente cuesta dinero y, sin contestar, puede hacer que Meta revoque el permiso del contacto.
@@ -477,6 +488,8 @@ var Catalogo = []DefPermiso{
 	{PermCampoVerBodega, "Ver tu bodega en Argos (existencias, unidades, kardex) y tus órdenes de traslado por recibir (por tu vínculo con Argos)"},
 	{PermCampoVerPosiciones, "Ver la última ubicación de los técnicos (según el alcance)"},
 	{PermCanalesConfigurar, "Configurar las colas de conversaciones y el uso, la cola y el horario de cada número de WhatsApp (no sus credenciales)"},
+	{PermCentralitaAsignarExtension, "Asignar y quitar la extensión de la centralita de cada usuario (a quién le sale la ventana cuando suena)"},
+	{PermCentralitaConfigurar, "Conectar la centralita Issabel (solo lectura): dirección, usuario y contraseña del AMI, huella del certificado, probar, encender y apagar"},
 	{PermChatEnviar, "Abrir conversaciones del chat interno, enviar mensajes, eliminar los propios en 15 minutos y unirse al hilo de una orden que puedes ver"},
 	{PermChatSupervisar, "Ser miembro de los chats de cuadrilla y de orden de tu alcance (zona o cuadrilla; sin alcance, todos los de la empresa). No da acceso a los mensajes directos"},
 	{PermChatVer, "Ver tus conversaciones del chat interno del equipo y sus mensajes"},
@@ -697,6 +710,7 @@ var RolesBase = []DefRol{
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar, PermLlamadasDesbloquearNumero,
+			PermCentralitaAsignarExtension,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar},

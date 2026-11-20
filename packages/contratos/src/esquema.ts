@@ -2557,6 +2557,346 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/centralita": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * La centralita de la empresa activa
+         * @description Permiso: `centralita.asignar_extension`. `centralita` es null si la empresa no tiene. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        get: operations["verCentralita"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralita/mi-extension": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Tu extensión de la centralita
+         * @description Sin permiso: es la tuya. `extension` null si no tienes una activa (el panel no espera la ventana). Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        get: operations["miExtensionCentralita"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Conectar la centralita Issabel (solo lectura)
+         * @description Permiso: `centralita.configurar`. Queda apagada: se enciende con `activar` después de una prueba que pasa. `huellaTls` es la huella que mostró `probar` y que el administrador comparó con la de Issabel. 409 `centralita_existente`; 422 `url_no_permitida`, `puerto_no_permitido`, `cifrado_no_configurado`. Evento `centralita.creada`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["crearCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/llamadas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Llamadas de la centralita
+         * @description Permiso: `llamadas.ver`. Por cliente (`clienteId`, ficha del cliente; exige `clientes.ver`), por ticket (`ticketId`; el ticket tiene que ser visible para ti: si no, 404) o las tuyas (`mias=true`, con `hoy=true` las de hoy). `{ data, nextCursor }`, de la más nueva a la más vieja. Nombres de clientes solo con `clientes.ver`. La `nota` solo viene en las llamadas que te sonaron, contestaste o marcaste, o si supervisas las extensiones; si no, null. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        get: operations["listarLlamadasCentralita"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/llamadas/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Una llamada de la centralita
+         * @description Permiso: `llamadas.ver`. Con varios clientes posibles y sin cliente elegido trae `candidatos` (con `clientes.ver`). La `nota` solo viene si te sonó, la contestaste o la marcaste, o si supervisas las extensiones; si no, null. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        get: operations["verLlamadaCentralita"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/llamadas/{id}/anotar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Nota y resultado de una llamada de la centralita
+         * @description Permiso: `llamadas.anotar`. Solo quien la recibió, contestó o marcó, o quien supervisa las extensiones (`centralita.asignar_extension`); si no, 404. Con `version`. Evento `llamada.anotada`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["anotarLlamadaCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/llamadas/{id}/asociar-cliente": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Elegir el cliente de una llamada
+         * @description Permiso: `llamadas.anotar`. Varios posibles o número desconocido. Exige además `clientes.ver`. 422 `cliente_no_valido`, `servicio_no_valido`, `cliente_distinto`. Evento `llamada.cliente_asociado`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["asociarClienteCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/llamadas/{id}/vincular-ticket": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Agregar la llamada a un ticket
+         * @description Permiso: `llamadas.anotar`. El ticket debe verse con `tickets.ver` (si no, 404). Si la llamada no tenía cliente toma el del ticket; si tenía otro, 422 `cliente_distinto`. Para crear un ticket desde la llamada, el panel crea el ticket (`POST /tickets`) y después lo vincula aquí. Evento `llamada.vinculada`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["vincularTicketCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/probar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probar datos de conexión sin guardarlos
+         * @description Permiso: `centralita.configurar`. Conecta por TLS, entra, hace Ping y ListCommands: `ok`, `permisos_de_mas` (el usuario puede escribir; no se podrá encender) o `no_conecta` (un solo error para todo lo demás: la prueba no sirve para escanear la red). Devuelve la huella del certificado para compararla. Sin `secreto`, usa la guardada de `centralitaId` solo si no cambian host, puerto ni usuario (422 `clave_requerida`). No guarda nada. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["probarDatosCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Encender la centralita (Iris empieza a escuchar)
+         * @description Permiso: `centralita.configurar`. Con `version`. Encender exige una prueba que pasó con los datos actuales (422 `sin_probar`). Eventos `centralita.actualizada` y `centralita.estado_cambiado`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["activarCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar la conexión con la centralita
+         * @description Permiso: `centralita.configurar`. Con `version` (409 `conflicto_version`). Cambiar host, puerto, usuario, contraseña o huella la apaga y borra la última prueba: hay que probar y encender otra vez. 422 `clave_requerida` si cambian host, puerto o usuario sin volver a escribir la contraseña. Evento `centralita.actualizada`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["actualizarCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/confirmar-huella": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar el certificado nuevo de la centralita
+         * @description Permiso: `centralita.configurar`. Cuando la conexión se detuvo por `huella_cambiada`: la huella debe ser exactamente `huellaVista` (422 `huella_no_coincide`). La conexión vuelve a intentarse. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["confirmarHuellaCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apagar la centralita en Iris
+         * @description Permiso: `centralita.configurar`. Con `version`. Encender exige una prueba que pasó con los datos actuales (422 `sin_probar`). Eventos `centralita.actualizada` y `centralita.estado_cambiado`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["desactivarCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/extensiones": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Extensiones asignadas
+         * @description Permiso: `centralita.asignar_extension`. Solo a estas personas les sale la ventana; las demás extensiones de la centralita Iris ni las mira. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        get: operations["extensionesCentralita"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/extensiones/asignar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Asignar una extensión a una persona
+         * @description Permiso: `centralita.asignar_extension`. `extension`: 2 a 8 dígitos. 409 `extension_ocupada` o `usuario_con_extension` (quítala primero); 422 `usuario_no_valido`. Evento `extension.asignada`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["asignarExtension"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/extensiones/{extensionId}/quitar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quitar una extensión
+         * @description Permiso: `centralita.asignar_extension`. Ya no le sale la ventana; sus llamadas anteriores se quedan. Evento `extension.quitada`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["quitarExtension"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/probar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probar la conexión guardada
+         * @description Permiso: `centralita.configurar`. Con la huella fijada (`huella_distinta` si cambió). Si pasa, deja `probadaEn` (encender la exige); con `permisos_de_mas` la apaga. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         */
+        post: operations["probarCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/chat/cambios": {
         parameters: {
             query?: never;
@@ -3262,7 +3602,7 @@ export interface paths {
         };
         /**
          * Cambios de la bandeja desde un cursor (sondeo)
-         * @description Permiso: `conversaciones.ver`.
+         * @description Permiso: `conversaciones.ver`, o una extensión activa en la centralita activa de la empresa (contratos/voz.md §3.12, E4a). Quien entra solo por su extensión recibe únicamente sus eventos `centralita_llamada` (nunca eventos de conversaciones); cada revalidación comprueba otra vez que la extensión siga activa y asignada a él (si no, el flujo se corta). Sin ninguno de los dos: 403.
          */
         get: operations["cambiosConversaciones"];
         put?: never;
@@ -3446,7 +3786,7 @@ export interface paths {
         };
         /**
          * Tiempo real de la bandeja (Server-Sent Events)
-         * @description Permiso: `conversaciones.ver`. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión. `?navegador=` (o la cabecera `X-Iris-Navegador`): el id de «Recibir llamadas» de este navegador. Con él, el latido del flujo vale solo para ese navegador (es lo que mantiene viva una llamada saliente hecha desde él y su «Recibir llamadas»); sin él, para todos los navegadores del usuario que reciben llamadas. `?pestana=` (o `X-Iris-Pestana`): el id aleatorio de esta pestaña; una llamada **saliente** solo se mantiene viva con el flujo de la pestaña que la hizo (otra pestaña del mismo navegador no la sostiene: a los 55 s se corta).
+         * @description Permiso: `conversaciones.ver`, o una extensión activa en la centralita activa de la empresa (contratos/voz.md §3.12, E4a). Quien entra solo por su extensión recibe únicamente sus eventos `centralita_llamada` (nunca eventos de conversaciones); cada revalidación comprueba otra vez que la extensión siga activa y asignada a él (si no, el flujo se corta). Sin ninguno de los dos: 403. Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), `data` (un EventoConversacion; `centralita_llamada` trae `centralita`). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión. `?navegador=` (o la cabecera `X-Iris-Navegador`): el id de «Recibir llamadas» de este navegador. Con él, el latido del flujo vale solo para ese navegador (es lo que mantiene viva una llamada saliente hecha desde él y su «Recibir llamadas»); sin él, para todos los navegadores del usuario que reciben llamadas. `?pestana=` (o `X-Iris-Pestana`): el id aleatorio de esta pestaña; una llamada **saliente** solo se mantiene viva con el flujo de la pestaña que la hizo (otra pestaña del mismo navegador no la sostiene: a los 55 s se corta).
          */
         get: operations["eventosConversaciones"];
         put?: never;
@@ -9459,6 +9799,12 @@ export interface components {
             /** @description avisos, soporte, cobros, ventas */
             usos: string[] | null;
         };
+        CandidatoCentralita: {
+            /** Format: int64 */
+            clienteId: number;
+            codigo: string;
+            nombre: string;
+        };
         CandidatoTecnico: {
             correo: string;
             nombre: string;
@@ -9603,6 +9949,72 @@ export interface components {
             nombre: string;
             /** @enum {string} */
             tono?: "info" | "error" | "ok" | "aviso" | "neutro";
+        };
+        Centralita: {
+            activa: boolean;
+            /** Format: date-time */
+            conectadaEn: string | null;
+            /** Format: date-time */
+            desconectadaDesde: string | null;
+            /** @enum {string|null} */
+            errorCodigo: "huella_cambiada" | "permisos_de_mas" | "credenciales" | "sin_conexion" | null;
+            /** @enum {string} */
+            estado: "conectada" | "desconectada" | "error" | "desactivada";
+            host: string;
+            /** @description SHA-256 del certificado del AMI que confirmó un administrador */
+            huellaTls: string | null;
+            /** @description Con error huella_cambiada: la huella distinta que presentó la centralita */
+            huellaVista: string | null;
+            /** Format: int64 */
+            id: number;
+            /** @enum {string} */
+            modo: "lectura";
+            nombre: string;
+            /**
+             * Format: date-time
+             * @description La última prueba que pasó con los datos actuales (encender la exige)
+             */
+            probadaEn: string | null;
+            /** Format: int32 */
+            puerto: number;
+            /**
+             * Format: date-time
+             * @description Cuándo se guardó la contraseña del AMI (nunca se devuelve)
+             */
+            secretoGuardadoEn: string | null;
+            /** @enum {string} */
+            tipo: "issabel";
+            /**
+             * Format: date-time
+             * @description Última señal del AMI (se actualiza como mucho cada minuto)
+             */
+            ultimoEventoEn: string | null;
+            usuario: string;
+            /** Format: int32 */
+            version: number;
+        };
+        "CentralitaAccionHTTPStruct {}Body": Record<string, never>;
+        CentralitaDeEmpresa: {
+            /** @description Ausente si la empresa no tiene centralita */
+            centralita?: components["schemas"]["Centralita"];
+        };
+        CentralitaDeLlamada: {
+            /** @enum {string} */
+            asociacion?: "automatica" | "manual";
+            asociar: boolean;
+            /** @description Con varias coincidencias y sin cliente elegido; solo con clientes.ver */
+            candidatos: components["schemas"]["CandidatoCentralita"][] | null;
+            /**
+             * Format: int32
+             * @description Clientes con ese número al llegar (0, 1 o varios)
+             */
+            coincidencias: number;
+            extension?: string;
+            /** Format: int64 */
+            id: number;
+            /** @description A quiénes les sonó (nombre de pila y extensión) */
+            receptores: components["schemas"]["PersonaCentralita"][] | null;
+            tuExtension?: string;
         };
         CertificadoAnterior: {
             emisor: string;
@@ -11361,6 +11773,18 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        EntradaActualizarCentralita: {
+            host: string;
+            huellaTls: string;
+            nombre: string;
+            /** Format: int32 */
+            puerto?: number;
+            /** @description Solo para cambiarla. Obligatoria si cambian host, puerto o usuario (422 clave_requerida) */
+            secreto?: string;
+            usuario: string;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaActualizarContactoIris: {
             nombre: string;
             nota?: string;
@@ -11471,6 +11895,13 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        EntradaAnotarCentralita: {
+            nota?: string;
+            /** @enum {string} */
+            resultado?: "resuelto" | "devolver" | "equivocado" | "otro";
+            /** Format: int32 */
+            version: number;
+        };
         EntradaAnularAusencia: {
             motivo?: string;
             /**
@@ -11517,6 +11948,12 @@ export interface components {
             usuarioId: number | null;
             /** Format: int32 */
             version: number;
+        };
+        EntradaAsignarExtension: {
+            /** @description De 2 a 8 dígitos, como aparece en Issabel */
+            extension: string;
+            /** Format: int64 */
+            usuarioId: number;
         };
         EntradaAsignarOrden: {
             /**
@@ -11565,6 +12002,12 @@ export interface components {
              * @description Versión leída; si cambió, 409
              */
             version: number;
+        };
+        EntradaAsociarCentralita: {
+            /** Format: int64 */
+            clienteId: number;
+            /** Format: int64 */
+            servicioId?: number;
         };
         EntradaAsociarCliente: {
             /** Format: int64 */
@@ -11657,6 +12100,10 @@ export interface components {
             actual: string;
             /** @description Nueva contraseña: mínimo 12 caracteres y distinta de la actual */
             nueva: string;
+        };
+        EntradaCambioCentralita: {
+            /** Format: int32 */
+            version: number;
         };
         EntradaCambioConector: {
             motivo?: string;
@@ -11856,6 +12303,12 @@ export interface components {
              */
             version: number;
         };
+        EntradaConfirmarHuella: {
+            /** @description La huella nueva tal como la muestra Iris (huellaVista), comparada con la de Issabel */
+            huella: string;
+            /** Format: int32 */
+            version: number;
+        };
         EntradaConfirmarSolucion: {
             /**
              * Format: int32
@@ -11968,6 +12421,21 @@ export interface components {
             verifyToken?: string;
             /** @description WhatsApp Business Account ID */
             wabaId?: string;
+        };
+        EntradaCrearCentralita: {
+            /** @description IP o nombre del servidor Issabel dentro de la red o la VPN */
+            host: string;
+            /** @description La huella SHA-256 que mostró «Probar» y que el administrador comparó con la de Issabel */
+            huellaTls: string;
+            nombre: string;
+            /**
+             * Format: int32
+             * @description 5039 (AMI con TLS). Otro solo si la instalación lo permite
+             */
+            puerto?: number;
+            /** @description Contraseña del usuario AMI de solo lectura (se guarda cifrada y no se devuelve) */
+            secreto: string;
+            usuario: string;
         };
         EntradaCrearContrato: {
             /**
@@ -13133,6 +13601,15 @@ export interface components {
             proveedor: "ollama" | "openai_compatible" | "anthropic" | "servidor_ia";
             url: string;
         };
+        EntradaProbarCentralita: {
+            /** Format: int64 */
+            centralitaId?: number;
+            host: string;
+            /** Format: int32 */
+            puerto?: number;
+            secreto?: string;
+            usuario: string;
+        };
         EntradaProbarMensaje: {
             ajustes?: components["schemas"]["AjustesPrueba"];
             texto: string;
@@ -13692,6 +14169,10 @@ export interface components {
             /** @description El id de Argos que se mostró al usuario (externo.idExterno del canje) */
             id_externo: string;
         };
+        EntradaVincularTicket: {
+            /** Format: int64 */
+            ticketId: number;
+        };
         EntrarComoSSO: {
             idExterno: string;
             nombreExterno: string;
@@ -13980,7 +14461,10 @@ export interface components {
         EventoConversacion: {
             /** @description conversacion_actualizada, mencion y guardia (como la ves ahora) */
             conversacion?: components["schemas"]["ConversacionCliente"];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description 0 en las llamadas de la centralita (llamada.origen = centralita: no son de una conversación)
+             */
             conversacionId: number;
             /** @description Cursor del feed (el id de SSE / Last-Event-ID) */
             id: string;
@@ -14140,6 +14624,14 @@ export interface components {
             lineas: components["schemas"]["Existencia"][] | null;
             /** @description Nombre de la bodega en Argos (bodega_nombre); vacío si Argos no lo manda */
             nombre?: string;
+        };
+        Extension: {
+            extension: string;
+            /** Format: int64 */
+            id: number;
+            /** Format: int64 */
+            usuarioId: number;
+            usuarioNombre: string;
         };
         Factibilidad: {
             /**
@@ -14832,8 +15324,15 @@ export interface components {
             data: components["schemas"]["EtiquetaConversacion"][];
             nextCursor: string | null;
         };
+        ListaExtensiones: {
+            data: components["schemas"]["Extension"][] | null;
+        };
         ListaHorarios: {
             data: components["schemas"]["Horario"][];
+            nextCursor: string | null;
+        };
+        ListaLlamadasCentralita: {
+            data: components["schemas"]["Llamada"][] | null;
             nextCursor: string | null;
         };
         ListaManuales: {
@@ -14874,6 +15373,8 @@ export interface components {
             /** @enum {string} */
             atendidaPor?: "persona" | "asistente";
             canal?: components["schemas"]["CanalDeLlamada"];
+            /** @description Solo con origen centralita (contratos/voz.md §3.12) */
+            centralita?: components["schemas"]["CentralitaDeLlamada"];
             cola?: components["schemas"]["ColaRef"];
             contacto: components["schemas"]["ContactoDeLlamada"];
             /** Format: date-time */
@@ -14918,11 +15419,21 @@ export interface components {
             suenaHasta?: string;
             /** Format: date-time */
             terminadaEn?: string;
+            /**
+             * Format: int64
+             * @description El ticket al que se agregó la llamada (centralita)
+             */
+            ticketId?: number;
             /** @description Nombre del contacto o, si no se conoce, el número */
             titulo: string;
             tramos: components["schemas"]["TramoLlamada"][] | null;
             /** @description Quien la tiene, o quien la reclamó mientras se conecta */
             usuario?: components["schemas"]["UsuarioRef"];
+            /**
+             * Format: int32
+             * @description Para editar la nota de una llamada de la centralita (409 conflicto_version)
+             */
+            version?: number;
         };
         LlamadaEnMensaje: {
             /** @enum {string} */
@@ -15292,6 +15803,17 @@ export interface components {
              * @description 0 si nunca la cambiaste
              */
             version: number;
+        };
+        MiExtension: {
+            /** Format: int64 */
+            centralitaId: number | null;
+            /**
+             * @description Estado de la conexión con la centralita
+             * @enum {string|null}
+             */
+            estado: "conectada" | "desconectada" | "error" | "desactivada" | null;
+            /** @description Null si no tiene una extensión activa en la centralita activa de la empresa */
+            extension: string | null;
         };
         MiembroChat: {
             /**
@@ -16694,7 +17216,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -16737,6 +17259,13 @@ export interface components {
              * @description Con temporal: hasta cuándo vale
              */
             venceEn?: string;
+        };
+        PersonaCentralita: {
+            extension: string;
+            /** @description Nombre de pila */
+            nombre: string;
+            /** Format: int64 */
+            usuarioId: number;
         };
         PersonaChat: {
             /**
@@ -17260,6 +17789,14 @@ export interface components {
             webhookVerificado: boolean;
             /** Format: date-time */
             webhookVerificadoEn: string | null;
+        };
+        PruebaCentralita: {
+            accionesDeMas: string[] | null;
+            centralita?: components["schemas"]["Centralita"];
+            /** @enum {string} */
+            estado: "ok" | "permisos_de_mas" | "huella_distinta" | "no_conecta" | "sin_comprobar";
+            huella: string | null;
+            version: string | null;
         };
         PruebaCorreo: {
             /** @enum {string|null} */
@@ -29627,6 +30164,1245 @@ export interface operations {
             };
             /** @description Request Entity Too Large */
             413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verCentralita: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CentralitaDeEmpresa"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    miExtensionCentralita: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MiExtension"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearCentralita"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Centralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarLlamadasCentralita: {
+        parameters: {
+            query?: {
+                /** @description Las del cliente (ficha del cliente) */
+                clienteId?: number;
+                /** @description Las vinculadas al ticket */
+                ticketId?: number;
+                /** @description Las que te sonaron o marcaste */
+                mias?: boolean;
+                /** @description Solo las de hoy (hora de Guatemala) */
+                hoy?: boolean;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaLlamadasCentralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verLlamadaCentralita: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    anotarLlamadaCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAnotarCentralita"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    asociarClienteCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAsociarCentralita"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    vincularTicketCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVincularTicket"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Llamada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    probarDatosCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaProbarCentralita"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PruebaCentralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambioCentralita"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Centralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaActualizarCentralita"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Centralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    confirmarHuellaCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaConfirmarHuella"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Centralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambioCentralita"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Centralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    extensionesCentralita: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaExtensiones"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    asignarExtension: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAsignarExtension"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Extension"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    quitarExtension: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                extensionId: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Extension"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    probarCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CentralitaAccionHTTPStruct {}Body"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PruebaCentralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

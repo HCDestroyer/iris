@@ -1599,32 +1599,43 @@ func (q *Queries) EtiquetasDeConversaciones(ctx context.Context, ids []int64) ([
 
 const eventosConv = `-- name: EventosConv :many
 SELECT e.id, e.empresa_id, e.conversacion_id, e.tipo, e.mensaje_id, e.usuario_id, e.ocurrido_en, e.created_at, e.sugerencia_id, e.llamada_id FROM mensajeria.conv_eventos e
-JOIN mensajeria.conversaciones c ON c.id = e.conversacion_id
+LEFT JOIN mensajeria.conversaciones c ON c.id = e.conversacion_id
 WHERE e.id > $1::bigint
   AND coalesce(e.empresa_id, 0) = $2::bigint
-  -- Una conversación pasada a otra empresa deja de verse en la anterior (§15.3).
-  AND coalesce(c.empresa_id, 0) = $2::bigint
-  AND (e.usuario_id IS NULL OR e.usuario_id = $3::bigint)
-  -- Las sugerencias del asistente solo a quien tiene conversaciones.sugerencias (§16.2).
-  AND (e.tipo <> 'sugerencia' OR $4::boolean)
-  AND mensajeria.conv_visible($3::bigint, $5::boolean, c.id, c.cola_id, c.asignado_a)
+  AND (
+    ($3::boolean AND e.conversacion_id IS NOT NULL
+      -- Una conversación pasada a otra empresa deja de verse en la anterior (§15.3).
+      AND coalesce(c.empresa_id, 0) = $2::bigint
+      AND (e.usuario_id IS NULL OR e.usuario_id = $4::bigint)
+      -- Las sugerencias del asistente solo a quien tiene conversaciones.sugerencias (§16.2).
+      AND (e.tipo <> 'sugerencia' OR $5::boolean)
+      AND mensajeria.conv_visible($4::bigint, $6::boolean, c.id, c.cola_id, c.asignado_a))
+    OR (e.conversacion_id IS NULL AND e.llamada_id IS NOT NULL AND e.usuario_id = $4::bigint
+      AND EXISTS (SELECT 1 FROM mensajeria.centralita_extensiones x JOIN mensajeria.centralitas ce ON ce.id = x.centralita_id
+                  WHERE x.usuario_id = $4::bigint AND x.activa AND ce.activa AND coalesce(ce.empresa_id, 0) = $2::bigint))
+  )
 ORDER BY e.id
-LIMIT $6
+LIMIT $7
 `
 
 type EventosConvParams struct {
-	Desde       int64
-	Empresa     int64
-	Usuario     int64
-	Sugerencias bool
-	Supervisa   bool
-	Limite      int32
+	Desde          int64
+	Empresa        int64
+	Conversaciones bool
+	Usuario        int64
+	Sugerencias    bool
+	Supervisa      bool
+	Limite         int32
 }
 
+// Los eventos de la bandeja que ve el usuario (solo con conversaciones.ver) y la ventana de la
+// centralita dirigida a él (solo mientras tenga una extensión activa en la centralita activa de la
+// empresa: E4a). Quien entra al flujo solo por su extensión nunca recibe eventos de conversaciones.
 func (q *Queries) EventosConv(ctx context.Context, arg EventosConvParams) ([]MensajeriaConvEvento, error) {
 	rows, err := q.db.Query(ctx, eventosConv,
 		arg.Desde,
 		arg.Empresa,
+		arg.Conversaciones,
 		arg.Usuario,
 		arg.Sugerencias,
 		arg.Supervisa,
@@ -2305,7 +2316,7 @@ func (q *Queries) InsertarEtiquetaConversacion(ctx context.Context, arg Insertar
 const insertarEventoConv = `-- name: InsertarEventoConv :one
 
 INSERT INTO mensajeria.conv_eventos (empresa_id, conversacion_id, tipo, mensaje_id, usuario_id, ocurrido_en, sugerencia_id, llamada_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7,
+VALUES ($1, $2::bigint, $3, $4, $5, $6, $7,
     $8)
 RETURNING id
 `

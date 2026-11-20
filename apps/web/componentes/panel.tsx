@@ -30,6 +30,7 @@ import { AvisoDatosSinEmpresa, ElegirEmpresa, SelectorEmpresa } from "./selector
 import { SelectorTema } from "./selector-tema";
 import { DialogoReautenticar } from "@/componentes/cuenta/dialogo-reautenticar";
 import { AvisoLlamada, BarraLlamada, NotaLlamada } from "./voz/llamada";
+import { ProveedorCentralita } from "./voz/centralita";
 import { ProveedorVoz, useVoz } from "./voz/proveedor";
 import { BotonRecibir, ControlRecibir } from "./voz/recibir";
 
@@ -183,9 +184,11 @@ function Estructura({ children }: { children: ReactNode }) {
                 <ProveedorCuenta>
                     <DisponibilidadSiAplica>
                         <VozSiAplica>
-                            <ProveedorChatEquipo>
-                                <EstructuraPanel>{children}</EstructuraPanel>
-                            </ProveedorChatEquipo>
+                            <CentralitaSiAplica>
+                                <ProveedorChatEquipo>
+                                    <EstructuraPanel>{children}</EstructuraPanel>
+                                </ProveedorChatEquipo>
+                            </CentralitaSiAplica>
                         </VozSiAplica>
                     </DisponibilidadSiAplica>
                 </ProveedorCuenta>
@@ -221,6 +224,16 @@ function VozSiAplica({ children }: { children: ReactNode }) {
             {children}
         </ProveedorVoz>
     );
+}
+
+/**
+ * Centralita Issabel (E4a): para cualquier persona con la empresa activa resuelta. El proveedor
+ * pregunta si tiene una extensión y solo entonces escucha (con o sin `conversaciones.ver`).
+ */
+function CentralitaSiAplica({ children }: { children: ReactNode }) {
+    const { yo } = useSesion();
+    if (yo.modoEmpresa !== "sin_conector" && yo.empresaActiva === undefined) return children;
+    return <ProveedorCentralita key={yo.empresaActiva?.id ?? 0}>{children}</ProveedorCentralita>;
 }
 
 const CONSULTA_ESCRITORIO = "(min-width: 1024px)";

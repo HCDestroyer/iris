@@ -29,7 +29,7 @@ type EventoConversacion struct {
 	ID             string               `json:"id" doc:"Cursor del feed (el id de SSE / Last-Event-ID)"`
 	Tipo           string               `json:"tipo" enum:"mensaje_nuevo,mensaje_actualizado,conversacion_actualizada,mencion,guardia,aviso_sin_atender,sugerencia,llamada_entrante,llamada_actualizada,llamada_terminada,devolucion_actualizada,llamada_respuesta"`
 	Llamada        *Llamada             `json:"llamada,omitempty" doc:"llamada_entrante (solo a quien le suena), llamada_actualizada, llamada_terminada y devolucion_actualizada: la llamada como la ves ahora, sin SDP"`
-	ConversacionID int64                `json:"conversacionId"`
+	ConversacionID int64                `json:"conversacionId" doc:"0 en las llamadas de la centralita (llamada.origen = centralita: no son de una conversación)"`
 	OcurridoEn     time.Time            `json:"ocurridoEn"`
 	NoLeidos       int64                `json:"noLeidos" doc:"Tus no leídos de la conversación al leer el evento"`
 	Mensaje        *MensajeConversacion `json:"mensaje,omitempty" doc:"mensaje_nuevo, mensaje_actualizado, mencion y guardia (estado actual del mensaje)"`
@@ -78,8 +78,8 @@ func (m *Modulo) leerFeedConv(ctx context.Context, q *mensajeriabd.Queries, a al
 		return nil, false, desde, err
 	}
 	filas, err := q.EventosConv(ctx, mensajeriabd.EventosConvParams{Desde: desde, Empresa: a.empresa, Usuario: a.usuario, Supervisa: a.supervisa,
-		Sugerencias: a.sugerencias,
-		Limite:      int32(limite + 1)}) //nolint:gosec // limite ≤ 200
+		Sugerencias: a.sugerencias, Conversaciones: !a.soloCentralita,
+		Limite: int32(limite + 1)}) //nolint:gosec // limite ≤ 200
 	if err != nil {
 		return nil, false, desde, err
 	}
@@ -114,10 +114,14 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 		if id := uuidDe(f.SugerenciaID); id != nil {
 			sugIDs = append(sugIDs, *id)
 		}
-		if !vistas[f.ConversacionID] {
-			vistas[f.ConversacionID] = true
-			convs = append(convs, f.ConversacionID)
+		if f.ConversacionID != nil && !vistas[*f.ConversacionID] {
+			vistas[*f.ConversacionID] = true
+			convs = append(convs, *f.ConversacionID)
 		}
+	}
+	centralita, err := m.llamadasCentralitaDelFeed(ctx, q, a, filas)
+	if err != nil {
+		return nil, err
 	}
 	mensajes := map[uuid.UUID]MensajeConversacion{}
 	if len(msjIDs) > 0 {
@@ -146,7 +150,7 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 	llamadas := map[uuid.UUID]Llamada{}
 	var llIDs []uuid.UUID
 	for _, f := range filas {
-		if id := uuidDe(f.LlamadaID); id != nil {
+		if id := uuidDe(f.LlamadaID); id != nil && f.ConversacionID != nil {
 			llIDs = append(llIDs, *id)
 		}
 	}
@@ -173,8 +177,19 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 	}
 	out := make([]EventoConversacion, 0, len(filas))
 	for _, f := range filas {
-		r := resumenes[f.ConversacionID]
-		e := EventoConversacion{ID: strconv.FormatInt(f.ID, 10), Tipo: f.Tipo, ConversacionID: f.ConversacionID, OcurridoEn: f.OcurridoEn, NoLeidos: r.NoLeidos}
+		if f.ConversacionID == nil {
+			e := EventoConversacion{ID: strconv.FormatInt(f.ID, 10), Tipo: f.Tipo, OcurridoEn: f.OcurridoEn}
+			if id := uuidDe(f.LlamadaID); id != nil {
+				if x, ok := centralita[*id]; ok {
+					e.Llamada = &x
+				}
+			}
+			out = append(out, e)
+			continue
+		}
+		conv := *f.ConversacionID
+		r := resumenes[conv]
+		e := EventoConversacion{ID: strconv.FormatInt(f.ID, 10), Tipo: f.Tipo, ConversacionID: conv, OcurridoEn: f.OcurridoEn, NoLeidos: r.NoLeidos}
 		if id := uuidDe(f.MensajeID); id != nil {
 			if x, ok := mensajes[*id]; ok {
 				e.Mensaje = &x
@@ -191,7 +206,7 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 			}
 		}
 		if f.Tipo != EventoConvMensajeNuevo && f.Tipo != EventoConvMensajeActualizad && f.Tipo != EventoConvSugerencia {
-			if _, ok := resumenes[f.ConversacionID]; ok {
+			if _, ok := resumenes[conv]; ok {
 				rc := r
 				e.Conversacion = &rc
 			}
@@ -203,13 +218,13 @@ func (m *Modulo) eventosConvPara(ctx context.Context, q *mensajeriabd.Queries, a
 
 func nuevoCambiosConv(m *Modulo) *auditoria.Caso[EntradaCambiosConv, CambiosConversaciones] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCambiosConv, CambiosConversaciones]{
-		Accion: "conversaciones.cambios", Permiso: nucleo.PermConversacionesVer, AuditarExito: sinAuditar[CambiosConversaciones],
+		Accion: "conversaciones.cambios", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[CambiosConversaciones],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCambiosConv) (CambiosConversaciones, error) {
-			a, err := alcanceConvDe(ctx)
+			q := mensajeriabd.New(t)
+			a, err := alcanceFlujoDe(ctx, q)
 			if err != nil {
 				return CambiosConversaciones{}, err
 			}
-			q := mensajeriabd.New(t)
 			desde, err := cursorConv(ctx, q, a, "cursor", in.Cursor)
 			if err != nil {
 				return CambiosConversaciones{}, err
@@ -249,11 +264,22 @@ func (m *Modulo) EscucharConversaciones(ctx context.Context, pool *pgxpool.Pool,
 			if _, err := conn.Exec(ctx, "LISTEN "+CanalConversaciones); err != nil {
 				return err
 			}
+			// En la misma conexión, los cambios de la centralita (E4a): así su motor no retiene otra.
+			if _, err := conn.Exec(ctx, "LISTEN "+CanalCentralitas); err != nil {
+				return err
+			}
 			m.difusorConv.avisar("*")
 			for {
 				n, err := conn.Conn().WaitForNotification(ctx)
 				if err != nil {
 					return err
+				}
+				if n.Channel == CanalCentralitas {
+					select {
+					case m.despertarCentralitas <- n.Payload:
+					default:
+					}
+					continue
 				}
 				m.difusorConv.avisar(n.Payload)
 			}
@@ -282,13 +308,15 @@ type flujoConv struct {
 
 func nuevoAbrirFlujoConv(*Modulo) *auditoria.Caso[entradaFlujo, flujoConv] {
 	return auditoria.Nuevo(auditoria.Caso[entradaFlujo, flujoConv]{
-		Accion: "conversaciones.eventos", Permiso: nucleo.PermConversacionesVer, AuditarExito: sinAuditar[flujoConv],
+		// conversaciones.ver, o una extensión activa de la centralita (alcanceFlujoDe).
+		Accion: "conversaciones.eventos", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[flujoConv],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaFlujo) (flujoConv, error) {
-			a, err := alcanceConvDe(ctx)
+			q := mensajeriabd.New(t)
+			a, err := alcanceFlujoDe(ctx, q)
 			if err != nil {
 				return flujoConv{}, err
 			}
-			desde, err := cursorConv(ctx, mensajeriabd.New(t), a, "Last-Event-ID", in.Desde)
+			desde, err := cursorConv(ctx, q, a, "Last-Event-ID", in.Desde)
 			return flujoConv{alcance: a, desde: desde}, err
 		},
 	})
@@ -310,10 +338,8 @@ func (m *Modulo) revalidarConv(ctx context.Context, bd nucleo.BD, donde string) 
 	if err != nil {
 		return alcanceConv{}, false
 	}
-	if !contexto.PermisosDe(nctx).Tiene(string(nucleo.PermConversacionesVer)) {
-		return alcanceConv{}, false
-	}
-	a, err := alcanceConvDe(nctx)
+	// Sin conversaciones.ver sigue solo si conserva su extensión activa (se vuelve a leer).
+	a, err := alcanceFlujoDe(nctx, mensajeriabd.New(bd))
 	return a, err == nil
 }
 
@@ -359,6 +385,9 @@ func (m *Modulo) transmitirConv(ctx context.Context, w http.ResponseWriter, f fl
 	var tocado time.Time
 	tocar := func(a alcanceConv) {
 		tocado = m.ahora()
+		if a.soloCentralita {
+			return // no recibe llamadas de WhatsApp
+		}
 		toque := mensajeriabd.TocarReceptoresParams{Empresa: a.empresa, UsuarioID: a.usuario, Ahora: tocado}
 		if f.navegador != "" {
 			toque.Navegador = &f.navegador

@@ -327,14 +327,17 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		nucleo.PermConversacionesRegistrarBoleta, http.StatusOK), func(ctx context.Context, _ *struct{}) (*cuerpo[ListaBancos], error) {
 		return responder(m.Bancos(ctx))
 	})
-	huma.Register(api, op("cambiosConversaciones", http.MethodGet, base+"/cambios", "Cambios de la bandeja desde un cursor (sondeo)", ver, http.StatusOK, http.StatusGone),
+	cambios := op("cambiosConversaciones", http.MethodGet, base+"/cambios", "Cambios de la bandeja desde un cursor (sondeo)", "", http.StatusOK, http.StatusGone, http.StatusForbidden)
+	cambios.Description = descFeedConv
+	huma.Register(api, cambios,
 		func(ctx context.Context, in *EntradaCambiosConv) (*cuerpo[CambiosConversaciones], error) {
 			return responder(k.Cambios.Ejecutar(ctx, *in))
 		})
-	eventos := op("eventosConversaciones", http.MethodGet, base+"/eventos", "Tiempo real de la bandeja (Server-Sent Events)", ver,
-		http.StatusOK, http.StatusGone, http.StatusTooManyRequests, http.StatusServiceUnavailable)
+	eventos := op("eventosConversaciones", http.MethodGet, base+"/eventos", "Tiempo real de la bandeja (Server-Sent Events)", "",
+		http.StatusOK, http.StatusGone, http.StatusTooManyRequests, http.StatusServiceUnavailable, http.StatusForbidden)
+	eventos.Description = descFeedConv
 	eventos.Description += " Igual que el flujo del chat: `id` (cursor), `event` (mensaje_nuevo, mensaje_actualizado, conversacion_actualizada, mencion, guardia, aviso_sin_atender, sugerencia), " +
-		"`data` (un EventoConversacion). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión."
+		"`data` (un EventoConversacion; `centralita_llamada` trae `centralita`). Last-Event-ID o ?desde=; latido cada 25 s; cierre a los 30 min; revalidación de la sesión."
 	eventos.Responses = map[string]*huma.Response{"200": {Description: "Flujo de eventos",
 		Content: map[string]*huma.MediaType{"text/event-stream": {Schema: &huma.Schema{Type: huma.TypeString}}}}}
 	eventos.Description += " `?navegador=` (o la cabecera `X-Iris-Navegador`): el id de «Recibir llamadas» de este navegador. Con él, el latido del flujo " +
@@ -539,3 +542,8 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 		return responder(k.Promesas.Crear(ctx, in.Body))
 	})
 }
+
+// descFeedConv: quién entra al feed de la bandeja.
+const descFeedConv = "Permiso: `conversaciones.ver`, o una extensión activa en la centralita activa de la empresa (contratos/voz.md §3.12, E4a). " +
+	"Quien entra solo por su extensión recibe únicamente sus eventos `centralita_llamada` (nunca eventos de conversaciones); cada revalidación " +
+	"comprueba otra vez que la extensión siga activa y asignada a él (si no, el flujo se corta). Sin ninguno de los dos: 403."

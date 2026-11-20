@@ -26,6 +26,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/clave"
@@ -573,5 +574,93 @@ func TestRotarClaveCorreoSistema(t *testing.T) {
 	// Atada a su fila: con los datos de otra no abre.
 	if _, err := cNuevo.Descifrar(leer(), notificaciones.DatosAsociadosCorreo(id+1)); err == nil {
 		t.Fatal("la contraseña abrió con los datos asociados de otra fila")
+	}
+}
+
+// La contraseña del AMI de la centralita se lee con candado (FOR UPDATE), como las demás columnas
+// que se rotan: si un administrador la cambia mientras corre la rotación, la rotación espera y no
+// pisa la nueva con la vieja re-cifrada.
+func TestRotarClaveCentralitaConCandado(t *testing.T) {
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	limpiar := func() {
+		for _, sql := range []string{
+			`DELETE FROM mensajeria.conv_eventos WHERE conversacion_id IS NULL`,
+			`DELETE FROM mensajeria.centralita_receptores`,
+			`DELETE FROM mensajeria.llamadas WHERE origen = 'centralita'`,
+			`DELETE FROM mensajeria.centralita_extensiones`,
+			`DELETE FROM mensajeria.centralitas`,
+		} {
+			if _, err := pool.Exec(ctx, sql); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	limpiar()
+	t.Cleanup(limpiar)
+	limpiarCifrados(t)
+	vieja, nueva := claveNueva(t), claveNueva(t)
+	cViejo, cNuevo, cTransicion := cifrador(t, vieja), cifrador(t, nueva), cifrador(t, nueva, vieja)
+
+	var id int64
+	if err := pool.QueryRow(ctx, `INSERT INTO mensajeria.centralitas (empresa_id, nombre, host, usuario) VALUES (1, 'Oficina', '10.0.0.5', 'iris_lectura')
+		RETURNING id`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	ad := mensajeria.DatosAsociadosCentralita(id)
+	antes, err := cViejo.Cifrar([]byte("la-vieja-del-ami"), ad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE mensajeria.centralitas SET secreto_cifrado = $1 WHERE id = $2`, antes, id); err != nil {
+		t.Fatal(err)
+	}
+	// Un administrador guarda otra contraseña (ya con la clave nueva) en una transacción sin terminar.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	despues, err := cNuevo.Cifrar([]byte("la-nueva-del-ami"), ad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE mensajeria.centralitas SET secreto_cifrado = $1 WHERE id = $2`, despues, id); err != nil {
+		t.Fatal(err)
+	}
+	hecho := make(chan error, 1)
+	go func() {
+		_, err := clave.Nuevo(cTransicion).Rotar.Ejecutar(pruebas.ContextoSistema(pool), clave.EntradaRotar{IgnorarIlegibles: true})
+		hecho <- err
+	}()
+	// La rotación queda esperando el candado de la fila.
+	limite := time.Now().Add(10 * time.Second)
+	for {
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+			AND query ILIKE '%mensajeria.centralitas%'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n > 0 {
+			break
+		}
+		if time.Now().After(limite) {
+			t.Fatal("la rotación no llegó a la fila de la centralita")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-hecho; err != nil {
+		t.Fatal(err)
+	}
+	var b []byte
+	if err := pool.QueryRow(ctx, `SELECT secreto_cifrado FROM mensajeria.centralitas WHERE id = $1`, id).Scan(&b); err != nil {
+		t.Fatal(err)
+	}
+	plano, err := cNuevo.Descifrar(b, ad)
+	if err != nil || string(plano) != "la-nueva-del-ami" {
+		t.Fatalf("la rotación pisó la contraseña nueva: %q %v", plano, err)
 	}
 }

@@ -132,6 +132,8 @@ export const MENU: readonly EntradaMenu[] = [
             // El admin de una empresa con solo `servidor_ia.ver_uso` llega por aquí a su tablero de uso.
             "servidor_ia.ver",
             "servidor_ia.ver_uso",
+            "centralita.configurar",
+            "centralita.asignar_extension",
             PERMISO_CONFIGURAR_ASISTENTE,
         ],
     },

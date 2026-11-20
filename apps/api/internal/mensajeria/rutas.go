@@ -268,5 +268,6 @@ func (m *Modulo) Registrar(api huma.API) {
 	m.registrarMeta(api)
 	m.registrarAsistente(api)
 	m.registrarBoletas(api)
+	m.registrarCentralita(api)
 	listasNoNulas(api)
 }

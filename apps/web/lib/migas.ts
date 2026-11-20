@@ -37,6 +37,8 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/administracion/servidor-ia/mantenimiento": "Mantenimiento",
     "/administracion/integraciones/argos": "Argos",
     "/administracion/integraciones/argos/vuelta": "Conectar con Argos",
+    "/administracion/integraciones/centralita": "Centralita",
+    "/administracion/integraciones/centralita/conexion": "Conexión con Issabel",
     "/administracion/plantillas": "Plantillas de formulario",
     "/administracion/plantillas/nueva": "Nueva plantilla",
     "/administracion/roles": "Roles y permisos",

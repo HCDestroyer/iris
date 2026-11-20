@@ -156,6 +156,13 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 	go m.EscucharChat(ctx, pool, log)
 	// Bandeja: LISTEN iris_conversaciones despierta los flujos SSE (GET /conversaciones/eventos).
 	go m.EscucharConversaciones(ctx, pool, log)
+	// Centralita Issabel (E4a): una sesión AMI de solo lectura por centralita activa (con un arriendo
+	// en la fila de la centralita, motor_dueno/motor_hasta, que se renueva en cada latido: con varias
+	// réplicas solo una conecta cada centralita).
+	if err := m.ValidarCentralitas(); err != nil {
+		return err
+	}
+	go m.CorrerCentralitas(ctx, pool, log)
 
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
 	if err != nil {

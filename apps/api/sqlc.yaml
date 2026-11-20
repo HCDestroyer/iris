@@ -193,6 +193,7 @@ sql:
       - internal/mensajeria/asistente_auto.sql
       - internal/mensajeria/voz.sql
       - internal/mensajeria/servidor_ia.sql
+      - internal/mensajeria/centralita.sql
     gen:
       go:
         <<: *gen

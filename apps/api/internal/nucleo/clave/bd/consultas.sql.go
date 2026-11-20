@@ -140,6 +140,39 @@ func (q *Queries) CanalesMensajeriaCifrados(ctx context.Context) ([]CanalesMensa
 	return items, nil
 }
 
+const centralitasCifradas = `-- name: CentralitasCifradas :many
+SELECT id, secreto_cifrado FROM mensajeria.centralitas
+WHERE secreto_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type CentralitasCifradasRow struct {
+	ID             int64
+	SecretoCifrado []byte
+}
+
+// Contraseña del usuario AMI de cada centralita Issabel.
+func (q *Queries) CentralitasCifradas(ctx context.Context) ([]CentralitasCifradasRow, error) {
+	rows, err := q.db.Query(ctx, centralitasCifradas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CentralitasCifradasRow
+	for rows.Next() {
+		var i CentralitasCifradasRow
+		if err := rows.Scan(&i.ID, &i.SecretoCifrado); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const conectoresCifrados = `-- name: ConectoresCifrados :many
 SELECT id, token_cifrado, secreto_webhook_cifrado FROM integracion.conectores
 ORDER BY id
@@ -227,6 +260,39 @@ func (q *Queries) CorreosSistemaCifrados(ctx context.Context) ([]CorreosSistemaC
 	for rows.Next() {
 		var i CorreosSistemaCifradosRow
 		if err := rows.Scan(&i.ID, &i.ContrasenaCifrada); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const extensionesSIPCifradas = `-- name: ExtensionesSIPCifradas :many
+SELECT id, sip_secreto_cifrado FROM mensajeria.centralita_extensiones
+WHERE sip_secreto_cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type ExtensionesSIPCifradasRow struct {
+	ID                int64
+	SipSecretoCifrado []byte
+}
+
+// Credencial SIP del navegador de cada extensión (E4c; vacía en E4a).
+func (q *Queries) ExtensionesSIPCifradas(ctx context.Context) ([]ExtensionesSIPCifradasRow, error) {
+	rows, err := q.db.Query(ctx, extensionesSIPCifradas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ExtensionesSIPCifradasRow
+	for rows.Next() {
+		var i ExtensionesSIPCifradasRow
+		if err := rows.Scan(&i.ID, &i.SipSecretoCifrado); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -342,6 +408,20 @@ func (q *Queries) RecifrarCanalMensajeria(ctx context.Context, arg RecifrarCanal
 	return err
 }
 
+const recifrarCentralita = `-- name: RecifrarCentralita :exec
+UPDATE mensajeria.centralitas SET secreto_cifrado = $1 WHERE id = $2
+`
+
+type RecifrarCentralitaParams struct {
+	SecretoCifrado []byte
+	ID             int64
+}
+
+func (q *Queries) RecifrarCentralita(ctx context.Context, arg RecifrarCentralitaParams) error {
+	_, err := q.db.Exec(ctx, recifrarCentralita, arg.SecretoCifrado, arg.ID)
+	return err
+}
+
 const recifrarConector = `-- name: RecifrarConector :exec
 UPDATE integracion.conectores
 SET token_cifrado = $1, secreto_webhook_cifrado = $2
@@ -379,6 +459,20 @@ type RecifrarCorreoSistemaParams struct {
 
 func (q *Queries) RecifrarCorreoSistema(ctx context.Context, arg RecifrarCorreoSistemaParams) error {
 	_, err := q.db.Exec(ctx, recifrarCorreoSistema, arg.ContrasenaCifrada, arg.ID)
+	return err
+}
+
+const recifrarExtensionSIP = `-- name: RecifrarExtensionSIP :exec
+UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = $1 WHERE id = $2
+`
+
+type RecifrarExtensionSIPParams struct {
+	SipSecretoCifrado []byte
+	ID                int64
+}
+
+func (q *Queries) RecifrarExtensionSIP(ctx context.Context, arg RecifrarExtensionSIPParams) error {
+	_, err := q.db.Exec(ctx, recifrarExtensionSIP, arg.SipSecretoCifrado, arg.ID)
 	return err
 }
 

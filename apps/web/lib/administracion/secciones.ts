@@ -124,6 +124,13 @@ export const SECCIONES: readonly Seccion[] = [
         permisos: ["integraciones.ver"],
     },
     {
+        href: "/administracion/integraciones/centralita",
+        titulo: "Centralita",
+        descripcion: "Issabel de solo lectura: cuando suena la extensión de alguien, Iris le muestra quién llama.",
+        icono: PhoneCall,
+        permisos: ["centralita.configurar", "centralita.asignar_extension"],
+    },
+    {
         href: "/administracion/servidor-ia",
         titulo: "Servidor de IA",
         descripcion: "La computadora con tarjeta gráfica donde trabaja el asistente: estado, uso y avisos.",

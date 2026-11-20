@@ -330,6 +330,11 @@ type alcanceConv struct {
 	// asistente: quien actúa es el asistente de IA que atiende solo (actor asistente_ia, §17.8). No
 	// hay usuario (0): solo ve las conversaciones de su empresa que él atiende y que nadie tiene.
 	asistente bool
+	// soloCentralita: entró al flujo solo por tener una extensión de la centralita (sin
+	// conversaciones.ver): recibe sus ventanas de la centralita y nunca eventos de conversaciones.
+	soloCentralita bool
+	// Lo que puede ver o hacer en la ventana de la centralita (se vuelve a leer en cada revalidación).
+	verClientes, anotaLlamadas, supervisaExtensiones bool
 }
 
 // NombreAsistenteIA: cómo se muestra el asistente en los mensajes de sistema.
@@ -490,6 +495,40 @@ func alcanceConvDe(ctx context.Context) (alcanceConv, error) {
 	}
 	a.supervisa = contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesSupervisar))
 	a.sugerencias = contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesSugerencias))
+	a.permisosCentralita(ctx)
+	return a, nil
+}
+
+func (a *alcanceConv) permisosCentralita(ctx context.Context) {
+	p := contexto.PermisosDe(ctx)
+	a.verClientes = p.Tiene(string(nucleo.PermClientesVer))
+	a.anotaLlamadas = p.Tiene(string(nucleo.PermLlamadasAnotar))
+	a.supervisaExtensiones = p.Tiene(string(nucleo.PermCentralitaAsignarExtension))
+}
+
+// alcanceFlujoDe es el alcance del feed de la bandeja: con conversaciones.ver, el de siempre; sin
+// él, solo si tiene una extensión activa en la centralita activa de la empresa (E4a), y entonces
+// solo para sus ventanas de la centralita.
+func alcanceFlujoDe(ctx context.Context, q *mensajeriabd.Queries) (alcanceConv, error) {
+	if contexto.PermisosDe(ctx).Tiene(string(nucleo.PermConversacionesVer)) {
+		return alcanceConvDe(ctx)
+	}
+	actor := contexto.ActorDe(ctx)
+	if actor.Tipo != contexto.ActorUsuario || actor.ID == 0 {
+		return alcanceConv{}, conversacionClienteNoEncontrada()
+	}
+	a := alcanceConv{usuario: actor.ID, soloCentralita: true}
+	if contexto.EmpresasDe(ctx).Estado == contexto.EmpresaActiva {
+		a.empresa = contexto.EmpresaDe(ctx)
+	}
+	tiene, err := q.TieneExtensionActiva(ctx, mensajeriabd.TieneExtensionActivaParams{Usuario: a.usuario, Empresa: a.empresa})
+	if err != nil {
+		return alcanceConv{}, err
+	}
+	if !tiene {
+		return alcanceConv{}, nucleo.Prohibido("Te falta el permiso conversaciones.ver")
+	}
+	a.permisosCentralita(ctx)
 	return a, nil
 }
 
