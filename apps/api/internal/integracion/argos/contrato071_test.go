@@ -14,10 +14,10 @@ import (
 // Contrato Iris ↔ ArgosISP 0.7.1 (A24). Es aditivo: Iris informa 0.7.1 y sigue trabajando igual con
 // un Argos 1.15.x, que solo conoce 0.7.0.
 
-// Iris informa 0.7.1. Un Argos 1.15.0 (contrato 0.7.0) sigue siendo compatible: «Revisar ahora» lo
+// Iris informa su contrato (hoy 0.8.1). Un Argos 1.15.0 (contrato 0.7.0) sigue siendo compatible: «Revisar ahora» lo
 // deja en ok, con sus capacidades, y solo informa las dos versiones.
 func TestContrato071ConArgos115SigueCompatible(t *testing.T) {
-	if argos.ContratoIris != "0.7.1" {
+	if argos.ContratoIris != "0.8.1" {
 		t.Fatalf("ContratoIris: %s", argos.ContratoIris)
 	}
 	e := nuevoEntorno(t)
@@ -34,7 +34,7 @@ func TestContrato071ConArgos115SigueCompatible(t *testing.T) {
 		return e.conectorPaginado(admin, id)
 	}
 	con := revisar()
-	if con["versionRemota"] != "1.15.0" || con["contratoRemoto"] != "0.7.0" || con["contratoInformado"] != "0.7.1" {
+	if con["versionRemota"] != "1.15.0" || con["contratoRemoto"] != "0.7.0" || con["contratoInformado"] != "0.8.1" {
 		t.Fatalf("lo que informa el conector: %v", con)
 	}
 	if con["versionEstado"] != "ok" || con["estado"] != "activo" || fmt.Sprint(con["capacidades"]) != "[inventario_por_tecnico aprobar_comprobantes]" {
@@ -42,8 +42,8 @@ func TestContrato071ConArgos115SigueCompatible(t *testing.T) {
 	}
 	var informados []string
 	e.argos.con(func() { informados = append(informados, e.argos.informados...) })
-	if len(informados) == 0 || informados[len(informados)-1] != "0.7.1" {
-		t.Fatalf("Iris debía informar 0.7.1: %v", informados)
+	if len(informados) == 0 || informados[len(informados)-1] != "0.8.1" {
+		t.Fatalf("Iris debía informar 0.8.1: %v", informados)
 	}
 	ctx := nucleo.ConBD(pruebas.ContextoSistema(e.pool), e.pool)
 	if ok, err := e.mod.ApruebaComprobantes(ctx, e.pool); err != nil || !ok {
