@@ -4,13 +4,14 @@ import {
     ALFABETO_TEMPORAL,
     cuerpoCambiarContrasena,
     cuerpoReiniciarMfa,
+    cuerpoRestablecerContrasena,
     esquemaCambiarContrasena,
     esquemaReiniciarMfa,
     generarContrasenaTemporal,
     longitud,
 } from "./esquemas";
 import { trazoQr } from "./qr";
-import { esRutaCampo, puedeReiniciarMfa, requiereCambio, rutaCambiarContrasena, rutaConfigurarMfa, siguienteSeguro } from "./sesion";
+import { esRutaCampo, puedeReiniciarMfa, puedeRestablecerContrasena, requiereCambio, rutaCambiarContrasena, rutaConfigurarMfa, siguienteSeguro } from "./sesion";
 
 const ORIGEN = "http://panel.test";
 
@@ -130,6 +131,24 @@ describe("rutas de la cuenta", () => {
         expect(puedeReiniciarMfa(["usuarios.reiniciar_mfa"], 2, { id: 2, mfaActivo: true })).toBe(false);
         expect(puedeReiniciarMfa(["usuarios.reiniciar_mfa"], 1, { id: 2, mfaActivo: false })).toBe(false);
         expect(puedeReiniciarMfa(["usuarios.editar", "usuarios.ver"], 1, { id: 2, mfaActivo: true })).toBe(false);
+    });
+
+    it("«Restablecer contraseña» solo con el permiso, sobre otra persona activa", () => {
+        const p = ["usuarios.restablecer_contrasena"] as const;
+        expect(puedeRestablecerContrasena(p, 1, { id: 2, tipo: "persona", activo: true })).toBe(true);
+        expect(puedeRestablecerContrasena(p, 2, { id: 2, tipo: "persona", activo: true })).toBe(false);
+        expect(puedeRestablecerContrasena(p, 1, { id: 2, tipo: "integracion", activo: true })).toBe(false);
+        expect(puedeRestablecerContrasena(p, 1, { id: 2, tipo: "persona", activo: false })).toBe(false);
+        expect(puedeRestablecerContrasena(["usuarios.editar", "usuarios.reiniciar_mfa"], 1, { id: 2, tipo: "persona", activo: true })).toBe(false);
+    });
+
+    it("el cuerpo de restablecer lleva versión, motivo, temporal y revocarTokens (espejo de EntradaRestablecerContrasena)", () => {
+        expect(cuerpoRestablecerContrasena({ motivo: "Olvidó", contrasenaTemporal: "abcd-efgh-jkmn-pqrs", revocarTokens: false }, 3)).toEqual({
+            version: 3,
+            motivo: "Olvidó",
+            contrasenaTemporal: "abcd-efgh-jkmn-pqrs",
+            revocarTokens: false,
+        });
     });
 });
 

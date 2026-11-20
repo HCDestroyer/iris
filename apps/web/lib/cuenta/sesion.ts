@@ -49,6 +49,18 @@ export function puedeReiniciarMfa(permisos: readonly Permiso[], yoId: number, us
     return permisos.includes("usuarios.reiniciar_mfa") && usuario.id !== yoId && usuario.mfaActivo;
 }
 
+/**
+ * «Restablecer contraseña» se ofrece con `usuarios.restablecer_contrasena`, sobre otra persona
+ * activa (la API responde 422 `restablecer_propia`, `usuario_integracion` o `usuario_inactivo`).
+ */
+export function puedeRestablecerContrasena(
+    permisos: readonly Permiso[],
+    yoId: number,
+    usuario: Pick<Schema<"Usuario">, "id" | "tipo" | "activo">,
+): boolean {
+    return permisos.includes("usuarios.restablecer_contrasena") && usuario.id !== yoId && usuario.tipo === "persona" && usuario.activo;
+}
+
 type Oyente = () => void;
 const oyentes = new Set<Oyente>();
 
