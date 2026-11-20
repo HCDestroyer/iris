@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.34.0](https://github.com/HCDestroyer/iris/compare/v0.33.0...v0.34.0) (2026-11-20)
+
+
+### Funcionalidades
+
+* **mensajeria:** E4a · centralita Issabel de solo lectura ([#235](https://github.com/HCDestroyer/iris/issues/235)) ([1285b95](https://github.com/HCDestroyer/iris/commit/1285b95d6b7c143c1cc17f607bf47f26a7683874))
+
 ## [0.33.0](https://github.com/HCDestroyer/iris/compare/v0.32.0...v0.33.0) (2026-11-20)
 
 
