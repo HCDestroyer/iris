@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ADMIN, AGENTE_CONV, CONSULTA, conSesion, simularApi } from "./api-falsa";
 import { esTelefono } from "./ayudas";
-import { elegirOpcion } from "./controles";
+import { abrirSugerencias, elegirOpcion, elegirSugerencia } from "./controles";
 import { AHORA_CONV } from "./datos-conversaciones";
 import { esperarSinDesbordes } from "./desbordes";
 
@@ -303,6 +303,42 @@ test.describe("bandeja de conversaciones", () => {
         await ficha.getByRole("button", { name: "Asociar" }).first().click();
         await expect(page.getByText("Luis Herrera asociado a la conversación")).toBeVisible();
         await esperarSinDesbordes(page);
+    });
+
+    test("buscar en Argos y asociar: si falla, la ficha no se queda leyendo y el error trae el mensaje real y «Reintentar»", async ({ page }) => {
+        const api = await abrir(page, ADMIN.correo, "/conversaciones?c=43");
+        // El primer intento falla como en producción (Argos no respondió); el segundo pasa.
+        let intentos = 0;
+        await page.route("**/api/v1/mensajeria/conversaciones/43/asociar-cliente", async (route) => {
+            if (intentos++ > 0) return route.fallback();
+            return route.fulfill({
+                status: 503,
+                contentType: "application/problem+json",
+                json: {
+                    type: "urn:iris:problema:argos_no_disponible",
+                    title: "Argos no disponible",
+                    status: 503,
+                    detail: "No se pudo leer el cliente en Argos para comprobar su empresa. Vuelve a intentarlo en un momento.",
+                },
+            });
+        });
+        if (esTelefono(page)) await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
+        const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
+        const buscar = ficha.getByRole("combobox", { name: "Buscar cliente en Argos" });
+        await buscar.click();
+        await buscar.pressSequentially("María");
+        await abrirSugerencias(buscar);
+        await elegirSugerencia(buscar, /María Castillo/);
+        const aviso = ficha.getByRole("alert").filter({ hasText: "No se pudo asociar" });
+        await expect(aviso).toContainText("Argos no disponible: No se pudo leer el cliente en Argos");
+        // La confirmación terminó: nada de «Leyendo la ficha del cliente…» colgado.
+        await expect(ficha.getByText("Leyendo la ficha del cliente…")).toHaveCount(0);
+        await expect(ficha.getByRole("combobox", { name: "Buscar cliente en Argos" })).toBeVisible();
+        await esperarSinDesbordes(page);
+        await aviso.getByRole("button", { name: "Reintentar" }).click();
+        await expect(page.getByText(/asociado a la conversación/)).toBeVisible();
+        expect(intentos).toBe(2);
+        expect(api.peticiones.some((p) => p.ruta === "/api/v1/clientes/501")).toBe(true);
     });
 
     test("cliente asociado a mano sin coincidencia: pendiente de confirmar hasta que un supervisor lo confirma", async ({ page }) => {
