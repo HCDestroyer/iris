@@ -1907,11 +1907,11 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 3. **El técnico no decide cobros ni pérdidas:** propone un cobro sin monto y registra los intentos de recuperación; aprobar el cobro, declarar una unidad no recuperada y cobrar «Equipo no devuelto» lo decide una persona en Argos.
 4. **Revisión y garantía** las resuelve el personal de Argos; Iris solo las ve, sin costos, proveedor ni RMA.
 
-**Ajustes de la revisión de seguridad de la 0.12.0** (aceptados por Argos, salvo a y c, que están pendientes de que los acepte):
+**Ajustes de la revisión de seguridad de la 0.12.0** (todos aceptados por Argos):
 
-- **a. Intentos de recuperación (M1).** Foto obligatoria con `se_nego` y `equipo_perdido`; `ubicacion` del intento, exigida en sitio; aviso al titular con la serie enmascarada; para declarar `no_recuperada` o cobrar, todos los intentos a la vista y un mínimo de técnicos distintos (2 de fábrica, configurable) o un contacto con el cliente registrado; 1 intento por unidad al día (`429 demasiados_intentos`). Pendiente de aceptar por Argos.
+- **a. Intentos de recuperación (M1).** Foto obligatoria con `se_nego` y `equipo_perdido`; `ubicacion` del intento, exigida en sitio; aviso al titular con la serie enmascarada; para declarar `no_recuperada` o cobrar, todos los intentos a la vista y un mínimo de técnicos distintos (2 de fábrica, configurable) o un contacto con el cliente registrado; 1 intento por unidad al día (`429 demasiados_intentos`). Aceptado por Argos.
 - **b. Unidades del cambio (M2).** La que entra `disponible` (`409 estado_unidad_cambiado`); la que sale a la bodega de la que entra; nunca se instala una unidad en `revision`, `garantia`, `dada_de_baja` o `no_recuperada`; `destino_sale: funciona` no vale con `danado` o `garantia`. Aceptado por Argos.
-- **c. Ventana de la fecha (M3).** `recibido_en_iris` en cada petición, `recibido_en_iris − 72 h ≤ fecha ≤ recibido_en_iris + 5 min`, membresía de §3.9 con `fecha`, y en Iris `fecha` no anterior a la asignación. Pendiente de aceptar por Argos.
+- **c. Ventana de la fecha (M3).** `recibido_en_iris` en cada petición, `recibido_en_iris − 72 h ≤ fecha ≤ recibido_en_iris + 5 min`, membresía de §3.9 con `fecha`, y en Iris `fecha` no anterior a la asignación. Aceptado por Argos.
 - **d. Compatibilidad sin pérdidas automáticas (M4).** Con Argos < 0.12.0, el no recuperado espera a una persona con `ordenes.declarar_perdida`; con ≥ 0.12.0, `…/perdida` rechazada al token de Iris y permiso retirado. Aceptado por Argos.
 - **e. Leer una unidad (M5).** `servicio` solo del actual y del de la orden; `403 actor_ia_no_permitido`; `X-Iris-Actor` obligatoria; en Iris, limitada a `inventario.ver_unidad` y auditada. Aceptado por Argos.
 - **f. Alcance (B1).** Servicio de la orden y orden asignada al actor, validados en Iris; en Argos, la regla de §3.4. Aceptado por Argos.
