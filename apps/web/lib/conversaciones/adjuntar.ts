@@ -67,6 +67,8 @@ type OpcionesSubida = {
     alAvanzar?: (fraccion: number) => void;
     /** Se pregunta antes de cada parte: `false` corta la subida (quien la pidió ya no está). */
     seguir?: () => boolean;
+    /** Entidad del adjunto (por defecto la conversación; `plantilla_whatsapp` con la WABA como id). */
+    entidad?: string;
 };
 
 /** La subida se cortó porque quien la pidió ya no la quiere (`seguir` devolvió `false`). */
@@ -90,7 +92,7 @@ const MAX_REANUDACIONES = 3;
  * dice el servidor (el de la respuesta o, si no viene, el de `HEAD`), validado entre 0 y el tamaño.
  * Solo si no se puede saber se registra un adjunto nuevo y se empieza de cero, una vez.
  */
-export async function subirAdjunto(archivo: File, conversacionId: number, { avance = nuevaSubida(), alAvanzar, seguir }: OpcionesSubida = {}): Promise<string> {
+export async function subirAdjunto(archivo: File, conversacionId: number | string, { avance = nuevaSubida(), alAvanzar, seguir, entidad = "conversacion" }: OpcionesSubida = {}): Promise<string> {
     const datos = await archivo.arrayBuffer();
     const registrar = async () => {
         const sha256 = await sha256Hex(datos);
@@ -98,7 +100,7 @@ export async function subirAdjunto(archivo: File, conversacionId: number, { avan
             api().POST("/api/v1/adjuntos", {
                 body: {
                     id: avance.id,
-                    entidad: "conversacion",
+                    entidad,
                     entidadId: String(conversacionId),
                     tipo: archivo.type === "application/pdf" ? "documento" : "foto",
                     mime: archivo.type,
