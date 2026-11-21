@@ -207,10 +207,10 @@ Hoy la facturación arranca cuando Iris pide `activar-instalacion` al cerrar. Co
 
 **Equipos y activación**
 
-- **P9. ¿Cuándo empieza a cobrarse una instalación?** Recomiendo: cuando el servicio queda activo con la activación del técnico, no al cerrar la orden.
-- **P10. ¿Se puede cerrar una instalación sin la activación lista?** Recomiendo que no; solo un supervisor puede cerrarla «con activación pendiente», dejando el motivo.
+- **P9. ¿Cuándo empieza a cobrarse una instalación?** Recomiendo: cuando el servicio queda activo con la activación del técnico, no al cerrar la orden. **Decidido por el PM (21 nov): el cobro de la instalación lo registra el agente (persona) o sale de un formulario de la orden, y se guarda en Argos como factura única (cargo de una sola vez), con su seguimiento; el cobro mensual sigue empezando con el servicio activo.**
+- **P10. ¿Se puede cerrar una instalación sin la activación lista?** Recomiendo que no; solo un supervisor puede cerrarla «con activación pendiente», dejando el motivo. **Decidido por el PM (21 nov): configurable. La activación la puede hacer el técnico desde la orden o un agente desde el panel de Iris; la orden puede cerrarse sin activación cuando la hará un agente. Aplica a FTTH (ONT por SmartOLT) y a wireless (CPE/radio, TR-069 si lo soporta).**
 - **P11. ¿Exigir señal de la ONT antes de cerrar?** Recomiendo que cada empresa lo elija en la plantilla (por ejemplo, «en línea y mejor que −25 dBm»); apagado de fábrica.
-- **P12. ¿El asistente de IA puede cambiar el Wi-Fi o ver el equipo?** Recomiendo que no por ahora: solo personas (técnico en su orden, soporte). El cliente lo hace desde el portal de Argos.
+- **P12. ¿El asistente de IA puede cambiar el Wi-Fi o ver el equipo?** Recomiendo que no por ahora: solo personas (técnico en su orden, soporte). El cliente lo hace desde el portal de Argos. **Decidido por el PM (21 nov): sí, el asistente de IA puede consultar el equipo y cambiar el Wi-Fi, solo si la empresa lo habilita y con roles y permisos propios (configurable), con verificación de identidad del cliente antes de cambiar el Wi-Fi.**
 - **P13. ¿El técnico puede escribir el Wi-Fi del cliente?** Recomiendo que sí, opcional, y que la clave nunca quede guardada en Iris después de enviarla.
 
 ---
