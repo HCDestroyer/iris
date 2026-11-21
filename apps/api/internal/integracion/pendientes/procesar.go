@@ -279,6 +279,11 @@ func EsNegocio(er *conector.ErrorRemoto) bool {
 	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
 		return false
 	}
+	if er.Status == http.StatusForbidden && ConflictosProhibidos[TipoDe(er)] {
+		// Un 403 con estos type es una decisión de Argos sobre el pedido (B-268-4), no la falta de un
+		// permiso del token: reintentar no lo arregla. Conflicto para una persona.
+		return true
+	}
 	switch er.Status {
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout,
 		http.StatusTooEarly, http.StatusTooManyRequests:
@@ -287,6 +292,14 @@ func EsNegocio(er *conector.ErrorRemoto) bool {
 		return TipoDe(er) != TipoEnCurso
 	}
 	return true
+}
+
+// ConflictosProhibidos son los 403 de negocio de Argos (contrato 0.11.0 §3.9 y 0.12.0 §3.10): la
+// bodega no es del técnico, el actor no coincide, solo el jefe recibe, el servicio es de otra
+// empresa o el actor es el asistente. No se reintentan solos.
+var ConflictosProhibidos = map[string]bool{
+	"no_es_miembro": true, "actor_no_coincide": true, "solo_jefe_recibe": true,
+	"empresa_no_permitida": true, "actor_ia_no_permitido": true,
 }
 
 // TipoDe es el type del problem+json de Argos sin prefijo (acepta «x», «urn:…:x» o una URL

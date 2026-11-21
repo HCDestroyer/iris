@@ -602,18 +602,20 @@ func exigirBodegaDelTecnico(ctx context.Context, t *auditoria.Tx, q *campobd.Que
 	if !a.EsUsuario() {
 		return nucleo.Prohibido("La bodega la elige el técnico desde su teléfono")
 	}
-	personal, err := q.BodegaDeTecnico(ctx, a.ID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return err
-	}
-	if personal != nil && *personal == bodega {
-		return nil
-	}
-	ok, err := q.BodegaDeSuCuadrilla(ctx, campobd.BodegaDeSuCuadrillaParams{UsuarioID: a.ID, BodegaID: bodega, EmpresaID: empresa})
+	// La personal, en la empresa de la orden (una personal de otra empresa no vale; M-268-1).
+	personal, err := q.BodegaPersonalDelTecnico(ctx, campobd.BodegaPersonalDelTecnicoParams{UsuarioID: a.ID, BodegaID: bodega, EmpresaID: empresa})
 	if err != nil {
 		return err
 	}
-	if !ok {
+	if personal {
+		return nil
+	}
+	// La de su cuadrilla actual, con la ficha tomada FOR SHARE (B-268-3).
+	filas, err := q.BodegaDeSuCuadrilla(ctx, campobd.BodegaDeSuCuadrillaParams{UsuarioID: a.ID, BodegaID: bodega, EmpresaID: empresa})
+	if err != nil {
+		return err
+	}
+	if len(filas) == 0 {
 		p := nucleo.NuevoProblema(http.StatusForbidden, CodigoNoEsMiembro, "No es miembro",
 			"La bodega no es la tuya ni la de tu cuadrilla en la empresa de la orden")
 		p.Errors = []nucleo.ErrorCampo{{Field: "bodegaId", Message: "No es tu bodega ni la de tu cuadrilla", Rule: CodigoNoEsMiembro}}

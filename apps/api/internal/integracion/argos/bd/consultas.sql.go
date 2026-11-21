@@ -1201,6 +1201,31 @@ func (q *Queries) GuardarBodegaCuadrilla(ctx context.Context, arg GuardarBodegaC
 	return err
 }
 
+const guardarBodegaTecnico = `-- name: GuardarBodegaTecnico :exec
+INSERT INTO integracion.argos_bodegas_tecnico (bodega_id, empresa_id, usuario_id, visto_en)
+VALUES ($1, $2, $3, $4)
+ON CONFLICT (bodega_id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, usuario_id = excluded.usuario_id, visto_en = excluded.visto_en, updated_at = now()
+`
+
+type GuardarBodegaTecnicoParams struct {
+	BodegaID  int64
+	EmpresaID int64
+	UsuarioID int64
+	VistoEn   time.Time
+}
+
+// Una bodega personal del técnico (mi-bodega, M-268-1).
+func (q *Queries) GuardarBodegaTecnico(ctx context.Context, arg GuardarBodegaTecnicoParams) error {
+	_, err := q.db.Exec(ctx, guardarBodegaTecnico,
+		arg.BodegaID,
+		arg.EmpresaID,
+		arg.UsuarioID,
+		arg.VistoEn,
+	)
+	return err
+}
+
 const guardarCliente = `-- name: GuardarCliente :exec
 
 INSERT INTO integracion.argos_clientes (

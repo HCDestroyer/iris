@@ -751,6 +751,15 @@ type IntegracionArgosBodegasCuadrilla struct {
 	UpdatedAt   time.Time
 }
 
+type IntegracionArgosBodegasTecnico struct {
+	BodegaID  int64
+	EmpresaID int64
+	UsuarioID int64
+	VistoEn   time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type IntegracionArgosCertificado struct {
 	ID            int64
 	ConectorID    int64

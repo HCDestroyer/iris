@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -90,6 +91,18 @@ type Material struct {
 	BodegaID   *IDArgos    `json:"bodega_id"`
 	// Modalidad del producto en Argos (0.5.0) al registrarlo; vacía si no se sabía.
 	Modalidad string `json:"modalidad"`
+	// DesdeApp: lo registró un técnico desde el lote (RegistradoPor); si no, despacho en el panel.
+	DesdeApp      bool   `json:"desde_app"`
+	RegistradoPor *int64 `json:"registrado_por"`
+}
+
+// opcionesPlan es lo que planificar necesita saber de Argos y de Iris (sin E/S en planificar).
+type opcionesPlan struct {
+	porTecnico bool
+	cuadrillas map[int64]bool
+	// bodegaApp: Argos con contrato ≥ 0.11.0 (§3.9): el material de la app sale con tecnico,
+	// bodega_id y X-Iris-Actor de quien lo registró.
+	bodegaApp bool
 }
 
 // TecnicoArgos es `tecnico` en orden.cerrada (contrato 0.5.0 §3.3): el vínculo de la ficha.
@@ -150,6 +163,8 @@ type plan struct {
 	incompleto             string // dato faltante: nace fallido_negocio
 	// conTecnico: el cuerpo lleva `tecnico` (se corrige al reintentar a mano tras vincular).
 	conTecnico bool
+	// actor: quien va en X-Iris-Actor (tecnico_usuario_id) si no es el técnico de la orden.
+	actor *int64
 }
 
 // omision es algo de la orden que no se manda a Argos, con su motivo (integracion.pendiente_omitido).
@@ -213,7 +228,8 @@ func idRuta(id *IDArgos) string {
 // cuadrillas: las bodegas de cuadrilla de Argos (0.11.0 §3.9). Un consumo desde una de ellas manda
 // `tecnico` y `bodega_id` (la que eligió el técnico en la app) y sale con X-Iris-Actor; Argos valida
 // que sea miembro antes de mirar existencias. Nunca se cambia de bodega por cuenta de Iris.
-func planificar(o OrdenCerrada, porTecnico bool, cuadrillas map[int64]bool) ([]plan, []omision) {
+func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
+	porTecnico, cuadrillas := op.porTecnico, op.cuadrillas
 	orden := string(o.OrdenID)
 	sid := idRuta(o.ServicioID)
 	var planes []plan
@@ -354,18 +370,34 @@ func planificar(o OrdenCerrada, porTecnico bool, cuadrillas map[int64]bool) ([]p
 	if len(materiales) > 0 {
 		p := plan{operacion: OpConsumo, clave: "iris:consumo:" + orden, ruta: "/inventario/consumos"}
 		porBodega := tecnico == nil
-		deCuadrilla := false
+		deCuadrilla, panel := false, false
+		var actores []int64
 		for _, mat := range materiales {
 			b := bodegaDe(mat.BodegaID)
 			switch {
+			case tecnico != nil && mat.DesdeApp && op.bodegaApp:
+				// Lo eligió el técnico en la app (su bodega o la de su cuadrilla, ya validada al
+				// recibir el lote): siempre tecnico + bodega_id + X-Iris-Actor (M-268-1).
+				deCuadrilla = true
 			case tecnico != nil && b != nil && cuadrillas[int64(*b)]:
 				deCuadrilla = true // la bodega de la cuadrilla: tecnico + bodega_id
 			case explicita(mat.BodegaID):
-				porBodega = true // despacho indicó otra bodega: manda bodega_id
+				porBodega, panel = true, true // despacho indicó otra bodega: manda bodega_id
+			}
+			if mat.DesdeApp && mat.RegistradoPor != nil && !slices.Contains(actores, *mat.RegistradoPor) {
+				actores = append(actores, *mat.RegistradoPor)
 			}
 		}
 		if deCuadrilla {
 			porBodega = true
+			switch {
+			case panel:
+				p.incompleto = "materiales de la app y de una bodega que indicó despacho en una orden (un consumo por orden)"
+			case len(actores) > 1:
+				p.incompleto = "materiales registrados por varios técnicos en una orden (un consumo por orden, un X-Iris-Actor)"
+			case len(actores) == 1:
+				p.actor = &actores[0]
+			}
 		}
 		var bodega *IDArgos
 		lineas := make([]map[string]any, 0, len(materiales))
@@ -503,7 +535,13 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			if err != nil {
 				return res, err
 			}
-			planes, omisiones := planificar(o, porTecnico, cuadrillas)
+			bodegaApp := false
+			if m.cfg.Argos != nil {
+				if bodegaApp, err = m.cfg.Argos.BodegaDeCuadrilla(ctx, t); err != nil {
+					return res, err
+				}
+			}
+			planes, omisiones := planificar(o, opcionesPlan{porTecnico: porTecnico, cuadrillas: cuadrillas, bodegaApp: bodegaApp})
 			if len(planes) == 0 && len(omisiones) == 0 {
 				return res, nil
 			}
@@ -566,7 +604,10 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					empresaID = &empresa
 				}
 				var tecnicoUsuario *int64
-				if p.conTecnico {
+				switch {
+				case p.conTecnico && p.actor != nil:
+					tecnicoUsuario = p.actor // quien usó el material (X-Iris-Actor)
+				case p.conTecnico:
 					tecnicoUsuario = o.TecnicoID
 				}
 				f, err := q.InsertarPendiente(ctx, pendientesbd.InsertarPendienteParams{
