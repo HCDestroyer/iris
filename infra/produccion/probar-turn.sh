@@ -92,7 +92,9 @@ recreate_turn_if_needed || falla "recreate_turn_if_needed failed"
 [ ! -e "$tmp/secrets/.turn-recrear" ] || falla "the marker stayed after the recreate"
 sleep 8
 id2="$(dc ps -q turn)"
-[ -n "$id2" ] && [ "$id2" != "$id" ] || falla "turn was not recreated"
+if [ -z "$id2" ] || [ "$id2" = "$id" ]; then
+    falla "turn was not recreated"
+fi
 [ "$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$id2")" = "true 0" ] || falla "turn did not stay up after the recreate"
 docker exec "$id2" grep -qxF -- "static-auth-secret=$nuevo" /run/turn/turnserver.conf || falla "coturn does not use the new secret"
 dc down -v > /dev/null 2>&1
