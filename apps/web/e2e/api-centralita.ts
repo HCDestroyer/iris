@@ -48,7 +48,7 @@ function centralitaInicial(o: OpcionesCentralita): Centralita | null {
     const base: Centralita = {
         id: 7, nombre: "Oficina central", tipo: "issabel", host: "10.20.0.5", puerto: 5039, usuario: "iris_lectura", secretoGuardadoEn: "2026-11-19T15:00:00Z",
         huellaTls: HUELLA_AMI, huellaVista: null, modo: "lectura", estado: "conectada", errorCodigo: null, probadaEn: ahora, conectadaEn: ahora,
-        desconectadaDesde: null, ultimoEventoEn: new Date(Date.now() - 60_000).toISOString(), activa: true, telefono: { activo: false, wssPuerto: 8089, wssRuta: "/ws", huellaWss: null, sipDominio: null, prefijoSalida: "", llamadasPorUsuarioDia: 60, llamadasSimultaneas: 10, probadoEn: null }, version: 3,
+        desconectadaDesde: null, ultimoEventoEn: new Date(Date.now() - 60_000).toISOString(), activa: true, telefono: { activo: false, wssPuerto: 8089, wssRuta: "/ws", huellaWss: null, sipDominio: null, prefijoSalida: "", llamadasPorUsuarioDia: 60, llamadasSimultaneas: 10, probadoEn: null, restriccionesConfirmadasEn: null }, version: 3,
     };
     if (o.estado === "desconectada") return { ...base, estado: "desconectada", desconectadaDesde: new Date(Date.now() - 10 * 60_000).toISOString() };
     if (o.estado === "huella_cambiada") return { ...base, estado: "error", errorCodigo: "huella_cambiada", huellaVista: HUELLA_NUEVA };
@@ -140,7 +140,7 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
             centralita = {
                 id: 7, nombre: String(c?.nombre), tipo: "issabel", host: String(c?.host), puerto: Number(c?.puerto ?? 5039), usuario: String(c?.usuario),
                 secretoGuardadoEn: new Date().toISOString(), huellaTls: String(c?.huellaTls), huellaVista: null, modo: "lectura", estado: "desactivada", errorCodigo: null,
-                probadaEn: null, conectadaEn: null, desconectadaDesde: null, ultimoEventoEn: null, activa: false, telefono: { activo: false, wssPuerto: 8089, wssRuta: "/ws", huellaWss: null, sipDominio: null, prefijoSalida: "", llamadasPorUsuarioDia: 60, llamadasSimultaneas: 10, probadoEn: null }, version: 1,
+                probadaEn: null, conectadaEn: null, desconectadaDesde: null, ultimoEventoEn: null, activa: false, telefono: { activo: false, wssPuerto: 8089, wssRuta: "/ws", huellaWss: null, sipDominio: null, prefijoSalida: "", llamadasPorUsuarioDia: 60, llamadasSimultaneas: 10, probadoEn: null, restriccionesConfirmadasEn: null }, version: 1,
             };
             return (await json(route, centralita, 201), true);
         }
