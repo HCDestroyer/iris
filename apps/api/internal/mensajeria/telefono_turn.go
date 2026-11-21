@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -22,6 +23,9 @@ type TURNEntorno struct {
 	Secreto string
 	// Vida de cada credencial (10 min).
 	Vida time.Duration
+	// RelayIP: la IP de donde sale el audio del TURN hacia la Issabel (IRIS_TURN_RELAY_IP). Con ella el
+	// puente solo deja pasar SDP con candidatos de esa IP.
+	RelayIP string
 }
 
 // Configurado: hay URLs y secreto.
@@ -47,6 +51,13 @@ func TURNDesdeVariables() (TURNEntorno, error) {
 	t.Secreto = strings.TrimSpace(os.Getenv("IRIS_TURN_SECRETO"))
 	if t.Secreto != "" && len(t.Secreto) < 16 {
 		errs = append(errs, "IRIS_TURN_SECRETO debe tener al menos 16 caracteres")
+	}
+	if v := strings.TrimSpace(os.Getenv("IRIS_TURN_RELAY_IP")); v != "" {
+		ip, err := netip.ParseAddr(v)
+		if err != nil {
+			errs = append(errs, "IRIS_TURN_RELAY_IP no es una IP: "+v)
+		}
+		t.RelayIP = ip.String()
 	}
 	if v := strings.TrimSpace(os.Getenv("IRIS_TURN_VIDA")); v != "" {
 		d, err := time.ParseDuration(v)

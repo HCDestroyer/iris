@@ -422,7 +422,7 @@ func (m *Modulo) atenderTelefono(ctx context.Context, w http.ResponseWriter, r *
 	}
 	pol := &politicaTelefono{m: m, cx: cx}
 	pol.ctx.Store(&ctx)
-	puente := sippuente.Nuevo(sippuente.Opciones{Credencial: cx.cred, Registrar: cx.dispositivo == "panel", Politica: pol, Log: log},
+	puente := sippuente.Nuevo(sippuente.Opciones{Credencial: cx.cred, Registrar: cx.dispositivo == "panel", Politica: pol, Log: log, Relevo: m.cfg.TURN.RelayIP},
 		sippuente.NuevoLadoWS(nav, sippuente.MaxNavegador), sippuente.NuevoLadoWS(tp.cen, sippuente.MaxCentralita))
 	vigia, cancelar := context.WithCancel(ctx)
 	defer cancelar()

@@ -88,7 +88,10 @@ type Opciones struct {
 	MaxPorMinuto int
 	// MaxDialogos: llamadas a la vez por conexión (3); el siguiente INVITE, 486 local.
 	MaxDialogos int
-	Log         *slog.Logger
+	// Relevo: la IP del TURN de Iris hacia la Issabel (IRIS_TURN_RELAY_IP). Con ella, el SDP del
+	// navegador solo puede anunciar esa IP; sin ella, solo candidatos relay.
+	Relevo string
+	Log    *slog.Logger
 }
 
 // Códigos de cierre del WebSocket del navegador (contratos/voz.md §3.12, E4c).
@@ -146,6 +149,8 @@ type dialogo struct {
 	ultimaCSeq                 uint32
 	actividad                  time.Time
 	esLlamada                  bool
+	// Etiquetas del diálogo establecido: la del navegador y la de la Issabel.
+	tagLocal, tagRemoto string
 }
 
 // Puente une el navegador con la Issabel.
@@ -365,6 +370,12 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 	if !strings.HasPrefix(rama, sip.RFC3261BranchMagicCookie) || len(rama) > 128 {
 		return p.responderNavegador(ctx, req, sip.StatusBadRequest, "Bad Request")
 	}
+	if !contactosValidos(req, req.Method == sip.REGISTER) {
+		return p.responderNavegador(ctx, req, sip.StatusForbidden, "Forbidden")
+	}
+	if err := filtrarSDP(req, p.o.Relevo); err != nil {
+		return p.responderNavegador(ctx, req, sip.StatusNotAcceptableHere, "Not Acceptable Here")
+	}
 	callID := string(*req.CallID())
 	etiquetaTo, _ := req.To().Params.Get("tag")
 
@@ -431,9 +442,14 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 			p.mu.Unlock()
 		}
 	} else {
+		etiquetaFrom, _ := req.From().Params.Get("tag")
 		p.mu.Lock()
 		valido := d != nil && !d.terminado
 		confirmado := valido && d.confirmado
+		// En un diálogo establecido, las etiquetas tienen que ser las suyas (no se cuela otro diálogo).
+		if confirmado && d.tagRemoto != "" && (etiquetaFrom != d.tagLocal || etiquetaTo != d.tagRemoto) {
+			valido = false
+		}
 		p.mu.Unlock()
 		if !valido {
 			return p.responderNavegador(ctx, req, sip.StatusCallTransactionDoesNotExists, "Call/Transaction Does Not Exist")
@@ -572,6 +588,12 @@ func (p *Puente) cancelNavegador(ctx context.Context, req *sip.Request, d *dialo
 func (p *Puente) respuestaNavegador(ctx context.Context, res *sip.Response) error {
 	quitar(res, cabecerasAutenticacion...)
 	quitarIris(res)
+	if !contactosValidos(res, false) || filtrarSDP(res, p.o.Relevo) != nil {
+		// Un Contact ajeno o audio fuera del relevo: la Issabel recibe 488 en su lugar.
+		res.StatusCode, res.Reason = sip.StatusNotAcceptableHere, "Not Acceptable Here"
+		quitar(res, "Contact", "m", "Content-Type", "c")
+		res.SetBody(nil)
+	}
 	callID := string(*res.CallID())
 	p.mu.Lock()
 	d := p.dialogos[callID]
@@ -579,6 +601,10 @@ func (p *Puente) respuestaNavegador(ctx context.Context, res *sip.Response) erro
 		switch {
 		case res.IsSuccess():
 			d.confirmado, d.resp2xxNav = true, res.String()
+			d.tagLocal, _ = res.To().Params.Get("tag")
+			if m, err := sip.ParseMessage([]byte(d.inviteEntrante)); err == nil && m.From() != nil {
+				d.tagRemoto, _ = m.From().Params.Get("tag")
+			}
 		case res.StatusCode >= 300:
 			d.terminado = true
 		}
@@ -661,6 +687,8 @@ func (p *Puente) respuestaCentralita(ctx context.Context, res *sip.Response) err
 		case t.metodo == sip.INVITE && res.IsSuccess() && d.saliente:
 			d.confirmado = true
 			d.resp2xx = res.String()
+			d.tagRemoto, _ = res.To().Params.Get("tag")
+			d.tagLocal, _ = res.From().Params.Get("tag")
 			if d.llamada != nil && !d.avisado[HechoContestada] {
 				d.avisado[HechoContestada] = true
 				hecho = &HechoLlamada{LlamadaID: *d.llamada, Tipo: HechoContestada}

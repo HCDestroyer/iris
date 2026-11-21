@@ -1366,7 +1366,14 @@ reenvía mensajes, con estas reglas **escritas en el servidor**:
      60 s; el puente la reescribe a `sip:<prefijo_salida><8 dígitos>@<dominio>` y deja `invite_en`) o una
      extensión o grupo activos de la centralita. Cualquier otra URI: 403 local y no llega a la Issabel.
      Sin `centralita.llamar` (revisado en cada latido): 403.
-   - Dentro de un diálogo, solo de un diálogo que esta conexión conoce (por `Call-ID`).
+   - Dentro de un diálogo, solo de un diálogo que esta conexión conoce (por `Call-ID`) y, ya establecido,
+     con sus mismas etiquetas de `From` y `To` (si no, 481 local).
+   - `Contact` solo del propio navegador (host `*.invalid` y `transport=ws|wss`; `*` solo en `REGISTER`):
+     si no, 403 local (si no, la Issabel mandaría SIP a una dirección de internet).
+   - SDP (INVITE, re-INVITE, UPDATE, PRACK, ACK y las respuestas del navegador): solo candidatos ICE
+     `typ relay` y, con `IRIS_TURN_RELAY_IP`, solo esa IP en candidatos y `c=`; los demás candidatos se
+     quitan, y una media sin candidato válido es 488 (así la Issabel solo manda audio al TURN de Iris). Una
+     respuesta del navegador que no cumple llega a la Issabel como 488.
    - `REFER`: solo `panel`, con `centralita.transferir`, en un diálogo establecido, `Refer-To` a una
      extensión o grupo de `transferir/destinos` (se reescribe a `sip:<numero>@<dominio>`, sin
      parámetros ni cabeceras: nunca `Replaces`, solo transferencia ciega). Si no, 403 local. La
