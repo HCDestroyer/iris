@@ -849,7 +849,7 @@ Decisiones del PM en §10.6: la cuadrilla tiene una bodega compartida (lo que va
 
 - Bodega `tipo = cuadrilla`, con `cuadrilla_id_iris`, `empresa_id`, `jefe_id` y un vínculo por miembro con su historial (desde, hasta). Una cuadrilla que atiende varias empresas tiene **una bodega por empresa**.
 - **Membresía.** Iris es la fuente. Argos la sincroniza con los webhooks `cuadrilla.creada` y `cuadrilla.actualizada` (§6.6), que llevan `empresa_id` (obligatorio), `version`, `miembros[] { usuario_id, id_externo (o null si no está vinculado por I1) }` y `jefe_usuario_id`.
-    - Argos solo aplica una `version` **mayor** que la última que aplicó (no usa `ocurrido_en` para el orden). Para conciliar, lee `GET <iris>/api/v1/integraciones/argosisp/cuadrillas/:id` (token de §1.1 en Iris, el mismo `iris_pat_` del panel; `{ cuadrilla_id, empresa_id, version, activa, miembros[], jefe_usuario_id }`).
+    - Argos solo aplica una `version` **mayor** que la última que aplicó (no usa `ocurrido_en` para el orden). Para conciliar, lee `GET <iris>/api/v1/integraciones/argosisp/cuadrillas/:id` (con el `iris_pat_` del panel de §1.2, no el `token_portal`; `{ cuadrilla_id, empresa_id, version, activa, miembros[], jefe_usuario_id }`).
     - Solo acepta como miembro un `id_externo` **activo**, con bodega o rol de técnico en la empresa de la cuadrilla y dentro del alcance del usuario técnico Iris (§1.1). Los demás los ignora y los muestra en su panel como `miembro_rechazado`.
     - Un miembro sin vínculo I1 (`id_externo: null`) no consume de la bodega de la cuadrilla.
     - `jefe_usuario_id` debe estar en `miembros[]` con `id_externo` no nulo; si no, Argos lo ignora y la cuadrilla queda **sin jefe** (y los traslados esperan).
