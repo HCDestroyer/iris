@@ -149,6 +149,12 @@ type transaccion struct {
 	otro bool
 }
 
+// pendienteCen: una petición de la Issabel que espera la respuesta del navegador.
+type pendienteCen struct {
+	callID string
+	creada time.Time
+}
+
 type dialogo struct {
 	offset     uint32
 	saliente   bool
@@ -182,7 +188,7 @@ type Puente struct {
 	otros map[string]*dialogo
 	// pendientesCen: branch y método de cada petición de la Issabel que se pasó al navegador; solo
 	// sus respuestas vuelven a la Issabel.
-	pendientesCen map[claveTx]time.Time
+	pendientesCen map[claveTx]pendienteCen
 	txs           map[claveTx]*transaccion
 	invites       map[string]*transaccion // branch original del INVITE → último intento
 	locales       map[string]bool         // branch de INVITE rechazado aquí (su ACK no sale)
@@ -211,7 +217,7 @@ func Nuevo(o Opciones, navegador, centralita Lado) *Puente {
 		o.Log = slog.Default()
 	}
 	return &Puente{o: o, nav: navegador, cen: centralita, dialogos: map[string]*dialogo{}, otros: map[string]*dialogo{},
-		pendientesCen: map[claveTx]time.Time{}, txs: map[claveTx]*transaccion{},
+		pendientesCen: map[claveTx]pendienteCen{}, txs: map[claveTx]*transaccion{},
 		invites: map[string]*transaccion{}, locales: map[string]bool{}, hechos: make(chan HechoLlamada, 64), fin: make(chan struct{})}
 }
 
@@ -708,11 +714,15 @@ func (p *Puente) respuestaNavegador(ctx context.Context, res *sip.Response) erro
 	if res.StatusCode < 100 || res.StatusCode > 699 {
 		return nil
 	}
-	// Solo la respuesta a una petición que la Issabel mandó por esta conexión (misma branch y método).
+	// Solo la respuesta a una petición que la Issabel mandó por esta conexión (misma branch, método y
+	// Call-ID): con otro Call-ID tocaría otra llamada.
+	callID := string(*res.CallID())
+	clave := claveTx{res.Via().Params.GetOr("branch", ""), res.CSeq().MethodName}
 	p.mu.Lock()
-	_, conocida := p.pendientesCen[claveTx{res.Via().Params.GetOr("branch", ""), res.CSeq().MethodName}]
+	pend, conocida := p.pendientesCen[clave]
+	conocida = conocida && pend.callID == callID
 	if conocida && res.StatusCode >= 200 && res.CSeq().MethodName != sip.INVITE {
-		delete(p.pendientesCen, claveTx{res.Via().Params.GetOr("branch", ""), res.CSeq().MethodName})
+		delete(p.pendientesCen, clave)
 	}
 	p.mu.Unlock()
 	if !conocida {
@@ -732,7 +742,6 @@ func (p *Puente) respuestaNavegador(ctx context.Context, res *sip.Response) erro
 		quitar(res, "Contact", "m", "Content-Type", "c")
 		res.SetBody(nil)
 	}
-	callID := string(*res.CallID())
 	p.mu.Lock()
 	d := p.dialogos[callID]
 	if d != nil && !d.saliente && res.CSeq().MethodName == sip.INVITE {
@@ -1003,26 +1012,31 @@ func (p *Puente) peticionCentralita(ctx context.Context, req *sip.Request) error
 		if !p.o.Registrar {
 			return p.responderCentralita(ctx, req, sip.StatusTemporarilyUnavailable, "Temporarily Unavailable")
 		}
-		if d == nil && p.dialogosVivos() >= p.o.MaxDialogos {
+		if d != nil && !d.terminado {
+			// Un INVITE sin etiqueta con el Call-ID de una llamada viva (saliente o entrante): no es
+			// otra llamada y no se toca la que existe.
+			return p.responderCentralita(ctx, req, sip.StatusLoopDetected, "Loop Detected")
+		}
+		if p.dialogosVivos() >= p.o.MaxDialogos {
 			return p.responderCentralita(ctx, req, sip.StatusBusyHere, "Busy Here")
 		}
-		p.mu.Lock()
-		if d == nil {
-			if d = p.nuevoDialogo(callID); d == nil {
-				p.mu.Unlock()
-				return p.responderCentralita(ctx, req, sip.StatusBusyHere, "Busy Here")
-			}
-			d.esLlamada = true
+		// Primero la transacción (si no cabe, no queda un diálogo ocupando lugar).
+		if !p.anotarDeCentralita(req) {
+			return p.responderCentralita(ctx, req, sip.StatusServiceUnavailable, "Service Unavailable")
 		}
+		p.mu.Lock()
+		delete(p.dialogos, callID) // uno terminado con el mismo Call-ID: empieza de cero
+		if d = p.nuevoDialogo(callID); d == nil {
+			delete(p.pendientesCen, claveTx{req.Via().Params.GetOr("branch", ""), req.Method})
+			p.mu.Unlock()
+			return p.responderCentralita(ctx, req, sip.StatusBusyHere, "Busy Here")
+		}
+		d.esLlamada = true
 		d.inviteEntrante, d.actividad = req.String(), time.Now()
 		d.tagRemoto, _ = req.From().Params.Get("tag")
 		// La etiqueta del navegador la fija su primera respuesta con To (provisional o 2xx): hasta
 		// entonces no vale ninguna petición suya dentro de este diálogo.
-		d.tagLocal = ""
 		p.mu.Unlock()
-		if !p.anotarDeCentralita(req) {
-			return p.responderCentralita(ctx, req, sip.StatusServiceUnavailable, "Service Unavailable")
-		}
 		if id := p.o.Politica.Entrante(ctx, req.From().Address.User); id != nil {
 			req.AppendHeader(sip.NewHeader("X-Iris-Llamada", id.String()))
 		}
@@ -1067,7 +1081,7 @@ func (p *Puente) anotarDeCentralita(req *sip.Request) bool {
 			return false
 		}
 	}
-	p.pendientesCen[claveTx{rama, req.Method}] = time.Now()
+	p.pendientesCen[claveTx{rama, req.Method}] = pendienteCen{callID: string(*req.CallID()), creada: time.Now()}
 	return true
 }
 
@@ -1132,7 +1146,7 @@ func (p *Puente) limpiar() {
 		p.locales = map[string]bool{}
 	}
 	for k, c := range p.pendientesCen {
-		if ahora.Sub(c) > vidaTransaccion {
+		if ahora.Sub(c.creada) > vidaTransaccion {
 			delete(p.pendientesCen, k)
 		}
 	}

@@ -1526,6 +1526,11 @@ conexión; límites; adopción por el AMI; llamada directa.
     (misma branch y método); las demás se descartan. La etiqueta del navegador en una entrante la fija
     su primera respuesta con `To` (provisional o 2xx); antes, ninguna petición suya vale en ese diálogo.
   - El subprotocolo que elige el servidor en el handshake es `sip`, nunca el del ticket.
+- **Tercera revisión (#246):** la respuesta del navegador tiene que coincidir además en **Call-ID** con
+  la petición de la Issabel (si no, se descarta sin tocar ningún diálogo). Un INVITE inicial de la Issabel
+  con el Call-ID de una llamada viva recibe **482** y la llamada no cambia; si su transacción no cabe
+  (256 pendientes), recibe 503 sin dejar un diálogo guardado. Cambiar `IRIS_TURN_SECRETO` y correr
+  `irisctl start` vuelve a crear el contenedor `turn` (coturn lee el secreto solo al arrancar).
 - **Dependencias:** sipgo se queda en v1.7.2: v1.7.3/v1.7.4 agregan un tope de parámetros por cabecera
   (`ParseMaxHeaderParams`), pero tienen menos de 2 semanas; el tope de 16 KB por mensaje acota ese caso
   mientras tanto.

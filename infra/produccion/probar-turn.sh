@@ -58,8 +58,45 @@ fi
 if dc logs turn 2>&1 | grep -qF -- "$secreto"; then
     falla "the secret is in the logs"
 fi
-dc down -v > /dev/null 2>&1
 echo "turn: starts and stays up, secret only in the Docker secret"
+
+# 1b. A new IRIS_TURN_SECRETO reaches coturn: install.sh's own ensure_turn_secret and
+# recreate_turn_if_needed (extracted from install.sh, with chown/log/compose stubbed for the runner).
+funciones_install() {
+    sed -n -e '/^TURN_GID=/,/^}$/p' -e '/^recreate_turn_if_needed() {/,/^}$/p' "$aqui/install.sh"
+}
+# shellcheck disable=SC2034 # read by the install.sh functions below
+DIR="$tmp"
+ENV_FILE="$tmp/.env"
+env_get() { grep -E "^$1=" "$ENV_FILE" | tail -n 1 | cut -d= -f2-; }
+chown() { :; }
+log() { echo "install.sh: $*"; }
+compose() { dc "$@"; }
+eval "$(funciones_install)"
+declare -F ensure_turn_secret recreate_turn_if_needed > /dev/null || falla "install.sh functions not found"
+con_secreto() { # <secreto>: as if the operator edited the .env and ran irisctl start
+    sed -i "s|^IRIS_TURN_SECRETO=.*|IRIS_TURN_SECRETO=$1|" "$ENV_FILE"
+    ensure_turn_secret
+    chmod 644 "$tmp/secrets/turn-secreto" # 0640 root:65534 in production; the runner owns it here
+}
+con_secreto "$secreto"
+[ ! -e "$tmp/secrets/.turn-recrear" ] || falla "same secret marked turn for recreate"
+nuevo="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+con_secreto "$nuevo"
+[ -e "$tmp/secrets/.turn-recrear" ] || falla "a new secret did not mark turn for recreate"
+if grep -rqF -- "$nuevo" "$tmp/secrets/.turn-recrear"; then
+    falla "the marker holds the secret"
+fi
+dc up -d turn
+recreate_turn_if_needed || falla "recreate_turn_if_needed failed"
+[ ! -e "$tmp/secrets/.turn-recrear" ] || falla "the marker stayed after the recreate"
+sleep 8
+id2="$(dc ps -q turn)"
+[ -n "$id2" ] && [ "$id2" != "$id" ] || falla "turn was not recreated"
+[ "$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$id2")" = "true 0" ] || falla "turn did not stay up after the recreate"
+docker exec "$id2" grep -qxF -- "static-auth-secret=$nuevo" /run/turn/turnserver.conf || falla "coturn does not use the new secret"
+dc down -v > /dev/null 2>&1
+echo "turn: a new secret recreates coturn and it uses it"
 
 # 2. The entrypoint refuses a privileged port and a short secret (exit 1, never starts coturn).
 rechaza() { # <descripción> <puerto> <secreto> <texto esperado>

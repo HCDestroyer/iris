@@ -498,19 +498,35 @@ ensure_secrets_dir() {
 
 # The Iris phone's TURN relay (profile telefono) reads IRIS_TURN_SECRETO from a Docker secret, never
 # from its environment: the file is rewritten from the .env on every start (root:65534 0640; coturn
-# runs as 65534). Without the phone it is not needed and is removed.
+# runs as 65534). Without the phone it is not needed and is removed. coturn reads it only when it
+# starts and compose does not see a changed file (the service config is the same), so a different
+# secret leaves the marker TURN_RECREATE and start_all recreates the turn container. The marker is
+# only a flag (never a hash of the secret) and stays until the recreate works.
 TURN_GID=65534
 TURN_FILE=turn-secreto
+TURN_RECREATE=.turn-recrear
 ensure_turn_secret() {
     [ -f "$ENV_FILE" ] || return 0
     if [ "$(env_get IRIS_TELEFONO)" != true ]; then
-        rm -f -- "$DIR/secrets/$TURN_FILE"
+        rm -f -- "$DIR/secrets/$TURN_FILE" "$DIR/secrets/$TURN_RECREATE"
         return 0
     fi
     (umask 077 && printf '%s' "$(env_get IRIS_TURN_SECRETO)" > "$DIR/secrets/$TURN_FILE.new")
     chown "root:$TURN_GID" "$DIR/secrets/$TURN_FILE.new"
     chmod 640 "$DIR/secrets/$TURN_FILE.new"
+    if [ -f "$DIR/secrets/$TURN_FILE" ] && ! cmp -s -- "$DIR/secrets/$TURN_FILE.new" "$DIR/secrets/$TURN_FILE"; then
+        (umask 077 && : > "$DIR/secrets/$TURN_RECREATE")
+    fi
     mv -f "$DIR/secrets/$TURN_FILE.new" "$DIR/secrets/$TURN_FILE"
+}
+
+# After `compose up`: a changed TURN secret recreates coturn (it only reads the secret at start).
+recreate_turn_if_needed() {
+    [ -f "$DIR/secrets/$TURN_RECREATE" ] || return 0
+    [ "$(env_get IRIS_TELEFONO)" = true ] || { rm -f -- "$DIR/secrets/$TURN_RECREATE"; return 0; }
+    compose up -d --no-deps --force-recreate turn < /dev/null || return 1
+    rm -f -- "$DIR/secrets/$TURN_RECREATE"
+    log "TURN secret changed: turn recreated (calls in progress lose their audio relay)"
 }
 
 # --fcm-credentials FILE [--fcm-project ID] or --no-fcm. The JSON never goes to the .env or the log.
@@ -546,6 +562,7 @@ configure_fcm() {
 start_all() {
     ensure_secrets_dir
     compose up -d --remove-orphans < /dev/null || return 1
+    recreate_turn_if_needed || return 1
     # The lab's osrm container is not an orphan (the service exists under a profile): remove it when
     # OSRM is off. Its data volume is kept.
     if [ "$(env_get IRIS_OSRM)" != true ]; then

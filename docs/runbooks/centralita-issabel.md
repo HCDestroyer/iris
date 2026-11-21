@@ -306,8 +306,11 @@ IRIS_TURN_ISSABEL_IP=10.20.0.5        # la única IP a la que el TURN deja pasar
 ```
 
 - `irisctl start` copia `IRIS_TURN_SECRETO` a `/opt/iris/secrets/turn-secreto` (root:65534, 0640): coturn lo
-  lee como Docker secret, nunca de sus variables. Si cambias el secreto en el `.env`, vuelve a correr
-  `irisctl start`. Los puertos del TURN tienen que ser de 1024 a 65535 (coturn corre sin privilegios): si no,
+  lee como Docker secret, nunca de sus variables, y solo al arrancar. Si cambias el secreto en el `.env`,
+  corre `irisctl start`: nota el cambio, vuelve a crear el contenedor `turn` y reinicia los servicios de
+  Iris con el secreto nuevo. Las llamadas en curso pierden el audio en ese momento: hazlo fuera de horario.
+  Un `docker compose up -d` a mano **no** lo nota (la configuración del servicio no cambia) y coturn
+  seguiría con el secreto viejo. Los puertos del TURN tienen que ser de 1024 a 65535 (coturn corre sin privilegios): si no,
   el contenedor no arranca y lo dice en `irisctl logs turn`.
 - Abre en el firewall **del servidor de Iris** (desde internet): **UDP y TCP 3478** y **UDP 49160–49660**
   (`IRIS_TURN_PUERTO_MIN`–`MAX`). Desde la VPN, la Issabel tiene que llegar a esos mismos puertos UDP de
