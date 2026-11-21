@@ -591,10 +591,10 @@ Montos como texto decimal con 2 cifras (`"250.00"`). Fechas en UTC.
 
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
-| `prospecto.creado` | `prospecto_id`, `numero`, `empresa_id`, `origen` (`panel`, `web`, `referido`, `argos`, `otro`), `zona_id` (o null), `vendedor_id` (o null) | `prospectos.crear`. |
+| `prospecto.creado` | `prospecto_id`, `numero`, `empresa_id`, `origen` (`panel`, `web`, `referido`, `argos`, `argos_panel`, `otro`), `zona_id` (o null), `vendedor_id` (o null) | `prospectos.crear`; con `argos_panel`, `prospectos.registrar_integracion` (`POST /integraciones/argosisp/prospectos`, contrato con Argos 0.10.0 §3.6). |
 | `prospecto.actualizado` | `prospecto_id`, `campos[]` (`nombre`, `documento`, `telefono`, `correo`, `direccion`, `lat`, `lon`, `zona_id`, `plan_interes_id`, `plan_interes_nombre`, `origen_detalle`, `notas`) | `prospectos.editar` (hasta cotizado). |
 | `prospecto.asignado` | `prospecto_id`, `vendedor_id` (o null), `vendedor_anterior_id` (o null) | `prospectos.asignar`. |
-| `prospecto.estado_cambiado` | `prospecto_id`, `de`, `a`, `motivo` (o null) | Cada cambio de estado del embudo: `contactar`, factibilidad (nuevo/contactado → factibilidad), cotizar (→ cotizado; también desde contrato si se anula el borrador), contratar (→ contrato), `perder`, `reabrir` (perdido → contactado) y `ganar`. |
+| `prospecto.estado_cambiado` | `prospecto_id`, `de`, `a`, `motivo` (o null), `empresa_id` (o null), `origen` | Cada cambio de estado del embudo: `contactar`, factibilidad (nuevo/contactado → factibilidad), cotizar (→ cotizado; también desde contrato si se anula el borrador), contratar (→ contrato), `perder`, `reabrir` (perdido → contactado) y `ganar`. Con `origen = argos_panel` y un conector con contrato ≥ 0.10.0, va a Argos (§6.6) solo con `prospecto_id`, `empresa_id`, `de`, `a` y `motivo_codigo` (siempre null): nunca el motivo escrito. |
 | `prospecto.actividad_registrada` | `prospecto_id`, `actividad_id`, `tipo` (`llamada`, `visita`, `nota`, `mensaje`), `proxima_fecha` (o null) | `prospectos.registrar_actividad`. |
 | `prospecto.perdido` | `prospecto_id`, `empresa_id`, `motivo`, `de` (estado anterior) | `prospectos.perder`. Anula el contrato vivo (`contrato.anulado`). |
 | `prospecto.ganado` | `prospecto_id`, `empresa_id`, `modo` (`local` \| `argos`), `contrato_id`, `cotizacion_id`, `plan_id` (o null), `obra_confirmada`, `router_id` (argos), `orden_id` (local: la orden de instalación; argos: null hasta el alta), `pendientes[]` (argos: el id del pendiente `crear_cliente`) | `prospectos.ganar`. |

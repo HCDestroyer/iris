@@ -20,9 +20,9 @@ CREATE TABLE integracion.datos_transito (
 );
 CREATE INDEX datos_transito_vigentes_idx ON integracion.datos_transito (tomado_en) WHERE cifrado IS NOT NULL;
 
--- Pendientes: la persona que actúa (X-Iris-Actor de §3.4) y la referencia al depósito.
+-- Pendientes: la referencia al depósito. La persona que actúa (X-Iris-Actor de §3.4) va en la
+-- columna actor, que agregó 20261121161750_comercial_prospectos_argos (§3.5).
 ALTER TABLE integracion.pendientes
-    ADD COLUMN actor text CHECK (actor IS NULL OR actor ~ '^usuario:[A-Za-z0-9_-]{1,64}$'),
     ADD COLUMN transito_id uuid REFERENCES integracion.datos_transito (id);
 
 -- Estado del paso en la orden: lo que ya se registró (sin el documento ni los datos de contacto).
@@ -49,5 +49,5 @@ CREATE TABLE campo.orden_titular (
 
 -- +goose Down
 DROP TABLE campo.orden_titular;
-ALTER TABLE integracion.pendientes DROP COLUMN transito_id, DROP COLUMN actor;
+ALTER TABLE integracion.pendientes DROP COLUMN transito_id;
 DROP TABLE integracion.datos_transito;

@@ -40,7 +40,7 @@ type Accion struct {
 	Verificar []string
 	// TecnicoUsuarioID: el técnico cuyo vínculo con Argos va en el cuerpo (contrato 0.5.0 §3.3).
 	TecnicoUsuarioID *int64
-	// Actor: X-Iris-Actor de la llamada (usuario:<id>, contrato 0.10.0 §3.4 y §7.1); vacío = sin cabecera.
+	// Actor: X-Iris-Actor de la llamada (usuario:<id>, contrato §3.4, §3.5 y §7.1); vacío = sin cabecera.
 	Actor string
 	// TransitoID: el depósito de tránsito con lo sensible de la llamada (documento, contacto, fotos;
 	// §3.4.8). El cuerpo nunca lo lleva: se agrega al enviar (GuardarTransito).

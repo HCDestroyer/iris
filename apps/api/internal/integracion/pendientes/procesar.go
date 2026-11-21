@@ -118,7 +118,7 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		cli = cli.ConCabecera(argos.CabeceraEmpresaArgos, strconv.FormatInt(*f.EmpresaID, 10))
 	}
 	if f.Actor != nil {
-		// Contrato 0.10.0 §3.4: la persona que actúa (Argos audita con ella).
+		// La persona que actúa (contrato §3.4, §3.5 y §7.1): Argos audita con ella.
 		cli = cli.ConCabecera(CabeceraActorIris, *f.Actor)
 	}
 	var partes []conector.Parte
