@@ -875,7 +875,7 @@ func (q *Queries) CrearCapacidad(ctx context.Context, arg CrearCapacidadParams) 
 }
 
 const crearCuadrilla = `-- name: CrearCuadrilla :one
-INSERT INTO agenda.cuadrillas (empresa_id, nombre) VALUES ($1, $2) RETURNING id, empresa_id, nombre, activa, version, created_at, updated_at
+INSERT INTO agenda.cuadrillas (empresa_id, nombre) VALUES ($1, $2) RETURNING id, empresa_id, nombre, activa, version, created_at, updated_at, jefe_usuario_id, version_argos
 `
 
 type CrearCuadrillaParams struct {
@@ -894,6 +894,8 @@ func (q *Queries) CrearCuadrilla(ctx context.Context, arg CrearCuadrillaParams) 
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.JefeUsuarioID,
+		&i.VersionArgos,
 	)
 	return i, err
 }
@@ -1174,7 +1176,7 @@ func (q *Queries) CrearZonaLocal(ctx context.Context, arg CrearZonaLocalParams) 
 
 const cuadrillaPorID = `-- name: CuadrillaPorID :one
 
-SELECT id, empresa_id, nombre, activa, version, created_at, updated_at FROM agenda.cuadrillas WHERE id = $1
+SELECT id, empresa_id, nombre, activa, version, created_at, updated_at, jefe_usuario_id, version_argos FROM agenda.cuadrillas WHERE id = $1
 `
 
 // Cuadrillas ----------------------------------------------------------------------
@@ -1189,12 +1191,14 @@ func (q *Queries) CuadrillaPorID(ctx context.Context, id int64) (AgendaCuadrilla
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.JefeUsuarioID,
+		&i.VersionArgos,
 	)
 	return i, err
 }
 
 const cuadrillaPorIDParaActualizar = `-- name: CuadrillaPorIDParaActualizar :one
-SELECT id, empresa_id, nombre, activa, version, created_at, updated_at FROM agenda.cuadrillas WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, nombre, activa, version, created_at, updated_at, jefe_usuario_id, version_argos FROM agenda.cuadrillas WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CuadrillaPorIDParaActualizar(ctx context.Context, id int64) (AgendaCuadrilla, error) {
@@ -1208,8 +1212,35 @@ func (q *Queries) CuadrillaPorIDParaActualizar(ctx context.Context, id int64) (A
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.JefeUsuarioID,
+		&i.VersionArgos,
 	)
 	return i, err
+}
+
+const cuadrillasConJefe = `-- name: CuadrillasConJefe :many
+SELECT id FROM agenda.cuadrillas WHERE jefe_usuario_id = $1 ORDER BY id
+`
+
+// Cuadrillas de las que el usuario es jefe (para revisarlas cuando cambia su usuario).
+func (q *Queries) CuadrillasConJefe(ctx context.Context, usuarioID *int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, cuadrillasConJefe, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const desactivarZonasSinArgos = `-- name: DesactivarZonasSinArgos :execrows
@@ -1266,6 +1297,30 @@ func (q *Queries) DesvincularArgosTecnico(ctx context.Context, arg DesvincularAr
 	return i, err
 }
 
+const empresasRegistradas = `-- name: EmpresasRegistradas :many
+SELECT id FROM nucleo.empresas ORDER BY id
+`
+
+func (q *Queries) EmpresasRegistradas(ctx context.Context) ([]int64, error) {
+	rows, err := q.db.Query(ctx, empresasRegistradas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const espejarZonasArgos = `-- name: EspejarZonasArgos :execrows
 INSERT INTO agenda.zonas (id, empresa_id, origen, nombre, sincronizado_en)
 SELECT a.id, a.empresa_id, 'argos', coalesce(nullif(left(btrim(a.nombre), 120), ''), 'Zona ' || a.id), a.sincronizado_en
@@ -1285,6 +1340,38 @@ func (q *Queries) EspejarZonasArgos(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const fijarJefeCuadrilla = `-- name: FijarJefeCuadrilla :one
+UPDATE agenda.cuadrillas SET jefe_usuario_id = $1, version = version + 1,
+    version_argos = version_argos + 1, updated_at = now()
+WHERE id = $2 AND version = $3
+RETURNING id, empresa_id, nombre, activa, version, created_at, updated_at, jefe_usuario_id, version_argos
+`
+
+type FijarJefeCuadrillaParams struct {
+	JefeUsuarioID *int64
+	ID            int64
+	Version       int32
+}
+
+// Asigna (o quita, con null) el jefe con la versión leída (B26). Sube las dos versiones: la del
+// panel y la que viaja a Argos.
+func (q *Queries) FijarJefeCuadrilla(ctx context.Context, arg FijarJefeCuadrillaParams) (AgendaCuadrilla, error) {
+	row := q.db.QueryRow(ctx, fijarJefeCuadrilla, arg.JefeUsuarioID, arg.ID, arg.Version)
+	var i AgendaCuadrilla
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Activa,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.JefeUsuarioID,
+		&i.VersionArgos,
+	)
+	return i, err
 }
 
 const guardarCita = `-- name: GuardarCita :one
@@ -1338,9 +1425,9 @@ func (q *Queries) GuardarCita(ctx context.Context, arg GuardarCitaParams) (Agend
 }
 
 const guardarCuadrilla = `-- name: GuardarCuadrilla :one
-UPDATE agenda.cuadrillas SET nombre = $1, activa = $2, version = version + 1, updated_at = now()
+UPDATE agenda.cuadrillas SET nombre = $1, activa = $2, version = version + 1, version_argos = version_argos + 1, updated_at = now()
 WHERE id = $3 AND version = $4
-RETURNING id, empresa_id, nombre, activa, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, activa, version, created_at, updated_at, jefe_usuario_id, version_argos
 `
 
 type GuardarCuadrillaParams struct {
@@ -1366,6 +1453,8 @@ func (q *Queries) GuardarCuadrilla(ctx context.Context, arg GuardarCuadrillaPara
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.JefeUsuarioID,
+		&i.VersionArgos,
 	)
 	return i, err
 }
@@ -1527,7 +1616,7 @@ func (q *Queries) ListarAusencias(ctx context.Context, arg ListarAusenciasParams
 }
 
 const listarCuadrillas = `-- name: ListarCuadrillas :many
-SELECT id, empresa_id, nombre, activa, version, created_at, updated_at FROM agenda.cuadrillas
+SELECT id, empresa_id, nombre, activa, version, created_at, updated_at, jefe_usuario_id, version_argos FROM agenda.cuadrillas
 WHERE ($1::boolean OR empresa_id IS NULL OR empresa_id = $2)
   AND ($3::boolean OR activa)
 ORDER BY nombre, id
@@ -1556,6 +1645,8 @@ func (q *Queries) ListarCuadrillas(ctx context.Context, arg ListarCuadrillasPara
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.JefeUsuarioID,
+			&i.VersionArgos,
 		); err != nil {
 			return nil, err
 		}
@@ -2015,6 +2106,60 @@ func (q *Queries) MarcarRutasDesactualizadas(ctx context.Context, arg MarcarRuta
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const miembrosDeCuadrilla = `-- name: MiembrosDeCuadrilla :many
+SELECT t.id AS tecnico_id, t.usuario_id, t.argos_id_externo,
+       ($1::bigint IS NULL
+        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = $1)
+        OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo
+                   JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                   WHERE ur.usuario_id = t.usuario_id AND rp.permiso = 'empresas.todas'
+                     AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))::boolean AS opera_en_empresa
+FROM agenda.tecnicos t
+JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.cuadrilla_id = $2 AND t.activo AND u.activo
+ORDER BY t.usuario_id
+`
+
+type MiembrosDeCuadrillaParams struct {
+	EmpresaID   *int64
+	CuadrillaID *int64
+}
+
+type MiembrosDeCuadrillaRow struct {
+	TecnicoID      int64
+	UsuarioID      int64
+	ArgosIDExterno *string
+	OperaEnEmpresa bool
+}
+
+// Miembros de la cuadrilla para Argos (§3.9): fichas activas en ella con el usuario activo. El
+// id_externo (vínculo I1) solo si el usuario opera en la empresa del evento (asignada o
+// empresas.todas global); sin empresa (modo sin conector), el vínculo tal cual.
+func (q *Queries) MiembrosDeCuadrilla(ctx context.Context, arg MiembrosDeCuadrillaParams) ([]MiembrosDeCuadrillaRow, error) {
+	rows, err := q.db.Query(ctx, miembrosDeCuadrilla, arg.EmpresaID, arg.CuadrillaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MiembrosDeCuadrillaRow
+	for rows.Next() {
+		var i MiembrosDeCuadrillaRow
+		if err := rows.Scan(
+			&i.TecnicoID,
+			&i.UsuarioID,
+			&i.ArgosIDExterno,
+			&i.OperaEnEmpresa,
 		); err != nil {
 			return nil, err
 		}
@@ -2501,6 +2646,37 @@ func (q *Queries) RehacerBorrador(ctx context.Context, arg RehacerBorradorParams
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const revisarCuadrilla = `-- name: RevisarCuadrilla :one
+UPDATE agenda.cuadrillas SET jefe_usuario_id = $1, version_argos = version_argos + 1, updated_at = now()
+WHERE id = $2
+RETURNING id, empresa_id, nombre, activa, version, created_at, updated_at, jefe_usuario_id, version_argos
+`
+
+type RevisarCuadrillaParams struct {
+	JefeUsuarioID *int64
+	ID            int64
+}
+
+// Cambió un miembro (ficha, vínculo I1 o usuario): versión nueva para Argos y el jefe que sigue
+// valiendo (null si dejó de ser miembro con I1). La versión del panel no cambia (nadie editó la
+// cuadrilla); la cuadrilla ya está tomada FOR UPDATE en la misma transacción.
+func (q *Queries) RevisarCuadrilla(ctx context.Context, arg RevisarCuadrillaParams) (AgendaCuadrilla, error) {
+	row := q.db.QueryRow(ctx, revisarCuadrilla, arg.JefeUsuarioID, arg.ID)
+	var i AgendaCuadrilla
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Activa,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.JefeUsuarioID,
+		&i.VersionArgos,
 	)
 	return i, err
 }
@@ -3122,9 +3298,9 @@ func (q *Queries) TiposOrden(ctx context.Context) ([]TiposOrdenRow, error) {
 }
 
 const tocarCuadrilla = `-- name: TocarCuadrilla :one
-UPDATE agenda.cuadrillas SET version = version + 1, updated_at = now()
+UPDATE agenda.cuadrillas SET version = version + 1, version_argos = version_argos + 1, updated_at = now()
 WHERE id = $1 AND version = $2
-RETURNING id, empresa_id, nombre, activa, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, activa, version, created_at, updated_at, jefe_usuario_id, version_argos
 `
 
 type TocarCuadrillaParams struct {
@@ -3143,6 +3319,8 @@ func (q *Queries) TocarCuadrilla(ctx context.Context, arg TocarCuadrillaParams) 
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.JefeUsuarioID,
+		&i.VersionArgos,
 	)
 	return i, err
 }

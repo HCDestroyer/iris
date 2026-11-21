@@ -30,8 +30,8 @@ export const ZONAS: Schema<"Zona">[] = [
 ];
 
 export const CUADRILLAS: Schema<"Cuadrilla">[] = [
-    { id: 1, nombre: "Cuadrilla Norte", activa: true, empresaId: null, zonaIds: [4], capacidad: [], version: 1, creadoEn: "2026-10-01T00:00:00Z", actualizadoEn: "2026-10-01T00:00:00Z" },
-    { id: 2, nombre: "Cuadrilla Sur", activa: true, empresaId: null, zonaIds: [4, 5], capacidad: [], version: 1, creadoEn: "2026-10-01T00:00:00Z", actualizadoEn: "2026-10-01T00:00:00Z" },
+    { id: 1, nombre: "Cuadrilla Norte", activa: true, empresaId: null, zonaIds: [4], capacidad: [], jefeUsuarioId: null, version: 1, creadoEn: "2026-10-01T00:00:00Z", actualizadoEn: "2026-10-01T00:00:00Z" },
+    { id: 2, nombre: "Cuadrilla Sur", activa: true, empresaId: null, zonaIds: [4, 5], capacidad: [], jefeUsuarioId: null, version: 1, creadoEn: "2026-10-01T00:00:00Z", actualizadoEn: "2026-10-01T00:00:00Z" },
 ];
 
 const tecnico = (id: number, usuarioId: number, nombre: string, cuadrillaId: number): Tecnico => ({
