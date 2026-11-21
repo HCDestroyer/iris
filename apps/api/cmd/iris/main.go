@@ -259,7 +259,8 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// mensajería valida la foto al recibir el mensaje).
 	mensajeria.RegistrarAdjuntos()
 	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
-		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola)})
+		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola),
+		Clientes: conectorArgos, URLBase: cfg.BaseURL})
 	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
 	// (y la anterior, para comparar durante una rotación).
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
@@ -296,7 +297,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		NotificacionesPush: func() string { return estPush.Estado },
-		Idempotencia:       nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem},
+		Idempotencia:       nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem, Regla: comercial.ReglaIdempotenciaArgos},
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,

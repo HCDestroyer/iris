@@ -59,6 +59,9 @@ function prospecto(d: Partial<Prospecto> & Pick<Prospecto, "id" | "nombre" | "es
         empresaId: null,
         origen: "panel",
         origenDetalle: null,
+        modo: null,
+        clienteExistenteId: null,
+        clienteValidado: null,
         documento: null,
         telefono: "5555-0000",
         correo: null,
@@ -268,6 +271,7 @@ export function apiComercial(opciones: { conector: boolean }): ApiComercial {
             ...(k ? { contrato: k } : {}),
             ...(alta ? { alta } : {}),
             pendientes: esc.pendientes.get(p.id) ?? [],
+            telefonos: [],
             acciones: {
                 contactar: e === "nuevo",
                 evaluar: ["nuevo", "contactado", "factibilidad", "cotizado"].includes(e),

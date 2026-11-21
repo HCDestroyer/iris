@@ -45,6 +45,9 @@ type Problema struct {
 	// DisponibleEn (extensión): desde cuándo se puede (nombre_bloqueado: el nombre se libera;
 	// limite_ediciones: se puede editar de nuevo).
 	DisponibleEn *time.Time `json:"disponibleEn,omitempty" doc:"nombre_bloqueado, limite_ediciones, sincronizada_hace_poco: desde cuándo se puede"`
+	// URLIris (extensión, nombre del contrato con Argos 0.10.0 §3.6): en prospecto_duplicado, el
+	// enlace plano al prospecto que ya tiene uno de los números.
+	URLIris *string `json:"url_iris,omitempty" doc:"prospecto_duplicado: enlace al prospecto existente (contrato con Argos §3.6)"`
 
 	cabeceras http.Header
 }

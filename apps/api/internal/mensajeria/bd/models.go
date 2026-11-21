@@ -674,40 +674,45 @@ type ComercialFactibilidade struct {
 }
 
 type ComercialProspecto struct {
-	ID                int64
-	Numero            string
-	EmpresaID         *int64
-	Origen            string
-	OrigenDetalle     *string
-	Nombre            string
-	Documento         *string
-	Telefono          *string
-	Correo            *string
-	Direccion         string
-	Lat               *float64
-	Lon               *float64
-	ZonaID            *int64
-	PlanInteresID     *int64
-	PlanInteresNombre *string
-	VendedorID        *int64
-	Estado            string
-	Notas             string
-	MotivoPerdida     *string
-	PerdidoEn         *time.Time
-	GanadoEn          *time.Time
-	ObraConfirmada    bool
-	AltaModo          *string
-	AltaEstado        *string
-	ClienteArgosID    *int64
-	ServicioArgosID   *int64
-	OrdenID           *int64
-	CreadoPor         *int64
-	Idempotencia      *string
-	Version           int32
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	RouterID          *int64
-	AltaError         *string
+	ID                 int64
+	Numero             string
+	EmpresaID          *int64
+	Origen             string
+	OrigenDetalle      *string
+	Nombre             string
+	Documento          *string
+	Telefono           *string
+	Correo             *string
+	Direccion          string
+	Lat                *float64
+	Lon                *float64
+	ZonaID             *int64
+	PlanInteresID      *int64
+	PlanInteresNombre  *string
+	VendedorID         *int64
+	Estado             string
+	Notas              string
+	MotivoPerdida      *string
+	PerdidoEn          *time.Time
+	GanadoEn           *time.Time
+	ObraConfirmada     bool
+	AltaModo           *string
+	AltaEstado         *string
+	ClienteArgosID     *int64
+	ServicioArgosID    *int64
+	OrdenID            *int64
+	CreadoPor          *int64
+	Idempotencia       *string
+	Version            int32
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	RouterID           *int64
+	AltaError          *string
+	Modo               *string
+	RegistradoPorArgos *string
+	ClienteExistenteID *int64
+	ClienteValidado    *bool
+	GanadoPor          *int64
 }
 
 type ComercialProspectoEvento struct {
@@ -721,6 +726,28 @@ type ComercialProspectoEvento struct {
 	ActorTipo   string
 	ActorID     *int64
 	CreatedAt   time.Time
+}
+
+type ComercialProspectoTelefono struct {
+	ID          int64
+	ProspectoID int64
+	EmpresaID   *int64
+	Posicion    int16
+	Numero      string
+	Whatsapp    bool
+	Principal   bool
+	Nombre      *string
+	Relacion    *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type ComercialRegistrosArgo struct {
+	ID        int64
+	Actor     string
+	EmpresaID int64
+	Numeros   int32
+	CreatedAt time.Time
 }
 
 type ComercialUmbralesFactibilidad struct {
@@ -1066,6 +1093,7 @@ type IntegracionPendiente struct {
 	ResueltoMotivo   *string
 	ResueltoPor      *int64
 	ResueltoEn       *time.Time
+	Actor            *string
 }
 
 type MensajeriaAjustesBandeja struct {
