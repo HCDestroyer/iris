@@ -54,6 +54,12 @@ const (
 	PermTicketsCerrar        Permiso = "tickets.cerrar"
 	PermTicketsFusionar      Permiso = "tickets.fusionar"
 	PermTicketsVerNotas      Permiso = "tickets.ver_notas"
+	// PermTicketsListarTodos: un token (de integración o de API) lista tickets sin filtro de
+	// cliente. Sin él, GET /tickets por token exige clienteId (422 filtro_cliente_requerido).
+	// No cambia nada para las personas del panel. Un token nunca supera los permisos de su
+	// dueño: solo puede llevarlo el token de un admin (todos) o de un usuario con un rol a
+	// medida que lo incluya; ningún otro rol base lo trae.
+	PermTicketsListarTodos Permiso = "tickets.listar_todos"
 
 	// Buzones de correo (I2): entrada de tickets por IMAP y respuesta por SMTP.
 	PermBuzonesActivar    Permiso = "buzones.activar"
@@ -87,6 +93,11 @@ const (
 	PermOrdenesReprogramar Permiso = "ordenes.reprogramar"
 	PermOrdenesVer         Permiso = "ordenes.ver"
 	PermOrdenesVerPropias  Permiso = "ordenes.ver_propias"
+	// PermOrdenesListarTodos: un token (de integración o de API) con ordenes.ver lista órdenes
+	// sin filtro de cliente. Sin él, GET /ordenes por token exige clienteId (422
+	// filtro_cliente_requerido). Como tickets.listar_todos: solo lo puede llevar el token de un
+	// admin (todos) o de un usuario con un rol a medida que lo incluya.
+	PermOrdenesListarTodos Permiso = "ordenes.listar_todos"
 
 	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
 	// asignarla (y programarla) en un paso; exige además ordenes.crear, ordenes.asignar y, con
@@ -579,6 +590,7 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
 	{PermOrdenesIgualarAsignacion, "Igualar la asignación (técnico y cuadrilla) de una orden y su ticket, en el sentido que se elija"},
 	{PermOrdenesIniciarCamino, "Marcar una orden en camino"},
+	{PermOrdenesListarTodos, "Por token de API o de integración: listar las órdenes de la empresa sin filtrar por cliente (sin él, GET /ordenes por token exige clienteId). No cambia nada en el panel ni en la app de campo"},
 	{PermOrdenesLlegar, "Marcar la llegada al sitio de una orden"},
 	{PermOrdenesPausar, "Pausar una orden en camino o en sitio, con su motivo"},
 	{PermOrdenesProgramar, "Programar órdenes pendientes (técnico y fecha)"},
@@ -626,6 +638,7 @@ var Catalogo = []DefPermiso{
 	{PermTicketsCrearOrden, "Crear la orden de trabajo de un ticket ya asignada (y programada si se elige fecha) en un paso"},
 	{PermTicketsEscalar, "Escalar tickets (subir prioridad o nivel)"},
 	{PermTicketsFusionar, "Fusionar un ticket duplicado en otro"},
+	{PermTicketsListarTodos, "Por token de API o de integración: listar los tickets de la empresa sin filtrar por cliente (sin él, GET /tickets por token exige clienteId). No cambia nada en el panel"},
 	{PermTicketsNotaInterna, "Agregar notas internas a un ticket"},
 	{PermTicketsPonerEnEspera, "Poner tickets en espera (pausa el SLA de resolución)"},
 	{PermTicketsReabrir, "Reabrir tickets resueltos"},

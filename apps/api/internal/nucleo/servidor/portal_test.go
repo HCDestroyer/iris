@@ -423,9 +423,11 @@ func TestPrepararIntegracion(t *testing.T) {
 	emitir(t, argos, 77, 1)
 	argos.pedir(http.MethodPost, "/api/v1/portal/tickets-acceso", map[string]any{"clienteId": 77, "empresaId": 2}).problema(t, 403, "empresa_no_permitida")
 	argos.pedir(http.MethodGet, "/api/v1/usuarios", nil).problema(t, 403, "prohibido")
-	if r := argos.pedir(http.MethodGet, "/api/v1/tickets", nil); r.status != 200 {
+	// tickets.ver por cliente (contrato A7); sin filtro de cliente, 422 (no la empresa entera).
+	if r := argos.pedir(http.MethodGet, "/api/v1/tickets?cliente_id=77", nil); r.status != 200 {
 		t.Fatalf("tickets.ver: %d %s", r.status, r.crudo)
 	}
+	argos.pedir(http.MethodGet, "/api/v1/tickets", nil).problema(t, 422, "filtro_cliente_requerido")
 	// Otra vez con el mismo correo: reutiliza el usuario, suma la empresa y emite otro token.
 	b, err := e.mod.PrepararIntegracion(ctx, identidad.EntradaPrepararIntegracion{Sistema: "argosisp", Empresas: []int64{1, 2}, Correo: correo})
 	if err != nil || b.Creado || b.Usuario.ID != a.Usuario.ID || len(b.Usuario.Empresas) != 2 || b.Token.Valor == a.Token.Valor {

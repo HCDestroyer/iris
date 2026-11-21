@@ -28,6 +28,12 @@ type EntradaVerOrden struct {
 }
 
 // EntradaListarOrdenes: tablero con filtros, más recientes primero.
+//
+// Filtros de cliente (contrato con Argos, A7): `cliente_id` y `servicio_id` son alias de
+// `clienteId` y `servicioId` (422 validacion si llegan los dos con valores distintos). Con
+// ordenes.ver, un token (de integración o de API) sin filtro de cliente recibe 422
+// filtro_cliente_requerido, salvo con ordenes.listar_todos; con ordenes.ver_propias la lista ya
+// es solo del actor y no lo exige. Un parámetro de consulta desconocido responde 422 validacion.
 type EntradaListarOrdenes struct {
 	nucleo.ParamsPagina
 	Estado      []string  `query:"estado" enum:"pendiente,programada,en_camino,en_sitio,pausada,cerrada,fallida,cancelada" doc:"Uno o varios estados (estado=pendiente,programada)"`
@@ -42,6 +48,13 @@ type EntradaListarOrdenes struct {
 	Desde       time.Time `query:"desde" doc:"Programadas desde (inclusive, UTC)"`
 	Hasta       time.Time `query:"hasta" doc:"Programadas hasta (exclusive, UTC)"`
 	Q           string    `query:"q" maxLength:"120" doc:"Busca en número, dirección y contacto"`
+	// Alias en snake_case: los que usa Argos (contrato A7). Mismo significado que clienteId y
+	// servicioId; si llegan los dos con valores distintos, 422.
+	ClienteIDAlias  int64 `query:"cliente_id" minimum:"0" doc:"Alias de clienteId (el nombre que usa Argos, contrato A7). Si llega junto con clienteId y difieren: 422 validacion"`
+	ServicioIDAlias int64 `query:"servicio_id" minimum:"0" doc:"Alias de servicioId. Si llega junto con servicioId y difieren: 422 validacion"`
+
+	// desconocidos: los parámetros de consulta que la ruta no declara (los llena Resolve).
+	desconocidos []string
 }
 
 // EntradaListarEventos: historial de la orden.
@@ -122,6 +135,14 @@ func (m *Modulo) nuevoListarOrdenes(permiso nucleo.Permiso) *auditoria.Caso[Entr
 		Permiso:      permiso,
 		AuditarExito: soloLecturas[nucleo.Pagina[Orden]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarOrdenes) (nucleo.Pagina[Orden], error) {
+			if err := nucleo.NormalizarFiltrosCliente(in.desconocidos, &in.ClienteID, in.ClienteIDAlias, &in.ServicioID, in.ServicioIDAlias); err != nil {
+				return nucleo.Pagina[Orden]{}, err
+			}
+			if permiso == nucleo.PermOrdenesVer {
+				if err := nucleo.ExigirFiltroCliente(ctx, in.ClienteID, nucleo.PermOrdenesListarTodos, "órdenes"); err != nil {
+					return nucleo.Pagina[Orden]{}, err
+				}
+			}
 			q := campobd.New(t)
 			var antesDe int64
 			hay, err := nucleo.DecodificarCursor(in.Cursor, &antesDe)

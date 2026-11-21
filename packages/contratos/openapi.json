@@ -25047,6 +25047,7 @@
           "ordenes.fallar",
           "ordenes.igualar_asignacion",
           "ordenes.iniciar_camino",
+          "ordenes.listar_todos",
           "ordenes.llegar",
           "ordenes.pausar",
           "ordenes.programar",
@@ -25094,6 +25095,7 @@
           "tickets.crear_orden",
           "tickets.escalar",
           "tickets.fusionar",
+          "tickets.listar_todos",
           "tickets.nota_interna",
           "tickets.poner_en_espera",
           "tickets.reabrir",
@@ -68357,7 +68359,7 @@
     },
     "/api/v1/ordenes": {
       "get": {
-        "description": "Permiso: `ordenes.ver` (según el alcance) u `ordenes.ver_propias` (solo las asignadas al actor).",
+        "description": "Permiso: `ordenes.ver` (según el alcance) u `ordenes.ver_propias` (solo las asignadas al actor). `cliente_id` y `servicio_id` son alias de `clienteId` y `servicioId` (contrato con Argos, A7); si llegan los dos con valores distintos, 422 `validacion`. Con `ordenes.ver` y un token (de integración o de API) la lista exige `clienteId` (o `cliente_id`): sin él, 422 `filtro_cliente_requerido`, salvo que el token tenga `ordenes.listar_todos`. Un parámetro de consulta que la ruta no conoce responde 422 `validacion` (regla `desconocido`).",
         "operationId": "listarOrdenes",
         "parameters": [
           {
@@ -68537,6 +68539,30 @@
               "description": "Busca en número, dirección y contacto",
               "maxLength": 120,
               "type": "string"
+            }
+          },
+          {
+            "description": "Alias de clienteId (el nombre que usa Argos, contrato A7). Si llega junto con clienteId y difieren: 422 validacion",
+            "explode": false,
+            "in": "query",
+            "name": "cliente_id",
+            "schema": {
+              "description": "Alias de clienteId (el nombre que usa Argos, contrato A7). Si llega junto con clienteId y difieren: 422 validacion",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Alias de servicioId. Si llega junto con servicioId y difieren: 422 validacion",
+            "explode": false,
+            "in": "query",
+            "name": "servicio_id",
+            "schema": {
+              "description": "Alias de servicioId. Si llega junto con servicioId y difieren: 422 validacion",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
             }
           }
         ],
@@ -80889,7 +80915,7 @@
     },
     "/api/v1/tickets": {
       "get": {
-        "description": "Permiso: `tickets.ver`.",
+        "description": "Permiso: `tickets.ver`. `cliente_id` y `servicio_id` son alias de `clienteId` y `servicioId` (contrato con Argos, A7); si llegan los dos con valores distintos, 422 `validacion`. Con un token (de integración o de API) la lista exige `clienteId` (o `cliente_id`): sin él, 422 `filtro_cliente_requerido`, salvo que el token tenga `tickets.listar_todos`. Un parámetro de consulta que la ruta no conoce responde 422 `validacion` (regla `desconocido`).",
         "operationId": "listarTickets",
         "parameters": [
           {
@@ -81015,6 +81041,30 @@
             "name": "servicioId",
             "schema": {
               "description": "Servicio de Argos",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Alias de clienteId (el nombre del contrato con Argos, A7). Si llega junto con clienteId y difieren: 422 validacion",
+            "explode": false,
+            "in": "query",
+            "name": "cliente_id",
+            "schema": {
+              "description": "Alias de clienteId (el nombre del contrato con Argos, A7). Si llega junto con clienteId y difieren: 422 validacion",
+              "format": "int64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Alias de servicioId. Si llega junto con servicioId y difieren: 422 validacion",
+            "explode": false,
+            "in": "query",
+            "name": "servicio_id",
+            "schema": {
+              "description": "Alias de servicioId. Si llega junto con servicioId y difieren: 422 validacion",
               "format": "int64",
               "minimum": 0,
               "type": "integer"
