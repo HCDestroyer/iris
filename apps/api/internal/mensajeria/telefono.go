@@ -134,6 +134,9 @@ type casosTelefono struct {
 	revalidar     *auditoria.Caso[entradaRevalidar, struct{}]
 	cerrarConexio *auditoria.Caso[entradaCerrarConexion, struct{}]
 	credenciales  *auditoria.Caso[entradaCredenciales, struct{}]
+	// rechazoPuente: suma el rechazo a la centralita como sistema (no depende de la sesión ni de la
+	// extensión de la persona).
+	rechazoPuente *auditoria.Caso[entradaRechazoPuente, struct{}]
 }
 
 func nuevosCasosTelefono(m *Modulo) casosTelefono {
@@ -578,6 +581,33 @@ func (m *Modulo) limitarRechazos(ctx context.Context, q *mensajeriabd.Queries, c
 		ConCabecera("Retry-After", strconv.Itoa(max(espera, 1)))
 }
 
+// turnoPruebaRegistro: cuánto dura la reserva de «Probar registro» si el proceso muere antes de
+// soltarla (el REGISTER tarda a lo más 2 × 10 s).
+const turnoPruebaRegistro = 30 * time.Second
+
+// reservarPruebaRegistro: un solo REGISTER de prueba a la vez por centralita. El REGISTER corre fuera
+// de la transacción, así que leer el contador de rechazos no basta: varias pruebas a la vez lo verían
+// igual y pasarían todas. La reserva es un UPDATE condicional (atómico); la suelta `guardar`. Si otra
+// prueba la tiene: 429 con un Retry-After corto (`demasiados_rechazos` si la centralita ya tiene
+// rechazos en la ventana, `prueba_en_curso` si no).
+func (m *Modulo) reservarPruebaRegistro(ctx context.Context, q *mensajeriabd.Queries, centralitaID int64) error {
+	ahora := m.ahora()
+	n, err := q.ReservarPruebaRegistro(ctx, mensajeriabd.ReservarPruebaRegistroParams{ID: centralitaID, Hasta: ahora.Add(turnoPruebaRegistro), Ahora: ahora})
+	if err != nil || n == 1 {
+		return err
+	}
+	r, err := q.RechazosCentralita(ctx, centralitaID)
+	if err != nil {
+		return err
+	}
+	if r.RechazosDesde != nil && r.Rechazos > 0 && ahora.Before(r.RechazosDesde.Add(ventanaRechazos)) {
+		return nucleo.NuevoProblema(http.StatusTooManyRequests, "demasiados_rechazos", "La centralita rechazó contraseñas hace poco",
+			"Hay otra prueba de registro en curso en esta centralita: espera unos segundos.").ConCabecera("Retry-After", "10")
+	}
+	return nucleo.NuevoProblema(http.StatusTooManyRequests, "prueba_en_curso", "Otra prueba de registro en curso",
+		"Hay otra prueba de registro en curso en esta centralita: espera unos segundos.").ConCabecera("Retry-After", "10")
+}
+
 // anotarRechazo suma un rechazo de la Issabel a la centralita (en la misma transacción que lo marca).
 func (m *Modulo) anotarRechazo(ctx context.Context, q *mensajeriabd.Queries, centralitaID int64) error {
 	ahora := m.ahora()
@@ -722,6 +752,8 @@ type entradaRegistroProbado struct {
 	ExtensionID  int64      `json:"extension_id"`
 	Estado       string     `json:"estado"`
 	GuardadoEn   *time.Time `json:"guardado_en"`
+	// Reservado: esta prueba tiene el turno de la centralita (salió el REGISTER) y lo suelta.
+	Reservado bool `json:"reservado"`
 }
 
 func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
@@ -755,6 +787,10 @@ func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
 			if err := m.validarHostCentralita(c.Host); err != nil {
 				return destinoRegistro{}, err
 			}
+			// Lo último: solo se reserva si va a salir el REGISTER (la suelta `guardar`).
+			if err := m.reservarPruebaRegistro(ctx, q, c.ID); err != nil {
+				return destinoRegistro{}, err
+			}
 			return destinoRegistro{opciones: m.opcionesWSS(c.Host, c.WssPuerto, c.WssRuta, *c.WssHuella),
 				cred: sippuente.Credencial{Usuario: *x.SipUsuario, Secreto: s, Dominio: dominioSIP(c)}, guardadoEn: x.SipGuardadoEn}, nil
 		},
@@ -775,6 +811,12 @@ func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
 				return Extension{}, err
 			}
 			t.FijarEntidad("centralita_extension", x.ID)
+			// El turno de la centralita queda libre para la siguiente prueba.
+			if in.Reservado {
+				if err := q.SoltarPruebaRegistro(ctx, c.ID); err != nil {
+					return Extension{}, err
+				}
+			}
 			// La Issabel vio el rechazo aunque la contraseña ya haya cambiado: cuenta para fail2ban.
 			if in.Estado == sippuente.PruebaCredenciales {
 				if err := m.anotarRechazo(ctx, q, c.ID); err != nil {
@@ -831,7 +873,8 @@ func (k *ProbarRegistro) Ejecutar(ctx context.Context, in EntradaProbarRegistro)
 			estado = sippuente.PruebaNoConecta
 		}
 	}
-	x, err := k.guardar.Ejecutar(ctx, entradaRegistroProbado{CentralitaID: in.CentralitaID, ExtensionID: in.ExtensionID, Estado: estado, GuardadoEn: d.guardadoEn})
+	x, err := k.guardar.Ejecutar(ctx, entradaRegistroProbado{CentralitaID: in.CentralitaID, ExtensionID: in.ExtensionID, Estado: estado, GuardadoEn: d.guardadoEn,
+		Reservado: !d.sin})
 	if err != nil {
 		return PruebaRegistro{}, err
 	}

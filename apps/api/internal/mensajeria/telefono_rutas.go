@@ -179,7 +179,8 @@ func (m *Modulo) registrarTelefono(api huma.API) {
 			"Evento `extension.registro_probado`. Para no cebar fail2ban: 429 `credencial_rechazada` si la Issabel ya rechazó esta "+
 			"contraseña y no se escribió otra (30 min); 429 `demasiados_rechazos` si la centralita juntó 3 contraseñas rechazadas en 10 min "+
 			"(en pruebas o en el puente); y 429 `demasiados_intentos` pasadas 3 pruebas por minuto de la extensión o 10 de "+
-			"la centralita; todos con `Retry-After`. Solo marca la contraseña que se probó (si mientras tanto se guardó otra, esa queda igual)."),
+			"la centralita. Un solo REGISTER de prueba a la vez por centralita: la otra recibe 429 `prueba_en_curso` (o "+
+			"`demasiados_rechazos` si la centralita tiene rechazos en la ventana) con `Retry-After: 10`. Todos con `Retry-After`. Solo marca la contraseña que se probó (si mientras tanto se guardó otra, esa queda igual)."),
 		func(ctx context.Context, in *extensionAccionHTTP[struct{}]) (*cuerpo[PruebaRegistro], error) {
 			r, err := k.ProbarReg.Ejecutar(ctx, EntradaProbarRegistro{CentralitaID: in.ID, ExtensionID: in.ExtensionID})
 			if err == nil {

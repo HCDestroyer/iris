@@ -3,8 +3,11 @@ package mensajeria_test
 import (
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 )
 
 // Revisión de seguridad de #252 (fase 2), punto 1 (fail2ban): «Probar registro» no repite una
@@ -239,4 +242,71 @@ func TestTelefonoRechazoDelPuenteConLaVieja(t *testing.T) {
 	if r.cuerpo["estado"] != "ok" {
 		t.Fatalf("la nueva: %v", r.cuerpo)
 	}
+}
+
+// #252 B5: un solo «Probar registro» a la vez por centralita (el REGISTER corre fuera de la
+// transacción: leer el contador de rechazos no basta). La otra recibe 429 con un Retry-After corto.
+func TestTelefonoUnaPruebaDeRegistroALaVez(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	t.Cleanup(func() { b.m.FijarAntesDeProbarRegistro(nil) })
+	// Mientras la primera está por mandar su REGISTER, llega otra.
+	enMedio := func() respuesta {
+		// Solo la primera llama a otra (sin el turno, la otra también pasaría por aquí).
+		var una atomic.Bool
+		var otra respuesta
+		b.m.FijarAntesDeProbarRegistro(func() {
+			if una.CompareAndSwap(false, true) {
+				otra = b.probarRegistro()
+			}
+		})
+		r := b.probarRegistro()
+		b.m.FijarAntesDeProbarRegistro(nil)
+		b.exigir(r, http.StatusOK)
+		if r.cuerpo["estado"] != "ok" {
+			t.Fatalf("la primera: %v", r.cuerpo)
+		}
+		return otra
+	}
+	*b.reloj = b.reloj.Add(2 * time.Minute)
+	otra := enMedio()
+	b.exigirProblema(otra, http.StatusTooManyRequests, "prueba_en_curso")
+	exigirReintentarDespues(t, otra, 10)
+	// Con rechazos en la ventana (aunque sean menos que el tope), lo mismo como `demasiados_rechazos`.
+	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.sql(`UPDATE mensajeria.centralitas SET rechazos = 2, rechazos_desde = $2 WHERE id = $1`, b.id, *b.reloj)
+	antes := len(b.sip.Recibidos())
+	otra = enMedio()
+	b.exigirProblema(otra, http.StatusTooManyRequests, "demasiados_rechazos")
+	exigirReintentarDespues(t, otra, 10)
+	// Solo salió el REGISTER de la primera (consulta y desafío: 2 mensajes).
+	if n := len(b.sip.Recibidos()) - antes; n != 2 {
+		t.Fatalf("REGISTER en la centralita: %d", n)
+	}
+	// Al terminar la primera, el turno queda libre.
+	*b.reloj = b.reloj.Add(2 * time.Minute)
+	r := b.probarRegistro()
+	b.exigir(r, http.StatusOK)
+	if r.cuerpo["estado"] != "ok" {
+		t.Fatalf("después: %v", r.cuerpo)
+	}
+}
+
+// #252 B6: el rechazo del puente cuenta para la centralita aunque la extensión ya no sea de la persona
+// (o la sesión se haya cerrado): se anota como sistema, antes de buscar la extensión.
+func TestTelefonoRechazoDelPuenteCuentaSinExtension(t *testing.T) {
+	b := nuevoBancoTelefono(t, func(c *mensajeria.Config) { c.TelefonoLatido = time.Hour })
+	b.guardarSecreto("otra-clave-mala")
+	b.sql(`UPDATE mensajeria.centralita_extensiones SET sip_probado_en = now() WHERE id = $1`, int64(b.extID))
+	w, _, err := b.dial(b.agente, b.abrir(b.agente, "panel"), baseIris)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// La extensión deja de estar (sin el latido, el puente sigue abierto).
+	b.sql(`UPDATE mensajeria.centralita_extensiones SET activa = false WHERE id = $1`, int64(b.extID))
+	b.registrar(w)
+	w.respuesta(403)
+	if c := w.cierre(); c != 4003 {
+		t.Fatalf("cierre: %d", c)
+	}
+	b.hasta(func() bool { return b.rechazosCentralita() == 1 }, "el rechazo no contó para la centralita")
 }

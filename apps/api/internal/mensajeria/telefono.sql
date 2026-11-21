@@ -37,6 +37,14 @@ UPDATE mensajeria.centralitas SET
 WHERE id = @id
 RETURNING rechazos, rechazos_desde;
 
+-- name: ReservarPruebaRegistro :execrows
+-- Reserva el turno de «Probar registro» de la centralita (uno a la vez); 0 filas si otro lo tiene.
+UPDATE mensajeria.centralitas SET registro_en_curso_hasta = @hasta::timestamptz
+WHERE id = @id AND (registro_en_curso_hasta IS NULL OR registro_en_curso_hasta <= @ahora::timestamptz);
+
+-- name: SoltarPruebaRegistro :exec
+UPDATE mensajeria.centralitas SET registro_en_curso_hasta = NULL WHERE id = @id;
+
 -- name: RechazosCentralita :one
 -- Las contraseñas rechazadas en la ventana actual de la centralita.
 SELECT rechazos, rechazos_desde FROM mensajeria.centralitas WHERE id = @id;

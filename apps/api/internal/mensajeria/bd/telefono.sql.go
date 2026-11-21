@@ -448,7 +448,7 @@ UPDATE mensajeria.centralitas SET telefono_activo = $1, wss_puerto = $2, wss_rut
     llamadas_simultaneas = $8, telefono_probado_en = $9,
     restricciones_confirmadas_en = $10, version = version + 1, updated_at = now()
 WHERE id = $11
-RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en, registro_pruebas, registro_pruebas_desde, rechazos, rechazos_desde
+RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en, registro_pruebas, registro_pruebas_desde, rechazos, rechazos_desde, registro_en_curso_hasta
 `
 
 type GuardarTelefonoCentralitaParams struct {
@@ -521,6 +521,7 @@ func (q *Queries) GuardarTelefonoCentralita(ctx context.Context, arg GuardarTele
 		&i.RegistroPruebasDesde,
 		&i.Rechazos,
 		&i.RechazosDesde,
+		&i.RegistroEnCursoHasta,
 	)
 	return i, err
 }
@@ -1195,12 +1196,41 @@ func (q *Queries) RechazosCentralita(ctx context.Context, id int64) (RechazosCen
 	return i, err
 }
 
+const reservarPruebaRegistro = `-- name: ReservarPruebaRegistro :execrows
+UPDATE mensajeria.centralitas SET registro_en_curso_hasta = $1::timestamptz
+WHERE id = $2 AND (registro_en_curso_hasta IS NULL OR registro_en_curso_hasta <= $3::timestamptz)
+`
+
+type ReservarPruebaRegistroParams struct {
+	Hasta time.Time
+	ID    int64
+	Ahora time.Time
+}
+
+// Reserva el turno de «Probar registro» de la centralita (uno a la vez); 0 filas si otro lo tiene.
+func (q *Queries) ReservarPruebaRegistro(ctx context.Context, arg ReservarPruebaRegistroParams) (int64, error) {
+	result, err := q.db.Exec(ctx, reservarPruebaRegistro, arg.Hasta, arg.ID, arg.Ahora)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const soltarConexionTelefono = `-- name: SoltarConexionTelefono :exec
 DELETE FROM mensajeria.telefono_conexiones WHERE id = $1
 `
 
 func (q *Queries) SoltarConexionTelefono(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, soltarConexionTelefono, id)
+	return err
+}
+
+const soltarPruebaRegistro = `-- name: SoltarPruebaRegistro :exec
+UPDATE mensajeria.centralitas SET registro_en_curso_hasta = NULL WHERE id = $1
+`
+
+func (q *Queries) SoltarPruebaRegistro(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, soltarPruebaRegistro, id)
 	return err
 }
 

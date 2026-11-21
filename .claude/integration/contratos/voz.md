@@ -1355,6 +1355,10 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
     y la conexión del puente responden el mismo 429.
   - 429 `demasiados_intentos`: más de 3 pruebas por minuto de la extensión o 10 de la centralita (solo
     contra ráfagas).
+  - Un solo REGISTER de prueba a la vez por centralita (el REGISTER corre fuera de la transacción: el
+    turno se reserva con un `UPDATE` condicional en `registro_en_curso_hasta`, vence a los 30 s y se
+    suelta al guardar el resultado). La otra recibe 429 `prueba_en_curso`, o `demasiados_rechazos` si la
+    centralita ya tiene rechazos en la ventana, con `Retry-After: 10`.
 - `Extension` y `MiExtension` también se ven en `GET /centralitas/{id}/extensiones` (con los campos de
   arriba) y `GET /centralita/mi-extension` (suma `tipo`).
 
@@ -1507,7 +1511,8 @@ conexión; límites; adopción por el AMI; llamada directa.
   `credenciales`), la extensión queda con `sip_probado_en` vacío y `sip_rechazado_en` marcado (si la
   contraseña sigue siendo la misma con la que se conectó) (`extension.registro_probado` con `estado:
   credenciales`, `origen: puente`), el rechazo cuenta para el tope de la centralita (429
-  `demasiados_rechazos`) y el teléfono no se abre (422 `registro_sin_probar`) hasta un «Probar registro»
+  `demasiados_rechazos`; se anota primero y como sistema, con la centralita de la conexión, así cuenta
+  aunque la extensión ya no exista o la sesión se haya cerrado) y el teléfono no se abre (422 `registro_sin_probar`) hasta un «Probar registro»
   que pase. Una credencial nueva también exige esa prueba.
 - **TURN agotable** (I4): el usuario TURN es el mismo para la persona en cada ventana de `IRIS_TURN_VIDA`
   (`<fin_de_ventana>:iris-<usuario>`, válido entre 1 y 2 ventanas), así vale el `user-quota=4` de coturn;
