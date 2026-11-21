@@ -393,3 +393,23 @@ func TestTelefonoAbrirYConectarTomanElTurno(t *testing.T) {
 	b.avanzarReloj(21 * time.Second)
 	b.abrir(b.agente, "panel")
 }
+
+// CI de #258: el puente marca el rechazo en su propia transacción, después de contarlo. Si la marca
+// llega en el mismo instante en que se guarda otra contraseña (el reloj de las pruebas está quieto),
+// la nueva no puede quedar como rechazada: guardar otra contraseña borra el rechazo de la anterior.
+func TestTelefonoOtraContrasenaBorraElRechazoAunqueSeaAlMismoInstante(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	b.guardarSecreto("otra-clave-mala")
+	b.sql(`UPDATE mensajeria.centralita_extensiones SET sip_rechazado_en = $2 WHERE id = $1`, int64(b.extID), *b.reloj)
+	b.guardarSecreto(secretoSIP)
+	var rechazado *time.Time
+	_ = b.bd.QueryRow(b.ctx, `SELECT sip_rechazado_en FROM mensajeria.centralita_extensiones WHERE id = $1`, int64(b.extID)).Scan(&rechazado)
+	if rechazado != nil {
+		t.Fatalf("sip_rechazado_en tras guardar otra contraseña: %v", rechazado)
+	}
+	b.exigir(b.probarRegistro(), http.StatusOK)
+	// Guardar sin cambiar la contraseña (solo el tipo o el usuario) no borra el rechazo.
+	b.sql(`UPDATE mensajeria.centralita_extensiones SET sip_rechazado_en = $2 WHERE id = $1`, int64(b.extID), *b.reloj)
+	b.exigir(b.api(b.admin, http.MethodPost, b.rutaExt("/telefono"), map[string]any{"tipo": "navegador"}), http.StatusOK)
+	b.exigirProblema(b.probarRegistro(), http.StatusTooManyRequests, "credencial_rechazada")
+}

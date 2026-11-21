@@ -11,8 +11,12 @@ WHERE id = @id
 RETURNING *;
 
 -- name: GuardarTelefonoExtension :one
+-- Otra contraseña (otro `sip_secreto_cifrado`, con su nonce) borra el rechazo de la anterior: el rechazo es de la
+-- contraseña, no de un instante. Comparar horas fallaba cuando el puente marcaba el rechazo en el
+-- mismo instante en que se guardaba la nueva (y la dejaba como rechazada 25 min).
 UPDATE mensajeria.centralita_extensiones SET tipo = @tipo, sip_usuario = sqlc.narg('sip_usuario'), sip_secreto_cifrado = sqlc.narg('sip_secreto_cifrado'),
-    sip_guardado_en = sqlc.narg('sip_guardado_en'), sip_probado_en = sqlc.narg('sip_probado_en'), updated_at = now()
+    sip_guardado_en = sqlc.narg('sip_guardado_en'), sip_probado_en = sqlc.narg('sip_probado_en'),
+    sip_rechazado_en = CASE WHEN sqlc.narg('sip_secreto_cifrado')::bytea IS DISTINCT FROM sip_secreto_cifrado THEN NULL ELSE sip_rechazado_en END, updated_at = now()
 WHERE id = @id AND activa
 RETURNING *;
 

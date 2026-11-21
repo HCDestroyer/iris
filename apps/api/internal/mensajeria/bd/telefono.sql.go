@@ -554,7 +554,8 @@ func (q *Queries) GuardarTelefonoCentralita(ctx context.Context, arg GuardarTele
 
 const guardarTelefonoExtension = `-- name: GuardarTelefonoExtension :one
 UPDATE mensajeria.centralita_extensiones SET tipo = $1, sip_usuario = $2, sip_secreto_cifrado = $3,
-    sip_guardado_en = $4, sip_probado_en = $5, updated_at = now()
+    sip_guardado_en = $4, sip_probado_en = $5,
+    sip_rechazado_en = CASE WHEN $3::bytea IS DISTINCT FROM sip_secreto_cifrado THEN NULL ELSE sip_rechazado_en END, updated_at = now()
 WHERE id = $6 AND activa
 RETURNING id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at, sip_guardado_en, sip_probado_en, sip_rechazado_en, registro_pruebas, registro_pruebas_desde
 `
@@ -568,6 +569,9 @@ type GuardarTelefonoExtensionParams struct {
 	ID                int64
 }
 
+// Otra contraseña (otro `sip_secreto_cifrado`, con su nonce) borra el rechazo de la anterior: el rechazo es de la
+// contraseña, no de un instante. Comparar horas fallaba cuando el puente marcaba el rechazo en el
+// mismo instante en que se guardaba la nueva (y la dejaba como rechazada 25 min).
 func (q *Queries) GuardarTelefonoExtension(ctx context.Context, arg GuardarTelefonoExtensionParams) (MensajeriaCentralitaExtensione, error) {
 	row := q.db.QueryRow(ctx, guardarTelefonoExtension,
 		arg.Tipo,
