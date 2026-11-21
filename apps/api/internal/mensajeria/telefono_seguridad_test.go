@@ -1,0 +1,134 @@
+package mensajeria_test
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/coder/websocket"
+)
+
+// Hallazgos de la revisión de seguridad de E4c (#246) que se prueban de punta a punta.
+
+func (b *bancoTelefono) registrar(w *telefonoWS) {
+	w.mandar(fmt.Sprintf("\nREGISTER sip:%[1]s SIP/2.0\nVia: SIP/2.0/WSS abc.invalid;branch=z9hG4bKreg1\nMax-Forwards: 69\nTo: <sip:201@%[1]s>\n"+
+		"From: <sip:201@%[1]s>;tag=r1\nCall-ID: reg-1\nCSeq: 1 REGISTER\nContact: <sip:201@abc.invalid;transport=ws>\nExpires: 600\nContent-Length: 0\n\n", dominioSIP))
+}
+
+// I3: la Issabel rechaza la credencial: el puente corta, la extensión queda sin «Probar registro» y el
+// teléfono no se vuelve a abrir hasta otra prueba (si no, el navegador reintentaría y fail2ban
+// bloquearía la IP de Iris para todos).
+func TestTelefonoCredencialRechazadaCorta(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	b.exigir(b.api(b.admin, http.MethodPost, b.rutaExt("/telefono"), map[string]any{"tipo": "navegador", "sipSecreto": "otra-clave-mala"}), http.StatusOK)
+	b.sql(`UPDATE mensajeria.centralita_extensiones SET sip_probado_en = now() WHERE id = $1`, int64(b.extID))
+	antes := len(b.sip.Recibidos())
+	w, _, err := b.dial(b.agente, b.abrir(b.agente, "panel"), baseIris)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.registrar(w)
+	w.respuesta(403)
+	if c := w.cierre(); c != 4003 {
+		t.Fatalf("cierre: %d", c)
+	}
+	b.hasta(func() bool {
+		var probado *time.Time
+		_ = b.bd.QueryRow(b.ctx, `SELECT sip_probado_en FROM mensajeria.centralita_extensiones WHERE id = $1`, int64(b.extID)).Scan(&probado)
+		return probado == nil
+	}, "la extensión siguió como probada")
+	b.exigirProblema(b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"}), http.StatusUnprocessableEntity, "registro_sin_probar")
+	if n := len(b.sip.Recibidos()) - antes; n != 2 {
+		t.Fatalf("REGISTER en la centralita: %d (un intento y su reintento)", n)
+	}
+}
+
+// I4 y menores: /abrir con límite por minuto y el mismo usuario TURN en la ventana.
+func TestTelefonoAbrirConLimiteYTURNEstable(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	var usuarios []string
+	for i := 0; i < 6; i++ {
+		r := b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"})
+		b.exigir(r, http.StatusCreated)
+		usuarios = append(usuarios, r.cuerpo["ice"].([]any)[0].(map[string]any)["username"].(string))
+	}
+	b.exigirProblema(b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"}), http.StatusTooManyRequests, "demasiados_intentos")
+	for _, u := range usuarios {
+		if u != usuarios[0] {
+			t.Fatalf("usuario TURN distinto en la misma ventana: %v", usuarios)
+		}
+	}
+	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.exigir(b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"}), http.StatusCreated)
+}
+
+// Menores: un frame binario cierra (no escapa al tope de 200 por minuto) y nada llega a la Issabel.
+func TestTelefonoFrameBinarioCierra(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	antes := len(b.sip.Recibidos())
+	w, _, err := b.dial(b.agente, b.abrir(b.agente, "panel"), baseIris)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancelar := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelar()
+	if err := w.c.Write(ctx, websocket.MessageBinary, []byte("REGISTER")); err != nil {
+		t.Fatal(err)
+	}
+	w.cierre()
+	if n := len(b.sip.Recibidos()) - antes; n != 0 {
+		t.Fatalf("llegó a la centralita: %v", b.sip.Recibidos())
+	}
+}
+
+// Menores: llamada.transferida sale con el 202 de la Issabel, no al validar el REFER.
+func TestTelefonoTransferidaConElAceptado(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	w, _, err := b.dial(b.agente, b.abrir(b.agente, "panel"), baseIris)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := b.api(b.agente, http.MethodPost, "/telefono/llamar", map[string]any{"numero": "55551234"})
+	b.exigir(r, http.StatusCreated)
+	id := r.cuerpo["llamada"].(map[string]any)["id"].(string)
+	w.mandar(sipInvite(r.cuerpo["destino"].(string), "tr1", 1))
+	totag, _ := w.respuesta(200).To().Params.Get("tag")
+	b.hasta(func() bool { return b.estadoLlamada(id) == "en_curso" }, "la llamada no quedó en curso")
+	refer := func(rama, destino string) string {
+		return fmt.Sprintf("\nREFER sip:asterisk@127.0.0.1;transport=ws SIP/2.0\nVia: SIP/2.0/WSS abc.invalid;branch=z9hG4bK%[1]s\nMax-Forwards: 69\n"+
+			"To: <sip:x@%[2]s>;tag=%[3]s\nFrom: <sip:201@%[2]s>;tag=nav-tr1\nCall-ID: call-tr1\nCSeq: 2 REFER\nRefer-To: <sip:%[4]s@%[2]s>\nContent-Length: 0\n\n",
+			rama, dominioSIP, totag, destino)
+	}
+	contar := func() int {
+		return b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'llamada.transferida' AND payload->>'llamada_id' = $1`, id)
+	}
+	w.mandar(refer("rf1", "0019005551234"))
+	w.respuesta(403)
+	if contar() != 0 {
+		t.Fatal("transferida sin el 202")
+	}
+	w.mandar(refer("rf2", "205"))
+	w.respuesta(202)
+	b.hasta(func() bool { return contar() == 1 }, "no salió llamada.transferida con el 202")
+	if p := b.outbox("llamada.transferida", id); p["a_usuario_id"] != float64(b.agente2.id) || p["origen"] != "centralita" {
+		t.Fatalf("llamada.transferida: %v", p)
+	}
+}
+
+// B3: sin confirmar las restricciones de la Issabel (runbook §9.3) el teléfono no se enciende, y
+// quitarlas lo apaga.
+func TestTelefonoRestriccionesConfirmadas(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	r := b.api(b.admin, http.MethodPost, b.ruta("/telefono"), map[string]any{"version": b.version, "wssPuerto": b.sip.Puerto(), "wssRuta": "/ws",
+		"huellaWss": b.sip.Huella(), "sipDominio": dominioSIP, "prefijoSalida": "9", "llamadasPorUsuarioDia": 60, "llamadasSimultaneas": 10})
+	b.exigir(r, http.StatusOK)
+	tel := r.cuerpo["telefono"].(map[string]any)
+	if tel["activo"] != false || tel["restriccionesConfirmadasEn"] != nil {
+		t.Fatalf("sin confirmar: %v", tel)
+	}
+	b.version = r.cuerpo["version"].(float64)
+	b.exigirProblema(b.api(b.admin, http.MethodPost, b.ruta("/telefono/activar"), map[string]any{"version": b.version}), http.StatusUnprocessableEntity,
+		"restricciones_sin_confirmar")
+}

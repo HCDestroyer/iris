@@ -376,15 +376,22 @@ func (m *Modulo) centralitaMarca(ctx context.Context, t *auditoria.Tx, q *mensaj
 	// E4c: la saliente que marcó el puente de Iris desde esta extensión ya tiene su fila: el AMI la
 	// adopta (toma el Linkedid) en vez de crear otra. Una sola fila por llamada.
 	if h.numero != "" {
-		l, err := q.AdoptarLlamadaPuente(ctx, mensajeriabd.AdoptarLlamadaPuenteParams{Linkedid: h.linkedid, CentralitaID: c.ID, Extension: x.Extension,
-			Digitos: soloDigitos(h.numero), Desde: ahora.Add(-2 * time.Minute)})
-		if err == nil {
+		cs, err := q.CandidatasAdoptarPuente(ctx, mensajeriabd.CandidatasAdoptarPuenteParams{CentralitaID: c.ID, Extension: x.Extension,
+			Desde: ahora.Add(-2 * time.Minute)})
+		if err != nil {
+			return false, err
+		}
+		// El mismo número completo (E.164), no solo los últimos dígitos.
+		for _, l := range cs {
+			if l.Numero != h.numero {
+				continue
+			}
+			if _, err := q.AdoptarLlamadaPuente(ctx, mensajeriabd.AdoptarLlamadaPuenteParams{ID: l.ID, Linkedid: h.linkedid}); err != nil {
+				return false, err
+			}
 			t.FijarEntidad("centralita_llamada", l.ID)
 			t.Anotar(map[string]any{"adoptada": true})
 			return true, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return false, err
 		}
 	}
 	p, err := m.paramsLlamadaCentralita(ctx, q, c, h, "saliente", ahora)

@@ -18,8 +18,11 @@ ALTER TABLE mensajeria.centralitas ADD COLUMN llamadas_por_usuario_dia integer N
 ALTER TABLE mensajeria.centralitas ADD COLUMN llamadas_simultaneas integer NOT NULL DEFAULT 10 CHECK (llamadas_simultaneas BETWEEN 1 AND 100);
 -- La última prueba del WSS que pasó con los datos actuales (encender el teléfono la exige).
 ALTER TABLE mensajeria.centralitas ADD COLUMN telefono_probado_en timestamptz;
+-- Cuándo el administrador confirmó las restricciones de la Issabel (runbook §9.3: contexto propio que
+-- solo sale a Guatemala, sin transferencias por DTMF, sin desvíos). Encender el teléfono la exige.
+ALTER TABLE mensajeria.centralitas ADD COLUMN restricciones_confirmadas_en timestamptz;
 ALTER TABLE mensajeria.centralitas ADD CONSTRAINT centralitas_telefono_ck
-    CHECK (NOT telefono_activo OR (wss_huella IS NOT NULL AND telefono_probado_en IS NOT NULL));
+    CHECK (NOT telefono_activo OR (wss_huella IS NOT NULL AND telefono_probado_en IS NOT NULL AND restricciones_confirmadas_en IS NOT NULL));
 
 -- La credencial SIP de la extensión del navegador (centralita.asignar_extension): solo escritura.
 ALTER TABLE mensajeria.centralita_extensiones ADD COLUMN sip_guardado_en timestamptz;
@@ -39,6 +42,8 @@ CREATE TABLE mensajeria.centralita_grupos (
     created_at    timestamptz NOT NULL DEFAULT now(),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
+-- Los números internos que marca el teléfono son de 2 a 6 cifras (8 o más cifras saldrían a la calle).
+ALTER TABLE mensajeria.centralita_grupos ADD CONSTRAINT centralita_grupos_numero_corto_ck CHECK (numero ~ '^[0-9]{2,6}$');
 CREATE UNIQUE INDEX centralita_grupos_numero_uq ON mensajeria.centralita_grupos (centralita_id, numero) WHERE activo;
 
 -- Tickets de un solo uso para abrir el WebSocket del teléfono (30 s), atados a la sesión.
@@ -109,6 +114,7 @@ ALTER TABLE mensajeria.centralita_extensiones DROP CONSTRAINT centralita_extensi
 ALTER TABLE mensajeria.centralita_extensiones DROP COLUMN sip_probado_en;
 ALTER TABLE mensajeria.centralita_extensiones DROP COLUMN sip_guardado_en;
 ALTER TABLE mensajeria.centralitas DROP CONSTRAINT centralitas_telefono_ck;
+ALTER TABLE mensajeria.centralitas DROP COLUMN restricciones_confirmadas_en;
 ALTER TABLE mensajeria.centralitas DROP COLUMN telefono_probado_en;
 ALTER TABLE mensajeria.centralitas DROP COLUMN llamadas_simultaneas;
 ALTER TABLE mensajeria.centralitas DROP COLUMN llamadas_por_usuario_dia;

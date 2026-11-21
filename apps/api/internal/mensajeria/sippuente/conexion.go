@@ -53,16 +53,20 @@ func NuevoLadoWS(c *websocket.Conn, maximo int64) *LadoWS {
 	return &LadoWS{c: c}
 }
 
-// Leer un mensaje de texto (los binarios se descartan).
+var errBinario = errors.New("sippuente: mensaje binario")
+
+// Leer un mensaje de texto (un binario es un error).
 func (l *LadoWS) Leer(ctx context.Context) ([]byte, error) {
 	for {
 		t, b, err := l.c.Read(ctx)
 		if err != nil {
 			return nil, err
 		}
-		if t == websocket.MessageText {
-			return b, nil
+		if t != websocket.MessageText {
+			// SIP sobre WebSocket va en texto (RFC 7118): un binario corta (y así no escapa al tope por minuto).
+			return nil, errBinario
 		}
+		return b, nil
 	}
 }
 

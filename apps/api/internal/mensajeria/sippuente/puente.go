@@ -54,6 +54,8 @@ const (
 	HechoContestada = "contestada"
 	HechoFallo      = "fallo"
 	HechoColgada    = "colgada"
+	// HechoTransferida: la Issabel aceptó (2xx) el REFER del navegador.
+	HechoTransferida = "transferida"
 )
 
 // HechoLlamada es un cambio de una saliente que marcó el puente.
@@ -64,6 +66,8 @@ type HechoLlamada struct {
 	Codigo int
 	// Cancelada: el navegador mandó CANCEL antes de que contestaran.
 	Cancelada bool
+	// Destino: el número al que se transfirió (transferida).
+	Destino string
 }
 
 // Politica decide en el servidor lo que el navegador puede hacer.
@@ -74,8 +78,10 @@ type Politica interface {
 	Transferir(ctx context.Context, usuario string, llamada *uuid.UUID) (string, error)
 	// Entrante: la llamada de Iris de un INVITE que llega desde la Issabel (o nil).
 	Entrante(ctx context.Context, numero string) *uuid.UUID
-	// Hecho: un cambio de una saliente (contestada, fallo, colgada). En orden, fuera del bucle.
+	// Hecho: un cambio de una saliente (contestada, fallo, colgada, transferida). En orden, fuera del bucle.
 	Hecho(ctx context.Context, h HechoLlamada)
+	// Credenciales: la Issabel rechazó la credencial guardada (el puente corta después).
+	Credenciales(ctx context.Context)
 }
 
 // Opciones del puente.
@@ -132,6 +138,8 @@ type transaccion struct {
 	creada       time.Time
 	acusada      bool // Iris ya mandó el ACK de su final (401/407 convertido)
 	final        bool
+	// destino: el número del REFER (para el hecho «transferida» con el 2xx).
+	destino string
 }
 
 type dialogo struct {
@@ -149,8 +157,11 @@ type dialogo struct {
 	ultimaCSeq                 uint32
 	actividad                  time.Time
 	esLlamada                  bool
-	// Etiquetas del diálogo establecido: la del navegador y la de la Issabel.
+	// Etiquetas del diálogo: la del navegador y la de la Issabel (la segunda, cuando se conoce).
 	tagLocal, tagRemoto string
+	// Último DTMF por INFO (para cortar ## y *2).
+	ultimoDTMF   byte
+	ultimoDTMFEn time.Time
 }
 
 // Puente une el navegador con la Issabel.
@@ -199,9 +210,7 @@ func (p *Puente) Correr(ctx context.Context) error {
 	go func() {
 		defer close(hechosHechos)
 		for h := range p.hechos {
-			hctx, c := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-			p.o.Politica.Hecho(hctx, h)
-			c()
+			p.unHecho(ctx, h)
 		}
 	}()
 	errs := make(chan error, 2)
@@ -251,7 +260,24 @@ func (p *Puente) Cortar(codigo int, motivo string) {
 
 var errCentralita = errors.New("sippuente: la centralita cerró")
 
-func (p *Puente) bucle(ctx context.Context, l Lado, manejar func(context.Context, []byte) error) error {
+func (p *Puente) unHecho(ctx context.Context, h HechoLlamada) {
+	defer func() {
+		if r := recover(); r != nil {
+			p.o.Log.Error("telefono: pánico al guardar un hecho", "panico", r)
+		}
+	}()
+	hctx, c := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer c()
+	p.o.Politica.Hecho(hctx, h)
+}
+
+func (p *Puente) bucle(ctx context.Context, l Lado, manejar func(context.Context, []byte) error) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			p.o.Log.Error("telefono: pánico en el puente", "panico", r)
+			err = errors.New("sippuente: pánico")
+		}
+	}()
 	for {
 		b, err := l.Leer(ctx)
 		if err != nil {
@@ -286,6 +312,10 @@ func (p *Puente) deNavegador(ctx context.Context, b []byte) error {
 	p.mu.Unlock()
 	if esLatido(b) {
 		return nil // CRLF de keep-alive
+	}
+	if validarCrudo(b) != nil {
+		p.o.Log.DebugContext(ctx, "telefono: mensaje del navegador mal formado")
+		return nil
 	}
 	msg, err := sip.ParseMessage(b)
 	if err != nil || !completo(msg) {
@@ -364,13 +394,19 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 	if len(req.GetHeaders("Via")) != 1 {
 		return p.responderNavegador(ctx, req, sip.StatusBadRequest, "Bad Request")
 	}
-	quitar(req, cabecerasAutenticacion...)
-	quitarIris(req)
+	soloPermitidas(req, cabecerasPeticion)
+	if req.Method != sip.REFER {
+		quitar(req, "Refer-To")
+	}
 	rama := req.Via().Params.GetOr("branch", "")
 	if !strings.HasPrefix(rama, sip.RFC3261BranchMagicCookie) || len(rama) > 128 {
 		return p.responderNavegador(ctx, req, sip.StatusBadRequest, "Bad Request")
 	}
-	if !contactosValidos(req, req.Method == sip.REGISTER) {
+	// From siempre el de su extensión (también dentro de un diálogo, en ACK y en CANCEL).
+	if !p.fromPropio(req) {
+		return p.responderNavegador(ctx, req, sip.StatusForbidden, "Forbidden")
+	}
+	if !p.contactosValidos(req, req.Method == sip.REGISTER) {
 		return p.responderNavegador(ctx, req, sip.StatusForbidden, "Forbidden")
 	}
 	if err := filtrarSDP(req, p.o.Relevo); err != nil {
@@ -392,9 +428,6 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 	}
 
 	if etiquetaTo == "" { // fuera de un diálogo
-		if !p.fromPropio(req) {
-			return p.responderNavegador(ctx, req, sip.StatusForbidden, "Forbidden")
-		}
 		quitar(req, "Route")
 		switch req.Method {
 		case sip.REGISTER:
@@ -423,33 +456,26 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 			req.Recipient = sip.Uri{Scheme: "sip", User: dest.Usuario, Host: p.o.Credencial.Dominio}
 			p.mu.Lock()
 			if d == nil {
-				d = &dialogo{saliente: true, avisado: map[string]bool{}}
-				p.dialogos[callID] = d
+				if d = p.nuevoDialogo(callID); d == nil {
+					p.mu.Unlock()
+					return p.responderNavegador(ctx, req, sip.StatusServiceUnavailable, "Service Unavailable")
+				}
 			}
 			d.saliente, d.llamada, d.esLlamada = true, dest.LlamadaID, true
+			d.tagLocal, _ = req.From().Params.Get("tag")
 			p.mu.Unlock()
 		case sip.OPTIONS:
 		default:
-			// BYE, INFO, UPDATE, PRACK y REFER fuera de un diálogo: no.
-			if d == nil {
-				return p.responderNavegador(ctx, req, sip.StatusCallTransactionDoesNotExists, "Call/Transaction Does Not Exist")
-			}
-		}
-		if req.Method != sip.INVITE && d == nil {
-			p.mu.Lock()
-			d = &dialogo{avisado: map[string]bool{}}
-			p.dialogos[callID] = d
-			p.mu.Unlock()
+			// BYE, INFO, UPDATE, PRACK y REFER fuera de un diálogo (sin etiqueta de To): no.
+			return p.responderNavegador(ctx, req, sip.StatusCallTransactionDoesNotExists, "Call/Transaction Does Not Exist")
 		}
 	} else {
 		etiquetaFrom, _ := req.From().Params.Get("tag")
 		p.mu.Lock()
-		valido := d != nil && !d.terminado
+		// Solo una llamada que esta conexión conoce, con sus etiquetas (no se cuela otro diálogo).
+		valido := d != nil && !d.terminado && d.esLlamada && d.tagLocal != "" && etiquetaFrom == d.tagLocal &&
+			(d.tagRemoto == "" || etiquetaTo == d.tagRemoto)
 		confirmado := valido && d.confirmado
-		// En un diálogo establecido, las etiquetas tienen que ser las suyas (no se cuela otro diálogo).
-		if confirmado && d.tagRemoto != "" && (etiquetaFrom != d.tagLocal || etiquetaTo != d.tagRemoto) {
-			valido = false
-		}
 		p.mu.Unlock()
 		if !valido {
 			return p.responderNavegador(ctx, req, sip.StatusCallTransactionDoesNotExists, "Call/Transaction Does Not Exist")
@@ -461,6 +487,19 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 			}
 		case sip.REGISTER, sip.OPTIONS:
 			return p.responderNavegador(ctx, req, sip.StatusForbidden, "Forbidden")
+		case sip.INFO:
+			c, err := digitoINFO(req)
+			if err != nil {
+				return p.responderNavegador(ctx, req, sip.StatusUnsupportedMediaType, "Unsupported Media Type")
+			}
+			if c != 0 {
+				p.mu.Lock()
+				ok := d.dtmfPermitido(c, time.Now())
+				p.mu.Unlock()
+				if !ok {
+					return p.responderNavegador(ctx, req, sip.StatusForbidden, "Forbidden")
+				}
+			}
 		}
 		if req.Method == sip.REFER {
 			if !p.o.Registrar {
@@ -480,9 +519,40 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 			// Solo transferencia ciega a la URI que dio el servidor: sin parámetros ni Replaces.
 			quitar(req, "Refer-To", "r", "Referred-By", "b")
 			req.AppendHeader(sip.NewHeader("Refer-To", "<sip:"+destino+"@"+p.o.Credencial.Dominio+">"))
+			return p.enviarPeticion(ctx, req, callID, rama, destino)
 		}
 	}
-	return p.enviarPeticion(ctx, req, callID, rama)
+	return p.enviarPeticion(ctx, req, callID, rama, "")
+}
+
+// nuevoDialogo (con p.mu tomado): nil si ya hay demasiados guardados.
+func (p *Puente) nuevoDialogo(callID string) *dialogo {
+	if len(p.dialogos) >= maxDialogosGuardado {
+		p.limpiar()
+		if len(p.dialogos) >= maxDialogosGuardado {
+			return nil
+		}
+	}
+	d := &dialogo{avisado: map[string]bool{}, actividad: time.Now()}
+	p.dialogos[callID] = d
+	return d
+}
+
+// contactosValidos: todos los Contact son del navegador y con su usuario SIP ("*" solo en un REGISTER).
+func (p *Puente) contactosValidos(m sip.Message, registro bool) bool {
+	for _, h := range m.GetHeaders("Contact") {
+		if c, ok := h.(*sip.ContactHeader); ok {
+			if !contactoPropio(c) || c.Address.User != p.o.Credencial.Usuario {
+				return false
+			}
+			continue
+		}
+		if registro && strings.TrimSpace(h.Value()) == "*" {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (p *Puente) dialogosVivos() int {
@@ -498,16 +568,14 @@ func (p *Puente) dialogosVivos() int {
 }
 
 // enviarPeticion aplica el desfase de CSeq del diálogo y anota la transacción.
-func (p *Puente) enviarPeticion(ctx context.Context, req *sip.Request, callID, rama string) error {
+func (p *Puente) enviarPeticion(ctx context.Context, req *sip.Request, callID, rama, destino string) error {
 	p.mu.Lock()
 	d := p.dialogos[callID]
 	if d == nil {
-		if len(p.dialogos) >= maxDialogosGuardado {
+		if d = p.nuevoDialogo(callID); d == nil {
 			p.mu.Unlock()
 			return p.responderNavegador(ctx, req, sip.StatusServiceUnavailable, "Service Unavailable")
 		}
-		d = &dialogo{avisado: map[string]bool{}}
-		p.dialogos[callID] = d
 	}
 	cs := req.CSeq()
 	orig := cs.SeqNo
@@ -517,7 +585,8 @@ func (p *Puente) enviarPeticion(ctx context.Context, req *sip.Request, callID, r
 	}
 	d.actividad = time.Now()
 	texto := req.String()
-	t := &transaccion{ramaOriginal: rama, ramaEnviada: rama, metodo: req.Method, delta: d.offset, seqOriginal: orig, texto: texto, callID: callID, creada: time.Now()}
+	t := &transaccion{ramaOriginal: rama, ramaEnviada: rama, metodo: req.Method, delta: d.offset, seqOriginal: orig, texto: texto, callID: callID, creada: time.Now(),
+		destino: destino}
 	p.txs[claveTx{rama, req.Method}] = t
 	if req.IsInvite() {
 		p.invites[rama] = t
@@ -545,7 +614,7 @@ func (p *Puente) ackNavegador(ctx context.Context, req *sip.Request, d *dialogo)
 		p.mu.Unlock()
 		return p.cen.Escribir(ctx, []byte(req.String()))
 	}
-	if d == nil || !d.confirmado {
+	if etiqueta, _ := req.From().Params.Get("tag"); d == nil || !d.confirmado || etiqueta != d.tagLocal {
 		p.mu.Unlock()
 		return nil
 	}
@@ -586,9 +655,19 @@ func (p *Puente) cancelNavegador(ctx context.Context, req *sip.Request, d *dialo
 }
 
 func (p *Puente) respuestaNavegador(ctx context.Context, res *sip.Response) error {
-	quitar(res, cabecerasAutenticacion...)
-	quitarIris(res)
-	if !contactosValidos(res, false) || filtrarSDP(res, p.o.Relevo) != nil {
+	soloPermitidas(res, cabecerasRespuesta)
+	if res.StatusCode < 100 || res.StatusCode > 699 {
+		return nil
+	}
+	if !requireValido(res) {
+		quitar(res, "Require")
+	}
+	if esDesvio(res.StatusCode) {
+		// Un desvío haría que la Issabel llame a otro número (a la troncal): se cambia por 480.
+		res.StatusCode, res.Reason = sip.StatusTemporarilyUnavailable, "Temporarily Unavailable"
+		quitar(res, "Contact")
+	}
+	if !p.contactosValidos(res, false) || filtrarSDP(res, p.o.Relevo) != nil {
 		// Un Contact ajeno o audio fuera del relevo: la Issabel recibe 488 en su lugar.
 		res.StatusCode, res.Reason = sip.StatusNotAcceptableHere, "Not Acceptable Here"
 		quitar(res, "Contact", "m", "Content-Type", "c")
@@ -602,9 +681,6 @@ func (p *Puente) respuestaNavegador(ctx context.Context, res *sip.Response) erro
 		case res.IsSuccess():
 			d.confirmado, d.resp2xxNav = true, res.String()
 			d.tagLocal, _ = res.To().Params.Get("tag")
-			if m, err := sip.ParseMessage([]byte(d.inviteEntrante)); err == nil && m.From() != nil {
-				d.tagRemoto, _ = m.From().Params.Get("tag")
-			}
 		case res.StatusCode >= 300:
 			d.terminado = true
 		}
@@ -658,8 +734,11 @@ func (p *Puente) respuestaCentralita(ctx context.Context, res *sip.Response) err
 			}
 		}
 	}
+	credenciales := false
 	if desafio {
-		// Credenciales rechazadas: el navegador recibe 403, nunca el desafío.
+		// Credenciales rechazadas: el navegador recibe 403, nunca el desafío, y el puente corta (si no,
+		// el navegador reintentaría y el fail2ban de la Issabel bloquearía la IP de Iris para todos).
+		credenciales = true
 		res.StatusCode, res.Reason = sip.StatusForbidden, "Forbidden"
 		if t.metodo == sip.INVITE {
 			if ack := ackNo2xx(t, res); ack != "" {
@@ -705,13 +784,26 @@ func (p *Puente) respuestaCentralita(ctx context.Context, res *sip.Response) err
 				hecho = &HechoLlamada{LlamadaID: *d.llamada, Tipo: HechoColgada}
 			}
 			d.terminado = true
+		case t.metodo == sip.REFER && res.IsSuccess() && d.llamada != nil && t.destino != "":
+			hecho = &HechoLlamada{LlamadaID: *d.llamada, Tipo: HechoTransferida, Destino: t.destino}
+			t.destino = "" // una vez por REFER
 		}
 	}
 	p.mu.Unlock()
 	if hecho != nil {
 		p.avisar(*hecho)
 	}
-	return p.nav.Escribir(ctx, []byte(res.String()))
+	err := p.nav.Escribir(ctx, []byte(res.String()))
+	if credenciales {
+		go func() {
+			defer func() { _ = recover() }()
+			hctx, c := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer c()
+			p.o.Politica.Credenciales(hctx)
+		}()
+		p.Cortar(CierreSinAcceso, "credenciales")
+	}
+	return err
 }
 
 // reintentar manda otra vez la petición con la credencial (CSeq + 1, otra branch). Con un INVITE,
@@ -812,14 +904,16 @@ func (p *Puente) peticionCentralita(ctx context.Context, req *sip.Request) error
 		}
 		p.mu.Lock()
 		if d == nil {
-			if len(p.dialogos) >= maxDialogosGuardado {
+			if d = p.nuevoDialogo(callID); d == nil {
 				p.mu.Unlock()
 				return p.responderCentralita(ctx, req, sip.StatusBusyHere, "Busy Here")
 			}
-			d = &dialogo{avisado: map[string]bool{}, esLlamada: true}
-			p.dialogos[callID] = d
+			d.esLlamada = true
 		}
 		d.inviteEntrante, d.actividad = req.String(), time.Now()
+		d.tagRemoto, _ = req.From().Params.Get("tag")
+		// La etiqueta del navegador la elige él en su respuesta: hasta entonces se acepta la suya.
+		d.tagLocal = "*"
 		p.mu.Unlock()
 		if id := p.o.Politica.Entrante(ctx, req.From().Address.User); id != nil {
 			req.AppendHeader(sip.NewHeader("X-Iris-Llamada", id.String()))

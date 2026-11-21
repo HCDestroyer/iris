@@ -25,25 +25,14 @@ func contactoPropio(c *sip.ContactHeader) bool {
 	return t == "ws" || t == "wss"
 }
 
-// contactosValidos: todos los Contact del mensaje son del navegador ("*" solo en un REGISTER).
-func contactosValidos(m sip.Message, registro bool) bool {
-	for _, h := range m.GetHeaders("Contact") {
-		if c, ok := h.(*sip.ContactHeader); ok {
-			if !contactoPropio(c) {
-				return false
-			}
-			continue
-		}
-		if registro && strings.TrimSpace(h.Value()) == "*" {
-			continue
-		}
-		return false
-	}
-	return len(m.GetHeaders("m")) == 0
-}
-
 // filtrarSDP deja en el cuerpo solo candidatos relay (de relevo, si se conoce su IP). Sin cuerpo SDP no
 // cambia nada; un cuerpo SDP sin ningún candidato válido en una media, o con c= ajeno, es un error.
+// atributosSDP: los a= que el navegador puede mandar (WebRTC); los demás (remote-candidates, …) se quitan.
+var atributosSDP = map[string]bool{"rtpmap": true, "fmtp": true, "rtcp": true, "rtcp-mux": true, "rtcp-rsize": true, "rtcp-fb": true, "ice-ufrag": true,
+	"ice-pwd": true, "ice-options": true, "fingerprint": true, "setup": true, "mid": true, "sendrecv": true, "sendonly": true, "recvonly": true,
+	"inactive": true, "ssrc": true, "ssrc-group": true, "msid": true, "msid-semantic": true, "group": true, "extmap": true, "extmap-allow-mixed": true,
+	"candidate": true, "end-of-candidates": true, "ptime": true, "maxptime": true, "tls-id": true}
+
 func filtrarSDP(m sip.Message, relevo string) error {
 	cuerpo := m.Body()
 	if len(cuerpo) == 0 {
@@ -61,7 +50,12 @@ func filtrarSDP(m sip.Message, relevo string) error {
 		}
 		return errFiltro
 	}
-	lineas := strings.Split(strings.ReplaceAll(string(cuerpo), "\r\n", "\n"), "\n")
+	// El cuerpo del navegador ya pasó validarCrudo (solo CRLF); un CR o LF suelto aquí es un error.
+	texto := string(cuerpo)
+	if strings.Count(texto, "\r") != strings.Count(texto, "\r\n") || strings.Count(texto, "\n") != strings.Count(texto, "\r\n") {
+		return errFiltro
+	}
+	lineas := strings.Split(texto, "\r\n")
 	out := make([]string, 0, len(lineas))
 	medias, conCandidato := 0, 0
 	tieneCandidato := false
@@ -71,6 +65,13 @@ func filtrarSDP(m sip.Message, relevo string) error {
 		}
 	}
 	for _, l := range lineas {
+		if l == "" {
+			out = append(out, l)
+			continue
+		}
+		if len(l) < 2 || l[1] != '=' || !strings.ContainsRune("vosictbma", rune(l[0])) {
+			continue // líneas fuera de la lista (k=, z=, r=, u=, e=, p=…) se quitan
+		}
 		switch {
 		case strings.HasPrefix(l, "m="):
 			cerrarMedia()
@@ -86,13 +87,25 @@ func filtrarSDP(m sip.Message, relevo string) error {
 					return errFiltro
 				}
 			}
-		case strings.HasPrefix(l, "a=candidate:"):
-			f := strings.Fields(l)
-			// a=candidate:<fundación> <componente> <transporte> <prioridad> <ip> <puerto> typ <tipo> …
-			if len(f) < 8 || f[6] != "typ" || f[7] != "relay" || (relevo != "" && f[4] != relevo) {
+		case strings.HasPrefix(l, "a="):
+			nombre, valor, _ := strings.Cut(l[2:], ":")
+			if !atributosSDP[strings.ToLower(nombre)] {
 				continue
 			}
-			tieneCandidato = true
+			switch strings.ToLower(nombre) {
+			case "candidate":
+				f := strings.Fields(valor)
+				// <fundación> <componente> <transporte> <prioridad> <ip> <puerto> typ <tipo> …
+				if len(f) < 8 || f[6] != "typ" || f[7] != "relay" || (relevo != "" && f[4] != relevo) {
+					continue
+				}
+				tieneCandidato = true
+			case "rtcp":
+				// a=rtcp:<puerto> [IN IP4 <ip>]: con dirección, solo la del relevo.
+				if f := strings.Fields(valor); len(f) > 1 && (len(f) != 4 || (relevo != "" && f[3] != relevo)) {
+					continue
+				}
+			}
 		}
 		out = append(out, l)
 	}

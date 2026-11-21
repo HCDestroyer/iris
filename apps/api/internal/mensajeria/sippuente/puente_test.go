@@ -96,7 +96,9 @@ type politicaFalsa struct {
 	mu      sync.Mutex
 	llamada uuid.UUID
 	hechos  []sippuente.HechoLlamada
-	usados  map[string]bool
+	// credenciales: veces que la Issabel rechazó la credencial.
+	credenciales int
+	usados       map[string]bool
 }
 
 func (p *politicaFalsa) Invitar(_ context.Context, u string) (sippuente.Destino, error) {
@@ -125,6 +127,12 @@ func (p *politicaFalsa) Entrante(context.Context, string) *uuid.UUID {
 	return &id
 }
 
+func (p *politicaFalsa) Credenciales(context.Context) {
+	p.mu.Lock()
+	p.credenciales++
+	p.mu.Unlock()
+}
+
 func (p *politicaFalsa) Hecho(_ context.Context, h sippuente.HechoLlamada) {
 	p.mu.Lock()
 	p.hechos = append(p.hechos, h)
@@ -142,6 +150,9 @@ func (p *politicaFalsa) tipos() []string {
 		}
 		if h.Cancelada {
 			s += ":cancelada"
+		}
+		if h.Destino != "" {
+			s += ":" + h.Destino
 		}
 		out = append(out, s)
 	}
@@ -251,7 +262,7 @@ To: <sip:%[3]s@%[1]s>
 From: "Ana" <sip:%[3]s@%[1]s>;tag=nav1
 Call-ID: reg-call-1
 CSeq: %[4]d REGISTER
-Contact: <sip:x7@abc.invalid;transport=ws>;expires=600
+Contact: <sip:201@abc.invalid;transport=ws>;expires=600
 Expires: 86400
 %[5]sContent-Length: 0
 
@@ -267,9 +278,9 @@ To: <sip:%[1]s@%[2]s>
 From: "Ana" <sip:%[4]s@%[2]s>;tag=nav2
 Call-ID: inv-call-1
 CSeq: %[5]d INVITE
-Contact: <sip:x7@abc.invalid;transport=ws;ob>
+Contact: <sip:201@abc.invalid;transport=ws;ob>
 Content-Type: application/sdp
-Content-Length: 4
+Content-Length: 5
 
 v=0
 `, uri, dominio, rama, usuarioSIP, seq)
@@ -328,6 +339,28 @@ func TestCredencialRechazadaEs403(t *testing.T) {
 	b := nuevoBanco(t, nil, "otra-clave-mala")
 	b.mandar(register(1, "m1", ""))
 	b.respuesta(403)
+	// Y corta: el navegador no puede seguir reintentando (fail2ban bloquearía la IP de Iris).
+	select {
+	case <-b.hecho:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no cortó con la credencial rechazada")
+	}
+	b.nav.mu.Lock()
+	codigo := b.nav.codigo
+	b.nav.mu.Unlock()
+	if codigo != sippuente.CierreSinAcceso {
+		t.Fatalf("cierre %d", codigo)
+	}
+	for fin := time.Now().Add(2 * time.Second); time.Now().Before(fin); time.Sleep(10 * time.Millisecond) {
+		b.pol.mu.Lock()
+		n := b.pol.credenciales
+		b.pol.mu.Unlock()
+		if n == 1 {
+			b.hecho <- nil
+			return
+		}
+	}
+	t.Fatal("no avisó la credencial rechazada")
 }
 
 func TestRechazosLocales(t *testing.T) {
@@ -403,7 +436,7 @@ func TestSalienteConDesafioACKYBye(t *testing.T) {
 	if byes := b.recibidosCon(empieza("BYE")); len(byes) != 1 || !strings.Contains(byes[0], "CSeq: 13 BYE") {
 		t.Fatalf("BYE en la centralita: %v", byes)
 	}
-	esperarHechos(t, b.pol, "contestada", "colgada")
+	esperarHechos(t, b.pol, "contestada", "transferida:205", "colgada")
 	// El mismo destino no se puede volver a marcar.
 	b.mandar(strings.Replace(invite("iris-"+b.pol.llamada.String(), "i2", 1), "inv-call-1", "inv-call-2", 1))
 	b.respuesta(403)
@@ -487,7 +520,7 @@ func TestEntranteYColgarAlCortar(t *testing.T) {
 		t.Fatalf("X-Iris-Llamada: %v", h)
 	}
 	r := sip.NewResponseFromRequest(inv, 200, "OK", nil)
-	r.AppendHeader(sip.NewHeader("Contact", "<sip:x7@abc.invalid;transport=ws>"))
+	r.AppendHeader(sip.NewHeader("Contact", "<sip:201@abc.invalid;transport=ws>"))
 	b.nav.entrada <- []byte(r.String())
 	if _, ok := b.falso.Esperar(2*time.Second, empieza("SIP/2.0 200 OK")); !ok {
 		t.Fatal("la 2xx no llegó a la centralita")

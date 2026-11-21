@@ -28,9 +28,10 @@ type TURNEntorno struct {
 	RelayIP string
 }
 
-// Configurado: hay URLs y secreto.
+// Configurado: hay URLs, secreto y la IP del relevo (sin ella el puente no podría exigir que el audio
+// vaya solo al TURN de Iris).
 func (t TURNEntorno) Configurado() bool {
-	return len(t.URLs) > 0 && len(t.Secreto) >= 16
+	return len(t.URLs) > 0 && len(t.Secreto) >= 16 && t.RelayIP != ""
 }
 
 // TURNDesdeVariables lee IRIS_TURN_URLS (separadas por comas), IRIS_TURN_SECRETO e IRIS_TURN_VIDA.
@@ -100,7 +101,9 @@ type ServidorICE struct {
 
 // credencialTURN: username = <vence_unix>:iris-<usuario>, credential = base64(HMAC-SHA1(secreto, username)).
 func (t TURNEntorno) credencial(usuario int64, ahora time.Time) (ServidorICE, time.Time) {
-	vence := ahora.Add(t.Vida).Truncate(time.Second)
+	// El mismo usuario TURN para la persona en cada ventana de Vida (así vale el --user-quota de coturn
+	// aunque abra el teléfono varias veces); dura entre Vida y 2 × Vida.
+	vence := ahora.Truncate(t.Vida).Add(2 * t.Vida)
 	nombre := strconv.FormatInt(vence.Unix(), 10) + ":iris-" + strconv.FormatInt(usuario, 10)
 	h := hmac.New(sha1.New, []byte(t.Secreto))
 	h.Write([]byte(nombre))

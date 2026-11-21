@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humachi"
@@ -17,8 +18,8 @@ const descTelefono = " Solo personas con su sesión (panel o app); un token de A
 	"Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c)."
 
 type entradaTelefonoSIPHTTP struct {
-	Ticket string `query:"ticket" maxLength:"64" doc:"El ticket de un solo uso de POST /telefono/abrir"`
-	Origin string `header:"Origin" doc:"Si viene, tiene que ser el de IRIS_BASE_URL"`
+	Protocolos string `header:"Sec-WebSocket-Protocol" maxLength:"200" doc:"sip, iris-ticket.<ticket> (el ticket de un solo uso de POST /telefono/abrir; no va en la URL)"`
+	Origin     string `header:"Origin" doc:"Si viene, tiene que ser el de IRIS_BASE_URL"`
 }
 
 type grupoAccionHTTP struct {
@@ -50,7 +51,7 @@ func (m *Modulo) registrarTelefono(api huma.API) {
 		})
 	huma.Register(api, d(op("abrirTelefono", http.MethodPost, "/telefono/abrir", "Abrir el teléfono (ticket del WebSocket y TURN)", "",
 		http.StatusCreated, http.StatusServiceUnavailable),
-		"Devuelve la ruta del WebSocket con un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin "+
+		"Devuelve la ruta del WebSocket, un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin "+
 			"contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, "+
 			"`sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. `dispositivo: app` solo marca (no registra ni recibe)."),
 		func(ctx context.Context, in *cuerpoHTTP[EntradaAbrirTelefono]) (*cuerpo[SesionTelefono], error) {
@@ -62,12 +63,12 @@ func (m *Modulo) registrarTelefono(api huma.API) {
 		})
 	sip := d(op("telefonoSIP", http.MethodGet, "/telefono/sip", "WebSocket SIP del teléfono (subprotocolo sip, RFC 7118)", "",
 		http.StatusOK, http.StatusForbidden, http.StatusServiceUnavailable),
-		"Iris es el puente con la Issabel: responde los desafíos de autenticación en el servidor, deja marcar solo los destinos de `llamar` "+
+		"Se abre con los subprotocolos `sip` e `iris-ticket.<ticket>` (el ticket no va en la URL). Iris es el puente con la Issabel: responde los desafíos de autenticación en el servidor, deja marcar solo los destinos de `llamar` "+
 			"(o extensiones y grupos de la centralita) y transferir solo a `transferir/destinos`. 403 `ticket_no_valido` u `origen_no_permitido`; 503 "+
 			"`centralita_no_responde`. Cierres: 4001 `reemplazada`, 4003 `sin_acceso`, 4008 `limite`, 4502 `centralita_no_responde`.")
 	sip.Responses = map[string]*huma.Response{"101": {Description: "Cambio a WebSocket (subprotocolo sip)"}}
 	huma.Register(api, sip, func(ctx context.Context, in *entradaTelefonoSIPHTTP) (*huma.StreamResponse, error) {
-		tp, err := m.prepararTelefono(ctx, in.Ticket, in.Origin)
+		tp, err := m.prepararTelefono(ctx, ticketDeProtocolos(in.Protocolos), in.Origin)
 		if err != nil {
 			return nil, err
 		}
@@ -180,4 +181,14 @@ func (m *Modulo) registrarTelefono(api huma.API) {
 			}
 			return responder(r, err)
 		})
+}
+
+// ticketDeProtocolos saca el ticket del subprotocolo iris-ticket.<ticket> (o "").
+func ticketDeProtocolos(v string) string {
+	for _, p := range strings.Split(v, ",") {
+		if t, ok := strings.CutPrefix(strings.TrimSpace(p), ProtocoloTicket); ok && t != "" && len(t) <= 64 {
+			return t
+		}
+	}
+	return ""
 }

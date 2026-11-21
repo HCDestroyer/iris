@@ -46,7 +46,8 @@ func nuevoBancoTelefono(t *testing.T) *bancoTelefono {
 	t.Cleanup(falso.Cerrar)
 	x := nuevoBancoCentralita(t, func(c *mensajeria.Config) {
 		c.CentralitaPuertos = append(c.CentralitaPuertos, falso.Puerto())
-		c.TURN = mensajeria.TURNEntorno{URLs: []string{"turn:iris.prueba:3478?transport=udp", "turns:iris.prueba:5349?transport=tcp"}, Secreto: secretoTURN}
+		c.TURN = mensajeria.TURNEntorno{URLs: []string{"turn:iris.prueba:3478?transport=udp", "turns:iris.prueba:5349?transport=tcp"}, Secreto: secretoTURN,
+			RelayIP: "10.20.0.9"}
 		c.TelefonoLatido = 150 * time.Millisecond
 		c.BaseURL = baseIris
 		c.Campo = campo.Nuevo(campo.Config{Reloj: c.Ahora, Soporte: c.Soporte, Adjuntos: campo.SinAdjuntosObligatorios{}})
@@ -70,6 +71,13 @@ func nuevoBancoTelefono(t *testing.T) *bancoTelefono {
 	if r.cuerpo["sipGuardadoEn"] == nil || r.cuerpo["tipo"] != "navegador" || r.cuerpo["sipUsuario"] != "201" || strings.Contains(fmt.Sprint(r.cuerpo), secretoSIP) {
 		t.Fatalf("extensión: %v", r.cuerpo)
 	}
+	// Sin «Probar registro» que pase no se abre el teléfono.
+	x.exigirProblema(x.api(x.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"}), http.StatusUnprocessableEntity, "registro_sin_probar")
+	r = x.api(x.admin, http.MethodPost, b.rutaExt("/probar-registro"), map[string]any{})
+	x.exigir(r, http.StatusOK)
+	if r.cuerpo["estado"] != "ok" {
+		t.Fatalf("probar registro: %v", r.cuerpo)
+	}
 	return b
 }
 
@@ -90,6 +98,15 @@ func (b *bancoTelefono) configurar() {
 		"huellaWss": b.sip.Huella(), "sipDominio": dominioSIP, "prefijoSalida": "9", "llamadasPorUsuarioDia": 60, "llamadasSimultaneas": 10})
 	b.exigir(r, http.StatusOK)
 	b.version = r.cuerpo["version"].(float64)
+	if r.cuerpo["telefono"].(map[string]any)["restriccionesConfirmadasEn"] != nil {
+		b.t.Fatalf("sin confirmar: %v", r.cuerpo)
+	}
+	// Sin confirmar las restricciones de la Issabel (contexto, DTMF, desvíos) no se enciende.
+	r = b.api(b.admin, http.MethodPost, b.ruta("/telefono"), map[string]any{"version": b.version, "wssPuerto": b.sip.Puerto(), "wssRuta": "/ws",
+		"huellaWss": b.sip.Huella(), "sipDominio": dominioSIP, "prefijoSalida": "9", "llamadasPorUsuarioDia": 60, "llamadasSimultaneas": 10,
+		"confirmoRestricciones": true})
+	b.exigir(r, http.StatusOK)
+	b.version = r.cuerpo["version"].(float64)
 	b.exigirProblema(b.api(b.admin, http.MethodPost, b.ruta("/telefono/activar"), map[string]any{"version": b.version}), http.StatusUnprocessableEntity, "sin_probar")
 	r = b.api(b.admin, http.MethodPost, b.ruta("/telefono/probar"), map[string]any{})
 	b.exigir(r, http.StatusOK)
@@ -106,11 +123,12 @@ func (b *bancoTelefono) configurar() {
 	}
 }
 
+// abrir devuelve el ticket.
 func (b *bancoTelefono) abrir(p persona, dispositivo string) string {
 	b.t.Helper()
 	r := b.api(p, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": dispositivo})
 	b.exigir(r, http.StatusCreated)
-	return r.cuerpo["ws"].(string)
+	return r.cuerpo["ticket"].(string)
 }
 
 type telefonoWS struct {
@@ -118,7 +136,8 @@ type telefonoWS struct {
 	c *websocket.Conn
 }
 
-func (b *bancoTelefono) dial(p persona, ruta string, origen string) (*telefonoWS, int, error) {
+// dial abre el WebSocket del teléfono con el ticket como subprotocolo.
+func (b *bancoTelefono) dial(p persona, ticket string, origen string) (*telefonoWS, int, error) {
 	h := http.Header{}
 	h.Add("Cookie", identidad.CookieSesion+"="+p.cookie)
 	if p.empresa != 0 {
@@ -129,7 +148,8 @@ func (b *bancoTelefono) dial(p persona, ruta string, origen string) (*telefonoWS
 	}
 	ctx, cancelar := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelar()
-	c, resp, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(b.srv.URL, "http")+ruta, &websocket.DialOptions{Subprotocols: []string{"sip"}, HTTPHeader: h})
+	c, resp, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(b.srv.URL, "http")+mensajeria.RutaTelefonoSIP,
+		&websocket.DialOptions{Subprotocols: []string{"sip", mensajeria.ProtocoloTicket + ticket}, HTTPHeader: h})
 	status := 0
 	if resp != nil {
 		status = resp.StatusCode
@@ -210,9 +230,9 @@ To: <%[1]s>
 From: "Ana" <sip:201@%[3]s>;tag=nav-%[2]s
 Call-ID: call-%[2]s
 CSeq: %[4]d INVITE
-Contact: <sip:x7@abc.invalid;transport=ws;ob>
+Contact: <sip:201@abc.invalid;transport=ws;ob>
 Content-Type: application/sdp
-Content-Length: 4
+Content-Length: 5
 
 v=0
 `, uri, rama, dominioSIP, seq)
@@ -323,7 +343,8 @@ func TestTelefonoMioYAbrir(t *testing.T) {
 		t.Fatal("abrir devuelve un secreto")
 	}
 	sipm := r.cuerpo["sip"].(map[string]any)
-	if sipm["uri"] != "sip:201@"+dominioSIP || r.cuerpo["politicaIce"] != "relay" || !strings.HasPrefix(r.cuerpo["ws"].(string), mensajeria.RutaTelefonoSIP+"?ticket=") {
+	if sipm["uri"] != "sip:201@"+dominioSIP || r.cuerpo["politicaIce"] != "relay" || r.cuerpo["ws"] != mensajeria.RutaTelefonoSIP || strings.Contains(r.cuerpo["ws"].(string), "ticket") ||
+		fmt.Sprint(r.cuerpo["protocolos"]) != fmt.Sprintf("[sip %s%s]", mensajeria.ProtocoloTicket, r.cuerpo["ticket"]) {
 		t.Fatalf("abrir: %v", r.cuerpo)
 	}
 	ice := r.cuerpo["ice"].([]any)[0].(map[string]any)
@@ -334,7 +355,7 @@ func TestTelefonoMioYAbrir(t *testing.T) {
 		t.Fatalf("TURN: %v", ice)
 	}
 	// El ticket es de un solo uso, de esta sesión y con Origin del panel.
-	ws := r.cuerpo["ws"].(string)
+	ws := r.cuerpo["ticket"].(string)
 	if _, status, err := b.dial(b.agente, ws, "https://otro.sitio"); err == nil || status != http.StatusForbidden {
 		t.Fatalf("Origin ajeno: %v", err)
 	}
@@ -359,7 +380,7 @@ func TestTelefonoPuenteDePuntaAPunta(t *testing.T) {
 	}
 	// Registrarse: el desafío lo responde Iris.
 	w.mandar(fmt.Sprintf("\nREGISTER sip:%[1]s SIP/2.0\nVia: SIP/2.0/WSS abc.invalid;branch=z9hG4bKreg1\nMax-Forwards: 69\nTo: <sip:201@%[1]s>\n"+
-		"From: <sip:201@%[1]s>;tag=r1\nCall-ID: reg-1\nCSeq: 1 REGISTER\nContact: <sip:x7@abc.invalid;transport=ws>\nExpires: 600\nContent-Length: 0\n\n", dominioSIP))
+		"From: <sip:201@%[1]s>;tag=r1\nCall-ID: reg-1\nCSeq: 1 REGISTER\nContact: <sip:201@abc.invalid;transport=ws>\nExpires: 600\nContent-Length: 0\n\n", dominioSIP))
 	w.respuesta(200)
 	// Un número libre no llega a la Issabel.
 	w.mandar(sipInvite("sip:+15551234567@"+dominioSIP, "libre", 1))
@@ -436,7 +457,7 @@ func TestTelefonoAppSoloMarca(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.mandar(fmt.Sprintf("\nREGISTER sip:%[1]s SIP/2.0\nVia: SIP/2.0/WSS abc.invalid;branch=z9hG4bKreg1\nMax-Forwards: 69\nTo: <sip:201@%[1]s>\n"+
-		"From: <sip:201@%[1]s>;tag=r1\nCall-ID: reg-1\nCSeq: 1 REGISTER\nContact: <sip:x7@abc.invalid;transport=ws>\nContent-Length: 0\n\n", dominioSIP))
+		"From: <sip:201@%[1]s>;tag=r1\nCall-ID: reg-1\nCSeq: 1 REGISTER\nContact: <sip:201@abc.invalid;transport=ws>\nContent-Length: 0\n\n", dominioSIP))
 	w.respuesta(403)
 }
 
@@ -522,6 +543,8 @@ func TestTelefonoOrdenYLlamadaDirecta(t *testing.T) {
 	}
 	b.exigir(b.api(b.admin, http.MethodPost, b.ruta(fmt.Sprintf("/extensiones/%d/telefono", ext)), map[string]any{"tipo": "navegador", "sipSecreto": "clave-del-tecnico"}),
 		http.StatusOK)
+	// El Asterisk falso solo conoce la 201: la prueba del registro del técnico se da por hecha.
+	b.sql(`UPDATE mensajeria.centralita_extensiones SET sip_probado_en = now() WHERE id = $1`, ext)
 	r = b.api(b.tecnico, http.MethodPost, "/telefono/llamar", map[string]any{"ordenId": orden})
 	b.exigir(r, http.StatusCreated)
 	if l := r.cuerpo["llamada"].(map[string]any); l["numero"] != "+50255557777" || l["ordenId"] != float64(orden) {

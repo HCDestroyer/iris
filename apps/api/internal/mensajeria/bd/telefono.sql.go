@@ -13,34 +13,16 @@ import (
 )
 
 const adoptarLlamadaPuente = `-- name: AdoptarLlamadaPuente :one
-UPDATE mensajeria.llamadas SET id_externo = $1, updated_at = now()
-WHERE id = (SELECT l.id FROM mensajeria.llamadas l
-            WHERE l.puente AND l.origen = 'centralita' AND l.centralita_id = $2::bigint AND l.extension = $3::text
-              AND right(regexp_replace(l.numero, '\D', '', 'g'), 8) = right($4::text, 8) AND length($4::text) >= 8
-              AND l.id_externo LIKE 'iris:%' AND l.estado IN ('marcando', 'en_curso') AND l.sono_en > $5::timestamptz
-            ORDER BY l.sono_en DESC
-            LIMIT 1
-            FOR UPDATE)
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version, orden_id, puente, invite_en
+UPDATE mensajeria.llamadas SET id_externo = $1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version, orden_id, puente, invite_en
 `
 
 type AdoptarLlamadaPuenteParams struct {
-	Linkedid     string
-	CentralitaID int64
-	Extension    string
-	Digitos      string
-	Desde        time.Time
+	Linkedid string
+	ID       uuid.UUID
 }
 
-// El AMI ve la misma saliente que marcó el puente: toma su fila en vez de crear otra.
 func (q *Queries) AdoptarLlamadaPuente(ctx context.Context, arg AdoptarLlamadaPuenteParams) (MensajeriaLlamada, error) {
-	row := q.db.QueryRow(ctx, adoptarLlamadaPuente,
-		arg.Linkedid,
-		arg.CentralitaID,
-		arg.Extension,
-		arg.Digitos,
-		arg.Desde,
-	)
+	row := q.db.QueryRow(ctx, adoptarLlamadaPuente, arg.Linkedid, arg.ID)
 	var i MensajeriaLlamada
 	err := row.Scan(
 		&i.ID,
@@ -122,6 +104,111 @@ DELETE FROM mensajeria.telefono_tickets WHERE expira_en < $1::timestamptz
 func (q *Queries) BorrarTicketsTelefono(ctx context.Context, antes time.Time) error {
 	_, err := q.db.Exec(ctx, borrarTicketsTelefono, antes)
 	return err
+}
+
+const candidatasAdoptarPuente = `-- name: CandidatasAdoptarPuente :many
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version, orden_id, puente, invite_en FROM mensajeria.llamadas
+WHERE puente AND origen = 'centralita' AND centralita_id = $1::bigint AND extension = $2::text
+  AND id_externo LIKE 'iris:%' AND estado IN ('marcando', 'en_curso') AND sono_en > $3::timestamptz
+ORDER BY sono_en DESC
+LIMIT 5
+FOR UPDATE
+`
+
+type CandidatasAdoptarPuenteParams struct {
+	CentralitaID int64
+	Extension    string
+	Desde        time.Time
+}
+
+// Salientes del puente de esa extensión aún sin Linkedid (el AMI adopta la que marcó el mismo número).
+func (q *Queries) CandidatasAdoptarPuente(ctx context.Context, arg CandidatasAdoptarPuenteParams) ([]MensajeriaLlamada, error) {
+	rows, err := q.db.Query(ctx, candidatasAdoptarPuente, arg.CentralitaID, arg.Extension, arg.Desde)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MensajeriaLlamada
+	for rows.Next() {
+		var i MensajeriaLlamada
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.Origen,
+			&i.CanalID,
+			&i.ConversacionID,
+			&i.MensajeID,
+			&i.IDExterno,
+			&i.Direccion,
+			&i.Numero,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.ColaID,
+			&i.Estado,
+			&i.AtendidaPor,
+			&i.UsuarioID,
+			&i.ReclamadaPor,
+			&i.ReclamadaHasta,
+			&i.MotivoFin,
+			&i.SonoEn,
+			&i.SuenaHasta,
+			&i.ContestadaEn,
+			&i.TerminadaEn,
+			&i.DuracionSeg,
+			&i.Nota,
+			&i.Resultado,
+			&i.Grabada,
+			&i.SdpOferta,
+			&i.AccionMeta,
+			&i.AccionMetaEstado,
+			&i.AccionMetaEn,
+			&i.PreAceptadaEn,
+			&i.AvisoPerdida,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.AccionMetaPor,
+			&i.ReclamadaNavegador,
+			&i.SdpRespuesta,
+			&i.DevolucionID,
+			&i.Navegador,
+			&i.Pestana,
+			&i.PestanaVistaEn,
+			&i.ExternoWebhook,
+			&i.AccionMetaNoExiste,
+			&i.RafagaHasta,
+			&i.RafagaIntentos,
+			&i.RafagaUltimoCallID,
+			&i.RafagaAvisadaEn,
+			&i.CentralitaID,
+			&i.Extension,
+			&i.TicketID,
+			&i.Asociacion,
+			&i.Coincidencias,
+			&i.AnotadaPor,
+			&i.Version,
+			&i.OrdenID,
+			&i.Puente,
+			&i.InviteEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const conexionTelefonoVigente = `-- name: ConexionTelefonoVigente :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.telefono_conexiones WHERE id = $1)::boolean AS vigente
+`
+
+func (q *Queries) ConexionTelefonoVigente(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, conexionTelefonoVigente, id)
+	var vigente bool
+	err := row.Scan(&vigente)
+	return vigente, err
 }
 
 const contarLlamadasPuenteDia = `-- name: ContarLlamadasPuenteDia :one
@@ -287,22 +374,24 @@ const guardarTelefonoCentralita = `-- name: GuardarTelefonoCentralita :one
 
 UPDATE mensajeria.centralitas SET telefono_activo = $1, wss_puerto = $2, wss_ruta = $3, wss_huella = $4,
     sip_dominio = $5, prefijo_salida = $6, llamadas_por_usuario_dia = $7,
-    llamadas_simultaneas = $8, telefono_probado_en = $9, version = version + 1, updated_at = now()
-WHERE id = $10
-RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en
+    llamadas_simultaneas = $8, telefono_probado_en = $9,
+    restricciones_confirmadas_en = $10, version = version + 1, updated_at = now()
+WHERE id = $11
+RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en
 `
 
 type GuardarTelefonoCentralitaParams struct {
-	TelefonoActivo        bool
-	WssPuerto             int32
-	WssRuta               string
-	WssHuella             *string
-	SipDominio            *string
-	PrefijoSalida         string
-	LlamadasPorUsuarioDia int32
-	LlamadasSimultaneas   int32
-	TelefonoProbadoEn     *time.Time
-	ID                    int64
+	TelefonoActivo             bool
+	WssPuerto                  int32
+	WssRuta                    string
+	WssHuella                  *string
+	SipDominio                 *string
+	PrefijoSalida              string
+	LlamadasPorUsuarioDia      int32
+	LlamadasSimultaneas        int32
+	TelefonoProbadoEn          *time.Time
+	RestriccionesConfirmadasEn *time.Time
+	ID                         int64
 }
 
 // El teléfono de Iris, etapa E4c (contratos/voz.md §3.12, «E4c: el teléfono dentro de Iris»).
@@ -318,6 +407,7 @@ func (q *Queries) GuardarTelefonoCentralita(ctx context.Context, arg GuardarTele
 		arg.LlamadasPorUsuarioDia,
 		arg.LlamadasSimultaneas,
 		arg.TelefonoProbadoEn,
+		arg.RestriccionesConfirmadasEn,
 		arg.ID,
 	)
 	var i MensajeriaCentralita
@@ -355,6 +445,7 @@ func (q *Queries) GuardarTelefonoCentralita(ctx context.Context, arg GuardarTele
 		&i.LlamadasPorUsuarioDia,
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
+		&i.RestriccionesConfirmadasEn,
 	)
 	return i, err
 }
@@ -990,7 +1081,7 @@ func (q *Queries) SoltarConexionTelefono(ctx context.Context, id uuid.UUID) erro
 }
 
 const telefonoDeUsuario = `-- name: TelefonoDeUsuario :one
-SELECT x.id, x.extension, x.tipo, x.sip_usuario, x.sip_secreto_cifrado, x.sip_guardado_en, x.empresa_id,
+SELECT x.id, x.extension, x.tipo, x.sip_usuario, x.sip_secreto_cifrado, x.sip_guardado_en, x.sip_probado_en, x.empresa_id,
     c.id AS centralita_id, c.telefono_activo, c.host, c.wss_puerto, c.wss_ruta, c.wss_huella, coalesce(c.sip_dominio, c.host)::text AS dominio,
     c.prefijo_salida, c.llamadas_por_usuario_dia, c.llamadas_simultaneas
 FROM mensajeria.centralita_extensiones x
@@ -1011,6 +1102,7 @@ type TelefonoDeUsuarioRow struct {
 	SipUsuario            *string
 	SipSecretoCifrado     []byte
 	SipGuardadoEn         *time.Time
+	SipProbadoEn          *time.Time
 	EmpresaID             *int64
 	CentralitaID          int64
 	TelefonoActivo        bool
@@ -1035,6 +1127,7 @@ func (q *Queries) TelefonoDeUsuario(ctx context.Context, arg TelefonoDeUsuarioPa
 		&i.SipUsuario,
 		&i.SipSecretoCifrado,
 		&i.SipGuardadoEn,
+		&i.SipProbadoEn,
 		&i.EmpresaID,
 		&i.CentralitaID,
 		&i.TelefonoActivo,
@@ -1048,6 +1141,23 @@ func (q *Queries) TelefonoDeUsuario(ctx context.Context, arg TelefonoDeUsuarioPa
 		&i.LlamadasSimultaneas,
 	)
 	return i, err
+}
+
+const ticketsTelefonoRecientes = `-- name: TicketsTelefonoRecientes :one
+SELECT count(*)::int AS n FROM mensajeria.telefono_tickets WHERE usuario_id = $1::bigint AND expira_en > $2::timestamptz
+`
+
+type TicketsTelefonoRecientesParams struct {
+	UsuarioID int64
+	Desde     time.Time
+}
+
+// Tickets que la persona pidió en el último minuto (vencen a los 30 s).
+func (q *Queries) TicketsTelefonoRecientes(ctx context.Context, arg TicketsTelefonoRecientesParams) (int32, error) {
+	row := q.db.QueryRow(ctx, ticketsTelefonoRecientes, arg.UsuarioID, arg.Desde)
+	var n int32
+	err := row.Scan(&n)
+	return n, err
 }
 
 const tomarConexionTelefono = `-- name: TomarConexionTelefono :exec

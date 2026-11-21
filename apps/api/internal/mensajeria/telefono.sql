@@ -5,7 +5,8 @@
 -- name: GuardarTelefonoCentralita :one
 UPDATE mensajeria.centralitas SET telefono_activo = @telefono_activo, wss_puerto = @wss_puerto, wss_ruta = @wss_ruta, wss_huella = sqlc.narg('wss_huella'),
     sip_dominio = sqlc.narg('sip_dominio'), prefijo_salida = @prefijo_salida, llamadas_por_usuario_dia = @llamadas_por_usuario_dia,
-    llamadas_simultaneas = @llamadas_simultaneas, telefono_probado_en = sqlc.narg('telefono_probado_en'), version = version + 1, updated_at = now()
+    llamadas_simultaneas = @llamadas_simultaneas, telefono_probado_en = sqlc.narg('telefono_probado_en'),
+    restricciones_confirmadas_en = sqlc.narg('restricciones_confirmadas_en'), version = version + 1, updated_at = now()
 WHERE id = @id
 RETURNING *;
 
@@ -25,7 +26,7 @@ WHERE id = @id;
 
 -- name: TelefonoDeUsuario :one
 -- La extensión activa del usuario en la centralita de la empresa, con lo que el teléfono necesita.
-SELECT x.id, x.extension, x.tipo, x.sip_usuario, x.sip_secreto_cifrado, x.sip_guardado_en, x.empresa_id,
+SELECT x.id, x.extension, x.tipo, x.sip_usuario, x.sip_secreto_cifrado, x.sip_guardado_en, x.sip_probado_en, x.empresa_id,
     c.id AS centralita_id, c.telefono_activo, c.host, c.wss_puerto, c.wss_ruta, c.wss_huella, coalesce(c.sip_dominio, c.host)::text AS dominio,
     c.prefijo_salida, c.llamadas_por_usuario_dia, c.llamadas_simultaneas
 FROM mensajeria.centralita_extensiones x
@@ -65,6 +66,13 @@ VALUES (@hash, @usuario_id, sqlc.narg('empresa_id'), @extension_id, @dispositivo
 UPDATE mensajeria.telefono_tickets SET usado_en = @ahora::timestamptz
 WHERE hash = @hash AND usado_en IS NULL AND expira_en > @ahora::timestamptz
 RETURNING *;
+
+-- name: TicketsTelefonoRecientes :one
+-- Tickets que la persona pidió en el último minuto (vencen a los 30 s).
+SELECT count(*)::int AS n FROM mensajeria.telefono_tickets WHERE usuario_id = @usuario_id::bigint AND expira_en > @desde::timestamptz;
+
+-- name: ConexionTelefonoVigente :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.telefono_conexiones WHERE id = @id)::boolean AS vigente;
 
 -- name: BorrarTicketsTelefono :exec
 DELETE FROM mensajeria.telefono_tickets WHERE expira_en < @antes::timestamptz;
@@ -128,17 +136,17 @@ UPDATE mensajeria.llamadas SET invite_en = @ahora::timestamptz, updated_at = now
 -- name: LlamadaPuenteParaActualizar :one
 SELECT * FROM mensajeria.llamadas WHERE id = @id AND puente FOR UPDATE;
 
+-- name: CandidatasAdoptarPuente :many
+-- Salientes del puente de esa extensión aún sin Linkedid (el AMI adopta la que marcó el mismo número).
+SELECT * FROM mensajeria.llamadas
+WHERE puente AND origen = 'centralita' AND centralita_id = @centralita_id::bigint AND extension = @extension::text
+  AND id_externo LIKE 'iris:%' AND estado IN ('marcando', 'en_curso') AND sono_en > @desde::timestamptz
+ORDER BY sono_en DESC
+LIMIT 5
+FOR UPDATE;
+
 -- name: AdoptarLlamadaPuente :one
--- El AMI ve la misma saliente que marcó el puente: toma su fila en vez de crear otra.
-UPDATE mensajeria.llamadas SET id_externo = @linkedid, updated_at = now()
-WHERE id = (SELECT l.id FROM mensajeria.llamadas l
-            WHERE l.puente AND l.origen = 'centralita' AND l.centralita_id = @centralita_id::bigint AND l.extension = @extension::text
-              AND right(regexp_replace(l.numero, '\D', '', 'g'), 8) = right(@digitos::text, 8) AND length(@digitos::text) >= 8
-              AND l.id_externo LIKE 'iris:%' AND l.estado IN ('marcando', 'en_curso') AND l.sono_en > @desde::timestamptz
-            ORDER BY l.sono_en DESC
-            LIMIT 1
-            FOR UPDATE)
-RETURNING *;
+UPDATE mensajeria.llamadas SET id_externo = @linkedid, updated_at = now() WHERE id = @id RETURNING *;
 
 -- name: LlamadaEntranteDeUsuario :one
 -- La llamada que el AMI creó para un INVITE que llega al teléfono de la persona (X-Iris-Llamada).

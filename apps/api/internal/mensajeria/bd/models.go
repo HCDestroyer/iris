@@ -1364,39 +1364,40 @@ type MensajeriaCategoria struct {
 }
 
 type MensajeriaCentralita struct {
-	ID                    int64
-	EmpresaID             *int64
-	Nombre                string
-	Tipo                  string
-	Host                  string
-	Puerto                int32
-	Usuario               string
-	SecretoCifrado        []byte
-	SecretoGuardadoEn     *time.Time
-	HuellaTls             *string
-	HuellaVista           *string
-	Modo                  string
-	Estado                string
-	ErrorCodigo           *string
-	ProbadaEn             *time.Time
-	ConectadaEn           *time.Time
-	DesconectadaDesde     *time.Time
-	UltimoEventoEn        *time.Time
-	Activa                bool
-	MotorDueno            *string
-	MotorHasta            *time.Time
-	Version               int32
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	TelefonoActivo        bool
-	WssPuerto             int32
-	WssRuta               string
-	WssHuella             *string
-	SipDominio            *string
-	PrefijoSalida         string
-	LlamadasPorUsuarioDia int32
-	LlamadasSimultaneas   int32
-	TelefonoProbadoEn     *time.Time
+	ID                         int64
+	EmpresaID                  *int64
+	Nombre                     string
+	Tipo                       string
+	Host                       string
+	Puerto                     int32
+	Usuario                    string
+	SecretoCifrado             []byte
+	SecretoGuardadoEn          *time.Time
+	HuellaTls                  *string
+	HuellaVista                *string
+	Modo                       string
+	Estado                     string
+	ErrorCodigo                *string
+	ProbadaEn                  *time.Time
+	ConectadaEn                *time.Time
+	DesconectadaDesde          *time.Time
+	UltimoEventoEn             *time.Time
+	Activa                     bool
+	MotorDueno                 *string
+	MotorHasta                 *time.Time
+	Version                    int32
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+	TelefonoActivo             bool
+	WssPuerto                  int32
+	WssRuta                    string
+	WssHuella                  *string
+	SipDominio                 *string
+	PrefijoSalida              string
+	LlamadasPorUsuarioDia      int32
+	LlamadasSimultaneas        int32
+	TelefonoProbadoEn          *time.Time
+	RestriccionesConfirmadasEn *time.Time
 }
 
 type MensajeriaCentralitaExtensione struct {

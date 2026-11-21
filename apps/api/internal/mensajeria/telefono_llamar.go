@@ -32,6 +32,11 @@ const (
 	vidaMarcacion = 60 * time.Second
 	// RutaTelefonoSIP es el WebSocket del teléfono (subprotocolo sip).
 	RutaTelefonoSIP = "/api/v1/mensajeria/telefono/sip"
+	// maxAbrirPorMinuto: tickets por persona y minuto.
+	maxAbrirPorMinuto = 6
+	// ProtocoloTicket: el ticket viaja como un subprotocolo más del WebSocket (no queda en la URL ni
+	// en los logs de los proxies): "iris-ticket.<ticket>".
+	ProtocoloTicket = "iris-ticket."
 )
 
 // Motivos por los que el teléfono no está disponible.
@@ -42,6 +47,7 @@ const (
 	motivoSinCredencial       = "sin_credencial" //nolint:gosec // un código de motivo, no una credencial
 	motivoTelefonoApagado     = "telefono_apagado"
 	motivoTURN                = "turn_no_configurado"
+	motivoRegistroSinProbar   = "registro_sin_probar"
 )
 
 var detallesTelefono = map[string]string{
@@ -51,6 +57,7 @@ var detallesTelefono = map[string]string{
 	motivoSinCredencial:       "Tu extensión no tiene la contraseña SIP guardada",
 	motivoTelefonoApagado:     "El teléfono de Iris está apagado en tu empresa",
 	motivoTURN:                "La instalación no tiene el relevo de audio (TURN)",
+	motivoRegistroSinProbar:   "Tu extensión no pasó «Probar registro»: pide que la prueben en Administración",
 }
 
 func problemaTelefono(motivo string) *nucleo.Problema {
@@ -80,6 +87,10 @@ func (m *Modulo) telefonoDisponible(ctx context.Context, q *mensajeriabd.Queries
 		return x, motivoExtensionEscritorio, nil
 	case x.SipSecretoCifrado == nil || x.SipUsuario == nil:
 		return x, motivoSinCredencial, nil
+	case x.SipProbadoEn == nil:
+		// Sin una prueba que pasó (o después de un rechazo de la Issabel) no se abre: así nadie reintenta
+		// con una contraseña mala hasta que fail2ban bloquee la IP de Iris.
+		return x, motivoRegistroSinProbar, nil
 	case !x.TelefonoActivo || x.WssHuella == nil:
 		return x, motivoTelefonoApagado, nil
 	case !m.cfg.TURN.Configurado():
@@ -115,7 +126,7 @@ type LimiteTelefono struct {
 // TelefonoMio es GET /telefono.
 type TelefonoMio struct {
 	Disponible   bool           `json:"disponible"`
-	Motivo       *string        `json:"motivo" nullable:"true" enum:"sin_centralita,sin_extension,extension_escritorio,sin_credencial,telefono_apagado,turn_no_configurado"`
+	Motivo       *string        `json:"motivo" nullable:"true" enum:"sin_centralita,sin_extension,extension_escritorio,sin_credencial,registro_sin_probar,telefono_apagado,turn_no_configurado"`
 	Extension    *string        `json:"extension" nullable:"true"`
 	Dispositivos []string       `json:"dispositivos" doc:"Dónde se puede usar: panel (llama y recibe) y app (primera etapa, solo llama)"`
 	Puede        PuedeTelefono  `json:"puede"`
@@ -137,7 +148,9 @@ type SIPTelefono struct {
 
 // SesionTelefono es la respuesta de abrir: con qué conectarse. Nunca trae la contraseña SIP.
 type SesionTelefono struct {
-	WS          string        `json:"ws" doc:"Ruta del WebSocket (subprotocolo sip) con el ticket de un solo uso"`
+	WS          string        `json:"ws" doc:"Ruta del WebSocket"`
+	Ticket      string        `json:"ticket" doc:"Ticket de un solo uso (30 s)"`
+	Protocolos  []string      `json:"protocolos" doc:"Los subprotocolos con que se abre el WebSocket: sip y iris-ticket.<ticket> (el ticket no va en la URL)"`
 	TicketVence time.Time     `json:"ticketVence"`
 	SIP         SIPTelefono   `json:"sip"`
 	ICE         []ServidorICE `json:"ice" doc:"Servidores TURN con credencial efímera"`
@@ -364,6 +377,14 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 			if err := q.BorrarTicketsTelefono(ctx, ahora.Add(-time.Hour)); err != nil {
 				return SesionTelefono{}, err
 			}
+			// Como mucho 6 por minuto (cada uno reemplaza la conexión anterior y da otra credencial TURN).
+			if n, err := q.TicketsTelefonoRecientes(ctx, mensajeriabd.TicketsTelefonoRecientesParams{UsuarioID: contexto.ActorDe(ctx).ID,
+				Desde: ahora.Add(vidaTicketTelefono - time.Minute)}); err != nil {
+				return SesionTelefono{}, err
+			} else if n >= maxAbrirPorMinuto {
+				return SesionTelefono{}, nucleo.NuevoProblema(http.StatusTooManyRequests, "demasiados_intentos", "Demasiados intentos",
+					"Abriste el teléfono muchas veces seguidas: espera un minuto").ConCabecera("Retry-After", "60")
+			}
 			crudo := make([]byte, 32)
 			if _, err := rand.Read(crudo); err != nil {
 				return SesionTelefono{}, err
@@ -382,7 +403,7 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 				nombre = u.Nombre
 			}
 			ice, iceVence := m.cfg.TURN.credencial(actor.ID, ahora)
-			return SesionTelefono{WS: RutaTelefonoSIP + "?ticket=" + ticket, TicketVence: vence,
+			return SesionTelefono{WS: RutaTelefonoSIP, Ticket: ticket, Protocolos: []string{"sip", ProtocoloTicket + ticket}, TicketVence: vence,
 				SIP: SIPTelefono{URI: "sip:" + *x.SipUsuario + "@" + x.Dominio, Usuario: *x.SipUsuario, Dominio: x.Dominio, Nombre: nombre},
 				ICE: []ServidorICE{ice}, PoliticaIce: "relay", IceVence: iceVence}, nil
 		},
@@ -436,7 +457,7 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 				return interna(e.Extension)
 			case in.Numero != nil:
 				d := soloDigitos(*in.Numero)
-				if len(d) >= 2 && len(d) <= 8 && d == strings.TrimSpace(*in.Numero) {
+				if numeroInternoValido.MatchString(d) && d == strings.TrimSpace(*in.Numero) {
 					if _, err := q.ExtensionActivaPorNumero(ctx, mensajeriabd.ExtensionActivaPorNumeroParams{CentralitaID: x.CentralitaID, Extension: d}); err == nil {
 						return interna(d)
 					} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -502,16 +523,17 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 			if r.nacional == "" {
 				return MarcacionTelefono{}, k.destinoNoPermitido()
 			}
-			// Límites: por persona y día, y simultáneas de la empresa.
+			// Límites: por persona y día, y simultáneas de la empresa. El candado va antes de contar: dos
+			// llamar a la vez no pasan los dos.
+			if err := q.CandadoChat(ctx, "telefono:simultaneas:"+strconv.FormatInt(empresaDeCtx(ctx), 10)); err != nil {
+				return MarcacionTelefono{}, err
+			}
 			hoy, err := q.ContarLlamadasPuenteDia(ctx, mensajeriabd.ContarLlamadasPuenteDiaParams{UsuarioID: usuario, Desde: inicioDia(ahora)})
 			if err != nil {
 				return MarcacionTelefono{}, err
 			}
 			if hoy >= x.LlamadasPorUsuarioDia {
 				return MarcacionTelefono{}, nucleo.ReglaNegocio("limite_llamadas", "Llegaste al límite de llamadas de hoy")
-			}
-			if err := q.CandadoChat(ctx, "telefono:simultaneas:"+strconv.FormatInt(empresaDeCtx(ctx), 10)); err != nil {
-				return MarcacionTelefono{}, err
 			}
 			vivas, err := q.ContarLlamadasPuenteVivas(ctx, mensajeriabd.ContarLlamadasPuenteVivasParams{Empresa: empresaDeCtx(ctx), HaceMinuto: ahora.Add(-vidaMarcacion)})
 			if err != nil {

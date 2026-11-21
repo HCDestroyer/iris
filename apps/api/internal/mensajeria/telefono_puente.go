@@ -76,6 +76,11 @@ type entradaHechoPuente struct {
 	Tipo      string    `json:"tipo"`
 	Codigo    int       `json:"codigo"`
 	Cancelada bool      `json:"cancelada"`
+	Destino   string    `json:"destino,omitempty"`
+}
+
+type entradaCredenciales struct {
+	ExtensionID int64 `json:"extension_id"`
 }
 
 func ticketNoValido() *nucleo.Problema {
@@ -157,6 +162,27 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 			return struct{}{}, nil
 		},
 	})
+	// credenciales: la Issabel rechazó la contraseña guardada en una conexión del puente. La extensión
+	// queda sin «Probar registro» (no se reabre el teléfono hasta que pase otra prueba) y el puente corta.
+	k.credenciales = auditoria.Nuevo(auditoria.Caso[entradaCredenciales, struct{}]{
+		Accion: "telefono.credenciales_rechazadas", Acceso: auditoria.Autenticado,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaCredenciales) (struct{}, error) {
+			q := mensajeriabd.New(t)
+			x, err := q.TelefonoDeUsuario(ctx, mensajeriabd.TelefonoDeUsuarioParams{Usuario: contexto.ActorDe(ctx).ID, Empresa: empresaDeCtx(ctx)})
+			if errors.Is(err, pgx.ErrNoRows) || (err == nil && x.ID != in.ExtensionID) {
+				return struct{}{}, nil
+			}
+			if err != nil {
+				return struct{}{}, err
+			}
+			if err := q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: nil}); err != nil {
+				return struct{}{}, err
+			}
+			t.FijarEntidad("centralita_extension", x.ID)
+			return struct{}{}, t.Emitir("extension.registro_probado", map[string]any{"centralita_id": x.CentralitaID, "empresa_id": x.EmpresaID,
+				"extension_id": x.ID, "usuario_id": contexto.ActorDe(ctx).ID, "estado": "credenciales", "origen": "puente"})
+		},
+	})
 	k.cerrarConexio = auditoria.Nuevo(auditoria.Caso[entradaCerrarConexion, struct{}]{
 		Accion: "telefono.desconectar", Acceso: auditoria.Autenticado,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaCerrarConexion) (struct{}, error) {
@@ -221,25 +247,11 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 			if err := m.numeroInterno(ctx, q, x, in.Usuario); err != nil {
 				return "", k.destinoNoPermitido()
 			}
-			payload := map[string]any{"conversacion_id": nil, "empresa_id": x.EmpresaID, "usuario_id": contexto.ActorDe(ctx).ID, "de": contexto.ActorDe(ctx).ID,
-				"a_usuario_id": nil, "a_grupo_id": nil, "a_cola_id": nil, "origen": "centralita"}
-			if e, err := q.ExtensionActivaPorNumero(ctx, mensajeriabd.ExtensionActivaPorNumeroParams{CentralitaID: x.CentralitaID, Extension: in.Usuario}); err == nil {
-				payload["a_usuario_id"] = e.UsuarioID
-			} else if g, err := q.GrupoActivoPorNumero(ctx, mensajeriabd.GrupoActivoPorNumeroParams{CentralitaID: x.CentralitaID, Numero: in.Usuario}); err == nil {
-				payload["a_grupo_id"] = g.ID
-			}
+			// Solo valida: llamada.transferida sale cuando la Issabel acepta el REFER (202, hecho
+			// «transferida»).
 			t.FijarEntidad("centralita_extension", x.ID)
 			if in.LlamadaID != nil {
-				l, err := q.LlamadaPuenteParaActualizar(ctx, *in.LlamadaID)
-				if err == nil && l.UsuarioID != nil && *l.UsuarioID == contexto.ActorDe(ctx).ID {
-					payload["llamada_id"] = l.ID
-					t.FijarEntidad("centralita_llamada", l.ID)
-					if err := t.Emitir("llamada.transferida", payload); err != nil {
-						return "", err
-					}
-				} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-					return "", err
-				}
+				t.Anotar(map[string]any{"llamada_id": *in.LlamadaID})
 			}
 			return in.Usuario, nil
 		},
@@ -275,6 +287,19 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 					"centralita_id": l.CentralitaID, "atendida_por": "persona", "usuario_id": l.UsuarioID, "espera_seg": max(int(ahora.Sub(l.SonoEn).Seconds()), 0)})
 			case sippuente.HechoColgada:
 				return m.cerrarLlamadaCentralita(ctx, t, q, l, ahora, nil)
+			case sippuente.HechoTransferida:
+				if l.Estado != LlamadaEnCurso || l.CentralitaID == nil {
+					return false, nil
+				}
+				usuario := contexto.ActorDe(ctx).ID
+				p := map[string]any{"llamada_id": l.ID, "conversacion_id": nil, "empresa_id": l.EmpresaID, "usuario_id": usuario, "de": usuario,
+					"a_usuario_id": nil, "a_grupo_id": nil, "a_cola_id": nil, "origen": "centralita"}
+				if e, err := q.ExtensionActivaPorNumero(ctx, mensajeriabd.ExtensionActivaPorNumeroParams{CentralitaID: *l.CentralitaID, Extension: in.Destino}); err == nil {
+					p["a_usuario_id"] = e.UsuarioID
+				} else if g, err := q.GrupoActivoPorNumero(ctx, mensajeriabd.GrupoActivoPorNumeroParams{CentralitaID: *l.CentralitaID, Numero: in.Destino}); err == nil {
+					p["a_grupo_id"] = g.ID
+				}
+				return true, t.Emitir("llamada.transferida", p)
 			case sippuente.HechoFallo:
 				if l.Estado != LlamadaMarcando {
 					return false, nil
@@ -303,9 +328,10 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 	})
 }
 
-// numeroInterno: dígitos de una extensión activa (no la propia) o de un grupo activo de la centralita.
+// numeroInterno: dígitos de una extensión activa (no la propia) o de un grupo activo de la centralita,
+// de 2 a 6 cifras.
 func (m *Modulo) numeroInterno(ctx context.Context, q *mensajeriabd.Queries, x mensajeriabd.TelefonoDeUsuarioRow, numero string) error {
-	if !extensionValida.MatchString(numero) || numero == x.Extension {
+	if !numeroInternoValido.MatchString(numero) || numero == x.Extension {
 		return errSinAcceso
 	}
 	if _, err := q.ExtensionActivaPorNumero(ctx, mensajeriabd.ExtensionActivaPorNumeroParams{CentralitaID: x.CentralitaID, Extension: numero}); err == nil {
@@ -359,8 +385,18 @@ func (p *politicaTelefono) Hecho(ctx context.Context, h sippuente.HechoLlamada) 
 	hctx, cancelar := context.WithTimeout(context.WithoutCancel(actual), 10*time.Second)
 	defer cancelar()
 	_ = ctx
-	if _, err := p.m.Centralita.Telefono.hecho.Ejecutar(hctx, entradaHechoPuente{LlamadaID: h.LlamadaID, Tipo: h.Tipo, Codigo: h.Codigo, Cancelada: h.Cancelada}); err != nil {
+	if _, err := p.m.Centralita.Telefono.hecho.Ejecutar(hctx, entradaHechoPuente{LlamadaID: h.LlamadaID, Tipo: h.Tipo, Codigo: h.Codigo, Cancelada: h.Cancelada,
+		Destino: h.Destino}); err != nil {
 		slog.Default().WarnContext(hctx, "telefono: no se pudo guardar el estado de la llamada", "llamada", h.LlamadaID, "tipo", h.Tipo, "err", err)
+	}
+}
+
+func (p *politicaTelefono) Credenciales(ctx context.Context) {
+	hctx, cancelar := context.WithTimeout(context.WithoutCancel(p.actual()), 10*time.Second)
+	defer cancelar()
+	_ = ctx
+	if _, err := p.m.Centralita.Telefono.credenciales.Ejecutar(hctx, entradaCredenciales{ExtensionID: p.cx.extensionID}); err != nil {
+		slog.Default().WarnContext(hctx, "telefono: no se pudo anotar la credencial rechazada", "err", err)
 	}
 }
 
@@ -435,10 +471,14 @@ func (m *Modulo) atenderTelefono(ctx context.Context, w http.ResponseWriter, r *
 // latidoTelefono revisa cada TelefonoLatido la sesión, los permisos, la extensión y que la conexión
 // siga siendo la de la persona; si algo falla, corta (BYE a lo establecido).
 func (m *Modulo) latidoTelefono(ctx context.Context, pol *politicaTelefono, p *sippuente.Puente) {
-	tick := time.NewTicker(m.cfg.TelefonoLatido)
+	// Cada vistazo (2 s como mucho) mira solo si otra pestaña tomó el teléfono; cada TelefonoLatido,
+	// todo lo demás.
+	vistazo := min(2*time.Second, m.cfg.TelefonoLatido)
+	tick := time.NewTicker(vistazo)
 	defer tick.Stop()
 	fin := time.NewTimer(m.cfg.TelefonoVidaMax)
 	defer fin.Stop()
+	ultimo := time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -453,6 +493,15 @@ func (m *Modulo) latidoTelefono(ctx context.Context, pol *politicaTelefono, p *s
 			p.Cortar(sippuente.CierreSinAcceso, "sin_acceso")
 			return
 		}
+		if time.Since(ultimo) < m.cfg.TelefonoLatido {
+			vigente, err := mensajeriabd.New(bd).ConexionTelefonoVigente(ctx, pol.cx.id)
+			if err == nil && !vigente {
+				p.Cortar(sippuente.CierreReemplazada, "reemplazada")
+				return
+			}
+			continue
+		}
+		ultimo = time.Now()
 		nctx, err := identidad.Revalidar(ctx, bd)
 		if err != nil {
 			var pr *nucleo.Problema

@@ -14,7 +14,7 @@ import (
 func inviteSDP(rama, sdp string) string {
 	n := len(strings.ReplaceAll(sdp, "\n", "\r\n"))
 	return fmt.Sprintf("\nINVITE sip:205@%[1]s SIP/2.0\nVia: SIP/2.0/WSS abc.invalid;branch=z9hG4bK%[2]s\nMax-Forwards: 69\nTo: <sip:205@%[1]s>\n"+
-		"From: <sip:201@%[1]s>;tag=nav-%[2]s\nCall-ID: sdp-%[2]s\nCSeq: 1 INVITE\nContact: <sip:x7@abc.invalid;transport=ws>\nContent-Type: application/sdp\n"+
+		"From: <sip:201@%[1]s>;tag=nav-%[2]s\nCall-ID: sdp-%[2]s\nCSeq: 1 INVITE\nContact: <sip:201@abc.invalid;transport=ws>\nContent-Type: application/sdp\n"+
 		"Content-Length: %[3]d\n\n", dominio, rama, n) + sdp
 }
 
@@ -33,7 +33,7 @@ const candidatoRelevo = "a=candidate:3 1 udp 41885439 10.20.0.9 49170 typ relay 
 func TestContactYSDPDelNavegador(t *testing.T) {
 	b := nuevoBanco(t, func(o *sippuente.Opciones) { o.Relevo = "10.20.0.9" }, secretoSIP)
 	// Un Contact hacia internet: la Issabel le mandaría SIP ahí. No.
-	b.mandar(strings.Replace(register(1, "ct1", ""), "<sip:x7@abc.invalid;transport=ws>", "<sip:x7@203.0.113.9:5060;transport=udp>", 1))
+	b.mandar(strings.Replace(register(1, "ct1", ""), "<sip:201@abc.invalid;transport=ws>", "<sip:201@203.0.113.9:5060;transport=udp>", 1))
 	b.respuesta(403)
 	// Solo candidatos host y srflx (audio directo, sin el relevo): 488.
 	b.mandar(inviteSDP("s1", fmt.Sprintf(sdpBase, "10.20.0.9", "")))
@@ -67,7 +67,7 @@ func TestContactYSDPDelNavegador(t *testing.T) {
 	}
 	sdp := strings.ReplaceAll(fmt.Sprintf(sdpBase, "10.20.0.9", ""), "\n", "\r\n")
 	res := sip.NewResponseFromRequest(inv, 200, "OK", []byte(sdp))
-	res.AppendHeader(sip.NewHeader("Contact", "<sip:x7@abc.invalid;transport=ws>"))
+	res.AppendHeader(sip.NewHeader("Contact", "<sip:201@abc.invalid;transport=ws>"))
 	res.AppendHeader(sip.NewHeader("Content-Type", "application/sdp"))
 	b.nav.entrada <- []byte(res.String())
 	if _, ok := b.falso.Esperar(2*time.Second, empieza("SIP/2.0 488")); !ok {

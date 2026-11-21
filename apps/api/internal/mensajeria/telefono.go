@@ -35,23 +35,30 @@ type TelefonoCentralita struct {
 	LlamadasPorUsuarioDia int32      `json:"llamadasPorUsuarioDia"`
 	LlamadasSimultaneas   int32      `json:"llamadasSimultaneas"`
 	ProbadoEn             *time.Time `json:"probadoEn" nullable:"true" doc:"La última prueba del WSS que pasó con los datos actuales (encender la exige)"`
+	// RestriccionesConfirmadasEn: el administrador confirmó la configuración de la Issabel del runbook §9.3
+	// (contexto que solo sale a Guatemala, sin transferencias por DTMF ni desvíos). Encender la exige.
+	RestriccionesConfirmadasEn *time.Time `json:"restriccionesConfirmadasEn" nullable:"true" doc:"Cuándo el administrador confirmó las restricciones de la Issabel (runbook §9.3); encender la exige"`
 }
 
 func telefonoCentralitaDe(f mensajeriabd.MensajeriaCentralita) TelefonoCentralita {
 	return TelefonoCentralita{Activo: f.TelefonoActivo, WssPuerto: f.WssPuerto, WssRuta: f.WssRuta, HuellaWss: f.WssHuella, SipDominio: f.SipDominio,
-		PrefijoSalida: f.PrefijoSalida, LlamadasPorUsuarioDia: f.LlamadasPorUsuarioDia, LlamadasSimultaneas: f.LlamadasSimultaneas, ProbadoEn: f.TelefonoProbadoEn}
+		PrefijoSalida: f.PrefijoSalida, LlamadasPorUsuarioDia: f.LlamadasPorUsuarioDia, LlamadasSimultaneas: f.LlamadasSimultaneas, ProbadoEn: f.TelefonoProbadoEn,
+		RestriccionesConfirmadasEn: f.RestriccionesConfirmadasEn}
 }
 
 func telefonoAuditable(f mensajeriabd.MensajeriaCentralita) map[string]any {
 	return map[string]any{"telefono_activo": f.TelefonoActivo, "wss_puerto": f.WssPuerto, "wss_ruta": f.WssRuta, "wss_huella": f.WssHuella,
 		"sip_dominio": f.SipDominio, "prefijo_salida": f.PrefijoSalida, "llamadas_por_usuario_dia": f.LlamadasPorUsuarioDia,
-		"llamadas_simultaneas": f.LlamadasSimultaneas}
+		"llamadas_simultaneas": f.LlamadasSimultaneas, "restricciones_confirmadas": f.RestriccionesConfirmadasEn != nil}
 }
 
 var (
 	rutaWSS       = regexp.MustCompile(`^/[A-Za-z0-9/_.-]{0,63}$`)
 	prefijoSalida = regexp.MustCompile(`^[0-9]{0,6}$`)
 	sipUsuario    = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+	// numeroInternoValido: lo que el teléfono marca o transfiere dentro de la Issabel (extensiones y
+	// grupos). De 2 a 6 cifras: con 8 o más, una ruta de salida podría mandarlo a la calle.
+	numeroInternoValido = regexp.MustCompile(`^[0-9]{2,6}$`)
 )
 
 func (m *Modulo) validarPuertoWSS(p int32) error {
@@ -86,6 +93,8 @@ type EntradaTelefonoCentralita struct {
 	PrefijoSalida         string  `json:"prefijoSalida" maxLength:"6" pattern:"^[0-9]{0,6}$"`
 	LlamadasPorUsuarioDia int32   `json:"llamadasPorUsuarioDia" minimum:"1" maximum:"300"`
 	LlamadasSimultaneas   int32   `json:"llamadasSimultaneas" minimum:"1" maximum:"100"`
+	// ConfirmoRestricciones: «Confirmo que la Issabel está configurada como dice la guía (§9.3)».
+	ConfirmoRestricciones bool `json:"confirmoRestricciones,omitempty" doc:"El administrador confirma la configuración de la Issabel del runbook §9.3: las extensiones del teléfono de Iris en un contexto que solo sale a Guatemala (prefijo + 8 dígitos) y a extensiones y grupos, TRANSFER_CONTEXT a ese contexto, sin las opciones T/t de Dial, desvíos ignorados y la ruta de salida sin internacionales. Sin esto no se puede encender"`
 }
 
 // EntradaCambioTelefono: activar y desactivar el teléfono.
@@ -97,7 +106,7 @@ type EntradaCambioTelefono struct {
 func (m *Modulo) guardarTelefono(ctx context.Context, q *mensajeriabd.Queries, f mensajeriabd.MensajeriaCentralita) (mensajeriabd.MensajeriaCentralita, error) {
 	return q.GuardarTelefonoCentralita(ctx, mensajeriabd.GuardarTelefonoCentralitaParams{ID: f.ID, TelefonoActivo: f.TelefonoActivo, WssPuerto: f.WssPuerto,
 		WssRuta: f.WssRuta, WssHuella: f.WssHuella, SipDominio: f.SipDominio, PrefijoSalida: f.PrefijoSalida, LlamadasPorUsuarioDia: f.LlamadasPorUsuarioDia,
-		LlamadasSimultaneas: f.LlamadasSimultaneas, TelefonoProbadoEn: f.TelefonoProbadoEn})
+		LlamadasSimultaneas: f.LlamadasSimultaneas, TelefonoProbadoEn: f.TelefonoProbadoEn, RestriccionesConfirmadasEn: f.RestriccionesConfirmadasEn})
 }
 
 type casosTelefono struct {
@@ -121,6 +130,7 @@ type casosTelefono struct {
 	hecho         *auditoria.Caso[entradaHechoPuente, bool]
 	revalidar     *auditoria.Caso[entradaRevalidar, struct{}]
 	cerrarConexio *auditoria.Caso[entradaCerrarConexion, struct{}]
+	credenciales  *auditoria.Caso[entradaCredenciales, struct{}]
 }
 
 func nuevosCasosTelefono(m *Modulo) casosTelefono {
@@ -172,6 +182,13 @@ func nuevosCasosTelefono(m *Modulo) casosTelefono {
 					// Otros datos del WSS: hay que volver a probar y encender (las conexiones se cortan).
 					f.TelefonoActivo, f.TelefonoProbadoEn = false, nil
 				}
+				switch {
+				case !in.ConfirmoRestricciones:
+					f.RestriccionesConfirmadasEn, f.TelefonoActivo = nil, false
+				case f.RestriccionesConfirmadasEn == nil:
+					ahora := m.ahora()
+					f.RestriccionesConfirmadasEn = &ahora
+				}
 				if f, err = m.guardarTelefono(ctx, q, f); err != nil {
 					return Centralita{}, err
 				}
@@ -209,6 +226,10 @@ func nuevoCambioTelefono(m *Modulo, accion string, activar bool) *auditoria.Caso
 			if activar {
 				if f.TelefonoProbadoEn == nil || f.WssHuella == nil {
 					return Centralita{}, nucleo.ReglaNegocio("sin_probar", "Prueba el WSS de la centralita antes de encender el teléfono")
+				}
+				if f.RestriccionesConfirmadasEn == nil {
+					return Centralita{}, nucleo.ReglaNegocio("restricciones_sin_confirmar",
+						"Confirma que la Issabel está configurada como dice la guía (contexto que solo sale a Guatemala y sin transferencias por teclado)")
 				}
 				if !m.cfg.TURN.Configurado() {
 					return Centralita{}, nucleo.ReglaNegocio("turn_no_configurado", "La instalación no tiene el relevo de audio (TURN): pide a quien administra el servidor que lo configure")
@@ -373,7 +394,7 @@ type ListaGrupos struct {
 type EntradaCrearGrupo struct {
 	CentralitaID int64  `json:"-"`
 	Nombre       string `json:"nombre" minLength:"1" maxLength:"60"`
-	Numero       string `json:"numero" pattern:"^[0-9]{2,8}$" doc:"El número del grupo o la cola en Issabel"`
+	Numero       string `json:"numero" pattern:"^[0-9]{2,6}$" doc:"El número del grupo o la cola en Issabel (2 a 6 dígitos)"`
 }
 
 // EntradaEditarGrupo es POST /centralitas/{id}/grupos/{grupoId}/actualizar.
@@ -382,7 +403,7 @@ type EntradaEditarGrupo struct {
 	GrupoID      int64  `json:"-"`
 	Version      int32  `json:"version" minimum:"1"`
 	Nombre       string `json:"nombre" minLength:"1" maxLength:"60"`
-	Numero       string `json:"numero" pattern:"^[0-9]{2,8}$"`
+	Numero       string `json:"numero" pattern:"^[0-9]{2,6}$"`
 	Activo       bool   `json:"activo"`
 }
 
@@ -415,8 +436,8 @@ func nuevosCasosGrupos(m *Modulo) (*auditoria.Caso[EntradaVerCentralita, ListaGr
 		if n == "" || len([]rune(n)) > 60 {
 			return "", campoCentralita("nombre", "De 1 a 60 caracteres")
 		}
-		if !extensionValida.MatchString(numero) {
-			return "", campoCentralita("numero", "De 2 a 8 dígitos")
+		if !numeroInternoValido.MatchString(numero) {
+			return "", campoCentralita("numero", "De 2 a 6 dígitos (con 8 o más saldría a la calle)")
 		}
 		return n, nil
 	}

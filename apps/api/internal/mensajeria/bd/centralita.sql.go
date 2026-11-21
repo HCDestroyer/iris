@@ -16,7 +16,7 @@ import (
 const centralitaDeEmpresa = `-- name: CentralitaDeEmpresa :one
 
 
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE coalesce(empresa_id, 0) = $1::bigint
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en FROM mensajeria.centralitas WHERE coalesce(empresa_id, 0) = $1::bigint
 `
 
 // Centralita Issabel, etapa E4a (contratos/voz.md §2.10 y §3.12).
@@ -58,12 +58,13 @@ func (q *Queries) CentralitaDeEmpresa(ctx context.Context, empresa int64) (Mensa
 		&i.LlamadasPorUsuarioDia,
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
+		&i.RestriccionesConfirmadasEn,
 	)
 	return i, err
 }
 
 const centralitaDelMotor = `-- name: CentralitaDelMotor :one
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE id = $1
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en FROM mensajeria.centralitas WHERE id = $1
 `
 
 // La fila que usa la conexión (sin empresa: el motor es del proceso).
@@ -104,12 +105,13 @@ func (q *Queries) CentralitaDelMotor(ctx context.Context, id int64) (MensajeriaC
 		&i.LlamadasPorUsuarioDia,
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
+		&i.RestriccionesConfirmadasEn,
 	)
 	return i, err
 }
 
 const centralitaDelMotorParaActualizar = `-- name: CentralitaDelMotorParaActualizar :one
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en FROM mensajeria.centralitas WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CentralitaDelMotorParaActualizar(ctx context.Context, id int64) (MensajeriaCentralita, error) {
@@ -149,12 +151,13 @@ func (q *Queries) CentralitaDelMotorParaActualizar(ctx context.Context, id int64
 		&i.LlamadasPorUsuarioDia,
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
+		&i.RestriccionesConfirmadasEn,
 	)
 	return i, err
 }
 
 const centralitaParaActualizar = `-- name: CentralitaParaActualizar :one
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en FROM mensajeria.centralitas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
 `
 
 type CentralitaParaActualizarParams struct {
@@ -199,12 +202,13 @@ func (q *Queries) CentralitaParaActualizar(ctx context.Context, arg CentralitaPa
 		&i.LlamadasPorUsuarioDia,
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
+		&i.RestriccionesConfirmadasEn,
 	)
 	return i, err
 }
 
 const centralitaPorID = `-- name: CentralitaPorID :one
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en FROM mensajeria.centralitas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
 `
 
 type CentralitaPorIDParams struct {
@@ -249,6 +253,7 @@ func (q *Queries) CentralitaPorID(ctx context.Context, arg CentralitaPorIDParams
 		&i.LlamadasPorUsuarioDia,
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
+		&i.RestriccionesConfirmadasEn,
 	)
 	return i, err
 }
@@ -488,7 +493,7 @@ const fijarEstadoCentralita = `-- name: FijarEstadoCentralita :one
 UPDATE mensajeria.centralitas SET estado = $1, error_codigo = $2, huella_vista = $3,
     conectada_en = $4, desconectada_desde = $5, updated_at = now()
 WHERE id = $6 AND version = $7 AND activa
-RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en
+RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en
 `
 
 type FijarEstadoCentralitaParams struct {
@@ -547,6 +552,7 @@ func (q *Queries) FijarEstadoCentralita(ctx context.Context, arg FijarEstadoCent
 		&i.LlamadasPorUsuarioDia,
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
+		&i.RestriccionesConfirmadasEn,
 	)
 	return i, err
 }
@@ -558,7 +564,7 @@ UPDATE mensajeria.centralitas SET nombre = $1, host = $2, puerto = $3, usuario =
     conectada_en = $12, desconectada_desde = $13, activa = $14,
     version = version + 1, updated_at = now()
 WHERE id = $15
-RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en
+RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en
 `
 
 type GuardarCentralitaParams struct {
@@ -633,6 +639,7 @@ func (q *Queries) GuardarCentralita(ctx context.Context, arg GuardarCentralitaPa
 		&i.LlamadasPorUsuarioDia,
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
+		&i.RestriccionesConfirmadasEn,
 	)
 	return i, err
 }
@@ -751,7 +758,7 @@ func (q *Queries) GuardarLlamadaCentralita(ctx context.Context, arg GuardarLlama
 const insertarCentralita = `-- name: InsertarCentralita :one
 INSERT INTO mensajeria.centralitas (empresa_id, nombre, host, puerto, usuario)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en
+RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en
 `
 
 type InsertarCentralitaParams struct {
@@ -805,6 +812,7 @@ func (q *Queries) InsertarCentralita(ctx context.Context, arg InsertarCentralita
 		&i.LlamadasPorUsuarioDia,
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
+		&i.RestriccionesConfirmadasEn,
 	)
 	return i, err
 }
