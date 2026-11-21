@@ -1,4 +1,4 @@
-import { ErrorApi } from "@/lib/api/errores";
+import { esErrorDeApi } from "./errores";
 import type { ConexionTelefono, ErrorTelefono, MotivoTelefono } from "./tipos";
 
 /*
@@ -205,7 +205,7 @@ export function textoMotivo(m: MotivoTelefono | null): string {
 
 /** Los errores de `POST /telefono/llamar` en llano. */
 export function textoErrorLlamar(e: unknown): { titulo: string; detalle?: string } {
-    if (!(e instanceof ErrorApi)) return { titulo: "No se pudo llamar", detalle: "Revisa tu conexión e intenta otra vez." };
+    if (!esErrorDeApi(e)) return { titulo: "No se pudo llamar", detalle: "Revisa tu conexión e intenta otra vez." };
     switch (e.codigo) {
         case "destino_no_permitido":
             return { titulo: "Ese número no se puede marcar", detalle: "Solo números de Guatemala (8 dígitos) y extensiones o grupos del equipo." };
