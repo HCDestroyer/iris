@@ -76,8 +76,48 @@ func lectura[In, Out any](api huma.API, op huma.Operation, ejecutar func(context
 	})
 }
 
+// entradaRegistrarArgosHTTP: POST /integraciones/argosisp/prospectos (contrato con Argos §3.6).
+type entradaRegistrarArgosHTTP struct {
+	IdempotencyKey string `header:"Idempotency-Key" required:"true" maxLength:"255" doc:"argos:prospecto:<uuid>; Iris la guarda 30 días y la huella incluye el cuerpo, X-Iris-Empresa y X-Iris-Actor"`
+	Empresa        string `header:"X-Iris-Empresa" required:"true" maxLength:"20" doc:"Empresa del prospecto (dentro del alcance del token; si no, 403 empresa_no_permitida)"`
+	Actor          string `header:"X-Iris-Actor" required:"true" maxLength:"80" doc:"usuario:<id de Argos> de quien lo registró"`
+	Body           EntradaRegistrarArgos
+}
+
+type respuestaRegistrarArgos struct {
+	Body ProspectoRegistrado
+}
+
+// registrarRutaArgos publica POST /integraciones/argosisp/prospectos.
+func (m *Modulo) registrarRutaArgos(api huma.API) {
+	op := operacion("registrarProspectoArgos", http.MethodPost, RutaRegistrarArgos, "Registrar un prospecto desde Argos",
+		nucleo.PermProspectosRegistrarIntegracion, http.StatusCreated, http.StatusBadRequest, http.StatusConflict, http.StatusTooManyRequests)
+	op.Tags = []string{"integraciones"}
+	op.Security = []map[string][]string{{"bearer": {}}}
+	op.Description += " Contrato con Argos 0.10.0 §3.6 (A44): solo el token de integración de Argos (403 `solo_integracion_argos`); " +
+		"ese token no lee, lista ni edita prospectos. Crea el prospecto con origen `argos_panel`, sus `telefonos[]` (1 a 5, exactamente un " +
+		"`principal`; si no, 422 `telefonos_invalidos` con `errors[]` por posición, sin repetir el número), vendedor por zona y la " +
+		"factibilidad si trae coordenadas. 409 `prospecto_duplicado { url_iris }` si cualquiera de los números ya está en un prospecto " +
+		"abierto de la empresa (el pedido se suma como actividad; no dice cuál coincidió). 409 `argos_apagado` con el conector apagado. " +
+		"422 `plan_no_permitido` (plan no aplicable al modo) y `cliente_no_valido` (cliente de otra empresa); si Iris no tiene el " +
+		"cliente y Argos no responde, se crea con `cliente_validado: false`. 429 `demasiados_registros` (con `Retry-After`) al pasar 30 " +
+		"números por minuto por actor o 300 por empresa. Idempotencia: misma clave y huella, la respuesta original; otra huella, 422 " +
+		"`idempotency_key_reutilizada`; la primera en curso, 409 `idempotencia_en_proceso`. 400 `cabecera_iris_requerida` si " +
+		"`X-Iris-Actor` no es `usuario:<id>`."
+	huma.Register(api, op, func(ctx context.Context, in *entradaRegistrarArgosHTTP) (*respuestaRegistrarArgos, error) {
+		e := in.Body
+		e.Actor, e.ClaveIdempotencia = in.Actor, in.IdempotencyKey
+		r, err := m.RegistrarProspectoArgos(ctx, e)
+		if err != nil {
+			return nil, err
+		}
+		return &respuestaRegistrarArgos{Body: r}, nil
+	})
+}
+
 // Registrar publica las rutas de comercial.
 func (m *Modulo) Registrar(api huma.API) {
+	m.registrarRutaArgos(api)
 	ver := nucleo.PermProspectosVer
 
 	// Prospectos.

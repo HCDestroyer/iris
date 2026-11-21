@@ -44,6 +44,35 @@ type OpcionesIdempotencia struct {
 	// repite la respuesta aquí). Lo usa la mensajería (§6.2 y §6.4 del contrato con Argos): repetir
 	// la clave devuelve el estado actual del aviso, no la respuesta guardada.
 	Omitir func(*http.Request) bool
+	// Regla: ajustes de una ruta que habla con otro sistema por contrato (nil o que devuelve nil =
+	// los de siempre). La usa POST /integraciones/argosisp/prospectos (contrato con Argos 0.10.0
+	// §3.6): clave de 30 días, huella con X-Iris-Empresa y X-Iris-Actor y el código del contrato.
+	Regla func(*http.Request) *ReglaIdempotencia
+}
+
+// ReglaIdempotencia cambia, para una ruta, la vigencia de la clave, lo que entra en la huella y el
+// código del 422 de una clave reutilizada.
+type ReglaIdempotencia struct {
+	// Vigencia de la clave (0 = la del middleware).
+	Vigencia time.Duration
+	// Cabeceras que entran en la huella junto con el método, la ruta y el cuerpo (en este orden;
+	// ausente = vacía).
+	Cabeceras []string
+	// CodigoReutilizada: el código del 422 (por defecto idempotencia_reutilizada).
+	CodigoReutilizada string
+}
+
+// rutaConCabeceras: la ruta que entra en la huella, con las cabeceras de la regla.
+func (r *ReglaIdempotencia) rutaConCabeceras(req *http.Request, ruta string) string {
+	if r == nil || len(r.Cabeceras) == 0 {
+		return ruta
+	}
+	var b bytes.Buffer
+	b.WriteString(ruta)
+	for _, c := range r.Cabeceras {
+		fmt.Fprintf(&b, "\n%s: %s", http.CanonicalHeaderKey(c), req.Header.Get(c))
+	}
+	return b.String()
 }
 
 type claveNoRepetible int
@@ -175,7 +204,16 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			r.Body = io.NopCloser(bytes.NewReader(cuerpo))
 
 			ruta := r.URL.RequestURI()
-			hash := actual.hashPeticion(r.Method, ruta, cuerpo)
+			var regla *ReglaIdempotencia
+			if op.Regla != nil {
+				regla = op.Regla(r)
+			}
+			vigencia := op.Vigencia
+			if regla != nil && regla.Vigencia > 0 {
+				vigencia = regla.Vigencia
+			}
+			huella := regla.rutaConCabeceras(r, ruta)
+			hash := actual.hashPeticion(r.Method, huella, cuerpo)
 
 			q := nucleobd.New(bd)
 			claveActor := claveDeActor(actor)
@@ -186,7 +224,7 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			}
 			filas, err := q.ReservarIdempotencia(bdCtx, nucleobd.ReservarIdempotenciaParams{
 				Actor: claveActor, Clave: clave, Metodo: r.Method, Ruta: ruta,
-				HashPeticion: hash, HashClaveID: actual.id, ExpiraEn: time.Now().Add(op.Vigencia),
+				HashPeticion: hash, HashClaveID: actual.id, ExpiraEn: time.Now().Add(vigencia),
 			})
 			if err != nil {
 				op.Log.ErrorContext(ctx, "idempotencia: reservar clave", "err", err)
@@ -201,8 +239,8 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 					EscribirProblema(w, ErrorInterno())
 					return
 				}
-				igual, verificable := compararPeticion(op.Claves, previa.HashFormato, previa.HashClaveID, previa.HashPeticion, r.Method, ruta, cuerpo)
-				if !op.responderPrevia(ctx, w, q, previa, igual, verificable, hash, actual.id) {
+				igual, verificable := compararPeticion(op.Claves, previa.HashFormato, previa.HashClaveID, previa.HashPeticion, r.Method, huella, cuerpo)
+				if !op.responderPrevia(ctx, w, q, previa, igual, verificable, hash, actual.id, regla, vigencia) {
 					return
 				}
 				// Clave abandonada en en_proceso: esta petición la retomó y se ejecuta.
@@ -247,7 +285,7 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 // responderPrevia responde a una clave ya reservada. Devuelve true solo si la clave estaba
 // abandonada en en_proceso y esta petición (la misma) la retomó: entonces hay que ejecutarla.
 func (op OpcionesIdempotencia) responderPrevia(ctx context.Context, w http.ResponseWriter, q *nucleobd.Queries,
-	previa nucleobd.NucleoIdempotencium, igual, verificable bool, hash, idClave []byte,
+	previa nucleobd.NucleoIdempotencium, igual, verificable bool, hash, idClave []byte, regla *ReglaIdempotencia, vigencia time.Duration,
 ) bool {
 	switch {
 	case !verificable:
@@ -258,7 +296,11 @@ func (op OpcionesIdempotencia) responderPrevia(ctx context.Context, w http.Respo
 			"La clave se usó antes de un cambio de la clave del servidor y no se puede comparar la petición; "+
 				"revisa si la operación ya se hizo y, si no, repítela con otra Idempotency-Key"))
 	case !igual:
-		EscribirProblema(w, NuevoProblema(http.StatusUnprocessableEntity, "idempotencia_reutilizada",
+		codigo := "idempotencia_reutilizada"
+		if regla != nil && regla.CodigoReutilizada != "" {
+			codigo = regla.CodigoReutilizada
+		}
+		EscribirProblema(w, NuevoProblema(http.StatusUnprocessableEntity, codigo,
 			"Clave de idempotencia reutilizada",
 			"La clave ya se usó con otra petición (método, ruta o cuerpo distintos)"))
 	case previa.Estado == "no_repetible":
@@ -269,7 +311,7 @@ func (op OpcionesIdempotencia) responderPrevia(ctx context.Context, w http.Respo
 		ahora := time.Now()
 		filas, err := q.ReclamarIdempotencia(context.WithoutCancel(ctx), nucleobd.ReclamarIdempotenciaParams{
 			Actor: previa.Actor, Clave: previa.Clave, HashPeticion: hash, HashClaveID: idClave, HashPrevio: previa.HashPeticion,
-			Antes: ahora.Add(-op.Reclamo), ExpiraEn: ahora.Add(op.Vigencia),
+			Antes: ahora.Add(-op.Reclamo), ExpiraEn: ahora.Add(vigencia),
 		})
 		if err != nil {
 			op.Log.ErrorContext(ctx, "idempotencia: retomar clave", "err", err)

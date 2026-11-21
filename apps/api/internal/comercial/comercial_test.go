@@ -158,6 +158,7 @@ func nuevoArgos(t *testing.T) *argosFalso {
 		}
 	}
 	mux.HandleFunc("POST /api/v1/clientes", alta([]string{"nombre"}, []string{"empresa_id", "origen_tipo", "origen_id"}))
+	mux.HandleFunc("POST /api/v1/clientes/{id}/contactos", alta([]string{"nombre", "relacion", "telefonos", "permisos"}, []string{"es_titular", "cliente_id"}))
 	mux.HandleFunc("POST /api/v1/servicios", alta([]string{"cliente_id", "router_id", "plan_id", "empresa_id"}, []string{"origen_tipo", "origen_id"}))
 	leer := func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()

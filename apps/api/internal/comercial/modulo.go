@@ -57,6 +57,11 @@ type Config struct {
 	// Encolar avisa a la cola de pendientes (pendientes.ArgsProcesar) al encolar el alta. nil =
 	// la toma el periódico de la cola (cada minuto).
 	Encolar Encolador
+	// Clientes valida en Argos el cliente elegido al registrar un prospecto desde Argos
+	// (argos.Modulo). nil = sin validar (cliente_validado false).
+	Clientes ValidadorClientes
+	// URLBase es IRIS_BASE_URL: arma url_iris de §3.6 (enlace plano al prospecto).
+	URLBase string
 	// VigenciaCotizacion: días que vale una cotización si no se indica (15).
 	VigenciaCotizacion time.Duration
 }
@@ -104,6 +109,9 @@ type Modulo struct {
 	registrarCliente     *auditoria.Caso[entradaAltaArgos, Prospecto]
 	completarAlta        *auditoria.Caso[entradaAltaArgos, Prospecto]
 	marcarErrorAlta      *auditoria.Caso[entradaErrorAlta, Prospecto]
+
+	prepararRegistroArgos *auditoria.Caso[EntradaRegistrarArgos, previoRegistroArgos]
+	registrarArgos        *auditoria.Caso[entradaRegistroArgos, resultadoRegistroArgos]
 }
 
 // Nuevo arma el módulo.
@@ -158,6 +166,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.registrarCliente = m.nuevoRegistrarCliente()
 	m.completarAlta = m.nuevoCompletarAlta()
 	m.marcarErrorAlta = m.nuevoMarcarErrorAlta()
+	m.prepararRegistroArgos = m.nuevoPrepararRegistroArgos()
+	m.registrarArgos = m.nuevoRegistrarArgos()
 	return m
 }
 

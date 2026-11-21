@@ -14896,6 +14896,98 @@
         ],
         "type": "object"
       },
+      "EntradaRegistrarArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "cliente_id": {
+            "description": "Cliente existente que eligió quien lo registró (de la empresa)",
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "comentario": {
+            "maxLength": 500,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "coordenadas": {
+            "description": "\"lat,lng\"",
+            "maxLength": 60,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "direccion": {
+            "maxLength": 300,
+            "minLength": 1,
+            "type": "string"
+          },
+          "modo": {
+            "enum": [
+              "residencial",
+              "empresarial"
+            ],
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 200,
+            "minLength": 2,
+            "type": "string"
+          },
+          "origen": {
+            "enum": [
+              "oficina",
+              "llamada",
+              "whatsapp",
+              "referido",
+              "otro"
+            ],
+            "type": "string"
+          },
+          "plan_interes_id": {
+            "description": "Plan de Argos aplicable al modo",
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "telefonos": {
+            "items": {
+              "$ref": "#/components/schemas/TelefonoArgosEntrada"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "zona_id": {
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "origen",
+          "nombre",
+          "telefonos",
+          "modo",
+          "direccion"
+        ],
+        "type": "object"
+      },
       "EntradaRegistrarAusencia": {
         "additionalProperties": false,
         "properties": {
@@ -25913,6 +26005,7 @@
           "prospectos.perder",
           "prospectos.reabrir",
           "prospectos.registrar_actividad",
+          "prospectos.registrar_integracion",
           "prospectos.ver",
           "reportes.ver",
           "roles.activar",
@@ -27924,6 +28017,10 @@
           "type": {
             "description": "URI estable del tipo de problema (urn:iris:problema:\u003ccodigo\u003e)",
             "type": "string"
+          },
+          "url_iris": {
+            "description": "prospecto_duplicado: enlace al prospecto existente (contrato con Argos §3.6)",
+            "type": "string"
           }
         },
         "required": [
@@ -28049,6 +28146,21 @@
             "$ref": "#/components/schemas/Alta",
             "description": "Alta del cliente (solo ganado)"
           },
+          "clienteExistenteId": {
+            "description": "Cliente de Argos que eligió quien lo registró en Argos: al ganar, Iris no lo crea ni lo edita",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "clienteValidado": {
+            "description": "false: Argos no respondió al registrarlo (se confirma después)",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "correo": {
             "type": [
               "string",
@@ -28114,6 +28226,17 @@
               "null"
             ]
           },
+          "modo": {
+            "description": "Solo los registrados desde Argos",
+            "enum": [
+              "residencial",
+              "empresarial"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "motivoPerdida": {
             "type": [
               "string",
@@ -28135,11 +28258,13 @@
             "type": "boolean"
           },
           "origen": {
+            "description": "argos_panel: lo registró una persona en el panel de Argos (contrato §3.6)",
             "enum": [
               "panel",
               "web",
               "referido",
               "argos",
+              "argos_panel",
               "otro"
             ],
             "type": "string"
@@ -28203,6 +28328,9 @@
           "numero",
           "empresaId",
           "origen",
+          "modo",
+          "clienteExistenteId",
+          "clienteValidado",
           "origenDetalle",
           "nombre",
           "documento",
@@ -28241,6 +28369,21 @@
           "alta": {
             "$ref": "#/components/schemas/Alta",
             "description": "Alta del cliente (solo ganado)"
+          },
+          "clienteExistenteId": {
+            "description": "Cliente de Argos que eligió quien lo registró en Argos: al ganar, Iris no lo crea ni lo edita",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "clienteValidado": {
+            "description": "false: Argos no respondió al registrarlo (se confirma después)",
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "contrato": {
             "$ref": "#/components/schemas/Contrato",
@@ -28319,6 +28462,17 @@
               "null"
             ]
           },
+          "modo": {
+            "description": "Solo los registrados desde Argos",
+            "enum": [
+              "residencial",
+              "empresarial"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "motivoPerdida": {
             "type": [
               "string",
@@ -28340,11 +28494,13 @@
             "type": "boolean"
           },
           "origen": {
+            "description": "argos_panel: lo registró una persona en el panel de Argos (contrato §3.6)",
             "enum": [
               "panel",
               "web",
               "referido",
               "argos",
+              "argos_panel",
               "otro"
             ],
             "type": "string"
@@ -28393,6 +28549,16 @@
               "null"
             ]
           },
+          "telefonos": {
+            "description": "Números del prospecto registrado desde Argos (vacío en los demás: usan telefono)",
+            "items": {
+              "$ref": "#/components/schemas/TelefonoProspecto"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "vendedorId": {
             "description": "Responsable de ventas (usuario de Iris)",
             "format": "int64",
@@ -28415,11 +28581,15 @@
         },
         "required": [
           "pendientes",
+          "telefonos",
           "acciones",
           "id",
           "numero",
           "empresaId",
           "origen",
+          "modo",
+          "clienteExistenteId",
+          "clienteValidado",
           "origenDetalle",
           "nombre",
           "documento",
@@ -28441,6 +28611,37 @@
           "creadoEn",
           "actualizadoEn",
           "version"
+        ],
+        "type": "object"
+      },
+      "ProspectoRegistrado": {
+        "additionalProperties": false,
+        "properties": {
+          "asignado": {
+            "description": "Ya tiene vendedor",
+            "type": "boolean"
+          },
+          "estado": {
+            "type": "string"
+          },
+          "numero": {
+            "type": "string"
+          },
+          "prospecto_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "url_iris": {
+            "description": "Enlace plano al prospecto en Iris (el autologin se pide al hacer clic, §1.3)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prospecto_id",
+          "numero",
+          "estado",
+          "asignado",
+          "url_iris"
         ],
         "type": "object"
       },
@@ -33001,6 +33202,45 @@
         ],
         "type": "object"
       },
+      "TelefonoArgosEntrada": {
+        "additionalProperties": false,
+        "properties": {
+          "nombre": {
+            "description": "De quién es el número si no es del prospecto (al ganar, contacto del cliente)",
+            "maxLength": 200,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "numero": {
+            "description": "E.164 (+50255123344)",
+            "maxLength": 32,
+            "type": "string"
+          },
+          "principal": {
+            "description": "Exactamente uno",
+            "type": "boolean"
+          },
+          "relacion": {
+            "description": "titular (solo el principal), familiar u otro",
+            "maxLength": 20,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "whatsapp": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "numero",
+          "whatsapp",
+          "principal"
+        ],
+        "type": "object"
+      },
       "TelefonoCentralita": {
         "additionalProperties": false,
         "properties": {
@@ -33122,6 +33362,47 @@
           "dispositivos",
           "puede",
           "limite"
+        ],
+        "type": "object"
+      },
+      "TelefonoProspecto": {
+        "additionalProperties": false,
+        "properties": {
+          "nombre": {
+            "description": "De quién es (al ganar, contacto del cliente)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "numero": {
+            "description": "E.164",
+            "type": "string"
+          },
+          "principal": {
+            "type": "boolean"
+          },
+          "relacion": {
+            "enum": [
+              "titular",
+              "familiar",
+              "otro"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "whatsapp": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "numero",
+          "whatsapp",
+          "principal",
+          "nombre",
+          "relacion"
         ],
         "type": "object"
       },
@@ -43343,6 +43624,149 @@
           "integraciones"
         ],
         "x-permiso": "integraciones.ver"
+      }
+    },
+    "/api/v1/integraciones/argosisp/prospectos": {
+      "post": {
+        "description": "Permiso: `prospectos.registrar_integracion`. Contrato con Argos 0.10.0 §3.6 (A44): solo el token de integración de Argos (403 `solo_integracion_argos`); ese token no lee, lista ni edita prospectos. Crea el prospecto con origen `argos_panel`, sus `telefonos[]` (1 a 5, exactamente un `principal`; si no, 422 `telefonos_invalidos` con `errors[]` por posición, sin repetir el número), vendedor por zona y la factibilidad si trae coordenadas. 409 `prospecto_duplicado { url_iris }` si cualquiera de los números ya está en un prospecto abierto de la empresa (el pedido se suma como actividad; no dice cuál coincidió). 409 `argos_apagado` con el conector apagado. 422 `plan_no_permitido` (plan no aplicable al modo) y `cliente_no_valido` (cliente de otra empresa); si Iris no tiene el cliente y Argos no responde, se crea con `cliente_validado: false`. 429 `demasiados_registros` (con `Retry-After`) al pasar 30 números por minuto por actor o 300 por empresa. Idempotencia: misma clave y huella, la respuesta original; otra huella, 422 `idempotency_key_reutilizada`; la primera en curso, 409 `idempotencia_en_proceso`. 400 `cabecera_iris_requerida` si `X-Iris-Actor` no es `usuario:\u003cid\u003e`.",
+        "operationId": "registrarProspectoArgos",
+        "parameters": [
+          {
+            "description": "argos:prospecto:\u003cuuid\u003e; Iris la guarda 30 días y la huella incluye el cuerpo, X-Iris-Empresa y X-Iris-Actor",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "argos:prospecto:\u003cuuid\u003e; Iris la guarda 30 días y la huella incluye el cuerpo, X-Iris-Empresa y X-Iris-Actor",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Empresa del prospecto (dentro del alcance del token; si no, 403 empresa_no_permitida)",
+            "in": "header",
+            "name": "X-Iris-Empresa",
+            "required": true,
+            "schema": {
+              "description": "Empresa del prospecto (dentro del alcance del token; si no, 403 empresa_no_permitida)",
+              "maxLength": 20,
+              "type": "string"
+            }
+          },
+          {
+            "description": "usuario:\u003cid de Argos\u003e de quien lo registró",
+            "in": "header",
+            "name": "X-Iris-Actor",
+            "required": true,
+            "schema": {
+              "description": "usuario:\u003cid de Argos\u003e de quien lo registró",
+              "maxLength": 80,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaRegistrarArgos"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProspectoRegistrado"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar un prospecto desde Argos",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "prospectos.registrar_integracion"
       }
     },
     "/api/v1/integraciones/argosisp/sso/tickets": {
@@ -78097,6 +78521,7 @@
                 "web",
                 "referido",
                 "argos",
+                "argos_panel",
                 "otro",
                 ""
               ],

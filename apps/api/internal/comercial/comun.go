@@ -288,8 +288,10 @@ func cambioDeEstado(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries
 	if err := historial(ctx, t, q, despues.ID, "estado", &antes.Estado, &despues.Estado, motivo, nil); err != nil {
 		return err
 	}
+	// empresa_id y origen: el webhook a Argos (contrato 0.10.0 §6.6) sale solo de los argos_panel.
 	return t.Emitir("prospecto.estado_cambiado", map[string]any{
 		"prospecto_id": despues.ID, "de": antes.Estado, "a": despues.Estado, "motivo": motivo,
+		"empresa_id": despues.EmpresaID, "origen": despues.Origen,
 	})
 }
 
