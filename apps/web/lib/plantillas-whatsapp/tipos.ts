@@ -138,7 +138,10 @@ export function estadoVisible(p: Pick<PlantillaWA, "estado" | "pausadaHasta" | "
         case "PENDING_DELETION":
             return { texto: "Borrándose", tono: "neutral", atencion: false };
         case "DELETED":
-            return p.borradaPor === "meta" ? { texto: "Borrada en Meta", tono: "error", atencion: true } : { texto: "Borrada", tono: "neutral", atencion: false };
+            if (p.borradaPor === "meta") return { texto: "Borrada en Meta", tono: "error", atencion: true };
+            // La cuenta pasó a otra empresa: Iris la archivó (no se borró en Meta).
+            if (p.borradaPor === "sistema") return { texto: "Archivada · la cuenta es de otra empresa", tono: "neutral", atencion: false };
+            return { texto: "Borrada", tono: "neutral", atencion: false };
     }
     return { texto: p.estado, tono: "neutral", atencion: false };
 }

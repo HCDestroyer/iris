@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { useAhora } from "@/componentes/tickets/insignias";
 import { ErrorApi } from "@/lib/api/errores";
 import { haceCuanto } from "@/lib/fechas";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
@@ -38,10 +39,9 @@ type Grupo = "todas" | "activas" | "revision" | "atender";
 export function ListaPlantillasWA() {
     const params = useSearchParams();
     const cuentas = useLectura((signal) => P.leerCuentas(signal));
-    const [waba, setWaba] = useState<string | null>(params.get("cuenta"));
-    useEffect(() => {
-        if (cuentas.estado === "listo" && (waba === null || !cuentas.datos.some((c) => c.wabaId === waba))) setWaba(cuentas.datos[0]?.wabaId ?? null);
-    }, [cuentas, waba]);
+    const [elegida, setWaba] = useState<string | null>(params.get("cuenta"));
+    // La elegida si sigue entre las cuentas; si no, la primera.
+    const waba = cuentas.estado === "listo" ? (cuentas.datos.some((c) => c.wabaId === elegida) ? elegida : (cuentas.datos[0]?.wabaId ?? null)) : null;
     const { puede } = useSesion();
 
     const acciones = (
@@ -99,20 +99,18 @@ export function ListaPlantillasWA() {
 function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincronizar }: { cuentas: CuentaPWA[]; waba: string; alCambiarCuenta: (w: string) => void; alSincronizar: () => void; puedeSincronizar: boolean }) {
     const cuenta = cuentas.find((c) => c.wabaId === waba) ?? cuentas[0];
     const clave = useClaveIdempotencia();
+    const ahora = useAhora(60_000);
     const [sincronizando, setSincronizando] = useState(false);
     const [resumen, setResumen] = useState<ResumenSincronizacion | null>(null);
     const [errorSync, setErrorSync] = useState<unknown>(null);
     const [sigue, setSigue] = useState(false);
+    // Sube tras sincronizar: la lista se vuelve a leer desde el principio.
+    const [lectura, setLectura] = useState(0);
     const [grupo, setGrupo] = useState<Grupo>("todas");
     const [buscar, setBuscar] = useState("");
     const [buscarDiferido, setBuscarDiferido] = useState("");
     const [categoria, setCategoria] = useState("");
     const [idioma, setIdioma] = useState("");
-    const [mas, setMas] = useState<PlantillaWA[]>([]);
-    const [cursor, setCursor] = useState<string | null>(null);
-    const [cargandoMas, setCargandoMas] = useState(false);
-    const [errorMas, setErrorMas] = useState<unknown>(null);
-    const ahora = useMemo(() => Date.now(), [resumen]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         const t = setTimeout(() => setBuscarDiferido(buscar.trim()), 250);
@@ -122,30 +120,16 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
         (): P.FiltrosLista => ({ wabaId: waba, ...(grupo !== "todas" ? { grupo } : {}), ...(categoria ? { categoria: categoria as PlantillaWA["categoria"] } : {}), ...(idioma ? { idioma } : {}), ...(buscarDiferido ? { buscar: buscarDiferido } : {}) }),
         [waba, grupo, categoria, idioma, buscarDiferido],
     );
-    const lista = useLectura((signal) => P.leerLista(filtros, signal));
-    const { reintentar } = lista;
-    const llave = JSON.stringify(filtros);
-    const [llaveLeida, setLlaveLeida] = useState(llave);
-    useEffect(() => {
-        if (llave !== llaveLeida) {
-            setLlaveLeida(llave);
-            setMas([]);
-            setCursor(null);
-            reintentar();
-        }
-    }, [llave, llaveLeida, reintentar]);
-    useEffect(() => {
-        if (lista.estado === "listo") setCursor(lista.datos.nextCursor ?? null);
-    }, [lista]);
 
     // El botón encola la relectura (202) y se vuelve a leer la cuenta hasta ver el resultado.
-    const montado = useRef(new AbortController());
+    const montado = useRef<AbortController | null>(null);
     useEffect(() => {
         const c = new AbortController();
         montado.current = c;
         return () => c.abort();
     }, []);
     async function sincronizar() {
+        const senal = montado.current?.signal;
         setSincronizando(true);
         setErrorSync(null);
         setResumen(null);
@@ -153,46 +137,29 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
         try {
             const pedida = await P.sincronizar(waba, clave.actual());
             clave.renovar();
-            const r = await P.esperarSincronizacion(waba, { sincronizadaEn: pedida.sincronizadaEn, errorEn: cuenta?.error?.en ?? null }, { signal: montado.current.signal });
+            const r = await P.esperarSincronizacion(waba, { sincronizadaEn: pedida.sincronizadaEn, errorEn: cuenta?.error?.en ?? null }, senal ? { signal: senal } : {});
             alSincronizar();
             if (r.fin === "lista") {
                 setResumen(r.cuenta.resumen);
-                setMas([]);
                 avisar({ titulo: "Listo: Iris quedó igual que Meta" });
-                reintentar();
+                setLectura((n) => n + 1);
             } else if (r.fin === "error" && r.cuenta.error) {
                 setErrorSync(new ErrorApi({ estado: 0, codigo: r.cuenta.error.codigo, titulo: "No se pudo hablar con Meta" }));
             } else {
                 setSigue(true);
             }
         } catch (e) {
-            if (montado.current.signal.aborted) return;
+            if (senal?.aborted) return;
             clave.trasError(e);
             setErrorSync(e);
         } finally {
-            if (!montado.current.signal.aborted) setSincronizando(false);
-        }
-    }
-
-    async function cargarMas() {
-        if (!cursor) return;
-        setCargandoMas(true);
-        setErrorMas(null);
-        try {
-            const r = await P.leerLista({ ...filtros, cursor });
-            setMas((m) => [...m, ...r.data]);
-            setCursor(r.nextCursor ?? null);
-        } catch (e) {
-            setErrorMas(e);
-        } finally {
-            setCargandoMas(false);
+            if (!senal?.aborted) setSincronizando(false);
         }
     }
 
     const errorCuenta = cuenta?.error ? new ErrorApi({ estado: 0, codigo: cuenta.error.codigo, titulo: "No se pudo hablar con Meta" }) : null;
-    const filas = lista.estado === "listo" ? [...lista.datos.data, ...mas] : [];
-    const conteos = lista.estado === "listo" ? lista.datos.conteos : null;
     const numeros = cuenta?.numeros ?? [];
+    const sinFiltros = grupo === "todas" && !buscarDiferido && !categoria && !idioma;
 
     return (
         <div className="grid min-w-0 gap-4">
@@ -222,7 +189,7 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
                     {cuenta?.sincronizadaEn ? (
                         <span className="flex items-center gap-1 text-sm text-muted-foreground" data-slot="sincronizada">
                             <Check aria-hidden className="size-3.5 text-success" />
-                            Sincronizado {haceCuanto(cuenta.sincronizadaEn, Date.now())}
+                            Sincronizado {haceCuanto(cuenta.sincronizadaEn, ahora)}
                         </span>
                     ) : (
                         <span className="text-sm text-muted-foreground">Aún sin sincronizar</span>
@@ -247,18 +214,6 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
             <Tarjeta className="min-w-0 overflow-hidden p-0">
                 <div className="flex flex-wrap items-end gap-2 border-b border-border p-3">
                     <CampoBusqueda etiqueta="Buscar por nombre" etiquetaVisible={false} placeholder="Buscar por nombre" valor={buscar} alCambiar={setBuscar} maxLength={100} className="w-full sm:w-60" />
-                    <GrupoSegmentado<Grupo>
-                        etiqueta="Estado"
-                        className="max-w-full overflow-x-auto"
-                        valor={grupo}
-                        alCambiar={setGrupo}
-                        opciones={[
-                            { valor: "todas", etiqueta: "Todas", ...(conteos ? { contador: conteos.todas } : {}) },
-                            { valor: "activas", etiqueta: "Activas", ...(conteos ? { contador: conteos.activas } : {}) },
-                            { valor: "revision", etiqueta: "En revisión", ...(conteos ? { contador: conteos.revision } : {}) },
-                            { valor: "atender", etiqueta: "Atender", ...(conteos ? { contador: conteos.atender } : {}) },
-                        ]}
-                    />
                     <CampoSelector etiqueta="Categoría" tamano="sm" className="w-40" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                         <option value="">Todas</option>
                         {CATEGORIAS.map((c) => (
@@ -276,46 +231,94 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
                         ))}
                     </CampoSelector>
                 </div>
-                {lista.estado === "cargando" ? (
-                    <div className="grid gap-2 p-3" aria-busy="true">
-                        <Esqueleto className="h-12" />
-                        <Esqueleto className="h-12" />
-                        <Esqueleto className="h-12" />
-                    </div>
-                ) : lista.estado === "error" ? (
-                    <div className="p-3">
-                        <ErrorLectura error={lista.error} reintentar={lista.reintentar} que="las plantillas" />
-                    </div>
-                ) : filas.length === 0 ? (
-                    <EstadoVacio
-                        icono={MessageSquare}
-                        titulo={grupo === "todas" && !buscarDiferido && !categoria && !idioma ? "Esta cuenta aún no tiene plantillas" : "Ninguna plantilla con estos filtros"}
-                        descripcion={grupo === "todas" && !buscarDiferido ? "Empieza con las sugeridas para tu ISP: ya vienen conectadas con los datos de Iris y Argos." : "Cambia los filtros para ver otras."}
-                    />
-                ) : (
-                    <>
-                        <TablaPlantillas filas={filas} ahora={ahora} />
-                        <ul className="grid md:hidden" aria-label="Plantillas">
-                            {filas.map((p) => (
-                                <FilaMovil key={p.id} p={p} ahora={ahora} />
-                            ))}
-                        </ul>
-                        <div className="flex flex-wrap items-center gap-2 border-t border-border p-3 text-sm text-muted-foreground">
-                            <span>
-                                Mostrando {filas.length}
-                                {conteos ? ` de ${grupo === "todas" ? conteos.todas : conteos[grupo]}` : ""}
-                            </span>
-                            {cursor ? (
-                                <Boton variante="enlace" tamano="sm" onClick={() => void cargarMas()} disabled={cargandoMas}>
-                                    {cargandoMas ? "Cargando…" : "Cargar más"}
-                                </Boton>
-                            ) : null}
-                            {errorMas ? <ErrorPlantilla error={errorMas} reintentar={() => void cargarMas()} /> : null}
-                        </div>
-                    </>
-                )}
+                {/* Otra búsqueda (u otra lectura tras sincronizar): la lista empieza de nuevo. */}
+                <ListaFiltrada key={`${JSON.stringify(filtros)}·${lectura}`} filtros={filtros} grupo={grupo} alCambiarGrupo={setGrupo} sinFiltros={sinFiltros} ahora={ahora} />
             </Tarjeta>
         </div>
+    );
+}
+
+function ListaFiltrada({ filtros, grupo, alCambiarGrupo, sinFiltros, ahora }: { filtros: P.FiltrosLista; grupo: Grupo; alCambiarGrupo: (g: Grupo) => void; sinFiltros: boolean; ahora: number }) {
+    const lista = useLectura((signal) => P.leerLista(filtros, signal));
+    const [mas, setMas] = useState<PlantillaWA[]>([]);
+    // El cursor de «Cargar más» (undefined: el de la primera página).
+    const [cursorMas, setCursorMas] = useState<string | null | undefined>(undefined);
+    const [cargandoMas, setCargandoMas] = useState(false);
+    const [errorMas, setErrorMas] = useState<unknown>(null);
+    const cursor = cursorMas !== undefined ? cursorMas : lista.estado === "listo" ? (lista.datos.nextCursor ?? null) : null;
+
+    async function cargarMas() {
+        if (!cursor) return;
+        setCargandoMas(true);
+        setErrorMas(null);
+        try {
+            const r = await P.leerLista({ ...filtros, cursor });
+            setMas((m) => [...m, ...r.data]);
+            setCursorMas(r.nextCursor ?? null);
+        } catch (e) {
+            setErrorMas(e);
+        } finally {
+            setCargandoMas(false);
+        }
+    }
+
+    const filas = lista.estado === "listo" ? [...lista.datos.data, ...mas] : [];
+    const conteos = lista.estado === "listo" ? lista.datos.conteos : null;
+    return (
+        <>
+            <div className="border-b border-border px-3 py-2">
+                <GrupoSegmentado<Grupo>
+                    etiqueta="Estado"
+                    className="max-w-full overflow-x-auto"
+                    valor={grupo}
+                    alCambiar={alCambiarGrupo}
+                    opciones={[
+                        { valor: "todas", etiqueta: "Todas", ...(conteos ? { contador: conteos.todas } : {}) },
+                        { valor: "activas", etiqueta: "Activas", ...(conteos ? { contador: conteos.activas } : {}) },
+                        { valor: "revision", etiqueta: "En revisión", ...(conteos ? { contador: conteos.revision } : {}) },
+                        { valor: "atender", etiqueta: "Atender", ...(conteos ? { contador: conteos.atender } : {}) },
+                    ]}
+                />
+            </div>
+            {lista.estado === "cargando" ? (
+                <div className="grid gap-2 p-3" aria-busy="true">
+                    <Esqueleto className="h-12" />
+                    <Esqueleto className="h-12" />
+                    <Esqueleto className="h-12" />
+                </div>
+            ) : lista.estado === "error" ? (
+                <div className="p-3">
+                    <ErrorLectura error={lista.error} reintentar={lista.reintentar} que="las plantillas" />
+                </div>
+            ) : filas.length === 0 ? (
+                <EstadoVacio
+                    icono={MessageSquare}
+                    titulo={sinFiltros ? "Esta cuenta aún no tiene plantillas" : "Ninguna plantilla con estos filtros"}
+                    descripcion={sinFiltros ? "Empieza con las sugeridas para tu ISP: ya vienen conectadas con los datos de Iris y Argos." : "Cambia los filtros para ver otras."}
+                />
+            ) : (
+                <>
+                    <TablaPlantillas filas={filas} ahora={ahora} />
+                    <ul className="grid md:hidden" aria-label="Plantillas">
+                        {filas.map((p) => (
+                            <FilaMovil key={p.id} p={p} ahora={ahora} />
+                        ))}
+                    </ul>
+                    <div className="flex flex-wrap items-center gap-2 border-t border-border p-3 text-sm text-muted-foreground">
+                        <span>
+                            Mostrando {filas.length}
+                            {conteos ? ` de ${grupo === "todas" ? conteos.todas : conteos[grupo]}` : ""}
+                        </span>
+                        {cursor ? (
+                            <Boton variante="enlace" tamano="sm" onClick={() => void cargarMas()} disabled={cargandoMas}>
+                                {cargandoMas ? "Cargando…" : "Cargar más"}
+                            </Boton>
+                        ) : null}
+                        {errorMas ? <ErrorPlantilla error={errorMas} reintentar={() => void cargarMas()} /> : null}
+                    </div>
+                </>
+            )}
+        </>
     );
 }
 

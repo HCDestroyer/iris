@@ -283,6 +283,8 @@ export function motivoFalla(motivo: string): string {
             return "WhatsApp rechazó la conexión del número";
         case "sin_permiso_meta":
             return "falta un permiso en WhatsApp";
+        case "cliente_sin_confirmar":
+            return "cliente sin confirmar";
         default:
             return motivo.replace(/_/g, " ");
     }
