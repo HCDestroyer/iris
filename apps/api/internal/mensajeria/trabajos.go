@@ -31,6 +31,7 @@ func (m *Modulo) RegistrarWorkers(w *river.Workers, bd nucleo.BD) {
 	river.AddWorker(w, &trabajadorMedio{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorAsistenteSugerir{m: m, bd: bd})
 	river.AddWorker(w, &trabajadorAsistenteGenerar{m: m, bd: bd})
+	river.AddWorker(w, &trabajadorSincronizarPlantillas{m: m, bd: bd})
 }
 
 // ArgsMantenimiento: avisos sin acuse (agotado), webhooks de Meta que quedaron sin procesar y la
@@ -79,6 +80,10 @@ func (w *trabajadorMantenimiento) Work(ctx context.Context, _ *river.Job[ArgsMan
 	// Asistente de IA: atascadas, reservas huérfanas y pedidos viejos (errores al log).
 	if err := w.m.mantenerAsistente(ctx, w.bd, slog.Default()); err != nil {
 		slog.Default().WarnContext(ctx, "mensajeria: mantenimiento del asistente", "err", err)
+	}
+	// Plantillas de WhatsApp: la relectura de cada noche (un job único por cuenta).
+	if err := w.m.programarSincronizaciones(ctx, w.bd); err != nil {
+		slog.Default().WarnContext(ctx, "mensajeria: programar la sincronización de plantillas", "err", err)
 	}
 	ids, err := mensajeriabd.New(w.bd).EntrantesPendientes(ctx, w.m.ahora().Add(-5*time.Minute))
 	if err != nil {

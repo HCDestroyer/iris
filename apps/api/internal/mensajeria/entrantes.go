@@ -320,6 +320,10 @@ func nuevoProcesarMeta(m *Modulo) *auditoria.Caso[int64, struct{}] {
 					}
 				}
 			}
+			// Plantillas de la cuenta (estado, categoría y calidad; contratos/plantillas-whatsapp.md §5).
+			if err := m.plantillasDelWebhook(ctx, t, q, fila, e.Payload, ahora); err != nil {
+				return struct{}{}, err
+			}
 			var nota *string
 			if ajenos > 0 {
 				t.Anotar(map[string]any{"cambios_de_otro_numero": ajenos})

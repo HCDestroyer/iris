@@ -131,7 +131,12 @@ func nuevoPrepararEnvio(m *Modulo) *auditoria.Caso[entradaPreparar, preparado] {
 			if err := json.Unmarshal(a.Variables, &variables); err != nil {
 				return preparado{}, err
 			}
-			return preparado{Accion: accionEnviar, r: r, mensaje: Mensaje{AvisoID: a.ID, Destino: *a.Destino, Plantilla: p, Variables: variables}}, nil
+			cliente := a.ClienteID
+			datos, err := datosParaEnvio(ctx, q, p, variables, a.EmpresaID, &cliente, a.ServicioID)
+			if err != nil {
+				return preparado{}, err
+			}
+			return preparado{Accion: accionEnviar, r: r, mensaje: Mensaje{AvisoID: a.ID, Destino: *a.Destino, Plantilla: p, Variables: variables, Datos: datos}}, nil
 		},
 	})
 }

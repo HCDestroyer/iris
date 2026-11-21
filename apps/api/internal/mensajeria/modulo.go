@@ -73,6 +73,8 @@ type Config struct {
 	MetaURL string
 	// Llamadas: la Graph API de llamadas de WhatsApp (voz E1). nil = el cliente real sobre MetaURL.
 	Llamadas GraphLlamadas
+	// Plantillas: la Graph API de plantillas de WhatsApp. nil = el cliente real sobre MetaURL.
+	Plantillas GraphPlantillas
 	// HTTPMeta hacia Meta; HTTPArgos hacia el receptor de Argos (con la protección contra SSRF).
 	HTTPMeta  *http.Client
 	HTTPArgos *http.Client
@@ -188,8 +190,8 @@ type Modulo struct {
 	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
 	RegistrarConsentimiento *RegistrarConsentimiento
 	ListarPlantillas        *auditoria.Caso[EntradaPlantillas, ListaPlantillas]
-	CrearCanal              *auditoria.Caso[EntradaCrearCanal, Canal]
-	ActualizarCanal         *auditoria.Caso[EntradaActualizarCanal, Canal]
+	CrearCanal              *CasoCanal[EntradaCrearCanal]
+	ActualizarCanal         *CasoCanal[EntradaActualizarCanal]
 	ActivarCanal            *auditoria.Caso[EntradaCambioCanal, Canal]
 	DesactivarCanal         *auditoria.Caso[EntradaCambioCanal, Canal]
 	ListarCanales           *auditoria.Caso[struct{}, ListaCanales]
@@ -206,6 +208,8 @@ type Modulo struct {
 	Voz casosVoz
 	// Horarios y manuales (PR B).
 	Horarios casosHorarios
+	// Plantillas de WhatsApp por cuenta (contratos/plantillas-whatsapp.md).
+	PlantillasWA casosPlantillasWA
 	// Conexión con Meta, QR y préstamo de números (§15).
 	Meta casosMeta
 	// Asistente de IA (§16).
@@ -387,8 +391,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
 	m.ListarPlantillas = nuevoListarPlantillas(m)
-	m.CrearCanal = nuevoCrearCanal(m)
-	m.ActualizarCanal = nuevoActualizarCanal(m)
+	m.CrearCanal = nuevoCasoCrearCanal(m)
+	m.ActualizarCanal = nuevoCasoActualizarCanal(m)
 	m.ActivarCanal = nuevoCambioCanal(m, "mensajeria.activar_canal", true)
 	m.DesactivarCanal = nuevoCambioCanal(m, "mensajeria.desactivar_canal", false)
 	m.ListarCanales = nuevoListarCanales(m)
@@ -426,6 +430,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.listarBoletas = nuevoListarBoletas(m)
 	m.alRecibir = m.alRecibirBandeja
 	m.Horarios = nuevosCasosHorarios(m)
+	m.PlantillasWA = nuevosCasosPlantillasWA(m)
 	m.Meta = nuevosCasosMeta(m)
 	m.Asistente = nuevosCasosAsistente(m)
 	m.Centralita = nuevosCasosCentralita(m)

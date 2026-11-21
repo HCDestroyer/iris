@@ -40,6 +40,9 @@ type Mensaje struct {
 	Destino   string // E.164
 	Plantilla Plantilla
 	Variables map[string]string
+	// Datos: las variables más los datos derivados y los de la instantánea de Argos (los que usa una
+	// plantilla de la cuenta con su mapa de datos). nil = solo los derivados de Variables.
+	Datos map[string]string
 }
 
 // Resultado de un envío aceptado por el canal.
@@ -92,6 +95,7 @@ type MensajeSaliente struct {
 	// Plantilla (con sus variables) en lugar de texto.
 	Plantilla *Plantilla
 	Variables map[string]string
+	Datos     map[string]string
 	// Medio con Texto como pie.
 	Medio *MedioSaliente
 	// PermisoLlamada: la solicitud de permiso de llamada (voz.md §3.7) en lugar de un texto.
@@ -154,6 +158,13 @@ type credenciales struct {
 type PlantillaMeta struct {
 	Nombre string `json:"nombre" minLength:"1" maxLength:"512" pattern:"^[a-z0-9_]+$" doc:"Nombre de la plantilla aprobada en Meta"`
 	Idioma string `json:"idioma" minLength:"2" maxLength:"10" pattern:"^[a-z]{2,3}(_[A-Z]{2})?$" doc:"Código de idioma de la plantilla en Meta (es, es_MX…)"`
+	// De mensajeria.plantillas_whatsapp (no van al contrato): qué dato va en cada variable (vacío =
+	// las variables del catálogo por posición, como se mandaba antes), si son con nombre, la
+	// categoría y los usos que decidió la empresa.
+	Parametros []ParametroPWA `json:"-"`
+	Nombrados  bool           `json:"-"`
+	Categoria  string         `json:"-"`
+	Usos       []string       `json:"-"`
 }
 
 // DatosAsociadosCanal ata las credenciales cifradas a su fila (también lo usa la rotación de la clave).
@@ -179,7 +190,7 @@ func (m *Modulo) resolver(ctx context.Context, q *mensajeriabd.Queries, empresa 
 	}
 	switch {
 	case err == nil:
-		return m.resueltoDe(f)
+		return m.resueltoDe(ctx, q, f)
 	case !errors.Is(err, pgx.ErrNoRows):
 		return nil, err
 	case m.cfg.Simulado && medio == CanalWhatsApp:
@@ -210,21 +221,65 @@ func (m *Modulo) resolverPorID(ctx context.Context, q *mensajeriabd.Queries, id 
 			return nil, err
 		}
 	}
-	return m.resueltoDe(f)
+	return m.resueltoDe(ctx, q, f)
 }
 
-func (m *Modulo) resueltoDe(f mensajeriabd.MensajeriaCanal) (*resuelto, error) {
+func (m *Modulo) resueltoDe(ctx context.Context, q *mensajeriabd.Queries, f mensajeriabd.MensajeriaCanal) (*resuelto, error) {
 	cr, err := m.credencialesDe(f)
 	if err != nil {
 		return nil, err
 	}
-	plantillas := map[string]PlantillaMeta{}
-	if err := json.Unmarshal(f.Plantillas, &plantillas); err != nil {
+	plantillas, err := m.plantillasDeCanal(ctx, q, f, "")
+	if err != nil {
 		return nil, err
 	}
+	avisos := map[string]PlantillaMeta{}
+	for codigo, p := range plantillas {
+		if p.Usos == nil || slices.Contains(p.Usos, UsoPWAvisos) {
+			avisos[codigo] = p
+		}
+	}
 	id := f.ID
-	a := &whatsappCloud{m: m, phoneNumberID: f.PhoneNumberID, token: cr.Token, plantillas: plantillas}
+	a := &whatsappCloud{m: m, phoneNumberID: f.PhoneNumberID, token: cr.Token, plantillas: plantillas, avisos: avisos}
 	return &resuelto{a: a, canalID: &id, remitente: "canal:" + strconv.FormatInt(f.ID, 10), fila: &f}, nil
+}
+
+// plantillasDeCanal: las plantillas aprobadas por código de Iris con que sale el número. Un número de
+// la empresa dueña de su cuenta de WhatsApp (WABA) usa las de la cuenta (mensajeria.plantillas_whatsapp:
+// aprobadas, sin pausa y con código); uno sin WABA, o de una cuenta que es de otra empresa (una WABA
+// compartida de antes de que la cuenta tuviera dueña), su mapa propio de mensajeria.canales.plantillas,
+// como antes. uso: solo las que la empresa marcó para ese uso ("" = cualquiera).
+func (m *Modulo) plantillasDeCanal(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaCanal, uso string) (map[string]PlantillaMeta, error) {
+	p := map[string]PlantillaMeta{}
+	deLaDuena, err := cuentaEsDelNumero(ctx, q, c)
+	if err != nil {
+		return nil, err
+	}
+	if !deLaDuena {
+		_ = json.Unmarshal(c.Plantillas, &p)
+		return p, nil
+	}
+	ahora := m.ahora()
+	// Solo las de la empresa dueña de la cuenta (la del número; un préstamo no la cambia).
+	fs, err := q.PlantillasWAUsables(ctx, mensajeriabd.PlantillasWAUsablesParams{WabaID: c.WabaID, Empresa: derefEmpresa(c.EmpresaID), Ahora: &ahora})
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range fs {
+		if uso != "" && !slices.Contains(f.Usos, uso) {
+			continue
+		}
+		var params []ParametroPWA
+		_ = json.Unmarshal(f.Parametros, &params)
+		for _, codigo := range f.Codigos {
+			if _, ya := p[codigo]; ya {
+				continue // la más antigua (no debería haber dos: lo cuida tomarCodigo)
+			}
+			p[codigo] = PlantillaMeta{Nombre: f.Nombre, Idioma: f.Idioma, Parametros: params, Nombrados: f.Formato == "NAMED", Categoria: f.Categoria,
+				Usos: lista(f.Usos)}
+		}
+	}
+	return p, nil
 }
 
 func (m *Modulo) credencialesDe(f mensajeriabd.MensajeriaCanal) (credenciales, error) {

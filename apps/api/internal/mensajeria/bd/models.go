@@ -2029,6 +2029,84 @@ type MensajeriaManuale struct {
 	UpdatedAt   time.Time
 }
 
+type MensajeriaPlantillaWA struct {
+	ID                  int64
+	EmpresaID           *int64
+	WabaID              string
+	MetaID              *string
+	Nombre              string
+	Idioma              string
+	Etiqueta            string
+	Categoria           string
+	CategoriaAnterior   *string
+	CategoriaCambiadaEn *time.Time
+	CategoriaProxima    *string
+	CategoriaProximaEn  *time.Time
+	Estado              string
+	EstadoEn            time.Time
+	Motivo              *string
+	Rechazo             []byte
+	Calidad             string
+	PausadaHasta        *time.Time
+	Formato             string
+	Componentes         []byte
+	ComponentesMeta     []byte
+	Codigos             []string
+	Parametros          []byte
+	Usos                []string
+	Origen              string
+	Sugerida            *string
+	Ediciones           []time.Time
+	EnviadaEn           *time.Time
+	BorradaEn           *time.Time
+	BorradaPor          *string
+	NombreLibreEn       *time.Time
+	SincronizadaEn      *time.Time
+	MetaEventoEn        int64
+	CreadaPor           *int64
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
+}
+
+type MensajeriaPlantillaWAAjuste struct {
+	EmpresaID          int64
+	MarketingPermitido bool
+	Version            int32
+	UpdatedAt          time.Time
+}
+
+type MensajeriaPlantillaWACuenta struct {
+	WabaID         string
+	EmpresaID      int64
+	SincronizadaEn *time.Time
+	Resumen        []byte
+	Error          *string
+	ErrorEn        *time.Time
+	UpdatedAt      time.Time
+}
+
+type MensajeriaPlantillaWAHistorial struct {
+	ID          int64
+	PlantillaID int64
+	Tipo        string
+	De          *string
+	A           *string
+	Detalle     []byte
+	Origen      string
+	ActorID     *int64
+	OcurridoEn  time.Time
+}
+
+type MensajeriaPlantillasWhatsappAvisosMetum struct {
+	WabaID     string
+	MetaID     string
+	Campo      string
+	Evento     string
+	Ocurrido   int64
+	RecibidoEn time.Time
+}
+
 type MensajeriaPromesa struct {
 	ID             uuid.UUID
 	EmpresaID      *int64

@@ -23,6 +23,7 @@ var registroAdjuntosChat sync.Once
 func RegistrarAdjuntos() {
 	registroAdjuntosChat.Do(func() {
 		registrarAdjuntosConversacion()
+		registrarAdjuntosPlantillaWA()
 		adjuntos.RegistrarEntidadAdjuntable(EntidadAdjuntosChat, func(ctx context.Context, db adjuntos.DBTX, id string, uso adjuntos.Uso) (int64, error) {
 			conv, err := strconv.ParseInt(id, 10, 64)
 			if err != nil || conv <= 0 {

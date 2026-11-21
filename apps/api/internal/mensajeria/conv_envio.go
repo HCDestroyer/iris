@@ -130,12 +130,6 @@ func repetidoConv(ctx context.Context, q *mensajeriabd.Queries, conv int64, id u
 	return nil, nil
 }
 
-func plantillasDeCanal(c mensajeriabd.MensajeriaCanal) map[string]PlantillaMeta {
-	p := map[string]PlantillaMeta{}
-	_ = json.Unmarshal(c.Plantillas, &p)
-	return p
-}
-
 // permisoPlantilla: una plantilla nunca sale a un número con baja vigente (BAJA por chat o registrada
 // a mano), haya o no cliente. Fuera de la ventana exige además cliente de Argos verificado con
 // permiso vigente acepta (§6.4 del contrato con Argos) o contacto de Iris con acepta por número.
@@ -305,8 +299,17 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 				if !ok {
 					return MensajeConvEnviado{}, campoConv("plantilla.codigo", "No es una plantilla de Iris", "plantilla")
 				}
-				if _, ok := plantillasDeCanal(canal)[p.Codigo]; !ok {
+				usables, err := m.plantillasDeCanal(ctx, q, canal, UsoPWConversaciones)
+				if err != nil {
+					return MensajeConvEnviado{}, err
+				}
+				pm, ok := usables[p.Codigo]
+				if !ok {
 					return MensajeConvEnviado{}, reglaConv("plantilla_no_aprobada", "La plantilla no está aprobada en el número de esta conversación")
+				}
+				if necesitaDatosCliente(pm) && !c.ClienteVerificado {
+					return MensajeConvEnviado{}, reglaConv("cliente_sin_confirmar",
+						"Esta plantilla lleva datos del cliente de Argos (nombre, código o plan): confirma primero el cliente de la conversación o usa otra plantilla")
 				}
 				if in.Plantilla.Variables == nil {
 					in.Plantilla.Variables = map[string]string{}
@@ -603,7 +606,7 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 			if canal.PausadoHasta != nil && canal.PausadoHasta.After(ahora) {
 				return mensajePreparado{Accion: accionEsperar, Espera: canal.PausadoHasta.Sub(ahora)}, nil
 			}
-			r, err := m.resueltoDe(canal)
+			r, err := m.resueltoDe(ctx, q, canal)
 			if err != nil {
 				return mensajePreparado{}, err
 			}
@@ -623,7 +626,25 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 				}
 				vars := map[string]string{}
 				_ = json.Unmarshal(f.Variables, &vars)
-				s.Texto, s.Plantilla, s.Variables = nil, &p, vars
+				// Los datos del cliente de Argos solo con el cliente confirmado en la conversación: si la
+				// plantilla del número los lleva y el cliente no está confirmado, el mensaje falla con su
+				// motivo (nunca sale con datos vacíos ni se quitan en silencio).
+				cliente, servicio := c.ClienteID, c.ServicioID
+				if !c.ClienteVerificado {
+					usables, err := m.plantillasDeCanal(ctx, q, canal, "")
+					if err != nil {
+						return mensajePreparado{}, err
+					}
+					if pm, ok := usables[p.Codigo]; ok && necesitaDatosCliente(pm) {
+						return mensajePreparado{Accion: accionNada}, m.fallarMensaje(ctx, t, f, c, MotivoClienteSinConfirmar, "la plantilla lleva datos del cliente y el cliente no está confirmado")
+					}
+					cliente, servicio = nil, nil
+				}
+				datos, err := datosParaEnvio(ctx, q, p, vars, empresaDeConv(c), cliente, servicio)
+				if err != nil {
+					return mensajePreparado{}, err
+				}
+				s.Texto, s.Plantilla, s.Variables, s.Datos = nil, &p, vars, datos
 			}
 			if f.Automatico != nil && *f.Automatico == AutomaticoPermisoLlamada {
 				// La solicitud de permiso de llamada: interactiva dentro de la ventana; fuera, la plantilla del número.

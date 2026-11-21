@@ -182,6 +182,10 @@ var esquemasBandeja = []string{
 	"ConexionMeta", "ListaPrestamos", "ListaEmpresasDestino", "Prestamo", "PrestamoPropio", "OpcionesPrestamo", "EmpresaOpcion",
 	// Asistente de IA (§16).
 	"Sugerencia", "ListaModelosAsistente",
+	// Plantillas de WhatsApp (contratos/plantillas-whatsapp.md).
+	"PlantillaWA", "PlantillaWADetalle", "PlantillaCreadaPWA", "ListaPlantillasWA", "DefinicionPWA", "ListaDatosPWA", "DatoPWA", "ListaCuentasPWA",
+	"CuentaPWA", "ResumenSincronizacionPWA", "CambioCuentaPWA", "ResultadoReglasPWA", "ListaSugeridasPWA", "SugeridaEnCuentaPWA", "PrestatariaPWA",
+	"SincronizacionPedida",
 }
 
 // EsquemasBandeja devuelve los nombres (para la prueba del contrato).
