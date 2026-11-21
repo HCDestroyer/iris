@@ -2792,7 +2792,9 @@ una persona puede devolvérsela con `reanudar`.
   revive: ese mensaje lo contesta una persona (la conversación queda `abierta`, con su SLA).
 - **`maxTurnos` cuenta desde que una persona se la devuelve.** Reanudar desde `espera_persona` o
   `persona_presente` es una atención nueva: `maxTurnos` cuenta los turnos creados desde ese momento
-  (`asistente_atencion_desde`; si no, desde el inicio del periodo). Quitar solo una pausa no lo
+  (`asistente_atencion_desde`; si no, desde el inicio del periodo). También si la pausaron cuando
+  ya esperaba a una persona o estaba detenida por una persona (`asistente_pausa_previo`:
+  `espera_persona` o `detenido`). Quitar solo una pausa puesta con el asistente atendiendo no lo
   reinicia (pausar y reanudar en bucle no salta `maxTurnos`). Antes contaba también los de antes, y tras pasarla por `max_turnos` el
   asistente la volvía a pasar con el siguiente mensaje: «Que siga el asistente» no servía (reporte
   del PM, 0.34.0). Los límites por hora, por día sin cliente y por empresa siguen contando todo.

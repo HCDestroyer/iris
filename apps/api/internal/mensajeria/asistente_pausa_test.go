@@ -411,8 +411,6 @@ func TestAsistenteReanudarNoContestaLoYaContestado(t *testing.T) {
 	}
 }
 
-// Revisión de seguridad (2 y 4): pausar y reanudar en bucle no salta los límites (un turno se reabre
-// una sola vez), y al reanudar queda auditado qué se pasó por alto.
 // Reporte del PM (0.34.0): «ya no continúa con la atención automática y no se puede volver a asignar
 // al asistente». Después de pasar la conversación a una persona por max_turnos, «Que siga el
 // asistente» (reanudar) no servía: con el siguiente mensaje del cliente el asistente contaba otra vez
@@ -464,8 +462,41 @@ func TestAsistenteReanudarDespuesDeMaxTurnos(t *testing.T) {
 	if ms := x.delAsistente(conv2); len(ms) != 3 || estadoAsistente(c) != "atendiendo/3" || x.pasos(conv2, "max_turnos") != 0 {
 		t.Fatalf("tras soltarla y reanudar: %v %v", ms, c["asistente"])
 	}
+
+	// Revisión de seguridad de #244: alguien la pausa cuando ya esperaba a una persona (o estaba
+	// detenida por una persona) y después la reanuda. Sigue siendo una atención nueva: maxTurnos se
+	// reinicia igual. (Una pausa sola, con el asistente atendiendo, no lo reinicia:
+	// TestAsistentePausarReanudarEnBucle.)
+	pausadaYDevuelta := func(n, w1, w2, w3 string, soltar bool) {
+		t.Helper()
+		x.turno(n, w1, "¿Tienen fibra?", "Planes y precios", dice("Sí, tenemos fibra."))
+		x.turno(n, w2, "¿Y en mi zona?", "Planes y precios", dice("Depende de la cobertura."))
+		c := x.conv(n)
+		k := cid(c)
+		*x.reloj = x.reloj.Add(time.Minute)
+		if soltar {
+			x.exigir(x.api(x.agente, http.MethodPost, "/conversaciones/"+k+"/tomar", map[string]any{"version": ver(c)}), http.StatusOK)
+			x.exigir(x.api(x.supervisor, http.MethodPost, "/conversaciones/"+k+"/asignar", map[string]any{"version": ver(x.conv(n)), "usuarioId": nil}), http.StatusOK)
+		} else {
+			c = x.turno(n, w3+"x", "¿Entonces?", "Planes y precios", dice("No debería salir"))
+			x.exigirPaso(c, "max_turnos")
+		}
+		x.exigir(x.accionAsistente(x.agente, k, "pausar", map[string]any{"version": ver(x.conv(n)), "motivo": "caso_delicado"}), http.StatusOK)
+		x.exigir(x.accionAsistente(x.agente, k, "reanudar", map[string]any{"version": ver(x.conv(n))}), http.StatusOK)
+		*x.reloj = x.reloj.Add(time.Second)
+		antes := len(x.delAsistente(k))
+		c = x.turno(n, w3, "¿Cuánto cuesta?", "Planes y precios", dice("Depende del plan que elijas."))
+		ms := x.delAsistente(k)
+		if len(ms) != antes+1 || textoDe(ms[len(ms)-1]) != "Depende del plan que elijas." || !strings.HasPrefix(estadoAsistente(c), "atendiendo/") {
+			t.Fatalf("pausada después de una persona y reanudada (soltar=%v): %v %v", soltar, ms, c["asistente"])
+		}
+	}
+	pausadaYDevuelta(numeroCliente(), "wamid.mp1", "wamid.mp2", "wamid.mp3", false)
+	pausadaYDevuelta(numeroCliente(), "wamid.md1", "wamid.md2", "wamid.md3", true)
 }
 
+// Revisión de seguridad (2 y 4): pausar y reanudar en bucle no salta los límites (un turno se reabre
+// una sola vez), y al reanudar queda auditado qué se pasó por alto.
 func TestAsistentePausarReanudarEnBucle(t *testing.T) {
 	x := nuevaBandejaIA(t)
 	x.autonomo("siempre_primero", nil)
