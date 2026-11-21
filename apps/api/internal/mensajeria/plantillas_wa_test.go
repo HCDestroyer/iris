@@ -100,11 +100,13 @@ func (f *metaPlantillas) servir(w http.ResponseWriter, r *http.Request) {
 		waba := partes[0]
 		switch r.Method {
 		case http.MethodGet:
+			lista := slices.Clone(f.cuentas[waba])
 			if fn := f.alListar; fn != nil {
 				f.alListar = nil
+				f.mu.Unlock()
 				fn()
+				f.mu.Lock()
 			}
-			lista := f.cuentas[waba]
 			desde := 0
 			if a := r.URL.Query().Get("after"); a != "" {
 				desde, _ = strconv.Atoi(a)
@@ -166,7 +168,8 @@ func (f *metaPlantillas) modo(sinPermiso, caida bool) {
 	f.sinPermiso, f.caida = sinPermiso, caida
 }
 
-// duranteLaLectura: fn corre una vez mientras Iris lee las plantillas de Meta (no puede usar la Meta falsa).
+// duranteLaLectura: fn corre una vez mientras Iris lee las plantillas de Meta, con la lista ya armada (lo
+// que fn cree en Meta no viene en esa lectura).
 func (f *metaPlantillas) duranteLaLectura(fn func()) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

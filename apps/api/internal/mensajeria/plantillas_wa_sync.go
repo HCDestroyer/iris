@@ -59,7 +59,7 @@ type lecturaPW struct {
 	// eventos: el meta_evento_en de cada fila antes de leer Meta. Si al escribir cambió, un aviso de Meta
 	// llegó durante la lectura: esa fila ya está más al día que lo leído y no se pisa (se compara
 	// el reloj de Meta con el de Meta, nunca con el de Iris).
-	eventos map[int64]int64
+	eventos map[int64]fotoPW
 	waba    string
 	empresa int64
 	origen  string
@@ -68,9 +68,22 @@ type lecturaPW struct {
 	cuenta  CuentaGraph
 }
 
+// fotoPW: cómo estaba una fila antes de leer Meta.
+type fotoPW struct {
+	metaEventoEn int64
+	version      int32
+}
+
 // cambioDurante: la fila recibió un aviso de Meta después de la foto (una fila nueva cuenta desde 0).
 func (l lecturaPW) cambioDurante(f mensajeriabd.MensajeriaPlantillaWA) bool {
-	return l.eventos != nil && f.MetaEventoEn != l.eventos[f.ID]
+	return l.eventos != nil && f.MetaEventoEn != l.eventos[f.ID].metaEventoEn
+}
+
+// igualQueEnLaFoto: la fila estaba antes de leer Meta y nadie la cambió mientras tanto (ni un aviso
+// ni un envío). Solo una así se puede dar por «Borrada en Meta» si Meta no la devolvió.
+func (l lecturaPW) igualQueEnLaFoto(f mensajeriabd.MensajeriaPlantillaWA) bool {
+	foto, ok := l.eventos[f.ID]
+	return ok && foto.version == f.Version && foto.metaEventoEn == f.MetaEventoEn
 }
 
 func (l lecturaPW) MarshalJSON() ([]byte, error) {
@@ -180,13 +193,13 @@ func (m *Modulo) SincronizarCuentaSistema(ctx context.Context, bd nucleo.BD, wab
 		if err != nil {
 			return err
 		}
-		l = lecturaPW{waba: waba, empresa: k.EmpresaID, origen: origen, cuenta: c, eventos: map[int64]int64{}}
+		l = lecturaPW{waba: waba, empresa: k.EmpresaID, origen: origen, cuenta: c, eventos: map[int64]fotoPW{}}
 		fotos, err := q.EventosMetaDeCuentaPW(ctx, mensajeriabd.EventosMetaDeCuentaPWParams{WabaID: waba, Empresa: k.EmpresaID})
 		if err != nil {
 			return err
 		}
 		for _, f := range fotos {
-			l.eventos[f.ID] = f.MetaEventoEn
+			l.eventos[f.ID] = fotoPW{metaEventoEn: f.MetaEventoEn, version: f.Version}
 		}
 		return nil
 	})
@@ -271,7 +284,7 @@ func (m *Modulo) aplicarLectura(ctx context.Context, t *auditoria.Tx, q *mensaje
 		}
 	}
 	for _, f := range filas {
-		if vistas[f.ID] || f.Estado == EstadoPWBorrada || f.Estado == EstadoPWBorrador || in.cambioDurante(f) {
+		if vistas[f.ID] || f.Estado == EstadoPWBorrada || f.Estado == EstadoPWBorrador || !in.igualQueEnLaFoto(f) {
 			continue
 		}
 		// Meta ya no la tiene: «Borrada en Meta», con su historial y, si se usaba, sus usos.
