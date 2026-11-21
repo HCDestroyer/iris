@@ -5,7 +5,20 @@
 // encogida). Al bajar se encoge y al subir vuelve. «Por recibir» es el mosaico de Hoy;
 // el estado (sincronización y GPS) va en el encabezado. Sobre la isla no flota nada. El «+» abre la
 // hoja de acciones rápidas: «Agendar tarea propia» y «Tomar una orden libre».
-import { accionesDe, accionesRapidas, contadoresPestanas, estadoIslaPasos, pestanaDe, pestanasIsla, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
+import {
+    accionesDe,
+    accionesRapidas,
+    contadoresPestanas,
+    estadoIslaPasos,
+    pestanaDe,
+    pestanasIsla,
+    type AccionPie,
+    type AccionPieRegistrada,
+    type PasoOrden,
+    type Pestana,
+    type PrimarioIsla,
+    type Vista,
+} from "@iris/sync/campo";
 import {
     ArrowLeft,
     ArrowRight,
@@ -17,6 +30,7 @@ import {
     Hand,
     House,
     MessageCircle,
+    PackageCheck,
     PenLine,
     User,
     Plus,
@@ -192,6 +206,46 @@ export function IslaPasos({ id, paso, encogida, abajo }: { id: number; paso: Pas
     );
 }
 
+const ICONO_ACCION: Record<AccionPie["icono"], LucideIcon> = { cerrar: CircleCheck, recibir: PackageCheck };
+
+/**
+ * Isla de la acción al pie («Firmar y cerrar orden», «Confirmar recepción»; reporte del PM, nov
+ * 2026: el botón quedaba al final y había que bajar). La misma píldora sólida que la isla de pasos,
+ * fija abajo sobre el área segura (`abajo`): «volver» redondo y el primario, que ocupa el resto. El
+ * contenido deja su espacio debajo (el `paddingBottom` del marco), así que nunca tapa el recuadro de
+ * la firma; con edge-to-edge el teclado se dibuja encima de ella (no la sube ni la tapa a él).
+ */
+export function IslaAccion({ registrada, encogida, abajo }: { registrada: AccionPieRegistrada; encogida: boolean; abajo: number }) {
+    const { navegar } = useCampo();
+    const { campo, colores } = useTema();
+    const { accion, presionar } = registrada;
+    const tamano = encogida ? 48 : 54;
+    return (
+        <View pointerEvents="box-none" style={[estilos.contenedor, estilos.contenedorAccion, { bottom: abajo + (encogida ? 12 : 24) }]}>
+            <View
+                accessibilityLabel={accion.texto}
+                testID="isla-accion"
+                style={[estilos.isla, estilos.islaAccion, { padding: encogida ? 4 : 6, gap: encogida ? 4 : 6, backgroundColor: campo.isla, borderColor: colores.borde, shadowColor: campo.sombra }]}
+            >
+                <BotonRedondo
+                    icono={ArrowLeft}
+                    etiqueta={accion.volver.texto}
+                    tamano={tamano}
+                    fondo={campo.panel2}
+                    tinta={colores.texto}
+                    testID="accion-volver"
+                    alPresionar={() => navegar(accion.volver.destino)}
+                />
+                <View style={estilos.flex}>
+                    <Boton icono={ICONO_ACCION[accion.icono]} cargando={accion.ocupado} testID={accion.prueba} alPresionar={presionar} estilo={[estilos.primarioAccion, { minHeight: tamano }]}>
+                        {accion.texto}
+                    </Boton>
+                </View>
+            </View>
+        </View>
+    );
+}
+
 /**
  * Hoja del «+» (diseño aprobado por el PM, nov 2026): «Agendar tarea propia» (también sin señal) y
  * «Tomar una orden libre» con su contador (requiere señal; oculta si la empresa no lo permite o sin
@@ -290,6 +344,10 @@ const estilos = StyleSheet.create({
     tituloAccion: { fontSize: 17, fontWeight: "700" },
     cuentaAccion: { minWidth: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
     primario: { borderRadius: 999, minWidth: 150, paddingHorizontal: 20 },
+    // La isla de la acción al pie va a lo ancho (18 px de margen, como el contenido): el texto largo cabe a 360 px.
+    contenedorAccion: { paddingHorizontal: 18 },
+    islaAccion: { alignSelf: "stretch", maxWidth: 480, width: "100%" },
+    primarioAccion: { borderRadius: 999, paddingHorizontal: 16 },
     cuenta: { fontSize: 13, fontWeight: "700" },
     guardado: { flexDirection: "row", alignItems: "center", gap: 4, minHeight: 44, paddingHorizontal: 6 },
     textoGuardado: { fontSize: 13, fontWeight: "600" },

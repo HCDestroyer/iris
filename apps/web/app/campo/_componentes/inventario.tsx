@@ -59,6 +59,7 @@ import { Controller, useFieldArray, useForm, useWatch } from "react-hook-form";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { haceTiempo } from "@/lib/datos/presentacion";
 import { formatearFecha } from "@/lib/fechas";
+import { useAccionPie } from "./accion-pie";
 import { useCampo } from "./contexto";
 import { EstadoAdjunto } from "./fotos";
 import { useInventario, type Lectura } from "./inventario-datos";
@@ -381,9 +382,15 @@ function FormularioRecibir({ traslado }: { traslado: Traslado }) {
             await motor.recibirTraslado({ trasladoId: traslado.id, firma: png, lineas: lineasDeRecepcion(traslado, d) });
         }, "Recepción guardada");
     });
+    // El botón va en la isla fija de abajo, siempre a la vista: envía este formulario (con su validación).
+    const formulario = useRef<HTMLFormElement>(null);
+    useAccionPie(
+        { texto: "Confirmar recepción", icono: "recibir", ocupado: form.formState.isSubmitting, volver: { texto: "Por recibir", destino: { tipo: "recibir" } }, prueba: "confirmar-recepcion" },
+        () => formulario.current?.requestSubmit(),
+    );
 
     return (
-        <form onSubmit={confirmar} noValidate aria-label="Confirmar recepción" className="grid gap-4">
+        <form ref={formulario} onSubmit={confirmar} noValidate aria-label="Confirmar recepción" className="grid gap-4">
             <Tarjeta>
                 <TarjetaEncabezado>
                     <TarjetaTitulo>¿Llegó todo?</TarjetaTitulo>
@@ -456,12 +463,6 @@ function FormularioRecibir({ traslado }: { traslado: Traslado }) {
                     {errorFirma ? <p className="text-sm text-error">{errorFirma}</p> : null}
                 </TarjetaContenido>
             </Tarjeta>
-            <div className="glass-material sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border px-4 py-3">
-                <Boton type="submit" tamano="lg" className="w-full" disabled={form.formState.isSubmitting}>
-                    <PackageCheck aria-hidden />
-                    Confirmar recepción
-                </Boton>
-            </div>
         </form>
     );
 }

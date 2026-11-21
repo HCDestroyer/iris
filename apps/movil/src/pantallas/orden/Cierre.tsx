@@ -4,12 +4,13 @@
 // juntos. La lógica está en `campo/cierre.ts`; aquí solo se dibuja.
 import { zodResolver } from "@hookform/resolvers/zod";
 import { MOTIVOS_FALLA as CODIGOS_FALLA, type OrdenVista } from "@iris/sync";
-import { esquemaFallar, esquemaFirma, MOTIVOS_FALLA, resumenTrabajo, type DatosFallar, type DatosFirma } from "@iris/sync/campo";
+import { esquemaFallar, esquemaFirma, MOTIVOS_FALLA, resumenTrabajo, volverDelCierre, type DatosFallar, type DatosFirma } from "@iris/sync/campo";
 import { CircleAlert, CircleCheck, CircleX, ClipboardCheck, Lock, PenLine } from "lucide-react-native";
 import { useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { StyleSheet, View } from "react-native";
 import { Aviso, Boton, Campo, Dialogo, Fila, Insignia, Opciones, Pila, Tarjeta, Texto } from "../../componentes";
+import { useAccionPie } from "../../campo/accion-pie";
 import { etapaCierre, useFirmaYCierre } from "../../campo/cierre";
 import { useCampo } from "../../campo/contexto";
 import { EstadoAdjunto } from "./Fotos";
@@ -118,7 +119,7 @@ export function PasoCierre({ orden }: { orden: OrdenVista }) {
 
 /**
  * El paso final en tres partes, en el orden en que se hacen con el cliente: revisar lo hecho, que
- * firme y cerrar. Un solo botón primario al pie («Firmar y cerrar orden»).
+ * firme y cerrar. Un solo botón primario, en la isla fija de abajo («Firmar y cerrar orden»).
  */
 function FirmaYCierre({ orden }: { orden: OrdenVista }) {
     const { estado } = useCampo();
@@ -131,6 +132,11 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
         }
         void c.cerrar(null);
     };
+    // El botón va en la isla fija de abajo, siempre a la vista sin bajar (reporte del PM, nov 2026).
+    useAccionPie(
+        { texto: c.ocupado ? "Guardando…" : c.tomaFirma ? "Firmar y cerrar orden" : "Cerrar orden", icono: "cerrar", ocupado: c.ocupado, volver: volverDelCierre(orden.id), prueba: "firmar-y-cerrar" },
+        enviar,
+    );
 
     return (
         <Pila espacio={14}>
@@ -182,9 +188,6 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
                     El cierre queda guardado y se envía solo cuando terminen de subir.
                 </Aviso>
             ) : null}
-            <Boton icono={CircleCheck} cargando={c.ocupado} alPresionar={enviar} testID="firmar-y-cerrar">
-                {c.ocupado ? "Guardando…" : c.tomaFirma ? "Firmar y cerrar orden" : "Cerrar orden"}
-            </Boton>
         </Pila>
     );
 }

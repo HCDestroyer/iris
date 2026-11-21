@@ -121,7 +121,12 @@ export function LienzoFirma({ alCambiar, etiqueta = "Firma del cliente", alto = 
                 onPointerCancel={terminar}
             />
             <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
-                <span>{vacio ? "Firma con el dedo dentro del recuadro" : "Firma capturada"}</span>
+                {/* Los dos textos ocupan la misma celda (uno invisible): al firmar la fila no cambia de
+                    alto y la página no salta (a 390 px el primero va en dos líneas). */}
+                <span className="grid">
+                    <span className={cn("col-start-1 row-start-1", !vacio && "invisible")}>Firma con el dedo dentro del recuadro</span>
+                    <span className={cn("col-start-1 row-start-1", vacio && "invisible")}>Firma capturada</span>
+                </span>
                 <Boton variante="fantasma" tamano="sm" onClick={borrar} disabled={vacio || disabled}>
                     <Eraser aria-hidden />
                     Borrar firma
