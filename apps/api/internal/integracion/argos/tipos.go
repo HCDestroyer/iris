@@ -153,10 +153,12 @@ func (c ClienteArgos) IDZona() *int64 { return idDe(c.ZonaID, c.Zona) }
 // ServicioArgos es un servicio de Argos (GET /servicios?cliente_id=).
 type ServicioArgos struct {
 	conCoordenadas
-	ID           int64  `json:"id"`
-	EmpresaID    int64  `json:"empresa_id"`
-	ClienteID    int64  `json:"cliente_id"`
-	Codigo       string `json:"codigo"`
+	ID        int64  `json:"id"`
+	EmpresaID int64  `json:"empresa_id"`
+	ClienteID int64  `json:"cliente_id"`
+	Codigo    string `json:"codigo"`
+	// Nombre (0.10.0 §3.7, A45): texto del cliente («Casa»), hasta 60; nunca va a logs ni a la IA.
+	Nombre       string `json:"nombre"`
 	PlanID       *int64 `json:"plan_id"`
 	Plan         *Ref   `json:"plan"`
 	PlanNombre   string `json:"plan_nombre"`
