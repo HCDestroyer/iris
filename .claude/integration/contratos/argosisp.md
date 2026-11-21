@@ -458,7 +458,7 @@ Todas las llamadas llevan `Idempotency-Key`. Cada una queda en `integracion.pend
 | (Argos → Iris) Una persona de Argos registra un prospecto (0.10.0, A44, §3.6) | `POST <iris>/api/v1/integraciones/argosisp/prospectos` | `argos:prospecto:<uuid>` |
 | Iris crea un servicio al ganar (§3.2), desde 0.10.0 con `nombre` opcional (A45, §3.7) | `POST /servicios` con `nombre?`; el `codigo` lo pone Argos y vuelve en la respuesta | `iris:servicio:<prospecto_id>` |
 | Un agente de Iris vincula un contacto con otro cliente (0.10.1, A46, §3.8) | `POST /clientes/:id/contactos` o `PUT /contactos/:id` con `persona_cliente_id`, solo si el número es el teléfono verificado de ese cliente | `iris:contacto:<cliente_id>:<contacto_iris_id>` · `iris:contacto:<contacto_id>:<version>` |
-| Un miembro de la cuadrilla usa material o equipos en una orden (0.11.0, A47, §3.9) | `POST /inventario/consumos` y `POST /servicios/:id/equipos` con `tecnico`, `bodega_id` elegido en la app (por defecto la de la cuadrilla) y `X-Iris-Actor` del técnico que lo usó | Las de §3 (`iris:consumo:<orden_id>`, `iris:comodato:<orden_id>:<serie>`) |
+| Un miembro de la cuadrilla usa material o equipos en una orden (0.11.0, A47, §3.9) | `POST /inventario/consumos` con `tecnico { id_externo }`, `bodega_id` elegido en la app (por defecto la de la cuadrilla) y `X-Iris-Actor` del técnico que lo usó; `POST /servicios/:id/equipos` igual pero **sin `bodega_id`** (vale la bodega donde está la unidad) | Las de §3 (`iris:consumo:<orden_id>`, `iris:comodato:<orden_id>:<serie>`) |
 | Cobro de la instalación registrado por un agente o por el formulario de la orden (0.9.0, A36) | `POST /facturas/cargo-unico` con el cuerpo real de Argos: `{ servicio_id, cliente_id?, vence_en?, lineas: [{ concepto_id, precio_unitario, descripcion?, cantidad?, descuentos? }], origen_tipo: "iris_orden", origen_id }`, con `X-Iris-Actor` (§7.1: quien lo registró). No hay `concepto_id`, `monto` ni `descripcion` en la raíz. `concepto_id` es de `GET /conceptos-cargo` (por defecto «Instalación», sembrado por empresa); los conceptos **no tienen precio**: `precio_unitario` (string decimal, bruto con IVA, **> 0**, obligatorio) lo pone Iris, de su plantilla o del formulario de la orden. **Iris nunca manda un cargo en Q0** (exigiría `motivo_sin_costo_id`, `motivo_sin_costo_texto` y `facturas.cargo_sin_costo`, que su token no tiene). Responde `201 CargoUnicoEmitido` sin cambios: Iris lee `factura.id`, `numero`, `estado`, `total` y `moneda` (`documento = bonificacion` es una respuesta posible de Argos, pero Iris nunca la pide). Sale en el momento (no espera al cierre), por la cola de pendientes si Argos falla. El precio que trae la plantilla o el formulario se manda tal cual; cambiarlo exige en Iris el permiso aparte `ordenes.cobro_editar_monto`, con motivo auditado | `iris:cargo:<orden_id>:<cargo_id>` |
 
 **`tecnico` (0.5.0):** ver §3.3.
@@ -847,27 +847,35 @@ Decisiones del PM en §10.6: la cuadrilla tiene una bodega compartida (lo que va
 
 **En Argos (A47).**
 
-- Bodega `tipo = cuadrilla`, con `cuadrilla_id_iris` y `jefe_id`, y un vínculo por miembro.
-- **Iris es la fuente de la membresía.** Argos la sincroniza con los webhooks `cuadrilla.creada` y `cuadrilla.actualizada` (§6.6), que llevan `miembros[] { usuario_id, id_externo (o null si no está vinculado por I1) }` y `jefe_usuario_id`.
-    - Un miembro **sin vínculo I1** (`id_externo: null`) no consume de la bodega de la cuadrilla.
-    - Si quitan a un miembro, pierde el acceso en cuanto Argos procesa el evento: `403 no_es_miembro`.
-- **`GET /inventario/mi-bodega`** con `tecnico` (§3.3) devuelve `bodegas[]`: la de la cuadrilla (`cuadrilla: true`, con su `jefe { id_externo, nombre }`) y la personal si la tiene. Se mantiene `nombre` (A22).
-- **Consumos y comodatos** con `tecnico` (§3.3):
-    - sin `bodega_id`, primero la de la cuadrilla y después la personal;
-    - sin existencia en ninguna: `409 sin_existencia { bodegas[] }` (las bodegas consultadas, sin cantidades de otras);
-    - cada movimiento guarda `actor_tecnico`, que sale de `X-Iris-Actor` (§7.1), **nunca del cuerpo**.
+- Bodega `tipo = cuadrilla`, con `cuadrilla_id_iris`, `empresa_id`, `jefe_id` y un vínculo por miembro con su historial (desde, hasta). Una cuadrilla que atiende varias empresas tiene **una bodega por empresa**.
+- **Membresía.** Iris es la fuente. Argos la sincroniza con los webhooks `cuadrilla.creada` y `cuadrilla.actualizada` (§6.6), que llevan `empresa_id` (obligatorio), `version`, `miembros[] { usuario_id, id_externo (o null si no está vinculado por I1) }` y `jefe_usuario_id`.
+    - Argos solo aplica una `version` **mayor** que la última que aplicó (no usa `ocurrido_en` para el orden). Para conciliar, lee `GET <iris>/api/v1/integraciones/argosisp/cuadrillas/:id` (token de §1.1 en Iris, el mismo `iris_pat_` del panel; `{ cuadrilla_id, empresa_id, version, activa, miembros[], jefe_usuario_id }`).
+    - Solo acepta como miembro un `id_externo` **activo**, con bodega o rol de técnico en la empresa de la cuadrilla y dentro del alcance del usuario técnico Iris (§1.1). Los demás los ignora y los muestra en su panel como `miembro_rechazado`.
+    - Un miembro sin vínculo I1 (`id_externo: null`) no consume de la bodega de la cuadrilla.
+    - `jefe_usuario_id` debe estar en `miembros[]` con `id_externo` no nulo; si no, Argos lo ignora y la cuadrilla queda **sin jefe** (y los traslados esperan).
+- **`GET /inventario/mi-bodega`** con `tecnico` (§3.3) devuelve `bodegas[]`: la de la cuadrilla en esa empresa (`cuadrilla: true`, con su `jefe { id_externo, nombre }` o `null`) y la personal si la tiene. Se mantiene `nombre` (A22).
+- **Quién actúa sobre una bodega de cuadrilla.** En consumos, comodatos, devoluciones y recepciones sobre una bodega de cuadrilla:
+    - `X-Iris-Actor: usuario:<id>` (§7.1) es **obligatoria** (`400 cabecera_iris_requerida`);
+    - ese usuario debe ser miembro y su `id_externo` el mismo de `tecnico.id_externo` (`403 actor_no_coincide`);
+    - `tecnico` se identifica **solo por `id_externo`**, nunca por `correo` (§3.3).
+- **Qué bodega (antes de mirar existencias).** Con `bodega_id`, Argos solo acepta la bodega personal del técnico o una bodega de cuadrilla de la que sea miembro, y solo en la empresa del servicio; si no, `403 no_es_miembro` **antes de consultar existencias**: la respuesta nunca depende del stock.
+- **Consumos** con `tecnico`: sin `bodega_id`, primero la de la cuadrilla y después la personal. Sin existencia: `409 sin_existencia { bodegas[] }`, solo con las bodegas a las que el técnico tiene acceso y las cantidades de las líneas pedidas, nunca otras.
+- **Comodatos y devoluciones** (`POST /servicios/:id/equipos`, `…/devolver`): **no llevan `bodega_id`**; la regla se aplica a la bodega donde está la unidad: `409 unidad_en_otra_bodega` salvo que esté en su bodega personal o en una cuadrilla de la que sea miembro.
+- **Membresía en el tiempo.** Argos acepta un movimiento si el actor era miembro en el `ocurrido_en` de la operación, que debe ser anterior a su recepción en Iris (con la tolerancia de reloj de los traslados, §3.3). Si llega después de que lo quitaran, lo marca `fuera_de_membresia` (y responde `403 no_es_miembro`). Cada movimiento guarda `actor_tecnico`, que sale de `X-Iris-Actor`, **nunca del cuerpo**.
 - **Recepción de traslados a una bodega de cuadrilla** (`POST /inventario/traslados/:id/recibir`, §3.3):
-    - solo el **jefe vigente al momento de recibir**; otro miembro, `403 solo_jefe_recibe`;
-    - si el jefe cambió mientras el traslado venía en camino, recibe el nuevo;
-    - el faltante queda a cargo de la bodega de la cuadrilla.
+    - Argos evalúa quién era el jefe con su historial de membresía en el momento de `recibido_en`, y exige además que ese usuario siga siendo miembro al procesar; `recibido_por.id_externo` y `X-Iris-Actor` deben ser ese jefe. Si no: `403 solo_jefe_recibe`.
+    - Si el jefe cambió mientras el traslado venía en camino, recibe el nuevo. Sin jefe, el traslado espera.
+    - El faltante queda a cargo de la bodega de la cuadrilla.
 - Los eventos `inventario.traslado_enviado`, `inventario.traslado_recibido` e `inventario.traslado_cancelado` (§2.3) suman `cuadrilla_id` (o null).
 
 **En Iris (B26, informativo para Argos).**
 
-- La cuadrilla tiene `jefe_usuario_id`, que se cambia con la acción `POST /cuadrillas/:id/asignar-jefe` (permiso `cuadrillas.asignar_jefe`), y emite `cuadrilla.actualizada` con `miembros[]` y `jefe_usuario_id`.
-- En la app de campo, «Mi bodega» tiene dos pestañas, «Cuadrilla» y «Mía». Al cerrar la orden, el material sale por defecto de la cuadrilla y se puede cambiar; la cola local guarda el `bodega_id` elegido para que el reintento sea determinista.
-- Un `409 sin_existencia` al sincronizar se muestra como conflicto (regla en `contratos/sync.md`); Iris **nunca** cambia de bodega por su cuenta.
-- «Recibir traslado» solo aparece al jefe; los demás miembros ven el traslado «en camino».
+- La cuadrilla tiene `jefe_usuario_id`, que se cambia con la acción `POST /cuadrillas/:id/asignar-jefe` (permiso `cuadrillas.asignar_jefe`, solo `admin` y `supervisor`; nadie se asigna a sí mismo: `403 autoasignacion`). El jefe debe ser miembro con vínculo I1: si no, `422 jefe_no_miembro`. Si el jefe sale de la cuadrilla o pierde el vínculo I1, la cuadrilla queda sin jefe.
+- Iris emite `cuadrilla.actualizada` con `miembros[]` completo y `version` nueva de **cada cuadrilla afectada** cuando cambia `tecnico.cuadrilla_id`, `tecnico.activo` o el vínculo I1, o cuando se desactiva el usuario.
+- Al quitar a un miembro, Iris corta en su servidor, en ese momento, los lotes nuevos de esa persona para esa bodega.
+- En la app de campo, «Mi bodega» tiene dos pestañas, «Cuadrilla» y «Mía». Al cerrar la orden, el material sale por defecto de la cuadrilla y se puede cambiar; la cola local guarda el `bodega_id` elegido para que el reintento sea determinista. Iris valida en su servidor, al recibir el lote, que el `bodega_id` sea la personal del técnico o una de sus cuadrillas.
+- Un `409 sin_existencia` o un `403 no_es_miembro` al sincronizar se muestran como conflicto (regla en `contratos/sync.md`); Iris **nunca** cambia de bodega por su cuenta.
+- «Recibir traslado» solo aparece al jefe; los demás miembros ven el traslado «en camino». Iris rechaza en su servidor, con `403`, una recepción de alguien que no es el jefe, antes de encolarla; un `403 solo_jefe_recibe` de Argos se muestra como conflicto para el supervisor.
 
 ## 4. Versionado
 
@@ -1087,7 +1095,7 @@ Errores nuevos: los de §3.4.7.
 | A44 | **Registrar prospectos en Iris desde Argos** (0.10.0, §3.6): «Registrar en Iris» en el panel de Argos (permiso `prospectos.registrar`: admin, cajero y soporte) con `POST <iris>/api/v1/integraciones/argosisp/prospectos`, `X-Iris-Empresa`, `X-Iris-Actor` e `Idempotency-Key = argos:prospecto:<uuid>`, con `telefonos[]` (1 a 5, un `principal`); guardar solo el vínculo y reenviar desde su cola con la misma clave; recibir, si quiere, `prospecto.estado_cambiado`. Además, `telefonos_adicionales[]` en `POST /clientes` (§3.2) para los números sin nombre al ganar. | acordado; pendiente en Argos |
 | A45 | **Código y nombre del servicio** (0.10.0, §3.7): `servicios.codigo` automático por empresa, legible, único e inmutable (`S-000412`) y `servicios.nombre` opcional y editable (hasta 60); en `GET /servicios`, el detalle y como `servicio_codigo` / `servicio_nombre` en los payloads hacia Iris que llevan `servicio_id`; `POST /servicios` acepta `nombre`. | acordado; pendiente en Argos |
 | A46 | **Un cliente a cargo del servicio de otro** (0.10.1, §3.8): `contactos_cliente.persona_cliente_id` (misma empresa; desde Iris solo con el teléfono verificado de ese cliente); aviso a los dos titulares; vínculo roto al quitar el contacto; `a_cargo` en `GET /contactos/buscar`; validación de `X-Iris-Contacto` (§7.1); pestaña «Contactos» en la ficha y cuentas a cargo aparte en caja; `persona_cliente_id` en `cliente.contactos_cambiados`. | acordado; pendiente en Argos |
-| A47 | **Bodega de cuadrilla** (0.11.0, §3.9): bodega `tipo = cuadrilla` con `cuadrilla_id_iris`, `jefe_id` y miembros sincronizados desde `cuadrilla.*` de Iris; un miembro sin vínculo I1 no consume; `403 no_es_miembro` al quitarlo; `mi-bodega` con `bodegas[]` (`cuadrilla`, `jefe`); consumos y comodatos primero de la cuadrilla, `409 sin_existencia { bodegas[] }`, `actor_tecnico` desde `X-Iris-Actor`; traslados recibidos solo por el jefe vigente (`403 solo_jefe_recibe`), faltante a cargo de la cuadrilla; `cuadrilla_id` en `inventario.traslado_*`. | acordado; pendiente en Argos |
+| A47 | **Bodega de cuadrilla** (0.11.0, §3.9): bodega `tipo = cuadrilla` por cuadrilla y empresa, con `jefe_id` y miembros con historial, sincronizados desde `cuadrilla.*` de Iris por `version` (miembros solo activos, técnicos de esa empresa y dentro del alcance, los demás como `miembro_rechazado`; jefe solo si es miembro con I1); `bodega_id` validado antes de mirar existencias (`403 no_es_miembro`); `X-Iris-Actor` obligatoria y `403 actor_no_coincide`; `tecnico` solo por `id_externo`; comodatos y devoluciones sin `bodega_id`, con `409 unidad_en_otra_bodega`; membresía evaluada en `ocurrido_en` (`fuera_de_membresia`); `409 sin_existencia` solo con las bodegas accesibles; recepción solo del jefe en `recibido_en` y aún miembro (`403 solo_jefe_recibe`); `cuadrilla_id` en `inventario.traslado_*`. | acordado; pendiente en Argos |
 
 ### 5.2 ArgosISP solicita a Iris
 
@@ -1118,7 +1126,7 @@ Errores nuevos: los de §3.4.7.
 | B23 | **Prospectos desde Argos** (0.10.0, §3.6): `POST /api/v1/integraciones/argosisp/prospectos` con el permiso `prospectos.registrar_integracion` (solo registrar), origen `argos_panel`, vendedor por zona y factibilidad como §11.7, `telefonos[]` guardados en una tabla aparte con índice por número y empresa, `409 prospecto_duplicado { url_iris }` (con el pedido sumado como actividad) si cualquiera de los números está en un prospecto abierto, límites por actor y empresa, el chat ubica al prospecto por cualquiera de sus números (como a los clientes), al ganar el principal como teléfono del cliente nuevo, los números con nombre como contactos y los demás en `telefonos_adicionales[]` (con `cliente_id` existente, sin tocar el cliente), un número no principal sin acceso a cotización, dirección ni plan hasta un código al principal, y el webhook `prospecto.estado_cambiado` sin datos personales. | pendiente en Iris |
 | B24 | **Código y nombre del servicio en Iris** (0.10.0, §3.7): guardar `codigo` y `nombre` en la instantánea del servicio y mostrar «S-000412 · Casa» donde hoy se muestra el servicio; usar el `codigo` como referencia en la desambiguación del chat; con un contacto de varios servicios, preguntar mostrando solo los suyos; `consultar` y `pagar` solo sobre sus `servicios[]`, con `servicio_id` en promesas y comprobantes. | pendiente en Iris |
 | B25 | **Servicios a cargo en la atención** (0.10.1, §3.8): el chat y el asistente distinguen «sus servicios» de «los que tiene a cargo» (solo `codigo` y `nombre`); la verificación de la persona vale solo para los permisos del contacto y nunca para lo reservado al titular; `X-Iris-Contacto` en las acciones sobre el servicio a cargo; el panel lo muestra en la ficha de la conversación. | pendiente en Iris |
-| B26 | **Bodega de cuadrilla en Iris** (0.11.0, §3.9): `jefe_usuario_id` en la cuadrilla con `POST /cuadrillas/:id/asignar-jefe` (`cuadrillas.asignar_jefe`); webhooks `cuadrilla.creada` / `cuadrilla.actualizada` a Argos con `miembros[]` y `jefe_usuario_id`; en la app, «Mi bodega» con «Cuadrilla» y «Mía», material por defecto de la cuadrilla, `bodega_id` guardado en la cola, `409 sin_existencia` como conflicto sin cambiar de bodega, y «Recibir traslado» solo para el jefe. | pendiente en Iris |
+| B26 | **Bodega de cuadrilla en Iris** (0.11.0, §3.9): `jefe_usuario_id` con `POST /cuadrillas/:id/asignar-jefe` (`cuadrillas.asignar_jefe`, solo admin y supervisor, `403 autoasignacion`, `422 jefe_no_miembro`); webhooks `cuadrilla.*` a Argos con `empresa_id`, `version`, `miembros[]` completo y `jefe_usuario_id`, también al cambiar `tecnico.cuadrilla_id`, `tecnico.activo`, el vínculo I1 o al desactivar el usuario; `GET /api/v1/integraciones/argosisp/cuadrillas/:id` para conciliar; corte inmediato de lotes de un miembro quitado; `bodega_id` validado en el servidor; en la app, «Mi bodega» con «Cuadrilla» y «Mía», material por defecto de la cuadrilla, `bodega_id` guardado en la cola, `409 sin_existencia` y `403 no_es_miembro` como conflicto sin cambiar de bodega, y «Recibir traslado» solo para el jefe, con `403` en el servidor a otros. | pendiente en Iris |
 
 ## 6. Servicio de mensajería de Iris (0.6.0, fase 1)
 
@@ -1239,7 +1247,7 @@ Un mensaje que el cliente escribió desde el portal de Argos (`ticket.mensaje_cl
 
 **0.10.0:** suma `prospecto.estado_cambiado` (prospecto_id, empresa_id, de, a, motivo_codigo), solo de prospectos con origen `argos_panel` (§3.6) y a conectores con contrato ≥ 0.10.0. Sin datos personales.
 
-**0.11.0:** suma `cuadrilla.creada` y `cuadrilla.actualizada` (cuadrilla_id, empresa_id, nombre, activa, `miembros[] { usuario_id, id_externo }` con `id_externo` null si el usuario no está vinculado por I1, `jefe_usuario_id`), a conectores con contrato ≥ 0.11.0. Argos sincroniza con ellos la bodega de cuadrilla (§3.9); un evento repetido o fuera de orden se resuelve por `ocurrido_en`.
+**0.11.0:** suma `cuadrilla.creada` y `cuadrilla.actualizada` (cuadrilla_id, `empresa_id` obligatorio, `version` entera y creciente por cuadrilla, nombre, activa, `miembros[] { usuario_id, id_externo }` completo, con `id_externo` null si el usuario no está vinculado por I1, y `jefe_usuario_id` o null), a conectores con contrato ≥ 0.11.0. Argos sincroniza con ellos la bodega de cuadrilla (§3.9) y solo aplica una `version` mayor que la última; para conciliar lee `GET <iris>/api/v1/integraciones/argosisp/cuadrillas/:id`.
 
 **Consultar un aviso.** `GET /api/v1/mensajeria/avisos/:id` (permiso `mensajeria.enviar`), por si Argos perdió un webhook. Argos lo consulta para los envíos `encolado` con más de 24 h.
 
@@ -1790,6 +1798,20 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 1. **Bodegas:** la cuadrilla tiene una bodega compartida (lo que va en el vehículo) y cada técnico puede tener además la suya personal.
 2. **Orden de descuento:** al instalar se descuenta primero de la bodega de la cuadrilla.
 3. **Responsabilidad:** el jefe de cuadrilla recibe y firma los traslados y responde por los faltantes. Cualquier miembro puede usar el material, y queda registrado quién lo usó.
+
+**Ajustes de la revisión de seguridad de la 0.11.0** (acordados con Argos):
+
+- **a. Bodega validada antes del stock (A1).** Con `bodega_id`, solo la personal o una cuadrilla de la que el técnico es miembro, en la empresa del servicio; `403 no_es_miembro` antes de mirar existencias. En comodatos y devoluciones, la misma regla sobre la bodega donde está la unidad (`409 unidad_en_otra_bodega`). Iris también valida `bodega_id` al recibir el lote.
+- **b. Actor obligatorio (M1).** `X-Iris-Actor` obligatoria sobre bodegas de cuadrilla (`400 cabecera_iris_requerida`), miembro y con el mismo `id_externo` que `tecnico` (`403 actor_no_coincide`); `tecnico` solo por `id_externo`.
+- **c. Miembros aceptables (M2).** Solo `id_externo` activos, técnicos de la empresa de la cuadrilla y dentro del alcance; los demás, `miembro_rechazado`. `empresa_id` obligatorio en `cuadrilla.*`; una bodega por empresa.
+- **d. Jefe (M3).** Debe ser miembro con I1 (`422 jefe_no_miembro` en Iris; ignorado en Argos); `cuadrillas.asignar_jefe` solo para admin y supervisor, sin autoasignación; sin jefe, los traslados esperan.
+- **e. Jefe al recibir (M4).** El jefe en `recibido_en` según el historial, aún miembro al procesar, y el mismo en `recibido_por` y `X-Iris-Actor`; si no, `403 solo_jefe_recibe`.
+- **f. Eventos completos (M5).** `cuadrilla.actualizada` con `miembros[]` completo de cada cuadrilla afectada por cambios del técnico, del vínculo I1 o del usuario.
+- **g. Quitar un miembro (M6).** Corte inmediato en Iris; Argos evalúa la membresía en `ocurrido_en` (`fuera_de_membresia`); `403 no_es_miembro` es conflicto, sin cambiar de bodega.
+- **h. Orden por `version` (B1).** Entera y creciente por cuadrilla; `GET /integraciones/argosisp/cuadrillas/:id` para conciliar.
+- **i. Comodatos sin `bodega_id` (B2).**
+- **j. `sin_existencia` acotado (B3).** Solo las bodegas accesibles y las cantidades de las líneas pedidas.
+- **k. Recepción rechazada en Iris (B4).** `403` en el servidor antes de encolar si no es el jefe.
 
 ## 11. Portal del cliente de Argos (0.9.0, bloque P)
 
