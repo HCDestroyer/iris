@@ -263,6 +263,8 @@ export const esquemaPlantilla = z.object({
     usos: z.array(z.enum(["avisos", "conversaciones", "asistente"])),
     encabezado: z.enum(["ninguno", "texto", "imagen", "video", "documento", "ubicacion"]),
     encabezadoTexto: z.string().max(200),
+    /** Archivo de ejemplo del encabezado (imagen, video o documento), ya subido como adjunto. */
+    encabezadoAdjunto: z.string().max(100),
     cuerpo: z.string().max(4000, "Demasiado largo"),
     pie: z.string().max(200),
     botones: z.array(boton).max(20),
@@ -286,7 +288,13 @@ export function definicionDe(v: ValoresPlantilla): DefinicionPWA {
         }),
         variables: v.variables.map((x) => (x.dato ? { nombre: x.nombre, dato: x.dato, ejemplo: x.ejemplo } : { nombre: x.nombre, ejemplo: x.ejemplo })),
     };
-    if (!auth && v.encabezado !== "ninguno") d.encabezado = v.encabezado === "texto" ? { tipo: "texto", texto: v.encabezadoTexto } : { tipo: v.encabezado };
+    if (!auth && v.encabezado !== "ninguno")
+        d.encabezado =
+            v.encabezado === "texto"
+                ? { tipo: "texto", texto: v.encabezadoTexto }
+                : v.encabezado !== "ubicacion" && v.encabezadoAdjunto
+                  ? { tipo: v.encabezado, adjuntoId: v.encabezadoAdjunto }
+                  : { tipo: v.encabezado };
     if (!auth && v.pie.trim()) d.pie = v.pie;
     if (auth) d.autenticacion = { avisoSeguridad: v.avisoSeguridad, ...(v.caducaMinutos ? { caducaMinutos: v.caducaMinutos } : {}) };
     return d;
@@ -303,6 +311,7 @@ export function valoresDe(p: { etiqueta: string; nombre: string; idioma: string;
         usos: p.usos.filter((u): u is "avisos" | "conversaciones" | "asistente" => ["avisos", "conversaciones", "asistente"].includes(u)),
         encabezado: d.encabezado?.tipo ?? "ninguno",
         encabezadoTexto: d.encabezado?.texto ?? "",
+        encabezadoAdjunto: d.encabezado?.adjuntoId ?? "",
         cuerpo: d.cuerpo,
         pie: d.pie ?? "",
         botones: (d.botones ?? []).map((b) => ({ tipo: b.tipo, texto: b.texto, url: b.url ?? "", telefono: b.telefono ?? "", ejemplo: b.ejemplo ?? "" })),

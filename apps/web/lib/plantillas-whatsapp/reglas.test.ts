@@ -3,10 +3,10 @@ import { definicionDe, esquemaPlantilla, formatoDe, insertarDato, nombreMetaDe, 
 import type { DatoPWA, DefinicionPWA } from "./tipos";
 
 const DATOS: DatoPWA[] = [
-    { clave: "cliente_nombre", etiqueta: "Nombre del cliente", origen: "Cliente en Argos · nombre", ejemplo: "María López", codigos: [] },
-    { clave: "fecha_corte", etiqueta: "Fecha de corte", origen: "Factura · fecha de corte", ejemplo: "viernes 28 de noviembre", codigos: [] },
-    { clave: "monto_con_moneda", etiqueta: "Monto", origen: "Factura", ejemplo: "Q 250.00", codigos: [] },
-] as DatoPWA[];
+    { clave: "cliente_nombre", etiqueta: "Nombre del cliente", origen: "Cliente en Argos · nombre", ejemplo: "María López", codigos: [], grupo: "cliente" },
+    { clave: "fecha_corte", etiqueta: "Fecha de corte", origen: "Factura · fecha de corte", ejemplo: "viernes 28 de noviembre", codigos: [], grupo: "cobro" },
+    { clave: "monto_con_moneda", etiqueta: "Monto", origen: "Factura", ejemplo: "Q 250.00", codigos: [], grupo: "cobro" },
+];
 
 const def = (d: Partial<DefinicionPWA>): DefinicionPWA => ({ cuerpo: "", botones: [], variables: [], ...d });
 const fallas = (d: DefinicionPWA, categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION" = "UTILITY", nombre = "recordatorio_pago") =>
