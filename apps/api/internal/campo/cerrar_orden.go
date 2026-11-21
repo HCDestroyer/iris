@@ -183,22 +183,22 @@ func requisitosDeCierre(d OrdenDetalle, tipo campobd.CampoTiposOrden) []nucleo.E
 }
 
 // payloadCerrada arma orden.cerrada: lo que el núcleo (I1) necesita para los pendientes en
-// Argos (contratos/argosisp.md §3). Materiales sumados por producto y bodega.
+// Argos (contratos/argosisp.md §3). Materiales sumados por producto, bodega y quién los registró
+// (desde la app o el panel): nunca se juntan líneas de varios actores bajo uno (M-268-1).
 func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[string]any {
 	type clave struct {
 		producto int64
 		bodega   int64
+		desdeApp bool
+		actor    int64
 	}
 	orden := []clave{}
 	suma := map[clave]map[string]any{}
 	for _, mt := range d.Materiales {
-		k := clave{mt.ProductoID, deref(mt.BodegaID)}
+		k := clave{mt.ProductoID, deref(mt.BodegaID), mt.desdeApp, deref(mt.registradoPor)}
 		if s, ok := suma[k]; ok {
 			s["cantidad"] = s["cantidad"].(float64) + mt.Cantidad
 			s["excede_existencia"] = s["excede_existencia"].(bool) || mt.ExcedeExistencia
-			if mt.desdeApp && s["desde_app"] != true {
-				s["desde_app"], s["registrado_por"] = true, mt.registradoPor
-			}
 			if s["modalidad"] == (*string)(nil) && mt.Modalidad != nil {
 				s["modalidad"] = mt.Modalidad
 			}
