@@ -14410,11 +14410,11 @@ export interface components {
             version: number;
         };
         EntradaNoRecuperado: {
-            /** @description Obligatoria con se_nego y equipo_perdido (adjunto de la orden) */
-            fotoAdjuntoId?: string;
+            /** @description Obligatoria con cualquier motivo (0.13.1): adjunto foto de la orden, tuyo, tomado después de tu llegada, no rechazado ni usado en otro cambio o intento */
+            fotoAdjuntoId: string;
             /**
              * Format: double
-             * @description Ubicación del intento, tomada en sitio: a 500 m o menos del servicio y de tu última posición (422 ubicacion_fuera_de_sitio)
+             * @description Ubicación del intento, tomada en sitio: a 500 m o menos del servicio y de tu posición de los 30 min anteriores (422 ubicacion_fuera_de_sitio; sin coordenadas del servicio o sin esa posición, 422 ubicacion_sin_referencia)
              */
             lat: number | null;
             /** Format: double */

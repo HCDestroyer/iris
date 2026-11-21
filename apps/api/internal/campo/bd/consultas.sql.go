@@ -246,6 +246,39 @@ func (q *Queries) AsegurarParticionPosiciones(ctx context.Context, fecha time.Ti
 	return err
 }
 
+const asignacionesDeOrden = `-- name: AsignacionesDeOrden :many
+SELECT ocurrido_en, coalesce((datos->>'tecnico_id')::bigint, 0)::bigint AS tecnico_id FROM campo.orden_eventos
+WHERE orden_id = $1 AND tipo IN ('asignada', 'programada') AND datos ? 'tecnico_id'
+ORDER BY ocurrido_en, id
+`
+
+type AsignacionesDeOrdenRow struct {
+	OcurridoEn time.Time
+	TecnicoID  int64
+}
+
+// El historial de asignación de la orden (asignaciones y programaciones con técnico), con la hora del
+// servidor: para orden_reasignada (0.13.1 §3.10).
+func (q *Queries) AsignacionesDeOrden(ctx context.Context, ordenID int64) ([]AsignacionesDeOrdenRow, error) {
+	rows, err := q.db.Query(ctx, asignacionesDeOrden, ordenID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AsignacionesDeOrdenRow
+	for rows.Next() {
+		var i AsignacionesDeOrdenRow
+		if err := rows.Scan(&i.OcurridoEn, &i.TecnicoID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const bloquearIntentosDeUnidad = `-- name: BloquearIntentosDeUnidad :exec
 SELECT pg_advisory_xact_lock(hashtextextended('campo.no_recuperado:' || $1, 0))
 `
@@ -2765,6 +2798,35 @@ func (q *Queries) ListarTipos(ctx context.Context) ([]CampoTiposOrden, error) {
 	return items, nil
 }
 
+const llegadaDelActor = `-- name: LlegadaDelActor :one
+SELECT ocurrido_en FROM campo.orden_eventos
+WHERE orden_id = $1 AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
+  AND actor_id = $2 AND ocurrido_en >= $3 AND ocurrido_en <= $4
+ORDER BY ocurrido_en DESC, id DESC
+LIMIT 1
+`
+
+type LlegadaDelActorParams struct {
+	OrdenID int64
+	ActorID *int64
+	Desde   time.Time
+	Hasta   time.Time
+}
+
+// La llegada del actor (0.13.1 §3.10): su último orden.llegar en la orden (programada o en camino →
+// en sitio), del mismo día y no posterior a la fecha.
+func (q *Queries) LlegadaDelActor(ctx context.Context, arg LlegadaDelActorParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, llegadaDelActor,
+		arg.OrdenID,
+		arg.ActorID,
+		arg.Desde,
+		arg.Hasta,
+	)
+	var ocurrido_en time.Time
+	err := row.Scan(&ocurrido_en)
+	return ocurrido_en, err
+}
+
 const marcaChecklist = `-- name: MarcaChecklist :one
 
 SELECT orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, formulario_id FROM campo.orden_checklist WHERE formulario_id = $1 AND item_id = $2
@@ -4007,6 +4069,40 @@ func (q *Queries) PlantillasVisibles(ctx context.Context, arg PlantillasVisibles
 	return items, nil
 }
 
+const posicionDeReferencia = `-- name: PosicionDeReferencia :one
+SELECT lat, lon, registrada_en FROM campo.posiciones
+WHERE tecnico_id = $1 AND registrada_en <= $2 AND registrada_en >= $3 AND created_at <= $4
+ORDER BY registrada_en DESC
+LIMIT 1
+`
+
+type PosicionDeReferenciaParams struct {
+	TecnicoID     int64
+	Hasta         time.Time
+	Desde         time.Time
+	RecibidoAntes time.Time
+}
+
+type PosicionDeReferenciaRow struct {
+	Lat          float64
+	Lon          float64
+	RegistradaEn time.Time
+}
+
+// La última posición del técnico en los 30 min anteriores a la fecha del intento, contando solo las
+// que Iris recibió antes de aceptar el lote (0.13.1 §3.10; M-271-4).
+func (q *Queries) PosicionDeReferencia(ctx context.Context, arg PosicionDeReferenciaParams) (PosicionDeReferenciaRow, error) {
+	row := q.db.QueryRow(ctx, posicionDeReferencia,
+		arg.TecnicoID,
+		arg.Hasta,
+		arg.Desde,
+		arg.RecibidoAntes,
+	)
+	var i PosicionDeReferenciaRow
+	err := row.Scan(&i.Lat, &i.Lon, &i.RegistradaEn)
+	return i, err
+}
+
 const posicionesCercanas = `-- name: PosicionesCercanas :many
 SELECT registrada_en FROM campo.posiciones
 WHERE tecnico_id = $1 AND registrada_en BETWEEN $2 AND $3
@@ -4404,24 +4500,6 @@ func (q *Queries) TuvoOrden(ctx context.Context, arg TuvoOrdenParams) (bool, err
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
-}
-
-const ultimaPosicionDe = `-- name: UltimaPosicionDe :one
-SELECT lat, lon, registrada_en FROM campo.posiciones_ultimas WHERE tecnico_id = $1 ORDER BY registrada_en DESC LIMIT 1
-`
-
-type UltimaPosicionDeRow struct {
-	Lat          float64
-	Lon          float64
-	RegistradaEn time.Time
-}
-
-// La última posición del técnico (campo.posiciones_ultimas), para la ubicación en sitio (M-271-4).
-func (q *Queries) UltimaPosicionDe(ctx context.Context, tecnicoID int64) (UltimaPosicionDeRow, error) {
-	row := q.db.QueryRow(ctx, ultimaPosicionDe, tecnicoID)
-	var i UltimaPosicionDeRow
-	err := row.Scan(&i.Lat, &i.Lon, &i.RegistradaEn)
-	return i, err
 }
 
 const ultimaPosicionDeTecnico = `-- name: UltimaPosicionDeTecnico :one

@@ -250,6 +250,9 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		eq := map[string]any{
 			"id": e.ID, "accion": e.Accion, "unidad_id": e.UnidadID, "serie": e.Serie, "mac": e.MAC,
 			"modelo": e.Modelo, "condicion": e.Condicion, "bodega_id": f.BodegaID, "validado": e.Validado,
+			// 0.13.1: quien lo registró desde la app va en X-Iris-Actor (y su I1 como tecnico), también
+			// en comodatos y devoluciones.
+			"registrado_por": e.registradoPor, "desde_app": e.desdeApp,
 		}
 		// 0.12.0 §3.10 (B27): fecha del teléfono y recibido_en_iris; nunca la nota.
 		switch e.Accion {
@@ -257,8 +260,6 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 			if !e.Validado {
 				validados = false
 			}
-			// Quien lo registró va en X-Iris-Actor (A-271-1), aunque la orden se reasigne después.
-			eq["registrado_por"] = e.registradoPor
 			eq["motivo"], eq["foto_ref"] = e.Motivo, e.FotoAdjuntoID
 			eq["fecha"], eq["recibido_en_iris"] = e.OcurridoEn, e.RecibidoEn
 		}

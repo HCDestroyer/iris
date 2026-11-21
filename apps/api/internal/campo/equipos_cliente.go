@@ -58,16 +58,23 @@ const (
 	// RadioSitioM: la ubicación debe estar a 500 m o menos de las coordenadas de la orden (el
 	// servicio) y de la última posición reciente del técnico.
 	RadioSitioM = 500
-	// PosicionReciente: la última posición del técnico cuenta si es de los últimos 30 minutos.
+	// PosicionReciente: la posición del técnico de referencia es la última de los 30 minutos
+	// anteriores a la fecha del intento (recibida antes del lote).
 	PosicionReciente = 30 * time.Minute
 	// CodigoUbicacionFueraDeSitio: la ubicación del intento no está en el sitio.
 	CodigoUbicacionFueraDeSitio = "ubicacion_fuera_de_sitio"
+	// CodigoUbicacionSinReferencia: sin coordenadas del servicio o sin una posición del técnico en
+	// los 30 min anteriores, no se puede verificar: no se acepta en silencio.
+	CodigoUbicacionSinReferencia = "ubicacion_sin_referencia"
+	// CodigoSinLlegada: el cambio o el intento necesitan una llegada (orden.llegar) del mismo actor,
+	// el mismo día y antes de la fecha.
+	CodigoSinLlegada = "sin_llegada"
 )
 
 // soloElTecnico: el cambio y el intento los registra el técnico de la orden (A-271-1): nadie lo
 // hace a su nombre (ni despacho ni supervisión con ordenes.registrar).
-func soloElTecnico(ctx context.Context, f campobd.CampoOrden) error {
-	if !propia(ctx, f) {
+func soloElTecnico(ctx context.Context, f campobd.CampoOrden, s *OpSync) error {
+	if !propia(ctx, f) && (s == nil || !s.gracia) {
 		return nucleo.Prohibido("Solo el técnico de la orden registra cambios de equipo e intentos de recuperación")
 	}
 	return nil
@@ -108,8 +115,8 @@ type EntradaNoRecuperado struct {
 	Version       *int32     `json:"version,omitempty" minimum:"1"`
 	UnidadID      int64      `json:"unidadId" minimum:"1" doc:"La unidad en comodato del servicio que no se pudo recuperar"`
 	Motivo        string     `json:"motivo" enum:"cliente_ausente,se_nego,equipo_perdido,otro"`
-	FotoAdjuntoID *uuid.UUID `json:"fotoAdjuntoId,omitempty" doc:"Obligatoria con se_nego y equipo_perdido (adjunto de la orden)"`
-	Lat           *float64   `json:"lat" minimum:"-90" maximum:"90" doc:"Ubicación del intento, tomada en sitio: a 500 m o menos del servicio y de tu última posición (422 ubicacion_fuera_de_sitio)"`
+	FotoAdjuntoID *uuid.UUID `json:"fotoAdjuntoId" doc:"Obligatoria con cualquier motivo (0.13.1): adjunto foto de la orden, tuyo, tomado después de tu llegada, no rechazado ni usado en otro cambio o intento"`
+	Lat           *float64   `json:"lat" minimum:"-90" maximum:"90" doc:"Ubicación del intento, tomada en sitio: a 500 m o menos del servicio y de tu posición de los 30 min anteriores (422 ubicacion_fuera_de_sitio; sin coordenadas del servicio o sin esa posición, 422 ubicacion_sin_referencia)"`
 	Lon           *float64   `json:"lon" minimum:"-180" maximum:"180"`
 	PrecisionM    *float64   `json:"precisionM" minimum:"0" maximum:"200" doc:"Precisión del GPS, obligatoria: 200 m o mejor"`
 	Nota          string     `json:"nota,omitempty" maxLength:"500" auditoria:"sensible"`
@@ -155,7 +162,8 @@ func (m *Modulo) exigirFechaDesdeAsignacion(s *OpSync, f campobd.CampoOrden) (ti
 	if s == nil {
 		return ahora, nil
 	}
-	if f.AsignadaEn != nil && s.OcurridoEn.Before(*f.AsignadaEn) {
+	// Con gracia (orden ya reasignada), el historial ya comprobó que la tenía en esa fecha.
+	if !s.gracia && f.AsignadaEn != nil && s.OcurridoEn.Before(*f.AsignadaEn) {
 		return time.Time{}, campoInvalido("ocurridoEn", "Anterior a la asignación de la orden ("+f.AsignadaEn.UTC().Format(time.RFC3339)+")", "fecha")
 	}
 	if s.OcurridoEn.After(ahora) {
@@ -181,7 +189,7 @@ func enComodato(pre *prelectura, f campobd.CampoOrden, unidad int64) (validado b
 // fotoDeLaOrden (M-271-3): la foto es un adjunto tipo foto de esta orden (puede no haber terminado de
 // subir), del mismo técnico, registrado después de llegar al sitio, no rechazado ni abandonado y no
 // usado en otro cambio o intento.
-func fotoDeLaOrden(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, foto uuid.UUID, f campobd.CampoOrden) error {
+func fotoDeLaOrden(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, foto uuid.UUID, f campobd.CampoOrden, llegada time.Time) error {
 	invalida := func(motivo string) error { return campoInvalido("fotoAdjuntoId", motivo, "foto") }
 	a, err := adjuntos.DeEntidad(ctx, t, foto, "orden", strconv.FormatInt(f.ID, 10))
 	if err != nil || a.Tipo != "foto" {
@@ -193,7 +201,7 @@ func fotoDeLaOrden(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, fot
 	if a.Estado == "rechazado" {
 		return invalida("La foto se rechazó al subir: tómala de nuevo")
 	}
-	if f.EnSitioEn != nil && a.CreadoEn.Before(*f.EnSitioEn) {
+	if a.CreadoEn.Before(llegada) {
 		return invalida("La foto debe tomarse en el sitio, después de llegar")
 	}
 	usada, err := q.FotoUsadaEnEquipo(ctx, &foto)
@@ -206,34 +214,60 @@ func fotoDeLaOrden(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, fot
 	return nil
 }
 
-// ubicacionEnSitio (M-271-4): precisión de 200 m o mejor, a 500 m o menos de la orden (si tiene
-// coordenadas) y de la última posición del técnico de los últimos 30 minutos (si la hay).
-func (m *Modulo) ubicacionEnSitio(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, lat, lon float64, precision *float64) error {
+// ubicacionEnSitio (M-271-4; 0.13.1 §3.10): precisión de 200 m o mejor, a 500 m o menos de las
+// coordenadas del servicio y de la última posición del técnico en los 30 min anteriores a la fecha
+// del intento, contando solo las que se recibieron antes de aceptar el lote. Sin coordenadas o sin
+// esa posición, 422 ubicacion_sin_referencia (no se acepta sin verificar).
+func ubicacionEnSitio(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, actor int64, lat, lon float64, precision *float64,
+	cuando, recibido time.Time) error {
 	if precision == nil {
 		return campoInvalido("precisionM", "La precisión del GPS es obligatoria", "required")
 	}
 	if *precision > PrecisionMaximaM {
 		return campoInvalido("precisionM", "La precisión del GPS debe ser de 200 m o mejor: espera a tener mejor señal", "maximum")
 	}
-	fuera := func(detalle string) error {
-		p := nucleo.NuevoProblema(http.StatusUnprocessableEntity, CodigoUbicacionFueraDeSitio, "Ubicación fuera del sitio", detalle)
-		p.Errors = []nucleo.ErrorCampo{{Field: "lat", Message: detalle, Rule: CodigoUbicacionFueraDeSitio}}
+	problema := func(codigo, titulo, detalle string) error {
+		p := nucleo.NuevoProblema(http.StatusUnprocessableEntity, codigo, titulo, detalle)
+		p.Errors = []nucleo.ErrorCampo{{Field: "lat", Message: detalle, Rule: codigo}}
 		return p
 	}
-	if f.Lat != nil && f.Lon != nil && metros(lat, lon, *f.Lat, *f.Lon) > RadioSitioM {
+	sinReferencia := func(detalle string) error {
+		return problema(CodigoUbicacionSinReferencia, "Ubicación sin referencia", detalle)
+	}
+	fuera := func(detalle string) error {
+		return problema(CodigoUbicacionFueraDeSitio, "Ubicación fuera del sitio", detalle)
+	}
+	if f.Lat == nil || f.Lon == nil {
+		return sinReferencia("El servicio no tiene coordenadas: pide a despacho que las corrija antes de registrar el intento")
+	}
+	if metros(lat, lon, *f.Lat, *f.Lon) > RadioSitioM {
 		return fuera("La ubicación del intento está a más de 500 m del servicio")
 	}
-	if f.TecnicoID != nil {
-		pos, err := q.UltimaPosicionDe(ctx, *f.TecnicoID)
-		switch {
-		case errors.Is(err, pgx.ErrNoRows):
-		case err != nil:
-			return err
-		case m.ahora().Sub(pos.RegistradaEn) <= PosicionReciente && metros(lat, lon, pos.Lat, pos.Lon) > RadioSitioM:
-			return fuera("La ubicación del intento está a más de 500 m de tu última posición")
-		}
+	pos, err := q.PosicionDeReferencia(ctx, campobd.PosicionDeReferenciaParams{
+		TecnicoID: actor, Hasta: cuando, Desde: cuando.Add(-PosicionReciente), RecibidoAntes: recibido})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return sinReferencia("No hay una posición tuya de los 30 minutos anteriores al intento: activa la ubicación y espera a que se envíe")
+	}
+	if err != nil {
+		return err
+	}
+	if metros(lat, lon, pos.Lat, pos.Lon) > RadioSitioM {
+		return fuera("La ubicación del intento está a más de 500 m de tu posición de ese momento")
 	}
 	return nil
+}
+
+// llegadaDelActor (0.13.1 §3.10; M-271-3): el último orden.llegar del actor en la orden, del mismo
+// día (hora local) y no posterior a la fecha. Sin ella, 422 sin_llegada.
+func (m *Modulo) llegadaDelActor(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, actor int64, cuando time.Time) (time.Time, error) {
+	l := cuando.In(m.cfg.ZonaHoraria)
+	dia := time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, m.cfg.ZonaHoraria)
+	llegada, err := q.LlegadaDelActor(ctx, campobd.LlegadaDelActorParams{OrdenID: f.ID, ActorID: &actor, Desde: dia, Hasta: cuando})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, nucleo.ReglaNegocio(CodigoSinLlegada,
+			"Marca la llegada a la orden (en sitio) antes de registrar el cambio o el intento")
+	}
+	return llegada, err
 }
 
 // sinNotas: el registro auditado sin los textos libres (nunca van en logs; §10.7 i).
@@ -255,14 +289,16 @@ func (m *Modulo) nuevoCambiarEquipo() *auditoria.Caso[EntradaCambiarEquipo, Orde
 			if err != nil {
 				return f, "", err
 			}
-			if err := soloElTecnico(ctx, f); err != nil {
+			if err := soloElTecnico(ctx, f, in.Sync); err != nil {
 				return f, "", err
 			}
 			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "cambiar equipos"); err != nil {
 				return f, "", err
 			}
-			if err := exigirEstado(f, "cambiar equipos en", estadosEnCurso...); err != nil {
-				return f, "", err
+			if in.Sync == nil || !in.Sync.gracia {
+				if err := exigirEstado(f, "cambiar equipos en", estadosEnCurso...); err != nil {
+					return f, "", err
+				}
 			}
 			tipo, err := tipoDe(ctx, q, f)
 			if err != nil {
@@ -275,6 +311,11 @@ func (m *Modulo) nuevoCambiarEquipo() *auditoria.Caso[EntradaCambiarEquipo, Orde
 				return f, "", nucleo.ReglaNegocio("orden_sin_servicio", "La orden no tiene servicio de Argos")
 			}
 			cuando, err := m.exigirFechaDesdeAsignacion(in.Sync, f)
+			if err != nil {
+				return f, "", err
+			}
+			actor := deref(actorUsuario(t))
+			llegada, err := m.llegadaDelActor(ctx, q, f, actor, cuando)
 			if err != nil {
 				return f, "", err
 			}
@@ -331,7 +372,7 @@ func (m *Modulo) nuevoCambiarEquipo() *auditoria.Caso[EntradaCambiarEquipo, Orde
 				}
 			}
 			if in.FotoAdjuntoID != nil {
-				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f); err != nil {
+				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f, llegada); err != nil {
 					return f, "", err
 				}
 			}
@@ -370,15 +411,18 @@ func (m *Modulo) nuevoNoRecuperado() *auditoria.Caso[EntradaNoRecuperado, Orden]
 			if err != nil {
 				return f, "", err
 			}
-			if err := soloElTecnico(ctx, f); err != nil {
+			if err := soloElTecnico(ctx, f, in.Sync); err != nil {
 				return f, "", err
 			}
 			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "registrar un intento de recuperación"); err != nil {
 				return f, "", err
 			}
-			// En sitio (§10.7 a): el intento y su ubicación se registran donde está el equipo.
-			if err := exigirEstado(f, "registrar un intento de recuperación en", "en_sitio"); err != nil {
-				return f, "", err
+			// En sitio (§10.7 a): el intento y su ubicación se registran donde está el equipo. Con
+			// gracia (ya reasignada) lo prueba su propia llegada.
+			if in.Sync == nil || !in.Sync.gracia {
+				if err := exigirEstado(f, "registrar un intento de recuperación en", "en_sitio"); err != nil {
+					return f, "", err
+				}
 			}
 			tipo, err := tipoDe(ctx, q, f)
 			if err != nil {
@@ -405,14 +449,24 @@ func (m *Modulo) nuevoNoRecuperado() *auditoria.Caso[EntradaNoRecuperado, Orden]
 			if in.Lat == nil || in.Lon == nil {
 				return f, "", campoInvalido("lat", "La ubicación del intento es obligatoria (tomada en sitio)", "required")
 			}
-			if (in.Motivo == "se_nego" || in.Motivo == "equipo_perdido") && in.FotoAdjuntoID == nil {
-				return f, "", campoInvalido("fotoAdjuntoId", "La foto es obligatoria si el cliente se negó o el equipo se perdió", "required")
+			// 0.13.1: la foto es obligatoria con cualquier motivo (con cliente_ausente, la fachada).
+			if in.FotoAdjuntoID == nil {
+				return f, "", campoInvalido("fotoAdjuntoId", "La foto es obligatoria (con «cliente ausente», la de la fachada o el acceso)", "required")
 			}
-			if err := m.ubicacionEnSitio(ctx, q, f, *in.Lat, *in.Lon, in.PrecisionM); err != nil {
+			actor := deref(actorUsuario(t))
+			llegada, err := m.llegadaDelActor(ctx, q, f, actor, cuando)
+			if err != nil {
+				return f, "", err
+			}
+			recibidoLote := m.ahora()
+			if in.Sync != nil && !in.Sync.RecibidoEn.IsZero() {
+				recibidoLote = in.Sync.RecibidoEn
+			}
+			if err := ubicacionEnSitio(ctx, q, f, actor, *in.Lat, *in.Lon, in.PrecisionM, cuando, recibidoLote); err != nil {
 				return f, "", err
 			}
 			if in.FotoAdjuntoID != nil {
-				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f); err != nil {
+				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f, llegada); err != nil {
 					return f, "", err
 				}
 			}

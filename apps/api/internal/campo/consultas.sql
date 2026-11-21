@@ -425,9 +425,29 @@ WHERE accion = 'no_recuperado' AND unidad_id = @unidad_id
 -- La foto ya respalda otro cambio o intento (M-271-3).
 SELECT EXISTS (SELECT 1 FROM campo.orden_equipos WHERE foto_adjunto_id = @foto_adjunto_id)::boolean;
 
--- name: UltimaPosicionDe :one
--- La última posición del técnico (campo.posiciones_ultimas), para la ubicación en sitio (M-271-4).
-SELECT lat, lon, registrada_en FROM campo.posiciones_ultimas WHERE tecnico_id = @tecnico_id ORDER BY registrada_en DESC LIMIT 1;
+-- name: PosicionDeReferencia :one
+-- La última posición del técnico en los 30 min anteriores a la fecha del intento, contando solo las
+-- que Iris recibió antes de aceptar el lote (0.13.1 §3.10; M-271-4).
+SELECT lat, lon, registrada_en FROM campo.posiciones
+WHERE tecnico_id = @tecnico_id AND registrada_en <= @hasta AND registrada_en >= @desde AND created_at <= @recibido_antes
+ORDER BY registrada_en DESC
+LIMIT 1;
+
+-- name: LlegadaDelActor :one
+-- La llegada del actor (0.13.1 §3.10): su último orden.llegar en la orden (programada o en camino →
+-- en sitio), del mismo día y no posterior a la fecha.
+SELECT ocurrido_en FROM campo.orden_eventos
+WHERE orden_id = @orden_id AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
+  AND actor_id = @actor_id AND ocurrido_en >= @desde AND ocurrido_en <= @hasta
+ORDER BY ocurrido_en DESC, id DESC
+LIMIT 1;
+
+-- name: AsignacionesDeOrden :many
+-- El historial de asignación de la orden (asignaciones y programaciones con técnico), con la hora del
+-- servidor: para orden_reasignada (0.13.1 §3.10).
+SELECT ocurrido_en, coalesce((datos->>'tecnico_id')::bigint, 0)::bigint AS tecnico_id FROM campo.orden_eventos
+WHERE orden_id = @orden_id AND tipo IN ('asignada', 'programada') AND datos ? 'tecnico_id'
+ORDER BY ocurrido_en, id;
 
 -- name: EquiposDeOrdenes :many
 SELECT * FROM campo.orden_equipos WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, ocurrido_en, created_at;

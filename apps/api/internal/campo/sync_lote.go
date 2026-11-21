@@ -280,7 +280,7 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 			continue
 		}
 		s := &OpSync{ID: id, Tipo: op.Tipo, DispositivoID: in.DispositivoID, VersionBase: op.VersionBase,
-			OcurridoEnTelefono: op.OcurridoEn, OcurridoEn: corregir(op.OcurridoEn, inicio.DesfaseMs, ahora)}
+			OcurridoEnTelefono: op.OcurridoEn, OcurridoEn: corregir(op.OcurridoEn, inicio.DesfaseMs, ahora), RecibidoEn: ahora}
 		var res ResultadoOperacion
 		// Grupo: la orden, el traslado (traslado.recibir) o la tarea (tarea.*): un rechazo bloquea lo
 		// que sigue de su grupo, nunca otro.

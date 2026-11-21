@@ -40,7 +40,12 @@ type OpSync struct {
 	// Modalidad del producto según Argos (0.5.0: comodato, consumible_gasto, consumible_cobro);
 	// vacía si no se sabe.
 	Modalidad string
-	pre       *prelectura
+	// RecibidoEn: la hora del servidor al aceptar el lote (recibido_en_iris; orden_reasignada).
+	RecibidoEn time.Time
+	pre        *prelectura
+	// gracia: equipo.cambiar o equipo.no_recuperado de quien tenía la orden en la fecha declarada y
+	// se la quitaron hace menos de 12 h (0.13.1 §3.10): se acepta aunque ya no sea suya.
+	gracia bool
 }
 
 func noEncontrada() *nucleo.Problema { return nucleo.NoEncontrado("La orden no existe") }
@@ -211,7 +216,12 @@ func tomar(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, id int64, p
 			return f, err
 		}
 	}
-	if err := verificarAcceso(ctx, permiso, f); err != nil {
+	if s != nil && s.gracia {
+		// La tuvo hasta hace menos de 12 h (cambio o intento): basta el permiso, sin alcance.
+		if !contexto.PermisosDe(ctx).Tiene(string(permiso)) {
+			return f, nucleo.Prohibido("")
+		}
+	} else if err := verificarAcceso(ctx, permiso, f); err != nil {
 		return f, err
 	}
 	t.FijarEmpresa(deref(f.EmpresaID))
@@ -241,7 +251,20 @@ func esEvidencia(tipo string) bool {
 
 func reglasDelLote(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, s *OpSync) error {
 	actor := contexto.ActorDe(ctx)
-	if !propia(ctx, f) && actor.EsUsuario() {
+	if !propia(ctx, f) && actor.EsUsuario() && (s.Tipo == OpEquipoCambiar || s.Tipo == OpEquipoNoRecuperado) {
+		// Cambios e intentos (0.13.1 §3.10): quien la tenía en la fecha declarada los puede enviar
+		// hasta 12 h después de que se la quitaran (hora del servidor); si no, orden_reasignada.
+		gracia, tuvo, err := enGraciaDeReasignacion(ctx, q, f.ID, actor.ID, s.OcurridoEn, s.RecibidoEn)
+		if err != nil {
+			return err
+		}
+		if gracia {
+			s.gracia = true
+		} else if tuvo {
+			return ordenReasignada()
+		}
+	}
+	if !propia(ctx, f) && actor.EsUsuario() && !s.gracia {
 		tuvo, err := q.TuvoOrden(ctx, campobd.TuvoOrdenParams{TecnicoID: actor.ID, OrdenID: f.ID})
 		if err != nil {
 			return err
@@ -255,6 +278,37 @@ func reglasDelLote(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden
 		return ordenCancelada()
 	}
 	return nil
+}
+
+// GraciaReasignacion: tras quitarle la orden, su técnico anterior aún puede enviar cambios e
+// intentos registrados mientras era suya (0.13.1 §3.10).
+const GraciaReasignacion = 12 * time.Hour
+
+// enGraciaDeReasignacion: según el historial de asignación de la orden (hora del servidor), el
+// usuario la tenía en `fecha` y se la quitaron hace menos de 12 h de `recibido`. tuvo: la tuvo
+// alguna vez (para responder orden_reasignada y no 404).
+func enGraciaDeReasignacion(ctx context.Context, q *campobd.Queries, orden, usuario int64, fecha, recibido time.Time) (gracia, tuvo bool, err error) {
+	filas, err := q.AsignacionesDeOrden(ctx, orden)
+	if err != nil {
+		return false, false, err
+	}
+	var desde *time.Time
+	actual := int64(0)
+	for _, f := range filas {
+		switch {
+		case f.TecnicoID == usuario && actual != usuario:
+			d := f.OcurridoEn
+			desde, tuvo = &d, true
+		case f.TecnicoID != usuario && actual == usuario && desde != nil:
+			// Un periodo [desde, f.OcurridoEn) con la orden a su nombre.
+			if !fecha.Before(*desde) && fecha.Before(f.OcurridoEn) && recibido.Sub(f.OcurridoEn) <= GraciaReasignacion {
+				return true, true, nil
+			}
+			desde = nil
+		}
+		actual = f.TecnicoID
+	}
+	return false, tuvo, nil
 }
 
 // exigirEstado: la acción solo aplica desde los estados dados.

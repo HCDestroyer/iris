@@ -37,8 +37,18 @@ func nuevoRetiroEnSitio(t *testing.T, unidades int) *retiroEnSitio {
 	d := despacho(t)
 	r.tec = tecnico(t)
 	r.cd, r.ct = como(t, d, "despacho"), como(t, r.tec, "tecnico")
+	// Su posición de hace 5 minutos, en el sitio (la referencia de la ubicación del intento).
+	posicion(t, r.tec, 14.6, -90.5, r.e.reloj.ahora().Add(-5*time.Minute), r.e.reloj.ahora().Add(-4*time.Minute))
 	r.orden = r.otraOrden(t)
 	return r
+}
+
+// intento: los datos de un intento en el sitio, con una foto nueva del técnico de esa orden.
+func (r *retiroEnSitio) intento(t *testing.T, orden, unidad int64, motivo string) map[string]any {
+	t.Helper()
+	d := intentoEn(unidad, motivo)
+	d["fotoAdjuntoId"] = fotoDe(t, orden, r.tec).String()
+	return d
 }
 
 // otraOrden: otra orden de retiro del mismo técnico y servicio, en sitio.
@@ -74,7 +84,7 @@ func mensajeDe(r campo.RespuestaLote) string {
 func TestEquiposSoloElTecnicoDeLaOrden(t *testing.T) {
 	r := nuevoRetiroEnSitio(t, 1)
 	sup := supervisor(t)
-	res := lote(t, r.e, sup, op(campo.OpEquipoNoRecuperado, r.orden.ID, intentoEn(r.unidades[0], "cliente_ausente")))
+	res := lote(t, r.e, sup, op(campo.OpEquipoNoRecuperado, r.orden.ID, r.intento(t, r.orden.ID, r.unidades[0], "cliente_ausente")))
 	if got := estados(res)[0]; got != "rechazada:prohibido" && got != "rechazada:no_encontrado" {
 		t.Fatalf("lote de un supervisor: %s", got)
 	}
@@ -115,9 +125,12 @@ func TestNoRecuperadoLimiteDiarioSinEvasion(t *testing.T) {
 	otra := r.otraOrden(t)
 	// La otra orden se asignó hace días: una fecha de ayer es válida para ella.
 	exec(t, `UPDATE campo.ordenes SET asignada_en = asignada_en - interval '3 days' WHERE id = $1`, otra.ID)
-	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, r.orden.ID, intentoEn(r.unidades[0], "cliente_ausente"))), "aplicada")
-	ayer := op(campo.OpEquipoNoRecuperado, otra.ID, intentoEn(r.unidades[0], "cliente_ausente"))
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, r.orden.ID, r.intento(t, r.orden.ID, r.unidades[0], "cliente_ausente"))), "aplicada")
+	// Ayer: con su llegada y su posición de ayer, para que solo cuente el límite.
 	antes := r.e.reloj.ahora().Add(-24 * time.Hour) // la hora del servidor es la del reloj del módulo
+	llegadaEn(t, otra.ID, r.tec, antes.Add(-10*time.Minute))
+	posicion(t, r.tec, 14.6, -90.5, antes.Add(-5*time.Minute), antes.Add(-4*time.Minute))
+	ayer := op(campo.OpEquipoNoRecuperado, otra.ID, r.intento(t, otra.ID, r.unidades[0], "cliente_ausente"))
 	ayer.OcurridoEn = &antes
 	res := lote(t, r.e, r.ct, ayer)
 	esperar(t, res, "rechazada:demasiados_intentos")
@@ -144,7 +157,7 @@ func TestNoRecuperadoLimiteDiarioSinEvasion(t *testing.T) {
 	}
 	listo := make(chan resultado, 2)
 	for _, o := range []int64{otra.ID, tercera.ID} {
-		operacion := op(campo.OpEquipoNoRecuperado, o, intentoEn(unidad, "cliente_ausente"))
+		operacion := op(campo.OpEquipoNoRecuperado, o, r.intento(t, o, unidad, "cliente_ausente"))
 		go func() {
 			res, err := r.e.m.Lote(r.ct, campo.EntradaLote{DispositivoID: "tel-" + pruebas.Unico(), Plataforma: "pwa",
 				Operaciones: []campo.OperacionLote{operacion}})
@@ -245,32 +258,108 @@ func TestNoRecuperadoFotoValida(t *testing.T) {
 	esperar(t, lote(t, r.e, r.ct, cerrar), "aplicada")
 }
 
-// M-271-4: la ubicación del intento lleva precisión (200 m o mejor) y está a 500 m o menos del
-// servicio y de la última posición reciente del técnico.
+// M-271-4 (0.13.1): la ubicación del intento lleva precisión (200 m o mejor) y está a 500 m o menos
+// del servicio y de la última posición del técnico de los 30 min anteriores a la fecha, recibida
+// antes del lote. Sin coordenadas del servicio o sin esa posición: 422 ubicacion_sin_referencia.
 func TestNoRecuperadoUbicacionEnSitio(t *testing.T) {
 	r := nuevoRetiroEnSitio(t, 1)
 	o, u := r.orden.ID, r.unidades[0]
-	sinPrecision := intentoEn(u, "cliente_ausente")
-	delete(sinPrecision, "precisionM")
-	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, sinPrecision)), "rechazada:validacion")
-	imprecisa := intentoEn(u, "cliente_ausente")
-	imprecisa["precisionM"] = 900
-	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, imprecisa)), "rechazada:validacion")
+	ahora := r.e.reloj.ahora()
+	intento := func(cambios map[string]any) campo.RespuestaLote {
+		d := r.intento(t, o, u, "cliente_ausente")
+		for k, v := range cambios {
+			if v == nil {
+				delete(d, k)
+			} else {
+				d[k] = v
+			}
+		}
+		return lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, d))
+	}
+	esperar(t, intento(map[string]any{"precisionM": nil}), "rechazada:validacion")
+	esperar(t, intento(map[string]any{"precisionM": 900}), "rechazada:validacion")
 	// A unos 5 km del servicio.
-	lejos := intentoEn(u, "cliente_ausente")
-	lejos["lat"] = 14.645
-	res := lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, lejos))
+	res := intento(map[string]any{"lat": 14.645})
 	esperar(t, res, "rechazada:"+campo.CodigoUbicacionFueraDeSitio)
 	if res.Resultados[0].Error.Status != 422 {
 		t.Fatalf("422: %+v", res.Resultados[0].Error)
 	}
-	// En las coordenadas del servicio, pero el teléfono reportó hace 5 minutos estar a 5 km.
-	exec(t, `DELETE FROM campo.posiciones_ultimas WHERE tecnico_id = $1`, r.tec)
-	exec(t, `INSERT INTO campo.posiciones_ultimas (tecnico_id, lat, lon, registrada_en, recibida_en)
-		VALUES ($1, 14.645, -90.5, $2, $2)`, r.tec, r.e.reloj.ahora().Add(-5*time.Minute))
-	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, intentoEn(u, "cliente_ausente"))),
-		"rechazada:"+campo.CodigoUbicacionFueraDeSitio)
-	// Una posición vieja (más de 30 minutos) no cuenta.
-	exec(t, `UPDATE campo.posiciones_ultimas SET registrada_en = $2 WHERE tecnico_id = $1`, r.tec, r.e.reloj.ahora().Add(-2*time.Hour))
-	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, intentoEn(u, "cliente_ausente"))), "aplicada")
+	// En las coordenadas del servicio, pero el teléfono reportó hace 2 minutos estar a 5 km.
+	posicion(t, r.tec, 14.645, -90.5, ahora.Add(-2*time.Minute), ahora.Add(-time.Minute))
+	esperar(t, intento(nil), "rechazada:"+campo.CodigoUbicacionFueraDeSitio)
+	exec(t, `DELETE FROM campo.posiciones WHERE tecnico_id = $1 AND lat > 14.64`, r.tec)
+	// El servicio sin coordenadas: no se puede verificar.
+	exec(t, `UPDATE campo.ordenes SET lat = NULL, lon = NULL WHERE id = $1`, o)
+	esperar(t, intento(nil), "rechazada:"+campo.CodigoUbicacionSinReferencia)
+	exec(t, `UPDATE campo.ordenes SET lat = 14.6, lon = -90.5 WHERE id = $1`, o)
+	// Sin posición de los 30 min anteriores (la única es de hace 2 h).
+	exec(t, `DELETE FROM campo.posiciones WHERE tecnico_id = $1`, r.tec)
+	posicion(t, r.tec, 14.6, -90.5, ahora.Add(-2*time.Hour), ahora.Add(-2*time.Hour))
+	esperar(t, intento(nil), "rechazada:"+campo.CodigoUbicacionSinReferencia)
+	// Una posición recibida después del lote no cuenta (ni para bien ni para mal).
+	posicion(t, r.tec, 14.6, -90.5, ahora.Add(-3*time.Minute), ahora.Add(time.Hour))
+	esperar(t, intento(nil), "rechazada:"+campo.CodigoUbicacionSinReferencia)
+	posicion(t, r.tec, 14.6, -90.5, ahora.Add(-10*time.Minute), ahora.Add(-9*time.Minute))
+	posicion(t, r.tec, 14.645, -90.5, ahora.Add(-time.Minute), ahora.Add(time.Hour))
+	esperar(t, intento(nil), "aplicada")
+}
+
+// M-271-3 (0.13.1): el cambio y el intento necesitan la llegada (orden.llegar) del mismo actor, el
+// mismo día y antes de la fecha; si no, 422 sin_llegada.
+func TestEquiposSinLlegada(t *testing.T) {
+	r := nuevoRetiroEnSitio(t, 1)
+	o := r.orden.ID
+	// La llegada fue ayer: no vale para hoy.
+	exec(t, `UPDATE campo.orden_eventos SET ocurrido_en = ocurrido_en - interval '1 day' WHERE orden_id = $1 AND a = 'en_sitio'`, o)
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, r.intento(t, o, r.unidades[0], "cliente_ausente"))),
+		"rechazada:"+campo.CodigoSinLlegada)
+	// En un cambio, la llegada de otro (despacho la marcó) tampoco.
+	cambio := programada(t, r.e, r.cd, "cambio_equipo", r.tec)
+	conServicio(t, cambio.ID, r.servicio)
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpLlegar, cambio.ID, nil)), "aplicada")
+	exec(t, `UPDATE campo.orden_eventos SET actor_id = NULL WHERE orden_id = $1 AND a = 'en_sitio'`, cambio.ID)
+	datos := map[string]any{"saleUnidadId": r.unidades[0], "entra": map[string]any{"serie": "ZTEGC8A1B2C3"}, "motivo": "danado"}
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoCambiar, cambio.ID, datos)), "rechazada:"+campo.CodigoSinLlegada)
+}
+
+// 0.13.1 §3.10 (orden_reasignada): quien tenía la orden en la fecha declarada envía su intento
+// hasta 12 h después de que se la quitaran (hora del servidor), registrado a su nombre; después, o
+// con una fecha en que ya no era suya, 409 orden_reasignada.
+func TestNoRecuperadoOrdenReasignada(t *testing.T) {
+	r := nuevoRetiroEnSitio(t, 3)
+	o := r.orden.ID
+	t0 := r.e.reloj.ahora()
+	// Registró dos intentos sin señal 5 minutos después de llegar; a los 10 se la pasan a otro.
+	fecha := t0.Add(5 * time.Minute)
+	pendiente := func(unidad int64, cuando time.Time) campo.OperacionLote {
+		x := op(campo.OpEquipoNoRecuperado, o, r.intento(t, o, unidad, "cliente_ausente"))
+		x.OcurridoEn = &cuando
+		return x
+	}
+	primero, segundo := pendiente(r.unidades[0], fecha), pendiente(r.unidades[1], fecha)
+	tarde := pendiente(r.unidades[2], t0.Add(15*time.Minute)) // ya no era suya
+	r.e.reloj.avanzar(10 * time.Minute)
+	// Reasignada a otro técnico (una orden en sitio no se reasigna desde el panel: se simula la
+	// asignación con su fila de historial, como la escribe ordenes.asignar).
+	otro := tecnico(t)
+	exec(t, `UPDATE campo.ordenes SET tecnico_id = $2, asignada_en = $3 WHERE id = $1`, o, otro, r.e.reloj.ahora())
+	exec(t, `INSERT INTO campo.orden_eventos (orden_id, tipo, datos, actor_tipo, ocurrido_en)
+		VALUES ($1, 'asignada', jsonb_build_object('tecnico_id', $2::bigint, 'tecnico_anterior', $3::bigint), 'sistema', $4)`,
+		o, otro, r.tec, r.e.reloj.ahora())
+
+	r.e.reloj.avanzar(2 * time.Hour)
+	esperar(t, lote(t, r.e, r.ct, primero), "aplicada")
+	if n := contar(t, `SELECT count(*) FROM campo.orden_equipos WHERE orden_id = $1 AND registrado_por = $2`, o, r.tec); n != 1 {
+		t.Fatalf("registrado a nombre de quien lo hizo: %d", n)
+	}
+	esperar(t, lote(t, r.e, r.ct, tarde), "rechazada:orden_reasignada")
+	r.e.reloj.avanzar(11 * time.Hour) // 13 h después de quitársela
+	esperar(t, lote(t, r.e, r.ct, segundo), "rechazada:orden_reasignada")
+}
+
+// llegadaEn: una llegada (orden.llegar) del técnico a la orden en ese momento.
+func llegadaEn(t *testing.T, orden, tec int64, cuando time.Time) {
+	t.Helper()
+	exec(t, `INSERT INTO campo.orden_eventos (orden_id, tipo, de, a, actor_tipo, actor_id, ocurrido_en)
+		VALUES ($1, 'estado', 'en_camino', 'en_sitio', 'usuario', $2, $3)`, orden, tec, cuando)
 }

@@ -131,6 +131,9 @@ type Equipo struct {
 	// RegistradoPor: el técnico que registró el cambio o el intento; va en X-Iris-Actor (A-271-1),
 	// aunque la orden se reasigne después.
 	RegistradoPor *int64 `json:"registrado_por"`
+	// DesdeApp: lo registró un técnico desde el lote; en comodatos y devoluciones, con Argos ≥ 0.11.0,
+	// sale con su I1 y su X-Iris-Actor (0.13.1 §3.9).
+	DesdeApp bool `json:"desde_app"`
 }
 
 // Acciones de equipo de 0.12.0 (§3.10).
@@ -418,6 +421,22 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 		}
 	}
 
+	// delActor: comodato o devolución que el técnico registró en la app (0.13.1 §3.9): `tecnico` es
+	// el I1 de quien lo registró y sale con su X-Iris-Actor; sin él o sin vínculo, incompleto.
+	delActor := func(p *plan, e Equipo) {
+		p.conTecnico, p.conActor, p.actor = true, true, e.RegistradoPor
+		var v string
+		if e.RegistradoPor != nil {
+			v = strings.TrimSpace(op.vinculos[*e.RegistradoPor])
+		}
+		if v == "" {
+			p.payload["tecnico"] = nil
+			p.incompleto = "quien registró el equipo no está vinculado a Argos (I1)"
+			return
+		}
+		p.payload["tecnico"] = map[string]any{"id_externo": v}
+	}
+
 	// Equipos retirados (devolución o pérdida): retiro y primer paso del cambio de equipo.
 	retirados := func() []int {
 		var idx []int
@@ -457,12 +476,18 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				ruta:    "/servicios/" + sid + "/equipos/" + uid + "/devolver",
 				payload: con(origen(orden), map[string]any{"bodega_id": bodegaDe(e.BodegaID), "condicion": e.Condicion}),
 			}
-			if tecnico != nil && !explicita(e.BodegaID) {
+			switch {
+			case op.bodegaApp && e.DesdeApp:
+				// 0.13.1 §3.9: la registró el técnico en la app: tecnico (su I1) + su X-Iris-Actor.
+				delete(p.payload, "bodega_id")
+				delActor(&p, e)
+			case tecnico != nil && !explicita(e.BodegaID):
 				// 0.5.0: a la bodega activa del técnico en la empresa del servicio.
 				delete(p.payload, "bodega_id")
 				p.payload["tecnico"], p.conTecnico = tecnico, true
 			}
 			switch {
+			case p.incompleto != "":
 			case !p.conTecnico && bodegaDe(e.BodegaID) == nil:
 				p.incompleto = "devolución sin bodega_id (ni en el equipo ni en la orden)"
 			case e.Condicion == "":
@@ -482,7 +507,10 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				operacion: OpAsignarComodato, clave: "iris:comodato:" + orden + ":" + claveEquipo(e),
 				ruta: "/servicios/" + sid + "/equipos", payload: origen(orden), depende: depende,
 			}
-			if tecnico != nil {
+			switch {
+			case op.bodegaApp && e.DesdeApp:
+				delActor(&p, e) // 0.13.1 §3.9: su I1 y su X-Iris-Actor, sin bodega_id
+			case tecnico != nil:
 				// 0.5.0: la unidad sale de la bodega del técnico (409 unidad_en_otra_bodega si no).
 				p.payload["tecnico"], p.conTecnico = tecnico, true
 			}
@@ -741,6 +769,11 @@ func vinculosDeActores(ctx context.Context, q *pendientesbd.Queries, o OrdenCerr
 	for _, mat := range o.Materiales {
 		if mat.RegistradoPor != nil && !slices.Contains(usuarios, *mat.RegistradoPor) {
 			usuarios = append(usuarios, *mat.RegistradoPor)
+		}
+	}
+	for _, e := range o.Equipos {
+		if e.RegistradoPor != nil && !slices.Contains(usuarios, *e.RegistradoPor) {
+			usuarios = append(usuarios, *e.RegistradoPor)
 		}
 	}
 	salida := map[int64]string{}
