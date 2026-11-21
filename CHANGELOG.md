@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.36.0](https://github.com/HCDestroyer/iris/compare/v0.35.0...v0.36.0) (2026-11-21)
+
+
+### Funcionalidades
+
+* **web:** E4c fase 2, el teléfono de Iris en el panel ([#252](https://github.com/HCDestroyer/iris/issues/252)) ([c4abb08](https://github.com/HCDestroyer/iris/commit/c4abb08cf17e703cc7951c4d725409971ac97bb7))
+
+
+### Correcciones
+
+* **soporte,campo:** GET /tickets y /ordenes aceptan cliente_id y exigen el filtro de cliente por token ([#250](https://github.com/HCDestroyer/iris/issues/250)) ([bc0674a](https://github.com/HCDestroyer/iris/commit/bc0674a0db26c5b38a62e7b326b40a0d00b07b87))
+
 ## [0.35.0](https://github.com/HCDestroyer/iris/compare/v0.34.1...v0.35.0) (2026-11-21)
 
 
