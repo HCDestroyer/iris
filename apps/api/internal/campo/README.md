@@ -7,6 +7,16 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 
 ## Qué hace
 
+- **Filtro de cliente en `GET /ordenes`** (contrato con Argos, A7): `cliente_id` y `servicio_id`
+  son alias de `clienteId` y `servicioId` (422 `validacion` si llegan los dos con valores
+  distintos). Con `ordenes.ver`, un token (de integración, como el de Argos, o de API de una
+  persona) sin `clienteId` recibe 422 `filtro_cliente_requerido`, salvo con
+  `ordenes.listar_todos`. Un token nunca supera los permisos de su dueño: solo puede llevarlo el
+  token de un admin (que tiene todos) o de un usuario con un rol a medida que lo incluya. Los
+  tokens personales de supervisor, despacho, lectura, etc. que listaban sin filtro ahora reciben
+  422: deben filtrar por cliente o pedir a un admin un rol con ese permiso. Con
+  `ordenes.ver_propias` (técnico) la lista ya es solo suya y no lo exige. El panel no cambia. Un
+  parámetro de consulta desconocido responde 422 `validacion` (regla `desconocido`).
 - **Catálogo:** `tipos_orden` (semilla, por SQL: duración, plantilla por defecto,
   `exige_instalar`/`exige_retirar`) y **plantillas de formularios administrables**
   (`plantillas.go`, abajo). `GET /tipos-orden` trae las plantillas activas visibles de cada tipo.

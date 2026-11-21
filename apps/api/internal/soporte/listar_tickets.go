@@ -12,18 +12,32 @@ import (
 
 // EntradaListarTickets: bandeja con filtros, más recientes primero. El alcance del permiso
 // tickets.ver (zonas, cuadrillas o lo asignado al actor) y la empresa activa filtran siempre.
+//
+// Filtros de cliente (contrato con Argos, pedido A7): el nombre es `clienteId` y se acepta
+// `cliente_id` como alias (lo mismo `servicioId`/`servicio_id`); si llegan los dos con valores
+// distintos, 422 validacion. Un token (de integración o de API) sin filtro de cliente recibe 422
+// filtro_cliente_requerido, salvo que tenga tickets.listar_todos: así un filtro mal escrito no
+// devuelve los tickets de todos los clientes de la empresa. Un parámetro de consulta que la ruta
+// no conoce responde 422 validacion (regla `desconocido`) para cualquier actor.
 type EntradaListarTickets struct {
 	nucleo.ParamsPagina
-	Estado        []string `query:"estado" enum:"nuevo,abierto,en_espera,resuelto,cerrado" doc:"Uno o varios estados (estado=nuevo,abierto)"`
-	Prioridad     []string `query:"prioridad" enum:"baja,media,alta,critica" doc:"Una o varias prioridades"`
-	CategoriaID   int64    `query:"categoriaId" minimum:"0" doc:"Categoría"`
-	AsignadoA     int64    `query:"asignadoA" minimum:"0" doc:"Usuario asignado"`
-	SinAsignar    bool     `query:"sinAsignar" doc:"Solo tickets sin usuario asignado"`
-	ClienteID     int64    `query:"clienteId" minimum:"0" doc:"Cliente de Argos (historial del cliente)"`
-	ServicioID    int64    `query:"servicioId" minimum:"0" doc:"Servicio de Argos"`
-	CuadrillaID   int64    `query:"cuadrillaId" minimum:"0" doc:"Cuadrilla"`
-	TicketPadreID int64    `query:"ticketPadreId" minimum:"0" doc:"Hijos de un incidente maestro"`
-	Q             string   `query:"q" maxLength:"120" doc:"Busca en número, asunto y nombre de contacto"`
+	Estado      []string `query:"estado" enum:"nuevo,abierto,en_espera,resuelto,cerrado" doc:"Uno o varios estados (estado=nuevo,abierto)"`
+	Prioridad   []string `query:"prioridad" enum:"baja,media,alta,critica" doc:"Una o varias prioridades"`
+	CategoriaID int64    `query:"categoriaId" minimum:"0" doc:"Categoría"`
+	AsignadoA   int64    `query:"asignadoA" minimum:"0" doc:"Usuario asignado"`
+	SinAsignar  bool     `query:"sinAsignar" doc:"Solo tickets sin usuario asignado"`
+	ClienteID   int64    `query:"clienteId" minimum:"0" doc:"Cliente de Argos (historial del cliente)"`
+	ServicioID  int64    `query:"servicioId" minimum:"0" doc:"Servicio de Argos"`
+	// Alias en snake_case: los que usa Argos (contrato A7). Mismo significado que clienteId y
+	// servicioId; si llegan los dos con valores distintos, 422.
+	ClienteIDAlias  int64  `query:"cliente_id" minimum:"0" doc:"Alias de clienteId (el nombre del contrato con Argos, A7). Si llega junto con clienteId y difieren: 422 validacion"`
+	ServicioIDAlias int64  `query:"servicio_id" minimum:"0" doc:"Alias de servicioId. Si llega junto con servicioId y difieren: 422 validacion"`
+	CuadrillaID     int64  `query:"cuadrillaId" minimum:"0" doc:"Cuadrilla"`
+	TicketPadreID   int64  `query:"ticketPadreId" minimum:"0" doc:"Hijos de un incidente maestro"`
+	Q               string `query:"q" maxLength:"120" doc:"Busca en número, asunto y nombre de contacto"`
+
+	// desconocidos: los parámetros de consulta que la ruta no declara (los llena Resolve).
+	desconocidos []string
 }
 
 func filtro(v int64) *int64 {
@@ -46,6 +60,12 @@ func (m *Modulo) nuevoListarTickets() *auditoria.Caso[EntradaListarTickets, nucl
 		Permiso:      nucleo.PermTicketsVer,
 		AuditarExito: soloLecturas[nucleo.Pagina[Ticket]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarTickets) (nucleo.Pagina[Ticket], error) {
+			if err := nucleo.NormalizarFiltrosCliente(in.desconocidos, &in.ClienteID, in.ClienteIDAlias, &in.ServicioID, in.ServicioIDAlias); err != nil {
+				return nucleo.Pagina[Ticket]{}, err
+			}
+			if err := nucleo.ExigirFiltroCliente(ctx, in.ClienteID, nucleo.PermTicketsListarTodos, "tickets"); err != nil {
+				return nucleo.Pagina[Ticket]{}, err
+			}
 			var antesDe int64
 			hay, err := nucleo.DecodificarCursor(in.Cursor, &antesDe)
 			if err != nil {
