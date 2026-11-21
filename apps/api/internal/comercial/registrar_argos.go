@@ -54,7 +54,12 @@ func ReglaIdempotenciaArgos(r *http.Request) *nucleo.ReglaIdempotencia {
 		return nil
 	}
 	return &nucleo.ReglaIdempotencia{Vigencia: VigenciaClaveArgos, Cabeceras: []string{identidad.CabeceraEmpresa, CabeceraActorIris},
-		CodigoReutilizada: "idempotency_key_reutilizada"}
+		CodigoReutilizada: "idempotency_key_reutilizada",
+		// El tope por minuto y el conector apagado no son el resultado del registro: Argos reintenta con
+		// la misma clave y los mismos bytes, y entonces se ejecuta.
+		Transitorio: func(status int, codigo string) bool {
+			return status == http.StatusTooManyRequests || (status == http.StatusConflict && codigo == "argos_apagado")
+		}}
 }
 
 // CabeceraActorIris: quién lo registró en Argos (usuario:<id de Argos>).
@@ -113,16 +118,27 @@ type entradaRegistroArgos struct {
 	evaluacion      *Evaluacion
 }
 
-// MarshalJSON de la auditoría: los números quedan con los 4 últimos dígitos.
+// MarshalJSON de la auditoría: los números quedan con los 4 últimos dígitos; sin nombres,
+// dirección ni comentario.
 func (e entradaRegistroArgos) MarshalJSON() ([]byte, error) {
-	tels := make([]map[string]any, 0, len(e.telefonos))
-	for _, t := range e.telefonos {
-		tels = append(tels, map[string]any{"numero": enmascarar(t.numero), "whatsapp": t.whatsapp, "principal": t.principal,
-			"con_nombre": t.nombre != nil, "relacion": t.relacion})
+	return jsonDe(e.auditable(e.clienteValidado, e.lat != nil))
+}
+
+// MarshalJSON de la auditoría de la entrada sin validar (los rechazos también se auditan): igual
+// de enmascarada.
+func (e EntradaRegistrarArgos) MarshalJSON() ([]byte, error) {
+	return jsonDe(e.auditable(nil, e.Coordenadas != nil && *e.Coordenadas != ""))
+}
+
+func (e EntradaRegistrarArgos) auditable(validado *bool, conCoordenadas bool) map[string]any {
+	tels := make([]map[string]any, 0, len(e.Telefonos))
+	for _, t := range e.Telefonos {
+		tels = append(tels, map[string]any{"numero": enmascarar(strings.TrimSpace(t.Numero)), "whatsapp": t.Whatsapp, "principal": t.Principal,
+			"con_nombre": t.Nombre != nil, "relacion": t.Relacion})
 	}
-	return jsonDe(map[string]any{"origen": e.Origen, "modo": e.Modo, "telefonos": tels, "zona_id": e.ZonaID,
-		"plan_interes_id": e.PlanInteresID, "cliente_id": e.ClienteID, "cliente_validado": e.clienteValidado,
-		"con_coordenadas": e.lat != nil, "actor": e.Actor})
+	return map[string]any{"origen": e.Origen, "modo": e.Modo, "telefonos": tels, "zona_id": e.ZonaID,
+		"plan_interes_id": e.PlanInteresID, "cliente_id": e.ClienteID, "cliente_validado": validado,
+		"con_coordenadas": conCoordenadas, "actor": e.Actor}
 }
 
 type telefonoValidado struct {
@@ -265,8 +281,13 @@ func (m *Modulo) RegistrarProspectoArgos(ctx context.Context, in EntradaRegistra
 		return ProspectoRegistrado{}, nucleo.NuevoProblema(http.StatusBadRequest, "cabecera_iris_requerida", "Cabecera de Iris requerida",
 			"X-Iris-Actor debe ser usuario:<id de Argos>")
 	}
+	// Todo el cuerpo se valida antes de abrir una transacción: ningún rechazo de forma llega
+	// después de contar los números ni de buscar duplicados.
 	e := entradaRegistroArgos{EntradaRegistrarArgos: in}
 	var err error
+	if err = validarCuerpoArgos(in); err != nil {
+		return ProspectoRegistrado{}, err
+	}
 	if e.telefonos, err = validarTelefonos(in.Telefonos); err != nil {
 		return ProspectoRegistrado{}, err
 	}
@@ -278,19 +299,30 @@ func (m *Modulo) RegistrarProspectoArgos(ctx context.Context, in EntradaRegistra
 	if err != nil {
 		return ProspectoRegistrado{}, err
 	}
+	// Los números cuentan para el tope en su propia transacción, ya confirmada, antes de buscar
+	// duplicados: cualquier resultado (201, 409, 422 o 500) los gasta. Así nadie sondea qué números
+	// están en un prospecto sin que cuente.
+	if _, err := m.contarRegistroArgos.Ejecutar(ctx, e); err != nil {
+		return ProspectoRegistrado{}, err
+	}
 	if in.PlanInteresID != nil {
 		if err := m.validarPlanModo(ctx, *in.PlanInteresID, in.Modo); err != nil {
 			return ProspectoRegistrado{}, err
 		}
 	}
-	if in.ClienteID != nil && !previo.ClienteEnInstantanea {
-		v, err := m.validarClienteArgos(ctx, *in.ClienteID, previo.EmpresaID)
-		if err != nil {
-			return ProspectoRegistrado{}, err
+	if in.ClienteID != nil {
+		switch previo.Cliente {
+		case clienteDeLaEmpresa:
+			e.clienteValidado = ptr(true)
+		case clienteDeOtraEmpresa:
+			return ProspectoRegistrado{}, clienteNoValido()
+		default:
+			v, err := m.validarClienteArgos(ctx, *in.ClienteID, previo.EmpresaID)
+			if err != nil {
+				return ProspectoRegistrado{}, err
+			}
+			e.clienteValidado = &v
 		}
-		e.clienteValidado = &v
-	} else if in.ClienteID != nil {
-		e.clienteValidado = ptr(true)
 	}
 	if e.lat != nil {
 		ev, err := m.cfg.Planta.Evaluar(ctx, &previo.EmpresaID, *e.lat, *e.lon)
@@ -315,10 +347,44 @@ func (m *Modulo) RegistrarProspectoArgos(ctx context.Context, in EntradaRegistra
 	return r.ProspectoRegistrado, nil
 }
 
+// validarCuerpoArgos: los textos del cuerpo (longitudes y sin NUL) antes de cualquier transacción.
+func validarCuerpoArgos(in EntradaRegistrarArgos) error {
+	if _, err := texto("nombre", in.Nombre, 2, 200); err != nil {
+		return err
+	}
+	if _, err := texto("direccion", in.Direccion, 1, 300); err != nil {
+		return err
+	}
+	if _, err := texto("comentario", deref(in.Comentario), 0, 500); err != nil {
+		return err
+	}
+	textos := []string{in.Origen, in.Nombre, in.Modo, in.Direccion, deref(in.Coordenadas), deref(in.Comentario)}
+	for _, t := range in.Telefonos {
+		textos = append(textos, t.Numero, deref(t.Nombre), deref(t.Relacion))
+	}
+	for _, t := range textos {
+		if strings.ContainsRune(t, 0) {
+			return campoInvalido("cuerpo", "El texto no puede llevar el carácter NUL", "texto")
+		}
+	}
+	return nil
+}
+
+func clienteNoValido() error {
+	return nucleo.ReglaNegocio("cliente_no_valido", "El cliente no es de la empresa")
+}
+
+// Lo que dice la instantánea del cliente elegido.
+const (
+	clienteDesconocido   = ""
+	clienteDeLaEmpresa   = "de_la_empresa"
+	clienteDeOtraEmpresa = "de_otra_empresa"
+)
+
 // previoRegistroArgos: lo leído antes de hablar con Argos.
 type previoRegistroArgos struct {
-	EmpresaID            int64 `json:"empresa_id"`
-	ClienteEnInstantanea bool  `json:"cliente_en_instantanea"`
+	EmpresaID int64  `json:"empresa_id"`
+	Cliente   string `json:"cliente,omitempty" doc:"de_la_empresa, de_otra_empresa o vacío (no está en la instantánea)"`
 }
 
 // validarPlanModo: el plan es de los aplicables al modo (422 plan_no_permitido). Si Argos no
@@ -343,7 +409,8 @@ func (m *Modulo) validarPlanModo(ctx context.Context, plan int64, modo string) e
 }
 
 // validarClienteArgos: el cliente elegido es de la empresa según Argos. true = validado; false =
-// Argos no respondió (se concilia después, §3.6 «cliente_validado: false»).
+// Argos no está disponible (se confirma al ganar, §3.6 «cliente_validado: false»). Argos que
+// rechaza la lectura, no lo tiene o lo tiene en otra empresa: 422 cliente_no_valido.
 func (m *Modulo) validarClienteArgos(ctx context.Context, cliente, empresa int64) (bool, error) {
 	if m.cfg.Clientes == nil {
 		return false, nil
@@ -353,11 +420,14 @@ func (m *Modulo) validarClienteArgos(ctx context.Context, cliente, empresa int64
 		return false, err
 	}
 	if !v.Validado {
-		return false, nil
+		if v.Motivo == argos.MotivoArgosNoDisponible {
+			return false, nil
+		}
+		return false, clienteNoValido()
 	}
 	// Un cliente sin servicios no es de ninguna empresa todavía: lo acepta cualquiera del alcance.
 	if !v.Existe || (!v.SinServicios && !slices.Contains(v.Empresas, empresa)) {
-		return false, nucleo.ReglaNegocio("cliente_no_valido", "El cliente no es de la empresa")
+		return false, clienteNoValido()
 	}
 	return true, nil
 }
@@ -399,7 +469,13 @@ func (m *Modulo) nuevoPrepararRegistroArgos() *auditoria.Caso[EntradaRegistrarAr
 				if err != nil {
 					return p, err
 				}
-				p.ClienteEnInstantanea = c.DeLaEmpresa != nil && *c.DeLaEmpresa
+				switch {
+				case c.DeLaEmpresa != nil && *c.DeLaEmpresa:
+					p.Cliente = clienteDeLaEmpresa
+				case c.Existe:
+					// La instantánea lo tiene, y no en esta empresa.
+					p.Cliente = clienteDeOtraEmpresa
+				}
 			}
 			return p, nil
 		},
@@ -420,9 +496,6 @@ func (m *Modulo) nuevoRegistrarArgos() *auditoria.Caso[entradaRegistroArgos, res
 				return resultadoRegistroArgos{}, err
 			}
 			ahora := m.ahora()
-			if err := m.limiteArgos(ctx, q, in.Actor, empresa, len(in.telefonos), ahora); err != nil {
-				return resultadoRegistroArgos{}, err
-			}
 			if err := validarZona(ctx, t, in.ZonaID, &empresa); err != nil {
 				return resultadoRegistroArgos{}, err
 			}
@@ -443,6 +516,27 @@ func (m *Modulo) nuevoRegistrarArgos() *auditoria.Caso[entradaRegistroArgos, res
 				return resultadoRegistroArgos{}, err
 			}
 			return m.crearProspectoArgos(ctx, t, q, empresa, in, ahora)
+		},
+	})
+}
+
+// nuevoContarRegistroArgos: cuenta los números de la petición para el tope (su propia
+// transacción, que se confirma aunque lo que sigue falle). 429 sin anotar si ya se pasó.
+func (m *Modulo) nuevoContarRegistroArgos() *auditoria.Caso[entradaRegistroArgos, struct{}] {
+	return auditoria.Nuevo(auditoria.Caso[entradaRegistroArgos, struct{}]{
+		Accion: "prospectos.registrar_integracion", Permiso: nucleo.PermProspectosRegistrarIntegracion,
+		AuditarExito: soloLecturas[struct{}],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaRegistroArgos) (struct{}, error) {
+			q := comercialbd.New(t)
+			empresa, err := exigirEmpresaYConector(ctx, q)
+			if err != nil {
+				return struct{}{}, err
+			}
+			t.FijarEmpresa(empresa)
+			if err := q.BloquearRegistrosArgos(ctx, empresa); err != nil {
+				return struct{}{}, err
+			}
+			return struct{}{}, m.limiteArgos(ctx, q, in.Actor, empresa, len(in.telefonos), m.ahora())
 		},
 	})
 }

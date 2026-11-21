@@ -17,6 +17,10 @@ ALTER TABLE comercial.prospectos
     ADD COLUMN cliente_existente_id bigint,
     -- false = Iris no lo tenía en su instantánea y Argos no respondió: se concilia después.
     ADD COLUMN cliente_validado boolean,
+    -- Al ganar: quién lo ganó (X-Iris-Actor de los contactos que se crean en Argos, A42) y los
+    -- permisos que puede dar a esos contactos (nunca más que los suyos, §10.5 ajuste i).
+    ADD COLUMN ganado_por bigint REFERENCES nucleo.usuarios (id),
+    ADD COLUMN permisos_contacto jsonb,
     ADD CONSTRAINT prospectos_cliente_existente_check CHECK ((cliente_existente_id IS NULL) = (cliente_validado IS NULL));
 
 -- Teléfonos del prospecto (1 a 5, uno principal), con índice por número y empresa: el aviso de
@@ -56,7 +60,12 @@ ALTER TABLE mensajeria.webhooks_salida DROP CONSTRAINT webhooks_salida_evento_ch
 ALTER TABLE mensajeria.webhooks_salida ADD CONSTRAINT webhooks_salida_evento_check
     CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'prospecto.estado_cambiado'));
 
+-- Pendientes hacia Argos con X-Iris-Actor (contrato §3.5: contactos.gestionar la exige; §3.4).
+ALTER TABLE integracion.pendientes
+    ADD COLUMN actor text CHECK (actor IS NULL OR actor ~ '^usuario:[A-Za-z0-9_-]{1,64}$');
+
 -- +goose Down
+ALTER TABLE integracion.pendientes DROP COLUMN actor;
 DELETE FROM mensajeria.webhooks_salida WHERE evento = 'prospecto.estado_cambiado';
 ALTER TABLE mensajeria.webhooks_salida DROP CONSTRAINT webhooks_salida_evento_check;
 ALTER TABLE mensajeria.webhooks_salida ADD CONSTRAINT webhooks_salida_evento_check
@@ -64,7 +73,8 @@ ALTER TABLE mensajeria.webhooks_salida ADD CONSTRAINT webhooks_salida_evento_che
 DROP TABLE comercial.registros_argos;
 DROP TABLE comercial.prospecto_telefonos;
 ALTER TABLE comercial.prospectos DROP CONSTRAINT prospectos_cliente_existente_check;
-ALTER TABLE comercial.prospectos DROP COLUMN cliente_validado, DROP COLUMN cliente_existente_id,
+ALTER TABLE comercial.prospectos DROP COLUMN permisos_contacto, DROP COLUMN ganado_por,
+    DROP COLUMN cliente_validado, DROP COLUMN cliente_existente_id,
     DROP COLUMN registrado_por_argos, DROP COLUMN modo;
 UPDATE comercial.prospectos SET origen = 'argos' WHERE origen = 'argos_panel';
 ALTER TABLE comercial.prospectos DROP CONSTRAINT prospectos_origen_check;

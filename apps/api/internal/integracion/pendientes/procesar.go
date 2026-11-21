@@ -113,6 +113,10 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		// Sin servicio, Argos toma la bodega del técnico en la empresa de X-Empresa-Id (0.5.0 §3.3).
 		cli = cli.ConCabecera(argos.CabeceraEmpresaArgos, strconv.FormatInt(*f.EmpresaID, 10))
 	}
+	if f.Actor != nil {
+		// La persona que actúa (contrato §3.5 y §7.1): Argos audita con ella.
+		cli = cli.ConCabecera(CabeceraActorIris, *f.Actor)
+	}
 	err = cli.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, &crudo)
 	if err == nil {
 		r.Exito, r.respuesta = true, limpiarRespuesta(crudo)

@@ -712,6 +712,8 @@ type ComercialProspecto struct {
 	RegistradoPorArgos *string
 	ClienteExistenteID *int64
 	ClienteValidado    *bool
+	GanadoPor          *int64
+	PermisosContacto   []byte
 }
 
 type ComercialProspectoEvento struct {
@@ -1092,6 +1094,7 @@ type IntegracionPendiente struct {
 	ResueltoMotivo   *string
 	ResueltoPor      *int64
 	ResueltoEn       *time.Time
+	Actor            *string
 }
 
 type MensajeriaAjustesBandeja struct {

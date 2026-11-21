@@ -50,6 +50,9 @@ SET origen_detalle      = sqlc.narg(origen_detalle),
     orden_id            = sqlc.narg(orden_id),
     router_id           = sqlc.narg(router_id),
     alta_error          = sqlc.narg(alta_error),
+    cliente_validado    = sqlc.narg(cliente_validado),
+    ganado_por          = sqlc.narg(ganado_por),
+    permisos_contacto   = sqlc.narg(permisos_contacto),
     version             = version + 1,
     updated_at          = now()
 WHERE id = @id AND version = @version

@@ -3,6 +3,7 @@ package nucleo
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -60,6 +61,21 @@ type ReglaIdempotencia struct {
 	Cabeceras []string
 	// CodigoReutilizada: el código del 422 (por defecto idempotencia_reutilizada).
 	CodigoReutilizada string
+	// Transitorio: respuestas que no son el resultado de la operación (un tope por minuto, un
+	// conector apagado): liberan la clave como un 5xx, y repetir la misma petición la ejecuta.
+	// codigo es lo que sigue a urn:iris:problema: en el type del problem+json ("" si no lo es).
+	Transitorio func(status int, codigo string) bool
+}
+
+// codigoProblema: el código del type de un problem+json ("" si el cuerpo no lo es).
+func codigoProblema(cuerpo []byte) string {
+	var p struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(cuerpo, &p) != nil {
+		return ""
+	}
+	return (&Problema{Type: p.Type}).Codigo()
 }
 
 // rutaConCabeceras: la ruta que entra en la huella, con las cabeceras de la regla.
@@ -260,8 +276,11 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			}()
 			next.ServeHTTP(grabadora, r)
 
-			// 5xx, o un rechazo de autorización sin nada ejecutado: la clave se libera.
-			if grabadora.status >= 500 || (marcas.autorizacionFallida && !marcas.confirmado && grabadora.status >= 400) {
+			// 5xx, un rechazo de autorización sin nada ejecutado o un rechazo transitorio de la regla de
+			// la ruta: la clave se libera.
+			transitorio := regla != nil && regla.Transitorio != nil && grabadora.status >= 400 &&
+				regla.Transitorio(grabadora.status, codigoProblema(grabadora.cuerpo.Bytes()))
+			if grabadora.status >= 500 || transitorio || (marcas.autorizacionFallida && !marcas.confirmado && grabadora.status >= 400) {
 				if err := q.LiberarIdempotencia(bdCtx, nucleobd.LiberarIdempotenciaParams{Actor: claveActor, Clave: clave}); err != nil {
 					op.Log.ErrorContext(ctx, "idempotencia: liberar clave", "err", err)
 				}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
@@ -36,7 +37,7 @@ func nuevoRegistroArgos(t *testing.T) *registroArgos {
 	t.Helper()
 	limpiarConector(t)
 	t.Cleanup(func() {
-		for _, sql := range []string{"DELETE FROM comercial.registros_argos", "DELETE FROM integracion.argos_clientes WHERE id = 8801"} {
+		for _, sql := range []string{"DELETE FROM comercial.registros_argos", "DELETE FROM integracion.argos_clientes WHERE id IN (8801, 8804)"} {
 			if _, err := pruebas.Pool(t).Exec(context.Background(), sql); err != nil {
 				t.Error(err)
 			}
@@ -44,8 +45,14 @@ func nuevoRegistroArgos(t *testing.T) *registroArgos {
 	})
 	e := nuevoEntorno(t, time.Now)
 	e.conectar()
+	almacen, err := adjuntos.NuevoDisco(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(e.am), Altas: comercial.AltasDeArgos(e.am), Campo: e.cmp,
-		Clientes: e.am, URLBase: "https://iris.prueba/"})
+		Documentos: comercial.DocumentosDeAdjuntos(adjuntos.Nuevo(adjuntos.Config{Almacen: almacen})),
+		Clientes:   e.am, URLBase: "https://iris.prueba/"})
+	e.com = com
 	h, _ := servidor.Nuevo(servidor.Deps{
 		BD: pruebas.Pool(t), Identidad: ident, Version: "prueba", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Idempotencia: nucleo.OpcionesIdempotencia{Regla: comercial.ReglaIdempotenciaArgos},
@@ -223,6 +230,31 @@ func TestRegistrarProspectoArgosValidaciones(t *testing.T) {
 	if !validado || existente != 8801 {
 		t.Fatalf("cliente: %v %d", validado, existente)
 	}
+	// La instantánea lo tiene en otra empresa: 422 (no se pregunta a Argos).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en)
+		VALUES (8804, 2, 'Cliente de otra empresa', now())`); err != nil {
+		t.Fatal(err)
+	}
+	otra := cuerpoArgos(numero())
+	otra["cliente_id"] = 8804
+	r.pedir(otra).problema(t, http.StatusUnprocessableEntity, "cliente_no_valido")
+	// Argos rechaza la lectura (403): 422, nunca «sin validar».
+	rechazo := cuerpoArgos(numero())
+	rechazo["cliente_id"] = 8803
+	r.pedir(rechazo).problema(t, http.StatusUnprocessableEntity, "cliente_no_valido")
+	// Argos no disponible: se crea con cliente_validado false.
+	r.e.falso.fijar(func(a *argosFalso) { a.lecturaCaida = true })
+	caido := cuerpoArgos(numero())
+	caido["cliente_id"] = 8802
+	sinValidar := int64(r.pedir(caido).ok(t, http.StatusCreated)["prospecto_id"].(float64))
+	r.e.falso.fijar(func(a *argosFalso) { a.lecturaCaida = false })
+	if n := contar(t, `SELECT count(*) FROM comercial.prospectos WHERE id = $1 AND cliente_validado = false`, sinValidar); n != 1 {
+		t.Fatal("con Argos caído el cliente queda sin validar")
+	}
+	// Cuerpo inválido (NUL): 422 antes de abrir una transacción.
+	nul := cuerpoArgos(numero())
+	nul["nombre"] = "Marta\u0000López"
+	r.pedir(nul).problema(t, http.StatusUnprocessableEntity, "validacion")
 	// Cabeceras: actor mal formado, empresa fuera del alcance del token, sin empresa.
 	r.pedir(cuerpoArgos(numero()), "X-Iris-Actor", "asistente_ia").problema(t, http.StatusBadRequest, "cabecera_iris_requerida")
 	r.pedir(cuerpoArgos(numero()), "X-Iris-Empresa", "2").problema(t, http.StatusForbidden, "empresa_no_permitida")
@@ -233,10 +265,24 @@ func TestRegistrarProspectoArgosValidaciones(t *testing.T) {
 	admin.pedir(http.MethodPost, comercial.RutaRegistrarArgos, cuerpoArgos(numero()), "X-Iris-Empresa", "1", "X-Iris-Actor", "usuario:1",
 		"Idempotency-Key", "argos:prospecto:"+pruebas.Unico()).problema(t, http.StatusForbidden, "solo_integracion_argos")
 
-	// Conector apagado: 409 argos_apagado.
+	// Conector apagado: 409 argos_apagado, que no es el resultado del registro: libera la clave y la
+	// misma petición, con el conector encendido, se ejecuta. La auditoría del rechazo, enmascarada.
 	r.e.apagar()
-	r.pedir(cuerpoArgos(numero())).problema(t, http.StatusConflict, "argos_apagado")
+	n = numero()
+	clave := "argos:prospecto:" + pruebas.Unico()
+	r.pedir(cuerpoArgos(n), "Idempotency-Key", clave).problema(t, http.StatusConflict, "argos_apagado")
+	var entrada string
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT entrada::text FROM auditoria.acciones
+		WHERE accion = 'prospectos.registrar_integracion' AND error::text LIKE '%argos_apagado%' ORDER BY id DESC LIMIT 1`).Scan(&entrada); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(entrada, n) || strings.Contains(entrada, "Marta") || strings.Contains(entrada, "3a calle") {
+		t.Fatalf("la auditoría del rechazo guarda datos personales: %s", entrada)
+	}
 	r.e.encender()
+	if res := r.pedir(cuerpoArgos(n), "Idempotency-Key", clave); res.status != http.StatusCreated || res.h.Get("Idempotent-Replayed") != "" {
+		t.Fatalf("tras argos_apagado la misma clave se ejecuta: %d %s", res.status, res.crudo)
+	}
 }
 
 func TestRegistrarProspectoArgosLimites(t *testing.T) {
@@ -260,6 +306,20 @@ func TestRegistrarProspectoArgosLimites(t *testing.T) {
 	}
 	// Otro actor de la misma empresa todavía puede.
 	r.pedir(cinco(), "X-Iris-Actor", "usuario:99").ok(t, http.StatusCreated)
+
+	// Los números cuentan aunque el registro falle después de contarlos (aquí, una zona que no
+	// existe: 422 dentro de la transacción del registro).
+	malo := func() map[string]any {
+		c := cinco()
+		c["zona_id"] = 999999
+		return c
+	}
+	for i := range 6 {
+		if res := r.pedir(malo(), "X-Iris-Actor", "usuario:77"); res.status != http.StatusUnprocessableEntity {
+			t.Fatalf("registro fallido %d: %d %s", i, res.status, res.crudo)
+		}
+	}
+	r.pedir(cinco(), "X-Iris-Actor", "usuario:77").problema(t, http.StatusTooManyRequests, "demasiados_registros")
 }
 
 // Al ganar (§3.6): con un cliente nuevo, el principal es su teléfono, los números sin nombre van en
@@ -324,10 +384,74 @@ func TestGanarProspectoDesdeArgos(t *testing.T) {
 		t.Fatalf("contactos del cliente existente: %d", n)
 	}
 	r.e.procesar()
-	if srv := r.e.falso.cuerpo(comercial.ClaveServicio(id2)); srv == nil || srv["cliente_id"] != float64(8801) {
+	r.e.procesar()
+	srv := r.e.falso.cuerpo(comercial.ClaveServicio(id2))
+	if srv == nil || srv["cliente_id"] != float64(8801) {
 		t.Fatalf("POST /servicios: %v", srv)
 	}
+	// El contacto, solo para el servicio nuevo, con X-Iris-Actor de quien ganó y sin permisos por
+	// encima de los suyos (ventas: estado de cuenta sí; tickets y boletas no).
+	var clave2 string
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT idempotency_key FROM integracion.pendientes
+		WHERE idempotency_key LIKE 'iris:contacto:8801:pt%'`).Scan(&clave2); err != nil {
+		t.Fatal(err)
+	}
+	ct2 := r.e.falso.cuerpo(clave2)
+	servs, _ := ct2["servicios"].([]any)
+	perm, _ := ct2["permisos"].(map[string]any)
+	idSrv := r.e.falso.altas[comercial.ClaveServicio(id2)]
+	if len(servs) != 1 || servs[0] != float64(idSrv) || perm["consultar"] != true || perm["reportar"] != false || perm["pagar"] != false {
+		t.Fatalf("contacto del cliente existente: %v", ct2)
+	}
+	r.e.falso.fijar(func(a *argosFalso) {
+		if a.actores[clave2] != fmt.Sprintf("usuario:%d", v) {
+			t.Errorf("X-Iris-Actor del contacto: %q", a.actores[clave2])
+		}
+	})
 	if o := contar(t, `SELECT count(*) FROM comercial.prospectos WHERE id = $1 AND alta_estado = 'completa' AND orden_id IS NOT NULL`, id2); o != 1 {
 		t.Fatal("el alta con el cliente existente crea la orden")
 	}
+}
+
+// Un cliente elegido en Argos que quedó sin validar (Argos caído al registrarlo) se confirma al
+// ganar: de otra empresa, 422 cliente_no_valido; de la empresa, el alta sale; sin respuesta de
+// Argos, el alta no sale (422 cliente_sin_confirmar), tampoco por el caso de uso directo.
+func TestGanarClienteSinValidar(t *testing.T) {
+	r := nuevoRegistroArgos(t)
+	v := usuarioCon(t, rol("ventas"))
+	asignarEmpresa(t, v, 1)
+	ctx := enEmpresa(t, v, 1, "ventas")
+	lineas := []comercial.EntradaLinea{{Tipo: "plan", PlanID: ptr(int64(300))}}
+	r.e.falso.fijar(func(a *argosFalso) {
+		a.porID["8802"] = map[string]any{"id": 8802, "nombre": "Cliente de Argos"}
+		a.serviciosDe["8802"] = `{"id":7702,"empresa_id":1,"cliente_id":8802}`
+	})
+	sinValidar := func() (int64, int32) {
+		t.Helper()
+		c := cuerpoArgos(numero())
+		c["cliente_id"] = 8802
+		id := int64(r.pedir(c).ok(t, http.StatusCreated)["prospecto_id"].(float64))
+		// Como si Argos no hubiera respondido al registrarlo.
+		if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE comercial.prospectos SET cliente_validado = false WHERE id = $1`, id); err != nil {
+			t.Fatal(err)
+		}
+		return id, hastaContrato(t, r.e.com, ctx, id, lineas, "").Version
+	}
+
+	id, ver := sinValidar()
+	r.e.falso.fijar(func(a *argosFalso) { a.serviciosDe["8802"] = `{"id":7702,"empresa_id":2,"cliente_id":8802}` })
+	_, err := r.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: ver})
+	problema(t, err, http.StatusUnprocessableEntity, "cliente_no_valido")
+	r.e.falso.fijar(func(a *argosFalso) { a.serviciosDe["8802"] = `{"id":7702,"empresa_id":1,"cliente_id":8802}` })
+	g := deber(r.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: ver}))(t)
+	if g.Alta == nil || g.Alta.ClienteArgosID == nil || *g.Alta.ClienteArgosID != 8802 || g.ClienteValidado == nil || !*g.ClienteValidado {
+		t.Fatalf("alta: %+v", g)
+	}
+
+	id2, ver2 := sinValidar()
+	r.e.falso.fijar(func(a *argosFalso) { a.lecturaCaida = true })
+	_, err = r.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id2, Version: ver2})
+	problema(t, err, http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+	_, err = r.e.com.Ganar.Ejecutar(ctx, comercial.EntradaGanar{ID: id2, Version: ver2})
+	problema(t, err, http.StatusUnprocessableEntity, "cliente_sin_confirmar")
 }

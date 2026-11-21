@@ -112,6 +112,8 @@ type Modulo struct {
 
 	prepararRegistroArgos *auditoria.Caso[EntradaRegistrarArgos, previoRegistroArgos]
 	registrarArgos        *auditoria.Caso[entradaRegistroArgos, resultadoRegistroArgos]
+	contarRegistroArgos   *auditoria.Caso[entradaRegistroArgos, struct{}]
+	confirmarCliente      *auditoria.Caso[entradaConfirmarCliente, struct{}]
 }
 
 // Nuevo arma el módulo.
@@ -168,6 +170,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.marcarErrorAlta = m.nuevoMarcarErrorAlta()
 	m.prepararRegistroArgos = m.nuevoPrepararRegistroArgos()
 	m.registrarArgos = m.nuevoRegistrarArgos()
+	m.contarRegistroArgos = m.nuevoContarRegistroArgos()
+	m.confirmarCliente = m.nuevoConfirmarCliente()
 	return m
 }
 

@@ -155,8 +155,9 @@ func (m *Modulo) Registrar(api huma.API) {
 	registrarConID(api, accion("ganarProspecto", "/api/v1/prospectos/{id}/ganar", "Ganar el prospecto",
 		"Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales. "+
 			"Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). "+
-			"Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`.", nucleo.PermProspectosGanar),
-		m.Ganar.Ejecutar, func(e *EntradaGanar, id int64, _ string) { e.ID = id })
+			"Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`. "+
+			"Con un cliente elegido en Argos sin validar (Argos no respondía al registrarlo), lo confirma antes con Argos: de otra empresa, 422 `cliente_no_valido`; Argos sin responder, 422 `cliente_sin_confirmar`.", nucleo.PermProspectosGanar),
+		m.GanarProspecto, func(e *EntradaGanar, id int64, _ string) { e.ID = id })
 
 	// Factibilidad.
 	registrarConID(api, accion("evaluarFactibilidad", "/api/v1/prospectos/{id}/factibilidad", "Evaluar la factibilidad",
