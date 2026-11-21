@@ -26,6 +26,7 @@ import { activarCanal, actualizarCanal, cuerpoActualizar, desactivarCanal, leerC
 import { cuando, textoUltimoMensaje, webhookUrlDe } from "@/lib/numeros/conexion";
 import { esquemaCredenciales, normalizarNumero, type EntradaCredenciales, type ValoresCredenciales } from "@/lib/numeros/esquemas";
 import type { Canal, PruebaCanal } from "@/lib/numeros/tipos";
+import { errorDeWaba } from "@/lib/numeros/errores-waba";
 import { idDeParametro } from "@/lib/parametros";
 import { useSesion } from "@/lib/sesion";
 
@@ -109,6 +110,11 @@ function Formulario({ inicial, recargar }: { inicial: Canal; recargar: () => voi
             clave.trasError(e);
             if (e instanceof ErrorApi && e.estado === 409 && e.codigo === "canal_existente") {
                 form.setError("phoneNumberId", { message: "Ya hay un número activo con ese Phone number ID" });
+                return;
+            }
+            const deWaba = errorDeWaba(e);
+            if (deWaba) {
+                form.setError("wabaId", { message: deWaba }, { shouldFocus: true });
                 return;
             }
             if (!erroresACampos(e, CAMPOS, form.setError)) setError(e);
