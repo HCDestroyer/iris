@@ -152,7 +152,7 @@ func guardarPW(ctx context.Context, q *mensajeriabd.Queries, f mensajeriabd.Mens
 		CategoriaProxima: f.CategoriaProxima, CategoriaProximaEn: f.CategoriaProximaEn, Estado: f.Estado, EstadoEn: f.EstadoEn, Motivo: f.Motivo,
 		Rechazo: f.Rechazo, Calidad: f.Calidad, PausadaHasta: f.PausadaHasta, Formato: f.Formato, Componentes: f.Componentes,
 		ComponentesMeta: f.ComponentesMeta, Codigos: lista(f.Codigos), Parametros: f.Parametros, Usos: f.Usos, Ediciones: f.Ediciones, EnviadaEn: f.EnviadaEn,
-		BorradaEn: f.BorradaEn, BorradaPor: f.BorradaPor, NombreLibreEn: f.NombreLibreEn, SincronizadaEn: f.SincronizadaEn})
+		BorradaEn: f.BorradaEn, BorradaPor: f.BorradaPor, NombreLibreEn: f.NombreLibreEn, SincronizadaEn: f.SincronizadaEn, MetaEventoEn: f.MetaEventoEn})
 }
 
 // auditablePW: lo que se compara en auditoria.cambios.
@@ -577,7 +577,8 @@ func (m *Modulo) detallePW(ctx context.Context, q *mensajeriabd.Queries, f mensa
 		d.Historial = append(d.Historial, HistorialPWA{Tipo: h.Tipo, De: h.De, A: h.A, Detalle: h.Detalle, Origen: h.Origen, ActorID: h.ActorID,
 			ActorNombre: h.ActorNombre, OcurridoEn: h.OcurridoEn})
 	}
-	ps, err := q.PrestatariasDeCuentaWA(ctx, f.WabaID)
+	// Solo las de la dueña de la cuenta (una plantilla archivada de una dueña anterior no se presta).
+	ps, err := q.PrestatariasDeCuentaWA(ctx, mensajeriabd.PrestatariasDeCuentaWAParams{WabaID: f.WabaID, Empresa: derefEmpresa(f.EmpresaID)})
 	for _, p := range ps {
 		d.Prestatarias = append(d.Prestatarias, PrestatariaPWA{EmpresaID: p.ID, Nombre: p.Nombre, Usos: lista(p.Usos)})
 	}
@@ -888,6 +889,16 @@ func nuevoUsosPWA(m *Modulo) *auditoria.Caso[EntradaUsosPWA, PlantillaWA] {
 				return PlantillaWA{}, err
 			}
 			q := mensajeriabd.New(t)
+			// Mismo orden de bloqueo que el resto (cuenta y después la fila): leer sin bloquear para
+			// saber la cuenta, bloquear la cuenta y después la fila (si no, dos «Usos» cruzados se
+			// interbloqueaban con tomarCodigos).
+			sinBloqueo, err := m.plantillaDeEmpresa(ctx, q, in.ID, false)
+			if err != nil {
+				return PlantillaWA{}, err
+			}
+			if err := q.BloquearCuentaPlantillas(ctx, sinBloqueo.WabaID); err != nil {
+				return PlantillaWA{}, err
+			}
 			antes, err := m.plantillaDeEmpresa(ctx, q, in.ID, true)
 			if err != nil {
 				return PlantillaWA{}, err

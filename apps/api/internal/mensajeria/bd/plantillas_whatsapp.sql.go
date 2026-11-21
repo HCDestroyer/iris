@@ -26,6 +26,80 @@ func (q *Queries) AjustesPlantillasWA(ctx context.Context, empresaID int64) (Men
 	return i, err
 }
 
+const archivarPlantillasDeOtraDuena = `-- name: ArchivarPlantillasDeOtraDuena :many
+UPDATE mensajeria.plantillas_whatsapp
+SET estado = 'DELETED', estado_en = $1, borrada_en = $1, borrada_por = 'sistema', codigos = '{}', usos = '{}',
+    version = version + 1, updated_at = now()
+WHERE waba_id = $2 AND coalesce(empresa_id, 0) <> $3::bigint AND estado <> 'DELETED'
+RETURNING id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at
+`
+
+type ArchivarPlantillasDeOtraDuenaParams struct {
+	Ahora   time.Time
+	WabaID  string
+	Empresa int64
+}
+
+// Al cambiar la dueña de la cuenta: las plantillas de la empresa anterior quedan borradas por el
+// sistema (dejan de contar en los índices únicos de la cuenta y la nueva dueña no las ve).
+func (q *Queries) ArchivarPlantillasDeOtraDuena(ctx context.Context, arg ArchivarPlantillasDeOtraDuenaParams) ([]MensajeriaPlantillaWA, error) {
+	rows, err := q.db.Query(ctx, archivarPlantillasDeOtraDuena, arg.Ahora, arg.WabaID, arg.Empresa)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MensajeriaPlantillaWA
+	for rows.Next() {
+		var i MensajeriaPlantillaWA
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.WabaID,
+			&i.MetaID,
+			&i.Nombre,
+			&i.Idioma,
+			&i.Etiqueta,
+			&i.Categoria,
+			&i.CategoriaAnterior,
+			&i.CategoriaCambiadaEn,
+			&i.CategoriaProxima,
+			&i.CategoriaProximaEn,
+			&i.Estado,
+			&i.EstadoEn,
+			&i.Motivo,
+			&i.Rechazo,
+			&i.Calidad,
+			&i.PausadaHasta,
+			&i.Formato,
+			&i.Componentes,
+			&i.ComponentesMeta,
+			&i.Codigos,
+			&i.Parametros,
+			&i.Usos,
+			&i.Origen,
+			&i.Sugerida,
+			&i.Ediciones,
+			&i.EnviadaEn,
+			&i.BorradaEn,
+			&i.BorradaPor,
+			&i.NombreLibreEn,
+			&i.SincronizadaEn,
+			&i.MetaEventoEn,
+			&i.CreadaPor,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const bloquearCuentaPlantillas = `-- name: BloquearCuentaPlantillas :exec
 
 SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.plantillas_whatsapp:' || $1::text, 0))
@@ -336,9 +410,9 @@ SET meta_id = $1, nombre = $2, idioma = $3, etiqueta = $4, categoria = $5,
     pausada_hasta = $15, formato = $16, componentes = $17, componentes_meta = $18,
     codigos = $19, parametros = $20, usos = $21, ediciones = $22, enviada_en = $23,
     borrada_en = $24, borrada_por = $25, nombre_libre_en = $26,
-    sincronizada_en = $27, version = version + 1, updated_at = now()
-WHERE id = $28
-RETURNING id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at
+    sincronizada_en = $27, meta_evento_en = $28, version = version + 1, updated_at = now()
+WHERE id = $29
+RETURNING id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at
 `
 
 type GuardarPlantillaWAParams struct {
@@ -369,6 +443,7 @@ type GuardarPlantillaWAParams struct {
 	BorradaPor          *string
 	NombreLibreEn       *time.Time
 	SincronizadaEn      *time.Time
+	MetaEventoEn        int64
 	ID                  int64
 }
 
@@ -401,6 +476,7 @@ func (q *Queries) GuardarPlantillaWA(ctx context.Context, arg GuardarPlantillaWA
 		arg.BorradaPor,
 		arg.NombreLibreEn,
 		arg.SincronizadaEn,
+		arg.MetaEventoEn,
 		arg.ID,
 	)
 	var i MensajeriaPlantillaWA
@@ -437,6 +513,7 @@ func (q *Queries) GuardarPlantillaWA(ctx context.Context, arg GuardarPlantillaWA
 		&i.BorradaPor,
 		&i.NombreLibreEn,
 		&i.SincronizadaEn,
+		&i.MetaEventoEn,
 		&i.CreadaPor,
 		&i.Version,
 		&i.CreatedAt,
@@ -534,7 +611,7 @@ INSERT INTO mensajeria.plantillas_whatsapp (empresa_id, waba_id, meta_id, nombre
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
     $11, $12, $13, $14, $15, $16, $17, $18, $19,
     $20, $21, $22)
-RETURNING id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at
+RETURNING id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at
 `
 
 type InsertarPlantillaWAParams struct {
@@ -621,6 +698,7 @@ func (q *Queries) InsertarPlantillaWA(ctx context.Context, arg InsertarPlantilla
 		&i.BorradaPor,
 		&i.NombreLibreEn,
 		&i.SincronizadaEn,
+		&i.MetaEventoEn,
 		&i.CreadaPor,
 		&i.Version,
 		&i.CreatedAt,
@@ -630,7 +708,7 @@ func (q *Queries) InsertarPlantillaWA(ctx context.Context, arg InsertarPlantilla
 }
 
 const listarPlantillasWA = `-- name: ListarPlantillasWA :many
-SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp p
+SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp p
 WHERE coalesce(p.empresa_id, 0) = $1::bigint
   AND ($2::text = '' OR p.waba_id = $2::text)
   AND ($3::text = '' OR p.categoria = $3::text)
@@ -712,6 +790,7 @@ func (q *Queries) ListarPlantillasWA(ctx context.Context, arg ListarPlantillasWA
 			&i.BorradaPor,
 			&i.NombreLibreEn,
 			&i.SincronizadaEn,
+			&i.MetaEventoEn,
 			&i.CreadaPor,
 			&i.Version,
 			&i.CreatedAt,
@@ -844,7 +923,7 @@ func (q *Queries) OtraEmpresaUsaWaba(ctx context.Context, arg OtraEmpresaUsaWaba
 }
 
 const plantillaWAParaActualizar = `-- name: PlantillaWAParaActualizar :one
-SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
+SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
 `
 
 type PlantillaWAParaActualizarParams struct {
@@ -888,6 +967,7 @@ func (q *Queries) PlantillaWAParaActualizar(ctx context.Context, arg PlantillaWA
 		&i.BorradaPor,
 		&i.NombreLibreEn,
 		&i.SincronizadaEn,
+		&i.MetaEventoEn,
 		&i.CreadaPor,
 		&i.Version,
 		&i.CreatedAt,
@@ -897,7 +977,7 @@ func (q *Queries) PlantillaWAParaActualizar(ctx context.Context, arg PlantillaWA
 }
 
 const plantillaWAPorID = `-- name: PlantillaWAPorID :one
-SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
 `
 
 type PlantillaWAPorIDParams struct {
@@ -941,6 +1021,7 @@ func (q *Queries) PlantillaWAPorID(ctx context.Context, arg PlantillaWAPorIDPara
 		&i.BorradaPor,
 		&i.NombreLibreEn,
 		&i.SincronizadaEn,
+		&i.MetaEventoEn,
 		&i.CreadaPor,
 		&i.Version,
 		&i.CreatedAt,
@@ -950,7 +1031,7 @@ func (q *Queries) PlantillaWAPorID(ctx context.Context, arg PlantillaWAPorIDPara
 }
 
 const plantillaWAPorMeta = `-- name: PlantillaWAPorMeta :one
-SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp
+SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp
 WHERE waba_id = $1 AND coalesce(empresa_id, 0) = $2::bigint
   AND (meta_id = $3 OR (meta_id IS NULL AND estado <> 'BORRADOR' AND nombre = $4 AND idioma = $5))
   AND estado <> 'DELETED'
@@ -1008,6 +1089,7 @@ func (q *Queries) PlantillaWAPorMeta(ctx context.Context, arg PlantillaWAPorMeta
 		&i.BorradaPor,
 		&i.NombreLibreEn,
 		&i.SincronizadaEn,
+		&i.MetaEventoEn,
 		&i.CreadaPor,
 		&i.Version,
 		&i.CreatedAt,
@@ -1017,7 +1099,7 @@ func (q *Queries) PlantillaWAPorMeta(ctx context.Context, arg PlantillaWAPorMeta
 }
 
 const plantillaWAPorNombre = `-- name: PlantillaWAPorNombre :one
-SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp
+SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp
 WHERE waba_id = $1 AND coalesce(empresa_id, 0) = $2::bigint AND nombre = $3 AND idioma = $4 AND estado <> 'DELETED'
 FOR UPDATE
 `
@@ -1070,6 +1152,7 @@ func (q *Queries) PlantillaWAPorNombre(ctx context.Context, arg PlantillaWAPorNo
 		&i.BorradaPor,
 		&i.NombreLibreEn,
 		&i.SincronizadaEn,
+		&i.MetaEventoEn,
 		&i.CreadaPor,
 		&i.Version,
 		&i.CreatedAt,
@@ -1079,7 +1162,7 @@ func (q *Queries) PlantillaWAPorNombre(ctx context.Context, arg PlantillaWAPorNo
 }
 
 const plantillasWACodigoDe = `-- name: PlantillasWACodigoDe :many
-SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp
+SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp
 WHERE waba_id = $1 AND coalesce(empresa_id, 0) = $2::bigint AND $3::text = ANY(codigos) AND id <> $4
 ORDER BY id FOR UPDATE
 `
@@ -1138,6 +1221,7 @@ func (q *Queries) PlantillasWACodigoDe(ctx context.Context, arg PlantillasWACodi
 			&i.BorradaPor,
 			&i.NombreLibreEn,
 			&i.SincronizadaEn,
+			&i.MetaEventoEn,
 			&i.CreadaPor,
 			&i.Version,
 			&i.CreatedAt,
@@ -1154,7 +1238,7 @@ func (q *Queries) PlantillasWACodigoDe(ctx context.Context, arg PlantillasWACodi
 }
 
 const plantillasWADeCuenta = `-- name: PlantillasWADeCuenta :many
-SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp WHERE waba_id = $1 AND coalesce(empresa_id, 0) = $2::bigint ORDER BY id FOR UPDATE
+SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp WHERE waba_id = $1 AND coalesce(empresa_id, 0) = $2::bigint ORDER BY id FOR UPDATE
 `
 
 type PlantillasWADeCuentaParams struct {
@@ -1204,6 +1288,7 @@ func (q *Queries) PlantillasWADeCuenta(ctx context.Context, arg PlantillasWADeCu
 			&i.BorradaPor,
 			&i.NombreLibreEn,
 			&i.SincronizadaEn,
+			&i.MetaEventoEn,
 			&i.CreadaPor,
 			&i.Version,
 			&i.CreatedAt,
@@ -1220,7 +1305,7 @@ func (q *Queries) PlantillasWADeCuenta(ctx context.Context, arg PlantillasWADeCu
 }
 
 const plantillasWAUsables = `-- name: PlantillasWAUsables :many
-SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp p
+SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp p
 WHERE p.waba_id = $1 AND coalesce(p.empresa_id, 0) = $2::bigint AND cardinality(p.codigos) > 0 AND p.estado IN ('APPROVED', 'FLAGGED')
   AND (p.pausada_hasta IS NULL OR p.pausada_hasta <= $3)
   AND (p.categoria <> 'MARKETING' OR EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp_ajustes a WHERE a.empresa_id = $2::bigint AND a.marketing_permitido))
@@ -1277,6 +1362,7 @@ func (q *Queries) PlantillasWAUsables(ctx context.Context, arg PlantillasWAUsabl
 			&i.BorradaPor,
 			&i.NombreLibreEn,
 			&i.SincronizadaEn,
+			&i.MetaEventoEn,
 			&i.CreadaPor,
 			&i.Version,
 			&i.CreatedAt,
@@ -1297,9 +1383,15 @@ SELECT DISTINCT e.id, e.nombre, p.usos
 FROM mensajeria.canal_prestamos p
 JOIN mensajeria.canales c ON c.id = p.canal_id
 JOIN nucleo.empresas e ON e.id = p.empresa_id
-WHERE c.waba_id = $1 AND p.activo
+JOIN mensajeria.plantillas_whatsapp_cuentas k ON k.waba_id = c.waba_id AND k.empresa_id = coalesce(c.empresa_id, 0)
+WHERE c.waba_id = $1 AND k.empresa_id = $2::bigint AND p.activo
 ORDER BY e.nombre
 `
+
+type PrestatariasDeCuentaWAParams struct {
+	WabaID  string
+	Empresa int64
+}
 
 type PrestatariasDeCuentaWARow struct {
 	ID     int64
@@ -1308,8 +1400,8 @@ type PrestatariasDeCuentaWARow struct {
 }
 
 // Las empresas a las que se prestan números de la cuenta (usan sus plantillas, §15.3).
-func (q *Queries) PrestatariasDeCuentaWA(ctx context.Context, wabaID string) ([]PrestatariasDeCuentaWARow, error) {
-	rows, err := q.db.Query(ctx, prestatariasDeCuentaWA, wabaID)
+func (q *Queries) PrestatariasDeCuentaWA(ctx context.Context, arg PrestatariasDeCuentaWAParams) ([]PrestatariasDeCuentaWARow, error) {
+	rows, err := q.db.Query(ctx, prestatariasDeCuentaWA, arg.WabaID, arg.Empresa)
 	if err != nil {
 		return nil, err
 	}
@@ -1326,6 +1418,19 @@ func (q *Queries) PrestatariasDeCuentaWA(ctx context.Context, wabaID string) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const purgarAvisosMetaPW = `-- name: PurgarAvisosMetaPW :execrows
+DELETE FROM mensajeria.plantillas_whatsapp_avisos_meta WHERE recibido_en < $1
+`
+
+// Los avisos de Meta ya aplicados se guardan 30 días (para descartar repetidos).
+func (q *Queries) PurgarAvisosMetaPW(ctx context.Context, antes time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, purgarAvisosMetaPW, antes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const reasignarCuentaWA = `-- name: ReasignarCuentaWA :exec

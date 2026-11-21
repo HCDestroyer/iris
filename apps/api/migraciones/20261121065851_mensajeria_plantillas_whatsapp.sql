@@ -49,12 +49,16 @@ CREATE TABLE mensajeria.plantillas_whatsapp (
     -- Ediciones de una plantilla aprobada (Meta: 1 cada 24 h y 10 en 30 días).
     ediciones              timestamptz[] NOT NULL DEFAULT '{}',
     enviada_en             timestamptz,
-    -- Meta la borró (o ya no la devuelve) o se borró desde Iris.
+    -- Meta la borró (o ya no la devuelve), se borró desde Iris o el sistema la archivó (la cuenta
+    -- cambió de empresa dueña).
     borrada_en             timestamptz,
-    borrada_por            text        CHECK (borrada_por IS NULL OR borrada_por IN ('iris', 'meta')),
+    borrada_por            text        CHECK (borrada_por IS NULL OR borrada_por IN ('iris', 'meta', 'sistema')),
     -- Meta no deja reusar el nombre de una aprobada borrada por 30 días.
     nombre_libre_en        timestamptz,
     sincronizada_en        timestamptz,
+    -- El último entry[].time de Meta aplicado (segundos Unix, reloj de Meta): un aviso más viejo se
+    -- descarta y se relee la cuenta. Nunca se compara con estado_en (reloj de Iris).
+    meta_evento_en         bigint      NOT NULL DEFAULT 0,
     creada_por             bigint      REFERENCES nucleo.usuarios (id),
     version                integer     NOT NULL DEFAULT 1,
     created_at             timestamptz NOT NULL DEFAULT now(),
@@ -176,11 +180,13 @@ BEGIN
 
     -- Informe de lo que no se migró (sale en el registro de `iris migrar`).
     FOR r IN
-        SELECT canal_id, waba_id, codigo, CASE WHEN NOT valida THEN 'nombre, idioma o código no válidos' ELSE 'el número es de otra empresa que la dueña de la cuenta' END AS motivo
+        SELECT canal_id, waba_id, codigo, CASE WHEN NOT valida THEN 'nombre, idioma o código no válidos' ELSE 'el número es de otra empresa que la dueña de la cuenta (sigue usando su propio mapa)' END AS motivo
         FROM plantillas_migrables WHERE NOT valida OR NOT de_la_duena
         ORDER BY canal_id, codigo
     LOOP
-        RAISE NOTICE 'plantillas de WhatsApp: no se migró el código % del número % (cuenta %): %', r.codigo, r.canal_id, r.waba_id, r.motivo;
+        -- %L cita el texto (un código guardado a mano puede traer cualquier cosa) y se recorta.
+        RAISE NOTICE '%', format('plantillas de WhatsApp: no se migró el código %L del número %s (cuenta %L): %s',
+            left(r.codigo, 64), r.canal_id, left(r.waba_id, 30), r.motivo);
     END LOOP;
     DROP TABLE plantillas_migrables;
 END

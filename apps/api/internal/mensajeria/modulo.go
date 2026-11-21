@@ -190,8 +190,8 @@ type Modulo struct {
 	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
 	RegistrarConsentimiento *RegistrarConsentimiento
 	ListarPlantillas        *auditoria.Caso[EntradaPlantillas, ListaPlantillas]
-	CrearCanal              *auditoria.Caso[EntradaCrearCanal, Canal]
-	ActualizarCanal         *auditoria.Caso[EntradaActualizarCanal, Canal]
+	CrearCanal              *CasoCanal[EntradaCrearCanal]
+	ActualizarCanal         *CasoCanal[EntradaActualizarCanal]
 	ActivarCanal            *auditoria.Caso[EntradaCambioCanal, Canal]
 	DesactivarCanal         *auditoria.Caso[EntradaCambioCanal, Canal]
 	ListarCanales           *auditoria.Caso[struct{}, ListaCanales]
@@ -387,8 +387,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
 	m.ListarPlantillas = nuevoListarPlantillas(m)
-	m.CrearCanal = nuevoCrearCanal(m)
-	m.ActualizarCanal = nuevoActualizarCanal(m)
+	m.CrearCanal = nuevoCasoCrearCanal(m)
+	m.ActualizarCanal = nuevoCasoActualizarCanal(m)
 	m.ActivarCanal = nuevoCambioCanal(m, "mensajeria.activar_canal", true)
 	m.DesactivarCanal = nuevoCambioCanal(m, "mensajeria.desactivar_canal", false)
 	m.ListarCanales = nuevoListarCanales(m)

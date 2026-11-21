@@ -44,7 +44,7 @@ type Problema struct {
 	Sugerencia *string `json:"sugerencia,omitempty" doc:"nombre_en_uso, nombre_bloqueado: un nombre libre para ofrecer"`
 	// DisponibleEn (extensión): desde cuándo se puede (nombre_bloqueado: el nombre se libera;
 	// limite_ediciones: se puede editar de nuevo).
-	DisponibleEn *time.Time `json:"disponibleEn,omitempty" doc:"nombre_bloqueado, limite_ediciones: desde cuándo se puede"`
+	DisponibleEn *time.Time `json:"disponibleEn,omitempty" doc:"nombre_bloqueado, limite_ediciones, sincronizada_hace_poco: desde cuándo se puede"`
 
 	cabeceras http.Header
 }

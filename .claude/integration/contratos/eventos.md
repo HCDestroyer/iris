@@ -229,12 +229,12 @@ vivo) o `sincronizacion` (botón o noche). Nunca el token ni el texto de un mens
 | Evento | Payload | Cuándo |
 | --- | --- | --- |
 | `plantilla_whatsapp.creada` | + `nombre`, `idioma`, `categoria`, `origen` (`iris`, `sugerida`, `meta`, `migrada`, `canal`) | Borrador nuevo, una sugerida, una que trajo la sincronización (creada en Meta) o una que reflejó el formulario del número. |
-| `plantilla_whatsapp.actualizada` | + `campos[]` (`definicion`, `nombre`, `usos`, `codigo`, `variables`…) | Borrador editado, usos o código cambiados (también la que soltó un código). |
+| `plantilla_whatsapp.actualizada` | + `campos[]` (`definicion`, `nombre`, `usos`, `codigos`, `variables`…) | Borrador editado, usos o códigos cambiados (también la que soltó un código). |
 | `plantilla_whatsapp.enviada` | + `meta_id`, `tipo` (`creacion`, `edicion`), `estado` | Meta aceptó la plantilla (o su edición) para revisar. |
 | `plantilla_whatsapp.estado_cambiado` | + `de`, `a`, `motivo` (o null: reason de Meta, `editada`, `reanudada`), `origen`, `pausada_hasta` (o null) | Cambio de estado en Meta (aprobada, rechazada, pausada…) o en Iris (editar, reanudar). |
 | `plantilla_whatsapp.categoria_cambiada` | + `de`, `a`, `origen`, `pendiente` (true = Meta avisó que la reclasificará), `en_uso` | Meta la reclasificó (o avisó que lo hará); el panel lo avisa. |
 | `plantilla_whatsapp.calidad_cambiada` | + `de`, `a` (`GREEN`, `YELLOW`, `RED`, `UNKNOWN`), `origen` | Cambio de calidad. |
-| `plantilla_whatsapp.borrada` | + `nombre`, `idioma`, `origen` (`iris`, `meta`), `estaba_en_uso`, `codigo` (o null), `nombre_libre_en` (o null) | Borrada desde Iris o Meta ya no la tiene. La fila nunca se elimina. |
+| `plantilla_whatsapp.borrada` | + `nombre`, `idioma`, `origen` (`iris`, `meta`, `sistema`), `estaba_en_uso`, `codigos[]`, `nombre_libre_en` (o null); `motivo` (`cuenta_de_otra_empresa`, solo con `sistema`) | Borrada desde Iris, Meta ya no la tiene o el sistema la archivó porque la cuenta pasó a otra empresa. La fila nunca se elimina. |
 | `plantilla_whatsapp.sincronizada` | `waba_id`, `empresa_id`, `origen` (`manual`, `nocturna`, `webhook`), `total`, `nuevas`, `cambiadas`, `borradas` | Terminó una lectura completa de la cuenta. |
 | `plantillas_whatsapp.ajustes_cambiados` | `empresa_id`, `campos[]`, `marketing_permitido` | Ajustes de la empresa. |
 

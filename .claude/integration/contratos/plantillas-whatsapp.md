@@ -18,10 +18,13 @@ Maqueta aprobada por el PM (pantallas a lista, b nueva, c detalle, d sugeridas, 
    las de la dueña, como hoy.
    **Una cuenta es de una sola empresa** (`mensajeria.plantillas_whatsapp_cuentas.empresa_id`): la
    primera que registra un número con esa WABA. Otra empresa no puede registrar ni pasar un número a
-   esa WABA (409 `waba_de_otra_empresa`); si la dueña ya no tiene números en la cuenta, pasa a la nueva
-   (las plantillas viejas quedan con la empresa anterior). La WABA de un número manual se comprueba en
-   Meta con el token del número (`GET /{waba}/phone_numbers` debe traer su phone number ID; si no,
-   422 `waba_no_coincide`). Todas las lecturas filtran por la empresa activa y la dueña.
+   esa WABA (409 `waba_de_otra_empresa`, solo si la WABA es nueva o cambia); si la dueña ya no tiene
+   números en la cuenta, pasa a la nueva y las plantillas de la anterior quedan archivadas
+   (`DELETED`, `borradaPor = sistema`). La WABA de un número manual se comprueba en Meta con el token
+   del número antes de abrir la transacción (`GET /{waba}/phone_numbers` debe traer su phone number
+   ID; si no, 422 `waba_no_coincide`). Un número QR no cambia de WABA por el formulario (422
+   `numero_qr`: se reconecta con QR). Un número de otra empresa que ya estaba en la cuenta (de antes)
+   sigue con su mapa propio. Todas las lecturas filtran por la empresa activa y la dueña.
 3. **Borradas en Meta.** Lo que Meta borra NO se borra en Iris: queda `estado = DELETED`,
    `borradaPor = meta`, con su historial, su código y sus usos; si se usaba, la lista la marca
    `atender = borrada_en_uso` para elegir otra. Borrar desde Iris pide confirmación (panel), la borra en
@@ -49,7 +52,9 @@ responde igual, ahora calculado con las plantillas de la cuenta.
 Las conversaciones (iniciar, responder fuera de la ventana) usan las del uso `conversaciones`; las
 boletas, cualquiera con su código. Una plantilla con datos del cliente de Argos (`cliente_nombre`,
 `cliente_codigo`, `plan`) solo se manda en una conversación con el cliente **confirmado**; si no,
-422 `cliente_sin_confirmar` (el agente confirma el cliente o elige otra plantilla).
+422 `cliente_sin_confirmar` (el agente confirma el cliente o elige otra plantilla). Lo mismo para lo
+automático: el aviso de boleta fuera de la ventana no sale (`sin_aviso`) y un mensaje en cola que
+llegaría sin esos datos falla con el motivo `cliente_sin_confirmar` (nunca sale con datos vacíos).
 
 ## 3. Endpoints (`/api/v1/mensajeria/plantillas-whatsapp`)
 
@@ -114,9 +119,10 @@ emojis y ≤ 15 datos; marketing activado. Lo que Iris no puede saber antes (cal
   en `mensajeria.entrantes` (deduplicado por el SHA-256 del cuerpo, como todo lo de Meta) y se procesa
   en el job `mensajeria.procesar_entrante`. Solo cuenta si `entry[].id` es la WABA del número y el
   número es de la empresa dueña de la cuenta. **Orden y repetidos:** con `entry[].time`, un cambio de
-  estado más viejo que el `estadoEn` guardado se descarta, y cada aviso se aplica una vez por
+  estado más viejo que el último aplicado (`meta_evento_en`, reloj de Meta; nunca `estadoEn`) no se
+  aplica y encola la relectura de la cuenta, y cada aviso se aplica una vez por
   `(waba, message_template_id, campo, evento, time)` (`mensajeria.plantillas_whatsapp_avisos_meta`),
-  aunque llegue por varios números de la cuenta. `other_info.title`/`description` se recortan. Una
+  aunque llegue por varios números de la cuenta (se guardan 30 días). `other_info.title`/`description` se recortan. Una
   plantilla que Iris no conoce encola la relectura de la cuenta. `PAUSED` con `FIRST_PAUSE` /
   `SECOND_PAUSE` deja `pausadaHasta` (+3 h / +6 h); `REINSTATED` = `APPROVED`; `UNARCHIVED` relee;
   `REJECTED` guarda `reason` y `rejection_info`.

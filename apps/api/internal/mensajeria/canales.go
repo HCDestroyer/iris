@@ -244,13 +244,18 @@ func (m *Modulo) resueltoDe(ctx context.Context, q *mensajeriabd.Queries, f mens
 	return &resuelto{a: a, canalID: &id, remitente: "canal:" + strconv.FormatInt(f.ID, 10), fila: &f}, nil
 }
 
-// plantillasDeCanal: las plantillas aprobadas por código de Iris con que sale el número. Un número con
-// cuenta de WhatsApp (WABA) usa las de su cuenta (mensajeria.plantillas_whatsapp: aprobadas, sin
-// pausa y con código); uno sin WABA, su mapa propio de mensajeria.canales.plantillas. uso: solo las
-// que la empresa marcó para ese uso ("" = cualquiera).
+// plantillasDeCanal: las plantillas aprobadas por código de Iris con que sale el número. Un número de
+// la empresa dueña de su cuenta de WhatsApp (WABA) usa las de la cuenta (mensajeria.plantillas_whatsapp:
+// aprobadas, sin pausa y con código); uno sin WABA, o de una cuenta que es de otra empresa (una WABA
+// compartida de antes de que la cuenta tuviera dueña), su mapa propio de mensajeria.canales.plantillas,
+// como antes. uso: solo las que la empresa marcó para ese uso ("" = cualquiera).
 func (m *Modulo) plantillasDeCanal(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaCanal, uso string) (map[string]PlantillaMeta, error) {
 	p := map[string]PlantillaMeta{}
-	if c.WabaID == "" {
+	deLaDuena, err := cuentaEsDelNumero(ctx, q, c)
+	if err != nil {
+		return nil, err
+	}
+	if !deLaDuena {
 		_ = json.Unmarshal(c.Plantillas, &p)
 		return p, nil
 	}
