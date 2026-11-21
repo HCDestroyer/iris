@@ -13,6 +13,7 @@ import {
     notasSinVersion,
     TIPOS_BLOQUEADOS_EN_PAUSA,
     TIPOS_EVIDENCIA,
+    TIPOS_SUELTOS,
     versionNotaValida,
 } from "./aplicar";
 import {
@@ -455,6 +456,8 @@ export class MotorSync {
     private metaSucia = false;
 
     private conexion: Conexion = "desconocida";
+    /** Cuántas veces avisó el navegador que se cayó la señal (`establecerConexion(false)`). */
+    private caidas = 0;
     private sincronizando = 0;
     private proximoIntento: number | null = null;
     private ultimoError: ErrorVisible | null = null;
@@ -985,6 +988,7 @@ export class MotorSync {
     /** El adaptador avisa de `online`/`offline`. Al volver la señal, reintenta enseguida. */
     establecerConexion(enLinea: boolean): void {
         if (!enLinea) {
+            this.caidas += 1;
             this.actualizarConexion("sin_conexion");
             return;
         }
@@ -1112,6 +1116,7 @@ export class MotorSync {
     /** Llama a la API, mide el desfase y actualiza la conexión. */
     private async llamar<T>(fn: () => Promise<RespuestaApi<T>>): Promise<RespuestaApi<T>> {
         const inicio = this.reloj.ahora();
+        const caidas = this.caidas;
         try {
             const respuesta = await fn();
             const fin = this.reloj.ahora();
@@ -1122,7 +1127,9 @@ export class MotorSync {
             this.meta = { ...this.meta, ultimaSincronizacion: fin };
             this.metaSucia = true;
             this.ultimoError = null;
-            this.actualizarConexion("en_linea");
+            // Pedida antes de que el navegador avisara que se cayó la señal: la respuesta ya venía en
+            // camino y no dice que haya red ahora (si no, «en línea» hasta la próxima pasada).
+            if (caidas === this.caidas || this.conexion !== "sin_conexion") this.actualizarConexion("en_linea");
             return respuesta;
         } catch (e) {
             if (e instanceof ErrorTransporte) {
@@ -1422,6 +1429,9 @@ export class MotorSync {
     private ordenesBloqueadas(): Set<number> {
         const bloqueadas = new Set<number>();
         for (const op of this.ops.values()) {
+            if (TIPOS_SUELTOS.has(op.tipo as TipoOperacion)) {
+                continue;
+            }
             if (op.estado === "esperando_adjuntos" || (op.estado === "rechazada" && !CODIGOS_TERMINALES.has(codigoProblema(op.error) ?? ""))) {
                 bloqueadas.add(op.ordenId);
             }
@@ -1435,14 +1445,16 @@ export class MotorSync {
         const ahora = this.reloj.ahora();
         let bytes = 0;
         for (const op of this.ordenadas()) {
+            // llamada.directa va sola (TIPOS_SUELTOS): ni la detiene la orden ni detiene a la orden.
+            const suelta = TIPOS_SUELTOS.has(op.tipo as TipoOperacion);
             if (op.estado !== "pendiente") {
                 // Lo posterior a un rechazo de la misma orden no sale hasta que el técnico decida.
-                if (op.estado === "esperando_adjuntos" || !CODIGOS_TERMINALES.has(codigoProblema(op.error) ?? "")) {
+                if (!suelta && (op.estado === "esperando_adjuntos" || !CODIGOS_TERMINALES.has(codigoProblema(op.error) ?? ""))) {
                     detenidas.add(op.ordenId);
                 }
                 continue;
             }
-            if (detenidas.has(op.ordenId)) {
+            if (detenidas.has(op.ordenId) && !suelta) {
                 continue;
             }
             if (sinRespuesta.has(op.id) || this.retenida(op) || (op.esperaHasta !== undefined && op.esperaHasta > ahora)) {

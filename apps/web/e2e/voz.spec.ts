@@ -828,8 +828,12 @@ test.describe("voz › nunca una llamada viva sin audio (revisión de seguridad)
             primera.estado = "sonando";
             delete primera.usuario;
         }
-        // Un intento que ya estaba en vuelo puede llegar todavía; después, ninguno más.
-        await page.clock.fastForward(3_000);
+        // Un intento que ya estaba en vuelo puede llegar todavía; después, ninguno más. El bucle es
+        // secuencial (leer, colgar, esperar, leer): cuando llega una lectura posterior al cambio, el
+        // `colgar` que iba en vuelo ya llegó. Se espera esa lectura (en tiempo real: adelantar el reloj
+        // no espera a la red) y se cuenta desde ahí.
+        const leidas = lecturas();
+        await adelantarHasta(page, () => lecturas() > leidas);
         const colgadas = acciones(api, "colgar").length;
         await page.clock.fastForward(4_000);
         expect(acciones(api, "colgar")).toHaveLength(colgadas);
