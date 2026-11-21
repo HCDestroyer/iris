@@ -253,3 +253,30 @@ func TestPlantillasWASincronizarNoPisaAvisoPosterior(t *testing.T) {
 		t.Fatalf("la relectura no puso al día la plantilla: %v", p["estado"])
 	}
 }
+
+// La relectura no da por «Borrada en Meta» un borrador que se envió mientras leía (no venía en la lista
+// porque Meta aún no lo tenía): solo marca las que estaban en la foto y no cambiaron.
+func TestPlantillasWASincronizarNoBorraUnEnvioDuranteLaLectura(t *testing.T) {
+	c := nuevaCuentaWA(t, nil)
+	b := c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp", "cr-"+pruebas.Unico(), map[string]any{"wabaId": c.waba, "etiqueta": "Aviso de visita",
+		"idioma": "es", "categoria": "UTILITY", "definicion": map[string]any{"cuerpo": "Mañana te visitamos. ¡Gracias!", "variables": []any{}, "botones": []any{}}})
+	c.exigir(b, http.StatusCreated, "estado", "BORRADOR")
+	id := idPW(b.cuerpo)
+	c.meta.duranteLaLectura(func() {
+		c.exigir(c.apiClave(c.admin, http.MethodPost, fmt.Sprintf("/plantillas-whatsapp/%d/enviar", id), "env-"+pruebas.Unico(),
+			map[string]any{"version": b.cuerpo["version"]}), http.StatusOK, "estado", "PENDING")
+	})
+	if err := c.m.SincronizarCuentaSistema(c.ctx, c.bd, c.waba, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if p := c.plantilla(id); p["estado"] != "PENDING" || p["borradaPor"] != nil {
+		t.Fatalf("la relectura dio por borrado un envío hecho durante la lectura: %v %v", p["estado"], p["borradaPor"])
+	}
+	// La siguiente relectura ya la encuentra en Meta.
+	if err := c.m.SincronizarCuentaSistema(c.ctx, c.bd, c.waba, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if p := c.plantilla(id); p["estado"] != "PENDING" {
+		t.Fatalf("después de releer: %v", p["estado"])
+	}
+}

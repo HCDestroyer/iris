@@ -366,7 +366,7 @@ func (q *Queries) EstadoCuentaWA(ctx context.Context, arg EstadoCuentaWAParams) 
 }
 
 const eventosMetaDeCuentaPW = `-- name: EventosMetaDeCuentaPW :many
-SELECT id, meta_evento_en FROM mensajeria.plantillas_whatsapp WHERE waba_id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+SELECT id, meta_evento_en, version FROM mensajeria.plantillas_whatsapp WHERE waba_id = $1 AND coalesce(empresa_id, 0) = $2::bigint
 `
 
 type EventosMetaDeCuentaPWParams struct {
@@ -377,6 +377,7 @@ type EventosMetaDeCuentaPWParams struct {
 type EventosMetaDeCuentaPWRow struct {
 	ID           int64
 	MetaEventoEn int64
+	Version      int32
 }
 
 // Foto del último aviso de Meta aplicado en cada plantilla de la cuenta, antes de leer Meta.
@@ -389,7 +390,7 @@ func (q *Queries) EventosMetaDeCuentaPW(ctx context.Context, arg EventosMetaDeCu
 	var items []EventosMetaDeCuentaPWRow
 	for rows.Next() {
 		var i EventosMetaDeCuentaPWRow
-		if err := rows.Scan(&i.ID, &i.MetaEventoEn); err != nil {
+		if err := rows.Scan(&i.ID, &i.MetaEventoEn, &i.Version); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

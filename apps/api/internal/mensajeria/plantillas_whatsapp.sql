@@ -225,4 +225,4 @@ DELETE FROM mensajeria.plantillas_whatsapp_avisos_meta WHERE recibido_en < @ante
 
 -- name: EventosMetaDeCuentaPW :many
 -- Foto del último aviso de Meta aplicado en cada plantilla de la cuenta, antes de leer Meta.
-SELECT id, meta_evento_en FROM mensajeria.plantillas_whatsapp WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint;
+SELECT id, meta_evento_en, version FROM mensajeria.plantillas_whatsapp WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint;

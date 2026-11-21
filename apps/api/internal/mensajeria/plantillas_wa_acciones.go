@@ -128,7 +128,7 @@ func nuevaAccionMetaPW[In any](m *Modulo, accion string, permiso nucleo.Permiso,
 				return PlantillaWA{}, err
 			}
 			q := mensajeriabd.New(t)
-			antes, err := m.plantillaDeEmpresa(ctx, q, r.l.id, true)
+			antes, err := m.plantillaConCandado(ctx, q, r.l.id)
 			if err != nil {
 				return PlantillaWA{}, err
 			}

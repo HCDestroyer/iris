@@ -112,6 +112,19 @@ func canalesDeCuentaEmpresa(ctx context.Context, q *mensajeriabd.Queries, empres
 	return out, nil
 }
 
+// plantillaConCandado: la plantilla de la empresa bloqueada en el orden de todos los caminos (el
+// candado de la cuenta, después la fila de la cuenta y después la plantilla): sin interbloqueos 40P01.
+func (m *Modulo) plantillaConCandado(ctx context.Context, q *mensajeriabd.Queries, id int64) (mensajeriabd.MensajeriaPlantillaWA, error) {
+	sinBloqueo, err := m.plantillaDeEmpresa(ctx, q, id, false)
+	if err != nil {
+		return sinBloqueo, err
+	}
+	if err := q.BloquearCuentaPlantillas(ctx, sinBloqueo.WabaID); err != nil {
+		return sinBloqueo, err
+	}
+	return m.plantillaDeEmpresa(ctx, q, id, true)
+}
+
 func (m *Modulo) plantillaDeEmpresa(ctx context.Context, q *mensajeriabd.Queries, id int64, bloquear bool) (mensajeriabd.MensajeriaPlantillaWA, error) {
 	p := mensajeriabd.PlantillaWAPorIDParams{ID: id, Empresa: contexto.EmpresaDe(ctx)}
 	var f mensajeriabd.MensajeriaPlantillaWA
@@ -721,6 +734,10 @@ func nuevoCrearPWA(m *Modulo) *auditoria.Caso[EntradaCrearPWA, PlantillaWA] {
 			if err != nil {
 				return PlantillaWA{}, err
 			}
+			// El candado de la cuenta antes que sus filas (mismo orden que la relectura).
+			if err := q.BloquearCuentaPlantillas(ctx, in.WabaID); err != nil {
+				return PlantillaWA{}, err
+			}
 			ahora := m.ahora()
 			in.Etiqueta = strings.TrimSpace(in.Etiqueta)
 			if in.Nombre = strings.TrimSpace(in.Nombre); in.Nombre == "" {
@@ -806,7 +823,7 @@ func nuevoEditarPWA(m *Modulo) *auditoria.Caso[EntradaEditarPWA, PlantillaWA] {
 				return PlantillaWA{}, err
 			}
 			q := mensajeriabd.New(t)
-			antes, err := m.plantillaDeEmpresa(ctx, q, in.ID, true)
+			antes, err := m.plantillaConCandado(ctx, q, in.ID)
 			if err != nil {
 				return PlantillaWA{}, err
 			}
@@ -892,14 +909,7 @@ func nuevoUsosPWA(m *Modulo) *auditoria.Caso[EntradaUsosPWA, PlantillaWA] {
 			// Mismo orden de bloqueo que el resto (cuenta y después la fila): leer sin bloquear para
 			// saber la cuenta, bloquear la cuenta y después la fila (si no, dos «Usos» cruzados se
 			// interbloqueaban con tomarCodigos).
-			sinBloqueo, err := m.plantillaDeEmpresa(ctx, q, in.ID, false)
-			if err != nil {
-				return PlantillaWA{}, err
-			}
-			if err := q.BloquearCuentaPlantillas(ctx, sinBloqueo.WabaID); err != nil {
-				return PlantillaWA{}, err
-			}
-			antes, err := m.plantillaDeEmpresa(ctx, q, in.ID, true)
+			antes, err := m.plantillaConCandado(ctx, q, in.ID)
 			if err != nil {
 				return PlantillaWA{}, err
 			}
@@ -1127,7 +1137,12 @@ func nuevoCrearSugeridaPWA(m *Modulo) *auditoria.Caso[EntradaCrearSugeridaPWA, P
 				return PlantillaWA{}, err
 			}
 			empresa := contexto.EmpresaDe(ctx)
+			// Primero que la cuenta sea de la empresa (lecturas sin bloqueo), después el candado de la cuenta
+			// antes que sus filas (mismo orden que la relectura).
 			if _, err := canalesDeCuentaEmpresa(ctx, mensajeriabd.New(t), empresa, in.WabaID); err != nil {
+				return PlantillaWA{}, err
+			}
+			if err := mensajeriabd.New(t).BloquearCuentaPlantillas(ctx, in.WabaID); err != nil {
 				return PlantillaWA{}, err
 			}
 			s, ok := SugeridaPorClave(in.Clave)
