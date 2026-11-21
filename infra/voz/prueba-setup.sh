@@ -60,15 +60,17 @@ out="" url=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -o) out="$2"; shift 2 ;;
-        -H | --proto | --retry) shift 2 ;;
+        -H | --retry) shift 2 ;;
+        --proto | --proto-redir) echo "$1 $2" >> "$REG/curl-opciones"; shift 2 ;;
         https://*) url="$1"; shift ;;
         *) shift ;;
     esac
 done
 echo "$url" >> "$REG/curl"
 case "$url" in
-    https://api.github.com/repos/HCDestroyer/iris/releases\?*page=1) f="$SRV/releases.json" ;;
+    https://api.github.com/repos/HCDestroyer/iris/releases\?*page=1) f="$SRV/${FALSO_RELEASES:-releases}.json" ;;
     https://api.github.com/repos/HCDestroyer/iris/releases\?*) echo '[]'; exit 0 ;;
+    https://api.github.com/repos/HCDestroyer/iris/releases/tags/*) f="$SRV/tags/${url##*/}.json" ;;
     https://github.com/HCDestroyer/iris/releases/download/*) f="$SRV/releases/${url#https://github.com/HCDestroyer/iris/releases/download/}" ;;
     https://github.com/sigstore/cosign/releases/download/*) f="$SRV/cosign" ;;
     https://download.docker.com/*/gpg | https://nvidia.github.io/*/gpgkey) f="$SRV/llave.asc" ;;
@@ -95,22 +97,30 @@ case "$1 ${2:-}" in
 esac
 EOF
 
+# Versions relative to the floor of the script (VOZ_MIN), so the tests survive every release:
+# MIN (the floor), NUEVA (the latest published), PRE (newer, but a prerelease) and VIEJA (< MIN).
+MIN="$(sed -n 's/^VOZ_MIN=\([0-9.]*\)$/\1/p' "$setup")"
+[[ "$MIN" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || { echo "VOZ_MIN not found in setup-voz.sh" >&2; exit 1; }
+NUEVA="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 1))"
+PRE="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$((BASH_REMATCH[3] + 2))"
+VIEJA=0.0.0
+mkdir -p "$srv/tags"
+for v in "$VIEJA" "$MIN" "$NUEVA" "$PRE"; do
+    pre=false
+    [ "$v" = "$PRE" ] && pre=true
+    printf '{"tag_name":"voz-v%s","draft":false,"prerelease":%s}' "$v" "$pre" > "$srv/tags/voz-v$v.json"
+done
 # Release assets: a fake install-voz.sh that only writes down its arguments.
-for v in 0.1.0 0.1.1; do
+for v in "$VIEJA" "$MIN" "$NUEVA"; do
     mkdir -p "$srv/releases/voz-v$v"
     # shellcheck disable=SC2016 # expanded when the fake installer runs
     printf '#!/usr/bin/env bash\necho "install-voz.sh $*" >> "$REG/instalador"\n' > "$srv/releases/voz-v$v/install-voz.sh"
     echo '{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}' > "$srv/releases/voz-v$v/install-voz.sh.sigstore.json"
 done
-cat > "$srv/releases.json" << 'EOF'
-[
-  { "tag_name": "v0.34.0", "name": "Iris 0.34.0" },
-  { "tag_name": "voz-v0.1.1", "name": "Iris Voz 0.1.1" },
-  { "tag_name": "v9.9.9", "name": "Iris 9.9.9" },
-  { "tag_name": "voz-v0.1.0", "name": "Iris Voz 0.1.0" },
-  { "tag_name": "voz-vx.y.z", "name": "not a version" }
-]
-EOF
+# Compact JSON on one line (the extraction must not depend on the formatting).
+printf '[{"tag_name":"v0.34.0","prerelease":false},{"tag_name":"voz-v%s","prerelease":true},{"tag_name":"voz-v%s","prerelease":false},{"tag_name":"v9.9.9"},{"tag_name":"voz-v%s"},{"tag_name":"voz-v%s-rc1"},{"tag_name":"voz-vx.y.z"}]\n' \
+    "$PRE" "$NUEVA" "$MIN" "9.9.9" > "$srv/releases.json"
+printf '[\n  {\n    "tag_name": "voz-v%s",\n    "draft": false\n  }\n]\n' "$VIEJA" > "$srv/solo-vieja.json"
 head -c 4096 /dev/zero > "$srv/cosign" # a cosign whose sha256 is not the pinned one
 # A real GPG key that is not Docker's.
 export GNUPGHOME="$raiz/gnupg"
@@ -171,30 +181,41 @@ instalo() { grep -qxF "install-voz.sh $1" "$registro/instalador"; }
 sin_paquetes() { ! grep -qE '^(apt-get|dnf) .*install' "$registro/sistema" 2> /dev/null; }
 sin_docker() { ! grep -q 'docker-ce' "$registro/sistema" 2> /dev/null; }
 
-caso "todo bien: la última voz-v*, firma verificada con su identidad" 0 "Listo: Iris Voz 0.1.1 está instalado"
-afirmar "llama a install-voz.sh con la última versión" instalo "install --version 0.1.1 --yes"
-afirmar "verifica la firma con la identidad de voz-v0.1.1" \
-    grep -qF -- "--certificate-identity https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-v0.1.1" "$registro/cosign"
+caso "todo bien: la última voz-v*, firma verificada con su identidad" 0 "Listo: Iris Voz $NUEVA está instalado"
+afirmar "llama a install-voz.sh con la última versión publicada (no la prerelease)" instalo "install --version $NUEVA --yes"
+afirmar "omite la prerelease" grep -qF "voz-v$PRE es un borrador o una prerelease" "$registro/salida"
+afirmar "verifica la firma con la identidad de la versión elegida" \
+    grep -qF -- "--certificate-identity https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-v$NUEVA" "$registro/cosign"
 afirmar "verifica con el emisor de GitHub Actions" \
     grep -qF -- "--certificate-oidc-issuer https://token.actions.githubusercontent.com" "$registro/cosign"
-afirmar "baja de la release voz-v0.1.1" grep -qxF "https://github.com/HCDestroyer/iris/releases/download/voz-v0.1.1/install-voz.sh" "$registro/curl"
+afirmar "baja de la release elegida" grep -qxF "https://github.com/HCDestroyer/iris/releases/download/voz-v$NUEVA/install-voz.sh" "$registro/curl"
+afirmar "curl solo sigue redirecciones https" grep -qxF -- "--proto-redir =https" "$registro/curl-opciones"
 afirmar "no instala paquetes si ya está todo" sin_paquetes
 
 caso "otra vez (idempotente), con el puerto ya usado por Iris Voz" 0 "ya lo usa Iris Voz" \
     'FALSO_SS=LISTEN 0 4096 0.0.0.0:8443 0.0.0.0:*' 'FALSO_DOCKER_PS=0.0.0.0:8443->8443/tcp' --
-afirmar "llama otra vez al instalador" instalo "install --version 0.1.1 --yes"
+afirmar "llama otra vez al instalador" instalo "install --version $NUEVA --yes"
 
-caso "--version y opciones se pasan al instalador" 0 "versión pedida: 0.1.0" -- \
-    --version v0.1.0 --port 9443 --dir /srv/voz --no-models --allow-swap --allow-unsynced-clock
+caso "--version y opciones se pasan al instalador" 0 "versión pedida: $MIN" -- \
+    --version "v$MIN" --port 9443 --listen 10.0.0.5 --dir /srv/voz --no-models --allow-swap --allow-unsynced-clock
 afirmar "pasa la versión y las opciones" \
-    instalo "install --version 0.1.0 --yes --dir /srv/voz --port 9443 --no-models --allow-swap --allow-unsynced-clock"
-afirmar "verifica con la identidad de voz-v0.1.0" grep -qF "refs/tags/voz-v0.1.0 " "$registro/cosign"
+    instalo "install --version $MIN --yes --dir /srv/voz --port 9443 --listen 10.0.0.5 --no-models --allow-swap --allow-unsynced-clock"
+afirmar "verifica con la identidad de voz-v$MIN" grep -qF "refs/tags/voz-v$MIN " "$registro/cosign"
+caso "--version voz-vX.Y.Z" 0 "versión pedida: $MIN" -- --version "voz-v$MIN"
+afirmar "quita voz-v de --version" instalo "install --version $MIN --yes"
+caso "--version anterior al piso del script" 1 "anterior a la $MIN" -- --version "$VIEJA"
+afirmar "no instala una versión anterior al piso" no_instalo
+afirmar "no consulta la red con una versión anterior al piso" test ! -s "$registro/curl"
+caso "GitHub solo ofrece una versión anterior al piso" 1 "No se instala una versión vieja" FALSO_RELEASES=solo-vieja --
+afirmar "no instala la versión vieja que ofrece la API" no_instalo
+caso "--listen que no es una IP" 1 "dirección inválida para --listen" -- --listen '0.0.0.0;reboot'
+caso "--dir con salto de línea" 1 "caracteres de control" -- --dir $'/opt/iris-voz\nX=1'
 
 caso "Rocky Linux con todo instalado" 0 "Rocky Linux 9.4" "IRIS_VOZ_OS_RELEASE=$rocky" --
-afirmar "llama al instalador en Rocky" instalo "install --version 0.1.1 --yes"
+afirmar "llama al instalador en Rocky" instalo "install --version $NUEVA --yes"
 
-caso "por tubería (curl | sudo bash -s -- --version 0.1.0)" 0 "Listo: Iris Voz 0.1.0 está instalado" TUBERIA=1 -- --version 0.1.0
-afirmar "por tubería llama al instalador" instalo "install --version 0.1.0 --yes"
+caso "por tubería (curl | sudo bash -s -- --version X.Y.Z)" 0 "Listo: Iris Voz $MIN está instalado" TUBERIA=1 -- --version "$MIN"
+afirmar "por tubería llama al instalador" instalo "install --version $MIN --yes"
 
 caso "versión inválida" 1 "versión inválida" -- --version 1.2
 afirmar "no baja ni ejecuta nada con una versión inválida" no_instalo

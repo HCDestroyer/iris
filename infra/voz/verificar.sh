@@ -83,6 +83,17 @@ grep -qE '^ *\(cd dist && sha256sum .* setup-voz\.sh ' "$flujo" ||
 for a in setup-voz.sh setup-voz.sh.sigstore.json setup-voz.sh.sha256; do
     grep -qF "\"dist/$a#" "$flujo" || { echo "voz-release.yml does not publish $a" >&2; exit 1; }
 done
+# Its version floor is the version of the release that publishes it.
+[ "$(sed -n 's/^VOZ_MIN=\([0-9.]*\)$/\1/p' "$aqui/setup-voz.sh")" = "$version" ] ||
+    { echo "setup-voz.sh: VOZ_MIN must be $version (the version of manifiesto.json)" >&2; exit 1; }
+# The runbook pins the script: every URL is of this release and the sum is the one of setup-voz.sh.
+runbook="$aqui/../../docs/runbooks/servidor-ia.md"
+urls="$(grep -ohE 'releases/download/voz-v[0-9]+\.[0-9]+\.[0-9]+/setup-voz\.sh' "$runbook" "$aqui/README.md" "$aqui/setup-voz.sh" | sort -u)"
+[ "$urls" = "releases/download/voz-v$version/setup-voz.sh" ] ||
+    { echo "the setup-voz.sh URLs of the runbook must all be of voz-v$version, found: $urls" >&2; exit 1; }
+sumas="$(grep -oE '"[0-9a-f]{64}  setup-voz\.sh"' "$runbook" | sort -u)"
+[ "$sumas" = "\"$(sha256sum "$aqui/setup-voz.sh" | cut -d' ' -f1)  setup-voz.sh\"" ] ||
+    { echo "docs/runbooks/servidor-ia.md §2: the sha256 of setup-voz.sh is not the one of infra/voz/setup-voz.sh" >&2; exit 1; }
 echo "setup-voz.sh: ok"
 
 if docker compose version > /dev/null 2>&1; then

@@ -234,7 +234,7 @@ jobs:
         run: |
           if gh release view "voz-v$VERSION" >/dev/null 2>&1; then echo "::error::ya existe la release voz-v$VERSION"; exit 1; fi
           gh release create "voz-v$VERSION" --latest=false --verify-tag --title "Iris Voz $VERSION" \
-            --notes "AI server package for Iris (Iris Voz $VERSION). Install guide: docs/runbooks/servidor-ia.md. One-step setup: curl -fsSL https://github.com/HCDestroyer/iris/releases/download/voz-v$VERSION/setup-voz.sh | sudo bash. Verify install-voz.sh and setup-voz.sh with their .sigstore.json bundles before running them." \
+            --notes "AI server package for Iris (Iris Voz $VERSION). Install guide: docs/runbooks/servidor-ia.md. One-step setup: setup-voz.sh (download it, check its sha256 against the runbook, then sudo bash setup-voz.sh). Verify install-voz.sh and setup-voz.sh with their .sigstore.json bundles before running them." \
             "dist/iris-voz-$VERSION.tar.gz#Iris Voz $VERSION install package" \
             "dist/iris-voz-$VERSION.tar.gz.sigstore.json#Iris Voz $VERSION install package signature (Sigstore bundle)" \
             "dist/iris-voz-$VERSION.tar.gz.sha256#Iris Voz $VERSION install package SHA-256" \

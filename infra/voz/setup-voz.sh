@@ -2,13 +2,9 @@
 # Instalación de un paso del Servidor de IA de Iris («Iris Voz»): prepara el servidor y ejecuta el
 # instalador firmado (docs/runbooks/servidor-ia.md §2).
 #
-# Una sola línea, en el servidor con la tarjeta NVIDIA:
-#
-#   curl -fsSL https://github.com/HCDestroyer/iris/releases/download/voz-v0.1.1/setup-voz.sh | sudo bash
-#
-# Sirve la URL de cualquier versión voz-v*: el script instala siempre la última publicada (o la de
-# --version). Para verificar este script antes de correrlo, mira el runbook (§2, «Verificar este
-# script»).
+# Se baja de una release voz-vX.Y.Z, se comprueba su sha256 (el que publica el runbook) y se
+# ejecuta con sudo: docs/runbooks/servidor-ia.md §2. Instala siempre la última versión publicada
+# (o la de --version), nunca una anterior a VOZ_MIN, la de la release que lo trae.
 #
 # Qué hace, en orden (se detiene con un mensaje claro en cuanto algo falla):
 #   1. Comprueba que corre como root, la distribución (Ubuntu, Debian, RHEL, Rocky o Alma), la
@@ -26,10 +22,14 @@
 # Uso: setup-voz.sh [opciones]       (con la tubería: curl ... | sudo bash -s -- [opciones])
 #
 #   --version X.Y.Z           versión de Iris Voz (por defecto, la última voz-v* publicada)
-#   -y, --yes                 no preguntar: instala lo que falte sin pedir confirmación
+#   -y, --yes                 no preguntar: acepta TODO lo que el script pregunta, es decir:
+#                             instalar Docker y el NVIDIA Container Toolkit (agrega sus
+#                             repositorios), activar NTP, apagar el intercambio y comentarlo en
+#                             /etc/fstab, y que nvidia-ctk reescriba /etc/docker/daemon.json y
+#                             reinicie Docker (eso detiene un momento los demás contenedores)
 #   --dir RUTA                carpeta de instalación (por defecto /opt/iris-voz)
 #   --port N                  puerto de control (por defecto 8443)
-#   --listen DIRECCION        dirección en la que escucha el puerto de control
+#   --listen IP               IP en la que escucha el puerto de control (por defecto 0.0.0.0)
 #   --no-models               no bajar los modelos por defecto
 #   --allow-swap              seguir aunque haya intercambio a disco (solo si está cifrado)
 #   --allow-unsynced-clock    seguir aunque el reloj no esté sincronizado por NTP
@@ -39,6 +39,9 @@ set -Eeuo pipefail
 # --- Lo fijo (infra/voz/verificar.sh comprueba que coincide con install-voz.sh) ------------------
 
 REPO=HCDestroyer/iris
+# La versión de la release que publica este script (= manifiesto.json, lo comprueba verificar.sh).
+# Nunca instala una anterior: una versión vieja puede tener fallos ya corregidos.
+VOZ_MIN=0.1.1
 RELEASES="https://github.com/$REPO/releases/download"
 API_RELEASES="https://api.github.com/repos/$REPO/releases"
 # Quién debe haber firmado install-voz.sh: el workflow de release en la etiqueta voz-vX.Y.Z.
@@ -63,7 +66,7 @@ NVIDIA_GPG=C95B321B61E88C1809C4F759DDCAE044F796ECB0      # nvidia.github.io/libn
 NVIDIA_REPO=https://nvidia.github.io/libnvidia-container
 
 COMPOSE_MIN=2.24
-CURL=(curl -fsSL --proto '=https' --tlsv1.2 --retry 3)
+CURL=(curl -fsSL --proto '=https' --proto-redir '=https' --tlsv1.2 --retry 3)
 # Solo pruebas (infra/voz/prueba-setup.sh): otro /etc/os-release y otra terminal para las preguntas.
 OS_RELEASE="${IRIS_VOZ_OS_RELEASE:-/etc/os-release}"
 TTY="${IRIS_VOZ_TTY:-/dev/tty}"
@@ -393,16 +396,26 @@ ensure_cosign() {
 
 # --- 5. Versión ----------------------------------------------------------------------------------
 
-# La última voz-vX.Y.Z publicada (las releases de Iris, vX.Y.Z, no cuentan). Sin token.
+# La última voz-vX.Y.Z publicada (las releases de Iris, vX.Y.Z, no cuentan), ni borrador ni
+# prerelease. Sin token y sin jq: no depende de cómo venga formateado el JSON.
 latest_version() {
-    local page body all=""
+    local page body all="" v info
     for page in 1 2 3 4 5; do
         body="$("${CURL[@]}" -H 'Accept: application/vnd.github+json' "$API_RELEASES?per_page=100&page=$page" < /dev/null)" ||
             die "no se pudo consultar las versiones en GitHub (¿hay salida a internet?). Puedes indicar una con --version X.Y.Z"
         grep -q '"tag_name"' <<< "$body" || break
-        all+="$(sed -n 's/.*"tag_name": *"voz-v\([0-9]\{1,\}\.[0-9]\{1,\}\.[0-9]\{1,\}\)".*/\1/p' <<< "$body")"$'\n'
+        all+="$(grep -oE '"tag_name": *"voz-v[0-9]+\.[0-9]+\.[0-9]+"' <<< "$body" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)"$'\n'
     done
-    printf '%s' "$all" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n1 || true
+    # De la más nueva a la más vieja: la primera publicada (ni borrador ni prerelease).
+    while IFS= read -r v; do
+        [ -n "$v" ] || continue
+        info="$("${CURL[@]}" -H 'Accept: application/vnd.github+json' "$API_RELEASES/tags/voz-v$v" < /dev/null)" || continue
+        if grep -qE '"draft": *false' <<< "$info" && grep -qE '"prerelease": *false' <<< "$info"; then
+            printf '%s' "$v"
+            return 0
+        fi
+        log "voz-v$v es un borrador o una prerelease: se omite"
+    done < <(printf '%s' "$all" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV -r)
 }
 
 # --- 6. Instalador firmado -----------------------------------------------------------------------
@@ -432,7 +445,7 @@ main() {
     COSIGN="" COSIGN_PINNED=false
     while [ $# -gt 0 ]; do
         case "$1" in
-            --version) [ $# -ge 2 ] || die "--version necesita un valor (X.Y.Z)"; VERSION="${2#v}"; shift 2 ;;
+            --version) [ $# -ge 2 ] || die "--version necesita un valor (X.Y.Z)"; VERSION="${2#voz-v}"; VERSION="${VERSION#v}"; shift 2 ;;
             -y | --yes) YES=true; shift ;;
             --dir) [ $# -ge 2 ] || die "--dir necesita un valor"; DIR="$2"; shift 2 ;;
             --port) [ $# -ge 2 ] || die "--port necesita un valor"; PORT="$2"; shift 2 ;;
@@ -444,8 +457,14 @@ main() {
             *) die "opción desconocida: $1 (mira: setup-voz.sh --help)" ;;
         esac
     done
-    VERSION="${VERSION#voz-v}"
-    [ -z "$VERSION" ] || is_semver "$VERSION" || die "versión inválida: «$VERSION». Usa el formato X.Y.Z, por ejemplo --version 0.1.1"
+    if [ -n "$VERSION" ]; then
+        is_semver "$VERSION" || die "versión inválida: «$VERSION». Usa el formato X.Y.Z, por ejemplo --version $VOZ_MIN"
+        version_ge "$VERSION" "$VOZ_MIN" || die "la versión $VERSION es anterior a la $VOZ_MIN y este script no la instala. Usa --version $VOZ_MIN o más nueva (o la instalación a mano del runbook §2)"
+    fi
+    if [ -n "$LISTEN" ] && ! [[ "$LISTEN" =~ ^[0-9A-Fa-f:.]+$ ]]; then
+        die "dirección inválida para --listen: «$LISTEN» (una IP, por ejemplo 0.0.0.0 o 10.0.0.5)"
+    fi
+    if [[ "$DIR" =~ [[:cntrl:]] ]]; then die "--dir no puede tener caracteres de control ni saltos de línea"; fi
     if [ -n "$PORT" ]; then
         if ! [[ "$PORT" =~ ^[0-9]{1,5}$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
             die "puerto inválido: $PORT"
@@ -479,6 +498,8 @@ main() {
     if [ -z "$VERSION" ]; then
         VERSION="$(latest_version)"
         is_semver "$VERSION" || die "no se encontró ninguna versión publicada de Iris Voz. Indica una con --version X.Y.Z"
+        version_ge "$VERSION" "$VOZ_MIN" ||
+            die "GitHub dice que la última versión es la $VERSION, anterior a la $VOZ_MIN de este script. No se instala una versión vieja"
         ok "última versión publicada: $VERSION"
     else
         ok "versión pedida: $VERSION"
