@@ -674,11 +674,11 @@ Argos solo exige nombre y teléfono al crear. Lo que falte lo manda Iris **antes
 | Status | Código | Dónde |
 | --- | --- | --- |
 | 422 | `servicio_no_pendiente` | A38 (reservar), A39, A40, A43 |
-| 422 | `cliente_sin_instalacion` | acordado; pendiente en Argos |
+| 422 | `cliente_sin_instalacion` | A41 |
 | 409 | `conflicto_version` | A39, A40, A43 |
 | 422 | `sin_ip_disponible` | A38, `activar-instalacion`, `aprovisionar` (`causa`) |
 | 422 | `plan_no_permitido` | A40, `activar-instalacion`, `aprovisionar` |
-| 422 | `evidencia_requerida` | acordado; pendiente en Argos |
+| 422 | `evidencia_requerida` | A39 |
 | 422 | `titular_no_coincide` | A39 y A41: el documento es de otro cliente con otro nombre. En Iris, la operación de la cola queda `rechazada` con este código y la orden pasa a revisión de un supervisor |
 | 422 | `campo_ya_registrado` | A43 |
 | 422 | `cliente_con_historial` | A43 (`telefono`, `movil`, `email`, `nombre` o `facturacion` de un cliente con historial) |
@@ -738,7 +738,7 @@ Argos es el dueño de los contactos. Un cliente tiene varios (`core.contactos_cl
 
 | Método y ruta | Permiso | Qué hace |
 | --- | --- | --- |
-| `GET /contactos/buscar?telefono=` | `contactos.buscar` | `telefono` en E.164. Responde `[{ cliente_id, empresa_id, contacto_id, nombre, relacion, es_titular, servicios[], permisos }]`, dentro del alcance de empresas del token. **No** devuelve otros números ni documentos. Exige `X-Iris-Actor`. Límite por tasa: 60 por minuto por token y **20 por minuto por actor** (`429 demasiadas_busquedas` con `Retry-After`) |
+| `GET /contactos/buscar?telefono=` | `contactos.buscar` | `telefono` en E.164. Responde `[{ cliente_id, empresa_id, contacto_id, nombre, relacion, es_titular, adicional, servicios[], permisos }]` (`adicional: true` cuando el número es uno de los `telefonos_adicionales` del titular, §3.2; Iris lo trata como un contacto no verificado), dentro del alcance de empresas del token. **No** devuelve otros números ni documentos. Exige `X-Iris-Actor`. Límite por tasa: 60 por minuto por token y **20 por minuto por actor** (`429 demasiadas_busquedas` con `Retry-After`) |
 | `GET /clientes/:id/contactos` | `contactos.buscar` | Los contactos del cliente, con sus teléfonos. Exige `X-Iris-Actor`, con los mismos límites |
 | `POST /clientes/:id/contactos` | `contactos.gestionar` | Crea un contacto. `Idempotency-Key` obligatoria; `201` con el contacto |
 | `PUT /contactos/:id` | `contactos.gestionar` | Lo edita, con `version` (`409 conflicto_version`). `Idempotency-Key` obligatoria |
@@ -794,7 +794,7 @@ Una persona de Argos (oficina, caja o soporte) registra en Iris a alguien intere
 | --- | --- |
 | `origen` | `oficina`, `llamada`, `whatsapp`, `referido` u `otro` |
 | `nombre`, `direccion` | Obligatorios (2 a 200 y 1 a 300) |
-| `telefonos[]` | De 1 a 5, cada uno `{ numero (E.164), whatsapp (bool), principal (bool), nombre?, relacion? (`titular` \| `familiar` \| `otro`) }`, con **exactamente un** `principal`. Si no: `422 telefonos_invalidos` (con `errors[]` por posición, sin repetir el número) |
+| `telefonos[]` | De 1 a 5, cada uno `{ numero (E.164), whatsapp (bool), principal (bool), nombre?, relacion? (`titular` \| `familiar` \| `otro`) }`, con **exactamente un** `principal`. El `principal` no lleva `relacion` o lleva `titular`; `relacion: titular` solo vale en el principal. Si no: `422 telefonos_invalidos` (con `errors[]` por posición, sin repetir el número) |
 | `modo` | `residencial` o `empresarial` |
 | `zona_id`, `coordenadas`, `plan_interes_id` | Opcionales. El plan debe ser de esa empresa y aplicable al modo (`422 plan_no_permitido`) |
 | `comentario` | Opcional, hasta 500 |
@@ -802,8 +802,10 @@ Una persona de Argos (oficina, caja o soporte) registra en Iris a alguien intere
 
 - **Respuesta** `201 { prospecto_id, numero, estado, asignado, url_iris }` (`asignado`: bool, ya tiene vendedor). `url_iris` es un **enlace plano** al prospecto en Iris: el ticket de autologin se pide al hacer clic, con el flujo de §1.3, y nunca va dentro de la URL.
 - **Qué hace Iris:** crea el prospecto con origen `argos_panel`, le asigna vendedor por zona y revisa la factibilidad, igual que con las solicitudes del portal (§11.7).
-- **Errores:** `422 plan_no_permitido`, `422 telefonos_invalidos`, `422 cliente_no_valido`; `409 prospecto_duplicado { url_iris }` (sin `prospecto_id`, nombre ni vendedor) si **cualquiera** de los números ya está en un prospecto abierto de la empresa: Iris suma el pedido como actividad de ese prospecto; `429` (con `Retry-After`) al pasar 10 por minuto por actor o 300 por minuto por empresa.
-- **Al ganar** (§3.2): el número `principal` pasa a ser el `telefono` del cliente; los números **con `nombre`** se crean como contactos (A42, `POST /clientes/:id/contactos`) con su `relacion`; los números **sin nombre** van como números adicionales del contacto titular **dentro del mismo alta** (`telefonos_adicionales[] { numero, whatsapp }` en el cuerpo de `POST /clientes`), nunca con un `PUT` posterior (Iris no hace `PUT` sobre el contacto titular, §3.5). Ni los números adicionales ni los de los contactos cuentan como «registrados» para §7.5 y §12.4.
+- **Errores:** `422 plan_no_permitido`, `422 telefonos_invalidos`, `422 cliente_no_valido`; `409 prospecto_duplicado { url_iris }` (sin `prospecto_id`, nombre, vendedor ni **cuál número** coincidió) si **cualquiera** de los números ya está en un prospecto abierto de la empresa: Iris suma el pedido como actividad de ese prospecto; `429` (con `Retry-After`) al pasar **30 números por minuto por actor** (cuenta números, no peticiones) o 300 por minuto por empresa.
+- **Al ganar con un cliente nuevo** (§3.2): el número `principal` pasa a ser el `telefono` del cliente; los números **con `nombre`** se crean como contactos (A42, `POST /clientes/:id/contactos`) con su `relacion`; los números **sin nombre** van como números adicionales del contacto titular **dentro del mismo alta** (`telefonos_adicionales[] { numero, whatsapp }` en el cuerpo de `POST /clientes`), nunca con un `PUT` posterior (Iris no hace `PUT` sobre el contacto titular, §3.5). Ni los números adicionales ni los de los contactos cuentan como «registrados» para §7.5 y §12.4.
+- **Al ganar con `cliente_id`** (cliente existente): Iris **no crea ni edita** el cliente: el `principal` y los números sin nombre no se escriben en él. Los números con `nombre` se crean como contactos (A42); los demás quedan solo en el prospecto.
+- **En el chat** (P2): un número del prospecto que no es el principal lo ubica, pero no ve la cotización, la dirección ni el plan hasta confirmar con un código enviado al principal.
 - **Webhook a Argos (opcional para Argos):** `prospecto.estado_cambiado { prospecto_id, empresa_id, de, a, motivo_codigo }` (§6.6), solo de prospectos con origen `argos_panel` y sin datos personales.
 - **En Argos:** guarda solo el vínculo en su bitácora y reenvía desde su cola de pendientes con la misma clave. Permiso en Argos: `prospectos.registrar` (admin, cajero y soporte).
 
@@ -1045,7 +1047,7 @@ Errores nuevos: los de §3.4.7.
 | B20 | **Cotización y contrato al cambiar** (0.10.0, §3.4.8): revisión nueva de la cotización con el plan nuevo y aviso al vendedor; contrato regenerado a nombre del nuevo titular y firmado en la orden. | pendiente en Iris |
 | B21 | **Planes permitidos sin señal y cobro después del titular** (0.10.0, §3.4.8): planes de `GET /planes?router_id=&modo=` en el paquete del día; el cobro de la instalación sale después de confirmar el titular. | pendiente en Iris |
 | B22 | **Contactos en la atención** (0.10.0, §3.5): al llegar un mensaje o una llamada, buscar el número y asociar la conversación al cliente con el rol del contacto; con varios clientes, preguntar sin mostrar datos de ninguno; el asistente y los agentes ofrecen solo lo que permiten los `permisos` y piden la validación del titular para lo reservado; un `contacto_iris` unido a un cliente se crea en Argos; caché refrescada por `cliente.contactos_cambiados`; consentimiento por número. | pendiente en Iris |
-| B23 | **Prospectos desde Argos** (0.10.0, §3.6): `POST /api/v1/integraciones/argosisp/prospectos` con el permiso `prospectos.registrar_integracion` (solo registrar), origen `argos_panel`, vendedor por zona y factibilidad como §11.7, `telefonos[]` guardados en una tabla aparte con índice por número y empresa, `409 prospecto_duplicado { url_iris }` (con el pedido sumado como actividad) si cualquiera de los números está en un prospecto abierto, límites por actor y empresa, el chat ubica al prospecto por cualquiera de sus números (como a los clientes), al ganar el principal como teléfono del cliente, los números con nombre como contactos y los demás en `telefonos_adicionales[]`, y el webhook `prospecto.estado_cambiado` sin datos personales. | pendiente en Iris |
+| B23 | **Prospectos desde Argos** (0.10.0, §3.6): `POST /api/v1/integraciones/argosisp/prospectos` con el permiso `prospectos.registrar_integracion` (solo registrar), origen `argos_panel`, vendedor por zona y factibilidad como §11.7, `telefonos[]` guardados en una tabla aparte con índice por número y empresa, `409 prospecto_duplicado { url_iris }` (con el pedido sumado como actividad) si cualquiera de los números está en un prospecto abierto, límites por actor y empresa, el chat ubica al prospecto por cualquiera de sus números (como a los clientes), al ganar el principal como teléfono del cliente nuevo, los números con nombre como contactos y los demás en `telefonos_adicionales[]` (con `cliente_id` existente, sin tocar el cliente), un número no principal sin acceso a cotización, dirección ni plan hasta un código al principal, y el webhook `prospecto.estado_cambiado` sin datos personales. | pendiente en Iris |
 
 ## 6. Servicio de mensajería de Iris (0.6.0, fase 1)
 
@@ -1682,12 +1684,15 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 - **u. Titular existente sin confirmación (N2).** A las 24 h sin código válido, revisión de una persona de Argos (`estado: en_revision`), nunca confirmado solo; sin teléfono ni correo confirmados, directo a revisión.
 - **v. Alcance de §3.4 por servicio (N3).** El `origen_id` debe ser de una orden ya registrada para ese mismo servicio.
 - **w. Errores de §3.6 (N4).** `403 empresa_no_permitida`, `409 argos_apagado` y `403` con el `token_portal`.
-- **x. Duplicados y respuesta de §3.6 (N5).** `409 prospecto_duplicado { url_iris }` que suma actividad al existente; `asignado` en lugar de `vendedor_id`; 10 por minuto por actor.
+- **x. Duplicados y respuesta de §3.6 (N5).** `409 prospecto_duplicado { url_iris }` que suma actividad al existente, sin decir qué número coincidió; `asignado` en lugar de `vendedor_id`; el límite cuenta números: 30 por minuto por actor.
 - **y. `url_iris` plano (N6).** El ticket de autologin se pide al hacer clic (§1.3).
 - **z. Idempotencia de §3.6 (N7).** Huella con `X-Iris-Empresa` y `X-Iris-Actor`, clave guardada 30 días, `409 idempotencia_en_proceso`.
 - **aa. `cliente_id` sin Argos (N8).** `cliente_validado: false` y conciliación después.
 - **ab. Contador de `titular_no_coincide` (N9).** Aparte de §7.5: solo bloquea nuevos cambios de titular hacia ese documento.
 - **ac. Elegir entre clientes (N10).** 3 intentos por conversación y 5 por número al día.
+- **ad. Ganar con un cliente existente (P1).** Iris no crea ni edita el cliente: el principal y los números sin nombre no se escriben en él; los números con nombre van como contactos (A42) y los demás quedan en el prospecto.
+- **ae. Números del prospecto (P2).** El principal sin `relacion` o con `titular`, y `titular` solo en el principal (`422 telefonos_invalidos`); `buscar` marca los números adicionales con `adicional: true` y Iris los trata como contacto no verificado; en el chat, un número que no es el principal no ve cotización, dirección ni plan sin un código al principal.
+- **af. Corrección de edición.** En §3.4.7, «Dónde» de `cliente_sin_instalacion` (A41) y de `evidencia_requerida` (A39), que un reemplazo de `cf9d1b2` había cambiado.
 
 **Valor inicial del líder de Iris** (cambiable sin tocar el contrato): un cambio de plan que sube el precio también pide la firma del titular sobre la cotización nueva, apagado de fábrica (lo enciende la empresa).
 
