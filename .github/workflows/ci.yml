@@ -43,7 +43,7 @@ jobs:
     needs: detectar
     if: needs.detectar.outputs.api == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -90,7 +90,9 @@ jobs:
         run: go vet ./...
 
       - name: Pruebas (Postgres real)
-        run: go test -count=1 -race ./...
+        # mensajeria pasa de 10 min con -race en los runners de GitHub (el límite de
+        # go test por defecto). 25 min deja margen; la división del paquete va aparte.
+        run: go test -count=1 -race -timeout 25m ./...
 
       - uses: sqlc-dev/setup-sqlc@v4
         with:

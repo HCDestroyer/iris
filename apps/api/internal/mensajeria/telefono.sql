@@ -16,12 +16,62 @@ UPDATE mensajeria.centralita_extensiones SET tipo = @tipo, sip_usuario = sqlc.na
 WHERE id = @id AND activa
 RETURNING *;
 
--- name: MarcarRegistroProbado :exec
-UPDATE mensajeria.centralita_extensiones SET sip_probado_en = sqlc.narg('sip_probado_en'), updated_at = now() WHERE id = @id AND activa;
+-- name: MarcarRegistroProbado :execrows
+-- Una prueba que pasa borra el rechazo anterior. Solo si la contraseña probada sigue siendo la
+-- guardada (`sip_guardado_en`): una prueba de la vieja no marca la nueva.
+UPDATE mensajeria.centralita_extensiones SET sip_probado_en = sqlc.narg('sip_probado_en'),
+    sip_rechazado_en = CASE WHEN sqlc.narg('sip_probado_en')::timestamptz IS NOT NULL THEN NULL ELSE sip_rechazado_en END, updated_at = now()
+WHERE id = @id AND activa AND sip_guardado_en = @guardado::timestamptz;
+
+-- name: MarcarRegistroRechazado :execrows
+-- La Issabel rechazó la contraseña guardada («Probar registro» o una conexión del puente), si sigue
+-- siendo la misma que se probó.
+UPDATE mensajeria.centralita_extensiones SET sip_probado_en = NULL, sip_rechazado_en = @ahora::timestamptz, updated_at = now()
+WHERE id = @id AND activa AND sip_guardado_en = @guardado::timestamptz;
+
+-- name: ContarRechazoCentralita :one
+-- Una contraseña rechazada más en la centralita (ventana que empieza en el primer rechazo).
+UPDATE mensajeria.centralitas SET
+    rechazos = CASE WHEN rechazos_desde IS NULL OR rechazos_desde < @desde::timestamptz THEN 1 ELSE rechazos + 1 END,
+    rechazos_desde = CASE WHEN rechazos_desde IS NULL OR rechazos_desde < @desde::timestamptz THEN @ahora::timestamptz ELSE rechazos_desde END
+WHERE id = @id
+RETURNING rechazos, rechazos_desde;
+
+-- name: ReservarPruebaRegistro :execrows
+-- Reserva el turno de «Probar registro» de la centralita (uno a la vez); 0 filas si otro lo tiene.
+UPDATE mensajeria.centralitas SET registro_en_curso_hasta = @hasta::timestamptz
+WHERE id = @id AND (registro_en_curso_hasta IS NULL OR registro_en_curso_hasta <= @ahora::timestamptz);
+
+-- name: SoltarPruebaRegistro :exec
+-- Solo la reserva propia (la de `hasta`): si ya venció y la tomó otro, no se toca.
+UPDATE mensajeria.centralitas SET registro_en_curso_hasta = NULL WHERE id = @id AND registro_en_curso_hasta = @hasta::timestamptz;
+
+-- name: TurnoRegistroCentralita :one
+SELECT registro_en_curso_hasta FROM mensajeria.centralitas WHERE id = @id;
+
+-- name: RechazosCentralita :one
+-- Las contraseñas rechazadas en la ventana actual de la centralita.
+SELECT rechazos, rechazos_desde FROM mensajeria.centralitas WHERE id = @id;
+
+-- name: ContarPruebaRegistroExtension :one
+-- «Probar registro» de esta extensión en el último minuto (con esta).
+UPDATE mensajeria.centralita_extensiones SET
+    registro_pruebas = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < @desde::timestamptz THEN 1 ELSE registro_pruebas + 1 END,
+    registro_pruebas_desde = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < @desde::timestamptz THEN @ahora::timestamptz ELSE registro_pruebas_desde END
+WHERE id = @id
+RETURNING registro_pruebas;
+
+-- name: ContarPruebaRegistroCentralita :one
+-- «Probar registro» de toda la centralita en el último minuto (con esta).
+UPDATE mensajeria.centralitas SET
+    registro_pruebas = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < @desde::timestamptz THEN 1 ELSE registro_pruebas + 1 END,
+    registro_pruebas_desde = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < @desde::timestamptz THEN @ahora::timestamptz ELSE registro_pruebas_desde END
+WHERE id = @id
+RETURNING registro_pruebas;
 
 -- name: BorrarCredencialExtension :exec
 -- Al quitar la extensión, la credencial se borra.
-UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = NULL, sip_guardado_en = NULL, sip_probado_en = NULL, tipo = 'escritorio'
+UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = NULL, sip_guardado_en = NULL, sip_probado_en = NULL, sip_rechazado_en = NULL, tipo = 'escritorio'
 WHERE id = @id;
 
 -- name: TelefonoDeUsuario :one
@@ -58,8 +108,8 @@ SELECT * FROM mensajeria.centralita_grupos WHERE centralita_id = @centralita_id 
 -- Tickets y conexiones -------------------------------------------------------------------------------
 
 -- name: InsertarTicketTelefono :exec
-INSERT INTO mensajeria.telefono_tickets (hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en)
-VALUES (@hash, @usuario_id, sqlc.narg('empresa_id'), @extension_id, @dispositivo, @sesion_id, @expira_en);
+INSERT INTO mensajeria.telefono_tickets (hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en, turno_hasta)
+VALUES (@hash, @usuario_id, sqlc.narg('empresa_id'), @extension_id, @dispositivo, @sesion_id, @expira_en, sqlc.narg('turno_hasta'));
 
 -- name: UsarTicketTelefono :one
 -- Un solo uso y sin vencer.

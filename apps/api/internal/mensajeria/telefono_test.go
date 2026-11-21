@@ -40,7 +40,7 @@ type bancoTelefono struct {
 	extID   float64
 }
 
-func nuevoBancoTelefono(t *testing.T) *bancoTelefono {
+func nuevoBancoTelefono(t *testing.T, ajustes ...func(*mensajeria.Config)) *bancoTelefono {
 	t.Helper()
 	falso := sipfalso.Nuevo("201", secretoSIP)
 	t.Cleanup(falso.Cerrar)
@@ -51,6 +51,9 @@ func nuevoBancoTelefono(t *testing.T) *bancoTelefono {
 		c.TelefonoLatido = 150 * time.Millisecond
 		c.BaseURL = baseIris
 		c.Campo = campo.Nuevo(campo.Config{Reloj: c.Ahora, Soporte: c.Soporte, Adjuntos: campo.SinAdjuntosObligatorios{}})
+		for _, a := range ajustes {
+			a(c)
+		}
 	})
 	b := &bancoTelefono{bancoCentralita: x, sip: falso}
 	t.Cleanup(func() {
@@ -497,7 +500,7 @@ func TestTelefonoLlamarReglas(t *testing.T) {
 	b.sql(`UPDATE mensajeria.centralitas SET llamadas_simultaneas = 100, llamadas_por_usuario_dia = 2 WHERE id = $1`, b.id)
 	b.exigirProblema(b.api(b.agente, http.MethodPost, "/telefono/llamar", map[string]any{"numero": "33335555"}), http.StatusUnprocessableEntity, "limite_llamadas")
 	// Las marcaciones sin INVITE en 60 s quedan fallidas (y siguen contando para el día).
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	b.sql(`UPDATE mensajeria.centralitas SET llamadas_por_usuario_dia = 300 WHERE id = $1`, b.id)
 	b.exigir(b.api(b.agente, http.MethodPost, "/telefono/llamar", map[string]any{"numero": "33335555"}), http.StatusCreated)
 	var fallidas int

@@ -2868,7 +2868,7 @@ export interface paths {
         put?: never;
         /**
          * Probar registro
-         * @description Permiso: `centralita.asignar_extension`. REGISTER de consulta (sin Contact: no agrega ni quita registros) con la credencial guardada: `ok`, `credenciales`, `huella_distinta`, `no_conecta` o `sin_credencial`. Con `ok` deja `sipProbadoEn`. Evento `extension.registro_probado`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         * @description Permiso: `centralita.asignar_extension`. REGISTER de consulta (sin Contact: no agrega ni quita registros) con la credencial guardada: `ok`, `credenciales`, `huella_distinta`, `no_conecta` o `sin_credencial`. Con `ok` deja `sipProbadoEn` (y borra `sipRechazadoEn`); con `credenciales`, `sipRechazadoEn`. Evento `extension.registro_probado`. Para no cebar fail2ban: 429 `credencial_rechazada` si la Issabel ya rechazó esta contraseña y no se escribió otra (30 min); 429 `demasiados_rechazos` si la centralita juntó 3 contraseñas rechazadas en 10 min (en pruebas o en el puente); y 429 `demasiados_intentos` pasadas 3 pruebas por minuto de la extensión o 10 de la centralita. Un solo REGISTER de prueba a la vez por centralita: la otra recibe 429 `prueba_en_curso` (o `demasiados_rechazos` si la centralita tiene rechazos en la ventana) con `Retry-After: 10`. Todos con `Retry-After`. Solo marca la contraseña que se probó (si mientras tanto se guardó otra, esa queda igual). Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
          */
         post: operations["probarRegistroExtension"];
         delete?: never;
@@ -6032,7 +6032,7 @@ export interface paths {
         put?: never;
         /**
          * Abrir el teléfono (ticket del WebSocket y TURN)
-         * @description Devuelve la ruta del WebSocket, un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. `dispositivo: app` solo marca (no registra ni recibe). Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         * @description Devuelve la ruta del WebSocket, un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. 429 `demasiados_intentos` (6 por minuto y persona) y `demasiados_rechazos` (la centralita rechazó 3 contraseñas en 10 min: fail2ban; o, con algún rechazo reciente, el turno de REGISTER de la centralita lo tiene otro), con `Retry-After`. `dispositivo: app` solo marca (no registra ni recibe). Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
          */
         post: operations["abrirTelefono"];
         delete?: never;
@@ -15511,6 +15511,11 @@ export interface components {
              * @description La última vez que «Probar registro» pasó
              */
             sipProbadoEn: string | null;
+            /**
+             * Format: date-time
+             * @description La última vez que la Issabel rechazó la contraseña guardada; con ella no se vuelve a probar hasta escribir otra
+             */
+            sipRechazadoEn: string | null;
             /** @description Usuario SIP del endpoint (navegador) */
             sipUsuario: string | null;
             /** @enum {string} */
@@ -32738,6 +32743,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problema"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
             /** @description Internal Server Error */
             500: {
                 headers: {
@@ -45424,6 +45438,15 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
