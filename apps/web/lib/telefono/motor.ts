@@ -267,7 +267,8 @@ export class MotorTelefono {
         } else if (r.revisar) {
             this.conexion({ fase: "conectando" });
         }
-        if (r.revisar) this.d.revisar();
+        // También con la contraseña rechazada: el servidor ya la marcó «sin probar» y lo dice `GET /telefono`.
+        if (r.revisar || r.error?.tipo === "clave") this.d.revisar();
     }
 
     /** Suelta el teléfono (al apagar, al perder la pestaña o al salir). */

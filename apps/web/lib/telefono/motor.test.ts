@@ -210,7 +210,8 @@ describe("conectar", () => {
         b.sockets[0]?.cerrar(4003, "credenciales");
         expect(b.motor.leer().conexion).toEqual({ fase: "error", error: { tipo: "clave" } });
         expect(b.uas[0]?.detenido).toBe(true);
-        expect(b.revisar).not.toHaveBeenCalled();
+        // La contraseña rechazada: se vuelve a leer `GET /telefono` (el servidor ya la marcó sin probar).
+        expect(b.revisar).toHaveBeenCalledOnce();
         const c = await listo();
         c.sockets[0]?.cerrar(4003, "sin_acceso");
         expect(c.uas[0]?.detenido).toBe(true);

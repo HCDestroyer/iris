@@ -205,7 +205,7 @@ function Formulario({ centralita: c }: { centralita: Centralita }) {
                 </ol>
                 <details>
                     <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">Cómo comprobarlo desde la consola de la Issabel</summary>
-                    <pre className="mt-2 overflow-x-auto rounded-lg bg-elevated p-3 font-mono text-xs text-foreground">
+                    <pre data-desborde-permitido className="mt-2 overflow-x-auto rounded-lg bg-elevated p-3 font-mono text-xs text-foreground">
                         {'asterisk -rx "dialplan show 0019005551234@from-iris"   # sin coincidencia\nasterisk -rx "dialplan show 955551234@from-iris"       # sale por from-internal\nasterisk -rx "pjsip show endpoint 201" | grep context  # from-iris\nasterisk -rx "database show" | grep -i dial_options     # sin T ni t'}
                     </pre>
                 </details>
@@ -218,7 +218,7 @@ function Formulario({ centralita: c }: { centralita: Centralita }) {
                         <span>
                             <b>1.</b> Encender WSS en el 8089 (solo lo usa Iris; puede ser el mismo certificado del AMI):
                         </span>
-                        <pre className="overflow-x-auto rounded-lg bg-elevated p-3 font-mono text-xs">
+                        <pre data-desborde-permitido className="overflow-x-auto rounded-lg bg-elevated p-3 font-mono text-xs">
                             {"; /etc/asterisk/http_custom.conf\ntlsenable=yes\ntlsbindaddr=0.0.0.0:8089\ntlscertfile=/etc/asterisk/keys/ami.crt\ntlsprivatekey=/etc/asterisk/keys/ami.key"}
                         </pre>
                     </li>
@@ -226,7 +226,7 @@ function Formulario({ centralita: c }: { centralita: Centralita }) {
                         <span>
                             <b>2.</b> En cada extensión que conteste en Iris: <b>PBX › Extensiones › Avanzado</b>, «WebRTC: Sí» (o en pjsip):
                         </span>
-                        <pre className="overflow-x-auto rounded-lg bg-elevated p-3 font-mono text-xs">{"webrtc=yes\ntransport=transport-wss\nallow=!all,opus,ulaw\ncontext=from-iris"}</pre>
+                        <pre data-desborde-permitido className="overflow-x-auto rounded-lg bg-elevated p-3 font-mono text-xs">{"webrtc=yes\ntransport=transport-wss\nallow=!all,opus,ulaw\ncontext=from-iris"}</pre>
                     </li>
                     <li>
                         <b>3.</b> Firewall: abrir <b>TCP 8089</b> y el audio <b>UDP 10000–20000</b> <b>solo a la IP de Iris</b>. Nada a internet: los celulares entran por Iris.

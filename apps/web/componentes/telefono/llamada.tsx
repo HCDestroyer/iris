@@ -90,12 +90,12 @@ function VentanaEntrante({ t, llamada, otra, segunda }: { t: ContextoTelefono; l
             {!q.conocido ? <p className="text-[0.8125rem] text-muted-foreground">Este número no está en Argos ni en tus contactos. Al contestar puedes buscar al cliente o crear un ticket.</p> : null}
             {otra ? <p className="text-[0.8125rem] text-muted-foreground">Estás en otra llamada. Si contestas, esa queda <b>en espera</b> hasta que vuelvas.</p> : null}
             <div className="grid grid-cols-2 gap-2">
-                <Boton variante="peligro" className="h-11" onClick={() => t.rechazar(llamada.id)}>
+                <Boton variante="peligro" className="h-11 w-full" onClick={() => t.rechazar(llamada.id)}>
                     <PhoneOff />
                     Rechazar
                 </Boton>
                 <Boton
-                    className="h-11"
+                    className="h-11 w-full"
                     disabled={contestando}
                     onClick={async () => {
                         setContestando(true);

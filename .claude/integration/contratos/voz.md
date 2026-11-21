@@ -1531,6 +1531,13 @@ conexión; límites; adopción por el AMI; llamada directa.
   con el Call-ID de una llamada viva recibe **482** y la llamada no cambia; si su transacción no cabe
   (256 pendientes), recibe 503 sin dejar un diálogo guardado. Cambiar `IRIS_TURN_SECRETO` y correr
   `irisctl start` vuelve a crear el contenedor `turn` (coturn lee el secreto solo al arrancar).
+- **Fase 2, panel (22 nov 2026):** el puente trata cada forma compacta de cabecera (`k:`, `o:`, `u:`,
+  `x:`…) como su nombre largo en las listas blancas (antes se perdían; `r:` fuera de un REFER se quita
+  igual que `Refer-To`). El panel usa JsSIP 3.13.9 con su propio socket (ticket por conexión) y
+  `contact_uri` `sip:<sip_usuario>@<azar>.invalid;transport=ws`; registra cada 300 s; DTMF por INFO de a
+  un dígito; «Transferir» es solo la transferencia ciega (REFER sin `Replaces`: «Hablar primero» de la
+  maqueta no se ofrece). Encendido por persona y navegador; una pestaña (`navigator.locks`); tras
+  `4003 credenciales` no se reintenta solo (solo «Reintentar»).
 - **Dependencias:** sipgo se queda en v1.7.2: v1.7.3/v1.7.4 agregan un tope de parámetros por cabecera
   (`ParseMaxHeaderParams`), pero tienen menos de 2 semanas; el tope de 16 KB por mensaje acota ese caso
   mientras tanto.

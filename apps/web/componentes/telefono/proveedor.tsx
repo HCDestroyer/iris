@@ -216,7 +216,9 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
             if (fase !== "apagado") motor.apagado(mio.extension ?? null);
             return;
         }
-        const volver = fase === "apagado" || fase === "no_disponible" || (esClave && !motor.encendido);
+        // Tras «la centralita no aceptó la contraseña» no se reintenta solo (fail2ban bloquearía la IP
+        // de Iris para todos): solo con «Reintentar», cuando un administrador la escribió otra vez.
+        const volver = fase === "apagado" || fase === "no_disponible";
         if (!volver || arrancando.current) return;
         void (async () => {
             if ((await permisoMicrofono()) === "denied") {
