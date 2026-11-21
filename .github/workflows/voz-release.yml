@@ -54,6 +54,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Solo se publica lo que ya pasó por main (revisión y CI), nunca un commit de otra rama.
+          # Evita errores honestos (una etiqueta hecha a mano en otra rama); NO es una barrera de
+          # seguridad: esta comprobación vive en el mismo archivo que corre en la etiqueta. La barrera
+          # es la regla de etiquetas voz-v* y que la llave de la App solo esté en el entorno
+          # voz-etiqueta (docs/runbooks/servidor-ia.md §8).
           estado="$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$GITHUB_SHA" --jq .status)" ||
             { echo "::error::no se pudo comparar $GITHUB_SHA con main"; exit 1; }
           case "$estado" in

@@ -11,7 +11,8 @@
 #   de otra rama no la recibe. Solo un commit que ya está en main puede llegar a etiquetarse.
 #
 # infra/voz/etiquetar.sh hace las comprobaciones (versión X.Y.Z, commit en main, etiqueta nueva y
-# mayor que la última; si ya existe con el mismo manifiesto, no hace nada) y usa un token de la App
+# mayor que la última; si ya existe con el mismo manifiesto, no hace nada; el entorno voz-etiqueta
+# limitado exactamente a main y la llave fuera de los secretos del repositorio) y usa un token de la App
 # de un solo repositorio y solo `contents: write`, que revoca al terminar.
 #
 # Configuración (una vez, la hace el PM): docs/runbooks/servidor-ia.md §8.
@@ -38,6 +39,8 @@ jobs:
     # Limitado a main en Settings → Environments: solo aquí llega la llave de la App.
     environment: voz-etiqueta
     permissions:
+      # actions: read para leer la configuración del entorno voz-etiqueta antes de usar la llave.
+      actions: read
       contents: read
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0

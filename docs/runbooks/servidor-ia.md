@@ -163,12 +163,18 @@ lo hace ningún agente):
    - *Environment secrets*: `VOZ_APP_ID` = el App ID, y `VOZ_APP_KEY` = el contenido completo del
      `.pem` (abrirlo con un editor de texto y pegar todo, con las líneas `BEGIN`/`END`). Después,
      borrar el `.pem` del equipo.
+   - **Nunca** en Settings → Secrets and variables → Actions → *Repository secrets*: ahí los leería
+     cualquier workflow de cualquier rama. `voz-etiqueta.yml` se niega a usar la llave si el entorno
+     no está limitado exactamente a `main` (y avisa, porque `GITHUB_TOKEN` no puede listar los
+     secretos del repositorio, de que hay que comprobar a mano que no estén ahí).
 3. **La regla de etiquetas `voz-v*`** (Settings → Rules → Rulesets, la de «Iris Voz»): restringe
    crear, actualizar y borrar. En *Bypass list* → *Add bypass* → la App «Iris Voz etiquetas»
    (además de quien ya publica). **No** agregar la app «GitHub Actions»: eso dejaría etiquetar a
    cualquier workflow de cualquier rama.
 4. **El entorno `voz-release`** con revisores obligatorios, con «impedir autoaprobación» activado,
    sin permitir que los administradores se salten la regla y limitado a las etiquetas `voz-v*`.
+5. **`main` sigue protegida** contra push directo y contra force-push (solo entra por PR con CI en
+   verde). Todo lo anterior descansa en eso: lo que llega a `main` puede etiquetarse solo.
 
 Por qué así: la identidad que acepta el instalador es `voz-release.yml` en la etiqueta `voz-vX.Y.Z`,
 y esa identidad no depende del contenido del workflow. Por eso quien pueda crear una etiqueta
@@ -176,6 +182,12 @@ y esa identidad no depende del contenido del workflow. Por eso quien pueda crear
 llave de la App solo llega a un job del entorno `voz-etiqueta`, que solo corre en `main`: quien empuja
 una rama no puede crear la etiqueta; solo lo que ya entró a `main` (con revisión y CI) llega a
 etiquetarse, y firmarlo sigue necesitando la aprobación del PM.
+
+La comprobación «el commit de la etiqueta está en `main`» de `voz-release.yml` evita errores honestos
+(una etiqueta hecha a mano sobre otra rama), pero **no es una barrera de seguridad**: vive en el mismo
+archivo que corre en la etiqueta y quien controle ese commit la puede quitar. Las barreras son la
+regla de etiquetas `voz-v*`, que la llave de la App solo esté en el entorno `voz-etiqueta` (limitado a
+`main`) y que `main` esté protegida.
 
 El workflow comprueba primero el commit y el entorno y después corre tres jobs con permisos mínimos:
 `construir` (publica la imagen y exporta las sumas), `firmar` (solo `id-token: write`; no hace

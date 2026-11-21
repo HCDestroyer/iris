@@ -9,7 +9,8 @@
 # the `voz-release` environment before signing and publishing.
 #
 # Environment:
-#   GH_TOKEN             GITHUB_TOKEN (contents: read): reads refs and the manifest of a tag.
+#   GH_TOKEN             GITHUB_TOKEN (contents: read, actions: read): reads refs, the manifest of a
+#                        tag and the settings of the voz-etiqueta environment.
 #   VOZ_APP_ID           ID (or Client ID) of the GitHub App that creates the tags.
 #   VOZ_APP_KEY          its private key (PEM).
 #   GITHUB_REPOSITORY, GITHUB_SHA, GITHUB_REF, GITHUB_API_URL (set by GitHub Actions).
@@ -19,6 +20,8 @@
 #   - If voz-vX.Y.Z exists and its manifest is the same as this one: nothing to do.
 #   - If it exists with another manifest: error (the manifest changed without raising version).
 #   - If it does not exist, X.Y.Z must be greater than every voz-v* tag.
+#   - Before touching the key: the voz-etiqueta environment must be limited to exactly the branch
+#     main, and VOZ_APP_* must not be repository secrets (those reach every workflow of every branch).
 set -euo pipefail
 shopt -s inherit_errexit
 
@@ -50,10 +53,11 @@ jwt_app() {
 }
 
 # api_con <header file> <curl args...>: GitHub REST with the Authorization header in a file (not argv).
+# No --retry here: a POST is never repeated (a second access token, a second ref); GETs pass it.
 api_con() {
     local cabecera="$1"
     shift
-    curl -fsS --proto '=https' --retry 3 -H @"$cabecera" -H 'Accept: application/vnd.github+json' \
+    curl -fsS --proto '=https' -H @"$cabecera" -H 'Accept: application/vnd.github+json' \
         -H 'X-GitHub-Api-Version: 2022-11-28' "$@"
 }
 
@@ -64,6 +68,35 @@ commit_de() {
     sha="$(jq -r .object.sha <<< "$1")"
     if [ "$tipo" = tag ]; then sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$sha" --jq .object.sha)"; fi
     printf '%s' "$sha"
+}
+
+# comprobar_entorno: fails closed unless the key can only reach a job on main.
+comprobar_entorno() {
+    local custom politicas nombres err
+    custom="$(gh api "repos/$GITHUB_REPOSITORY/environments/voz-etiqueta" --jq '.deployment_branch_policy.custom_branch_policies // false')" ||
+        die "no se pudo leer el entorno voz-etiqueta (docs/runbooks/servidor-ia.md §8)"
+    [ "$custom" = true ] ||
+        die "el entorno voz-etiqueta debe limitarse a ramas elegidas (Selected branches and tags: solo main)"
+    politicas="$(gh api "repos/$GITHUB_REPOSITORY/environments/voz-etiqueta/deployment-branch-policies?per_page=100" \
+        --jq '[.branch_policies[] | {name, type}] | sort_by(.name) | tojson')" ||
+        die "no se pudieron leer las ramas del entorno voz-etiqueta"
+    [ "$politicas" = '[{"name":"main","type":"branch"}]' ] ||
+        die "el entorno voz-etiqueta debe permitir solo la rama main (tiene $politicas)"
+
+    # Repository secrets with these names would reach any workflow of any branch. GITHUB_TOKEN has
+    # no `secrets` permission, so this list is usually not readable: then it only warns.
+    err="$TMP/secretos.err"
+    if nombres="$(gh api "repos/$GITHUB_REPOSITORY/actions/secrets?per_page=100" --jq '[.secrets[].name] | join(" ")' 2> "$err")"; then
+        case " $nombres " in
+            *" VOZ_APP_ID "* | *" VOZ_APP_KEY "*)
+                die "VOZ_APP_ID/VOZ_APP_KEY están en los secretos del repositorio: bórralos de ahí; van solo en el entorno voz-etiqueta"
+                ;;
+        esac
+    elif grep -qE 'HTTP 40[34]' "$err"; then
+        echo "::warning::GITHUB_TOKEN no puede listar los secretos del repositorio: comprueba a mano que VOZ_APP_ID y VOZ_APP_KEY no estén ahí (solo en el entorno voz-etiqueta)"
+    else
+        die "no se pudieron leer los secretos del repositorio"
+    fi
 }
 
 main() {
@@ -107,19 +140,21 @@ main() {
         die "la versión $version no es mayor que la última publicada ($mayor)"
     fi
 
+    TMP="$(umask 077 && mktemp -d)"
+    trap limpiar EXIT
+    comprobar_entorno
+
     : "${VOZ_APP_ID:?falta el secreto VOZ_APP_ID del entorno voz-etiqueta (docs/runbooks/servidor-ia.md §8)}"
     : "${VOZ_APP_KEY:?falta el secreto VOZ_APP_KEY del entorno voz-etiqueta (docs/runbooks/servidor-ia.md §8)}"
 
     local tmp jwt instalacion token cuerpo
-    TMP="$(umask 077 && mktemp -d)"
     tmp="$TMP"
-    trap limpiar EXIT
     printf '%s\n' "$VOZ_APP_KEY" > "$tmp/llave.pem"
     jwt="$(jwt_app "$VOZ_APP_ID" "$tmp/llave.pem")"
     echo "::add-mask::$jwt"
     printf 'Authorization: Bearer %s\n' "$jwt" > "$tmp/app"
 
-    instalacion="$(api_con "$tmp/app" "$API/repos/$GITHUB_REPOSITORY/installation" | jq -r .id)" ||
+    instalacion="$(api_con "$tmp/app" --retry 3 "$API/repos/$GITHUB_REPOSITORY/installation" | jq -r .id)" ||
         die "la GitHub App de VOZ_APP_ID no está instalada en $GITHUB_REPOSITORY (o la llave no es suya)"
     [[ "$instalacion" =~ ^[0-9]+$ ]] || die "no se pudo leer la instalación de la GitHub App"
 
