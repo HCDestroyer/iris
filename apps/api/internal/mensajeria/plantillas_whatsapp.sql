@@ -149,15 +149,23 @@ WHERE waba_id = @waba_id;
 
 -- name: ArchivarPlantillasDeOtraDuena :many
 -- Al cambiar la dueña de la cuenta: las plantillas de la empresa anterior quedan borradas por el
--- sistema (dejan de contar en los índices únicos de la cuenta y la nueva dueña no las ve).
-UPDATE mensajeria.plantillas_whatsapp
+-- sistema (dejan de contar en los índices únicos de la cuenta y la nueva dueña no las ve). Devuelve los
+-- códigos y usos que tenían, para el historial y el evento (y poder deshacerlo).
+WITH antes AS (
+    SELECT a.id, a.codigos, a.usos FROM mensajeria.plantillas_whatsapp a
+    WHERE a.waba_id = @waba_id AND coalesce(a.empresa_id, 0) <> @empresa::bigint AND a.estado <> 'DELETED'
+    FOR UPDATE
+)
+UPDATE mensajeria.plantillas_whatsapp p
 SET estado = 'DELETED', estado_en = @ahora, borrada_en = @ahora, borrada_por = 'sistema', codigos = '{}', usos = '{}',
-    version = version + 1, updated_at = now()
-WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) <> @empresa::bigint AND estado <> 'DELETED'
-RETURNING *;
+    version = p.version + 1, updated_at = now()
+FROM antes
+WHERE p.id = antes.id
+RETURNING p.id, p.empresa_id, p.waba_id, p.nombre, p.idioma, p.estado, antes.codigos AS codigos_antes, antes.usos AS usos_antes;
 
 -- name: OtraEmpresaUsaWaba :one
-SELECT EXISTS (SELECT 1 FROM mensajeria.canales WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) <> @empresa::bigint AND desconectado_en IS NULL)::boolean;
+-- Un número activo de otra empresa (desconectado por Meta o no: sigue siendo suyo hasta darlo de baja).
+SELECT EXISTS (SELECT 1 FROM mensajeria.canales WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) <> @empresa::bigint AND activo)::boolean;
 
 -- name: EstadoCuentaWA :exec
 UPDATE mensajeria.plantillas_whatsapp_cuentas

@@ -19,8 +19,9 @@ Maqueta aprobada por el PM (pantallas a lista, b nueva, c detalle, d sugeridas, 
    **Una cuenta es de una sola empresa** (`mensajeria.plantillas_whatsapp_cuentas.empresa_id`): la
    primera que registra un número con esa WABA. Otra empresa no puede registrar ni pasar un número a
    esa WABA (409 `waba_de_otra_empresa`, solo si la WABA es nueva o cambia); si la dueña ya no tiene
-   números en la cuenta, pasa a la nueva y las plantillas de la anterior quedan archivadas
-   (`DELETED`, `borradaPor = sistema`). La WABA de un número manual se comprueba en Meta con el token
+   números activos en la cuenta (uno desconectado por Meta sigue contando), pasa a la nueva y las plantillas de la anterior quedan archivadas
+   (`DELETED`, `borradaPor = sistema`, con sus códigos y usos en el historial y el evento). Activar un
+   número solo reclama una cuenta sin dueña; nunca la cambia. La WABA de un número manual se comprueba en Meta con el token
    del número antes de abrir la transacción (`GET /{waba}/phone_numbers` debe traer su phone number
    ID; si no, 422 `waba_no_coincide`). Un número QR no cambia de WABA por el formulario (422
    `numero_qr`: se reconecta con QR). Un número de otra empresa que ya estaba en la cuenta (de antes)
@@ -120,7 +121,8 @@ emojis y ≤ 15 datos; marketing activado. Lo que Iris no puede saber antes (cal
   en el job `mensajeria.procesar_entrante`. Solo cuenta si `entry[].id` es la WABA del número y el
   número es de la empresa dueña de la cuenta. **Orden y repetidos:** con `entry[].time`, un cambio de
   estado más viejo que el último aplicado (`meta_evento_en`, reloj de Meta; nunca `estadoEn`) no se
-  aplica y encola la relectura de la cuenta, y cada aviso se aplica una vez por
+  aplica y encola la relectura de la cuenta (y la relectura no pisa una fila con un aviso posterior al
+  inicio de su lectura), y cada aviso se aplica una vez por
   `(waba, message_template_id, campo, evento, time)` (`mensajeria.plantillas_whatsapp_avisos_meta`),
   aunque llegue por varios números de la cuenta (se guardan 30 días). `other_info.title`/`description` se recortan. Una
   plantilla que Iris no conoce encola la relectura de la cuenta. `PAUSED` con `FIRST_PAUSE` /

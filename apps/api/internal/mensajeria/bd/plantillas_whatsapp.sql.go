@@ -27,11 +27,17 @@ func (q *Queries) AjustesPlantillasWA(ctx context.Context, empresaID int64) (Men
 }
 
 const archivarPlantillasDeOtraDuena = `-- name: ArchivarPlantillasDeOtraDuena :many
-UPDATE mensajeria.plantillas_whatsapp
+WITH antes AS (
+    SELECT a.id, a.codigos, a.usos FROM mensajeria.plantillas_whatsapp a
+    WHERE a.waba_id = $2 AND coalesce(a.empresa_id, 0) <> $3::bigint AND a.estado <> 'DELETED'
+    FOR UPDATE
+)
+UPDATE mensajeria.plantillas_whatsapp p
 SET estado = 'DELETED', estado_en = $1, borrada_en = $1, borrada_por = 'sistema', codigos = '{}', usos = '{}',
-    version = version + 1, updated_at = now()
-WHERE waba_id = $2 AND coalesce(empresa_id, 0) <> $3::bigint AND estado <> 'DELETED'
-RETURNING id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at
+    version = p.version + 1, updated_at = now()
+FROM antes
+WHERE p.id = antes.id
+RETURNING p.id, p.empresa_id, p.waba_id, p.nombre, p.idioma, p.estado, antes.codigos AS codigos_antes, antes.usos AS usos_antes
 `
 
 type ArchivarPlantillasDeOtraDuenaParams struct {
@@ -40,55 +46,38 @@ type ArchivarPlantillasDeOtraDuenaParams struct {
 	Empresa int64
 }
 
+type ArchivarPlantillasDeOtraDuenaRow struct {
+	ID           int64
+	EmpresaID    *int64
+	WabaID       string
+	Nombre       string
+	Idioma       string
+	Estado       string
+	CodigosAntes []string
+	UsosAntes    []string
+}
+
 // Al cambiar la dueña de la cuenta: las plantillas de la empresa anterior quedan borradas por el
-// sistema (dejan de contar en los índices únicos de la cuenta y la nueva dueña no las ve).
-func (q *Queries) ArchivarPlantillasDeOtraDuena(ctx context.Context, arg ArchivarPlantillasDeOtraDuenaParams) ([]MensajeriaPlantillaWA, error) {
+// sistema (dejan de contar en los índices únicos de la cuenta y la nueva dueña no las ve). Devuelve los
+// códigos y usos que tenían, para el historial y el evento (y poder deshacerlo).
+func (q *Queries) ArchivarPlantillasDeOtraDuena(ctx context.Context, arg ArchivarPlantillasDeOtraDuenaParams) ([]ArchivarPlantillasDeOtraDuenaRow, error) {
 	rows, err := q.db.Query(ctx, archivarPlantillasDeOtraDuena, arg.Ahora, arg.WabaID, arg.Empresa)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []MensajeriaPlantillaWA
+	var items []ArchivarPlantillasDeOtraDuenaRow
 	for rows.Next() {
-		var i MensajeriaPlantillaWA
+		var i ArchivarPlantillasDeOtraDuenaRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.EmpresaID,
 			&i.WabaID,
-			&i.MetaID,
 			&i.Nombre,
 			&i.Idioma,
-			&i.Etiqueta,
-			&i.Categoria,
-			&i.CategoriaAnterior,
-			&i.CategoriaCambiadaEn,
-			&i.CategoriaProxima,
-			&i.CategoriaProximaEn,
 			&i.Estado,
-			&i.EstadoEn,
-			&i.Motivo,
-			&i.Rechazo,
-			&i.Calidad,
-			&i.PausadaHasta,
-			&i.Formato,
-			&i.Componentes,
-			&i.ComponentesMeta,
-			&i.Codigos,
-			&i.Parametros,
-			&i.Usos,
-			&i.Origen,
-			&i.Sugerida,
-			&i.Ediciones,
-			&i.EnviadaEn,
-			&i.BorradaEn,
-			&i.BorradaPor,
-			&i.NombreLibreEn,
-			&i.SincronizadaEn,
-			&i.MetaEventoEn,
-			&i.CreadaPor,
-			&i.Version,
-			&i.CreatedAt,
-			&i.UpdatedAt,
+			&i.CodigosAntes,
+			&i.UsosAntes,
 		); err != nil {
 			return nil, err
 		}
@@ -907,7 +896,7 @@ func (q *Queries) NombresWAParecidos(ctx context.Context, arg NombresWAParecidos
 }
 
 const otraEmpresaUsaWaba = `-- name: OtraEmpresaUsaWaba :one
-SELECT EXISTS (SELECT 1 FROM mensajeria.canales WHERE waba_id = $1 AND coalesce(empresa_id, 0) <> $2::bigint AND desconectado_en IS NULL)::boolean
+SELECT EXISTS (SELECT 1 FROM mensajeria.canales WHERE waba_id = $1 AND coalesce(empresa_id, 0) <> $2::bigint AND activo)::boolean
 `
 
 type OtraEmpresaUsaWabaParams struct {
@@ -915,6 +904,7 @@ type OtraEmpresaUsaWabaParams struct {
 	Empresa int64
 }
 
+// Un número activo de otra empresa (desconectado por Meta o no: sigue siendo suyo hasta darlo de baja).
 func (q *Queries) OtraEmpresaUsaWaba(ctx context.Context, arg OtraEmpresaUsaWabaParams) (bool, error) {
 	row := q.db.QueryRow(ctx, otraEmpresaUsaWaba, arg.WabaID, arg.Empresa)
 	var column_1 bool

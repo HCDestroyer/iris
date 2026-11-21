@@ -44,8 +44,8 @@ func TestPlantillasWACambioDeDuenaArchivaLasAnteriores(t *testing.T) {
 	idA, metaA := idPW(r.cuerpo), r.cuerpo["metaId"].(string)
 	c.estadoWebhook(metaA, "aviso_corte", "APPROVED", "")
 	c.meta.fijar(c.waba, metaA, map[string]any{"status": "APPROVED"})
-	// La empresa 1 ya no tiene números en la cuenta (Meta lo desconectó).
-	if _, err := c.bd.Exec(c.ctx, `UPDATE mensajeria.canales SET desconectado_en = now() WHERE id = $1`, c.canal); err != nil {
+	// La empresa 1 dio de baja su número en la cuenta (inactivo; una desconexión de Meta no basta).
+	if _, err := c.bd.Exec(c.ctx, `UPDATE mensajeria.canales SET activo = false, avisos_empresa = false WHERE id = $1`, c.canal); err != nil {
 		t.Fatal(err)
 	}
 	adminB := c.persona([]int64{2}, rolBase("admin"))
@@ -57,8 +57,14 @@ func TestPlantillasWACambioDeDuenaArchivaLasAnteriores(t *testing.T) {
 	if n := c.contar(`SELECT count(*) FROM mensajeria.plantillas_whatsapp WHERE id = $1 AND estado = 'DELETED' AND borrada_por = 'sistema' AND cardinality(codigos) = 0`, idA); n != 1 {
 		t.Fatal("la plantilla de la dueña anterior no quedó archivada")
 	}
-	if ev := c.eventos("plantilla_whatsapp.borrada"); len(ev) != 1 || ev[0]["origen"] != "sistema" || ev[0]["motivo"] != "cuenta_de_otra_empresa" {
+	// Lo que tenía (códigos y usos) queda en el evento y en el historial, para poder deshacerlo.
+	if ev := c.eventos("plantilla_whatsapp.borrada"); len(ev) != 1 || ev[0]["origen"] != "sistema" || ev[0]["motivo"] != "cuenta_de_otra_empresa" ||
+		fmt.Sprint(ev[0]["codigos"]) != "[corte_por_falta_de_pago]" || fmt.Sprint(ev[0]["usos"]) != "[avisos]" {
 		t.Fatalf("borrada: %v", ev)
+	}
+	if n := c.contar(`SELECT count(*) FROM mensajeria.plantillas_whatsapp_historial WHERE plantilla_id = $1 AND tipo = 'borrada' AND origen = 'sistema'
+		AND detalle->'codigos' = '["corte_por_falta_de_pago"]'::jsonb AND detalle->'usos' = '["avisos"]'::jsonb`, idA); n != 1 {
+		t.Fatal("el historial no guarda los códigos y usos que tenía")
 	}
 	// La nueva dueña sincroniza: la plantilla de Meta entra como suya, sin 23505 por el meta_id ni el nombre.
 	if err := c.m.SincronizarCuentaSistema(c.ctx, c.bd, c.waba, "manual"); err != nil {
@@ -172,5 +178,77 @@ func TestPlantillasWAWebhookRelojDeMeta(t *testing.T) {
 	}
 	if len(c.jobsDe("mensajeria.sincronizar_plantillas")) != antes+1 {
 		t.Fatal("un aviso viejo no pidió releer la cuenta")
+	}
+}
+
+// Activar un número nunca cambia la dueña de la cuenta: solo reclama una cuenta sin dueña. Un número
+// desconectado por Meta sigue contando como de su empresa.
+func TestPlantillasWAReactivarNoQuitaLaCuenta(t *testing.T) {
+	c := nuevaCuentaWA(t, nil)
+	r := c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/sugeridas/aviso_corte/crear", "s-"+pruebas.Unico(), map[string]any{"wabaId": c.waba, "enviar": true})
+	c.exigir(r, http.StatusCreated)
+	idA, metaA := idPW(r.cuerpo), r.cuerpo["metaId"].(string)
+	c.estadoWebhook(metaA, "aviso_corte", "APPROVED", "")
+	// Meta desconectó el número de A: sigue siendo de A.
+	if _, err := c.bd.Exec(c.ctx, `UPDATE mensajeria.canales SET desconectado_en = now() WHERE id = $1`, c.canal); err != nil {
+		t.Fatal(err)
+	}
+	adminB := c.persona([]int64{2}, rolBase("admin"))
+	adminB.empresa = 2
+	// B no puede crear un número en esa cuenta aunque su token la vea en Meta.
+	pnidB := nuevaWaba()
+	c.meta.agregarNumero(c.waba, pnidB)
+	c.exigir(crearNumero(c.bandeja, adminB, map[string]any{"empresaId": 2, "wabaId": c.waba, "phoneNumberId": pnidB, "usos": []string{"soporte"},
+		"appSecret": "secreto-de-la-empresa-b-0123"}), http.StatusConflict, "type", "urn:iris:problema:waba_de_otra_empresa")
+	// Un número viejo de B en esa cuenta, inactivo, que se reactiva.
+	wabaB, pnidB2 := nuevaWaba(), nuevaWaba()
+	c.meta.agregarNumero(wabaB, pnidB2)
+	nB := crearNumero(c.bandeja, adminB, map[string]any{"empresaId": 2, "wabaId": wabaB, "phoneNumberId": pnidB2, "usos": []string{"soporte"},
+		"appSecret": "secreto-de-la-empresa-b-0123"})
+	c.exigir(nB, http.StatusCreated)
+	canalB := int64(nB.cuerpo["id"].(float64))
+	c.exigir(c.api(adminB, http.MethodPost, fmt.Sprintf("/canales/%d/desactivar", canalB), nil), http.StatusOK)
+	if _, err := c.bd.Exec(c.ctx, `UPDATE mensajeria.canales SET waba_id = $1, plantillas = '{"corte_por_falta_de_pago":{"nombre":"corte_b","idioma":"es"}}' WHERE id = $2`,
+		c.waba, canalB); err != nil {
+		t.Fatal(err)
+	}
+	// Aunque A ya no tenga números activos en la cuenta, reactivar (sin comprobar nada en Meta) no
+	// cambia la dueña: eso solo pasa al crear o actualizar un número con la cuenta comprobada.
+	if _, err := c.bd.Exec(c.ctx, `UPDATE mensajeria.canales SET activo = false, avisos_empresa = false WHERE id = $1`, c.canal); err != nil {
+		t.Fatal(err)
+	}
+	c.exigir(c.api(adminB, http.MethodPost, fmt.Sprintf("/canales/%d/activar", canalB), nil), http.StatusOK)
+	if n := c.contar(`SELECT count(*) FROM mensajeria.plantillas_whatsapp_cuentas WHERE waba_id = $1 AND empresa_id = 1`, c.waba); n != 1 {
+		t.Fatal("reactivar le quitó la cuenta a la dueña")
+	}
+	if n := c.contar(`SELECT count(*) FROM mensajeria.plantillas_whatsapp WHERE id = $1 AND estado = 'APPROVED'`, idA); n != 1 {
+		t.Fatal("reactivar archivó las plantillas de la dueña")
+	}
+	if p, err := c.m.PlantillasDeCanal(c.ctx, c.bd, canalB, ""); err != nil || p["corte_por_falta_de_pago"] != "corte_b" {
+		t.Fatalf("el número de B no sigue con su mapa: %v %v", p, err)
+	}
+}
+
+// La relectura no pisa una plantilla que un aviso de Meta posterior al inicio de la lectura ya dejó al día.
+func TestPlantillasWASincronizarNoPisaAvisoPosterior(t *testing.T) {
+	c := nuevaCuentaWA(t, nil)
+	r := c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/sugeridas/aviso_corte/crear", "s-"+pruebas.Unico(), map[string]any{"wabaId": c.waba, "enviar": true})
+	c.exigir(r, http.StatusCreated)
+	id, metaID := idPW(r.cuerpo), r.cuerpo["metaId"].(string)
+	// Meta todavía la lista en revisión, pero un aviso de «aprobada» llegó después de empezar a leer.
+	c.estadoWebhookEn(c.reloj.Unix()+600, metaID, "aviso_corte", "APPROVED", "")
+	if err := c.m.SincronizarCuentaSistema(c.ctx, c.bd, c.waba, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if p := c.plantilla(id); p["estado"] != "APPROVED" {
+		t.Fatalf("la relectura pisó un aviso posterior: %v", p["estado"])
+	}
+	// Leída después de ese aviso, se pone al día con lo que dice Meta.
+	*c.reloj = c.reloj.Add(time.Hour)
+	if err := c.m.SincronizarCuentaSistema(c.ctx, c.bd, c.waba, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if p := c.plantilla(id); p["estado"] != "PENDING" {
+		t.Fatalf("la relectura no puso al día la plantilla: %v", p["estado"])
 	}
 }
