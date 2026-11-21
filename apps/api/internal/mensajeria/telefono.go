@@ -3,8 +3,11 @@ package mensajeria
 import (
 	"context"
 	"errors"
+	"math"
+	"net/http"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -540,7 +543,43 @@ func (m *Modulo) descifrarSIP(id int64, cif []byte) (string, error) {
 
 func aExtension(x mensajeriabd.MensajeriaCentralitaExtensione, nombre string) Extension {
 	return Extension{ID: x.ID, Extension: x.Extension, UsuarioID: x.UsuarioID, UsuarioNombre: nombre, Tipo: x.Tipo, SipUsuario: x.SipUsuario,
-		SipGuardadoEn: x.SipGuardadoEn, SipProbadoEn: x.SipProbadoEn}
+		SipGuardadoEn: x.SipGuardadoEn, SipProbadoEn: x.SipProbadoEn, SipRechazadoEn: x.SipRechazadoEn}
+}
+
+const (
+	// pruebasRegistroExtension y pruebasRegistroCentralita: «Probar registro» por minuto. Cada prueba
+	// es un REGISTER contra la Issabel: muchas seguidas con una contraseña mala las cuenta fail2ban.
+	pruebasRegistroExtension  = 3
+	pruebasRegistroCentralita = 10
+	// esperaRechazo: con la contraseña que la Issabel ya rechazó no se vuelve a probar hasta escribir
+	// otra o hasta que pase este tiempo (fail2ban suele olvidar en 10 a 30 min).
+	esperaRechazo = 30 * time.Minute
+)
+
+// limitarPruebaRegistro (en la transacción, con la extensión bloqueada): 429 si la contraseña es la
+// que la Issabel ya rechazó o si se pasó el tope por minuto de la extensión o de la centralita.
+func (m *Modulo) limitarPruebaRegistro(ctx context.Context, q *mensajeriabd.Queries, x mensajeriabd.MensajeriaCentralitaExtensione, centralitaID int64) error {
+	ahora := m.ahora()
+	if r := x.SipRechazadoEn; r != nil && (x.SipGuardadoEn == nil || !x.SipGuardadoEn.After(*r)) && ahora.Sub(*r) < esperaRechazo {
+		espera := int(math.Ceil((esperaRechazo - ahora.Sub(*r)).Seconds()))
+		return nucleo.NuevoProblema(http.StatusTooManyRequests, "credencial_rechazada", "La centralita ya rechazó esta contraseña",
+			"Escribe otra vez la contraseña de la extensión con «Cambiar»: probar la misma solo haría que la Issabel bloquee a Iris.").
+			ConCabecera("Retry-After", strconv.Itoa(espera))
+	}
+	desde := ahora.Add(-time.Minute)
+	nx, err := q.ContarPruebaRegistroExtension(ctx, mensajeriabd.ContarPruebaRegistroExtensionParams{ID: x.ID, Desde: desde, Ahora: ahora})
+	if err != nil {
+		return err
+	}
+	nc, err := q.ContarPruebaRegistroCentralita(ctx, mensajeriabd.ContarPruebaRegistroCentralitaParams{ID: centralitaID, Desde: desde, Ahora: ahora})
+	if err != nil {
+		return err
+	}
+	if nx > pruebasRegistroExtension || nc > pruebasRegistroCentralita {
+		return nucleo.NuevoProblema(http.StatusTooManyRequests, "demasiados_intentos", "Demasiadas pruebas seguidas",
+			"Espera un minuto antes de probar otra vez.").ConCabecera("Retry-After", "60")
+	}
+	return nil
 }
 
 func nuevoTelefonoExtension(m *Modulo) *auditoria.Caso[EntradaTelefonoExtension, Extension] {
@@ -669,6 +708,9 @@ func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
 			if x.Tipo != "navegador" || x.SipSecretoCifrado == nil || x.SipUsuario == nil || c.WssHuella == nil {
 				return destinoRegistro{sin: true}, nil
 			}
+			if err := m.limitarPruebaRegistro(ctx, q, x, c.ID); err != nil {
+				return destinoRegistro{}, err
+			}
 			// La contraseña solo viaja al certificado fijado del WSS.
 			s, err := m.descifrarSIP(x.ID, x.SipSecretoCifrado)
 			if err != nil {
@@ -698,15 +740,24 @@ func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
 			}
 			t.FijarEntidad("centralita_extension", x.ID)
 			t.Anotar(map[string]any{"estado": in.Estado})
-			var probado *time.Time
-			if in.Estado == sippuente.PruebaOK {
-				ahora := m.ahora()
-				probado = &ahora
+			ahora := m.ahora()
+			switch in.Estado {
+			case sippuente.PruebaOK:
+				if err := q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: &ahora}); err != nil {
+					return Extension{}, err
+				}
+				x.SipProbadoEn, x.SipRechazadoEn = &ahora, nil
+			case sippuente.PruebaCredenciales:
+				if err := q.MarcarRegistroRechazado(ctx, mensajeriabd.MarcarRegistroRechazadoParams{ID: x.ID, Ahora: ahora}); err != nil {
+					return Extension{}, err
+				}
+				x.SipProbadoEn, x.SipRechazadoEn = nil, &ahora
+			default:
+				if err := q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: nil}); err != nil {
+					return Extension{}, err
+				}
+				x.SipProbadoEn = nil
 			}
-			if err := q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: probado}); err != nil {
-				return Extension{}, err
-			}
-			x.SipProbadoEn = probado
 			if err := t.Emitir("extension.registro_probado", map[string]any{"centralita_id": c.ID, "empresa_id": c.EmpresaID, "extension_id": x.ID,
 				"usuario_id": x.UsuarioID, "estado": in.Estado}); err != nil {
 				return Extension{}, err

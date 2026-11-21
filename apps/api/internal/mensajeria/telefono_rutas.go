@@ -171,9 +171,12 @@ func (m *Modulo) registrarTelefono(api huma.API) {
 			return responder(k.Extension.Ejecutar(ctx, in.Body))
 		})
 	huma.Register(api, d(op("probarRegistroExtension", http.MethodPost, "/centralitas/{id}/extensiones/{extensionId}/probar-registro", "Probar registro",
-		ext, http.StatusOK, http.StatusNotFound),
+		ext, http.StatusOK, http.StatusNotFound, http.StatusTooManyRequests),
 		"REGISTER de consulta (sin Contact: no agrega ni quita registros) con la credencial guardada: `ok`, `credenciales`, `huella_distinta`, "+
-			"`no_conecta` o `sin_credencial`. Con `ok` deja `sipProbadoEn`. Evento `extension.registro_probado`."),
+			"`no_conecta` o `sin_credencial`. Con `ok` deja `sipProbadoEn` (y borra `sipRechazadoEn`); con `credenciales`, `sipRechazadoEn`. "+
+			"Evento `extension.registro_probado`. Para no cebar fail2ban: 429 `credencial_rechazada` si la Issabel ya rechazó esta "+
+			"contraseña y no se escribió otra (30 min), y 429 `demasiados_intentos` pasadas 3 pruebas por minuto de la extensión o 10 de "+
+			"la centralita; los dos con `Retry-After`."),
 		func(ctx context.Context, in *extensionAccionHTTP[struct{}]) (*cuerpo[PruebaRegistro], error) {
 			r, err := k.ProbarReg.Ejecutar(ctx, EntradaProbarRegistro{CentralitaID: in.ID, ExtensionID: in.ExtensionID})
 			if err == nil {

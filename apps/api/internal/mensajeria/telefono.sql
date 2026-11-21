@@ -17,11 +17,34 @@ WHERE id = @id AND activa
 RETURNING *;
 
 -- name: MarcarRegistroProbado :exec
-UPDATE mensajeria.centralita_extensiones SET sip_probado_en = sqlc.narg('sip_probado_en'), updated_at = now() WHERE id = @id AND activa;
+-- Una prueba que pasa borra el rechazo anterior.
+UPDATE mensajeria.centralita_extensiones SET sip_probado_en = sqlc.narg('sip_probado_en'),
+    sip_rechazado_en = CASE WHEN sqlc.narg('sip_probado_en')::timestamptz IS NOT NULL THEN NULL ELSE sip_rechazado_en END, updated_at = now()
+WHERE id = @id AND activa;
+
+-- name: MarcarRegistroRechazado :exec
+-- La Issabel rechazó la contraseña guardada («Probar registro» o una conexión del puente).
+UPDATE mensajeria.centralita_extensiones SET sip_probado_en = NULL, sip_rechazado_en = @ahora::timestamptz, updated_at = now() WHERE id = @id AND activa;
+
+-- name: ContarPruebaRegistroExtension :one
+-- «Probar registro» de esta extensión en el último minuto (con esta).
+UPDATE mensajeria.centralita_extensiones SET
+    registro_pruebas = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < @desde::timestamptz THEN 1 ELSE registro_pruebas + 1 END,
+    registro_pruebas_desde = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < @desde::timestamptz THEN @ahora::timestamptz ELSE registro_pruebas_desde END
+WHERE id = @id
+RETURNING registro_pruebas;
+
+-- name: ContarPruebaRegistroCentralita :one
+-- «Probar registro» de toda la centralita en el último minuto (con esta).
+UPDATE mensajeria.centralitas SET
+    registro_pruebas = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < @desde::timestamptz THEN 1 ELSE registro_pruebas + 1 END,
+    registro_pruebas_desde = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < @desde::timestamptz THEN @ahora::timestamptz ELSE registro_pruebas_desde END
+WHERE id = @id
+RETURNING registro_pruebas;
 
 -- name: BorrarCredencialExtension :exec
 -- Al quitar la extensión, la credencial se borra.
-UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = NULL, sip_guardado_en = NULL, sip_probado_en = NULL, tipo = 'escritorio'
+UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = NULL, sip_guardado_en = NULL, sip_probado_en = NULL, sip_rechazado_en = NULL, tipo = 'escritorio'
 WHERE id = @id;
 
 -- name: TelefonoDeUsuario :one

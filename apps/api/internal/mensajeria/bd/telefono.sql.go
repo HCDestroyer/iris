@@ -87,7 +87,7 @@ func (q *Queries) AdoptarLlamadaPuente(ctx context.Context, arg AdoptarLlamadaPu
 }
 
 const borrarCredencialExtension = `-- name: BorrarCredencialExtension :exec
-UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = NULL, sip_guardado_en = NULL, sip_probado_en = NULL, tipo = 'escritorio'
+UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = NULL, sip_guardado_en = NULL, sip_probado_en = NULL, sip_rechazado_en = NULL, tipo = 'escritorio'
 WHERE id = $1
 `
 
@@ -246,6 +246,50 @@ func (q *Queries) ContarLlamadasPuenteVivas(ctx context.Context, arg ContarLlama
 	return n, err
 }
 
+const contarPruebaRegistroCentralita = `-- name: ContarPruebaRegistroCentralita :one
+UPDATE mensajeria.centralitas SET
+    registro_pruebas = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < $1::timestamptz THEN 1 ELSE registro_pruebas + 1 END,
+    registro_pruebas_desde = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < $1::timestamptz THEN $2::timestamptz ELSE registro_pruebas_desde END
+WHERE id = $3
+RETURNING registro_pruebas
+`
+
+type ContarPruebaRegistroCentralitaParams struct {
+	Desde time.Time
+	Ahora time.Time
+	ID    int64
+}
+
+// «Probar registro» de toda la centralita en el último minuto (con esta).
+func (q *Queries) ContarPruebaRegistroCentralita(ctx context.Context, arg ContarPruebaRegistroCentralitaParams) (int32, error) {
+	row := q.db.QueryRow(ctx, contarPruebaRegistroCentralita, arg.Desde, arg.Ahora, arg.ID)
+	var registro_pruebas int32
+	err := row.Scan(&registro_pruebas)
+	return registro_pruebas, err
+}
+
+const contarPruebaRegistroExtension = `-- name: ContarPruebaRegistroExtension :one
+UPDATE mensajeria.centralita_extensiones SET
+    registro_pruebas = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < $1::timestamptz THEN 1 ELSE registro_pruebas + 1 END,
+    registro_pruebas_desde = CASE WHEN registro_pruebas_desde IS NULL OR registro_pruebas_desde < $1::timestamptz THEN $2::timestamptz ELSE registro_pruebas_desde END
+WHERE id = $3
+RETURNING registro_pruebas
+`
+
+type ContarPruebaRegistroExtensionParams struct {
+	Desde time.Time
+	Ahora time.Time
+	ID    int64
+}
+
+// «Probar registro» de esta extensión en el último minuto (con esta).
+func (q *Queries) ContarPruebaRegistroExtension(ctx context.Context, arg ContarPruebaRegistroExtensionParams) (int32, error) {
+	row := q.db.QueryRow(ctx, contarPruebaRegistroExtension, arg.Desde, arg.Ahora, arg.ID)
+	var registro_pruebas int32
+	err := row.Scan(&registro_pruebas)
+	return registro_pruebas, err
+}
+
 const grupoActivoPorNumero = `-- name: GrupoActivoPorNumero :one
 SELECT id, empresa_id, centralita_id, nombre, numero, activo, version, created_at, updated_at FROM mensajeria.centralita_grupos WHERE centralita_id = $1 AND numero = $2 AND activo
 `
@@ -377,7 +421,7 @@ UPDATE mensajeria.centralitas SET telefono_activo = $1, wss_puerto = $2, wss_rut
     llamadas_simultaneas = $8, telefono_probado_en = $9,
     restricciones_confirmadas_en = $10, version = version + 1, updated_at = now()
 WHERE id = $11
-RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en
+RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en, restricciones_confirmadas_en, registro_pruebas, registro_pruebas_desde
 `
 
 type GuardarTelefonoCentralitaParams struct {
@@ -446,6 +490,8 @@ func (q *Queries) GuardarTelefonoCentralita(ctx context.Context, arg GuardarTele
 		&i.LlamadasSimultaneas,
 		&i.TelefonoProbadoEn,
 		&i.RestriccionesConfirmadasEn,
+		&i.RegistroPruebas,
+		&i.RegistroPruebasDesde,
 	)
 	return i, err
 }
@@ -454,7 +500,7 @@ const guardarTelefonoExtension = `-- name: GuardarTelefonoExtension :one
 UPDATE mensajeria.centralita_extensiones SET tipo = $1, sip_usuario = $2, sip_secreto_cifrado = $3,
     sip_guardado_en = $4, sip_probado_en = $5, updated_at = now()
 WHERE id = $6 AND activa
-RETURNING id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at, sip_guardado_en, sip_probado_en
+RETURNING id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at, sip_guardado_en, sip_probado_en, sip_rechazado_en, registro_pruebas, registro_pruebas_desde
 `
 
 type GuardarTelefonoExtensionParams struct {
@@ -491,6 +537,9 @@ func (q *Queries) GuardarTelefonoExtension(ctx context.Context, arg GuardarTelef
 		&i.UpdatedAt,
 		&i.SipGuardadoEn,
 		&i.SipProbadoEn,
+		&i.SipRechazadoEn,
+		&i.RegistroPruebas,
+		&i.RegistroPruebasDesde,
 	)
 	return i, err
 }
@@ -1058,7 +1107,9 @@ func (q *Queries) MarcarInviteLlamada(ctx context.Context, arg MarcarInviteLlama
 }
 
 const marcarRegistroProbado = `-- name: MarcarRegistroProbado :exec
-UPDATE mensajeria.centralita_extensiones SET sip_probado_en = $1, updated_at = now() WHERE id = $2 AND activa
+UPDATE mensajeria.centralita_extensiones SET sip_probado_en = $1,
+    sip_rechazado_en = CASE WHEN $1::timestamptz IS NOT NULL THEN NULL ELSE sip_rechazado_en END, updated_at = now()
+WHERE id = $2 AND activa
 `
 
 type MarcarRegistroProbadoParams struct {
@@ -1066,8 +1117,24 @@ type MarcarRegistroProbadoParams struct {
 	ID           int64
 }
 
+// Una prueba que pasa borra el rechazo anterior.
 func (q *Queries) MarcarRegistroProbado(ctx context.Context, arg MarcarRegistroProbadoParams) error {
 	_, err := q.db.Exec(ctx, marcarRegistroProbado, arg.SipProbadoEn, arg.ID)
+	return err
+}
+
+const marcarRegistroRechazado = `-- name: MarcarRegistroRechazado :exec
+UPDATE mensajeria.centralita_extensiones SET sip_probado_en = NULL, sip_rechazado_en = $1::timestamptz, updated_at = now() WHERE id = $2 AND activa
+`
+
+type MarcarRegistroRechazadoParams struct {
+	Ahora time.Time
+	ID    int64
+}
+
+// La Issabel rechazó la contraseña guardada («Probar registro» o una conexión del puente).
+func (q *Queries) MarcarRegistroRechazado(ctx context.Context, arg MarcarRegistroRechazadoParams) error {
+	_, err := q.db.Exec(ctx, marcarRegistroRechazado, arg.Ahora, arg.ID)
 	return err
 }
 

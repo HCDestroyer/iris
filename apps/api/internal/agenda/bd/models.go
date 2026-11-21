@@ -1398,23 +1398,28 @@ type MensajeriaCentralita struct {
 	LlamadasSimultaneas        int32
 	TelefonoProbadoEn          *time.Time
 	RestriccionesConfirmadasEn *time.Time
+	RegistroPruebas            int32
+	RegistroPruebasDesde       *time.Time
 }
 
 type MensajeriaCentralitaExtensione struct {
-	ID                int64
-	EmpresaID         *int64
-	CentralitaID      int64
-	Extension         string
-	UsuarioID         int64
-	Tipo              string
-	SipUsuario        *string
-	SipSecretoCifrado []byte
-	Activa            bool
-	QuitadaEn         *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	SipGuardadoEn     *time.Time
-	SipProbadoEn      *time.Time
+	ID                   int64
+	EmpresaID            *int64
+	CentralitaID         int64
+	Extension            string
+	UsuarioID            int64
+	Tipo                 string
+	SipUsuario           *string
+	SipSecretoCifrado    []byte
+	Activa               bool
+	QuitadaEn            *time.Time
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	SipGuardadoEn        *time.Time
+	SipProbadoEn         *time.Time
+	SipRechazadoEn       *time.Time
+	RegistroPruebas      int32
+	RegistroPruebasDesde *time.Time
 }
 
 type MensajeriaCentralitaGrupo struct {

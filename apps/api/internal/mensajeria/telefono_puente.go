@@ -175,7 +175,7 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 			if err != nil {
 				return struct{}{}, err
 			}
-			if err := q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: nil}); err != nil {
+			if err := q.MarcarRegistroRechazado(ctx, mensajeriabd.MarcarRegistroRechazadoParams{ID: x.ID, Ahora: m.ahora()}); err != nil {
 				return struct{}{}, err
 			}
 			t.FijarEntidad("centralita_extension", x.ID)
