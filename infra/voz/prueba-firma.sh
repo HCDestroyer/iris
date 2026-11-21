@@ -27,7 +27,7 @@ cosign="$(ensure_cosign "$d/bin")"
 if [ "${2:-}" = sign ]; then
     version="$(manifest_get "$aqui/manifiesto.json" version)"
     "$aqui/package-voz.sh" "$version" "$d" > /dev/null
-    for f in "iris-voz-$version.tar.gz" install-voz.sh manifiesto.json; do
+    for f in "iris-voz-$version.tar.gz" install-voz.sh setup-voz.sh manifiesto.json; do
         "$cosign" sign-blob --yes --new-bundle-format --bundle "$d/$f.sigstore.json" "$d/$f" > /dev/null
     done
 fi
@@ -43,7 +43,7 @@ export -f verify_signature write_trusted_root die
 export OIDC_ISSUER
 verificar() { sin_red bash -c 'verify_signature "$@"' _ "$cosign" "$@"; }
 
-for f in "$paquete" "$d/install-voz.sh" "$d/manifiesto.json"; do
+for f in "$paquete" "$d/install-voz.sh" "$d/setup-voz.sh" "$d/manifiesto.json"; do
     verificar "$f" "$f.sigstore.json" "$identidad" || die "a valid signature did NOT verify offline: $f"
 done
 log "valid signatures verify offline with the embedded trusted root"
@@ -59,6 +59,7 @@ cp "$paquete" "$d/alterado.tar.gz"
 printf 'x' >> "$d/alterado.tar.gz"
 fallar "a tampered package" "$d/alterado.tar.gz" "$paquete.sigstore.json" "$identidad"
 fallar "the bundle of another file" "$paquete" "$d/install-voz.sh.sigstore.json" "$identidad"
+fallar "setup-voz.sh with the bundle of install-voz.sh" "$d/setup-voz.sh" "$d/install-voz.sh.sigstore.json" "$identidad"
 fallar "no bundle" "$paquete" "$d/no-existe.sigstore.json" "$identidad"
 # A bundle without its transparency log entry must not verify: the inclusion proof is mandatory.
 jq 'del(.verificationMaterial.tlogEntries)' "$paquete.sigstore.json" > "$d/sin-tlog.sigstore.json"

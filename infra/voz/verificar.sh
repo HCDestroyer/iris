@@ -67,6 +67,24 @@ if grep -hE '^\s*-?\s*uses:' "$aqui/../../.github/workflows/voz.yml" "$flujo" "$
 fi
 echo "imágenes, cosign y acciones fijadas: ok"
 
+# setup-voz.sh (the one-step setup) pins the same cosign and accepts the same signer as install-voz.sh,
+# and voz-release.yml signs and publishes it like install-voz.sh.
+fijado() { # fijado SCRIPT → what the script pins (in a subshell: both scripts define the same names)
+    (
+        # shellcheck disable=SC1090
+        . "$1"
+        printf '%s\n' "$COSIGN_VERSION" "$(cosign_sha256 amd64)" "$(cosign_sha256 arm64)" "$OIDC_ISSUER" "$(signer_identity 1.2.3)"
+    )
+}
+[ "$(fijado "$aqui/setup-voz.sh")" = "$(fijado "$aqui/install-voz.sh")" ] ||
+    { echo "setup-voz.sh does not pin the same cosign or signer identity as install-voz.sh" >&2; exit 1; }
+grep -qE '^ *\(cd dist && sha256sum .* setup-voz\.sh ' "$flujo" ||
+    { echo "voz-release.yml does not sign setup-voz.sh (missing from the sums of construir)" >&2; exit 1; }
+for a in setup-voz.sh setup-voz.sh.sigstore.json setup-voz.sh.sha256; do
+    grep -qF "\"dist/$a#" "$flujo" || { echo "voz-release.yml does not publish $a" >&2; exit 1; }
+done
+echo "setup-voz.sh: ok"
+
 if docker compose version > /dev/null 2>&1; then
     printf 'IRIS_VOZ_VERSION=%s\n' "$version" > "$tmp/.env"
     base=(--env-file "$tmp/.env" -f "$aqui/docker-compose.yml")
@@ -105,4 +123,8 @@ for f in docker-compose.yml docker-compose.gpu.yml docker-compose.descarga.yml i
     grep -qxF "iris-voz-$version/$f" "$tmp/lista" || { echo "the package lacks $f" >&2; exit 1; }
 done
 if grep -q prueba "$tmp/lista"; then echo "the package must not ship test files" >&2; exit 1; fi
+for f in install-voz.sh install-voz.sh.sha256 setup-voz.sh setup-voz.sh.sha256 manifiesto.json; do
+    [ -s "$tmp/dist/$f" ] || { echo "package-voz.sh did not leave $f next to the package" >&2; exit 1; }
+done
+(cd "$tmp/dist" && sha256sum -c --quiet setup-voz.sh.sha256) || { echo "setup-voz.sh.sha256 does not match" >&2; exit 1; }
 echo "paquete de Iris Voz: ok"

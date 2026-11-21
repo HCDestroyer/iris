@@ -19,11 +19,22 @@ límites de procesos y de memoria.
 
 ## Instalar
 
-Requisitos: Ubuntu o Debian, Docker con el plugin compose (2.24 o más nuevo), el controlador de
-NVIDIA y `nvidia-container-toolkit`, NTP activo e intercambio a disco apagado (o cifrado).
+En el servidor con la GPU (Ubuntu, Debian, RHEL, Rocky o Alma, con el controlador de NVIDIA), una
+línea:
 
 ```sh
-V=0.1.0
+curl -fsSL https://github.com/HCDestroyer/iris/releases/download/voz-v0.1.1/setup-voz.sh | sudo bash
+```
+
+`setup-voz.sh` comprueba el servidor, instala Docker y `nvidia-container-toolkit` si faltan
+(preguntando antes, de los repositorios oficiales), verifica la firma de `install-voz.sh` y lo
+ejecuta. Detalle y cómo verificar el propio script: `docs/runbooks/servidor-ia.md` §2.
+
+A mano, con Docker (compose 2.24 o más nuevo), el controlador de NVIDIA, `nvidia-container-toolkit`,
+NTP activo e intercambio a disco apagado (o cifrado):
+
+```sh
+V=0.1.1
 base=https://github.com/HCDestroyer/iris/releases/download/voz-v$V
 curl -fsSLO $base/install-voz.sh
 curl -fsSLO $base/install-voz.sh.sigstore.json

@@ -9,6 +9,7 @@
 #                               docker-compose.gpu.yml, docker-compose.descarga.yml, install-voz.sh,
 #                               manifiesto.json, README.md and VERSION
 #   install-voz.sh              the installer on its own
+#   setup-voz.sh                the one-step setup (prepares the server, verifies and runs install-voz.sh)
 #   manifiesto.json             the manifest on its own
 #   *.sha256                    sums (the signature, not the sum, is what the installer trusts)
 #
@@ -17,7 +18,7 @@
 # without it the compose keeps ${IRIS_VOZ_VERSION} (local tests). The tarball is reproducible.
 set -euo pipefail
 
-[ $# -eq 2 ] || { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -eq 2 ] || { sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 version="${1#v}"
 salida="$2"
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "invalid version (MAJOR.MINOR.PATCH): $version" >&2; exit 2; }
@@ -65,6 +66,8 @@ paquete="iris-voz-$version.tar.gz"
 tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -C "$tmp" -cf - "iris-voz-$version" |
     gzip -n -9 > "$salida/$paquete"
 install -m 0755 "$aqui/install-voz.sh" "$salida/install-voz.sh"
+install -m 0755 "$aqui/setup-voz.sh" "$salida/setup-voz.sh"
 install -m 0644 "$aqui/manifiesto.json" "$salida/manifiesto.json"
-(cd "$salida" && sha256sum "$paquete" > "$paquete.sha256" && sha256sum install-voz.sh > install-voz.sh.sha256)
+(cd "$salida" && sha256sum "$paquete" > "$paquete.sha256" && sha256sum install-voz.sh > install-voz.sh.sha256 &&
+    sha256sum setup-voz.sh > setup-voz.sh.sha256)
 echo "ready: $salida/$paquete ($(cut -d' ' -f1 "$salida/$paquete.sha256"))"

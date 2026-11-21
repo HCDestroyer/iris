@@ -11,10 +11,11 @@
 #    Antes, el job `entorno` comprueba que el commit de la etiqueta está en main y que el entorno
 #    `voz-release` existe y exige revisores: si no, nada se construye ni se firma (GitHub crearía el
 #    entorno vacío y los jobs correrían sin aprobación).
-# 2. firmar (id-token: write, nada más; entorno `voz-release`, con aprobación): firma el paquete, el instalador y el manifiesto con cosign
+# 2. firmar (id-token: write, nada más; entorno `voz-release`, con aprobación): firma el paquete, el instalador,
+#    la instalación de un paso (setup-voz.sh) y el manifiesto con cosign
 #    SIN CLAVE. La identidad es este workflow en esta etiqueta (OIDC de GitHub Actions); no hay claves
 #    ni secretos que guardar. No hace checkout ni ejecuta nada del repositorio: baja cosign fijado
-#    por sha256, comprueba las sumas que exportó `construir` y firma esos tres archivos. Nada se
+#    por sha256, comprueba las sumas que exportó `construir` y firma esos cuatro archivos. Nada se
 #    firma (ni queda en el registro de transparencia) sin la aprobación del entorno.
 # 3. publicar (contents: write; entorno `voz-release`, con aprobación): verifica lo firmado SIN RED,
 #    con la raíz de confianza embebida en install-voz.sh y la misma función que usa el instalador,
@@ -139,7 +140,7 @@ jobs:
         run: |
           {
             echo 'sumas<<FIN_SUMAS'
-            (cd dist && sha256sum "iris-voz-$VERSION.tar.gz" install-voz.sh manifiesto.json)
+            (cd dist && sha256sum "iris-voz-$VERSION.tar.gz" install-voz.sh setup-voz.sh manifiesto.json)
             echo 'FIN_SUMAS'
           } >>"$GITHUB_OUTPUT"
 
@@ -172,19 +173,19 @@ jobs:
           name: paquete
           path: dist
 
-      - name: Firmar el paquete, el instalador y el manifiesto
+      - name: Firmar el paquete, el instalador, setup-voz.sh y el manifiesto
         run: |
           esperada="https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-v$VERSION"
           [ "$IDENTIDAD" = "$esperada" ] || { echo "::error::la identidad de este workflow ($IDENTIDAD) no es la que acepta el instalador ($esperada)"; exit 1; }
           # Solo se firma lo que construyó el job anterior: las sumas vienen por su salida, no por el artefacto.
-          [ "$(printf '%s\n' "$SUMAS" | grep -c .)" = 3 ] || { echo "::error::faltan las sumas de construir"; exit 1; }
+          [ "$(printf '%s\n' "$SUMAS" | grep -c .)" = 4 ] || { echo "::error::faltan las sumas de construir"; exit 1; }
           (cd dist && printf '%s\n' "$SUMAS" | sha256sum -c --strict -)
           curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "$RUNNER_TEMP/cosign" \
             "https://github.com/sigstore/cosign/releases/download/$COSIGN_VERSION/cosign-linux-amd64"
           echo "$COSIGN_SHA256  $RUNNER_TEMP/cosign" | sha256sum -c -
           chmod 0755 "$RUNNER_TEMP/cosign"
           mkdir firmas
-          for f in "iris-voz-$VERSION.tar.gz" install-voz.sh manifiesto.json; do
+          for f in "iris-voz-$VERSION.tar.gz" install-voz.sh setup-voz.sh manifiesto.json; do
             [ -s "dist/$f" ] || { echo "::error::falta dist/$f"; exit 1; }
             "$RUNNER_TEMP/cosign" sign-blob --yes --new-bundle-format --bundle "firmas/$f.sigstore.json" "dist/$f" >/dev/null
           done
@@ -233,12 +234,15 @@ jobs:
         run: |
           if gh release view "voz-v$VERSION" >/dev/null 2>&1; then echo "::error::ya existe la release voz-v$VERSION"; exit 1; fi
           gh release create "voz-v$VERSION" --latest=false --verify-tag --title "Iris Voz $VERSION" \
-            --notes "AI server package for Iris (Iris Voz $VERSION). Install guide: docs/runbooks/servidor-ia.md. Verify install-voz.sh with its .sigstore.json bundle before running it." \
+            --notes "AI server package for Iris (Iris Voz $VERSION). Install guide: docs/runbooks/servidor-ia.md. One-step setup: curl -fsSL https://github.com/HCDestroyer/iris/releases/download/voz-v$VERSION/setup-voz.sh | sudo bash. Verify install-voz.sh and setup-voz.sh with their .sigstore.json bundles before running them." \
             "dist/iris-voz-$VERSION.tar.gz#Iris Voz $VERSION install package" \
             "dist/iris-voz-$VERSION.tar.gz.sigstore.json#Iris Voz $VERSION install package signature (Sigstore bundle)" \
             "dist/iris-voz-$VERSION.tar.gz.sha256#Iris Voz $VERSION install package SHA-256" \
             "dist/install-voz.sh#Iris Voz installer (install-voz.sh)" \
             "dist/install-voz.sh.sigstore.json#Iris Voz installer signature (Sigstore bundle)" \
             "dist/install-voz.sh.sha256#Iris Voz installer SHA-256" \
+            "dist/setup-voz.sh#Iris Voz one-step setup (setup-voz.sh)" \
+            "dist/setup-voz.sh.sigstore.json#Iris Voz one-step setup signature (Sigstore bundle)" \
+            "dist/setup-voz.sh.sha256#Iris Voz one-step setup SHA-256" \
             "dist/manifiesto.json#Iris Voz $VERSION manifest" \
             "dist/manifiesto.json.sigstore.json#Iris Voz $VERSION manifest signature (Sigstore bundle)"
