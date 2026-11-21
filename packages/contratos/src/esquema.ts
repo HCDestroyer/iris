@@ -5528,7 +5528,7 @@ export interface paths {
         put?: never;
         /**
          * Sincronizar con Meta
-         * @description Permiso: `plantillas_whatsapp.sincronizar`. Lee todas las plantillas de la cuenta en Meta y deja Iris igual: nuevas (creadas en Meta), cambiadas y «Borrada en Meta» (nunca se eliminan en Iris). Si Meta no responde o el token no tiene `whatsapp_business_management`, no cambia nada (502 `meta_no_responde`, 424 `meta_sin_permiso` / `meta_token_invalido`) y la cuenta guarda el error.
+         * @description Permiso: `plantillas_whatsapp.sincronizar`. Encola la relectura de la cuenta (un job único por cuenta) y responde 202. El resultado sale en `GET /cuentas`: `sincronizadaEn` cambia y `resumen` dice qué entró (nuevas en Meta), qué cambió y qué quedó «Borrada en Meta» (nunca se elimina en Iris); si Meta no respondió o el token no tiene `whatsapp_business_management`, `error` lo dice y nada cambia. Una cuenta sincronizada hace menos de 2 minutos responde 429 `sincronizada_hace_poco` con `Retry-After`.
          */
         post: operations["sincronizarPlantillasWhatsApp"];
         delete?: never;
@@ -10223,7 +10223,7 @@ export interface components {
             truncado: boolean;
         };
         CambioCuentaPWA: {
-            codigo: string | null;
+            codigos: string[];
             estado: string;
             etiqueta: string;
             /** Format: int64 */
@@ -13305,8 +13305,8 @@ export interface components {
         EntradaCrearPWA: {
             /** @enum {string} */
             categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
-            /** @description Código del catálogo de Iris que atenderá */
-            codigo?: string;
+            /** @description Códigos del catálogo de Iris que atenderá */
+            codigos?: string[] | null;
             definicion: components["schemas"]["DefinicionPWA"];
             /** @description Además, enviarla a Meta (si las reglas se cumplen) */
             enviar?: boolean;
@@ -14978,8 +14978,8 @@ export interface components {
             version?: number;
         };
         EntradaUsosPWA: {
-            /** @description Código del catálogo que atiende (null = ninguno). Si otra plantilla de la cuenta lo tenía, lo suelta */
-            codigo: string | null;
+            /** @description Códigos del catálogo que atiende ([] = ninguno). Si otra plantilla de la cuenta tenía alguno, lo suelta */
+            codigos: string[] | null;
             /** @description avisos, conversaciones, asistente (vacío = no se usa) */
             usos: string[] | null;
             variables?: components["schemas"]["VariableDatoPWA"][] | null;
@@ -18324,8 +18324,8 @@ export interface components {
             categoriaProxima: string | null;
             /** Format: date-time */
             categoriaProximaEn: string | null;
-            /** @description Código del catálogo de Iris que atiende (Argos pide avisos por código) */
-            codigo: string | null;
+            /** @description Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta */
+            codigos: string[];
             /** Format: date-time */
             createdAt: string;
             definicion: components["schemas"]["DefinicionPWA"];
@@ -18538,8 +18538,8 @@ export interface components {
             categoriaProxima: string | null;
             /** Format: date-time */
             categoriaProximaEn: string | null;
-            /** @description Código del catálogo de Iris que atiende (Argos pide avisos por código) */
-            codigo: string | null;
+            /** @description Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta */
+            codigos: string[];
             /** Format: date-time */
             createdAt: string;
             definicion: components["schemas"]["DefinicionPWA"];
@@ -18608,8 +18608,8 @@ export interface components {
             categoriaProxima: string | null;
             /** Format: date-time */
             categoriaProximaEn: string | null;
-            /** @description Código del catálogo de Iris que atiende (Argos pide avisos por código) */
-            codigo: string | null;
+            /** @description Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta */
+            codigos: string[];
             /** Format: date-time */
             createdAt: string;
             definicion: components["schemas"]["DefinicionPWA"];
@@ -19484,12 +19484,6 @@ export interface components {
             ok: boolean;
             reglas: components["schemas"]["ReglaPWA"][];
         };
-        ResultadoSincronizacionPWA: {
-            resumen: components["schemas"]["ResumenSincronizacionPWA"];
-            /** Format: date-time */
-            sincronizadaEn: string;
-            wabaId: string;
-        };
         ResumenAvisos: {
             /** Format: int32 */
             noLeidos: number;
@@ -19552,7 +19546,7 @@ export interface components {
             /** @description Creadas fuera de Iris (en Meta) */
             nuevas: components["schemas"]["CambioCuentaPWA"][];
             /** @enum {string} */
-            origen: "manual" | "nocturna" | "webhook";
+            origen: "manual" | "nocturna" | "webhook" | "canal";
             /**
              * Format: int64
              * @description Plantillas que devolvió Meta
@@ -20286,6 +20280,14 @@ export interface components {
              * @description Hasta cuándo se puede pedir (24 h después de conectar)
              */
             plazo: string;
+        };
+        SincronizacionPedida: {
+            /**
+             * Format: date-time
+             * @description La sincronización anterior (cambia al terminar la pedida)
+             */
+            sincronizadaEn: string | null;
+            wabaId: string;
         };
         Sugerencia: {
             /** @description Ausente si no propone nada */
@@ -43359,13 +43361,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK */
-            200: {
+            /** @description Accepted */
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ResultadoSincronizacionPWA"];
+                    "application/json": components["schemas"]["SincronizacionPedida"];
                 };
             };
             /** @description Unauthorized */
