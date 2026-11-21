@@ -78,7 +78,7 @@ func (m *Modulo) registrarCentralita(api huma.API) {
 	huma.Register(api, d(op("actualizarCentralita", http.MethodPost, "/centralitas/{id}/actualizar", "Editar la conexión con la centralita", conf,
 		http.StatusOK, http.StatusConflict, http.StatusNotFound),
 		"Con `version` (409 `conflicto_version`). Cambiar host, puerto, usuario, contraseña o huella la apaga y borra la última prueba: hay que probar y "+
-			"encender otra vez. 422 `clave_requerida` si cambian host, puerto o usuario sin volver a escribir la contraseña. Evento `centralita.actualizada`."),
+			"encender otra vez. Cambiar el host también apaga el teléfono y borra su prueba y la confirmación de restricciones. 422 `clave_requerida` si cambian host, puerto o usuario sin volver a escribir la contraseña. Evento `centralita.actualizada`."),
 		func(ctx context.Context, in *centralitaAccionHTTP[EntradaActualizarCentralita]) (*cuerpo[Centralita], error) {
 			in.Body.ID = in.ID
 			return responder(k.Actualizar.Ejecutar(ctx, in.Body))

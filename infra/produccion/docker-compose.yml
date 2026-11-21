@@ -275,7 +275,9 @@ services:
   # is denied, so it is never an open relay into the internal network. Host network: the relay ports
   # (IRIS_TURN_PUERTO_MIN..MAX, UDP) and the listening port (IRIS_TURN_PUERTO, UDP and TCP) are opened on
   # the host firewall. The credentials are ephemeral (HMAC of IRIS_TURN_SECRETO, the same secret the
-  # messaging service uses); the secret stays in the .env (600).
+  # messaging service uses). coturn reads the secret from a Docker secret (<dir>/secrets/turn-secreto,
+  # written by install.sh from the .env), never from its environment (docker inspect would show it).
+  # Smoke test: infra/produccion/probar-turn.sh (CI, job Infra).
   turn:
     profiles: [telefono]
     image: coturn/coturn:4.9.0-alpine@sha256:229f87ef2428336ca2f4b4967a961cc6ad7aceb79277bc51f5a179606228d45f
@@ -290,8 +292,9 @@ services:
     security_opt: ['no-new-privileges:true']
     tmpfs:
       - /run/turn:size=1m,mode=0700,uid=65534,gid=65534
+    secrets:
+      - turn_secreto
     environment:
-      TURN_SECRETO: ${IRIS_TURN_SECRETO:-}
       TURN_RELAY_IP: ${IRIS_TURN_RELAY_IP:-}
       TURN_ISSABEL_IP: ${IRIS_TURN_ISSABEL_IP:-}
       TURN_PUERTO: ${IRIS_TURN_PUERTO:-3478}
@@ -302,8 +305,26 @@ services:
       - /bin/sh
       - -c
       - |
+        TURN_SECRETO="$$(cat /run/secrets/turn_secreto 2> /dev/null)"
+        case "$$TURN_SECRETO" in
+          *[[:space:]]*) echo "TURN: the secret has spaces or line breaks (use openssl rand -hex 32)." >&2; exit 1 ;;
+        esac
         if [ "$${#TURN_SECRETO}" -lt 16 ] || [ -z "$$TURN_RELAY_IP" ] || [ -z "$$TURN_ISSABEL_IP" ]; then
-          echo "TURN needs IRIS_TURN_SECRETO (16+ chars), IRIS_TURN_RELAY_IP and IRIS_TURN_ISSABEL_IP in the .env." >&2
+          echo "TURN needs IRIS_TURN_SECRETO (16+ chars), IRIS_TURN_RELAY_IP and IRIS_TURN_ISSABEL_IP in the .env (install.sh writes the secret file)." >&2
+          exit 1
+        fi
+        # Without capabilities coturn cannot bind below 1024: refuse it here with a clear message.
+        for p in "$$TURN_PUERTO" "$$TURN_PUERTO_MIN" "$$TURN_PUERTO_MAX"; do
+          case "$$p" in
+            '' | *[!0-9]*) echo "TURN: port '$$p' is not a number." >&2; exit 1 ;;
+          esac
+          if [ "$$p" -lt 1024 ] || [ "$$p" -gt 65535 ]; then
+            echo "TURN: port $$p must be between 1024 and 65535 (coturn runs without privileges)." >&2
+            exit 1
+          fi
+        done
+        if [ "$$TURN_PUERTO_MIN" -gt "$$TURN_PUERTO_MAX" ]; then
+          echo "TURN: IRIS_TURN_PUERTO_MIN is greater than IRIS_TURN_PUERTO_MAX." >&2
           exit 1
         fi
         umask 077
@@ -341,6 +362,11 @@ networks:
     ipam:
       config:
         - subnet: ${IRIS_RED_COMPOSE:-172.28.10.0/24}
+
+secrets:
+  # Written by install.sh from IRIS_TURN_SECRETO (root:65534 0640); only the turn service mounts it.
+  turn_secreto:
+    file: ${IRIS_DIR:-/opt/iris}/secrets/turn-secreto
 
 volumes:
   pgdata:

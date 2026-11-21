@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -179,5 +180,85 @@ func TestTelefonoAdopcionPorNumeroCompleto(t *testing.T) {
 	b.hasta(func() bool { return externo() == "1800.101" }, "el AMI no adoptó la saliente del puente")
 	if n := b.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE origen = 'centralita'`); n != 1 {
 		t.Fatalf("filas: %d", n)
+	}
+}
+
+// Segunda revisión (N4): /abrir cuenta con candado (en paralelo no pasan más de 6 por persona) y hay
+// un tope por empresa.
+func TestTelefonoAbrirEnParaleloYTopePorEmpresa(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	const n = 16
+	codigos := make(chan int, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			codigos <- b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"}).status
+		}()
+	}
+	abiertos := 0
+	for i := 0; i < n; i++ {
+		if <-codigos == http.StatusCreated {
+			abiertos++
+		}
+	}
+	if abiertos != 6 {
+		t.Fatalf("en paralelo se abrieron %d (tope 6 por persona)", abiertos)
+	}
+	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.exigir(b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"}), http.StatusCreated)
+	// Otros 119 de la misma empresa en el mismo minuto (de otra persona): el agente ya no abre.
+	b.sql(`INSERT INTO mensajeria.telefono_tickets (hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en)
+		SELECT decode(md5(g::text || 'tope'), 'hex'), $1, t.empresa_id, t.extension_id, t.dispositivo, t.sesion_id, t.expira_en
+		FROM (SELECT * FROM mensajeria.telefono_tickets ORDER BY expira_en DESC LIMIT 1) t CROSS JOIN generate_series(1, 119) g`, b.admin.id)
+	r := b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"})
+	b.exigirProblema(r, http.StatusTooManyRequests, "demasiados_intentos")
+}
+
+// Segunda revisión (N6): cambiar el host de la centralita apaga el teléfono y borra su prueba y la
+// confirmación de restricciones (eran de otra Issabel); cambiar solo el nombre no.
+func TestTelefonoSeApagaConOtroHost(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	version := func() float64 {
+		var v int32
+		if err := b.bd.QueryRow(b.ctx, `SELECT version FROM mensajeria.centralitas WHERE id = $1`, b.id).Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		return float64(v)
+	}
+	telefono := func() (bool, bool, bool) {
+		var activo, probado, restricciones bool
+		if err := b.bd.QueryRow(b.ctx, `SELECT telefono_activo, telefono_probado_en IS NOT NULL, restricciones_confirmadas_en IS NOT NULL
+			FROM mensajeria.centralitas WHERE id = $1`, b.id).Scan(&activo, &probado, &restricciones); err != nil {
+			t.Fatal(err)
+		}
+		return activo, probado, restricciones
+	}
+	if a, p, r := telefono(); !a || !p || !r {
+		t.Fatalf("el banco no dejó el teléfono encendido: %v %v %v", a, p, r)
+	}
+	w, _, err := b.dial(b.agente, b.abrir(b.agente, "panel"), baseIris)
+	if err != nil {
+		t.Fatal(err)
+	}
+	datos := b.datos()
+	delete(datos, "secreto")
+	datos["version"], datos["nombre"], datos["huellaTls"] = version(), "Otro nombre", b.ami.Huella()
+	b.exigir(b.api(b.admin, http.MethodPost, b.ruta("/actualizar"), datos), http.StatusOK)
+	if a, p, r := telefono(); !a || !p || !r {
+		t.Fatalf("cambiar el nombre apagó el teléfono: %v %v %v", a, p, r)
+	}
+	datos = b.datos()
+	datos["version"], datos["nombre"], datos["huellaTls"], datos["host"] = version(), "Otro nombre", b.ami.Huella(), "127.0.0.2"
+	r := b.api(b.admin, http.MethodPost, b.ruta("/actualizar"), datos)
+	b.exigir(r, http.StatusOK)
+	if a, p, rs := telefono(); a || p || rs {
+		t.Fatalf("otro host y el teléfono sigue: activo=%v probado=%v restricciones=%v", a, p, rs)
+	}
+	if c := w.cierre(); c == 1000 {
+		t.Fatalf("la conexión abierta no se cortó: %d", c)
+	}
+	var campos string
+	if err := b.bd.QueryRow(b.ctx, `SELECT payload->>'campos' FROM integracion.outbox WHERE evento = 'centralita.actualizada' AND (payload->>'centralita_id')::bigint = $1
+		ORDER BY id DESC LIMIT 1`, b.id).Scan(&campos); err != nil || !strings.Contains(campos, "telefono_activo") {
+		t.Fatalf("centralita.actualizada: %q %v", campos, err)
 	}
 }

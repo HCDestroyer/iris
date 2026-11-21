@@ -2768,7 +2768,7 @@ export interface paths {
         put?: never;
         /**
          * Editar la conexión con la centralita
-         * @description Permiso: `centralita.configurar`. Con `version` (409 `conflicto_version`). Cambiar host, puerto, usuario, contraseña o huella la apaga y borra la última prueba: hay que probar y encender otra vez. 422 `clave_requerida` si cambian host, puerto o usuario sin volver a escribir la contraseña. Evento `centralita.actualizada`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         * @description Permiso: `centralita.configurar`. Con `version` (409 `conflicto_version`). Cambiar host, puerto, usuario, contraseña o huella la apaga y borra la última prueba: hay que probar y encender otra vez. Cambiar el host también apaga el teléfono y borra su prueba y la confirmación de restricciones. 422 `clave_requerida` si cambian host, puerto o usuario sin volver a escribir la contraseña. Evento `centralita.actualizada`. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
          */
         post: operations["actualizarCentralita"];
         delete?: never;

@@ -1084,23 +1084,6 @@ func (p *Puente) avisar(h HechoLlamada) {
 	}
 }
 
-// quitarIris: ninguna cabecera X-Iris-* viene de afuera (las pone solo el puente).
-func quitarIris(m conCabeceras) {
-	for {
-		borro := false
-		for _, h := range m.Headers() {
-			if len(h.Name()) >= 7 && strings.EqualFold(h.Name()[:7], "X-Iris-") {
-				m.RemoveHeader(h.Name())
-				borro = true
-				break
-			}
-		}
-		if !borro {
-			return
-		}
-	}
-}
-
 func acotarExpira(req *sip.Request) {
 	if h := req.GetHeader("Expires"); h != nil {
 		if n, err := strconv.Atoi(strings.TrimSpace(h.Value())); err != nil || n > maxExpiraciones || n < 0 {

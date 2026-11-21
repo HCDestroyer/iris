@@ -71,6 +71,10 @@ RETURNING *;
 -- Tickets que la persona pidió en el último minuto (vencen a los 30 s).
 SELECT count(*)::int AS n FROM mensajeria.telefono_tickets WHERE usuario_id = @usuario_id::bigint AND expira_en > @desde::timestamptz;
 
+-- name: TicketsTelefonoRecientesEmpresa :one
+-- Tickets de toda la empresa en el último minuto (tope por empresa; va después de CandadoChat «telefono:abrir:e<empresa>»).
+SELECT count(*)::int AS n FROM mensajeria.telefono_tickets WHERE coalesce(empresa_id, 0) = @empresa::bigint AND expira_en > @desde::timestamptz;
+
 -- name: ConexionTelefonoVigente :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.telefono_conexiones WHERE id = @id)::boolean AS vigente;
 

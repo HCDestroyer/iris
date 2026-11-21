@@ -350,10 +350,22 @@ func nuevosCasosCentralita(m *Modulo) casosCentralita {
 					// Otros datos de conexión: hay que volver a probar y encender.
 					f.Activa, f.Estado, f.ErrorCodigo, f.HuellaVista, f.ProbadaEn, f.ConectadaEn, f.DesconectadaDesde = false, CentralitaDesactivada, nil, nil, nil, nil, nil
 				}
+				// El teléfono se conecta al mismo host: con otro, se apaga y hay que volver a probar el WSS y
+				// confirmar las restricciones de esa Issabel (runbook §9.3).
+				apagaTelefono := host != antes.Host && (f.TelefonoActivo || f.TelefonoProbadoEn != nil || f.RestriccionesConfirmadasEn != nil)
 				if f, err = guardarCentralita(ctx, q, f); err != nil {
 					return Centralita{}, err
 				}
+				if apagaTelefono {
+					f.TelefonoActivo, f.TelefonoProbadoEn, f.RestriccionesConfirmadasEn = false, nil, nil
+					if f, err = m.guardarTelefono(ctx, q, f); err != nil {
+						return Centralita{}, err
+					}
+				}
 				campos := t.RegistrarCambios("centralita", f.ID, centralitaAuditable(antes), centralitaAuditable(f))
+				if apagaTelefono {
+					campos = append(campos, t.RegistrarCambios("centralita", f.ID, telefonoAuditable(antes), telefonoAuditable(f))...)
+				}
 				if in.Secreto != nil {
 					campos = append(campos, "secreto")
 				}

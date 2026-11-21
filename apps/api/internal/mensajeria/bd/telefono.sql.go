@@ -1160,6 +1160,23 @@ func (q *Queries) TicketsTelefonoRecientes(ctx context.Context, arg TicketsTelef
 	return n, err
 }
 
+const ticketsTelefonoRecientesEmpresa = `-- name: TicketsTelefonoRecientesEmpresa :one
+SELECT count(*)::int AS n FROM mensajeria.telefono_tickets WHERE coalesce(empresa_id, 0) = $1::bigint AND expira_en > $2::timestamptz
+`
+
+type TicketsTelefonoRecientesEmpresaParams struct {
+	Empresa int64
+	Desde   time.Time
+}
+
+// Tickets de toda la empresa en el último minuto (tope por empresa; va después de CandadoChat «telefono:abrir:e<empresa>»).
+func (q *Queries) TicketsTelefonoRecientesEmpresa(ctx context.Context, arg TicketsTelefonoRecientesEmpresaParams) (int32, error) {
+	row := q.db.QueryRow(ctx, ticketsTelefonoRecientesEmpresa, arg.Empresa, arg.Desde)
+	var n int32
+	err := row.Scan(&n)
+	return n, err
+}
+
 const tomarConexionTelefono = `-- name: TomarConexionTelefono :exec
 INSERT INTO mensajeria.telefono_conexiones (id, usuario_id, empresa_id, extension_id, dispositivo, replica, abierta_en, latido_en)
 VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $7::timestamptz)

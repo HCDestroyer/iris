@@ -305,6 +305,10 @@ IRIS_TURN_RELAY_IP=10.20.0.9          # la IP con que la Issabel ve a Iris (VPN 
 IRIS_TURN_ISSABEL_IP=10.20.0.5        # la única IP a la que el TURN deja pasar audio
 ```
 
+- `irisctl start` copia `IRIS_TURN_SECRETO` a `/opt/iris/secrets/turn-secreto` (root:65534, 0640): coturn lo
+  lee como Docker secret, nunca de sus variables. Si cambias el secreto en el `.env`, vuelve a correr
+  `irisctl start`. Los puertos del TURN tienen que ser de 1024 a 65535 (coturn corre sin privilegios): si no,
+  el contenedor no arranca y lo dice en `irisctl logs turn`.
 - Abre en el firewall **del servidor de Iris** (desde internet): **UDP y TCP 3478** y **UDP 49160–49660**
   (`IRIS_TURN_PUERTO_MIN`–`MAX`). Desde la VPN, la Issabel tiene que llegar a esos mismos puertos UDP de
   `IRIS_TURN_RELAY_IP`.

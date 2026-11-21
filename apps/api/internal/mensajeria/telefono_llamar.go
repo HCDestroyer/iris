@@ -34,6 +34,8 @@ const (
 	RutaTelefonoSIP = "/api/v1/mensajeria/telefono/sip"
 	// maxAbrirPorMinuto: tickets por persona y minuto.
 	maxAbrirPorMinuto = 6
+	// maxAbrirPorMinutoEmpresa: tickets por empresa y minuto (cada uno da una credencial TURN).
+	maxAbrirPorMinutoEmpresa = 120
 	// ProtocoloTicket: el ticket viaja como un subprotocolo más del WebSocket (no queda en la URL ni
 	// en los logs de los proxies): "iris-ticket.<ticket>".
 	ProtocoloTicket = "iris-ticket."
@@ -377,13 +379,27 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 			if err := q.BorrarTicketsTelefono(ctx, ahora.Add(-time.Hour)); err != nil {
 				return SesionTelefono{}, err
 			}
-			// Como mucho 6 por minuto (cada uno reemplaza la conexión anterior y da otra credencial TURN).
-			if n, err := q.TicketsTelefonoRecientes(ctx, mensajeriabd.TicketsTelefonoRecientesParams{UsuarioID: contexto.ActorDe(ctx).ID,
-				Desde: ahora.Add(vidaTicketTelefono - time.Minute)}); err != nil {
+			// Como mucho 6 por minuto y persona, y 120 por empresa (cada uno reemplaza la conexión anterior y
+			// da otra credencial TURN). Con candado: dos pedidos a la vez no cuentan lo mismo.
+			empresa := empresaDeCtx(ctx)
+			if err := q.CandadoChat(ctx, "telefono:abrir:"+strconv.FormatInt(contexto.ActorDe(ctx).ID, 10)); err != nil {
 				return SesionTelefono{}, err
-			} else if n >= maxAbrirPorMinuto {
+			}
+			if err := q.CandadoChat(ctx, "telefono:abrir:e"+strconv.FormatInt(empresa, 10)); err != nil {
+				return SesionTelefono{}, err
+			}
+			desde := ahora.Add(vidaTicketTelefono - time.Minute)
+			n, err := q.TicketsTelefonoRecientes(ctx, mensajeriabd.TicketsTelefonoRecientesParams{UsuarioID: contexto.ActorDe(ctx).ID, Desde: desde})
+			if err != nil {
+				return SesionTelefono{}, err
+			}
+			ne, err := q.TicketsTelefonoRecientesEmpresa(ctx, mensajeriabd.TicketsTelefonoRecientesEmpresaParams{Empresa: empresa, Desde: desde})
+			if err != nil {
+				return SesionTelefono{}, err
+			}
+			if n >= maxAbrirPorMinuto || ne >= maxAbrirPorMinutoEmpresa {
 				return SesionTelefono{}, nucleo.NuevoProblema(http.StatusTooManyRequests, "demasiados_intentos", "Demasiados intentos",
-					"Abriste el teléfono muchas veces seguidas: espera un minuto").ConCabecera("Retry-After", "60")
+					"Se abrió el teléfono muchas veces seguidas: espera un minuto").ConCabecera("Retry-After", "60")
 			}
 			crudo := make([]byte, 32)
 			if _, err := rand.Read(crudo); err != nil {

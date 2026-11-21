@@ -493,6 +493,24 @@ ensure_secrets_dir() {
         chown "root:$FCM_UID" "$DIR/secrets/$FCM_FILE"
         chmod 640 "$DIR/secrets/$FCM_FILE"
     fi
+    ensure_turn_secret
+}
+
+# The Iris phone's TURN relay (profile telefono) reads IRIS_TURN_SECRETO from a Docker secret, never
+# from its environment: the file is rewritten from the .env on every start (root:65534 0640; coturn
+# runs as 65534). Without the phone it is not needed and is removed.
+TURN_GID=65534
+TURN_FILE=turn-secreto
+ensure_turn_secret() {
+    [ -f "$ENV_FILE" ] || return 0
+    if [ "$(env_get IRIS_TELEFONO)" != true ]; then
+        rm -f -- "$DIR/secrets/$TURN_FILE"
+        return 0
+    fi
+    (umask 077 && printf '%s' "$(env_get IRIS_TURN_SECRETO)" > "$DIR/secrets/$TURN_FILE.new")
+    chown "root:$TURN_GID" "$DIR/secrets/$TURN_FILE.new"
+    chmod 640 "$DIR/secrets/$TURN_FILE.new"
+    mv -f "$DIR/secrets/$TURN_FILE.new" "$DIR/secrets/$TURN_FILE"
 }
 
 # --fcm-credentials FILE [--fcm-project ID] or --no-fcm. The JSON never goes to the .env or the log.

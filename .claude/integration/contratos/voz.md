@@ -1476,8 +1476,10 @@ conexión; límites; adopción por el AMI; llamada directa.
   `restricciones_sin_confirmar`) y quitar la confirmación lo apaga.
 - **Diálogos** (I5): toda petición del navegador (también ACK, CANCEL y las de dentro de un diálogo) tiene
   `From` de su extensión; dentro de un diálogo, solo de una llamada que la conexión conoce y con sus
-  etiquetas (la del navegador siempre; la de la Issabel cuando se conoce): si no, 481. Un OPTIONS o un
-  REGISTER no abren «diálogos». Un tope de 64 diálogos guardados por conexión en todos los caminos.
+  etiquetas (la del navegador siempre; la de la Issabel cuando se conoce): si no, 481. Los diálogos
+  guardados (tope 64 por conexión) son **solo llamadas** (INVITE); un REGISTER o un OPTIONS fuera de un
+  diálogo guarda su estado (el desfase de CSeq) en un mapa aparte de 16 que olvida el más viejo y borra
+  el OPTIONS con su respuesta final: nunca dejan sin lugar a una llamada ni a una entrante.
 - **SDP** (I1): lista blanca de líneas (`v o s i c t b m a`) y de atributos de WebRTC; `a=rtcp` con dirección
   solo si es la del relevo; `a=remote-candidates` y lo demás se quitan. El TURN solo cuenta como
   configurado con `IRIS_TURN_RELAY_IP` (sin ella no se enciende ni se abre el teléfono).
@@ -1499,7 +1501,31 @@ conexión; límites; adopción por el AMI; llamada directa.
   (E.164), no por los últimos 8 dígitos; `llamada.transferida` sale cuando la Issabel acepta el REFER
   (2xx), no al validarlo; extensiones y grupos que marca o transfiere el teléfono, de **2 a 6 cifras**
   (grupos con CHECK); coturn sin capacidades, `no-new-privileges`, raíz de solo lectura, usuario 65534 y el
-  secreto en un archivo de configuración en tmpfs (no en la línea de comandos).
+  secreto en un archivo de configuración en tmpfs (no en la línea de comandos); el secreto le llega como
+  Docker secret (`<dir>/secrets/turn-secreto`, que escribe `install.sh` desde el `.env`), nunca en su
+  `environment`, y el entrypoint rechaza puertos fuera de 1024–65535.
+- **Segunda revisión (#246):**
+  - De la Issabel al navegador también hay **lista blanca** (peticiones y respuestas): Via, Max-Forwards,
+    From, To, Call-ID, CSeq, Contact, Record-Route, Content-Type, Content-Length, Allow, Supported,
+    Require, Unsupported, RSeq, RAck, Expires, Min-Expires, Session-Expires, Min-SE, Event,
+    Subscription-State, Accept, Allow-Events, Reason, Retry-After. Fuera Server/User-Agent,
+    P-Asserted-Identity, Remote-Party-ID, Call-Info, Alert-Info (contestar solo, timbre de una URL),
+    Diversion, desafíos y toda `X-*`; la única `X-Iris-Llamada` es la del puente. Via, Record-Route y
+    Contact conservan la dirección de la Issabel: el navegador las necesita para seguir el diálogo.
+  - El `Contact` del navegador solo lleva los parámetros `transport` (uno) y `ob`: sin `maddr`, `lr` ni
+    otros, sin contraseña y sin `?cabeceras` en la URI.
+  - `POST /telefono/abrir` cuenta con candado (por persona y por empresa) y además tiene un tope de
+    **120 por empresa y minuto** (429 `demasiados_intentos`).
+  - Si la Issabel manda varios desafíos, Iris contesta el MD5 (si no hay, el primero que sepa contestar).
+    Si ninguno sirve (p. ej. solo SHA-512 o `auth-int`), el navegador recibe 403 y el puente corta con
+    4003 `desafio_no_soportado` **sin** marcar la credencial de la extensión.
+  - Cambiar el `host` de la centralita apaga el teléfono y borra `telefono_probado_en` y
+    `restricciones_confirmadas_en` (eran de otra Issabel); van en los `campos` de `centralita.actualizada`.
+  - En un INVITE nuevo, `To` es la misma URI que se marca y `From` va sin nombre visible.
+  - A la Issabel solo vuelven respuestas del navegador a peticiones que la Issabel mandó por esa conexión
+    (misma branch y método); las demás se descartan. La etiqueta del navegador en una entrante la fija
+    su primera respuesta con `To` (provisional o 2xx); antes, ninguna petición suya vale en ese diálogo.
+  - El subprotocolo que elige el servidor en el handshake es `sip`, nunca el del ticket.
 - **Dependencias:** sipgo se queda en v1.7.2: v1.7.3/v1.7.4 agregan un tope de parámetros por cabecera
   (`ParseMaxHeaderParams`), pero tienen menos de 2 semanas; el tope de 16 KB por mensaje acota ese caso
   mientras tanto.

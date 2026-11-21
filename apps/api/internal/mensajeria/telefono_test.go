@@ -160,8 +160,12 @@ func (b *bancoTelefono) dial(p persona, ticket string, origen string) (*telefono
 	if err != nil {
 		return nil, status, err
 	}
-	w := &telefonoWS{t: b.t, c: c}
 	b.t.Cleanup(func() { _ = c.CloseNow() })
+	// El subprotocolo elegido es «sip», nunca el del ticket (que quedaría en registros y proxies).
+	if c.Subprotocol() != "sip" {
+		b.t.Fatalf("subprotocolo devuelto: %q", c.Subprotocol())
+	}
+	w := &telefonoWS{t: b.t, c: c}
 	return w, status, nil
 }
 
