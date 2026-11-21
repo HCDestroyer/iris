@@ -593,7 +593,7 @@ El cliente no siempre da todos sus datos al vender, y en la instalación puede c
 | Mayor de edad | Casilla obligatoria «El titular es mayor de edad» (`mayor_de_edad: true`); **sin** fecha de nacimiento |
 | Teléfono | 8 dígitos de Guatemala (regla de §3.2) y `whatsapp` (bool) |
 | Correo | Opcional |
-| Facturación | `cf` o `nit` (con dígito verificador) |
+| Facturar a | El receptor de la factura (FEL): `tipo_documento_fiscal` = `cf`, `nit` (con dígito verificador) o `cui`, y `nit_cui` con el número (vacío con `cf`). En Argos es el mismo campo que `nit_cui`; no es la identidad de A41 |
 | Relación con quien pidió el servicio | Opcional: `titular`, `familiar` u `otro` |
 | Validación de identidad | Foto del documento: **frente obligatorio**, reverso opcional; el técnico marca «Coincide con el titular» (`coincide: true`); la firma del titular va en el contrato (en Iris) |
 
@@ -618,7 +618,7 @@ El cliente no siempre da todos sus datos al vender, y en la instalación puede c
 
 - Solo para el cliente de un servicio `pendiente_instalacion` con una orden de Iris en curso (`422 cliente_sin_instalacion`): el token de Iris no sube identidades de cualquier cliente.
 - Argos la guarda **cifrada en reposo**. Solo la ve quien tiene `clientes.ver_identidad` en Argos; cada vista se audita; nunca sale por el portal, webhooks, eventos, logs ni MCP. Iris no la puede leer de vuelta.
-- **Sobre un cliente con historial** (otros servicios que no están en `pendiente_instalacion`, o facturas o pagos): solo se acepta si coinciden `documento_numero` y el nombre normalizado con lo que Argos ya tiene; si no, `422 titular_no_coincide`. **A41 y A43 nunca escriben ni llenan `nit_cui`.** En un cliente con historial sin documento, la identidad se guarda, pero no vale como `documento` de §7.5 ni como `datos_titular` de §12.4 hasta que el titular la confirme con un código a sus datos ya registrados.
+- **Sobre un cliente con historial** (otros servicios que no están en `pendiente_instalacion`, o facturas o pagos): solo se acepta si coinciden `documento_numero` y el nombre normalizado con lo que Argos ya tiene; si no, `422 titular_no_coincide`. **A41 nunca escribe `nit_cui`:** la identidad vive en su propia tabla y el receptor fiscal es otra cosa. En un cliente con historial sin documento, la identidad se guarda, pero no vale como `documento` de §7.5 ni como `datos_titular` de §12.4 hasta que el titular la confirme con un código a sus datos ya registrados.
 - Argos conserva solo la identidad **vigente y la anterior**; todas se borran **12 meses después de retirado el cliente**, y en el acto si el cliente se elimina (A39).
 - `201 { identidad_id, version }`. **Idempotente por `Idempotency-Key`** (§3.1): misma clave y mismos bytes (las partes del multipart incluidas) devuelven el `201` original con `Idempotent-Replayed: true` y no registran otra versión; misma clave con otro cuerpo, `422 idempotency_key_reutilizada`. Emite `cliente.identidad_registrada { cliente_id, empresa_id, documento_tipo, metodo }` (§2.3), sin número ni foto.
 
@@ -628,7 +628,7 @@ El cliente no siempre da todos sus datos al vender, y en la instalación puede c
 
 ```json
 {
-  "cliente": { "nombre": "Ana Pérez", "documento_tipo": "dpi", "documento_numero": "1234567890101", "mayor_de_edad": true, "telefono": "+502 5512-3344", "whatsapp": true, "email": null, "facturacion": { "tipo": "cf", "nit": null }, "relacion": "familiar" },
+  "cliente": { "nombre": "Ana Pérez", "documento_tipo": "dpi", "documento_numero": "1234567890101", "mayor_de_edad": true, "telefono": "+502 5512-3344", "whatsapp": true, "email": null, "tipo_documento_fiscal": "cf", "nit_cui": null, "relacion": "familiar" },
   "identidad": { "coincide": true, "verificado_en": "2026-11-21T16:02:00Z", "metodo": "foto_documento" },
   "motivo_codigo": "menor_de_edad",
   "motivo": "El servicio lo pidió un menor; queda de titular su madre",
@@ -659,10 +659,10 @@ El cliente no siempre da todos sus datos al vender, y en la instalación puede c
 
 Argos solo exige nombre y teléfono al crear. Lo que falte lo manda Iris **antes de activar**:
 
-- `POST /servicios/:id/completar-datos` (`servicios.completar_datos`), `Idempotency-Key = iris:datos:<orden_id>:<n>`, cuerpo `{ cliente?: { nombre?, telefono?, whatsapp?, email?, facturacion?: { tipo: cf | nit, nit? }, relacion? }, servicio?: { direccion?, referencia?, coordenadas?, precision_m? }, identidad_id?, version?, origen_tipo: "iris_orden", origen_id }`.
+- `POST /servicios/:id/completar-datos` (`servicios.completar_datos`), `Idempotency-Key = iris:datos:<orden_id>:<n>`, cuerpo `{ cliente?: { nombre?, telefono?, whatsapp?, email?, tipo_documento_fiscal?, nit_cui?, relacion? }, servicio?: { direccion?, referencia?, coordenadas?, precision_m? }, identidad_id?, version?, origen_tipo: "iris_orden", origen_id }`.
 - Solo con el servicio en `pendiente_instalacion` (`422 servicio_no_pendiente`) y para el cliente **de ese servicio**. Del cliente, **solo llena** campos vacíos (`422 campo_ya_registrado`); con `identidad_id` de una identidad registrada en esta instalación (A41 o A39), también corrige `nombre` para que coincida con el documento. Los del servicio (dirección, referencia y coordenadas de la instalación) sí se corrigen.
-- **Cliente con historial** (otros servicios que no están en `pendiente_instalacion`, o facturas o pagos): A43 no acepta `telefono`, `movil`, `email`, `nombre` ni `facturacion` (`422 cliente_con_historial`): esos datos los cambia Argos o el titular.
-- A41 y A43 nunca escriben ni llenan `nit_cui` (§3.4.3).
+- **Cliente con historial** (otros servicios que no están en `pendiente_instalacion`, o facturas o pagos): A43 no acepta `telefono`, `movil`, `email`, `nombre`, `tipo_documento_fiscal` ni `nit_cui` (`422 cliente_con_historial`): desde Iris nadie toca el receptor fiscal de ese cliente: esos datos los cambia Argos o el titular.
+- **Facturar a (cliente sin historial):** A43 llena `nit_cui` y `tipo_documento_fiscal` con lo elegido en «Facturar a» (`cf`; `nit` con su dígito verificador; o `cui`). Argos valida (`422 validacion`). A41 nunca escribe `nit_cui`.
 - Un teléfono o correo agregado por A43 **no cuenta como registrado** para `codigo_telefono` ni `codigo_correo` (§7.5, §12.4) hasta que el titular lo confirme con un código. Mientras tanto, Argos avisa al titular por los datos que ya tenía.
 - No es un `PUT /clientes/:id` general: el token de Iris no edita clientes fuera de este caso.
 - Emite `cliente.actualizado` y `servicio.datos_cambiados` (ya existen), solo con nombres en `campos[]`.
@@ -679,7 +679,7 @@ Argos solo exige nombre y teléfono al crear. Lo que falte lo manda Iris **antes
 | 422 | `evidencia_requerida` | A39 |
 | 422 | `titular_no_coincide` | A39 y A41: el documento es de otro cliente con otro nombre. En Iris, la operación de la cola queda `rechazada` con este código y la orden pasa a revisión de un supervisor |
 | 422 | `campo_ya_registrado` | A43 |
-| 422 | `cliente_con_historial` | A43 (`telefono`, `movil`, `email`, `nombre` o `facturacion` de un cliente con historial) |
+| 422 | `cliente_con_historial` | A43 (`telefono`, `movil`, `email`, `nombre`, `tipo_documento_fiscal` o `nit_cui` de un cliente con historial) |
 | 403 | `servicio_no_de_iris` | Todas las de §3.4 |
 | 403 | `actor_ia_no_permitido` | Todas las de §3.4 y `contactos.gestionar` con `asistente_ia` |
 | 429 | `demasiados_cambios_titular` | A39 (2 por servicio y 10 por empresa y técnico al día) |
@@ -1373,6 +1373,7 @@ Son las promesas que Argos ya tiene (contrato `promesas.md` de Argos). Una prome
 - Límite: 5 intentos fallidos por cliente cada 30 minutos (ventana en Redis, solo un contador). Al pasarse, `429 demasiados_intentos` con `Retry-After`.
 - Cada intento queda en la auditoría de Argos (`clientes.verificar_identidad`, con `valor` como `***`), también los rechazados por el límite.
 - Desde 0.6.0 Argos ya no entrega `nit_cui` al usuario técnico Iris (§1.1): si Iris lo tuviera, pedir el documento no probaría nada.
+- **0.10.0:** como `documento` solo vale un `nit_cui` que ya estaba en Argos o que viene de una identidad confirmada (A41); nunca el que llenó A43 por sí solo desde la orden (§3.4.6).
 - El código por WhatsApp y la revisión de una foto del DPI los hace Iris (la foto la revisa siempre una persona) y no necesitan a Argos.
 - **Teléfonos y correos registrados (0.10.0):** para `codigo_telefono` y `codigo_correo` cuentan solo `telefono`, `movil` y `email` **del cliente**, nunca los de sus contactos (§3.5), y uno agregado por A43 solo después de que el titular lo confirme con un código (§3.4.6).
 - **Para cambiar el Wi-Fi (0.9.0, §12.4)** `datos_titular` solo vale si en esa conversación coincidió el `documento`. `nombre` y `codigo_cliente` nunca bastan, ni juntos. Un cliente sin documento (`cf`) solo se verifica con un código al teléfono o al correo registrados (`codigo_telefono`, `codigo_correo`).
@@ -1677,7 +1678,7 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 - **q. Identificar no es verificar (A42).** WhatsApp desde el número del contacto basta para consultar, reportar y pagar; una llamada pide código por WhatsApp; lo reservado sigue con §7.5. Aceptado por Argos.
 - **r. Idempotencia y versiones.** `version` opcional en §3.4; huella de multipart por partes sin boundary; claves `iris:identidad:<orden_id>:<toma>` e `iris:reservar_ip:<orden_id>:<router_id>`. Aceptado por Argos.
 - **s. Hallazgos bajos.** `motivo_codigo` en `servicio.titular_cambiado` (texto solo en la auditoría de Argos); `buscar` y `GET /clientes/:id/contactos` con `X-Iris-Actor` y 20 por minuto por actor; 3 intentos al elegir cliente; el técnico no ve `posible_duplicado`; la reserva de IP vence a los 30 días; la firma en sitio del contrato regenerado cubre la subida de precio. Aceptado por Argos.
-- **t. `nit_cui` y clientes con historial (N1).** A43 tampoco cambia `facturacion` de un cliente con historial; A41 y A43 nunca escriben ni llenan `nit_cui`; en un cliente con historial sin documento, la identidad no vale como `documento` (§7.5) ni `datos_titular` (§12.4) hasta que el titular la confirme con un código.
+- **t. `nit_cui` y clientes con historial (N1, con la aclaración de Argos).** «Facturar a» es `nit_cui` + `tipo_documento_fiscal` (no hay `facturacion.nit`): A43 los llena en un cliente sin historial y nunca los toca en uno con historial (`422 cliente_con_historial`); A41 nunca escribe `nit_cui`; en un cliente con historial sin documento, la identidad no vale como `documento` (§7.5) ni `datos_titular` (§12.4) hasta que el titular la confirme con un código.
 - **u. Titular existente sin confirmación (N2).** Reemplazado por la decisión 9 del PM: sin bandera, sin código y sin revisión a las 24 h.
 - **v. Alcance de §3.4 por servicio (N3).** El `origen_id` debe ser de una orden ya registrada para ese mismo servicio.
 - **w. Errores de §3.6 (N4).** `403 empresa_no_permitida`, `409 argos_apagado` y `403` con el `token_portal`.
