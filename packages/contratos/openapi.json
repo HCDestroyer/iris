@@ -21245,7 +21245,8 @@
               "traslado.recibir",
               "tarea.crear",
               "tarea.completar",
-              "tarea.anular"
+              "tarea.anular",
+              "llamada.directa"
             ],
             "type": "string"
           },
@@ -28263,6 +28264,10 @@
             "type": "string"
           },
           "id": {
+            "type": "string"
+          },
+          "llamadaId": {
+            "description": "llamada.directa: la llamada anotada en la orden (el mismo id de la operación)",
             "type": "string"
           },
           "orden": {

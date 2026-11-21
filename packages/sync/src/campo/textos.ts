@@ -83,6 +83,7 @@ export const OPERACIONES: Record<TipoOperacionLote, string> = {
     "tarea.crear": "Tarea propia",
     "tarea.completar": "Tarea hecha",
     "tarea.anular": "Tarea anulada",
+    "llamada.directa": "Llamada desde tu celular",
 };
 
 /** Motivo de un rechazo o error de la API, en palabras del técnico. */

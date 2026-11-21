@@ -1301,6 +1301,9 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   `servicio_id`, `usuario_id`; y el número (E.164) para abrir `tel:`. No necesita extensión ni puente y no
   cuenta para el límite diario. 422 `sin_contacto`. Evento `llamada.directa_registrada`. En el
   historial de la orden se ve como «Llamada directa» con la hora.
+  **Sin señal** (fase 3, app de campo): el teléfono abre `tel:` con el número de la orden guardada y
+  la anota después con la operación `llamada.directa` de `POST /sync/lote` (`contratos/sync.md` §2): la
+  misma fila y el mismo evento, con la hora real de la llamada y el id de la operación.
 - `GET /telefono/transferir/destinos` (`centralita.transferir`) → `{ personas: [{ usuarioId, nombre,
   extension }], grupos: [{ id, nombre, numero }] }`: las extensiones activas de su empresa (sin la suya)
   y los grupos activos.

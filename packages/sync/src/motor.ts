@@ -13,6 +13,7 @@ import {
     notasSinVersion,
     TIPOS_BLOQUEADOS_EN_PAUSA,
     TIPOS_EVIDENCIA,
+    TIPOS_SUELTOS,
     versionNotaValida,
 } from "./aplicar";
 import {
@@ -1422,6 +1423,9 @@ export class MotorSync {
     private ordenesBloqueadas(): Set<number> {
         const bloqueadas = new Set<number>();
         for (const op of this.ops.values()) {
+            if (TIPOS_SUELTOS.has(op.tipo as TipoOperacion)) {
+                continue;
+            }
             if (op.estado === "esperando_adjuntos" || (op.estado === "rechazada" && !CODIGOS_TERMINALES.has(codigoProblema(op.error) ?? ""))) {
                 bloqueadas.add(op.ordenId);
             }
@@ -1435,14 +1439,16 @@ export class MotorSync {
         const ahora = this.reloj.ahora();
         let bytes = 0;
         for (const op of this.ordenadas()) {
+            // llamada.directa va sola (TIPOS_SUELTOS): ni la detiene la orden ni detiene a la orden.
+            const suelta = TIPOS_SUELTOS.has(op.tipo as TipoOperacion);
             if (op.estado !== "pendiente") {
                 // Lo posterior a un rechazo de la misma orden no sale hasta que el técnico decida.
-                if (op.estado === "esperando_adjuntos" || !CODIGOS_TERMINALES.has(codigoProblema(op.error) ?? "")) {
+                if (!suelta && (op.estado === "esperando_adjuntos" || !CODIGOS_TERMINALES.has(codigoProblema(op.error) ?? ""))) {
                     detenidas.add(op.ordenId);
                 }
                 continue;
             }
-            if (detenidas.has(op.ordenId)) {
+            if (detenidas.has(op.ordenId) && !suelta) {
                 continue;
             }
             if (sinRespuesta.has(op.id) || this.retenida(op) || (op.esperaHasta !== undefined && op.esperaHasta > ahora)) {
