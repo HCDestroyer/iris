@@ -1099,11 +1099,17 @@ func (p *Puente) avisar(h HechoLlamada) {
 }
 
 func acotarExpira(req *sip.Request) {
-	if h := req.GetHeader("Expires"); h != nil {
-		if n, err := strconv.Atoi(strings.TrimSpace(h.Value())); err != nil || n > maxExpiraciones || n < 0 {
-			quitar(req, "Expires")
-			req.AppendHeader(sip.NewHeader("Expires", strconv.Itoa(maxExpiraciones)))
+	// Con varias `Expires` cada servidor lee una distinta: se quitan todas y queda una sola, la menor
+	// válida, acotada a maxExpiraciones.
+	if hs := req.GetHeaders("Expires"); len(hs) > 0 {
+		valor := maxExpiraciones
+		for _, h := range hs {
+			if n, err := strconv.Atoi(strings.TrimSpace(h.Value())); err == nil && n >= 0 && n < valor {
+				valor = n
+			}
 		}
+		quitar(req, "Expires")
+		req.AppendHeader(sip.NewHeader("Expires", strconv.Itoa(valor)))
 	}
 	for _, c := range req.GetHeaders("Contact") {
 		if ch, ok := c.(*sip.ContactHeader); ok {

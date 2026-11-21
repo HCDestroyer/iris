@@ -4,7 +4,38 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/emiago/sipgo/sip"
 )
+
+// Revisión de #252, punto 5: con dos `Expires` se quitan todos y queda uno solo, acotado (la Issabel
+// podría leer el segundo y dejar el registro un día entero).
+func TestAcotarExpiraConVarias(t *testing.T) {
+	casos := map[string]string{
+		"Expires: 300\r\nExpires: 86400\r\n":  "300",
+		"Expires: 86400\r\nExpires: 300\r\n":  "300",
+		"Expires: 86400\r\nExpires: 9999\r\n": "600",
+		"Expires: x\r\nExpires: -5\r\n":       "600",
+		"Expires: 120\r\n":                    "120",
+	}
+	for cab, quiere := range casos {
+		m, err := sip.ParseMessage([]byte("REGISTER sip:pbx SIP/2.0\r\nVia: SIP/2.0/WSS a.invalid;branch=z9hG4bKx\r\nFrom: <sip:201@pbx>;tag=a\r\n" +
+			"To: <sip:201@pbx>\r\nCall-ID: c\r\nCSeq: 1 REGISTER\r\n" + cab + "Content-Length: 0\r\n\r\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := m.(*sip.Request)
+		acotarExpira(req)
+		hs := req.GetHeaders("Expires")
+		if len(hs) != 1 || hs[0].Value() != quiere {
+			var vs []string
+			for _, h := range hs {
+				vs = append(vs, h.Value())
+			}
+			t.Errorf("%q: Expires %v, quería solo %s", cab, vs, quiere)
+		}
+	}
+}
 
 // Tercera revisión de #246: llamadas de la Issabel de punta a punta (sin regresiones por la lista de
 // transacciones) y los casos 2 a 4.
