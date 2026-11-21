@@ -252,18 +252,65 @@ func TestCuadrillaParaConciliarEnArgos(t *testing.T) {
 			contexto.Empresas{Estado: contexto.EmpresaPorElegir, Disponibles: disponibles})
 	}
 
-	// El técnico aún no opera en la empresa: miembro sin id_externo.
+	// El técnico aún no opera en la empresa: no va como miembro, y el jefe va null (B-265-1).
 	r := deber(e.ag.CuadrillaArgos.Ejecutar(token(e1), agenda.EntradaCuadrillaArgos{ID: c, EmpresaID: e1}))(t)
-	if r.CuadrillaID != c || r.EmpresaID == nil || *r.EmpresaID != e1 || len(r.Miembros) != 1 || r.Miembros[0].IDExterno != nil ||
-		r.JefeUsuarioID == nil || *r.JefeUsuarioID != tec || !r.Activa {
+	if r.CuadrillaID != c || r.EmpresaID == nil || *r.EmpresaID != e1 || len(r.Miembros) != 0 || r.JefeUsuarioID != nil || !r.Activa {
 		t.Fatalf("conciliar: %+v", r)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO nucleo.usuarios_empresas (usuario_id, empresa_id) VALUES ($1, $2)`, tec, e1); err != nil {
 		t.Fatal(err)
 	}
 	r = deber(e.ag.CuadrillaArgos.Ejecutar(token(e1), agenda.EntradaCuadrillaArgos{ID: c, EmpresaID: e1}))(t)
-	if r.Miembros[0].IDExterno == nil || *r.Miembros[0].IDExterno != ext {
-		t.Fatalf("con la empresa asignada, su id_externo: %+v", r.Miembros)
+	if len(r.Miembros) != 1 || r.Miembros[0].IDExterno == nil || *r.Miembros[0].IDExterno != ext || r.JefeUsuarioID == nil || *r.JefeUsuarioID != tec {
+		t.Fatalf("con la empresa asignada, miembro con su id_externo y jefe: %+v", r)
+	}
+
+	// B-265-1: una cuadrilla común (sin empresa) con un miembro que solo opera en e1 no lo muestra en
+	// el evento ni en el GET de e2, y allí el jefe va null.
+	var comun int64
+	if err := pool.QueryRow(ctx, `INSERT INTO agenda.cuadrillas (nombre) VALUES ($1) RETURNING id`, "Común "+pruebas.Unico()).Scan(&comun); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `UPDATE agenda.tecnicos SET cuadrilla_id = NULL WHERE cuadrilla_id = $1`, comun)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM agenda.cuadrillas WHERE id = $1`, comun)
+	})
+	if _, err := pool.Exec(ctx, `UPDATE agenda.tecnicos SET cuadrilla_id = $2 WHERE usuario_id = $1`, tec, comun); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE agenda.cuadrillas SET jefe_usuario_id = $2 WHERE id = $1`, comun, tec); err != nil {
+		t.Fatal(err)
+	}
+	deber(e.ag.RevisarUsuario.Ejecutar(sistema(t), agenda.EntradaRevisarUsuario{UsuarioID: tec}))(t)
+	porEmpresa := map[string]map[string]any{}
+	filas, err := pool.Query(ctx, `SELECT payload::text FROM integracion.outbox WHERE evento = 'cuadrilla.actualizada'
+		AND (payload->>'cuadrilla_id')::bigint = $1 ORDER BY id`, comun)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for filas.Next() {
+		var crudo string
+		if err := filas.Scan(&crudo); err != nil {
+			t.Fatal(err)
+		}
+		var p map[string]any
+		_ = json.Unmarshal([]byte(crudo), &p)
+		porEmpresa[fmt.Sprint(p["empresa_id"])] = p
+	}
+	filas.Close()
+	pa, pb := porEmpresa[fmt.Sprint(e1)], porEmpresa[fmt.Sprint(e2)]
+	if pa == nil || pb == nil {
+		t.Fatalf("un evento por empresa: %v", porEmpresa)
+	}
+	if _, esta := miembrosDe(pa)[fmt.Sprint(tec)]; !esta || fmt.Sprint(pa["jefe_usuario_id"]) != fmt.Sprint(tec) {
+		t.Fatalf("en e1 va con su jefe: %v", pa)
+	}
+	if len(miembrosDe(pb)) != 0 || pb["jefe_usuario_id"] != nil {
+		t.Fatalf("en e2 no va ni es jefe: %v", pb)
+	}
+	rb := deber(e.ag.CuadrillaArgos.Ejecutar(token(e1, e2), agenda.EntradaCuadrillaArgos{ID: comun, EmpresaID: e2}))(t)
+	if len(rb.Miembros) != 0 || rb.JefeUsuarioID != nil {
+		t.Fatalf("GET de e2 sin el miembro de e1: %+v", rb)
 	}
 
 	// Fuera del alcance, de otra empresa o inexistente: el mismo 404.
@@ -282,7 +329,7 @@ func TestCuadrillaParaConciliarEnArgos(t *testing.T) {
 		}
 	}
 	// Sin el permiso (un técnico), 403.
-	_, err := e.ag.CuadrillaArgos.Ejecutar(contexto.ConEmpresas(como(t, tec, "tecnico"), contexto.Empresas{Estado: contexto.EmpresaPorElegir, Disponibles: []int64{e1}}),
+	_, err = e.ag.CuadrillaArgos.Ejecutar(contexto.ConEmpresas(como(t, tec, "tecnico"), contexto.Empresas{Estado: contexto.EmpresaPorElegir, Disponibles: []int64{e1}}),
 		agenda.EntradaCuadrillaArgos{ID: c, EmpresaID: e1})
 	var pr *nucleo.Problema
 	if !errors.As(err, &pr) || pr.Status != http.StatusForbidden {
