@@ -50,6 +50,12 @@ interface FilaLlave {
 
 const LLAVE_OPERACIONES = "operaciones";
 
+/** Lo sensible de la cola vive como mucho 7 días en el teléfono (como el depósito del servidor). */
+export const VIGENCIA_SENSIBLES_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Prefijo de las bases de la app de campo (`iris-campo-<usuario>-<empresa>`). */
+export const PREFIJO_BASES_CAMPO = "iris-campo-";
+
 class BaseSync extends Dexie {
     operaciones!: Table<FilaOperacion, string>;
     ordenes!: Table<OrdenLocal, number>;
@@ -112,7 +118,8 @@ class BaseSync extends Dexie {
             chatMeta: "clave",
         });
         // Versión 5: llave no exportable de los datos sensibles de la cola (`TIPOS_CIFRADOS`).
-        this.version(5).stores({
+        this.version(5)
+            .stores({
             operaciones: "id, secuencia, ordenId",
             ordenes: "id",
             adjuntos: "id, ordenId",
@@ -125,7 +132,15 @@ class BaseSync extends Dexie {
             chatBytes: "id",
             chatMeta: "clave",
             llaves: "id",
-        });
+        })
+            .upgrade(async (tx) => {
+                // Lo que una versión anterior guardó en claro de estas operaciones se borra (no se
+                // cifra después: ya estuvo en claro en el disco).
+                await tx
+                    .table("operaciones")
+                    .filter((f: FilaOperacion) => TIPOS_CIFRADOS.includes(f.tipo) && !esCifrada(f))
+                    .delete();
+            });
     }
 }
 
@@ -148,16 +163,55 @@ async function aplicar<T, K extends string | number>(tabla: Table<T, K>, cambios
 export interface OpcionesAlmacenDexie {
     /** Nombre de la base IndexedDB; una por usuario y empresa (`iris-campo-<usuario>-<empresa>`). */
     nombre: string;
+    /** Hora actual en ms (pruebas). `Date.now` por defecto. */
+    ahora?: () => number;
     /** `indexedDB` e `IDBKeyRange` propios (p. ej. `fake-indexeddb` en pruebas). */
     dexie?: DexieOptions;
 }
 
 export class AlmacenDexie implements Almacen, AlmacenPosiciones, AlmacenChat {
     private readonly db: BaseSync;
+    private readonly ahora: () => number;
     private llave: Promise<CryptoKey> | null = null;
+    private borradas = 0;
 
     constructor(opciones: OpcionesAlmacenDexie) {
         this.db = new BaseSync(opciones.nombre, opciones.dexie);
+        this.ahora = opciones.ahora ?? Date.now;
+    }
+
+    /**
+     * Operaciones sensibles que `cargar` borró por tener más de 7 días (también rechazadas): la app
+     * avisa «se borraron por seguridad, vuelve a tomar los datos» (`TEXTO_SENSIBLES_BORRADAS`).
+     */
+    borradasPorSeguridad(): number {
+        return this.borradas;
+    }
+
+    /**
+     * Olvida lo sensible de todas las bases de campo de este navegador (sesión vencida o revocada,
+     * arranque sin sesión) o de todas menos las de `excepto` (prefijo `iris-campo-<usuario>-`: entró
+     * otra persona). Devuelve cuántas bases tocó.
+     */
+    static async olvidarSensiblesDeTodas(opciones: { dexie?: DexieOptions; excepto?: string } = {}): Promise<number> {
+        const fabrica = (opciones.dexie?.indexedDB ?? globalThis.indexedDB) as (IDBFactory & { databases?: () => Promise<{ name?: string }[]> }) | undefined;
+        if (!fabrica?.databases) {
+            return 0;
+        }
+        const nombres = (await fabrica.databases())
+            .map((d) => d.name ?? "")
+            .filter((n) => n.startsWith(PREFIJO_BASES_CAMPO) && !(opciones.excepto && n.startsWith(opciones.excepto)));
+        let n = 0;
+        for (const nombre of nombres) {
+            const almacen = new AlmacenDexie({ nombre, ...(opciones.dexie ? { dexie: opciones.dexie } : {}) });
+            try {
+                await almacen.olvidarSensibles();
+                n++;
+            } finally {
+                almacen.cerrar();
+            }
+        }
+        return n;
     }
 
     /** ¿Existe ya esa base? (para no crear una vacía al limpiar). */
@@ -256,10 +310,16 @@ export class AlmacenDexie implements Almacen, AlmacenPosiciones, AlmacenChat {
             }
             return { operaciones, ordenes, adjuntos, meta: meta as unknown as MetaSync };
         });
-        const { operaciones, ilegibles } = await this.descifrar(contenido.operaciones);
-        if (ilegibles.length > 0) {
-            await this.db.operaciones.bulkDelete(ilegibles);
+        const { operaciones: legibles, ilegibles } = await this.descifrar(contenido.operaciones);
+        // Más de 7 días en el teléfono (aunque esté rechazada): se borra por seguridad.
+        const limite = this.ahora() - VIGENCIA_SENSIBLES_MS;
+        const vencidas = legibles.filter((op) => TIPOS_CIFRADOS.includes(op.tipo) && Date.parse(op.ocurridoEn) < limite).map((op) => op.id);
+        const borrar = [...ilegibles, ...vencidas];
+        if (borrar.length > 0) {
+            await this.db.operaciones.bulkDelete(borrar);
         }
+        this.borradas = borrar.length;
+        const operaciones = vencidas.length > 0 ? legibles.filter((op) => !vencidas.includes(op.id)) : legibles;
         return { ...contenido, operaciones };
     }
 

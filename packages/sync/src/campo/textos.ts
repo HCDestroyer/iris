@@ -59,6 +59,9 @@ export const AVISOS_SERVIDOR: Partial<Record<AvisoResultado, string>> = {
     solapa_con: "Tu tarea se guardó, pero choca con una cita de tu agenda: revisa la hora.",
 };
 
+/** Aviso cuando el teléfono borró datos del titular de la cola (más de 7 días o sin sesión). */
+export const TEXTO_SENSIBLES_BORRADAS = "Los datos del titular se borraron por seguridad: vuelve a tomar los datos.";
+
 export const CONDICIONES = { buena: "Buena", danada: "Dañada", perdido: "Perdido" } as const;
 
 export const OPERACIONES: Record<TipoOperacionLote, string> = {

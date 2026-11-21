@@ -1,6 +1,6 @@
 "use client";
 
-import { Aviso, Boton, Cargando, EstadoVacio, MarcaIris } from "@iris/ui";
+import { Aviso, avisar, Boton, Cargando, EstadoVacio, MarcaIris } from "@iris/ui";
 import { Building2, KeyRound, LogOut, RefreshCw, UserRoundX, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ErrorApi } from "@/lib/api/errores";
@@ -20,11 +20,13 @@ import {
     recordarUsuario,
     sesionDesdeYo,
     sesionGuardada,
+    sensiblesAOlvidar,
     usableSinSenal,
     CODIGO_CAMBIO_CONTRASENA,
     type SesionCampo,
 } from "@/lib/campo/sesion";
-import { avisoSinConexion } from "@iris/sync/campo";
+import { avisoSinConexion, TEXTO_SENSIBLES_BORRADAS } from "@iris/sync/campo";
+import { AlmacenDexie } from "@iris/sync/dexie";
 import { ProveedorHistorial } from "./acciones-orden";
 import { ProveedorAgenda } from "./agenda-datos";
 import { ProveedorChat } from "./chat-datos";
@@ -136,6 +138,16 @@ export function AppCampo() {
             vivo = false;
         };
     }, [intento]);
+
+    // Los datos del titular de la cola no se quedan sin la sesión de su técnico (§3.4.8): sin sesión
+    // (401, revocada o sin entrar) se olvidan de todas las bases; al entrar, de las de otras personas.
+    const usuarioLista = arranque.fase === "lista" ? arranque.sesion.usuarioId : undefined;
+    useEffect(() => {
+        const olvidar = sensiblesAOlvidar(arranque.fase, usuarioLista);
+        if (olvidar) {
+            void AlmacenDexie.olvidarSensiblesDeTodas(olvidar).catch(() => undefined);
+        }
+    }, [arranque.fase, usuarioLista]);
 
     // En la entrada «Sin conexión»: al volver la señal se intenta de nuevo solo.
     const sinSenal = arranque.fase === "conectate" && arranque.motivo === "sin_verificar";
@@ -328,6 +340,9 @@ function ConMotor({
         abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, ajena, { flujoChat: sesion.empresas.length <= 1 })
             .then((m) => {
                 actual = m;
+                if (vivo && m.almacen.borradasPorSeguridad() > 0) {
+                    avisar({ tono: "warning", titulo: TEXTO_SENSIBLES_BORRADAS, duracion: 0 });
+                }
                 if (vivo) {
                     setAbierto(m);
                 } else {
