@@ -31212,6 +31212,7 @@
             "type": "integer"
           },
           "codigo": {
+            "description": "Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce)",
             "type": "string"
           },
           "contactoNombre": {
@@ -31264,6 +31265,10 @@
           },
           "moneda": {
             "description": "Moneda de precioMensual (GTQ); ausente si no hay precio",
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Nombre que eligió el cliente o el personal en Argos («Casa»; ausente si no tiene). Texto del cliente: se muestra escapado; nunca va a la IA",
             "type": "string"
           },
           "numero": {
@@ -31501,6 +31506,7 @@
             "type": "integer"
           },
           "codigo": {
+            "description": "Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce)",
             "type": "string"
           },
           "contactoNombre": {
@@ -31553,6 +31559,10 @@
           },
           "moneda": {
             "description": "Moneda de precioMensual (GTQ); ausente si no hay precio",
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Nombre que eligió el cliente o el personal en Argos («Casa»; ausente si no tiene). Texto del cliente: se muestra escapado; nunca va a la IA",
             "type": "string"
           },
           "numero": {
