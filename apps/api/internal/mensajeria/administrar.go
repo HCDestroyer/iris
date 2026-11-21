@@ -493,7 +493,11 @@ func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Can
 				return Canal{}, nucleo.ConflictoVersion("canal", in.ID)
 			}
 			// Un número QR: el token es el del registro y el app secret el de la conexión (§15.2).
-			// Tampoco su cuenta (WABA): la da Meta en el registro y no se comprueba con otro token.
+			// Tampoco su cuenta (WABA): la da Meta en el registro y no se comprueba con otro token. Sin
+			// wabaId, se queda la del registro.
+			if antes.TipoConexion == ConexionQR && in.WabaID == "" {
+				in.WabaID = antes.WabaID
+			}
 			if antes.TipoConexion == ConexionQR && (in.Token != "" || in.AppSecret != "" || in.VerifyToken != "" || in.GenerarVerifyToken ||
 				in.PhoneNumberID != antes.PhoneNumberID || in.Numero != antes.Numero || in.WabaID != antes.WabaID) {
 				return Canal{}, reglaConv("numero_qr", "Un número conectado con QR no cambia su token, app secret, verify token, phone number ID, número ni cuenta de WhatsApp (WABA): reconéctalo con QR")
