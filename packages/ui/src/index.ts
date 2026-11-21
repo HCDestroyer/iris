@@ -34,6 +34,7 @@ export {
     type PropsDialogoContenido,
     type PropsDisparador,
 } from "./componentes/dialogo";
+export { Desplegable, type PropsDesplegable } from "./componentes/desplegable";
 export { Entrada } from "./componentes/entrada";
 export {
     abrirEscaner,
@@ -41,11 +42,13 @@ export {
     FORMATOS_CODIGO,
     lectorNativo,
     lectorZxing,
+    HojaEscaner,
     VisorEscaner,
     type CodigoLeido,
     type DependenciasEscaner,
     type GeometriaVisor,
     type Lector,
+    type PropsHojaEscaner,
     type PropsVisorEscaner,
 } from "./componentes/escaner";
 export { dibujarTrazos, hayFirma, MAX_SVG_FIRMA, simplificar, trazosAPng, trazosASvg, type Punto, type Trazo } from "./componentes/firma";
@@ -88,7 +91,8 @@ export { Esqueleto } from "./componentes/esqueleto";
 export { EstadoVacio, type PropsEstadoVacio } from "./componentes/estado-vacio";
 export { Etiqueta } from "./componentes/etiqueta";
 export { Globo, type PropsGlobo } from "./componentes/globo";
-export { GraficaSerie, Medidor, topeRedondo, tramosSinDatos, ultimoConDato, type PropsGraficaSerie, type PropsMedidor, type SerieGrafica } from "./componentes/grafica-serie";
+export { BarraProgreso, Medidor, type PropsBarraProgreso, type PropsMedidor, type TonoBarra } from "./componentes/barra-progreso";
+export { GraficaSerie, topeRedondo, tramosSinDatos, ultimoConDato, type PropsGraficaSerie, type SerieGrafica } from "./componentes/grafica-serie";
 export { GrupoBotones, type PropsGrupoBotones } from "./componentes/grupo-botones";
 export { GrupoOpciones, type OpcionGrupo, type PropsGrupoOpciones } from "./componentes/grupo-opciones";
 export { GrupoSegmentado, type OpcionSegmentada, type PropsGrupoSegmentado } from "./componentes/grupo-segmentado";

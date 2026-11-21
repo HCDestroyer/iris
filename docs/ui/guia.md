@@ -15,7 +15,27 @@ siguen todos los frentes que tocan pantallas: panel (I3), app de campo (I4) y po
     - modo claro y oscuro.
 - **Las pantallas importan de `@iris/ui`, nunca de `@heroui/react`.** Si falta una pieza, se agrega a
   `packages/ui` con nombre en español, su prueba y su entrada en el mapa de abajo.
-- Nada de `<button>` ni `<input>` crudos fuera de `packages/ui`.
+- Nada de `<button>`, `<input>`, `<select>`, `<textarea>`, `<table>` ni `<dialog>` crudos fuera de
+  `packages/ui`.
+
+### HeroUI primero (regla del PM, nov. 2026)
+
+1. **Toda pieza de interfaz es un componente de HeroUI v3**, envuelto en `@iris/ui` con los tokens
+   de Horus. Antes de escribir un control, se busca en HeroUI (`node scripts/list_components.mjs`
+   del skill `heroui-react`) y se lee su documentación.
+2. **Un control propio solo si HeroUI no lo trae** (cámara, escáner, firma, gráfica, logo…), y con
+   su motivo escrito en la tabla «Lo que no se usa de HeroUI» de abajo o en
+   `docs/ui/auditoria-heroui.md`. Por dentro usa las piezas de `@iris/ui` (`Boton`, `Aviso`…).
+3. Barras, giros, esqueletos, desplegables, tablas, radios, menús y globos hechos a mano no
+   valen: `BarraProgreso`, `Medidor`, `Cargando`, `Esqueleto`, `Desplegable`, `Tabla`,
+   `GrupoSegmentado`, `MenuDesplegable`, `Globo`.
+4. **ESLint lo cuida** (`apps/web/eslint.config.mjs`): prohíbe los elementos crudos de arriba y
+   `<details>`, `<progress>` y `<meter>` (también con `createElement` o guardando la etiqueta en una
+   variable), los `role` de barra, medidor, radio y diálogo hechos a mano, e importar (o `import()`)
+   `@heroui/*`, `react-aria`, `react-aria-components`, `@react-aria/*` o `@react-stately/*` fuera de
+   `packages/ui`. Un `eslint-disable` sin uso es error.
+5. **Avisos emergentes y barra de guardar:** en escritorio, con `BarraGuardar` en pantalla, los
+   avisos suben por encima de ella (`globals.css`): nunca tapan «Guardar» ni «Cancelar».
 
 ## Tema Horus
 
@@ -122,7 +142,9 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `Casilla` | `Checkbox`, `Checkbox.Content`, `Checkbox.Control`, `Checkbox.Indicator` | Sirve con `register` y controlada: el `ref` llega al `<input>` (`inputRef`), `onChange` recibe un evento con `target` = ese input, y la marca (`Check` de Lucide) se dibuja desde `:checked`, porque react-hook-form escribe `checked` directo en el input (valores iniciales, `reset`, `setValue`) |
 | `Tabla*` | `Table` (variante `secondary`) + `Table.ScrollContainer`, con una `<table>` semántica y las piezas `table__row`, `table__cell`… | Ver «Lo que no se usa» (`Table.Content`) |
 | `Esqueleto` | `Skeleton` (pulso) | |
-| `Cargando` | `Spinner` | Es un indicador animado, no un icono; `role="status"` con su texto |
+| `Cargando` | `Spinner` | Es un indicador animado, no un icono; `role="status"` con su texto. `tamano` (`sm` 16 px, `md` 20 px, `lg` 28 px) y `decorativo` (oculto para lectores) cuando el texto ya está al lado o dentro de un botón que dice qué hace |
+| `BarraProgreso` | `ProgressBar`, `ProgressBar.Track`, `ProgressBar.Fill` | Avance sin rótulo visible (el texto lo pone la pantalla): `valor`, `maximo`, `etiqueta`, `textoValor` (→ `aria-valuetext`), `tono` (`normal`, `aviso`, `error`). `pasos`: un segmento por paso (los pasos de la orden en la app de campo). Sin rango (`maximo` 0) queda vacía, sin dividir por cero |
+| `Desplegable` | `Disclosure`, `Disclosure.Heading`, `Disclosure.Trigger`, `Disclosure.Indicator`, `Disclosure.Content` | Reemplaza a `<details>`: ayudas y ajustes «Avanzado». Cerrado por omisión (`abierto`), encabezado `h3` (`nivel`), chevron `ChevronDown` de Lucide |
 | `EstadoVacio` | `EmptyState` | |
 | `InsigniaEstado` | `Chip` suave + `Chip.Label` | `chip--success`, `--warning`, `--danger`; `info` y `neutral` con el color de Iris |
 | `PaletaBusqueda` | `Modal.Backdrop` + `Modal.Container` + `Modal.Dialog` y `Kbd` en la ayuda de teclas | El buscador por dentro sigue siendo el `Autocomplete` de React Aria (ver abajo) |
@@ -140,8 +162,8 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `CampoBusqueda` | `SearchField` (`SearchIcon`, `Input`, `ClearButton`) | Lupa y «X» de Lucide; Escape borra |
 | `SelectorArchivo` | — (`<input type="file">` oculto en su `<label>`, como `Camara`) | Elegir un archivo sin cámara; clip de Lucide; se limpia tras elegir |
 | `MenuArchivos` | `Dropdown` (por `MenuDesplegable`) + `<input type="file">` ocultos | El clip con menú (Fotos, Documento, Cámara): cada opción abre el selector del sistema con sus tipos; `varios` y `camara` por opción. Con una sola opción no hay menú |
-| `VistaPreviaArchivos` | — (`Boton` y `Dialogo` por dentro) | Lo elegido antes de enviarlo, en una **tira de miniaturas de 64 px** que se desliza a lo ancho (no crece hacia arriba): imagen ampliable (solo con la URL de objeto que le pasan) o icono con el nombre corto (documento, video), su «X» y el estado con icono + texto + color (no sirve o falló: borde y franja en rojo y «Reintentar»; subiendo: barra). El nombre completo y el detalle van en `title` y en texto para lectores; lo que no sirve se explica en una línea bajo la tira. Solo presentación |
-| `FotoMensaje`, `AlbumFotos`, `medidasFoto` | — (`<button>` e `<img>` propios, `Boton` para «Reintentar») | Foto en un hilo (bandeja y chat del equipo): la caja toma la proporción de la foto (acotada entre 1:2 y 2:1) con máximo de 320 × 340 px y nunca más ancha que la burbuja; sin medidas reserva 4:3 y toma la real al cargar. El espacio queda reservado antes de cargar (sin saltos); la hora va sobre la foto; si falla, icono + «No se pudo cargar la foto» + «Reintentar». `AlbumFotos`: fotos seguidas en cuadrícula de 2 columnas (la tercera a lo ancho, «+N» en la cuarta) |
+| `VistaPreviaArchivos` | — (`Boton`, `Dialogo` y `BarraProgreso` por dentro) | Lo elegido antes de enviarlo, en una **tira de miniaturas de 64 px** que se desliza a lo ancho (no crece hacia arriba): imagen ampliable (solo con la URL de objeto que le pasan) o icono con el nombre corto (documento, video), su «X» y el estado con icono + texto + color (no sirve o falló: borde y franja en rojo y «Reintentar»; subiendo: barra). El nombre completo y el detalle van en `title` y en texto para lectores; lo que no sirve se explica en una línea bajo la tira. Solo presentación |
+| `FotoMensaje`, `AlbumFotos`, `medidasFoto` | `Button` (por `Boton`) con la `<img>` adentro; `Spinner` mientras está pendiente | Foto en un hilo (bandeja y chat del equipo): la caja toma la proporción de la foto (acotada entre 1:2 y 2:1) con máximo de 320 × 340 px y nunca más ancha que la burbuja; sin medidas reserva 4:3 y toma la real al cargar. El espacio queda reservado antes de cargar (sin saltos); la hora va sobre la foto; si falla, icono + «No se pudo cargar la foto» + «Reintentar». `AlbumFotos`: fotos seguidas en cuadrícula de 2 columnas (la tercera a lo ancho, «+N» en la cuarta) |
 | `VisorFotos` | `Modal.Backdrop` + `Modal.Container` + `Modal.Dialog` (nombre accesible «Foto 2 de 5: …» por `aria-label`) | A pantalla completa sobre fondo oscuro: la foto entera, quién y cuándo, «2 de 5», flechas (y ← →), deslizar en el teléfono, doble toque para acercar, pie y «Descargar» (la ruta autenticada del adjunto). Foco atrapado; Escape, la «X» y «Atrás» del navegador o del teléfono cierran sin salir de la pantalla (una entrada propia en el historial, que se consume al cerrar) |
 | `ListaRecortada` | — | Una línea con los chips que caben y «+N»; nunca desborda ni baja de línea. El nombre completo de todos lo pone quien la usa (`title` y texto para lectores) |
 | `AvatarUsuario` | `Avatar`, `Avatar.Fallback` | Iniciales (decorativo: el nombre va al lado) |
@@ -150,7 +172,9 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `AreaTexto`, `CampoArea` | `TextArea` | |
 | `Etiqueta` | `Label` | |
 | `ProveedorRutas` | `RouterProvider` de React Aria | |
-| `GraficaSerie`, `Medidor` | — | Propios de Iris (SVG, sin librería). `GraficaSerie`: una a dos series en un solo eje, con leyenda si hay dos, el último valor rotulado, el tramo sin datos en gris (nunca una línea en cero), cursor al pasar o con las flechas y «Ver tabla». Colores `--hx-grafico-1` y `--hx-grafico-2` (validados para daltonismo en claro y oscuro); el texto va en color de texto, no de la serie. `Medidor`: barra `role="meter"` con tono `normal`, `aviso` o `error`; con `parte: null` no dibuja nada. |
+| `GraficaSerie` | — | Propia de Iris (SVG, sin librería). Una a dos series en un solo eje, con leyenda si hay dos, el último valor rotulado, el tramo sin datos en gris (nunca una línea en cero), cursor al pasar o con las flechas y «Ver tabla». Colores `--hx-grafico-1` y `--hx-grafico-2` (validados para daltonismo en claro y oscuro); el texto va en color de texto, no de la serie. |
+| `Medidor` | `Meter`, `Meter.Track`, `Meter.Fill` | «Cuánto de cuánto» (memoria, SLA cumplido) con tono `normal`, `aviso` o `error` y `claseRiel` para el alto. Con `parte: null` dibuja el riel de `Meter` con `role="meter"` y sin `aria-valuenow` (el `Meter` de React Aria siempre anuncia un valor; aquí no se inventa un cero) |
+| `TecladoTelefono`, `ControlLlamada` | `Button` (por `Boton`) | Teclas de 56 px y controles redondos de la llamada; `aria-pressed` en los que se prenden y apagan |
 | `BarraGuardar`, `FormularioPagina`, `SeccionFormulario` | — | Composición propia de Iris con `Boton`. `BarraGuardar` acepta `nota` (una línea a la izquierda: «Al guardar, Iris prueba la conexión con Meta.»). `FormularioPagina` acepta `accionTitulo` (a la derecha del título: el interruptor que enciende lo que la pantalla configura) |
 
 `useCambiosSinGuardar(isDirty, isSubmitting)` sirve igual dentro de `DialogoProtegido` que dentro de
@@ -165,9 +189,21 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `Pagination` | Las listas de Iris paginan por cursor (`?cursor=&limit=`, regla 7): no hay número de páginas. Sigue «Cargar más» (`PieLista`) |
 | `SearchField` de HeroUI en el buscador global | El buscador es un `Autocomplete` de React Aria con foco virtual; usa el `SearchField` de React Aria que conecta con él. Cambiarlo no mejora nada visible |
 | `Accordion` / `Disclosure` | El único «ver más» del panel («Ver revisiones» de la cotización) ya es un `Boton` con `aria-expanded` y el contenido abajo de la fila de acciones; un `Disclosure` pondría el contenido pegado al botón |
-| `ProgressBar`, `Slider`, `InputOTP`… | No reemplazan nada hecho a mano que lo pida (el avance del técnico en Inicio es una barra de 6 px con `role="progressbar"`; el código MFA es un `Campo` de 6 cifras). Están disponibles para agregarlos a `packages/ui` con nombre en español cuando una pantalla los pida |
-| `Camara`, `VisorEscaner`, `LienzoFirma`, `LogoIris`, `MarcaIris` | No tienen equivalente en HeroUI (cámara con `<input capture>`, escáner con `BarcodeDetector`/ZXing, firma con pointer events, logo). Siguen como estaban, con los tokens del tema y `Boton` por dentro |
+| `Slider`, `InputOTP`… | No reemplazan nada hecho a mano que lo pida (el código MFA es un `Campo` de 6 cifras). Están disponibles para agregarlos a `packages/ui` con nombre en español cuando una pantalla los pida |
+| `Camara`, `VisorEscaner`, `LienzoFirma`, `LogoIris`, `MarcaIris`, `SelectorArchivo` | No tienen equivalente en HeroUI (cámara con `<input capture>`, escáner con `BarcodeDetector`/ZXing, firma con pointer events, logo, `<input type="file">`). Siguen como estaban, con los tokens del tema y `Boton` por dentro |
+| `Button isPending` en «Actualizar», «Probar» o «Sincronizar» | Cambia el icono por un `Spinner` y bloquea el botón; en Iris el icono de la acción (`RefreshCw`) gira y el botón dice «Probando…» |
+| Agenda de despacho y vista de mes (`role="grid"` propio) | `Calendar` es un selector de fechas; la agenda muestra citas, se arrastra para programar y cada celda es un `Boton` |
+| Aviso de llamada entrante (`role="alertdialog"` flotante) | `AlertDialog` es modal y `Toast` se va solo: la llamada suena y queda a la vista sin bloquear la pantalla |
 | Animación de salida de modal, hoja y confirmación | Se desmontan en el acto: con salida animada, un Escape o un clic inmediato le llegaría a la capa que se está yendo |
+
+## Auditoría «todo con HeroUI» (nov. 2026)
+
+La tabla completa (qué se migró, qué se conserva y por qué) está en `docs/ui/auditoria-heroui.md`.
+En resumen: las `<table>` crudas de Tickets y del estado de Argos pasaron a `Tabla`; las barras de
+avance y medidores hechos a mano, a `BarraProgreso` y `Medidor`; los giros y pulsos de carga, a
+`Cargando` y `Esqueleto`; los `<details>`, a `Desplegable`; la duración de la tarea (campo), a
+`GrupoSegmentado`; y los `<button>` crudos del teclado del teléfono y de la foto en el hilo, a
+`Boton`.
 
 ## Auditoría de controles (nov. 2026)
 

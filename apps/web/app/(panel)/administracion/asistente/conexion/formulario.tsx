@@ -4,6 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
     avisar,
     Aviso,
+    BarraProgreso,
     Boton,
     Campo,
     CampoNumero,
@@ -547,17 +548,13 @@ function CifrasUso({ uso }: { uso: UsoAsistente }) {
                     </p>
                 </div>
             </div>
-            <div
-                role="progressbar"
-                aria-label="Tokens usados del tope del mes"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={barra}
-                aria-valuetext={`${barra} % del tope`}
-                className="h-2 overflow-hidden rounded-full bg-background-secondary"
-            >
-                <div className={cn("h-full rounded-full", uso.pausado ? "bg-error" : barra >= 80 ? "bg-warning" : "bg-primary")} style={{ width: `${barra}%` }} />
-            </div>
+            <BarraProgreso
+                valor={barra}
+                etiqueta="Tokens usados del tope del mes"
+                textoValor={`${barra} % del tope`}
+                tono={uso.pausado ? "error" : barra >= 80 ? "aviso" : "normal"}
+                claseRiel="h-2 bg-background-secondary"
+            />
             <p className="text-sm text-muted-foreground">
                 {uso.utiles} útiles · {uso.noUtiles} no útiles · {uso.resumenes} resúmenes
                 {uso.costo !== null ? ` · ${uso.costo} con tus precios` : ""}
