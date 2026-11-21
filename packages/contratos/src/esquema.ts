@@ -16889,7 +16889,7 @@ export interface components {
             tipo: "escritorio" | "navegador" | null;
         };
         MiembroArgos: {
-            /** @description Usuario de Argos (vínculo I1) si opera en la empresa; null si no */
+            /** @description Usuario de Argos (vínculo I1); null sin vínculo. Solo van los miembros que operan en la empresa */
             id_externo: string | null;
             /** Format: int64 */
             usuario_id: number;
