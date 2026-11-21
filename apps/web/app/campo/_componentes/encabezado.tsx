@@ -4,6 +4,7 @@ import { buscarOrdenes, CHIPS_DIA, chipDe, ESPERA_BUSQUEDA_MS, citasDelDia, esVi
 import { Boton, BotonManual, Campo, GrupoSegmentado, cn } from "@iris/ui";
 import { ChevronRight, MessageCircle, Search } from "lucide-react";
 import { forwardRef, useMemo, useState } from "react";
+import { fechaEncabezadoCorta } from "@/lib/campo/fechas";
 import { TIPOS_ORDEN } from "@/lib/campo/textos";
 import { claveManualCampo } from "@/lib/manual/campo";
 import { useChatOpcional } from "./chat-datos";
@@ -31,7 +32,11 @@ export const EncabezadoCampo = forwardRef<HTMLElement, { empresa?: string | unde
     return (
         <header ref={ref} data-slot="encabezado-campo" className="grid grid-cols-[minmax(0,1fr)] gap-3 px-[1.125rem] pt-[calc(env(safe-area-inset-top)+1rem)] pb-1">
             <div className="flex items-center justify-between gap-2">
-                <p className="min-w-0 truncate text-[0.8125rem] font-medium text-[var(--iris-texto-apagado)]">{fechaEncabezado()}</p>
+                {/* Menos de 390 px: «Sáb 21 nov» (cabe sin cortarse); desde 390 px, la fecha larga. */}
+                <p data-slot="fecha-encabezado" className="min-w-0 truncate text-[0.8125rem] font-medium text-[var(--iris-texto-apagado)]">
+                    <span className="min-[390px]:hidden">{fechaEncabezadoCorta()}</span>
+                    <span className="hidden min-[390px]:inline">{fechaEncabezado()}</span>
+                </p>
                 <BotonesCuenta pedirEmpresa={pedirEmpresa} />
             </div>
             {deDia ? <h1 className="-mt-1 text-[1.625rem] leading-[1.1] font-bold tracking-[-0.02em]">Hola, {primerNombre(sesion.nombre)}</h1> : null}

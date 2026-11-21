@@ -145,6 +145,10 @@ test.describe("app del técnico", () => {
             await expect(acciones.getByRole("button", { name: "Empezar trabajo" })).toHaveText("Empezar trabajo");
             await expect(acciones.getByRole("link", { name: "Cómo llegar" })).toBeVisible();
             expect(await botonesCortados(page, ".campo-app")).toEqual([]);
+            // La fecha del encabezado no se corta: corta («Sáb 21 nov») a 360 px, larga desde 390 px.
+            const fecha = page.locator('[data-slot="encabezado-campo"] [data-slot="fecha-encabezado"]');
+            expect(await fecha.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
+            if (esTelefono(page)) await expect(fecha.locator("span").filter({ visible: true })).toHaveText(ancho < 390 ? /^\p{Lu}\p{Ll}{2} \d{1,2} \p{Ll}{3}$/u : / de /);
             if (ancho === 360) await capturar(page, info, "campo-hoy");
         }
         if (esTelefono(page)) await page.setViewportSize({ width: 390, height: 844 });
