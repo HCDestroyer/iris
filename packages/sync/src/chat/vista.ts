@@ -151,6 +151,48 @@ export function subtituloConversacion(c: Pick<ConversacionVista, "tipo">): strin
     }
 }
 
+/** Código del 422 del servidor al enviar al hilo de una orden cerrada, fallida o cancelada (§1). */
+export const CODIGO_CONVERSACION_CERRADA = "conversacion_cerrada";
+
+/**
+ * Aviso del hilo de solo lectura (en lugar del compositor), o `null` si se puede escribir. Dice el
+ * estado de la orden en llano: «Orden cerrada: ya no se pueden enviar mensajes».
+ */
+export function textoSoloLectura(c: Pick<ConversacionVista, "tipo" | "solo_lectura" | "orden_estado">): string | null {
+    if (!c.solo_lectura) {
+        return null;
+    }
+    if (c.tipo !== "orden") {
+        return "Este chat ya no admite mensajes";
+    }
+    const estado = c.orden_estado === "fallida" ? "fallida" : c.orden_estado === "cancelada" ? "cancelada" : "cerrada";
+    return `Orden ${estado}: ya no se pueden enviar mensajes`;
+}
+
+/** El servidor rechazó el mensaje porque la orden se cerró (no se arregla reintentando). */
+export function rechazadoPorCierre(m: Pick<MensajeVista, "envio" | "error">): boolean {
+    return m.envio === "fallido" && m.error?.codigo === CODIGO_CONVERSACION_CERRADA;
+}
+
+/**
+ * Por qué no salió un mensaje, en llano (bajo la burbuja). La orden cerrada se dice tal cual; el
+ * resto usa el detalle del servidor (nunca el texto del mensaje).
+ */
+export function motivoNoEnviado(m: Pick<MensajeVista, "envio" | "error">): string {
+    if (rechazadoPorCierre(m)) {
+        return "No se envió: la orden se cerró y su chat ya no recibe mensajes.";
+    }
+    return "No enviado";
+}
+
+/**
+ * ¿Ofrecer «Reintentar»? No si la orden se cerró y el hilo sigue de solo lectura (fallaría igual):
+ * solo «Descartar». Si la orden se reabre, el hilo vuelve a aceptar mensajes y se puede reintentar.
+ */
+export function puedeReintentar(m: Pick<MensajeVista, "envio" | "error">, c: Pick<ConversacionVista, "solo_lectura"> | null): boolean {
+    return m.envio === "fallido" && !(rechazadoPorCierre(m) && (c?.solo_lectura ?? true));
+}
+
 /** Contador para el punto de la isla y de la fila: «99+» arriba de 99. */
 export function textoContador(n: number): string {
     return n > 99 ? "99+" : String(n);
