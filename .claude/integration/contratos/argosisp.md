@@ -522,7 +522,7 @@ Detalle de Argos en su contrato de inventario (Fase D). Aquí va lo que Iris nec
     - **`unidades[]`:** `{ unidad_id, serie, mac, costo, recibida }`. `series_faltantes[]` usa la `serie` de aquí.
 
 **Consumos** (`POST /inventario/consumos`):
-- **Forma:** `lineas[]` (o, como hasta hoy, un solo producto arriba). Responde `MovimientoInventario` (el de la primera línea) más `movimientos[]`, `cargos[]` y `factura_id` (o null).
+- **Forma:** `lineas[]` (o, como hasta hoy, un solo producto arriba). Desde 0.12.0, el cuerpo lleva además `fecha` (la del teléfono) y `recibido_en_iris` (la hora del servidor de Iris al aceptar el lote), con la ventana de §3.10; Argos los usa para evaluar la membresía de una bodega de cuadrilla (§3.9). Responde `MovimientoInventario` (el de la primera línea) más `movimientos[]`, `cargos[]` y `factura_id` (o null).
 - **Atómico:** si una línea falla (por ejemplo `409 existencia_insuficiente`), no se aplica ninguna.
 - **Solo consumibles:** una línea `comodato` responde `422 producto_es_comodato`.
 - **`consumible_cobro`:**
@@ -865,7 +865,7 @@ Decisiones del PM en §10.6: la cuadrilla tiene una bodega compartida (lo que va
     - ese usuario debe ser miembro y su `id_externo` el mismo de `tecnico.id_externo` (`403 actor_no_coincide`);
     - `tecnico` se identifica **solo por `id_externo`**, nunca por `correo` (§3.3).
 - **Qué bodega (antes de mirar existencias).** Con `bodega_id`, Argos solo acepta la bodega personal del técnico o una bodega de cuadrilla de la que sea miembro, y solo en la empresa del servicio; si no, `403 no_es_miembro` **antes de consultar existencias**: la respuesta nunca depende del stock.
-- **Consumos** con `tecnico`: sin `bodega_id`, primero la de la cuadrilla y después la personal. Sin existencia: `409 sin_existencia { bodegas[] }`, solo con las bodegas a las que el técnico tiene acceso y las cantidades de las líneas pedidas, nunca otras.
+- **Consumos** con `tecnico` (con `fecha` y `recibido_en_iris` en el cuerpo, §3.3): sin `bodega_id`, primero la de la cuadrilla y después la personal. Sin existencia: `409 sin_existencia { bodegas[] }`, solo con las bodegas a las que el técnico tiene acceso y las cantidades de las líneas pedidas, nunca otras.
 - **Comodatos y devoluciones** (`POST /servicios/:id/equipos`, `…/devolver`): **no llevan `bodega_id`**; la regla se aplica a la bodega donde está la unidad: `409 unidad_en_otra_bodega` salvo que esté en su bodega personal o en una cuadrilla de la que sea miembro.
 - **Membresía en el tiempo.** Argos acepta un movimiento si el actor era miembro en la `fecha` (u `ocurrido_en`) de la operación, que debe ser anterior a su recepción en Iris: desde 0.12.0, con `recibido_en_iris` y la ventana de §3.10 (`recibido_en_iris − 72 h ≤ fecha ≤ recibido_en_iris + 5 min`). Si llega después de que lo quitaran, lo marca `fuera_de_membresia` (y responde `403 no_es_miembro`). Cada movimiento guarda `actor_tecnico`, que sale de `X-Iris-Actor`, **nunca del cuerpo**.
 - **Recepción de traslados a una bodega de cuadrilla** (`POST /inventario/traslados/:id/recibir`, §3.3):
@@ -892,7 +892,7 @@ Pedido del PM: «Iris con la misma consistencia de equipos que Argos» (§10.7).
 **Reglas comunes a las rutas de esta sección.**
 
 - `X-Iris-Actor: usuario:<id>` obligatoria (§7.1; `400 cabecera_iris_requerida`); con `asistente_ia`, `403 actor_ia_no_permitido`.
-- **Alcance**, como §3.4: solo sobre un servicio con una orden de Iris registrada para **ese mismo servicio** (`403 servicio_no_de_iris`). Iris valida además en su servidor que el servicio sea el de la orden y que la orden esté asignada al actor.
+- **Alcance:** el servicio debe estar dentro de las empresas del alcance del token (`403 empresa_no_permitida`); también vale para servicios antiguos creados en Argos. Argos registra y audita `origen_id`: la orden queda registrada para ese servicio en la primera llamada aceptada. Iris valida en su servidor que el servicio sea el de la orden y que la orden esté asignada al actor.
 - **Fecha.** `fecha` es la del teléfono; Iris manda también `recibido_en_iris`, la hora de su servidor al aceptar el lote. Argos exige `recibido_en_iris − 72 h ≤ fecha ≤ recibido_en_iris + 5 min` (si no, `422 validacion`) y evalúa la membresía de §3.9 con `fecha`. Iris rechaza en su servidor una `fecha` anterior a la asignación de la orden.
 - **Conflictos.** Un conflicto (por ejemplo, la unidad ya cambió de estado: `409 estado_unidad_cambiado`) se muestra en la cola de Iris y **no se reintenta solo**. Si una petición tuvo éxito y se quedó sin respuesta, la corrección se concilia leyendo `GET /servicios/:id/equipo`, no reenviando.
 - **Textos libres.** `nota` y `cobro_propuesto.nota`, hasta 500 caracteres; se muestran escapados y no van en eventos ni en logs.
@@ -943,12 +943,12 @@ Pedido del PM: «Iris con la misma consistencia de equipos que Argos» (§10.7).
 | 403 | `no_es_miembro` | `cambiar` (la que entra) |
 | 409 | `unidad_en_otra_bodega` | `cambiar` (la que entra) |
 | 409 | `estado_unidad_cambiado` | `cambiar` (la que entra no está `disponible`, o la que sale ya no está en comodato), `no-recuperado` |
-| 403 | `servicio_no_de_iris` | Todas: el servicio no tiene una orden de Iris registrada |
 | 403 | `actor_ia_no_permitido` | Todas, con `asistente_ia` |
 | 400 | `cabecera_iris_requerida` | Sin `X-Iris-Actor` |
 | 422 | `validacion` | `motivo`, `destino_sale` (`funciona` con `danado` o `garantia`), `fecha` fuera de la ventana, `foto_ref` o `ubicacion` que faltan |
 | 429 | `demasiados_intentos` | `no-recuperado`: más de 1 por unidad al día |
 | 403 | — | `…/perdida` con el token de Iris (desde 0.12.0) |
+| 403 | `empresa_no_permitida` | Todas: el servicio es de una empresa fuera del alcance del token |
 | 404 | `no_encontrado` | `GET /inventario/unidades/:id` fuera del alcance |
 
 **En Iris (B27, informativo para Argos).**
@@ -1179,7 +1179,7 @@ Errores nuevos: los de §3.4.7.
 | A45 | **Código y nombre del servicio** (0.10.0, §3.7): `servicios.codigo` automático por empresa, legible, único e inmutable (`S-000412`) y `servicios.nombre` opcional y editable (hasta 60); en `GET /servicios`, el detalle y como `servicio_codigo` / `servicio_nombre` en los payloads hacia Iris que llevan `servicio_id`; `POST /servicios` acepta `nombre`. | acordado; pendiente en Argos |
 | A46 | **Un cliente a cargo del servicio de otro** (0.10.1, §3.8): `contactos_cliente.persona_cliente_id` (misma empresa; desde Iris solo con el teléfono verificado de ese cliente); aviso a los dos titulares; vínculo roto al quitar el contacto; `a_cargo` en `GET /contactos/buscar`; validación de `X-Iris-Contacto` (§7.1); pestaña «Contactos» en la ficha y cuentas a cargo aparte en caja; `persona_cliente_id` en `cliente.contactos_cambiados`. | acordado; pendiente en Argos |
 | A47 | **Bodega de cuadrilla** (0.11.0, §3.9): bodega `tipo = cuadrilla` por cuadrilla y empresa, con `jefe_id` y miembros con historial, sincronizados desde `cuadrilla.*` de Iris por `version` (miembros solo activos, técnicos de esa empresa y dentro del alcance, los demás como `miembro_rechazado`; jefe solo si es miembro con I1); `bodega_id` validado antes de mirar existencias (`403 no_es_miembro`); `X-Iris-Actor` obligatoria y `403 actor_no_coincide`; `tecnico` solo por `id_externo`; comodatos y devoluciones sin `bodega_id`, con `409 unidad_en_otra_bodega`; membresía evaluada en `ocurrido_en` (`fuera_de_membresia`); `409 sin_existencia` solo con las bodegas accesibles; recepción solo del jefe en `recibido_en` y aún miembro (`403 solo_jefe_recibe`); `cuadrilla_id` en `inventario.traslado_*`. | acordado; pendiente en Argos |
-| A48 | **Equipos del cliente** (0.12.0, §3.10): `POST /servicios/:id/equipos/cambiar` en una transacción (`X-Iris-Actor` obligatoria y sin el asistente; alcance de §3.4; la que entra `disponible` y con la regla de A47; la que sale a la bodega de la que entra, sin baja inmediata; `destino_sale: funciona` no vale con `danado` o `garantia`; `cobro_propuesto` sin monto a la cola de «Equipo no devuelto»); estados de la unidad, nunca instalable fuera de `disponible`; `GET /inventario/unidades/:id` sin costos, proveedor ni RMA, con `servicio` solo del actual y el de la orden; `POST /servicios/:id/equipos/:unidad_id/no-recuperado` (motivo, foto por id opaco obligatoria si se negó o se perdió, ubicación, 1 por unidad al día, aviso al titular, mínimo configurable de intentos de técnicos distintos para declarar `no_recuperada`); ventana de `fecha` con `recibido_en_iris`; `…/perdida` rechazada al token de Iris y `inventario.declarar_perdida_comodato` retirado en la migración; eventos `inventario.equipo_cambiado` e `inventario.unidad_estado_cambiado`; permisos `servicios.cambiar_equipo` e `inventario.ver_unidad`. | acordado; pendiente en Argos |
+| A48 | **Equipos del cliente** (0.12.0, §3.10): `POST /servicios/:id/equipos/cambiar` en una transacción (`X-Iris-Actor` obligatoria y sin el asistente; servicio dentro de las empresas del token, con `origen_id` registrado y auditado; la que entra `disponible` y con la regla de A47; la que sale a la bodega de la que entra, sin baja inmediata; `destino_sale: funciona` no vale con `danado` o `garantia`; `cobro_propuesto` sin monto a la cola de «Equipo no devuelto»); estados de la unidad, nunca instalable fuera de `disponible`; `GET /inventario/unidades/:id` sin costos, proveedor ni RMA, con `servicio` solo del actual y el de la orden; `POST /servicios/:id/equipos/:unidad_id/no-recuperado` (motivo, foto por id opaco obligatoria si se negó o se perdió, ubicación, 1 por unidad al día, aviso al titular, mínimo configurable de intentos de técnicos distintos para declarar `no_recuperada`); ventana de `fecha` con `recibido_en_iris`; `…/perdida` rechazada al token de Iris y `inventario.declarar_perdida_comodato` retirado en la migración; eventos `inventario.equipo_cambiado` e `inventario.unidad_estado_cambiado`; permisos `servicios.cambiar_equipo` e `inventario.ver_unidad`. | acordado; pendiente en Argos |
 
 ### 5.2 ArgosISP solicita a Iris
 
@@ -1914,7 +1914,7 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 - **c. Ventana de la fecha (M3).** `recibido_en_iris` en cada petición, `recibido_en_iris − 72 h ≤ fecha ≤ recibido_en_iris + 5 min`, membresía de §3.9 con `fecha`, y en Iris `fecha` no anterior a la asignación. Aceptado por Argos.
 - **d. Compatibilidad sin pérdidas automáticas (M4).** Con Argos < 0.12.0, el no recuperado espera a una persona con `ordenes.declarar_perdida`; con ≥ 0.12.0, `…/perdida` rechazada al token de Iris y permiso retirado. Aceptado por Argos.
 - **e. Leer una unidad (M5).** `servicio` solo del actual y del de la orden; `403 actor_ia_no_permitido`; `X-Iris-Actor` obligatoria; en Iris, limitada a `inventario.ver_unidad` y auditada. Aceptado por Argos.
-- **f. Alcance (B1).** Servicio de la orden y orden asignada al actor, validados en Iris; en Argos, la regla de §3.4. Aceptado por Argos.
+- **f. Alcance (B1).** Servicio de la orden y orden asignada al actor, validados en Iris. En Argos, el servicio dentro de las empresas del token; `origen_id` registrado y auditado en la primera llamada aceptada (no la regla de §3.4, que dejaba fuera los servicios antiguos creados en Argos). Aceptado por Argos.
 - **g. Foto por id opaco (B2).** Argos la abre por autologin con el permiso del usuario; se borra con la retención de la orden. Aceptado por Argos.
 - **h. Conciliar sin reenviar (B3).** Con `GET /servicios/:id/equipo`. Aceptado por Argos.
 - **i. Notas (B4).** Hasta 500 caracteres, escapadas, nunca en eventos ni logs. Aceptado por Argos.
