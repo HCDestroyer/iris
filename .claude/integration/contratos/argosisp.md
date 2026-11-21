@@ -190,7 +190,7 @@ Lo que queda:
 | --- | --- |
 | Buscar cliente al crear un ticket u orden | `GET /api/v1/clientes?q=&limit=` |
 | Ficha del cliente con sus servicios | `GET /api/v1/clientes/:id` y `GET /api/v1/servicios?cliente_id=` |
-| Estado de cuenta resumido (en la ficha del ticket) | `GET /api/v1/clientes/:id/estado-cuenta`, solo el saldo y las facturas vencidas (requiere `clientes.estado_cuenta`) |
+| Estado de cuenta resumido (en la ficha del ticket) | `GET /api/v1/clientes/:id/estado-cuenta`, solo el saldo y las facturas vencidas (requiere `clientes.estado_cuenta`). **0.10.0:** `?servicio_id=` devuelve solo el saldo y las facturas de ese servicio; una factura que cubre varios servicios se muestra sin el desglose de los otros |
 | Cliente por IP (ticket desde Horus o desde el portal) | `POST /api/v1/integraciones/iris/resolver` con la IP en el cuerpo (pedido A8; hoy solo existe `GET /ip/{ip}` y el resolver del conector Horus) |
 | Planes para cotizar | `GET /api/v1/planes?activo=true&router_id=<router sugerido>` (planes globales de la instalación más los implementados en ese router; `precio` como string decimal; sin `empresa_id`) |
 | Routers, zonas y coordenadas para factibilidad | `GET /api/v1/routers` (cada router trae `coordenadas`: `"lat,lng"` en grados decimales, sin espacios, o `null` si no está ubicado; el mismo formato que `coordenadas` de clientes y servicios) y `GET /api/v1/zonas` |
@@ -312,6 +312,8 @@ El ejemplo solo muestra los campos de esta sección; el resto del objeto no camb
 | Dato | En la instantánea | Quién lo ve en Iris |
 | --- | --- | --- |
 | `plan_id`, `plan_nombre`, `zona_nombre`, `estado`, `precio_mensual`, `moneda` | sí | Cualquiera con `clientes.ver` |
+| `codigo` (0.10.0, A45) | sí | Cualquiera con `clientes.ver`, y el asistente de IA |
+| `nombre` (0.10.0, A45) | sí | Cualquiera con `clientes.ver`. **Nunca** al proveedor de IA; en los logs solo aparece el `codigo` |
 | `router_id`, `router_nombre`, `tipo_conexion`, `ipv4`, `prefijo_enlace_v6`, `prefijo_delegado_v6`, `user_ppp`, `planta` | sí | Solo con `servicios.ver_red` |
 | `direccion`, `referencia`, `coordenadas`, contacto en sitio | sí (ya estaban) | Solo con `servicios.ver_ubicacion` |
 | `costo_override` | **no** | Nadie: Iris usa `precio_mensual` y no guarda el dato del que sale |
@@ -337,7 +339,7 @@ El ejemplo solo muestra los campos de esta sección; el resto del objeto no camb
 
 - **Nunca viajan al proveedor de IA:** IP, prefijos, `user_ppp`, coordenadas, la dirección, el texto libre de `referencia`, el contacto en sitio, `planta` ni el nombre del router. El asistente no tiene `servicios.ver_red` ni `servicios.ver_ubicacion`.
 - **Sí viajan:** el nombre del plan, `precio_mensual` con `moneda` (el asistente lo dice sin verificación fuerte, solo a quien escribe desde un número registrado; §10.2, punto 7), el estado del servicio y una **etiqueta corta** que arma Iris para distinguir los servicios de un mismo cliente.
-- **Etiqueta corta:** `Servicio <n> · <plan> · <zona>`. `<n>` es el orden del servicio dentro del cliente (1, 2, 3…, por id) y `<zona>` es el nombre de la zona del catálogo. No lleva calle, número de casa, coordenadas ni códigos internos. Si dos servicios quedan con la misma etiqueta, el asistente no adivina: pasa a una persona.
+- **Etiqueta corta:** desde 0.10.0, `<codigo> · <plan> · <zona>` (`codigo` de A45, §3.7; con un Argos que no lo tiene, sigue `Servicio <n> · <plan> · <zona>`, con `<n>` el orden del servicio dentro del cliente). `<zona>` es el nombre de la zona del catálogo. No lleva calle, número de casa, coordenadas, el `nombre` que puso el cliente ni otros códigos internos. Si dos servicios quedan con la misma etiqueta, el asistente no adivina: pasa a una persona.
 - Los ids de servicio siguen sin ir en los argumentos de las herramientas: los pone el servidor (§17.9).
 
 **Cómo se distinguen los servicios de un mismo cliente en el panel.** Cada servicio va en una línea: código del servicio, plan, `precio_mensual` y estado (con icono, texto y color). La dirección corta se ve solo con `servicios.ver_ubicacion`, y la IP y el router solo con `servicios.ver_red`. Sin esos permisos se ve la misma etiqueta corta que usa el asistente. Vale para la ficha del cliente, el selector de servicio de un ticket, una orden o una boleta, y el panel lateral de la conversación.
@@ -475,7 +477,7 @@ Al cerrar órdenes, Iris nunca registra pagos ni asientos. Solo pide a Argos el 
 
 ### 3.2 Alta desde un prospecto ganado
 
-1. `POST /clientes`: `nombre` (2–200) obligatorio; opcionales `tipo` (`persona` | `empresa`), `tipo_documento_fiscal`, `nit_cui` (Argos valida el dígito verificador), `nombre_fiscal`, `direccion_fiscal`, `email`, `telefono`, `movil`, `direccion`, `coordenadas` (`"lat,lng"`), `zona_id`, `canal_preferido`, `codigo_externo` (Iris manda `iris:prospecto:<id>`). Sin `empresa_id`: el cliente es de la instalación. Argos genera el `codigo`.
+1. `POST /clientes`: `nombre` (2–200) obligatorio (0.10.0: un `nit_cui` que manda Iris aquí no vale como `documento` de §7.5 hasta que coincida con una identidad A41; Argos guarda su origen); opcionales `tipo` (`persona` | `empresa`), `tipo_documento_fiscal`, `nit_cui` (Argos valida el dígito verificador), `nombre_fiscal`, `direccion_fiscal`, `email`, `telefono`, `movil`, `direccion`, `coordenadas` (`"lat,lng"`), `zona_id`, `canal_preferido`, `codigo_externo` (Iris manda `iris:prospecto:<id>`). Sin `empresa_id`: el cliente es de la instalación. Argos genera el `codigo`.
 2. `POST /servicios`: `cliente_id`, `router_id` y `plan_id` obligatorios; Iris manda además `empresa_id` (la del prospecto), `estado_inicial: pendiente_instalacion`, `direccion` y `coordenadas`. Sin `origen_tipo`/`origen_id` (van solo en `activar-instalacion`). Si no llega `user_ppp`, Argos lo genera; `409 user_ppp_duplicado` es de negocio. La respuesta nunca trae la clave PPP.
 3. **0.5.0:** `POST /clientes` acepta `referencia` (≤ 300), y `POST /servicios`, `referencia`, `contacto_nombre` (≤ 200) y `contacto_telefono`. `telefono`, `movil` y `contacto_telefono` se validan en el alta y en la edición (Guatemala, 8 dígitos que empiezan en 2–7, con `+502` opcional; o internacional `+` y 8–15 dígitos), y Argos los guarda normalizados (`+502 5512-3344`). Si no es válido: `422 validacion` con `rule: 'telefono'` en el campo; es de negocio y no se reintenta.
 4. **0.10.0 (A44):** `POST /clientes` acepta `telefonos_adicionales[] { numero (E.164), whatsapp }` (hasta 4), que Argos guarda como números del contacto titular y que no cuentan como «registrados» para §7.5 y §12.4. Iris los manda al ganar un prospecto con varios números (§3.6).
@@ -726,7 +728,8 @@ Argos es el dueño de los contactos. Un cliente tiene varios (`core.contactos_cl
 
 - `relacion`: `titular`, `familiar`, `inquilino`, `empleado` u `otro`. `servicios`: los ids de servicio del cliente a los que aplica, o `null` = todos.
 - `permisos`: `consultar` (saldo, estado del servicio, facturas), `reportar` (tickets y fallas), `pagar` (comprobantes y promesas) y `avisos` (recibe avisos de cobro). Todos encendidos por defecto; se apagan por contacto.
-- **Los permisos son por servicio** (decisión 11 del PM): `consultar` y `pagar` aplican solo a los `servicios[]` del contacto (con `null`, a todos los del cliente). Una promesa o un comprobante pedido por un contacto siempre lleva `servicio_id` de uno de los suyos, y las reglas (cuántas promesas, días y monto) se evalúan con la plantilla de ese servicio, como en §7. Saldo y estado, solo de sus `servicios[]`.
+- **Los permisos son por servicio** (decisión 11 del PM): `consultar` y `pagar` aplican solo a los `servicios[]` del contacto (con `null`, a todos los del cliente). Una promesa o un comprobante pedido por un contacto siempre lleva `servicio_id` de uno de los suyos, y las reglas (cuántas promesas, días y monto) se evalúan con la plantilla de ese servicio, como en §7. Saldo y estado, solo de sus `servicios[]`: con un contacto de `servicios` acotados, Iris solo usa `GET /clientes/:id/estado-cuenta?servicio_id=` (§2.1); si Argos no la soporta, el contacto ve el estado del servicio, nunca el saldo.
+- **`X-Iris-Contacto: <contacto_id>`** en las promesas (§7.4) y los comprobantes (§7.2) que pide un contacto: Argos valida que el `servicio_id` esté entre los `servicios[]` de ese contacto; si no, `403 servicio_fuera_del_contacto`.
 - `telefonos[]`: `numero` en E.164, `whatsapp` y `principal` (uno por contacto). **Un mismo número puede estar en varios clientes.**
 - **Reservado al titular**, siempre con la identidad de A41: cambiar titular, cambiar plan, cambiar el Wi-Fi, traspaso y baja. Ningún permiso de contacto los abre.
 
@@ -813,7 +816,8 @@ Una persona de Argos (oficina, caja o soporte) registra en Iris a alguien intere
 - `servicios.codigo`: lo pone Argos, automático por empresa, legible, único e **inmutable**, con el formato `S-000412`.
 - `servicios.nombre`: opcional y editable, hasta 60 caracteres («Casa», «Negocio», «Cámaras»).
 - Van en `GET /servicios`, en `GET /servicios/:id` y, como `servicio_codigo` y `servicio_nombre`, en los payloads hacia Iris que ya llevan `servicio_id` (webhooks de §2.3 y respuestas). `POST /servicios` (§3.2) acepta `nombre`; el `codigo` nunca se manda.
-- El «número de servicio» con que el cliente se identifica en el chat (§3.5, ajustes g y ac) es ese `codigo`. Como es secuencial, se puede adivinar: lo que lo impide son los límites de 3 intentos por conversación y 5 por número al día. Acertar solo asocia la conversación; **no la verifica** (§7.5).
+- **`servicio_nombre` es texto del cliente:** se muestra escapado, no va en logs ni al proveedor de IA (§2.4). El `codigo` sí puede ir al asistente y a los logs.
+- El «número de servicio» con que el cliente se identifica en el chat (§3.5, ajustes g y ac) es ese `codigo`, y se compara **solo contra los clientes que comparten ese número de teléfono**, nunca contra toda la empresa. Como es secuencial, se puede adivinar: lo que lo impide son los límites de 3 intentos por conversación y 5 por número al día. Acertar solo asocia la conversación; **no la verifica** (§7.5).
 
 ## 4. Versionado
 
@@ -1386,7 +1390,7 @@ Son las promesas que Argos ya tiene (contrato `promesas.md` de Argos). Una prome
 - Límite: 5 intentos fallidos por cliente cada 30 minutos (ventana en Redis, solo un contador). Al pasarse, `429 demasiados_intentos` con `Retry-After`.
 - Cada intento queda en la auditoría de Argos (`clientes.verificar_identidad`, con `valor` como `***`), también los rechazados por el límite.
 - Desde 0.6.0 Argos ya no entrega `nit_cui` al usuario técnico Iris (§1.1): si Iris lo tuviera, pedir el documento no probaría nada.
-- **0.10.0:** como `documento` solo vale un `nit_cui` que ya estaba en Argos o que viene de una identidad confirmada (A41); nunca el que llenó A43 por sí solo desde la orden (§3.4.6).
+- **0.10.0:** como `documento` solo vale un `nit_cui` que ya estaba en Argos o que viene de una identidad confirmada (A41); nunca el que llenó A43 por sí solo desde la orden (§3.4.6), ni el que mandó el token de Iris en `POST /clientes` (§3.2) hasta que haya una identidad A41 que coincida. Argos guarda de dónde vino cada `nit_cui`.
 - El código por WhatsApp y la revisión de una foto del DPI los hace Iris (la foto la revisa siempre una persona) y no necesitan a Argos.
 - **Teléfonos y correos registrados (0.10.0):** para `codigo_telefono` y `codigo_correo` cuentan solo `telefono`, `movil` y `email` **del cliente**, nunca los de sus contactos (§3.5), y uno agregado por A43 solo después de que el titular lo confirme con un código (§3.4.6).
 - **Para cambiar el Wi-Fi (0.9.0, §12.4)** `datos_titular` solo vale si en esa conversación coincidió el `documento`. `nombre` y `codigo_cliente` nunca bastan, ni juntos. Un cliente sin documento (`cf`) solo se verifica con un código al teléfono o al correo registrados (`codigo_telefono`, `codigo_correo`).
@@ -1606,7 +1610,7 @@ El PM respondió «realiza las propuestas»: lo que estaba propuesto queda adopt
 5. **Quién ve la dirección y la ubicación (§2.4).** `admin`, `supervisor`, `despacho`, `soporte`, `ventas` y `tecnico` (solo en sus órdenes). `caja` y `lectura` dejan de verlas.
 6. **El asistente y las cuentas bancarias (§7.8).** Basta el número registrado: son las cuentas de la empresa, no un dato del cliente. A un número desconocido se las da una persona.
 7. **El asistente y el precio (§2.4).** Puede decir el precio mensual con número registrado, sin verificación fuerte. Dice «su plan cuesta Q250.00 al mes», nunca el total de la factura.
-8. **Cómo distingue el asistente los servicios (§2.4).** «Servicio 1 · plan · zona», sin dirección.
+8. **Cómo distingue el asistente los servicios (§2.4).** «Servicio 1 · plan · zona», sin dirección. Desde 0.10.0, `<codigo> · <plan> · <zona>` con el código de A45 (§10.5, ajuste ag).
 9. **Primera sincronización (§2.5).** Solo los clientes que tienen un servicio no retirado, con `excluir_retirados=true`, que Argos ya implementó (PR #249). El resto llega a demanda al buscarlo.
 10. **Activar después de conectar (§1.5).** Se mantiene: el conector de Iris queda apagado hasta que un admin pulsa «Activar». El de Argos, con el botón, se enciende solo al confirmarse el canje.
 11. **Textos con números de cuenta que ya existen (§10.3).** Valor inicial del líder de Iris: Iris solo avisa al admin para que los borre a mano; no bloquea guardar.
@@ -1668,7 +1672,7 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 
 7. **Contactos creados desde Iris:** «todo desde el inicio»: aunque el titular no esté verificado en esa conversación, tienen los mismos permisos por defecto que cualquier otro contacto (`consultar`, `reportar`, `pagar`, `avisos`); el titular recibe un aviso con la opción de quitarlo. Siguen valiendo: el identificador de una llamada nunca basta, nunca puede ser titular y sus números no cuentan como «registrados».
 8. **Prospectos desde Argos (A44):** una persona de Argos registra prospectos en Iris, que los atiende ventas.
-9. **Titular que ya es cliente:** cuando el cambio de titular cae en un cliente existente (coinciden documento y nombre normalizado, con la identidad de A41 tomada en sitio y el contrato firmado a su nombre), Argos le asigna el servicio al momento (`existente: true`) y solo le manda un aviso informativo que no bloquea nada. Se quitan la bandera `titular_por_confirmar`, el código de confirmación, el `409 titular_por_confirmar` y las revisiones de N2; siguen `422 titular_no_coincide` con revisión de un supervisor, los límites de 2 por servicio y 10 por técnico al día, el contador aparte de N9 y N1 completo. **Riesgo aceptado:** un técnico que tenga el DPI físico, la firma y el nombre de un tercero podría asignarle un servicio. Lo mitigan la foto del DPI guardada en Argos, el aviso al titular, los límites y la auditoría con `X-Iris-Actor`.
+9. **Titular que ya es cliente:** cuando el cambio de titular cae en un cliente existente (coinciden documento y nombre normalizado, con la identidad de A41 tomada en sitio y el contrato firmado a su nombre), Argos le asigna el servicio al momento (`existente: true`) y solo le manda un aviso informativo que no bloquea nada. Se quitan la bandera `titular_por_confirmar`, el código de confirmación, el `409 titular_por_confirmar` y las revisiones de N2; siguen `422 titular_no_coincide` con revisión de un supervisor, los límites de 2 por servicio y 10 por técnico al día, el contador aparte de N9 y N1 completo. **Riesgo aceptado:** un técnico que tenga el DPI físico, la firma y el nombre de un tercero podría asignarle un servicio. Lo mitigan la foto del DPI guardada en Argos, el aviso al titular, los límites, la auditoría con `X-Iris-Actor` y un **reporte en Argos** de los servicios con `existente: true` que llegan por Iris, para que caja o supervisión los revise.
 10. **Código y nombre del servicio (A45):** cada servicio tiene un código automático, legible e inmutable por empresa (`S-000412`) y un nombre opcional que elige el cliente o el personal («Casa», «Negocio»). Iris lo muestra como «S-000412 · Casa» y es el «número de servicio» del chat; los límites de intentos impiden adivinarlo y acertar no verifica.
 11. **Las promesas y la consulta son por servicio:** `pagar` y `consultar` de un contacto valen solo para sus `servicios[]` (con `null`, todos); toda promesa o comprobante de un contacto lleva `servicio_id` y se evalúa con la plantilla de ese servicio; con varios servicios, el chat pregunta mostrando solo el código y el nombre de los suyos.
 
@@ -1706,6 +1710,10 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 - **ad. Ganar con un cliente existente (P1).** Iris no crea ni edita el cliente: el principal y los números sin nombre no se escriben en él; los números con nombre van como contactos (A42) y los demás quedan en el prospecto.
 - **ae. Números del prospecto (P2).** El principal sin `relacion` o con `titular`, y `titular` solo en el principal (`422 telefonos_invalidos`); `buscar` marca los números adicionales con `adicional: true` y Iris los trata como contacto no verificado; en el chat, un número que no es el principal no ve cotización, dirección ni plan sin un código al principal.
 - **af. Corrección de edición.** En §3.4.7, «Dónde» de `cliente_sin_instalacion` (A41) y de `evidencia_requerida` (A39), que un reemplazo de `cf9d1b2` había cambiado.
+- **ag. Consulta y pago por servicio, y etiqueta con código (M-a, M-b).** `estado-cuenta?servicio_id=` sin el desglose de otros servicios; Iris solo usa esa variante con contactos acotados (sin ella, solo el estado); `X-Iris-Contacto` en promesas y comprobantes y `403 servicio_fuera_del_contacto`; `codigo` en la lista blanca (también para el asistente) y `nombre` sin ir al proveedor de IA ni a los logs; etiqueta corta `<codigo> · <plan> · <zona>`, que cambia la del punto 8 de §10.2.
+- **ah. Código en el chat.** Se compara solo contra los clientes que comparten el número.
+- **ai. `nit_cui` de `POST /clientes`.** No vale como `documento` de §7.5 hasta que coincida con una identidad A41; Argos guarda su origen.
+- **aj. Reporte de titulares existentes.** Argos lista los servicios con `existente: true` que llegan por Iris para que caja o supervisión los revise.
 
 **Valor inicial del líder de Iris** (cambiable sin tocar el contrato): un cambio de plan que sube el precio también pide la firma del titular sobre la cotización nueva, apagado de fábrica (lo enciende la empresa).
 
