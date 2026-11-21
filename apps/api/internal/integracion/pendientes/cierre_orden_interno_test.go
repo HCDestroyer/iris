@@ -59,10 +59,17 @@ func TestPlanificarMaterialDeLaApp(t *testing.T) {
 		t.Fatalf("app desde la de la orden: %+v", p)
 	}
 	// Desde el panel (despacho indicó otra bodega): solo bodega_id, sin actor.
-	o.Materiales = []Material{{ProductoID: idArgos(5), Cantidad: "2", BodegaID: idArgos(8), Modalidad: "consumible_gasto"}}
+	general := "bodega"
+	o.Materiales = []Material{{ProductoID: idArgos(5), Cantidad: "2", BodegaID: idArgos(8), Modalidad: "consumible_gasto", BodegaTipo: &general}}
 	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true}))); p.conTecnico || p.actor != nil ||
 		p.payload["tecnico"] != nil || p.incompleto != "" {
 		t.Fatalf("panel: solo bodega_id: %+v", p)
+	}
+	// M-4: desde el panel, una bodega de tipo desconocido (no se leyó de Argos) queda incompleta.
+	sinTipo := o
+	sinTipo.Materiales = []Material{{ProductoID: idArgos(5), Cantidad: "2", BodegaID: idArgos(8), Modalidad: "consumible_gasto"}}
+	if p := consumoDe(t, mustPlanes(planificar(sinTipo, opcionesPlan{porTecnico: true, bodegaApp: true}))); p.incompleto == "" {
+		t.Fatalf("panel con una bodega de tipo desconocido: %+v", p)
 	}
 	// Desde el panel, una bodega de cuadrilla o personal: incompleto (solo bodegas tipo bodega).
 	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true, cuadrillas: map[int64]bool{8: true}}))); p.incompleto == "" {

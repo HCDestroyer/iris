@@ -455,3 +455,36 @@ func TestFotoConTomadoEnYCobroConFoto(t *testing.T) {
 		t.Fatalf("cobro sin foto: %+v", res.Resultados[0].Error)
 	}
 }
+
+// M-7 (0.14.0 §3.9 y §3.10): corte inmediato. Si el técnico ya no es de la cuadrilla de la que era
+// miembro en la fecha y la unidad que entra sale (según Argos) de la bodega de esa cuadrilla, 403
+// no_es_miembro; si no se pudo leer la bodega de la unidad, no se acepta.
+func TestCorteInmediatoAlDejarLaCuadrilla(t *testing.T) {
+	inv := &inventarioFalso{}
+	r := nuevoRetiroEnSitio(t, 1, func(c *campo.Config) {
+		c.Inventario = inv
+	})
+	inv.comodato = map[int64][]campo.EquipoComodato{r.servicio: {{UnidadID: r.unidades[0], Serie: "TPL-M7"}}}
+	pool := pruebas.Pool(t)
+	var cuadrilla int64
+	if err := pool.QueryRow(context.Background(), `INSERT INTO agenda.cuadrillas (nombre) VALUES ($1) RETURNING id`, "Corte "+pruebas.Unico()).Scan(&cuadrilla); err != nil {
+		t.Fatal(err)
+	}
+	bodega := int64(9_300_000) + time.Now().UnixNano()%100000
+	exec(t, `INSERT INTO integracion.argos_bodegas_cuadrilla (bodega_id, empresa_id, cuadrilla_id) VALUES ($1, 0, $2)`, bodega, cuadrilla)
+	// Era miembro en la fecha (desde ayer) y lo quitaron hace un minuto (hora del servidor).
+	exec(t, `INSERT INTO agenda.cuadrilla_miembros (usuario_id, cuadrilla_id, desde, hasta) VALUES ($1, $2, $3, $4)`,
+		r.tec, cuadrilla, r.e.reloj.ahora().Add(-24*time.Hour), r.e.reloj.ahora().Add(time.Minute))
+	cambio := programada(t, r.e, r.cd, "cambio_equipo", r.tec)
+	conServicio(t, cambio.ID, r.servicio)
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpLlegar, cambio.ID, nil)), "aplicada")
+	entra := int64(5_500_000) + time.Now().UnixNano()%100000
+	datos := map[string]any{"saleUnidadId": r.unidades[0], "entra": map[string]any{"unidadId": entra}, "motivo": "danado"}
+	inv.unidades = map[int64]int64{entra: bodega}
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoCambiar, cambio.ID, datos)), "rechazada:"+campo.CodigoNoEsMiembro)
+	inv.sinUnidad = true
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoCambiar, cambio.ID, datos)), "rechazada:"+campo.CodigoBodegaSinVerificar)
+	inv.sinUnidad = false
+	inv.unidades = map[int64]int64{entra: bodega + 1} // de otra bodega: sigue
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoCambiar, cambio.ID, datos)), "aplicada")
+}

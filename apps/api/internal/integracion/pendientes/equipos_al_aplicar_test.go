@@ -38,8 +38,13 @@ func (e *entorno) aplicar(orden map[string]any) bool {
 func (e *entorno) foto(orden, estado string) string {
 	e.t.Helper()
 	id := uuid.Must(uuid.NewV7())
-	e.exec(`INSERT INTO nucleo.adjuntos (id, entidad, entidad_id, tipo, mime, tamano, sha256, almacenamiento, clave, estado)
-		VALUES ($1, 'orden', $2, 'foto', 'image/jpeg', 10, repeat('a', 64), 'local', $3, $4)`, id, orden, "orden/"+id.String(), estado)
+	// completado_en: la hora del reloj de las pruebas (dentro de la ventana de 72 h desde la fecha).
+	var completado *time.Time
+	if estado == "completo" {
+		completado = &e.reloj
+	}
+	e.exec(`INSERT INTO nucleo.adjuntos (id, entidad, entidad_id, tipo, mime, tamano, sha256, almacenamiento, clave, estado, completado_en)
+		VALUES ($1, 'orden', $2, 'foto', 'image/jpeg', 10, repeat('a', 64), 'local', $3, $4, $5)`, id, orden, "orden/"+id.String(), estado, completado)
 	return id.String()
 }
 

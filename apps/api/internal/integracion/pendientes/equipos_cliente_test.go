@@ -39,7 +39,7 @@ func TestEquiposDelClienteConArgos012(t *testing.T) {
 			"serie": "ZTEGC8A1B2C3", "motivo": "danado", "destino_sale": "revision", "cobro_propuesto": map[string]any{"motivo": "golpe"},
 			"fecha": "2026-11-21T16:02:00Z", "recibido_en_iris": "2026-11-21T16:40:11Z", "usuario_id": tec}},
 		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_gasto",
-			"fecha": "2026-11-21T16:01:00Z", "recibido_en_iris": "2026-11-21T16:40:11Z"}},
+			"fecha": "2026-11-21T16:01:00Z", "recibido_en_iris": "2026-11-21T16:40:11Z", "bodega_tipo": "bodega"}},
 	})
 	e.procesar()
 	c := e.llamadaA("iris:cambio:" + cambio + ":812")
@@ -96,7 +96,8 @@ func TestEquiposDelClienteConArgosAnterior(t *testing.T) {
 	e.cerrar(map[string]any{
 		"orden_id": cambio, "tipo": "cambio_equipo", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 52,
 		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-28"},
-		"equipos": []any{map[string]any{"accion": "cambio", "sale_unidad_id": 813, "serie": "NUEVA-1", "motivo": "danado", "destino_sale": "revision"}},
+		"equipos": []any{map[string]any{"accion": "cambio", "sale_unidad_id": 813, "serie": "NUEVA-1", "motivo": "danado", "destino_sale": "revision",
+			"desde_app": true, "usuario_id": tec}},
 	})
 	e.procesar()
 	if d := e.llamadaA("iris:devolucion:" + cambio + ":813"); d.Cuerpo["condicion"] != "danada" || d.Cuerpo["tecnico"] == nil {

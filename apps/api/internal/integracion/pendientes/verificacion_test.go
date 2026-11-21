@@ -3,7 +3,9 @@ package pendientes_test
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -55,7 +57,7 @@ func TestVerificacionDelIntento014(t *testing.T) {
 	e.argos16()
 	e.contrato("0.14.0")
 	tec := e.tecnico("u-47")
-	orden := nuevaOrden()
+	orden := e.ordenCampo(tec, true)
 	foto := e.foto(orden, "completo")
 	e.exec(`UPDATE nucleo.adjuntos SET subido_por = $2, tomado_en = $3 WHERE id = $1`, foto, tec, e.reloj)
 	intento := uuid.Must(uuid.NewV7()).String()
@@ -137,5 +139,113 @@ func TestVerificacionDelIntento014(t *testing.T) {
 	}
 	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'adjuntos.verificar_integracion'`); n == 0 {
 		t.Fatal("cada consulta se audita")
+	}
+}
+
+// ordenCampo: una orden de campo real (la llegada se busca en campo.orden_eventos por su id), con la
+// llegada del técnico una hora antes del reloj si llego.
+func (e *entorno) ordenCampo(tec int64, llego bool) string {
+	e.t.Helper()
+	var orden int64
+	if err := e.pool.QueryRow(context.Background(), `INSERT INTO campo.ordenes (tipo_id, direccion)
+		VALUES ((SELECT id FROM campo.tipos_orden WHERE codigo = 'retiro'), 'Prueba') RETURNING id`).Scan(&orden); err != nil {
+		e.t.Fatal(err)
+	}
+	id := strconv.FormatInt(orden, 10)
+	if llego {
+		e.llegada(id, tec)
+	}
+	return id
+}
+
+func (e *entorno) llegada(orden string, tec int64) {
+	e.t.Helper()
+	e.exec(`INSERT INTO campo.orden_eventos (orden_id, tipo, de, a, actor_tipo, actor_id, ocurrido_en)
+		VALUES ($1::bigint, 'estado', 'en_camino', 'en_sitio', 'usuario', $2, $3)`, orden, tec, e.reloj.Add(-time.Hour))
+}
+
+// M-1: el tope por clave aguanta consultas concurrentes (cuenta e inserta con candado).
+func TestVerificacionTopeConcurrente(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	e.contrato("0.14.0")
+	argos := e.tokenArgos(true, []nucleo.Permiso{nucleo.PermAdjuntosVerificarIntegracion}, 1)
+	clave := "iris:no_recuperado:" + nuevaOrden() + ":1:" + uuid.Must(uuid.NewV7()).String()
+	const n = 30
+	resultados := make(chan error, n)
+	for range n {
+		go func() {
+			_, err := e.m.VerificarIntento(argos, pendientes.EntradaVerificarIntento{EmpresaID: 1, IdempotencyKey: clave})
+			resultados <- err
+		}()
+	}
+	topes := 0
+	for range n {
+		var p *nucleo.Problema
+		if err := <-resultados; errors.As(err, &p) && p.Status == 429 {
+			topes++
+		}
+	}
+	if topes != n-pendientes.TopeVerificacionPorDia {
+		t.Fatalf("pasaron %d de %d (tope %d)", n-topes, n, pendientes.TopeVerificacionPorDia)
+	}
+	if c := e.contar(`SELECT count(*) FROM integracion.verificaciones_intento WHERE clave = $1`, clave); c != pendientes.TopeVerificacionPorDia {
+		t.Fatalf("registradas: %d", c)
+	}
+}
+
+// M-2 y M-3: sin llegada del autor, o con la foto completa fuera de la ventana de 72 h, la
+// verificación responde foto_invalida aunque Argos haya respondido 2xx.
+func TestVerificacionSinLlegadaOFueraDeVentana(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	e.contrato("0.14.0")
+	tec := e.tecnico("u-49")
+	id := e.ordenCampo(tec, false)
+	argos := e.tokenArgos(true, []nucleo.Permiso{nucleo.PermAdjuntosVerificarIntegracion}, 1)
+	aplicado := func(unidad int64, completado time.Time) string {
+		foto := e.foto(id, "completo")
+		e.exec(`UPDATE nucleo.adjuntos SET subido_por = $2, tomado_en = $3, completado_en = $4 WHERE id = $1`, foto, tec, e.reloj, completado)
+		intento := uuid.Must(uuid.NewV7()).String()
+		o := intentoAplicado(id, intento, unidad, tec, foto, e.reloj)
+		o["empresa_id"] = 1
+		if !e.aplicar(o) {
+			t.Fatal("encolado")
+		}
+		return "iris:no_recuperado:" + id + ":" + strconv.FormatInt(unidad, 10) + ":" + intento
+	}
+	sinLlegada := aplicado(120, e.reloj)
+	e.procesar()
+	if v, err := e.m.VerificarIntento(argos, pendientes.EntradaVerificarIntento{EmpresaID: 1, IdempotencyKey: sinLlegada}); err != nil ||
+		v.Verificado || v.Motivo == nil || *v.Motivo != pendientes.MotivoFotoInvalida {
+		t.Fatalf("sin llegada: %+v %v", v, err)
+	}
+	e.llegada(id, tec)
+	if v, err := e.m.VerificarIntento(argos, pendientes.EntradaVerificarIntento{EmpresaID: 1, IdempotencyKey: sinLlegada}); err != nil || !v.Verificado {
+		t.Fatalf("con llegada: %+v %v", v, err)
+	}
+	tarde := aplicado(121, e.reloj.Add(73*time.Hour))
+	e.procesar()
+	if v, err := e.m.VerificarIntento(argos, pendientes.EntradaVerificarIntento{EmpresaID: 1, IdempotencyKey: tarde}); err != nil ||
+		v.Motivo == nil || *v.Motivo != pendientes.MotivoFotoInvalida {
+		t.Fatalf("foto completa fuera de la ventana: %+v %v", v, err)
+	}
+}
+
+// M-3: una foto que quedó completo más de 72 h después de la fecha no deja salir el intento.
+func TestIntentoConFotoCompletaFueraDeVentana(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	e.contrato("0.14.0")
+	tec := e.tecnico("u-50")
+	orden := nuevaOrden()
+	foto := e.foto(orden, "pendiente")
+	intento := uuid.Must(uuid.NewV7()).String()
+	e.aplicar(intentoAplicado(orden, intento, 122, tec, foto, e.reloj))
+	e.exec(`UPDATE nucleo.adjuntos SET estado = 'completo', completado_en = $2 WHERE id = $1`, foto, e.reloj.Add(73*time.Hour))
+	e.procesar()
+	p := e.pendientes(orden)["iris:no_recuperado:"+orden+":122:"+intento]
+	if p.Estado != "fallido_negocio" || e.contar(`SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND codigo_error = $2`, p.ID, pendientes.CodigoFotoFueraDeVentana) != 1 {
+		t.Fatalf("fuera de la ventana: %+v", p)
 	}
 }

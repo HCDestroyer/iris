@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -73,19 +74,38 @@ func (m *Modulo) VerificarIntento(ctx context.Context, in EntradaVerificarIntent
 	ahora := m.ahora()
 	l := ahora.In(zonaGuatemala)
 	dia := time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, zonaGuatemala)
-	n, err := q.ContarVerificaciones(ctx, pendientesbd.ContarVerificacionesParams{ConectorID: conectorID, Minuto: ahora.Add(-time.Minute),
-		Clave: in.IdempotencyKey, Dia: dia})
+	// M-1: contar e insertar en una transacción, con el conector y la clave bloqueados (siempre en
+	// ese orden): dos consultas a la vez no pasan el tope. Se confirma aunque la consulta termine en
+	// error (cuenta igual).
+	var tope error
+	err = nucleo.EnTx(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		qt := pendientesbd.New(tx)
+		if err := qt.BloquearVerificacion(ctx, "verificacion:conector:"+strconv.FormatInt(conectorID, 10)); err != nil {
+			return err
+		}
+		if err := qt.BloquearVerificacion(ctx, "verificacion:clave:"+in.IdempotencyKey); err != nil {
+			return err
+		}
+		n, err := qt.ContarVerificaciones(ctx, pendientesbd.ContarVerificacionesParams{ConectorID: conectorID, Minuto: ahora.Add(-time.Minute),
+			Clave: in.IdempotencyKey, Dia: dia})
+		if err != nil {
+			return err
+		}
+		switch {
+		case n.PorMinuto >= TopeVerificacionMinuto:
+			tope = nucleo.DemasiadosIntentos("demasiadas_peticiones", "Más de 60 verificaciones por minuto de este conector", time.Minute)
+			return nil
+		case n.PorClave >= TopeVerificacionPorDia:
+			tope = nucleo.DemasiadosIntentos("demasiadas_peticiones", "Más de 20 verificaciones de esta clave hoy", dia.AddDate(0, 0, 1).Sub(ahora))
+			return nil
+		}
+		return qt.RegistrarVerificacion(ctx, pendientesbd.RegistrarVerificacionParams{ConectorID: conectorID, Clave: in.IdempotencyKey, En: ahora})
+	})
 	if err != nil {
 		return VerificacionIntento{}, err
 	}
-	switch {
-	case n.PorMinuto >= TopeVerificacionMinuto:
-		return VerificacionIntento{}, nucleo.DemasiadosIntentos("demasiadas_peticiones", "Más de 60 verificaciones por minuto de este conector", time.Minute)
-	case n.PorClave >= TopeVerificacionPorDia:
-		return VerificacionIntento{}, nucleo.DemasiadosIntentos("demasiadas_peticiones", "Más de 20 verificaciones de esta clave hoy", dia.AddDate(0, 0, 1).Sub(ahora))
-	}
-	if err := q.RegistrarVerificacion(ctx, pendientesbd.RegistrarVerificacionParams{ConectorID: conectorID, Clave: in.IdempotencyKey, En: ahora}); err != nil {
-		return VerificacionIntento{}, err
+	if tope != nil {
+		return VerificacionIntento{}, tope
 	}
 	_ = q.PurgarVerificaciones(ctx, ahora.AddDate(0, 0, -diasVerificacionGuardas))
 	return m.verificarIntento.Ejecutar(ctx, in)
@@ -195,11 +215,19 @@ func fotoVerificable(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queri
 	case a.SubidoPor == nil || *a.SubidoPor != *f.TecnicoUsuarioID || a.TomadoEn == nil:
 		return MotivoFotoInvalida, nil
 	}
-	llegada, err := q.LlegadaParaVerificar(ctx, pendientesbd.LlegadaParaVerificarParams{OrdenID: f.EntidadID, ActorID: f.TecnicoUsuarioID, Fecha: *fecha})
+	l := fecha.In(zonaGuatemala)
+	dia := time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, zonaGuatemala)
+	llegada, err := q.LlegadaParaVerificar(ctx, pendientesbd.LlegadaParaVerificarParams{OrdenID: f.EntidadID, ActorID: f.TecnicoUsuarioID,
+		Desde: dia, Fecha: *fecha})
 	if err != nil {
 		return "", err
 	}
-	if a.TomadoEn.Before(llegada) {
+	// M-2: sin llegada del autor no hay foto posterior a ella. M-3: la foto debió quedar completo
+	// dentro de las 72 h desde la fecha.
+	if llegada.Year() <= 1 || a.TomadoEn.Before(llegada) {
+		return MotivoFotoInvalida, nil
+	}
+	if a.CompletadoEn == nil || a.CompletadoEn.After(fecha.Add(VentanaFoto)) {
 		return MotivoFotoInvalida, nil
 	}
 	usos, err := q.UsosDeFoto(ctx, pgtype.UUID{Bytes: id, Valid: true})

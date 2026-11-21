@@ -83,6 +83,16 @@ func (q *Queries) BloquearDependientes(ctx context.Context, arg BloquearDependie
 	return items, nil
 }
 
+const bloquearVerificacion = `-- name: BloquearVerificacion :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
+`
+
+// M-1: el tope se cuenta e inserta con el conector y la clave bloqueados (consultas concurrentes).
+func (q *Queries) BloquearVerificacion(ctx context.Context, llave string) error {
+	_, err := q.db.Exec(ctx, bloquearVerificacion, llave)
+	return err
+}
+
 const bodegaDeOrden = `-- name: BodegaDeOrden :one
 SELECT bodega_id FROM campo.ordenes WHERE id = $1::bigint
 `
@@ -1075,15 +1085,14 @@ func (q *Queries) ListarPendientes(ctx context.Context, arg ListarPendientesPara
 const llegadaParaVerificar = `-- name: LlegadaParaVerificar :one
 SELECT coalesce(max(ocurrido_en), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz FROM campo.orden_eventos
 WHERE orden_id::text = $1::text AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
-  AND actor_id = $2 AND ocurrido_en <= $3
-  AND (ocurrido_en AT TIME ZONE 'America/Guatemala')::date = ($4)::date
+  AND actor_id = $2 AND ocurrido_en >= $3 AND ocurrido_en <= $4
 `
 
 type LlegadaParaVerificarParams struct {
-	OrdenID                                           string
-	ActorID                                           *int64
-	Fecha                                             time.Time
-	PgCatalogtimezoneAmericaGuatemalafechatimestamptz pgtype.Date
+	OrdenID string
+	ActorID *int64
+	Desde   time.Time
+	Fecha   time.Time
 }
 
 // La llegada del autor a la orden (último orden.llegar suyo el mismo día de la fecha, sin pasarla).
@@ -1091,8 +1100,8 @@ func (q *Queries) LlegadaParaVerificar(ctx context.Context, arg LlegadaParaVerif
 	row := q.db.QueryRow(ctx, llegadaParaVerificar,
 		arg.OrdenID,
 		arg.ActorID,
+		arg.Desde,
 		arg.Fecha,
-		arg.PgCatalogtimezoneAmericaGuatemalafechatimestamptz,
 	)
 	var column_1 time.Time
 	err := row.Scan(&column_1)

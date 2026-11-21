@@ -43,9 +43,14 @@ type OpSync struct {
 	// RecibidoEn: la hora del servidor al aceptar el lote (recibido_en_iris; orden_reasignada).
 	RecibidoEn time.Time
 	pre        *prelectura
-	// gracia: equipo.cambiar o equipo.no_recuperado de quien tenía la orden en la fecha declarada y
-	// se la quitaron hace menos de 12 h (0.13.1 §3.10): se acepta aunque ya no sea suya.
+	// gracia: equipo.cambiar o equipo.no_recuperado de quien tenía la orden en la fecha declarada (a
+	// su nombre o como miembro de su cuadrilla) y no hace más de 12 h que se la quitaron o lo quitaron
+	// de la cuadrilla (0.14.0 §3.10): se acepta aunque ya no sea suya.
 	gracia bool
+	// unidadBodega: la bodega de Argos de la unidad que entra (cambio o instalación), leída antes
+	// para el corte inmediato de §3.9; unidadLeida = se pudo leer.
+	unidadBodega *int64
+	unidadLeida  bool
 }
 
 func noEncontrada() *nucleo.Problema { return nucleo.NoEncontrado("La orden no existe") }
@@ -251,17 +256,24 @@ func esEvidencia(tipo string) bool {
 
 func reglasDelLote(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, s *OpSync) error {
 	actor := contexto.ActorDe(ctx)
-	if !propia(ctx, f) && actor.EsUsuario() && (s.Tipo == OpEquipoCambiar || s.Tipo == OpEquipoNoRecuperado) {
-		// Cambios e intentos (0.13.1 §3.10): quien la tenía en la fecha declarada los puede enviar
-		// hasta 12 h después de que se la quitaran (hora del servidor); si no, orden_reasignada.
-		gracia, tuvo, err := enGraciaDeReasignacion(ctx, q, f.ID, actor.ID, s.OcurridoEn, s.RecibidoEn)
+	if actor.EsUsuario() && (s.Tipo == OpEquipoCambiar || s.Tipo == OpEquipoNoRecuperado) {
+		// Cambios e intentos (0.14.0 §3.10): quien la tenía en la fecha declarada, a su nombre o como
+		// miembro de su cuadrilla, los puede enviar hasta 12 h después de lo primero que pase: que se
+		// la quiten o que lo quiten de la cuadrilla (aunque siga a su nombre). Si no, orden_reasignada.
+		filas, err := q.AsignacionesDeOrden(ctx, f.ID)
 		if err != nil {
 			return err
 		}
-		if gracia {
-			s.gracia = true
-		} else if tuvo {
+		membresias, err := q.MembresiasDe(ctx, actor.ID)
+		if err != nil {
+			return err
+		}
+		tenia, quitado := plazoDelActor(filas, membresias, actor.ID, s.OcurridoEn)
+		switch {
+		case tenia && quitado != nil && s.RecibidoEn.Sub(*quitado) > GraciaReasignacion:
 			return ordenReasignada()
+		case tenia && !propia(ctx, f):
+			s.gracia = true
 		}
 	}
 	if !propia(ctx, f) && actor.EsUsuario() && !s.gracia {
@@ -284,31 +296,96 @@ func reglasDelLote(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden
 // intentos registrados mientras era suya (0.13.1 §3.10).
 const GraciaReasignacion = 12 * time.Hour
 
-// enGraciaDeReasignacion: según el historial de asignación de la orden (hora del servidor), el
-// usuario la tenía en `fecha` y se la quitaron hace menos de 12 h de `recibido`. tuvo: la tuvo
-// alguna vez (para responder orden_reasignada y no 404).
-func enGraciaDeReasignacion(ctx context.Context, q *campobd.Queries, orden, usuario int64, fecha, recibido time.Time) (gracia, tuvo bool, err error) {
-	filas, err := q.AsignacionesDeOrden(ctx, orden)
-	if err != nil {
-		return false, false, err
-	}
-	var desde *time.Time
-	actual := int64(0)
-	for _, f := range filas {
-		switch {
-		case f.TecnicoID == usuario && actual != usuario:
-			d := f.OcurridoEn
-			desde, tuvo = &d, true
-		case f.TecnicoID != usuario && actual == usuario && desde != nil:
-			// Un periodo [desde, f.OcurridoEn) con la orden a su nombre.
-			if !fecha.Before(*desde) && fecha.Before(f.OcurridoEn) && recibido.Sub(f.OcurridoEn) <= GraciaReasignacion {
-				return true, true, nil
-			}
-			desde = nil
+// plazoDelActor (0.14.0 §3.10, M-7): según el historial de asignación de la orden y el de la
+// membresía del usuario (hora del servidor), si tenía la orden en `fecha` (a su nombre o como
+// miembro de la cuadrilla de la orden) y cuándo dejó de tenerla: lo primero entre que se la quitaran
+// (otro técnico u otra cuadrilla) y que lo quitaran de esa cuadrilla, aunque siga a su nombre. nil =
+// la sigue teniendo.
+func plazoDelActor(filas []campobd.AsignacionesDeOrdenRow, membresias []campobd.MembresiasDeRow, usuario int64, fecha time.Time) (bool, *time.Time) {
+	tecnico, cuadrilla := int64(0), int64(0)
+	i := 0
+	for ; i < len(filas) && !filas[i].OcurridoEn.After(fecha); i++ {
+		if filas[i].TraeTecnico {
+			tecnico = filas[i].TecnicoID
 		}
-		actual = f.TecnicoID
+		if filas[i].TraeCuadrilla {
+			cuadrilla = filas[i].CuadrillaID
+		}
 	}
-	return false, tuvo, nil
+	var miembro *campobd.MembresiasDeRow
+	for k := range membresias {
+		m := membresias[k]
+		if cuadrilla != 0 && m.CuadrillaID == cuadrilla && !m.Desde.After(fecha) && (m.Hasta == nil || fecha.Before(*m.Hasta)) {
+			miembro = &membresias[k]
+		}
+	}
+	porNombre := tecnico == usuario
+	if !porNombre && miembro == nil {
+		return false, nil
+	}
+	var quitado *time.Time
+	primero := func(t time.Time) {
+		if quitado == nil || t.Before(*quitado) {
+			quitado = &t
+		}
+	}
+	if miembro != nil && miembro.Hasta != nil {
+		primero(*miembro.Hasta)
+	}
+	for ; i < len(filas); i++ {
+		f := filas[i]
+		if porNombre && f.TraeTecnico && f.TecnicoID != usuario && (miembro == nil || f.TraeCuadrilla && f.CuadrillaID != cuadrilla) {
+			primero(f.OcurridoEn)
+			break
+		}
+		if !porNombre && f.TraeCuadrilla && f.CuadrillaID != cuadrilla {
+			primero(f.OcurridoEn)
+			break
+		}
+		if porNombre && f.TraeTecnico && f.TecnicoID != usuario {
+			// Ya no a su nombre, pero aún por la cuadrilla: lo que pase después con la cuadrilla manda.
+			porNombre = false
+		}
+	}
+	return true, quitado
+}
+
+// CodigoBodegaSinVerificar: no se pudo leer de Argos la bodega de la unidad que entra (corte
+// inmediato de §3.9): no se acepta.
+const CodigoBodegaSinVerificar = "bodega_sin_verificar"
+
+// corteInmediato (0.14.0 §3.9 y §3.10, M-7): si el actor ya no es miembro de una cuadrilla de la
+// que lo era en la fecha y la unidad que entra está (según Argos) en la bodega de esa cuadrilla,
+// 403 no_es_miembro; si no se pudo leer la bodega de la unidad, no se acepta.
+func corteInmediato(ctx context.Context, q *campobd.Queries, s *OpSync, usuario int64) error {
+	if s == nil {
+		return nil
+	}
+	membresias, err := q.MembresiasDe(ctx, usuario)
+	if err != nil {
+		return err
+	}
+	for _, m := range membresias {
+		if m.Hasta == nil || m.Desde.After(s.OcurridoEn) || !s.OcurridoEn.Before(*m.Hasta) {
+			continue // la sigue teniendo, o no lo era en la fecha
+		}
+		if !s.unidadLeida {
+			return nucleo.ReglaNegocio(CodigoBodegaSinVerificar,
+				"Ya no eres de la cuadrilla con la que registraste esto y no se pudo verificar en Argos de qué bodega sale la unidad: reintenta con señal")
+		}
+		if s.unidadBodega == nil {
+			continue
+		}
+		deEsa, err := q.BodegaEsDeCuadrilla(ctx, campobd.BodegaEsDeCuadrillaParams{BodegaID: *s.unidadBodega, CuadrillaID: m.CuadrillaID})
+		if err != nil {
+			return err
+		}
+		if deEsa {
+			return nucleo.NuevoProblema(http.StatusForbidden, CodigoNoEsMiembro, "Ya no eres de esa cuadrilla",
+				"La unidad sale de la bodega de una cuadrilla de la que ya no eres miembro")
+		}
+	}
+	return nil
 }
 
 // exigirEstado: la acción solo aplica desde los estados dados.
