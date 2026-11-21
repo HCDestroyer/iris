@@ -179,7 +179,7 @@ Una tarea está terminada solo si:
 | `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id, empresa_id, version, miembros[] (usuario_id, id_externo o null), jefe_usuario_id (o null); nombre, zonas[] (creada); campos[], activa (actualizada); van también a Argos |
 | `tecnico.creado` / `tecnico.actualizado` | agenda | tecnico_id (ficha), usuario_id; cuadrilla_id (creado); campos[], activo (actualizado) |
 | `tecnico.ausencia_registrada` / `tecnico.ausencia_anulada` | agenda | tecnico_id, usuario_id, ausencia_id; inicio, fin, motivo, citas_en_conflicto (registrada); motivo (anulada) |
-| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, id_externo; anterior_id_externo (vinculado); motivo (desvinculado) |
+| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, id_externo; anterior_id_externo (vinculado); motivo (desvinculado); van también a Argos (contrato ≥ 0.14.0) |
 | `tarea.creada` / `tarea.completada` / `tarea.anulada` | agenda | tarea_id, empresa_id, tecnico_id; creada_por, inicio, fin, duracion_min, orden_id (o null), cliente_id (o null), origen, solapa_con (creada); completada_por, completada_en (completada); anulada_por, motivo (o null) (anulada) |
 | `ruta.propuesta` / `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[], motor, degradada; modo, motivo_motor (propuesta); reemplaza_id, version (publicada) |
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
