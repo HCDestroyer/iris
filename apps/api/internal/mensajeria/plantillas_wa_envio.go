@@ -103,3 +103,7 @@ func datosParaEnvio(ctx context.Context, q *mensajeriabd.Queries, p Plantilla, v
 	}
 	return d, nil
 }
+
+// MotivoClienteSinConfirmar: un mensaje en cola con una plantilla que lleva datos del cliente de Argos
+// no sale si la conversación no tiene el cliente confirmado (conversacion.mensaje_fallido).
+const MotivoClienteSinConfirmar = "cliente_sin_confirmar"
