@@ -37,6 +37,7 @@ export function FichaCliente({
                     copia={ticket.datosArgos ?? null}
                     contacto={ticket.contacto}
                     origen="ticket"
+                    ticketId={ticket.id}
                     verArgos={enlaceArgosCliente(enlaces, ticket.clienteId)}
                 />
                 <LlamadasDelCliente clienteId={ticket.clienteId} />

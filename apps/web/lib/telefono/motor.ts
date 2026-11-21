@@ -181,6 +181,12 @@ export class MotorTelefono {
         this.publicar({ conexion: { fase: "apagado" }, extension });
     }
 
+    /** La Issabel rechazó la contraseña de la extensión (`registro_sin_probar` o 4003 `credenciales`). */
+    credencialRechazada(extension: string | null) {
+        this.detenerUa();
+        this.publicar({ conexion: { fase: "error", error: { tipo: "clave" } }, extension });
+    }
+
     /** Otra pestaña lo tiene. */
     enOtraPestana() {
         this.detenerUa();

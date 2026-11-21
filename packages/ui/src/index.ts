@@ -138,6 +138,7 @@ export {
     type PropsFotoMensaje,
 } from "./componentes/fotos";
 export { VisorFotos, type FotoEnVisor, type PropsVisorFotos } from "./componentes/visor-fotos";
+export { ControlesLlamada, ControlLlamada, TecladoTelefono, type PropsControlLlamada, type PropsTecladoTelefono } from "./componentes/teclado-telefono";
 export { CampoSelector, leerOpciones, Selector, type OpcionSelector, type PropsCampoSelector, type PropsSelector } from "./componentes/selector";
 export {
     aFecha,
