@@ -8,23 +8,29 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 )
 
-// Contrato 0.11.0 §3.9 (B26): el consumo desde la bodega de la cuadrilla (la que eligió el técnico en
-// la app) lleva tecnico y bodega_id a la vez, con X-Iris-Actor del técnico; el comodato, tecnico sin
-// bodega_id y también con X-Iris-Actor. El consumo desde la suya sigue solo con tecnico.
+// Contrato 0.11.0 §3.9 y 0.13.1 (B26): el consumo que el técnico registró en la app (de la bodega de
+// su cuadrilla o de cualquier otra) lleva tecnico (el I1 de quien lo registró) y bodega_id, con su
+// X-Iris-Actor, aunque la orden se haya reasignado; el comodato, tecnico sin bodega_id.
 func TestConsumoDesdeLaBodegaDeLaCuadrilla(t *testing.T) {
 	e := nuevoEntorno(t)
 	e.argos16()
+	e.exec(`UPDATE integracion.conectores SET contrato_remoto = '0.13.1' WHERE id = $1`, e.conID)
+	t.Cleanup(func() { e.exec(`UPDATE integracion.conectores SET contrato_remoto = NULL WHERE id = $1`, e.conID) })
 	tec := e.tecnico("u-26")
 	actor := "usuario:" + strconv.FormatInt(tec, 10)
 	e.exec(`INSERT INTO integracion.argos_bodegas_cuadrilla (bodega_id, empresa_id, cuadrilla_id) VALUES (8126, 1, 4242)
 		ON CONFLICT (bodega_id) DO NOTHING`)
+	desdeApp := func(producto, bodega int64, quien any) map[string]any {
+		return map[string]any{"producto_id": producto, "cantidad": 1, "bodega_id": bodega, "modalidad": "consumible_gasto",
+			"desde_app": true, "registrado_por": quien}
+	}
 
 	orden := nuevaOrden()
 	e.cerrar(map[string]any{
 		"orden_id": orden, "tipo": "instalacion", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26"},
 		"equipos":    []any{map[string]any{"accion": "instalar", "serie": "ONT-26", "bodega_id": 3}},
-		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 2, "bodega_id": 8126, "modalidad": "consumible_gasto"}},
+		"materiales": []any{desdeApp(5, 8126, tec)},
 	})
 	e.procesar()
 	c := e.llamadaA("iris:consumo:" + orden)
@@ -35,32 +41,51 @@ func TestConsumoDesdeLaBodegaDeLaCuadrilla(t *testing.T) {
 		t.Fatalf("comodato sin bodega_id y con actor: %s actor=%q", com.Crudo, com.Actor)
 	}
 
-	// Desde la suya (la de la orden): solo tecnico, como en 0.5.0, y con el actor.
-	otra := nuevaOrden()
+	// La orden se reasignó a otro técnico antes del cierre: el consumo sale con el I1 y el actor de
+	// quien registró el material (si no, Argos respondería 403 actor_no_coincide).
+	otro := e.tecnico("u-26b")
+	reasignada := nuevaOrden()
 	e.cerrar(map[string]any{
-		"orden_id": otra, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
+		"orden_id": reasignada, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
+		"tecnico_id": otro, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26b"},
+		"materiales": []any{desdeApp(5, 3, tec)},
+	})
+	e.procesar()
+	c = e.llamadaA("iris:consumo:" + reasignada)
+	if c.Cuerpo["bodega_id"] != 3.0 || c.Cuerpo["tecnico"].(map[string]any)["id_externo"] != "u-26" || c.Actor != actor {
+		t.Fatalf("consumo de una orden reasignada: %s actor=%q", c.Crudo, c.Actor)
+	}
+
+	// Desde el panel: solo bodega_id de una bodega tipo bodega, sin tecnico ni X-Iris-Actor.
+	panel := nuevaOrden()
+	e.cerrar(map[string]any{
+		"orden_id": panel, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26"},
 		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_gasto"}},
 	})
 	e.procesar()
-	c = e.llamadaA("iris:consumo:" + otra)
-	if _, conBodega := c.Cuerpo["bodega_id"]; conBodega || c.Cuerpo["tecnico"] == nil || c.Actor != actor {
-		t.Fatalf("consumo desde la suya: %s actor=%q", c.Crudo, c.Actor)
+	c = e.llamadaA("iris:consumo:" + panel)
+	if c.Cuerpo["bodega_id"] != 3.0 || c.Cuerpo["tecnico"] != nil || c.Actor != "" {
+		t.Fatalf("consumo del panel: %s actor=%q", c.Crudo, c.Actor)
 	}
 
-	// Mezclar la de la cuadrilla con la suya en una orden: un consumo por orden, nace incompleto
-	// (nunca se manda todo desde una sola bodega por cuenta de Iris).
-	mezcla := nuevaOrden()
-	e.cerrar(map[string]any{
-		"orden_id": mezcla, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
-		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26"},
-		"materiales": []any{
-			map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 8126, "modalidad": "consumible_gasto"},
-			map[string]any{"producto_id": 7, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_gasto"},
-		},
-	})
-	if p := e.pendientes(mezcla)["iris:consumo:"+mezcla]; p.Estado != "fallido_negocio" {
-		t.Fatalf("mezcla de bodegas: %+v", p)
+	// Nace incompleto (nunca a nombre de uno solo ni desde otra bodega por cuenta de Iris): dos
+	// bodegas; dos técnicos; una bodega de cuadrilla desde el panel; quien lo registró sin I1.
+	sinVinculo := e.tecnico("")
+	for nombre, materiales := range map[string][]any{
+		"dos bodegas":       {desdeApp(5, 8126, tec), desdeApp(7, 3, tec)},
+		"dos técnicos":      {desdeApp(5, 3, tec), desdeApp(7, 3, otro)},
+		"cuadrilla y panel": {map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 8126, "modalidad": "consumible_gasto"}},
+		"sin vínculo":       {desdeApp(5, 3, sinVinculo)},
+	} {
+		mezcla := nuevaOrden()
+		e.cerrar(map[string]any{
+			"orden_id": mezcla, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
+			"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26"}, "materiales": materiales,
+		})
+		if p := e.pendientes(mezcla)["iris:consumo:"+mezcla]; p.Estado != "fallido_negocio" || !p.Incompleto {
+			t.Fatalf("%s: %+v", nombre, p)
+		}
 	}
 }
 

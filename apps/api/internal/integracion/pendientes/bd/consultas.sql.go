@@ -119,6 +119,32 @@ func (q *Queries) BodegasDeCuadrilla(ctx context.Context, bodegas []int64) ([]in
 	return items, nil
 }
 
+const bodegasPersonales = `-- name: BodegasPersonales :many
+SELECT bodega_id FROM integracion.argos_bodegas_tecnico WHERE bodega_id = ANY($1::bigint[]) ORDER BY bodega_id
+`
+
+// Cuáles de estas bodegas de Argos son la personal de un técnico (0.13.1 §3.9): desde el panel no se
+// usan.
+func (q *Queries) BodegasPersonales(ctx context.Context, bodegas []int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, bodegasPersonales, bodegas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var bodega_id int64
+		if err := rows.Scan(&bodega_id); err != nil {
+			return nil, err
+		}
+		items = append(items, bodega_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const completarEsperando = `-- name: CompletarEsperando :one
 UPDATE integracion.pendientes
 SET payload = $1, estado = 'pendiente', ultimo_error = NULL, proximo_intento = $2, version = version + 1, updated_at = now()
@@ -1925,4 +1951,35 @@ func (q *Queries) VinculoArgosDeTecnico(ctx context.Context, usuarioID int64) (s
 	var id_externo string
 	err := row.Scan(&id_externo)
 	return id_externo, err
+}
+
+const vinculosArgosDeTecnicos = `-- name: VinculosArgosDeTecnicos :many
+SELECT usuario_id, argos_id_externo::text AS id_externo FROM agenda.tecnicos
+WHERE usuario_id = ANY($1::bigint[]) AND argos_id_externo IS NOT NULL AND argos_id_externo <> ''
+`
+
+type VinculosArgosDeTecnicosRow struct {
+	UsuarioID int64
+	IDExterno string
+}
+
+// El vínculo I1 (id_externo) de cada usuario: el `tecnico` del cuerpo es el del actor (0.13.1).
+func (q *Queries) VinculosArgosDeTecnicos(ctx context.Context, usuarios []int64) ([]VinculosArgosDeTecnicosRow, error) {
+	rows, err := q.db.Query(ctx, vinculosArgosDeTecnicos, usuarios)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []VinculosArgosDeTecnicosRow
+	for rows.Next() {
+		var i VinculosArgosDeTecnicosRow
+		if err := rows.Scan(&i.UsuarioID, &i.IDExterno); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

@@ -1512,6 +1512,20 @@ func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]Camp
 	return items, nil
 }
 
+const esBodegaDeTecnicoOCuadrilla = `-- name: EsBodegaDeTecnicoOCuadrilla :one
+SELECT (EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = $1::bigint)
+     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = $1::bigint))::boolean
+`
+
+// La bodega es de una cuadrilla o la personal de un técnico según Argos (0.13.1 §3.9): desde el panel
+// no se usa (despacho solo con bodegas tipo = bodega).
+func (q *Queries) EsBodegaDeTecnicoOCuadrilla(ctx context.Context, bodega int64) (bool, error) {
+	row := q.db.QueryRow(ctx, esBodegaDeTecnicoOCuadrilla, bodega)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const esPlantillaDeTipo = `-- name: EsPlantillaDeTipo :one
 SELECT EXISTS (SELECT 1 FROM campo.tipos_orden WHERE plantilla_id = $1::bigint AND activo)
 `

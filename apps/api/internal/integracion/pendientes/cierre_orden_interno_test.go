@@ -28,24 +28,51 @@ func TestPlanificarMaterialDeLaApp(t *testing.T) {
 	// Desde la app, desde una bodega personal distinta de la de la orden.
 	o := base
 	o.Materiales = []Material{{ProductoID: idArgos(5), Cantidad: "2", BodegaID: idArgos(4), Modalidad: "consumible_gasto", DesdeApp: true, RegistradoPor: &quien}}
-	p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true})))
-	if !p.conTecnico || p.actor == nil || *p.actor != quien || p.payload["tecnico"] == nil || p.payload["bodega_id"] == nil ||
+	vinculos := map[int64]string{quien: "u-11"}
+	p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true, vinculos: vinculos})))
+	if !p.conTecnico || p.actor == nil || *p.actor != quien || p.payload["bodega_id"] == nil ||
 		*(p.payload["bodega_id"].(*IDArgos)) != 4 || p.incompleto != "" {
 		t.Fatalf("app: tecnico + bodega_id + actor: %+v", p)
 	}
+	// El tecnico del cuerpo es el I1 de quien lo registró, no el del técnico actual de la orden
+	// (una orden reasignada daría 403 actor_no_coincide).
+	if tec, _ := p.payload["tecnico"].(map[string]any); tec["id_externo"] != "u-11" {
+		t.Fatalf("tecnico del actor: %+v", p.payload["tecnico"])
+	}
+	// Sin vínculo I1 de quien lo registró: incompleto (nunca a nombre de otro).
+	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true}))); p.incompleto == "" {
+		t.Fatalf("sin vínculo del actor: %+v", p)
+	}
+	// Dos técnicos en la misma orden: incompleto (un consumo por orden, un X-Iris-Actor).
+	otro := int64(12)
+	dos := o
+	dos.Materiales = append([]Material{}, o.Materiales...)
+	dos.Materiales = append(dos.Materiales, Material{ProductoID: idArgos(6), Cantidad: "1", BodegaID: idArgos(4), Modalidad: "consumible_gasto", DesdeApp: true, RegistradoPor: &otro})
+	if p := consumoDe(t, mustPlanes(planificar(dos, opcionesPlan{porTecnico: true, bodegaApp: true,
+		vinculos: map[int64]string{quien: "u-11", otro: "u-12"}}))); p.incompleto == "" || p.actor != nil {
+		t.Fatalf("varios actores: %+v", p)
+	}
 	// Desde la app, de la bodega de la orden: también tecnico + bodega_id.
 	o.Materiales[0].BodegaID = idArgos(3)
-	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true}))); !p.conTecnico || p.payload["bodega_id"] == nil {
+	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true, vinculos: vinculos}))); !p.conTecnico || p.payload["bodega_id"] == nil {
 		t.Fatalf("app desde la de la orden: %+v", p)
 	}
 	// Desde el panel (despacho indicó otra bodega): solo bodega_id, sin actor.
 	o.Materiales = []Material{{ProductoID: idArgos(5), Cantidad: "2", BodegaID: idArgos(8), Modalidad: "consumible_gasto"}}
-	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true}))); p.conTecnico || p.actor != nil || p.payload["tecnico"] != nil {
+	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true}))); p.conTecnico || p.actor != nil ||
+		p.payload["tecnico"] != nil || p.incompleto != "" {
 		t.Fatalf("panel: solo bodega_id: %+v", p)
+	}
+	// Desde el panel, una bodega de cuadrilla o personal: incompleto (solo bodegas tipo bodega).
+	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true, cuadrillas: map[int64]bool{8: true}}))); p.incompleto == "" {
+		t.Fatalf("panel con la bodega de una cuadrilla: %+v", p)
+	}
+	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true, personales: map[int64]bool{8: true}}))); p.incompleto == "" {
+		t.Fatalf("panel con una bodega personal: %+v", p)
 	}
 	// La app y una bodega del panel en una orden: incompleto (un consumo por orden).
 	o.Materiales = append(o.Materiales, Material{ProductoID: idArgos(6), Cantidad: "1", BodegaID: idArgos(3), Modalidad: "consumible_gasto", DesdeApp: true, RegistradoPor: &quien})
-	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true}))); p.incompleto == "" {
+	if p := consumoDe(t, mustPlanes(planificar(o, opcionesPlan{porTecnico: true, bodegaApp: true, vinculos: vinculos}))); p.incompleto == "" {
 		t.Fatalf("mezcla app y panel: %+v", p)
 	}
 	// Con un Argos anterior a 0.11.0, como en 0.5.0: la de la orden por tecnico.
