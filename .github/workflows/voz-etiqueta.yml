@@ -1,0 +1,55 @@
+# Crea sola la etiqueta voz-vX.Y.Z de «Iris Voz» cuando sube `version` en infra/voz/manifiesto.json
+# en main. Esa etiqueta dispara voz-release.yml, que construye y espera la aprobación del entorno
+# `voz-release` (revisores obligatorios, sin autoaprobación) para firmar y publicar: eso no cambia.
+#
+# Por qué una GitHub App y no GITHUB_TOKEN:
+# - Una etiqueta creada con GITHUB_TOKEN no dispara workflows `on: push`.
+# - Sobre todo: dar a «GitHub Actions» permiso para crear voz-v* lo daría a CUALQUIER workflow de
+#   CUALQUIER rama. Quien empuja una rama podría etiquetar un commit suyo con un voz-release.yml
+#   modificado sin entorno y firmar con la identidad que acepta el instalador, sin aprobación.
+# - La llave de la App vive solo en el entorno `voz-etiqueta`, limitado a la rama main: un workflow
+#   de otra rama no la recibe. Solo un commit que ya está en main puede llegar a etiquetarse.
+#
+# infra/voz/etiquetar.sh hace las comprobaciones (versión X.Y.Z, commit en main, etiqueta nueva y
+# mayor que la última; si ya existe con el mismo manifiesto, no hace nada; el entorno voz-etiqueta
+# limitado exactamente a main y la llave fuera de los secretos del repositorio) y usa un token de la App
+# de un solo repositorio y solo `contents: write`, que revoca al terminar.
+#
+# Configuración (una vez, la hace el PM): docs/runbooks/servidor-ia.md §8.
+name: Etiqueta de Iris Voz
+
+on:
+  push:
+    branches: [main]
+    paths: [infra/voz/manifiesto.json]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: voz-etiqueta
+  cancel-in-progress: false
+
+jobs:
+  etiquetar:
+    name: Crear la etiqueta voz-vX.Y.Z
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Limitado a main en Settings → Environments: solo aquí llega la llave de la App.
+    environment: voz-etiqueta
+    permissions:
+      # actions: read para leer la configuración del entorno voz-etiqueta antes de usar la llave.
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+
+      - name: Crear la etiqueta del manifiesto
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VOZ_APP_ID: ${{ secrets.VOZ_APP_ID }}
+          VOZ_APP_KEY: ${{ secrets.VOZ_APP_KEY }}
+        run: infra/voz/etiquetar.sh

@@ -27,6 +27,8 @@ on:
       - apps/api/cmd/voz-ollama-falso/**
       - apps/api/go.mod
       - .github/workflows/voz.yml
+      - .github/workflows/voz-release.yml
+      - .github/workflows/voz-etiqueta.yml
   pull_request:
     paths:
       - infra/voz/**
@@ -35,6 +37,8 @@ on:
       - apps/api/cmd/voz-ollama-falso/**
       - apps/api/go.mod
       - .github/workflows/voz.yml
+      - .github/workflows/voz-release.yml
+      - .github/workflows/voz-etiqueta.yml
   workflow_dispatch:
 
 permissions:
