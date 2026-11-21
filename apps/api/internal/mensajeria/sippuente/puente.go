@@ -415,7 +415,7 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 	}
 	soloPermitidas(req, cabecerasPeticion)
 	if req.Method != sip.REFER {
-		quitar(req, "Refer-To")
+		quitar(req, "Refer-To", "r")
 	}
 	rama := req.Via().Params.GetOr("branch", "")
 	if !strings.HasPrefix(rama, sip.RFC3261BranchMagicCookie) || len(rama) > 128 {
