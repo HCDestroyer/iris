@@ -220,6 +220,26 @@ payload lleva solo los campos del contrato: `aviso.entregado` (aviso_id, idempot
 canal, entregado_en, leido_en o null), `aviso.fallido` (aviso_id, idempotency_key, empresa_id, canal
 o null, motivo, detalle o null) y `contacto.baja` (cliente_id, empresa_id, canal, ocurrido_en, origen).
 
+## Plantillas de WhatsApp (servicio de mensajería, `contratos/plantillas-whatsapp.md`)
+
+Todos llevan `plantilla_id`, `empresa_id` (la dueña de la cuenta; null sin conector) y `waba_id`, salvo
+`plantillas_whatsapp.ajustes_cambiados`. `origen` del cambio: `iris` (una persona), `webhook` (Meta en
+vivo) o `sincronizacion` (botón o noche). Nunca el token ni el texto de un mensaje a un cliente.
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `plantilla_whatsapp.creada` | + `nombre`, `idioma`, `categoria`, `origen` (`iris`, `sugerida`, `meta`, `migrada`, `canal`) | Borrador nuevo, una sugerida, una que trajo la sincronización (creada en Meta) o una que reflejó el formulario del número. |
+| `plantilla_whatsapp.actualizada` | + `campos[]` (`definicion`, `nombre`, `usos`, `codigo`, `variables`…) | Borrador editado, usos o código cambiados (también la que soltó un código). |
+| `plantilla_whatsapp.enviada` | + `meta_id`, `tipo` (`creacion`, `edicion`), `estado` | Meta aceptó la plantilla (o su edición) para revisar. |
+| `plantilla_whatsapp.estado_cambiado` | + `de`, `a`, `motivo` (o null: reason de Meta, `editada`, `reanudada`), `origen`, `pausada_hasta` (o null) | Cambio de estado en Meta (aprobada, rechazada, pausada…) o en Iris (editar, reanudar). |
+| `plantilla_whatsapp.categoria_cambiada` | + `de`, `a`, `origen`, `pendiente` (true = Meta avisó que la reclasificará), `en_uso` | Meta la reclasificó (o avisó que lo hará); el panel lo avisa. |
+| `plantilla_whatsapp.calidad_cambiada` | + `de`, `a` (`GREEN`, `YELLOW`, `RED`, `UNKNOWN`), `origen` | Cambio de calidad. |
+| `plantilla_whatsapp.borrada` | + `nombre`, `idioma`, `origen` (`iris`, `meta`), `estaba_en_uso`, `codigo` (o null), `nombre_libre_en` (o null) | Borrada desde Iris o Meta ya no la tiene. La fila nunca se elimina. |
+| `plantilla_whatsapp.sincronizada` | `waba_id`, `empresa_id`, `origen` (`manual`, `nocturna`, `webhook`), `total`, `nuevas`, `cambiadas`, `borradas` | Terminó una lectura completa de la cuenta. |
+| `plantillas_whatsapp.ajustes_cambiados` | `empresa_id`, `campos[]`, `marketing_permitido` | Ajustes de la empresa. |
+
+Nadie los consume todavía (el panel lee por la API); quedan para la campana de avisos.
+
 ## Chat interno del equipo (I1, servicio de mensajería)
 
 Contrato de la API en `contratos/chat.md`. Ninguno lleva el texto de un mensaje: quien lo necesite

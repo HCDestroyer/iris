@@ -21,6 +21,11 @@ func (m *Modulo) ProcesarEnvio(ctx context.Context, id uuid.UUID, ultimo bool) (
 	return m.procesarEnvio(ctx, id, ultimo)
 }
 
+// ProgramarSincronizaciones es lo que hace el mantenimiento cada minuto con las plantillas.
+func (m *Modulo) ProgramarSincronizaciones(ctx context.Context, bd nucleo.BD) error {
+	return m.programarSincronizaciones(ctx, bd)
+}
+
 func (m *Modulo) DespacharWebhooks(ctx context.Context, bd nucleo.BD) error {
 	return m.despacharWebhooks(ctx, bd)
 }

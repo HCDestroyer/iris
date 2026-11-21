@@ -40,7 +40,7 @@ type metaPlantillas struct {
 }
 
 func nuevaMetaPlantillas(t *testing.T) *metaPlantillas {
-	f := &metaPlantillas{cuentas: map[string][]map[string]any{}, siguiente: 1689556908129000, editadas: map[string]map[string]any{}, pagina: 2}
+	f := &metaPlantillas{cuentas: map[string][]map[string]any{}, siguiente: int(time.Now().UnixNano() / 100), editadas: map[string]map[string]any{}, pagina: 2}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.servir))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -238,9 +238,9 @@ func (c *cuentaWA) webhookWA(cuerpo string) {
 }
 
 func (c *cuentaWA) estadoWebhook(metaID, nombre, evento, extra string) {
-	c.webhookWA(fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"id":%q,"time":1751247548,"changes":[{"field":"message_template_status_update",`+
+	c.webhookWA(fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"id":%q,"time":%d,"changes":[{"field":"message_template_status_update",`+
 		`"value":{"event":%q,"message_template_id":%s,"message_template_name":%q,"message_template_language":"es","reason":"NONE"%s}}]}]}`,
-		c.waba, evento, metaID, nombre, extra))
+		c.waba, time.Now().UnixNano(), evento, metaID, nombre, extra))
 }
 
 func (c *cuentaWA) plantilla(id any) map[string]any {
@@ -306,9 +306,15 @@ func TestPlantillasWAReglasMeta(t *testing.T) {
 			e.Definicion.Cuerpo = "Hola " + strings.Repeat("x", 1020)
 			e.Definicion.Variables = nil
 		}, "largos"},
-		{"termina con dato", func(e *mensajeria.EntradaReglasPW) { e.Definicion.Cuerpo = "Hola {{cliente_nombre}}, debes {{monto_con_moneda}}" }, "variables_bordes"},
-		{"empieza con dato", func(e *mensajeria.EntradaReglasPW) { e.Definicion.Cuerpo = "{{cliente_nombre}}, debes {{monto_con_moneda}}." }, "variables_bordes"},
-		{"datos pegados", func(e *mensajeria.EntradaReglasPW) { e.Definicion.Cuerpo = "Hola {{cliente_nombre}} {{monto_con_moneda}}." }, "variables_seguidas"},
+		{"termina con dato", func(e *mensajeria.EntradaReglasPW) {
+			e.Definicion.Cuerpo = "Hola {{cliente_nombre}}, debes {{monto_con_moneda}}"
+		}, "variables_bordes"},
+		{"empieza con dato", func(e *mensajeria.EntradaReglasPW) {
+			e.Definicion.Cuerpo = "{{cliente_nombre}}, debes {{monto_con_moneda}}."
+		}, "variables_bordes"},
+		{"datos pegados", func(e *mensajeria.EntradaReglasPW) {
+			e.Definicion.Cuerpo = "Hola {{cliente_nombre}} {{monto_con_moneda}}."
+		}, "variables_seguidas"},
 		{"sin ejemplo", func(e *mensajeria.EntradaReglasPW) { e.Definicion.Variables[1].Ejemplo = "" }, "ejemplos"},
 		{"dato desconocido", func(e *mensajeria.EntradaReglasPW) { e.Definicion.Variables[0].Dato = dato("saldo_secreto") }, "datos"},
 		{"mezcla nombre y número", func(e *mensajeria.EntradaReglasPW) {
@@ -325,7 +331,9 @@ func TestPlantillasWAReglasMeta(t *testing.T) {
 		{"encabezado con dos datos", func(e *mensajeria.EntradaReglasPW) {
 			e.Definicion.Encabezado = &mensajeria.EncabezadoPWA{Tipo: "texto", Texto: dato("Hola {{cliente_nombre}} y {{monto_con_moneda}}")}
 		}, "encabezado"},
-		{"imagen sin archivo", func(e *mensajeria.EntradaReglasPW) { e.Definicion.Encabezado = &mensajeria.EncabezadoPWA{Tipo: "imagen"} }, "encabezado"},
+		{"imagen sin archivo", func(e *mensajeria.EntradaReglasPW) {
+			e.Definicion.Encabezado = &mensajeria.EncabezadoPWA{Tipo: "imagen"}
+		}, "encabezado"},
 		{"pie con dato", func(e *mensajeria.EntradaReglasPW) { e.Definicion.Pie = dato("Gracias {{cliente_nombre}}") }, "pie"},
 		{"pie de 61", func(e *mensajeria.EntradaReglasPW) { e.Definicion.Pie = dato(strings.Repeat("p", 61)) }, "largos"},
 		{"botón de 26", func(e *mensajeria.EntradaReglasPW) {
