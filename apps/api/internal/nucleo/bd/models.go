@@ -53,13 +53,15 @@ type AgendaCita struct {
 }
 
 type AgendaCuadrilla struct {
-	ID        int64
-	EmpresaID *int64
-	Nombre    string
-	Activa    bool
-	Version   int32
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            int64
+	EmpresaID     *int64
+	Nombre        string
+	Activa        bool
+	Version       int32
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+	JefeUsuarioID *int64
+	VersionArgos  int32
 }
 
 type AgendaCuadrillaZona struct {
