@@ -1,4 +1,4 @@
-Versión: 0.9.0 (21 nov 2026) · Iris ↔ ArgosISP
+Versión: 0.10.0 (21 nov 2026) · Iris ↔ ArgosISP
 
 # Contrato de integración Iris ↔ ArgosISP (copia de ArgosISP)
 
@@ -11,6 +11,7 @@ Versión: 0.9.0 (21 nov 2026) · Iris ↔ ArgosISP
 - **La 0.8.0 es final: acordada con Argos y decidida por el PM (18 nov 2026).** El líder de Argos revisó el borrador contra su código (`argos-isp`, rama `lider/iris-072`, commit `f857fb74`, `.claude/integration/revision-iris-080.md`; Argos 1.17.0, contrato 0.7.1) y este texto incluye sus respuestas. El PM adoptó las propuestas de §10.2. Argos lo implementó en `argos-isp#249` y lo publicó todo junto en su versión 1.18.0; en Iris está implementada (Iris 0.33.0, que informa contrato 0.8.1). La 0.8.0 ya está espejada en `argos-isp` (§10.1). Lo poco que sigue abierto está en §10.1.
 - **0.8.1 (19 nov 2026): cambio aditivo sobre la 0.8.0, aceptado por el líder de Argos.** Agrega `buscar_red` a la búsqueda `q` de `GET /clientes` y `GET /servicios` (§2.1, pedido A29). Argos lo publica en su versión 1.21.0. Espejo: PRs enlazadas `iris#222` y `argos-isp#258`. Nada más cambia respecto de la 0.8.0.
 - **0.9.0 (21 nov 2026): aditiva sobre la 0.8.1; acordada con Argos y decidida por el PM (21 nov 2026); pendiente de implementar en Argos e Iris.** Pedido del PM por el líder de Argos; propuesta de Iris, revisada por Argos contra su código (1.23.0) y aprobada sin objeciones, con los ajustes que este texto ya incluye. Dos bloques que pueden publicarse por separado, cada uno con su propia marca en `capacidades` (§4.3): **P**, el portal del cliente de Argos con tickets y solicitudes de servicio de Iris (§11); **E**, equipos del cliente y activación desde la orden de Iris, con Argos como único dueño de SmartOLT y del ACS (§12). Decisiones del PM (detalle en §10.4): una solicitud de servicio la atiende ventas en Iris (prospecto) y la convierte en orden; un cliente identificado solo por su IP abre tickets y ve la lista, nada más; el cambio de Wi-Fi que hace el cliente desde su portal es solo de Argos (con reautenticación) y queda fuera del contrato; Iris nunca guarda credenciales de SmartOLT ni del ACS; la activación la pide el técnico desde la orden o un agente desde el panel de Iris, para FTTH y wireless, y cada empresa elige si se puede cerrar la orden sin ella; el mensual empieza con el servicio activo y la instalación se cobra como factura única que registra un agente o un formulario de la orden; el asistente de IA puede consultar el equipo y cambiar el Wi-Fi solo si la empresa lo habilita, con permisos propios y el cliente verificado.
+- **0.10.0 (21 nov 2026): aditiva sobre la 0.9.0. Propuesta de Argos con decisiones del PM (21 nov 2026, §10.5) y ajustes de Iris marcados en §10.5; pendiente de que Argos acepte esos ajustes y de implementar en los dos lados.** De la venta a la instalación (§3.4): servicio pendiente sin IP (A38), cambio de titular (A39) y de plan (A40) antes de activar, y datos del cliente completados en la instalación (A41).
 
 ## 0. Principios
 
@@ -39,6 +40,7 @@ Iris guarda, cifrado y de solo escritura, un token de Argos `atk_…` del usuari
 - **0.9.0, bloque E (§12):** `servicios.aprovisionar`, `servicios.ver_equipo` y `servicios.cambiar_wifi`, separados (el asistente de IA de Iris usa los dos últimos solo si la empresa lo habilita). Son permisos nuevos: Argos migra los tokens que ya existen (como en 0.7.0) y solo los usa con un Iris que informó contrato ≥ 0.9.0. El token nunca recibe credenciales de SmartOLT ni del ACS.
 - **0.9.0, bienvenida (§12.5, A37):** `servicios.reenviar_bienvenida` (nuevo, con migración de tokens).
 - **0.9.0, cobro de la instalación (§3, A36):** sin permisos nuevos. El cargo único sigue con `facturas.emitir_cargo_unico` (arriba), más la lectura `GET /conceptos-cargo` del catálogo de conceptos. El token de Iris **no** tiene `facturas.cargo_sin_costo`: Iris nunca pide cargos en Q0.
+- **0.10.0 (§3.4):** `servicios.reservar_ip`, `servicios.cambiar_titular`, `servicios.cambiar_plan_pendiente` y `servicios.completar_datos`. Son permisos nuevos (Argos migra los tokens que ya existen) y solo valen sobre servicios `pendiente_instalacion`. El token de Iris **no** recibe un permiso general para editar clientes.
 
 El usuario técnico Iris solo tiene alcance por empresas (o global), nunca por zona ni router: una lista completa y vacía significa sin servicios. Argos lo hace cumplir: un token, un rol o un correo que le darían alcance por zona o router responde `422 usuario_tecnico_solo_empresas`, y el canje nunca emite un token así.
 
@@ -49,6 +51,8 @@ Token `iris_pat_<32B base62>` con `tickets.ver`, `tickets.crear`, `ordenes.ver`,
 **0.6.0:** el mismo token suma `mensajeria.enviar` y `mensajeria.ver` para usar el servicio de mensajería de §6. Son permisos de la integración `integracion_argos`; un usuario de Iris no los recibe por rol.
 
 **0.9.0:** el portal del cliente de Argos (§11) usa un **token aparte**, `token_portal` (otro `iris_pat_` del mismo usuario de integración, recortado **solo** a `portal_argos.ver_tickets`, `portal_argos.crear_ticket`, `portal_argos.responder_ticket`, `portal_argos.confirmar_solucion`, `portal_argos.solicitar_servicio` y `portal_argos.ver_solicitudes`). Lo usa únicamente el servidor del portal de Argos; el token de arriba queda en el panel y no tiene `portal_argos.*`. Iris lo entrega en el cuerpo del canje (§1.5, campo `token_portal`) y, para un conector ya conectado, en `PUT /integraciones/iris/contrato` cuando informa contrato ≥ 0.9.0; se rota con cada canje y Argos lo guarda cifrado y de solo escritura (S5, S6). Son permisos del rol `integracion_argos`: ningún rol de persona de Iris los recibe, y aunque un admin los tenga, las rutas de §11 exigen el `token_portal` de un conector Argos (`403 solo_integracion_argos`).
+
+**0.10.0:** sin cambios en el token de Argos en Iris.
 
 ### 1.3 Webhooks, enlace de conexión y autologin
 
@@ -234,6 +238,8 @@ Iris guarda en `integracion.argos_clientes` y `integracion.argos_servicios` solo
 | `factura.emitida` / `factura.anulada` / `pago.registrado` / `pago.anulado` (0.9.0, A36): solo de facturas con `origen_tipo = iris_orden` y a conectores con contrato ≥ 0.9.0. Factura: factura_id, numero, empresa_id, cliente_id, servicio_id, origen_tipo, origen_id, estado, total, saldo, moneda. Pago: pago_id, factura_id, origen_tipo, origen_id, empresa_id, monto, fecha. Son eventos que Argos ya tiene (§6.3); hoy solo envía a Iris `comprobante.*` y `promesa.*` | Actualiza el cobro de la orden: «facturado», «pagado», «anulado» o, con `pago.anulado`, vuelve a «facturado». |
 | `servicio.bienvenida_cambiada` (0.9.0, §12.5): servicio_id, empresa_id, cliente_id, origen_tipo (`iris_orden`, o null si la activación fue desde el panel de Argos), origen_id (o null), canales[] (`{ canal: whatsapp \| correo \| telegram, estado: pendiente \| enviada \| fallida \| omitida, motivo (o null), aviso_id (o null) }`; en WhatsApp, Argos reenvía lo que Iris le informó con `aviso.entregado` / `aviso.fallido`, §6.6, y `aviso_id` es el de Iris), reenvio (bool). Uno por cambio de estado, deduplicado por `X-Webhook-Id`. Nunca el texto ni las cuentas. Solo a conectores con contrato ≥ 0.9.0 | Actualiza el bloque «Bienvenida» de la orden. |
 | `equipo.wifi_resuelto` (0.9.0, §12.4): solicitud_id, servicio_id, empresa_id, origen_tipo (`iris_orden` \| `iris_ticket` \| `iris_conversacion`), origen_id, idempotency_key, estado (`aplicado` \| `fallido`), causa (o null). Nunca el SSID ni la clave | Muestra el resultado en la orden o el ticket. |
+| `servicio.titular_cambiado` (0.10.0, §3.4.2): servicio_id, empresa_id, de_cliente_id, a_cliente_id, de_cliente_eliminado (bool), posible_duplicado (bool), motivo, origen_tipo (`iris_orden` o null), origen_id (o null). Nunca el documento ni la evidencia. Solo a conectores con contrato ≥ 0.10.0 | Mueve el servicio y la orden al cliente nuevo en la instantánea; si `de_cliente_eliminado`, quita el cliente anterior y pasa el prospecto al nuevo. |
+| `servicio.config_cambiada` y `catalogo.cambiado` (0.10.0, cambios sin forma nueva): `servicio.config_cambiada` lleva además `origen_tipo`/`origen_id` cuando el cambio de plan vino de Iris (§3.4.3); `catalogo.cambiado` de plan suma `modo` y `routers` en `campos[]` | Refresca la instantánea; con `origen_tipo = iris_orden`, no avisa de nuevo al vendedor. |
 
 **Confirmar un borrado (0.3.2).** Antes de quitar una instantánea por `servicio.eliminado` o `router.eliminado`, Iris puede confirmar con `GET /api/v1/servicios/:id` o `GET /api/v1/routers/:id`. Solo cuenta como borrado un `404` `application/problem+json` con `type` `urn:argosisp:problema:no_encontrado`. Un servicio de una empresa fuera del alcance del usuario técnico responde `403` (`type` `urn:argosisp:problema:empresa_no_permitida`, o el 403 genérico del ACL), nunca 404, y no es un borrado; los routers no se filtran por empresa (§2.1). Cualquier otra respuesta (5xx, timeout, 401) se reintenta con espera exponencial.
 
@@ -437,6 +443,10 @@ Todas las llamadas llevan `Idempotency-Key`. Cada una queda en `integracion.pend
 | Prospecto ganado | `POST /clientes` y luego `POST /servicios` con `estado_inicial: pendiente_instalacion` (pedido A1), según §3.2 | `iris:cliente:<prospecto_id>` · `iris:servicio:<prospecto_id>` |
 | Visita o instalación cobrada | `POST /facturas/cargo-unico` (ya existe). Desde 0.9.0, con el cuerpo real de Argos (fila siguiente): una línea con el `concepto_id` y el `precio_unitario` que fija la plantilla de Iris | `iris:cargo:<orden_id>` |
 | Técnico o agente pulsa «Activar servicio» en una instalación (0.9.0, §12) | `POST /servicios/:id/aprovisionar` | `iris:aprovisionar:<orden_id>:<intento>` |
+| Técnico cambia el titular antes de activar (0.10.0, §3.4.2) | `POST /servicios/:id/cambiar-titular` | `iris:titular:<orden_id>:<cambio_id>` |
+| Técnico completa los datos del cliente o de la instalación (0.10.0, §3.4.4) | `POST /servicios/:id/completar-datos` | `iris:datos:<orden_id>:<n>` |
+| Técnico cambia el plan antes de activar (0.10.0, §3.4.3) | `POST /servicios/:id/cambiar-plan` | `iris:plan:<orden_id>:<cambio_id>` |
+| Técnico reserva la IP en sitio (0.10.0, §3.4.1) | `POST /servicios/:id/reservar-ip` | `iris:reservar_ip:<orden_id>` |
 | Cobro de la instalación registrado por un agente o por el formulario de la orden (0.9.0, A36) | `POST /facturas/cargo-unico` con el cuerpo real de Argos: `{ servicio_id, cliente_id?, vence_en?, lineas: [{ concepto_id, precio_unitario, descripcion?, cantidad?, descuentos? }], origen_tipo: "iris_orden", origen_id }`, con `X-Iris-Actor` (§7.1: quien lo registró). No hay `concepto_id`, `monto` ni `descripcion` en la raíz. `concepto_id` es de `GET /conceptos-cargo` (por defecto «Instalación», sembrado por empresa); los conceptos **no tienen precio**: `precio_unitario` (string decimal, bruto con IVA, **> 0**, obligatorio) lo pone Iris, de su plantilla o del formulario de la orden. **Iris nunca manda un cargo en Q0** (exigiría `motivo_sin_costo_id`, `motivo_sin_costo_texto` y `facturas.cargo_sin_costo`, que su token no tiene). Responde `201 CargoUnicoEmitido` sin cambios: Iris lee `factura.id`, `numero`, `estado`, `total` y `moneda` (`documento = bonificacion` es una respuesta posible de Argos, pero Iris nunca la pide). Sale en el momento (no espera al cierre), por la cola de pendientes si Argos falla. El precio que trae la plantilla o el formulario se manda tal cual; cambiarlo exige en Iris el permiso aparte `ordenes.cobro_editar_monto`, con motivo auditado | `iris:cargo:<orden_id>:<cargo_id>` |
 
 **`tecnico` (0.5.0):** ver §3.3.
@@ -541,10 +551,90 @@ Los mismos códigos valen en lecturas y escrituras: `GET /inventario/mi-bodega` 
 - **0.8.0:** qué hace cada lado cuando el otro no la habla está en §4.1. No hay mecanismos nuevos: se usan `contrato`, `version_argos` y `PUT /integraciones/iris/contrato`.
 - **0.8.1:** un Argos anterior a 1.21.0 no conoce `buscar_red` y lo ignora. Iris lo manda igual (§2.1, §4.2) y usa `version_argos` solo para registrar si tuvo efecto.
 
+### 3.4 De la venta a la instalación (0.10.0)
+
+El cliente no siempre da todos sus datos al vender, y en la instalación puede cambiar el titular (por ejemplo, pidió el servicio un menor y queda de titular un adulto) o el plan. Todo esto pasa **solo mientras el servicio está `pendiente_instalacion`**; después de activar, un cambio de titular es un traspaso y un cambio de plan es A34, fuera de esta sección. Decisiones del PM en §10.5.
+
+**Principios.**
+
+| Regla | Detalle |
+| --- | --- |
+| Quién | El técnico, en la orden de instalación de Iris (app de campo, también sin señal), o un supervisor desde el panel. Sin aprobación previa: queda auditado y ventas lo ve después. En Iris el técnico solo puede sobre **sus órdenes en curso** (asignadas a él, en sitio y no cerradas). |
+| Orden | Iris aplica en Argos, en este orden y con dependencias en su cola de pendientes: cambiar titular (A39) → completar datos del titular final (A41) → cambiar plan (A40) → activar (`activar-instalacion` o `aprovisionar`, §12). Si una falla, las siguientes no salen (§3.4.6). |
+| Actor | Todas las llamadas llevan `X-Iris-Actor: usuario:<id>` (§7.1) e `Idempotency-Key`. Argos audita con ese actor y canal `api`. El asistente de IA nunca las usa. |
+| Datos sensibles | La foto del documento de identidad y la firma quedan en Iris como adjuntos de la orden. A Argos solo viaja la referencia (`adjunto_id_iris`, `sha256`), nunca la imagen, el número de documento en eventos ni el contenido en logs. |
+
+#### 3.4.1 Servicio pendiente sin IP (A38)
+
+- `POST /servicios` con `estado_inicial: pendiente_instalacion` **no asigna** IPv4 ni prefijos IPv6. El IPAM asigna con el router final al activar: en `POST /servicios/:id/activar-instalacion` o en `POST /servicios/:id/aprovisionar` (§12.2). `user_ppp` y la contraseña PPP se generan al crear, como hoy.
+- **Reservar en sitio** (para conexiones que necesitan la IP en el equipo antes de activar: IP fija o amarre IP-MAC): `POST /servicios/:id/reservar-ip` (`servicios.reservar_ip`), `Idempotency-Key = iris:reservar_ip:<orden_id>`, cuerpo `{ router_id?, origen_tipo: "iris_orden", origen_id }`. Solo en `pendiente_instalacion` (`422 servicio_no_pendiente`). Responde `200 { ipv4, prefijo_v6 }` (o `null`); una segunda llamada devuelve la misma reserva. La activación usa esa reserva; si el servicio se retira sin activar, se libera. Con PPPoE no hace falta.
+- Sin IP libre en el router: `422 sin_ip_disponible`, en `reservar-ip`, en `activar-instalacion` y como `causa` de `aprovisionar`. Es de negocio y no se reintenta solo.
+- El servicio pendiente ya no lleva IP en `GET /servicios/:id` ni en la primera sincronización (§2.5). Al asignarse, Argos emite `asignacion.cambiada` (ya existe).
+
+#### 3.4.2 Cambiar el titular antes de activar (A39)
+
+`POST /servicios/:id/cambiar-titular` (`servicios.cambiar_titular`), `Idempotency-Key = iris:titular:<orden_id>:<cambio_id>`:
+
+```json
+{
+  "cliente": { "nombre": "Ana Pérez", "tipo_documento_fiscal": "cui", "nit_cui": "1234567890101", "telefono": "+502 5512-3344", "email": null, "direccion": "…" },
+  "motivo": "El servicio lo pidió un menor; queda de titular su madre",
+  "evidencia": { "documento": { "adjunto_id_iris": "0193…", "sha256": "…" }, "firma": { "adjunto_id_iris": "0193…", "sha256": "…" } },
+  "version": 7,
+  "origen_tipo": "iris_orden",
+  "origen_id": "9123"
+}
+```
+
+- `cliente` lleva los campos de `POST /clientes` (§3.2). La forma `{ cliente_id }` (titular que ya es cliente de Argos) **no** la usa Iris: el técnico no puede ver ni elegir otros clientes y un documento escrito no debe enganchar un servicio a un cliente ajeno. Argos siempre crea el cliente nuevo; si el `nit_cui` coincide con otro cliente de la misma empresa, lo crea igual y responde `posible_duplicado: true` (sin decir cuál), para que una persona de Argos los una después.
+- Solo en `pendiente_instalacion` (`422 servicio_no_pendiente`). `version` del servicio (`409 conflicto_version`). `motivo` de 10 a 500 caracteres. `evidencia` obligatoria con el documento y la firma (`422 evidencia_requerida`): Argos guarda solo la referencia.
+- Argos mueve el servicio y sus credenciales PPP al cliente nuevo. Las facturas ya emitidas no se mueven (si hiciera falta, las rehace una persona en Argos); por eso Iris manda el cobro de la instalación (§3, A36) **después** de confirmar el titular. El cliente anterior, si se queda sin servicios ni movimientos, se **elimina**; si tiene historial, queda como está.
+- Responde `200 { servicio_id, cliente_id, posible_duplicado, de_cliente_id, de_cliente_eliminado }` y emite `servicio.titular_cambiado` (§2.3).
+
+#### 3.4.3 Cambiar el plan antes de activar (A40)
+
+- `GET /planes?router_id=&modo=residencial|empresarial` devuelve **solo** los planes aplicables: activos, del mismo `modo` y asignados a todos los routers o a ese router. Cada plan suma `modo`. Iris guarda `modo` y los routers en su instantánea (`catalogo.cambiado` de plan suma `modo` y `routers` en `campos[]`).
+- `POST /servicios/:id/cambiar-plan` (`servicios.cambiar_plan_pendiente`), `Idempotency-Key = iris:plan:<orden_id>:<cambio_id>`, cuerpo `{ plan_id, motivo, version, origen_tipo: "iris_orden", origen_id }`. Solo en `pendiente_instalacion` (`422 servicio_no_pendiente`). Sin factura ni prorrateo (no hay facturación todavía). Un plan que no sea de los aplicables: `422 plan_no_permitido`.
+- Responde `200` con el servicio y emite `servicio.config_cambiada` con `plan` y `precio` en `campos[]` (ya existe; con `origen_tipo`/`origen_id`).
+- Argos vuelve a comprobar el plan al activar: si el router final cambió y el plan ya no aplica, `activar-instalacion` y `aprovisionar` responden `422 plan_no_permitido`.
+
+#### 3.4.4 Completar los datos del cliente (A41)
+
+Argos solo exige nombre y teléfono al crear. Lo que falte (documento, dirección exacta, coordenadas) lo pide Iris en la orden y lo manda **antes de activar**:
+
+- `POST /servicios/:id/completar-datos` (`servicios.completar_datos`), `Idempotency-Key = iris:datos:<orden_id>:<n>`, cuerpo `{ cliente?: { tipo_documento_fiscal?, nit_cui?, nombre_fiscal?, direccion_fiscal?, email?, movil? }, servicio?: { direccion?, coordenadas?, referencia? }, version, origen_tipo: "iris_orden", origen_id }`.
+- Solo con el servicio en `pendiente_instalacion` (`422 servicio_no_pendiente`) y para el cliente **de ese servicio**. Solo **llena** campos vacíos del cliente; uno que ya tiene valor responde `422 campo_ya_registrado` (corregirlo es de Argos). Los del servicio (dirección y coordenadas de la instalación) sí se pueden corregir.
+- No es un `PUT /clientes/:id` general: el token de Iris no edita clientes fuera de este caso.
+- Emite `cliente.actualizado` y `servicio.datos_cambiados` (ya existen), con `nit_cui` solo como nombre en `campos[]`.
+
+#### 3.4.5 Errores
+
+| Status | Código | Dónde |
+| --- | --- | --- |
+| 422 | `servicio_no_pendiente` | A38 (reservar), A39, A40, A41 |
+| 409 | `conflicto_version` | A39, A40, A41 |
+| 422 | `sin_ip_disponible` | A38, `activar-instalacion`, `aprovisionar` (`causa`) |
+| 422 | `plan_no_permitido` | A40, `activar-instalacion`, `aprovisionar` |
+| 422 | `evidencia_requerida` | A39 |
+| 422 | `campo_ya_registrado` | A41 |
+| 422 | `validacion` | Cualquier campo (`errors[]`), con la regla de teléfonos y del documento de §3.2 |
+
+Todos son de negocio y no se reintentan solos (§3.1).
+
+#### 3.4.6 En Iris (informativo para Argos)
+
+- **El cobro de la instalación** de la orden (§3) sale después del paso «Confirmar titular y plan», para que la factura quede a nombre del titular final y con el plan final.
+- **El prospecto** queda «ganado, alta pendiente» (`alta.estado = esperando_activacion`) ligado al cliente y al servicio de Argos hasta que el servicio se activa; ahí pasa a `completa`. Si cambia el titular, el prospecto pasa al cliente nuevo.
+- **La orden** tiene un paso «Confirmar titular y plan» antes de «Activar», con «Completar datos». El técnico lo hace también sin señal: cada cambio es una operación de la cola (`orden.completar_datos`, `orden.cambiar_titular`, `orden.cambiar_plan`, `contratos/sync.md`) y la activación espera a que Argos los acepte.
+- **El cambio de titular** exige en Iris la foto del documento de identidad y la firma del nuevo titular sobre el **contrato regenerado** a su nombre (un menor no puede quedar como quien firmó). La foto es un adjunto `documento_identidad`: la ven solo quienes tienen `clientes.ver_documento_identidad` (supervisor, ventas y admin), nunca el asistente de IA, y se guarda el tiempo que fija la empresa.
+- **El cambio de plan** crea una revisión nueva de la cotización con el plan nuevo (reemplaza la vigente) y avisa al vendedor. Los planes que el técnico puede elegir son los de `GET /planes?router_id=&modo=`, guardados en el paquete del día.
+- **Si Argos rechaza** un cambio, Iris no lo muestra como hecho: la orden queda «pendiente en Argos» con el motivo, la activación queda bloqueada (`integracion.pendiente_bloqueado`) y el técnico o un supervisor corrigen (otro plan, otros datos) o lo resuelven a mano. Nunca se activa con el titular o el plan equivocados.
+
 ## 4. Versionado
 
-Semver. Esta versión 0.9.0 es aditiva sobre la 0.8.1 (ver «Gobierno»): acordada con Argos y decidida por el PM, pendiente de implementar en los dos lados. La 0.8.1 está espejada (`iris#222` y `argos-isp#258`) y salió en Argos 1.21.0. Desde 1.0.0, solo cambios compatibles en versiones menores.
+Semver. Esta versión 0.10.0 es aditiva sobre la 0.9.0 (ver «Gobierno»), que está acordada con Argos y decidida por el PM; las dos están pendientes de implementar en los dos lados. La 0.8.1 está espejada (`iris#222` y `argos-isp#258`) y salió en Argos 1.21.0. Desde 1.0.0, solo cambios compatibles en versiones menores.
 
+- **0.10.0** (21 nov 2026; propuesta de Argos, decisiones del PM y ajustes de Iris en §10.5): de la venta a la instalación, §3.4. **A38:** un servicio `pendiente_instalacion` no reserva IP; el IPAM asigna al activar (`activar-instalacion` o `aprovisionar`) con el router final, y `POST /servicios/:id/reservar-ip` la reserva en sitio cuando el equipo la necesita antes de activar. **A39:** `POST /servicios/:id/cambiar-titular` (cliente nuevo, motivo, evidencia por referencia, `version`), solo en pendiente; el cliente anterior sin historial se elimina; evento `servicio.titular_cambiado`. **A40:** `GET /planes?router_id=&modo=` con solo los aplicables y `POST /servicios/:id/cambiar-plan` en pendiente, sin factura, con `servicio.config_cambiada`. **A41:** `POST /servicios/:id/completar-datos`, que solo llena campos vacíos del cliente del servicio y corrige la dirección de la instalación. Permisos `servicios.reservar_ip`, `servicios.cambiar_titular`, `servicios.cambiar_plan_pendiente` y `servicios.completar_datos`. Pedidos A38–A41 y B17–B21.
 - **0.9.0** (21 nov 2026; pedido del PM por el líder de Argos; acordada con Argos y decidida por el PM, §10.4; pendiente de implementar): aditiva sobre 0.8.1, en dos bloques con su propia marca en `capacidades` (§4.3). **P · Portal del cliente de Argos (§11):** rutas de Iris `/api/v1/integraciones/argosisp/portal/clientes/{cliente_id}/…` para listar, ver, abrir, responder y confirmar tickets del cliente con la vista reducida del portal (sin notas internas, asignación, SLA, prioridad, historial ni datos de Horus), con adjuntos por `multipart/form-data`, y para crear y seguir **solicitudes de servicio** (`alta`, `cambio_plan`, `traslado`, `otro`) que en Iris son prospectos de ventas con origen `portal_argos`; cabeceras `X-Iris-Empresa`, `X-Argos-Portal-Sesion` e `Idempotency-Key = argos:portal:<operacion>:<id>`; permisos `portal_argos.*` en el token de §1.2; webhooks Iris → Argos `ticket.estado_cambiado`, `ticket.respondido` y `solicitud_servicio.estado_cambiado` (§6.6); `portal.emitir` y el portal `/soporte` de Iris quedan escritos (§11.9); A7 usa `clienteId`. **E · Equipos y activación desde la orden (§12):** `POST /servicios/:id/aprovisionar` asíncrono para FTTH (serie de la ONT) y wireless (MAC del CPE o radio; TR-069 si lo soporta), pedido por el técnico desde la orden o por un agente desde el panel de Iris, `GET /aprovisionamientos/:id`, `GET /servicios/:id/equipo`, `POST /servicios/:id/wifi`, webhooks Argos → Iris `instalacion.aprovisionada`, `instalacion.fallida` y `equipo.wifi_resuelto`, y permisos `servicios.aprovisionar`, `servicios.ver_equipo` y `servicios.cambiar_wifi` en el token de §1.1; el asistente de IA de Iris cambia el Wi-Fi solo con `verificacion { metodo, verificado_en }` de menos de 10 min. **Cobro de la instalación:** factura única con `POST /facturas/cargo-unico` (`lineas[{ concepto_id, precio_unitario }]` con el concepto de `GET /conceptos-cargo` y el precio de Iris, nunca Q0; `origen_tipo = iris_orden`, permiso `facturas.emitir_cargo_unico`; la respuesta `CargoUnicoEmitido` no cambia) y webhooks `factura.emitida`, `factura.anulada`, `pago.registrado` y `pago.anulado` hacia Iris para las facturas con `origen_tipo = iris_orden`. **Bienvenida al activar (§12.5):** plantilla `bienvenida_servicio` con las cuentas de §7.8 que inserta Iris, `origen` opcional en §6.2, webhook `servicio.bienvenida_cambiada` y `POST /servicios/:id/bienvenida/reenviar`. Incluye la revisión de seguridad de Iris (token aparte para el portal, sesión `ip` reducida, verificación ligada al cliente y de un solo uso para el Wi-Fi, clave por enlace y nunca por el chat, límites de cambios y reenvíos, validación de la bienvenida). Pedidos A30–A37 y B8–B16. Fuera del contrato: el cambio de Wi-Fi que el cliente hace desde el portal de Argos.
 - **0.8.1** (19 nov 2026; aceptada por el líder de Argos): A29, búsqueda sin datos de red. §2.1: `buscar_red` opcional (booleano: `true`, `false`, `1` o `0`; por defecto `true`) en `GET /clientes?q=` y `GET /servicios?q=`; con `false`, `q` deja de coincidir por la IPv4 vigente, una IPv6 dentro de un prefijo vigente y el `user_ppp` de los servicios (clientes: nombre, código, código externo, nombre fiscal, email, NIT/CUI y teléfono o móvil; servicios: solo el nombre del cliente); cualquier otro valor responde `422 validacion` (`field: buscar_red`). Iris lo manda en `false` siempre que el actor no tiene `servicios.ver_red` global, sin depender de la versión de Argos; con Argos < 1.21.0 se ignora y queda el límite de la 0.8.0 (§3.3, §4.2). Es compatible: el valor por defecto es el comportamiento de hoy y un Argos anterior ignora el parámetro. Requiere Argos ≥ 1.21.0.
 - **0.8.0** (18 nov 2026, **final**; revisada por Argos contra su código, `argos-isp` `f857fb74`; decisiones del PM del 18 nov en §10.2; implementada en Argos en `argos-isp#249` y publicada en Argos 1.18.0; espejada en `argos-isp`; implementado en Iris (0.33.0, que informa contrato 0.8.1)): cuatro bloques, todos aditivos sobre 0.7.1, en **una sola versión** que Argos publica como 1.18.0 (decisión del PM; no hay 0.7.2). **A, reconexión temporal sin personal de caja** (lado Argos hecho primero en su rama `lider/iris-072`, hoy en la PR #249): §7.3: `motivo` acepta `fuera_de_horario` | `sin_personal` (otro valor, `422 validacion` con `field = "motivo"` y `rule = "enum"`); `reglas_promesa.reconexion_temporal.vigencia` = `horas` (por defecto) | `medianoche` (las 00:00 del día siguiente en Guatemala), con el vencimiento real siempre en `hasta` (RFC 3339 en UTC con milisegundos), que es el fin de la promesa y no la hora del corte; un solo cupo para los dos motivos; el criterio de `sin_personal` es de Iris y queda auditado en Argos. §7.4 y §2.3: `motivo_reconexion` en la `Promesa` y en los webhooks `promesa.*`, y filtro `motivo_reconexion` en `GET /promesas`. **B, cuentas bancarias de Argos como única fuente:** §7.8 (nueva): `titular` y `tipo` en la cuenta (los dos pueden ser `null`), webhook `cuenta_bancaria.cambiada` (también al crear), `rule: "inactiva"` al registrar un comprobante en una cuenta desactivada, instantánea de lectura en Iris y fin de las cuentas escritas a mano (lista «a migrar» en §10.3). **C, más datos del servicio:** §2.4 (nueva): `precio_mensual` (con IVA, sin adicionales) y `moneda`; `precio` en `campos[]` de `servicio.config_cambiada` y de `catalogo.cambiado` de plan; lista blanca de campos en la instantánea de Iris, los permisos `servicios.ver_red` y `servicios.ver_ubicacion` en Iris y qué recibe el asistente de IA. `router_nombre`, `plan_nombre` y `zona_nombre` ya existían. **D, conexión de un paso:** §1.5 (nueva): los requisitos de seguridad de Argos (S1–S8), el cuerpo del canje por escrito, dos validaciones nuevas del receptor de Iris en el canje de Argos (`422 webhook_invalido` con `rule` `mismo_host` u `origen_aprobado`, y el código queda gastado), el conector de Argos encendido al confirmarse un canje del botón, y el certificado TLS solo como «registrar y avisar»; §2.5 (nueva): primera sincronización automática, con progreso y reanudable, cabeceras de Iris opcionales en `GET /cuentas-bancarias` y `GET /bancos`, la ruta nueva `PUT /integraciones/iris/sincronizacion` (`409 sincronizacion_vieja`) y pantalla de estado en los dos paneles. §4.1 (nueva): compatibilidad y errores. §5: pedidos A25–A28 y B4–B7. `excluir_retirados=true` en `GET /clientes` y `GET /servicios` para la primera carga (§2.5). §10 (nueva): las decisiones del PM, lo que sigue abierto y la migración de cuentas en Iris. Es compatible: no cambia ningún campo ni ruta de 0.7.1; un Argos 1.17.x sin estos cambios sigue funcionando con Iris, y al revés (§4.1). Requiere Argos ≥ 1.18.0.
@@ -692,6 +782,19 @@ La 0.9.0 es aditiva sobre la 0.8.1. Ningún campo ni ruta de la 0.8.1 cambia de 
 | §12.3, §12.4 | 409 | `equipo_sin_gestion` | El servicio no tiene un equipo gestionado por SmartOLT o el ACS |
 | §12.3 | 503 | `equipo_sin_respuesta` | SmartOLT o el ACS no respondieron a tiempo (se puede reintentar a mano) |
 
+### 4.4 Compatibilidad de la 0.10.0
+
+La 0.10.0 es aditiva sobre la 0.9.0. Cada lado usa sus funciones **solo si el otro informó un contrato ≥ 0.10.0** (como en §4.3).
+
+| Función 0.10.0 | Iris 0.10.0 con un Argos < 0.10.0 | Argos 0.10.0 con un Iris < 0.10.0 |
+| --- | --- | --- |
+| Pendiente sin IP (A38) | El servicio pendiente trae IP como hoy; Iris no llama a `reservar-ip` | Un Iris anterior no usa la IP del pendiente (la activación la asigna); si el técnico la necesitaba antes de activar, la ve en Argos |
+| Cambiar titular, plan o datos (A39, A40, A41) | Iris no ofrece el paso «Confirmar titular y plan»; el cambio lo hace una persona en Argos | Nadie llama a las rutas |
+| `servicio.titular_cambiado` | No llega; Iris relee el servicio cuando le llega `servicio.datos_cambiados` o al activar | Argos no lo envía a conectores con contrato < 0.10.0 |
+| `modo` y `routers` en planes | Iris ofrece los planes de `GET /planes?router_id=` y Argos valida al activar (`422 plan_no_permitido`) | Iris ignora los campos que no conoce |
+
+Errores nuevos: los de §3.4.5.
+
 ## 5. Solicitudes
 
 ### 5.1 Iris solicita a ArgosISP
@@ -729,6 +832,10 @@ La 0.9.0 es aditiva sobre la 0.8.1. Ningún campo ni ruta de la 0.8.1 cambia de 
 | A35 | **Cambiar el Wi-Fi pedido desde Iris** (0.9.0, §12.4): `POST /servicios/:id/wifi` asíncrono y webhook `equipo.wifi_resuelto`, para personas y para el asistente de IA (canal `ia`), siempre con `verificacion { metodo, verificado_en, cliente_id }` (asistente: menos de 10 min y solo código o documento; si no, o si el servicio no es de ese cliente, `422 verificacion_requerida`); máximo 3 cambios por servicio al día (`429 demasiados_cambios_wifi`) y aviso al titular por sus contactos registrados después de `aplicado`. Permisos separados `servicios.ver_equipo` y `servicios.cambiar_wifi`. La clave nunca se guarda en claro ni sale en auditoría, eventos, logs ni historial del chat. | acordado; pendiente en Argos |
 | A36 | **Webhooks de facturas y pagos del cobro de la orden** (0.9.0, §3): `POST /facturas/cargo-unico` ya existe y acepta `origen_tipo = iris_orden` + `origen_id` (A4), con el permiso `facturas.emitir_cargo_unico`; **su respuesta no cambia**: `201 CargoUnicoEmitido = { documento: 'factura' \| 'bonificacion', factura: FacturaDetalle \| null, bonificacion: Bonificacion \| null }`. Iris lee `factura.id`, `factura.numero`, `factura.estado`, `factura.total` y `factura.moneda`; `documento = bonificacion` (cargo en Q0 sin factura) es una respuesta posible, pero Iris nunca la pide: no manda Q0 ni tiene `facturas.cargo_sin_costo`. Cuerpo: `{ servicio_id, cliente_id?, vence_en?, lineas: [{ concepto_id, precio_unitario, descripcion?, cantidad?, descuentos? }], origen_tipo: "iris_orden", origen_id }`; `concepto_id` de `GET /conceptos-cargo` («Instalación» sembrado por empresa; los conceptos no tienen precio) y `precio_unitario` (> 0, bruto con IVA) lo pone Iris. **Lo nuevo:** enviar a Iris `factura.emitida`, `factura.anulada`, `pago.registrado` y `pago.anulado`, solo de facturas con `origen_tipo = iris_orden`, con `origen_id` en el payload y a conectores con contrato de Iris ≥ 0.9.0 (hoy solo se envían `comprobante.*` y `promesa.*`). | acordado; pendiente en Argos |
 | A37 | **Bienvenida al activar, con seguimiento** (0.9.0, §12.5): pedir `bienvenida_servicio` (con `nombre`, `plan`, `precio_mensual`, `moneda`, `codigo_cliente`) en lugar de `bienvenida` cuando Iris informa contrato ≥ 0.9.0, con `origen: { tipo: "iris_orden", id }` si la activación vino de una orden de Iris; el webhook `servicio.bienvenida_cambiada` con el resultado de cada canal (también correo y Telegram); y `POST /servicios/:id/bienvenida/reenviar` (permiso `servicios.reenviar_bienvenida`; máximo 3 por servicio al día, `429 demasiados_reenvios`). | acordado; pendiente en Argos |
+| A38 | **Servicio pendiente sin IP** (0.10.0, §3.4.1): `POST /servicios` con `estado_inicial: pendiente_instalacion` no asigna IPv4 ni prefijos; el IPAM asigna con el router final en `activar-instalacion` o `aprovisionar`; `POST /servicios/:id/reservar-ip` para reservarla en sitio (IP fija o amarre); `422 sin_ip_disponible`. Cambia `contratos/instalacion.md` §1 de Argos («un servicio pendiente ya tiene IP asignada»). | propuesto por Argos; ajuste de Iris (reservar en sitio) pendiente de aceptar |
+| A39 | **Cambiar el titular antes de activar** (0.10.0, §3.4.2): `POST /servicios/:id/cambiar-titular` con `cliente` nuevo, `motivo`, `evidencia` por referencia y `version`; `posible_duplicado` sin revelar el otro cliente; el cliente anterior sin historial se elimina; evento `servicio.titular_cambiado`; permiso `servicios.cambiar_titular`. | propuesto por Argos; ajustes de Iris (sin `{ cliente_id }`, `posible_duplicado`, `de_cliente_eliminado`) pendientes de aceptar |
+| A40 | **Cambiar el plan antes de activar** (0.10.0, §3.4.3): `GET /planes?router_id=&modo=` solo con los aplicables (`modo` en el plan; `modo` y `routers` en `catalogo.cambiado`) y `POST /servicios/:id/cambiar-plan` en pendiente, sin factura; `422 plan_no_permitido`, también al activar si el router final cambió; permiso `servicios.cambiar_plan_pendiente`. | propuesto por Argos |
+| A41 | **Completar los datos en la instalación** (0.10.0, §3.4.4): `POST /servicios/:id/completar-datos`, solo con el servicio pendiente, solo para el cliente de ese servicio y solo llenando campos vacíos (`422 campo_ya_registrado`); dirección y coordenadas de la instalación sí se corrigen; permiso `servicios.completar_datos`. Reemplaza el `PUT /clientes/:id` general de la propuesta de Argos. | ajuste de Iris, pendiente de aceptar |
 
 ### 5.2 ArgosISP solicita a Iris
 
@@ -750,6 +857,11 @@ La 0.9.0 es aditiva sobre la 0.8.1. Ningún campo ni ruta de la 0.8.1 cambia de 
 | B14 | **Asistente de IA con los equipos** (0.9.0, §12.3 y §12.4): acciones apagadas de fábrica, permisos `servicios.ver_equipo` y `servicios.cambiar_wifi` asignables al asistente, verificación por código al teléfono o correo registrados en Argos o por el documento del titular (§7.5) antes de cambiar el Wi-Fi (para un solo cambio, caduca al cambiar el cliente asociado), el asistente **nunca pide ni recibe la clave**: Iris manda un enlace de un solo uso a un formulario propio (§12.4); una clave escrita en el chat se reemplaza por `***` antes del modelo y no se usa; el modelo no recibe serie, MAC, firmware ni modelo del equipo. | acordado; pendiente en Iris |
 | B15 | **Cobro de la instalación desde la orden** (0.9.0, §3): lo registra un agente o sale de un formulario de la orden (concepto y `precio_unitario` > 0 de la plantilla o del formulario; cambiar el precio exige `ordenes.cobro_editar_monto`, con motivo auditado; nunca Q0), sale en el momento por `integracion.pendientes` con `lineas[{ concepto_id, precio_unitario }]`, `X-Iris-Actor` e `Idempotency-Key = iris:cargo:<orden_id>:<cargo_id>`, no repite la instalación al cerrar y la orden sigue la factura (emitida, pagada, anulada). | acordado; pendiente en Iris |
 | B16 | **Bienvenida en la orden** (0.9.0, §12.5 y §6.3): plantilla `bienvenida_servicio` con las cuentas que Iris inserta de la instantánea de §7.8 (nunca de Argos ni de texto libre), `origen` opcional en §6.2, estado de la bienvenida en la orden, «Reenviar bienvenida», bandeja «Bienvenidas sin enviar» y el ajuste `cierre_exige_bienvenida` (apagado de fábrica). | acordado; pendiente en Iris |
+| B17 | **Alta pendiente hasta activar** (0.10.0, §3.4.6): prospecto «ganado, alta pendiente» (`alta.estado = esperando_activacion`) ligado al cliente y al servicio de Argos hasta la activación; pasa al cliente nuevo con `servicio.titular_cambiado`. | pendiente en Iris |
+| B18 | **Paso «Confirmar titular y plan» en la orden** (0.10.0, §3.4.6): antes de «Activar», con «Completar datos»; operaciones sin conexión `orden.cambiar_titular`, `orden.completar_datos` y `orden.cambiar_plan` (reglas en `contratos/sync.md`); pendientes en orden con dependencias y activación bloqueada si Argos rechaza; permisos `ordenes.cambiar_titular`, `ordenes.cambiar_plan` y `ordenes.completar_datos` (técnico solo en sus órdenes en curso). | pendiente en Iris |
+| B19 | **Documento de identidad y firma** (0.10.0, §3.4.6): adjuntos obligatorios del cambio de titular; el documento con acceso restringido (`clientes.ver_documento_identidad`), retención por empresa, nunca al asistente de IA, en eventos ni en logs; a Argos solo la referencia. | pendiente en Iris |
+| B20 | **Cotización y contrato al cambiar** (0.10.0, §3.4.6): revisión nueva de la cotización con el plan nuevo y aviso al vendedor; contrato regenerado a nombre del nuevo titular y firmado en la orden. | pendiente en Iris |
+| B21 | **Planes permitidos sin señal y cobro después del titular** (0.10.0, §3.4.6): planes de `GET /planes?router_id=&modo=` en el paquete del día; el cobro de la instalación sale después de confirmar el titular. | pendiente en Iris |
 
 ## 6. Servicio de mensajería de Iris (0.6.0, fase 1)
 
@@ -1268,7 +1380,7 @@ Argos revisó la propuesta de Iris contra lo que ya tiene. Iris copia esta versi
 9. **Webhooks Iris → Argos:** van al receptor `/api/v1/integraciones/iris/webhook` que Argos ya entrega en el canje (activo desde PR #217).
 10. **Nuevo pedido B2** a Iris: destino de autologin `conversacion`, para el botón «Ver conversación en Iris» de la cola de caja.
 
-## 10. Decisiones y cierre de la 0.8.0 y de la 0.9.0
+## 10. Decisiones y cierre de la 0.8.0, la 0.9.0 y la 0.10.0
 
 El líder de Argos respondió los 32 puntos del borrador contra su código (ver «Gobierno») y sus respuestas están en el cuerpo del contrato, cada una en su sección. El PM adoptó las propuestas el 18 nov 2026 (§10.2). Argos implementó todo lo suyo en `argos-isp#249`, publicada en la 1.18.0. Aquí queda solo lo que sigue abierto (§10.1), las decisiones del PM (§10.2) y la migración de Iris (§10.3).
 
@@ -1341,6 +1453,25 @@ La 0.9.0 nació de un pedido del PM por el líder de Argos. Iris la propuso, Arg
 8. **Asistente de IA:** puede consultar el equipo y cambiar el Wi-Fi solo si la empresa lo habilita, con los permisos separados `servicios.ver_equipo` y `servicios.cambiar_wifi` asignables a su rol, y con el cliente verificado en esa conversación al nivel del portal de Argos (código al teléfono o correo registrados, o datos del titular; menos de 10 min). La clave nunca queda en logs, eventos, auditoría ni historial del chat (§12.4).
 9. **Cobro:** el mensual empieza con el servicio activo; la instalación se cobra como factura única en Argos (`POST /facturas/cargo-unico`, que ya existe), que registra un agente o sale de un formulario de la orden, con seguimiento por los webhooks de A36 (§3).
 10. **Valores iniciales del líder de Iris**, que el PM puede cambiar sin tocar el contrato: el portal de Argos es el único que ve el cliente y `/soporte` de Iris queda de respaldo (§11.9); sin firma extra por petición de Argos (el control es el token, la ruta por cliente, los permisos `portal_argos.*`, los topes y la auditoría); hasta 3 adjuntos de 10 MB por mensaje; el traslado exige contrato firmado y el cambio de plan solo la cotización aceptada (cada empresa puede exigir contrato); cambio de plan y traslado se aplican a mano en Argos hasta A34; el cliente no ve la cotización en su portal; Argos avisa al cliente con un solo aviso por cliente en una falla general; exigir señal antes de cerrar lo elige cada empresa en la plantilla (apagado); el técnico puede escribir el Wi-Fi inicial y la clave no queda guardada en Iris después de enviarla.
+
+### 10.5 Decidido por el PM para la 0.10.0 (21 nov 2026) y ajustes de Iris
+
+Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la instalación puede cambiar el titular (un menor pide el servicio y queda de titular un adulto) y el plan.
+
+1. **Titular:** lo corrige el técnico en la orden, con foto del documento de identidad y la firma del nuevo titular; queda auditado y ventas lo ve después; sin aprobación previa.
+2. **Plan:** lo cambia el técnico, solo entre los planes permitidos (mismo modo residencial o empresarial y asignados a todos los routers o al router del servicio); ventas recibe aviso y la cotización de Iris se actualiza sola.
+3. **IP:** se asigna al activar, no al ganar; un servicio `pendiente_instalacion` no reserva IP.
+
+**Ajustes de Iris a la propuesta de Argos** (pendientes de que Argos los acepte; ninguno cambia una decisión del PM):
+
+- **a. Reservar la IP en sitio (A38).** Hoy el técnico configura el CPE con la IP del pendiente (`contratos/instalacion.md` §1 de Argos). Sin IP hasta activar, una conexión con IP fija o amarre no se podría configurar antes de cerrar en el modo de fábrica (activar al cerrar, §10.4 punto 6). `reservar-ip` la asigna en la instalación, nunca al ganar.
+- **b. Cambio de titular sin `{ cliente_id }` (A39).** El técnico no puede ver ni elegir otros clientes, y un documento escrito no debe enganchar un servicio a un cliente que ya existe (y cobrarle a otra persona). Argos siempre crea el cliente y marca `posible_duplicado` para que una persona los una.
+- **c. `de_cliente_eliminado` en el evento (A39).** Sin él, Iris no sabe que el cliente anterior ya no existe.
+- **d. `completar-datos` en lugar de `PUT /clientes/:id` (A41).** El token de Iris no debe editar cualquier cliente: solo llena lo que falta del cliente del servicio pendiente.
+- **e. Contrato firmado por el nuevo titular (B20).** La firma que pide el PM es la del contrato regenerado a su nombre: el que firmó el menor no sirve.
+- **f. Cobro después del titular (B21).** La factura de la instalación sale a nombre del titular final; las ya emitidas no se mueven.
+
+**Para decidir (valores iniciales del líder de Iris, cambiables sin tocar el contrato):** la foto del documento se guarda mientras exista el servicio y 12 meses después de retirarlo, y la ven supervisor, ventas y admin; un cambio de plan que sube el precio también pide la firma del titular sobre la cotización nueva (apagado de fábrica, lo enciende la empresa).
 
 ## 11. Portal del cliente de Argos (0.9.0, bloque P)
 
@@ -1570,7 +1701,7 @@ Wireless:
 - `planta` (A9) solo con `ont`; `wireless` (`ap`, `sector`, opcionales) solo con `cpe_wireless`. Otra combinación: `422 equipo_invalido`.
 - `wifi` opcional: SSID de 1 a 32 caracteres, clave de 8 a 63 (`422 wifi_invalido`). Con un equipo que Argos no gestiona (wireless sin TR-069), `wifi` responde `422 wifi_no_disponible` y no se aprovisiona nada: Iris lo reenvía sin `wifi`.
 - **Respuesta** `202 { aprovisionamiento_id, estado: "en_proceso" }`. Si ya terminó (reintento con la misma clave), `200` con el estado final.
-- **Errores** inmediatos: `409 servicio_no_pendiente`, `409 aprovisionamiento_en_curso` (con `extensions.aprovisionamiento_id`), `409 unidad_en_otra_bodega`, `422 equipo_invalido`, `422 wifi_invalido`, `422 wifi_no_disponible`, `422 aprovisionamiento_no_disponible` (la empresa no tiene esa tecnología configurada).
+- **Errores** inmediatos: `409 servicio_no_pendiente`, `409 aprovisionamiento_en_curso` (con `extensions.aprovisionamiento_id`), `409 unidad_en_otra_bodega`, `422 equipo_invalido`, `422 wifi_invalido`, `422 wifi_no_disponible`, `422 aprovisionamiento_no_disponible` (la empresa no tiene esa tecnología configurada); desde 0.10.0 también `422 plan_no_permitido` (§3.4.3).
 
 `GET /api/v1/aprovisionamientos/:id` (`servicios.aprovisionar`) → `200 { aprovisionamiento_id, servicio_id, empresa_id, origen_tipo, origen_id, estado, pasos[], causa, reintentable, detalle, servicio_estado, equipo, senal, creado_en, actualizado_en }`.
 
