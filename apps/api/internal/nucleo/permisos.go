@@ -54,6 +54,11 @@ const (
 	PermTicketsCerrar        Permiso = "tickets.cerrar"
 	PermTicketsFusionar      Permiso = "tickets.fusionar"
 	PermTicketsVerNotas      Permiso = "tickets.ver_notas"
+	// PermTicketsListarTodos: un token (de integración o de API) lista tickets sin filtro de
+	// cliente. Sin él, GET /tickets por token exige clienteId (422 filtro_cliente_requerido).
+	// No cambia nada para las personas del panel. Ningún rol base lo trae salvo admin (todos);
+	// se da al crear el token, de forma explícita.
+	PermTicketsListarTodos Permiso = "tickets.listar_todos"
 
 	// Buzones de correo (I2): entrada de tickets por IMAP y respuesta por SMTP.
 	PermBuzonesActivar    Permiso = "buzones.activar"
@@ -626,6 +631,7 @@ var Catalogo = []DefPermiso{
 	{PermTicketsCrearOrden, "Crear la orden de trabajo de un ticket ya asignada (y programada si se elige fecha) en un paso"},
 	{PermTicketsEscalar, "Escalar tickets (subir prioridad o nivel)"},
 	{PermTicketsFusionar, "Fusionar un ticket duplicado en otro"},
+	{PermTicketsListarTodos, "Por token de API o de integración: listar los tickets de la empresa sin filtrar por cliente (sin él, GET /tickets por token exige clienteId). No cambia nada en el panel"},
 	{PermTicketsNotaInterna, "Agregar notas internas a un ticket"},
 	{PermTicketsPonerEnEspera, "Poner tickets en espera (pausa el SLA de resolución)"},
 	{PermTicketsReabrir, "Reabrir tickets resueltos"},

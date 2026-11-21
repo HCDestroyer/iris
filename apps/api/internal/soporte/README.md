@@ -11,6 +11,14 @@ conversación (mensajes públicos y notas internas), historial y cron de SLA. Sc
   `tickets.ver`: `GET /tickets` (cursor y filtros), `/tickets/{id}`, `/tickets/{id}/mensajes`,
   `/tickets/{id}/eventos`, `/categorias`, `/slas`. Las notas internas (y el motivo de una fusión
   en el historial) solo salen con `tickets.ver_notas` y nunca por el canal `portal`.
+- **Filtro de cliente en `GET /tickets`** (contrato con Argos, A7): el nombre es `clienteId`;
+  `cliente_id` es su alias (igual `servicio_id` de `servicioId`), y si llegan los dos con valores
+  distintos responde 422 `validacion`. Con un token (de integración, como el de Argos, o de API
+  de una persona) la lista exige `clienteId`: sin él, 422 `filtro_cliente_requerido`, salvo que el
+  token tenga `tickets.listar_todos` (ningún rol base lo trae salvo admin; se da al crear el
+  token). Las personas del panel no cambian. Un parámetro de consulta que la ruta no conoce
+  responde 422 `validacion` (regla `desconocido`), para que un filtro mal escrito no devuelva los
+  tickets de toda la empresa.
 - **Resumen de la bandeja** (`GET /tickets/resumen`, `tickets.ver`, caso `resumir_tickets.go`):
   para el Inicio del panel, las pestañas de vistas y la barra lateral. Con el mismo alcance y
   empresa que `GET /tickets`: contadores de los vivos (`activos`, `mios`, `sinAsignar`,
