@@ -221,7 +221,10 @@ func nuevoReanudarAsistente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Conver
 				// Lo que había antes de reanudar (ReanudarAsistenteConv y el trigger lo borran).
 				motivoPaso, pausaMotivo := c.AsistenteMotivoPaso, c.AsistentePausaMotivo
 				ahora := m.ahora()
-				if err := q.ReanudarAsistenteConv(ctx, mensajeriabd.ReanudarAsistenteConvParams{ID: c.ID, Ahora: &ahora}); err != nil {
+				if err := q.ReanudarAsistenteConv(ctx, mensajeriabd.ReanudarAsistenteConvParams{ID: c.ID, Ahora: &ahora,
+					// Se la devuelven después de pasarla a una persona o de tenerla una persona: es una
+					// atención nueva y maxTurnos cuenta desde ahora. Quitar solo una pausa no lo reinicia.
+					NuevaAtencion: de == NoAtiendeEsperaPersona || de == NoAtiendePersonaPresente}); err != nil {
 					return err
 				}
 				// Es la decisión de una persona: el bot de menú deja la conversación.

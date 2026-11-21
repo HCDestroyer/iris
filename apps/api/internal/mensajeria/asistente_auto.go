@@ -507,13 +507,12 @@ func inicioPeriodo(c mensajeriabd.MensajeriaConversacion) time.Time {
 }
 
 // inicioTurnos: desde cuándo cuentan los turnos para maxTurnos: el periodo o, si una persona le
-// devolvió la conversación después («reanudar», §17.11), la reanudación (reanudado = true). Un turno
-// creado en el mismo instante de reanudar (el pendiente del mensaje que esperaba) ya es de la
-// atención nueva.
-func inicioTurnos(c mensajeriabd.MensajeriaConversacion) (time.Time, bool) {
-	desde := inicioPeriodo(c)
-	if c.AsistenteReanudadoEn != nil && c.AsistenteReanudadoEn.After(desde) {
-		return *c.AsistenteReanudadoEn, true
+// devolvió la conversación después de pasarla a una persona o de tenerla una persona («reanudar»,
+// §17.11), ese momento (nueva = true): es una atención nueva. Quitar solo una pausa no lo cambia.
+func inicioTurnos(c mensajeriabd.MensajeriaConversacion) (desde time.Time, nueva bool) {
+	desde = inicioPeriodo(c)
+	if c.AsistenteAtencionDesde != nil && c.AsistenteAtencionDesde.After(desde) {
+		return *c.AsistenteAtencionDesde, true
 	}
 	return desde, false
 }
@@ -836,8 +835,8 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 		}
 	}
 	// maxTurnos cuenta todos los turnos del periodo, también los descartados (gastaron igual). Si una
-	// persona le devolvió la conversación («reanudar», §17.11), cuenta desde entonces: es una atención
-	// nueva y su decisión explícita. Antes contaba los turnos de antes de pasarla, y después de
+	// persona le devolvió la conversación después de pasarla a una persona o de tenerla una persona
+	// («reanudar», §17.11), cuenta desde entonces: es una atención nueva y su decisión explícita. Antes contaba los turnos de antes de pasarla, y después de
 	// max_turnos el asistente la volvía a pasar con el siguiente mensaje: no había forma de
 	// devolvérsela. Los límites por hora y por día (arriba) siguen contando todo.
 	desdeTurnos, reanudado := inicioTurnos(c)

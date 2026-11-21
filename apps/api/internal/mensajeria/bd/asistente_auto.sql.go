@@ -601,7 +601,7 @@ const fijarAsistenteConv = `-- name: FijarAsistenteConv :one
 UPDATE mensajeria.conversaciones
 SET asistente_estado = $1, asistente_turnos = $2, asistente_presento_en = $3, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde
 `
 
 type FijarAsistenteConvParams struct {
@@ -676,6 +676,7 @@ func (q *Queries) FijarAsistenteConv(ctx context.Context, arg FijarAsistenteConv
 		&i.AsistentePausadoPor,
 		&i.AsistentePausaMotivo,
 		&i.AsistenteReanudadoEn,
+		&i.AsistenteAtencionDesde,
 	)
 	return i, err
 }
@@ -1293,20 +1294,24 @@ func (q *Queries) ReabrirTurnoDescartado(ctx context.Context, arg ReabrirTurnoDe
 const reanudarAsistenteConv = `-- name: ReanudarAsistenteConv :exec
 UPDATE mensajeria.conversaciones
 SET asistente_pausado_en = NULL, asistente_pausado_por = NULL, asistente_pausa_motivo = NULL, asistente_reanudado_en = $1,
+    asistente_atencion_desde = CASE WHEN $2::boolean THEN $1 ELSE asistente_atencion_desde END,
     asistente_estado = CASE WHEN asistente_estado IN ('detenido', 'espera_persona') THEN NULL ELSE asistente_estado END,
     updated_at = now()
-WHERE id = $2
+WHERE id = $3
 `
 
 type ReanudarAsistenteConvParams struct {
-	Ahora *time.Time
-	ID    int64
+	Ahora         *time.Time
+	NuevaAtencion bool
+	ID            int64
 }
 
 // §17.11: quita la pausa y le devuelve la conversación al asistente: deja de estar detenido (conserva
-// sus turnos y su presentación) y lo que una persona escribió antes ya no lo frena.
+// sus turnos y su presentación) y lo que una persona escribió antes ya no lo frena. nueva_atencion:
+// venía de una persona (la pasó a una persona, o una persona la tomó o escribió): maxTurnos cuenta
+// desde ahora. Al quitar solo una pausa no cambia.
 func (q *Queries) ReanudarAsistenteConv(ctx context.Context, arg ReanudarAsistenteConvParams) error {
-	_, err := q.db.Exec(ctx, reanudarAsistenteConv, arg.Ahora, arg.ID)
+	_, err := q.db.Exec(ctx, reanudarAsistenteConv, arg.Ahora, arg.NuevaAtencion, arg.ID)
 	return err
 }
 
