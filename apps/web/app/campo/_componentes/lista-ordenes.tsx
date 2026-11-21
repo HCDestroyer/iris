@@ -2,7 +2,7 @@
 
 import type { OrdenVista, RutaCampo } from "@iris/sync";
 import { accionPrincipal, anilloAvance, intercalarTareas, mosaicoPorRecibir, mosaicoRuta, nombreCliente, resumenHoy, tareasDelDia } from "@iris/sync/campo";
-import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, cn } from "@iris/ui";
+import { Aviso, Boton, Cargando, EstadoVacio, Globo, InsigniaEstado, cn } from "@iris/ui";
 import { CalendarX, ChevronRight, Clock, CloudUpload, MapPin, Navigation, Phone, Play, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { horaCorta, hoyEnGuatemala, ventanaCita } from "@/lib/campo/fechas";
@@ -232,20 +232,18 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
                     {orden.estado !== "pendiente" ? <AnilloAvance fraccion={anillo.fraccion} texto={anillo.texto} etiqueta={anillo.etiqueta} /> : null}
                 </span>
             </a>
-            <div className={cn("grid gap-2", llamar ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]")}>
-                {/* Rediseño: «Cómo llegar» (contorno) y la acción principal en índigo, mitad y mitad. */}
+            {/*
+              * Rediseño: «Cómo llegar» y «Llamar» redondos (ícono, nombre y globo) y la acción principal
+              * con su texto completo en el resto del ancho: nada se corta a 360 px.
+              */}
+            <div className="flex min-w-0 items-center gap-2" data-slot="acciones-siguiente">
                 {comoLlegar ? (
-                    <Boton asChild variante="contorno" className="h-11 w-full min-w-0 rounded-full text-[0.9375rem] font-semibold">
-                        <a href={comoLlegar} target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar">
+                    <BotonRedondo etiqueta="Cómo llegar">
+                        <a href={comoLlegar} target="_blank" rel="noopener noreferrer">
                             <Navigation aria-hidden />
-                            <span className="truncate">Cómo llegar</span>
                         </a>
-                    </Boton>
+                    </BotonRedondo>
                 ) : null}
-                <Boton variante="primario" className={cn("h-11 w-full min-w-0 rounded-full text-[0.9375rem] font-semibold", !comoLlegar && "col-span-2")} onClick={() => navegar(principalAccion.vista)}>
-                    <IconoAccion aria-hidden />
-                    <span className="truncate">{principalAccion.texto}</span>
-                </Boton>
                 {llamar ? (
                     <BotonRedondo etiqueta="Llamar al cliente">
                         <a href={llamar}>
@@ -253,16 +251,23 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
                         </a>
                     </BotonRedondo>
                 ) : null}
+                <Boton variante="primario" className="h-11 min-w-0 flex-1 rounded-full text-[0.9375rem] font-semibold whitespace-nowrap" onClick={() => navegar(principalAccion.vista)}>
+                    <IconoAccion aria-hidden />
+                    {principalAccion.texto}
+                </Boton>
             </div>
         </section>
     );
 }
 
+/** Botón redondo de 44 px con su nombre accesible y su globo (el `title` del navegador y `Globo`). */
 function BotonRedondo({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
     return (
-        <Boton asChild variante="secundario" aria-label={etiqueta} title={etiqueta} className="size-11 shrink-0 rounded-full bg-[var(--campo-panel-2)] p-0 md:size-11 [&_svg]:size-5">
-            {children}
-        </Boton>
+        <Globo texto={etiqueta}>
+            <Boton asChild variante="contorno" aria-label={etiqueta} title={etiqueta} className="size-11 shrink-0 rounded-full p-0 md:size-11 [&_svg]:size-5">
+                {children}
+            </Boton>
+        </Globo>
     );
 }
 
@@ -353,7 +358,7 @@ function FilaOrden({ orden, posicion, parada = null }: { orden: OrdenVista; posi
                     ) : null}
                 </span>
                 <span className="grid min-w-0 flex-1 gap-0.5">
-                    <span className="truncate text-[0.9375rem] font-semibold">{nombre}</span>
+                    <span className="text-[0.9375rem] font-semibold break-words">{nombre}</span>
                     <span className="text-[0.8125rem] text-muted-foreground">
                         <span className="font-mono">{orden.numero}</span> · {TIPOS_ORDEN[orden.tipo]}
                     </span>

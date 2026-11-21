@@ -15,11 +15,30 @@ const carpeta = process.env.IRIS_CAPTURAS_REDISENO;
 
 async function capturar(page: Page, info: TestInfo, que: string) {
     if (!carpeta) return;
-    const [tipo, tema] = info.project.name.split("-");
-    const ancho = tipo === "telefono" ? 390 : 1280;
+    const tema = info.project.name.split("-")[1];
+    const ancho = page.viewportSize()?.width ?? 0;
     await page.waitForTimeout(250);
     await page.screenshot({ path: path.join(carpeta, `${que}-${ancho}-${tema}.png`) });
 }
+
+/**
+ * Ningún botón ni enlace con aspecto de botón queda cortado (sin «…»): ni el control ni lo que lleva
+ * dentro es más ancho que su caja (sin contar el texto solo para lectores, de 1 px). Devuelve los que
+ * se cortan, con su nombre.
+ */
+async function botonesCortados(page: Page, dentro: string): Promise<string[]> {
+    return page.locator(dentro).evaluateAll((raices) =>
+        raices.flatMap((raiz) =>
+            [...raiz.querySelectorAll<HTMLElement>('button, a[data-slot="boton"], [role="radio"], [role="tab"]')]
+                .filter((b) => b.offsetParent !== null)
+                .filter((b) => [b, ...b.querySelectorAll<HTMLElement>("*")].some((e) => e.getBoundingClientRect().width > 1 && e.scrollWidth > e.clientWidth + 1 && getComputedStyle(e).overflowX !== "visible"))
+                .map((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").trim()),
+        ),
+    );
+}
+
+/** En el teléfono, también a 360 px (los teléfonos más angostos que se usan). */
+const anchosTelefono = (page: Page) => (esTelefono(page) ? [390, 360] : [page.viewportSize()?.width ?? 1280]);
 
 /** Color que resuelve una variable CSS (para comparar con un estilo computado). */
 const color = (page: Page, variable: string) =>
@@ -90,11 +109,22 @@ test.describe("marco del panel", () => {
             await page.keyboard.press("Escape");
         }
         await capturar(page, info, "marco");
+        for (const ancho of anchosTelefono(page)) {
+            if (esTelefono(page)) await page.setViewportSize({ width: ancho, height: 844 });
+            expect(await botonesCortados(page, "body")).toEqual([]);
+            if (ancho === 360) await capturar(page, info, "marco");
+        }
+        if (esTelefono(page)) await page.setViewportSize({ width: 390, height: 844 });
 
         await page.goto("/tickets");
         await expect(page.getByRole("heading", { name: "Tickets", exact: true })).toBeVisible();
         await expect(page.getByRole("link", { name: "Manual de esta pantalla" })).toHaveAttribute("href", "/manual/tickets/lista");
         await capturar(page, info, "tickets");
+        for (const ancho of anchosTelefono(page)) {
+            if (esTelefono(page)) await page.setViewportSize({ width: ancho, height: 844 });
+            expect(await botonesCortados(page, "#contenido")).toEqual([]);
+            if (ancho === 360) await capturar(page, info, "tickets");
+        }
     });
 });
 
@@ -107,6 +137,21 @@ test.describe("app del técnico", () => {
         await simularApiCampo(page);
         await page.goto("/campo");
         await expect(page.getByRole("link", { name: /OT-000101/ })).toBeVisible();
+        // Las acciones de la tarjeta se leen completas a 390 y a 360 px: «Cómo llegar» y «Llamar»
+        // redondos (con nombre y globo) y la acción principal con su texto entero.
+        for (const ancho of anchosTelefono(page)) {
+            if (esTelefono(page)) await page.setViewportSize({ width: ancho, height: 844 });
+            const acciones = page.locator('[data-slot="acciones-siguiente"]');
+            await expect(acciones.getByRole("button", { name: "Empezar trabajo" })).toHaveText("Empezar trabajo");
+            await expect(acciones.getByRole("link", { name: "Cómo llegar" })).toBeVisible();
+            expect(await botonesCortados(page, ".campo-app")).toEqual([]);
+            if (ancho === 360) await capturar(page, info, "campo-hoy");
+        }
+        if (esTelefono(page)) await page.setViewportSize({ width: 390, height: 844 });
+        // React Aria muestra el globo al pasar el puntero cuando la persona ya usó el puntero.
+        await page.getByRole("heading", { level: 1 }).click();
+        await page.locator('[data-slot="acciones-siguiente"]').getByRole("link", { name: "Cómo llegar" }).hover();
+        await expect(page.getByRole("tooltip")).toHaveText("Cómo llegar");
         const isla = page.getByRole("navigation", { name: "Secciones de la app" });
         await expect(isla.getByRole("link")).toHaveCount(4);
         await expect(isla.getByRole("link", { name: "Por recibir" })).toBeVisible();
@@ -131,5 +176,10 @@ test.describe("app del técnico", () => {
         await expect(isla).toHaveCount(0);
         await expect(page.locator('[data-slot="encabezado-campo"]').getByRole("link", { name: "Manual de esta pantalla" })).toHaveAttribute("href", "/campo/manual/orden");
         await capturar(page, info, "campo-orden");
+        for (const ancho of anchosTelefono(page)) {
+            if (esTelefono(page)) await page.setViewportSize({ width: ancho, height: 844 });
+            expect(await botonesCortados(page, ".campo-app")).toEqual([]);
+            if (ancho === 360) await capturar(page, info, "campo-orden");
+        }
     });
 });
