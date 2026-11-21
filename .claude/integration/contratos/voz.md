@@ -1255,7 +1255,10 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   efímero), `politicaIce: "relay"`, `iceVence`. **Sin contraseña SIP.** CSRF como toda acción. 422
   `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503
   `turn_no_configurado`. El ticket: 32 bytes aleatorios, vale **30 s**, un solo uso, atado a la persona,
-  a la sesión que lo pidió, a la empresa activa, a la extensión y al dispositivo.
+  a la sesión que lo pidió, a la empresa activa, a la extensión y al dispositivo. El TURN dura de 10 a
+  20 min: si al contestar o llamar le quedan menos de 90 s, el panel vuelve a llamar a `/abrir` solo
+  para renovarlo y deja vencer ese ticket sin usarlo (a lo más una vez cada ~10 min por persona, dentro
+  del tope de 6 por minuto; no hay endpoint aparte para no duplicar el tope y la auditoría).
 - `GET /telefono/sip` → **WebSocket** con subprotocolo `sip` (RFC 7118); el ticket viaja como un
   subprotocolo más (`Sec-WebSocket-Protocol: sip, iris-ticket.<ticket>`), nunca en la URL (no queda en los
   logs de los proxies). El panel de Next no
@@ -1334,11 +1337,34 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   cambiar `sipUsuario` sin volver a escribirla: 422 `clave_requerida`. `escritorio` borra la
   credencial. Se guarda cifrada y **nunca se devuelve** (`sipGuardadoEn`). Cualquier cambio corta la
   conexión de esa persona (`4003`) y borra `sip_probado_en`. Evento `extension.telefono_cambiado`.
-  `Extension` suma `tipo`, `sipUsuario`, `sipGuardadoEn`, `sipProbadoEn`.
+  `Extension` suma `tipo`, `sipUsuario`, `sipGuardadoEn`, `sipProbadoEn` y `sipRechazadoEn` (la última
+  vez que la Issabel rechazó la contraseña guardada; se borra cuando una prueba pasa).
 - `POST /centralitas/{id}/extensiones/{extensionId}/probar-registro` (`centralita.asignar_extension`):
   Iris abre el WSS y manda un `REGISTER` **de consulta** (sin `Contact`: no agrega ni quita registros)
   y responde el desafío con la credencial guardada: `ok`, `credenciales` (rechazada), `huella_distinta`,
-  `no_conecta`, `sin_credencial`. Con `ok` deja `sip_probado_en`. Evento `extension.registro_probado`.
+  `no_conecta`, `sin_credencial`. Con `ok` deja `sip_probado_en` y borra `sip_rechazado_en`; con
+  `credenciales` borra `sip_probado_en` y marca `sip_rechazado_en`. Solo marca la contraseña que se
+  probó: si mientras tanto se guardó otra (`sip_guardado_en` distinto), esa queda como estaba. Evento
+  `extension.registro_probado`.
+  **Para no cebar el fail2ban de la Issabel** (todos con `Retry-After`, y ninguno llega a la Issabel):
+  - 429 `credencial_rechazada`: la Issabel ya rechazó la contraseña guardada y no se escribió otra
+    (hasta 30 min después del rechazo). El panel solo ofrece «Cambiar la contraseña».
+  - 429 `demasiados_rechazos`: la centralita juntó **3 contraseñas rechazadas en 10 min**, sumando
+    «Probar registro» y el puente (ventana desde el primer rechazo, contador atómico en
+    `mensajeria.centralitas.rechazos`). Mientras dure tampoco se abre el teléfono: `POST /telefono/abrir`
+    y la conexión del puente responden el mismo 429.
+  - 429 `demasiados_intentos`: más de 3 pruebas por minuto de la extensión o 10 de la centralita (solo
+    contra ráfagas).
+  - Un solo REGISTER de prueba a la vez por centralita (el REGISTER corre fuera de la transacción: el
+    turno se reserva con un `UPDATE` condicional en `registro_en_curso_hasta`, vence a los 30 s y se
+    suelta al terminar, solo si sigue siendo la reserva propia). La otra recibe 429 `prueba_en_curso`, o
+    `demasiados_rechazos` si la centralita ya tiene rechazos en la ventana, con `Retry-After: 10`.
+  - Salido el REGISTER, el resultado no depende de la petición: si el cliente corta, quitan la extensión
+    o el permiso, el turno se suelta y el rechazo (`credenciales`) se cuenta igual, como sistema.
+  - **Con rechazos en la ventana, el teléfono toma el mismo turno:** `POST /telefono/abrir` lo reserva y
+    el ticket lo lleva (`telefono_tickets.turno_hasta`); la conexión del puente con ese ticket ya lo
+    tiene, y una con un ticket sin turno vigente lo reserva. Si otro lo tiene: 429 `demasiados_rechazos`
+    con `Retry-After: 10` (en la conexión, antes del upgrade). Sin rechazos en la ventana no se reserva.
 - `Extension` y `MiExtension` también se ven en `GET /centralitas/{id}/extensiones` (con los campos de
   arriba) y `GET /centralita/mi-extension` (suma `tipo`).
 
@@ -1486,14 +1512,18 @@ conexión; límites; adopción por el AMI; llamada directa.
 - **Relevo hacia la Issabel** (I2): coturn solo deja la IP de la Issabel; el puerto lo limita el
   firewall del servidor de Iris (runbook §9.5: solo el rango RTP de la Issabel) y el de la Issabel (§9.4:
   ningún UDP salvo el rango RTP, nunca 5060).
-- **Credencial rechazada** (I3): si la Issabel rechaza la contraseña en el puente, el navegador recibe 403,
-  el puente **corta** (4003 `credenciales`), la extensión queda con `sip_probado_en` vacío
-  (`extension.registro_probado` con `estado: credenciales`, `origen: puente`) y el teléfono no se abre
-  (422 `registro_sin_probar`) hasta un «Probar registro» que pase. Una credencial nueva también exige esa
-  prueba.
+- **Credencial rechazada** (I3): si la Issabel rechaza la contraseña en el puente (el desafío contestado
+  vuelve a fallar, o un 403 directo a un `REGISTER`), el navegador recibe 403, el puente **corta** (4003
+  `credenciales`), la extensión queda con `sip_probado_en` vacío y `sip_rechazado_en` marcado (si la
+  contraseña sigue siendo la misma con la que se conectó) (`extension.registro_probado` con `estado:
+  credenciales`, `origen: puente`), el rechazo cuenta para el tope de la centralita (429
+  `demasiados_rechazos`; se anota primero y como sistema, con la centralita de la conexión, así cuenta
+  aunque la extensión ya no exista o la sesión se haya cerrado) y el teléfono no se abre (422 `registro_sin_probar`) hasta un «Probar registro»
+  que pase. Una credencial nueva también exige esa prueba.
 - **TURN agotable** (I4): el usuario TURN es el mismo para la persona en cada ventana de `IRIS_TURN_VIDA`
   (`<fin_de_ventana>:iris-<usuario>`, válido entre 1 y 2 ventanas), así vale el `user-quota=4` de coturn;
-  `POST /telefono/abrir` acepta 6 por persona y minuto (429 `demasiados_intentos`); el rango de relevo de
+  `POST /telefono/abrir` acepta 6 por persona y minuto (429 `demasiados_intentos`; 429 `demasiados_rechazos`
+  mientras la centralita esté en espera por contraseñas rechazadas); el rango de relevo de
   fábrica es 49160–49660.
 - **Menores:** el reemplazo por otra pestaña se nota en **2 s** (vistazo ligero) y lo demás cada 10 s; el
   límite del día y las simultáneas se cuentan con el candado tomado; un frame binario cierra el WebSocket;
@@ -1531,6 +1561,13 @@ conexión; límites; adopción por el AMI; llamada directa.
   con el Call-ID de una llamada viva recibe **482** y la llamada no cambia; si su transacción no cabe
   (256 pendientes), recibe 503 sin dejar un diálogo guardado. Cambiar `IRIS_TURN_SECRETO` y correr
   `irisctl start` vuelve a crear el contenedor `turn` (coturn lee el secreto solo al arrancar).
+- **Fase 2, panel (22 nov 2026):** el puente trata cada forma compacta de cabecera (`k:`, `o:`, `u:`,
+  `x:`…) como su nombre largo en las listas blancas (antes se perdían; `r:` fuera de un REFER se quita
+  igual que `Refer-To`). El panel usa JsSIP 3.13.9 con su propio socket (ticket por conexión) y
+  `contact_uri` `sip:<sip_usuario>@<azar>.invalid;transport=ws`; registra cada 300 s; DTMF por INFO de a
+  un dígito; «Transferir» es solo la transferencia ciega (REFER sin `Replaces`: «Hablar primero» de la
+  maqueta no se ofrece). Encendido por persona y navegador; una pestaña (`navigator.locks`); tras
+  `4003 credenciales` no se reintenta solo (solo «Reintentar»).
 - **Dependencias:** sipgo se queda en v1.7.2: v1.7.3/v1.7.4 agregan un tope de parámetros por cabecera
   (`ParseMaxHeaderParams`), pero tienen menos de 2 semanas; el tope de 16 KB por mensaje acota ese caso
   mientras tanto.

@@ -369,12 +369,18 @@ func (b *bandeja) api(p persona, metodo, ruta string, cuerpo any) respuesta {
 
 func (b *bandeja) apiClave(p persona, metodo, ruta, clave string, cuerpo any) respuesta {
 	b.t.Helper()
+	return b.apiCtx(context.Background(), p, metodo, ruta, clave, cuerpo)
+}
+
+// apiCtx es apiClave con el contexto de la petición (para cancelarla a mitad).
+func (b *bandeja) apiCtx(ctx context.Context, p persona, metodo, ruta, clave string, cuerpo any) respuesta {
+	b.t.Helper()
 	var rd io.Reader
 	if cuerpo != nil {
 		crudo, _ := json.Marshal(cuerpo)
 		rd = bytes.NewReader(crudo)
 	}
-	req := httptest.NewRequest(metodo, rutaMsj+ruta, rd)
+	req := httptest.NewRequestWithContext(ctx, metodo, rutaMsj+ruta, rd)
 	if rd != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

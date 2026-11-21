@@ -16,6 +16,7 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
 import { anunciarFuente, cuantasFuentes, escucharEventos, escucharFuente, publicarEvento } from "@/lib/voz/canal";
 import { reloj } from "@/lib/voz/presentacion";
+import { useTelefono } from "../telefono/proveedor";
 import type { Llamada, ResultadoLlamada } from "@/lib/voz/tipos";
 import { CabeceraLlamada, MARCO_AVISO, Senales } from "./llamada";
 
@@ -141,7 +142,10 @@ function AvisoCentralita({ yoId }: { yoId: number }) {
         return () => window.clearTimeout(t);
     }, [vista, otro, cerrar]);
     const segundos = useSegundos(llamada?.estado === "en_curso" ? llamada.contestadaEn : null);
+    const telefono = useTelefono();
     if (!vista || !llamada) return null;
+    // Suena en el teléfono de Iris (E4c): su ventana (con «Contestar») y su panel (con la nota) la muestran.
+    if (telefono?.cubre(llamada)) return null;
     if (vista.notaPendiente) return <NotaCentralita llamada={llamada} alTerminar={cerrar} />;
     if (vista.cerrada) return null;
     const quien = quienCentralita(llamada);

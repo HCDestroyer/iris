@@ -23,6 +23,7 @@ import { Pencil, PhoneCall, Plug, Plus, RefreshCw, ShieldCheck, Trash2, Users } 
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
+import { EnlaceExtension, TarjetaGrupos, TarjetaTelefono } from "@/componentes/telefono/administracion";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { ErrorApi, mensajeDeError } from "@/lib/api/errores";
 import { activarCentralita, asignarExtension, confirmarHuella, desactivarCentralita, leerCentralita, leerExtensiones, probarCentralita, quitarExtension } from "@/lib/centralita/api";
@@ -30,6 +31,7 @@ import { estadoConexion, huellaLegible, textoPrueba, ultimaSenal } from "@/lib/c
 import { PERMISO_ASIGNAR_EXTENSION, PERMISO_CONFIGURAR_CENTRALITA, type Centralita, type ExtensionCentralita, type PruebaCentralita } from "@/lib/centralita/tipos";
 import { buscarPersonas, type PersonaChat } from "@/lib/chat/api";
 import { formatearFecha } from "@/lib/fechas";
+import { estadoExtension } from "@/lib/telefono/administracion";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
@@ -93,7 +95,9 @@ export function PaginaCentralita() {
             />
             <div className="grid gap-4">
                 <Conexion centralita={c} configura={configura} alCambiar={() => void lectura.refrescar({ silencioso: true })} />
+                <TarjetaTelefono centralita={c} configura={configura} alCambiar={() => void lectura.refrescar({ silencioso: true })} />
                 {puede([PERMISO_ASIGNAR_EXTENSION]) ? <Extensiones centralita={c} /> : null}
+                {configura ? <TarjetaGrupos centralita={c} /> : null}
             </div>
         </>
     );
@@ -313,7 +317,7 @@ function Extensiones({ centralita: c }: { centralita: Centralita }) {
                 </Boton>
             </TarjetaEncabezado>
             <TarjetaContenido className="grid gap-3">
-                <p className="text-sm text-muted-foreground">Solo a estas personas les sale la ventana. Las demás extensiones de la centralita Iris ni las mira.</p>
+                <p className="text-sm text-muted-foreground">Solo a estas personas les sale la ventana. Las demás extensiones de la centralita Iris ni las mira. «En Iris»: contestan y llaman desde el panel.</p>
                 {lectura.estado === "cargando" ? (
                     <Esqueleto className="h-24" />
                 ) : lectura.estado === "error" ? (
@@ -322,15 +326,23 @@ function Extensiones({ centralita: c }: { centralita: Centralita }) {
                     <p className="text-sm text-muted-foreground">Nadie tiene extensión todavía.</p>
                 ) : (
                     <ul className="grid divide-y divide-border" aria-label="Extensiones">
-                        {lista.map((x) => (
-                            <li key={x.id} className="flex min-w-0 items-center gap-3 py-2.5">
-                                <span className="inline-flex h-8 min-w-11 items-center justify-center rounded-lg bg-elevated px-2 text-sm font-bold tabular-nums">{x.extension}</span>
-                                <span className="min-w-0 flex-1 truncate font-medium">{x.usuarioNombre}</span>
-                                <Boton variante="fantasma" tamano="icono-sm" aria-label={`Quitar la extensión ${x.extension} de ${x.usuarioNombre}`} onClick={() => setQuitar(x)}>
-                                    <Trash2 />
-                                </Boton>
-                            </li>
-                        ))}
+                        {lista.map((x) => {
+                            const e = estadoExtension(x);
+                            return (
+                                <li key={x.id} className="flex min-w-0 items-center gap-3 py-2.5" data-slot="extension" data-tipo={x.tipo}>
+                                    <span className="inline-flex h-8 min-w-11 items-center justify-center rounded-lg bg-elevated px-2 text-sm font-bold tabular-nums">{x.extension}</span>
+                                    <span className="grid min-w-0 flex-1">
+                                        <span className="truncate font-medium">{x.usuarioNombre}</span>
+                                        <span className="truncate text-xs text-muted-foreground">{e.donde}</span>
+                                        <span className={e.tono === "success" ? "text-xs text-success" : e.tono === "error" ? "text-xs text-error" : e.tono === "warning" ? "text-xs text-warning" : "text-xs text-muted-foreground"}>{e.texto}</span>
+                                    </span>
+                                    <Boton variante="fantasma" tamano="icono-sm" aria-label={`Quitar la extensión ${x.extension} de ${x.usuarioNombre}`} onClick={() => setQuitar(x)}>
+                                        <Trash2 />
+                                    </Boton>
+                                    <EnlaceExtension id={x.id} nombre={x.usuarioNombre} />
+                                </li>
+                            );
+                        })}
                     </ul>
                 )}
             </TarjetaContenido>

@@ -363,6 +363,36 @@ func TestCredencialRechazadaEs403(t *testing.T) {
 	t.Fatal("no avisó la credencial rechazada")
 }
 
+// Revisión de #252, B1: un 403 que la Issabel manda por su cuenta a un REGISTER (sin desafío) es la
+// credencial rechazada: se avisa a la política y se corta con 4003 `credenciales`.
+func TestRegistro403DeLaIssabelEsCredencialRechazada(t *testing.T) {
+	b := nuevoBanco(t, nil, secretoSIP)
+	b.falso.ProhibirRegistro(true)
+	b.mandar(register(1, "p1", ""))
+	b.respuesta(403)
+	select {
+	case <-b.hecho:
+	case <-time.After(3 * time.Second):
+		t.Fatal("no cortó con el 403 de la Issabel")
+	}
+	b.nav.mu.Lock()
+	codigo, motivo := b.nav.codigo, b.nav.motivo
+	b.nav.mu.Unlock()
+	if codigo != sippuente.CierreSinAcceso || motivo != "credenciales" {
+		t.Fatalf("cierre %d %q", codigo, motivo)
+	}
+	for fin := time.Now().Add(2 * time.Second); time.Now().Before(fin); time.Sleep(10 * time.Millisecond) {
+		b.pol.mu.Lock()
+		n := b.pol.credenciales
+		b.pol.mu.Unlock()
+		if n == 1 {
+			b.hecho <- nil
+			return
+		}
+	}
+	t.Fatal("no avisó la credencial rechazada")
+}
+
 func TestRechazosLocales(t *testing.T) {
 	b := nuevoBanco(t, nil, secretoSIP)
 	// From ajeno.
