@@ -11,9 +11,12 @@ export function leerTelefono(signal?: AbortSignal) {
     return resolver(api().GET(`${BASE}/telefono`, { signal }));
 }
 
-/** `POST /telefono/abrir`: ticket de un uso (30 s) para el WebSocket y el TURN efímero. */
-export function abrirTelefono(signal?: AbortSignal) {
-    return resolver(api().POST(`${BASE}/telefono/abrir`, { params: { header: idem() }, body: { dispositivo: "panel" }, signal }));
+/**
+ * `POST /telefono/abrir`: ticket de un uso (30 s) para el WebSocket y el TURN efímero. La app de
+ * campo abre con `app` (solo marca: el puente no la deja registrarse ni recibir).
+ */
+export function abrirTelefono(signal?: AbortSignal, dispositivo: "panel" | "app" = "panel") {
+    return resolver(api().POST(`${BASE}/telefono/abrir`, { params: { header: idem() }, body: { dispositivo }, signal }));
 }
 
 /** `POST /telefono/llamar`: el destino SIP que el teléfono marca (el número lo pone el servidor). */

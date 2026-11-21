@@ -13,7 +13,6 @@ import {
     MapPinCheck,
     Navigation,
     PenLine,
-    Phone,
     Route,
 } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
@@ -26,7 +25,7 @@ import { enlaceComoLlegar } from "@/lib/campo/gps";
 import { accionesDe } from "@/lib/campo/reglas";
 import { AVISOS_SERVIDOR, OPERACIONES } from "@/lib/campo/textos";
 import { haceTiempo } from "@/lib/datos/presentacion";
-import { enlaceTel, principal, telefonos } from "@/lib/datos/telefono";
+import { telefonos } from "@/lib/datos/telefono";
 import { formatearFecha } from "@/lib/fechas";
 import { Checklist } from "./checklist";
 import { PasoCierre } from "./cierre";
@@ -39,6 +38,7 @@ import { Materiales } from "./materiales";
 import { AccionesPrincipales, EncabezadoOrden, useMarcarEstado } from "./acciones-orden";
 import { Notas } from "./notas";
 import { PausaOrden, TiempoPausado } from "./pausa";
+import { AvisoLlamadaOrden, BotonLlamarOrden, TarjetaLlamadas } from "./telefono";
 
 export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | undefined }) {
     const { navegar, estado } = useCampo();
@@ -76,6 +76,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
         <article aria-labelledby="titulo-orden" className="grid gap-4">
             <EncabezadoOrden orden={orden} alVolver={() => navegar({ tipo: "lista" })} alAgregarNota={acciones.notas ? () => setAgregandoNota(true) : null} />
             <AvisosOrden orden={orden} />
+            <AvisoLlamadaOrden orden={orden} />
             {orden.estado === "pendiente" ? (
                 <Aviso tono="neutral" titulo="Esperando programación">
                     Despacho todavía no le dio hora a esta orden.
@@ -86,6 +87,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
             <Cliente orden={orden} nombre={nombre} />
             {orden.estado !== "pendiente" ? <ProgresoOrden orden={orden} /> : null}
             <Notas orden={orden} editable={acciones.notas} agregando={agregandoNota} alAgregar={setAgregandoNota} />
+            <TarjetaLlamadas orden={orden} />
         </article>
     );
 }
@@ -405,8 +407,6 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
     // contacto capturado en la orden se normaliza igual. Primero el contacto en sitio de la orden.
     const deArgos = orden.cliente ? (orden.cliente.telefonos ?? telefonos("telefono", orden.cliente.telefono)) : [];
     const lista = [...telefonos("telefono", orden.contacto.telefono), ...deArgos].filter((t, i, todos) => todos.findIndex((x) => (x.e164 ?? x.original) === (t.e164 ?? t.original)) === i);
-    const paraLlamar = orden.contacto.telefono ? (lista[0] ?? null) : principal(lista);
-    const llamar = paraLlamar ? enlaceTel(paraLlamar) : null;
     const ahora = useAhora(60_000);
     const lat = orden.lat ?? orden.cliente?.lat ?? null;
     const lon = orden.lon ?? orden.cliente?.lon ?? null;
@@ -436,13 +436,8 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                                 </a>
                             </Boton>
                         ) : null}
-                        {llamar ? (
-                            <Boton asChild variante="secundario" className="size-12 rounded-full bg-[var(--campo-panel-2)] p-0 shadow-none md:size-12 [&_svg]:size-5">
-                                <a href={llamar} aria-label="Llamar" title="Llamar">
-                                    <Phone aria-hidden />
-                                </a>
-                            </Boton>
-                        ) : null}
+                        {/* «Llamar» abre la hoja: por la empresa o desde mi celular (E4c fase 3). */}
+                        <BotonLlamarOrden orden={orden} className="size-12 rounded-full bg-[var(--campo-panel-2)] p-0 shadow-none md:size-12 [&_svg]:size-5" />
                     </div>
                 </div>
                 {orden.descripcion ? <p className="whitespace-pre-wrap">{orden.descripcion}</p> : null}

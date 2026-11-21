@@ -55,7 +55,8 @@ export type UaSip = {
     call: (destino: string, o: OpcionesLlamadaSip) => SesionSip;
 };
 
-export type ConfigUa = { socket: SocketIris; uri: string; contacto: string; nombre: string };
+/** `registrar: false`: solo marca (app de campo, primera etapa): sin REGISTER ni entrantes. */
+export type ConfigUa = { socket: SocketIris; uri: string; contacto: string; nombre: string; registrar: boolean };
 
 export type DependenciasMotor = {
     abrir: () => Promise<SesionTelefono>;
@@ -66,6 +67,11 @@ export type DependenciasMotor = {
     timbre: () => { detener: () => void };
     /** El servidor cortó por algo que dice `GET /telefono` (4003 sin motivo propio). */
     revisar: () => void;
+    /**
+     * `false`: solo marca (la app de campo, `dispositivo: app`; contratos/voz.md §3.12): sin REGISTER
+     * (el puente lo rechaza) ni entrantes; está listo al conectar el WebSocket. De fábrica, `true`.
+     */
+    registrar?: boolean;
     ahora?: () => number;
     /** Para las pruebas: el WebSocket y la parte azarosa del Contact. */
     crearWebSocket?: (url: string, protocolos: string[]) => WebSocket;
@@ -232,9 +238,21 @@ export class MotorTelefono {
             origen: this.d.origen,
         });
         const contacto = `sip:${sesion.sip.usuario}@${(this.d.azar ?? azarContacto)()}.invalid;transport=ws`;
-        const ua = this.d.crearUa({ socket, uri: sesion.sip.uri, contacto, nombre: sesion.sip.nombre });
+        const registrar = this.d.registrar ?? true;
+        const ua = this.d.crearUa({ socket, uri: sesion.sip.uri, contacto, nombre: sesion.sip.nombre, registrar });
         this.ua = ua;
         this.registrado = false;
+        if (!registrar) {
+            // Solo marca: listo con el WebSocket abierto (no hay registro que esperar).
+            ua.on("connected", () => {
+                if (gen !== this.generacion) return;
+                this.registrado = true;
+                if (this.estado.conexion.fase !== "error" || this.estado.conexion.error.tipo === "sin_conexion") this.conexion({ fase: "listo" });
+            });
+            ua.on("disconnected", () => {
+                if (gen === this.generacion) this.registrado = false;
+            });
+        }
         ua.on("registered", () => {
             if (gen !== this.generacion) return;
             this.registrado = true;
@@ -351,9 +369,9 @@ export class MotorTelefono {
         }
     }
 
-    private nueva(sesion: SesionSip, datos: Omit<LlamadaTelefono, "id" | "desde" | "silenciada" | "enEspera" | "motivoFin">): Interna {
+    private nueva(sesion: SesionSip, datos: Omit<LlamadaTelefono, "id" | "desde" | "silenciada" | "enEspera" | "motivoFin" | "causa">): Interna {
         const id = `t${this.siguienteId++}`;
-        const l: Interna = { datos: { ...datos, id, desde: null, silenciada: false, enEspera: false, motivoFin: null }, sesion, parar: null, microfono: null };
+        const l: Interna = { datos: { ...datos, id, desde: null, silenciada: false, enEspera: false, motivoFin: null, causa: null }, sesion, parar: null, microfono: null };
         this.llamadas.set(id, l);
         this.vigilar(l);
         this.publicarLlamadas();
@@ -398,7 +416,7 @@ export class MotorTelefono {
         s.on("unmuted", () => this.cambiar(l, { silenciada: false }));
         const fin = (e: EventoSip) => {
             if (listoIce !== null) globalThis.clearTimeout(listoIce);
-            this.cambiar(l, { fase: "terminada", motivoFin: motivoFin(e.cause, l.datos.direccion) });
+            this.cambiar(l, { fase: "terminada", motivoFin: motivoFin(e.cause, l.datos.direccion), causa: e.cause ?? null });
             this.limpiar(l);
             this.llamadas.delete(l.datos.id);
             this.publicarLlamadas();

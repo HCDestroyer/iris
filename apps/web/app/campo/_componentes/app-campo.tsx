@@ -30,6 +30,7 @@ import { ProveedorAgenda } from "./agenda-datos";
 import { ProveedorChat } from "./chat-datos";
 import { EntrarCampo } from "./entrar";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
+import { ProveedorTelefonoCampo } from "./telefono";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { ProveedorInventario } from "./inventario-datos";
 import { ProveedorLibres } from "./libres-datos";
@@ -430,26 +431,28 @@ function ConMotor({
     return (
         <ProveedorUbicacion cola={abierto.posiciones} rastreador={rastreador}>
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
-                <ProveedorInventario inventario={abierto.inventario}>
-                    <ProveedorAgenda leer={abierto.agenda}>
-                        <ProveedorLibres api={abierto.libres}>
-                            <ProveedorHistorial leer={abierto.historialCliente}>
-                                {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
-                                {sesion.permisos?.includes("chat.ver") ? (
-                                    <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
-                                        <TurnoAutomatico rastreador={rastreador} />
-                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                                    </ProveedorChat>
-                                ) : (
-                                    <>
-                                        <TurnoAutomatico rastreador={rastreador} />
-                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                                    </>
-                                )}
-                            </ProveedorHistorial>
-                        </ProveedorLibres>
-                    </ProveedorAgenda>
-                </ProveedorInventario>
+                <ProveedorTelefonoCampo>
+                    <ProveedorInventario inventario={abierto.inventario}>
+                        <ProveedorAgenda leer={abierto.agenda}>
+                            <ProveedorLibres api={abierto.libres}>
+                                <ProveedorHistorial leer={abierto.historialCliente}>
+                                    {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
+                                    {sesion.permisos?.includes("chat.ver") ? (
+                                        <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
+                                            <TurnoAutomatico rastreador={rastreador} />
+                                            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                        </ProveedorChat>
+                                    ) : (
+                                        <>
+                                            <TurnoAutomatico rastreador={rastreador} />
+                                            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                        </>
+                                    )}
+                                </ProveedorHistorial>
+                            </ProveedorLibres>
+                        </ProveedorAgenda>
+                    </ProveedorInventario>
+                </ProveedorTelefonoCampo>
             </ProveedorCampo>
         </ProveedorUbicacion>
     );

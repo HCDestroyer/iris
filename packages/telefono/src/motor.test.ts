@@ -129,7 +129,11 @@ class UaFalso extends Emisor implements UaSip {
     llamadas: { destino: string; o: Parameters<UaSip["call"]>[1]; sesion: SesionFalsa }[] = [];
     constructor(readonly config: ConfigUa) {
         super();
-        config.socket.onconnect = () => this.emitir("registered");
+        // Como JsSIP: «connected» al abrir el WebSocket y, si registra, «registered».
+        config.socket.onconnect = () => {
+            this.emitir("connected");
+            if (config.registrar) this.emitir("registered");
+        };
         config.socket.ondisconnect = () => undefined;
     }
     start() {
@@ -153,7 +157,7 @@ class UaFalso extends Emisor implements UaSip {
 
 const micro = () => ({ getTracks: () => [{ stop: vi.fn() }] }) as unknown as MediaStream;
 
-function armar(o: { abrir?: () => Promise<SesionTelefono>; microfono?: () => Promise<MediaStream> } = {}) {
+function armar(o: { abrir?: () => Promise<SesionTelefono>; microfono?: () => Promise<MediaStream>; registrar?: boolean } = {}) {
     const sockets: WsFalso[] = [];
     const uas: UaFalso[] = [];
     let n = 0;
@@ -180,6 +184,7 @@ function armar(o: { abrir?: () => Promise<SesionTelefono>; microfono?: () => Pro
             return ws as unknown as WebSocket;
         },
         origen: "https://iris.prueba",
+        ...(o.registrar === undefined ? {} : { registrar: o.registrar }),
         azar: () => "k3j9x",
         ahora: () => Date.parse("2026-11-21T16:00:00Z"),
     });
@@ -331,6 +336,22 @@ describe("llamadas", () => {
         uas[0]?.sonar("206");
         await motor.contestar(motor.leer().llamadas[1]?.id ?? "");
         expect(s1?.espera).toBe(true);
+    });
+
+    it("solo marcar (app de campo): sin REGISTER, listo al conectar y llama igual", async () => {
+        const a = armar({ registrar: false });
+        await a.motor.encender("311");
+        await esperar();
+        expect(a.uas[0]?.config.registrar).toBe(false);
+        expect(a.motor.leer().conexion).toEqual({ fase: "conectando" });
+        a.sockets[0]?.onopen?.();
+        expect(a.motor.leer().conexion).toEqual({ fase: "listo" });
+        const id = await a.motor.llamar("sip:iris-0199aaaa-0000-7000-8000-000000000009@pbx.oficina", { numero: "+50255123480", nombre: "María", llamadaId: null, interna: false });
+        expect(id).not.toBeNull();
+        expect(a.uas[0]?.llamadas).toHaveLength(1);
+        // El panel sigue registrando (de fábrica).
+        const b = await listo();
+        expect(b.uas[0]?.config.registrar).toBe(true);
     });
 
     it("saliente: marca el destino del servidor; credenciales TURN nuevas si vencen pronto", async () => {

@@ -71,6 +71,8 @@ export type LlamadaTelefono = {
     enEspera: boolean;
     /** Por qué terminó, en llano (solo si no fue un colgar normal). */
     motivoFin: string | null;
+    /** La causa de JsSIP con que terminó (`Busy`, `No Answer`…), para quien necesita distinguirla (la app de campo). */
+    causa: string | null;
     /** Es un compañero o un grupo (llamada interna, sin fila en Iris). */
     interna: boolean;
 };
