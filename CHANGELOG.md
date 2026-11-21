@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.37.0](https://github.com/HCDestroyer/iris/compare/v0.36.0...v0.37.0) (2026-11-21)
+
+
+### Funcionalidades
+
+* **mensajeria:** plantillas de WhatsApp, fase 1 servidor ([#255](https://github.com/HCDestroyer/iris/issues/255)) ([5623100](https://github.com/HCDestroyer/iris/commit/5623100280b25deb949f692a5d8295cd8a844276))
+* **web:** panel de plantillas de WhatsApp (fase 2) ([#259](https://github.com/HCDestroyer/iris/issues/259)) ([d403391](https://github.com/HCDestroyer/iris/commit/d40339182f45d6ac36677b2c86efba7f07f07468))
+
 ## [0.36.0](https://github.com/HCDestroyer/iris/compare/v0.35.0...v0.36.0) (2026-11-21)
 
 
