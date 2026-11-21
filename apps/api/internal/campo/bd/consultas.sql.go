@@ -776,7 +776,7 @@ func (q *Queries) CrearCambio(ctx context.Context, arg CrearCambioParams) error 
 const crearEquipo = `-- name: CrearEquipo :one
 INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, validado, registrado_por, canal, ocurrido_en, operacion_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en
+RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en, enviado_al_aplicar
 `
 
 type CrearEquipoParams struct {
@@ -839,6 +839,7 @@ func (q *Queries) CrearEquipo(ctx context.Context, arg CrearEquipoParams) (Campo
 		&i.Lon,
 		&i.PrecisionM,
 		&i.RecibidoEn,
+		&i.EnviadoAlAplicar,
 	)
 	return i, err
 }
@@ -852,7 +853,7 @@ INSERT INTO campo.orden_equipos (
     $10, $11, $12, $13, $14, $15,
     $16, $17, $18, $19, $20, $21, $22
 )
-RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en
+RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en, enviado_al_aplicar
 `
 
 type CrearEquipoClienteParams struct {
@@ -934,6 +935,7 @@ func (q *Queries) CrearEquipoCliente(ctx context.Context, arg CrearEquipoCliente
 		&i.Lon,
 		&i.PrecisionM,
 		&i.RecibidoEn,
+		&i.EnviadoAlAplicar,
 	)
 	return i, err
 }
@@ -1595,7 +1597,7 @@ func (q *Queries) EmpresaRegistrada(ctx context.Context, id int64) (bool, error)
 }
 
 const equipoPorID = `-- name: EquipoPorID :one
-SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en FROM campo.orden_equipos WHERE id = $1
+SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en, enviado_al_aplicar FROM campo.orden_equipos WHERE id = $1
 `
 
 func (q *Queries) EquipoPorID(ctx context.Context, id uuid.UUID) (CampoOrdenEquipo, error) {
@@ -1628,12 +1630,13 @@ func (q *Queries) EquipoPorID(ctx context.Context, id uuid.UUID) (CampoOrdenEqui
 		&i.Lon,
 		&i.PrecisionM,
 		&i.RecibidoEn,
+		&i.EnviadoAlAplicar,
 	)
 	return i, err
 }
 
 const equiposDeOrdenes = `-- name: EquiposDeOrdenes :many
-SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en FROM campo.orden_equipos WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
+SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en, enviado_al_aplicar FROM campo.orden_equipos WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
 `
 
 func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenEquipo, error) {
@@ -1672,6 +1675,7 @@ func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]Camp
 			&i.Lon,
 			&i.PrecisionM,
 			&i.RecibidoEn,
+			&i.EnviadoAlAplicar,
 		); err != nil {
 			return nil, err
 		}
@@ -2465,6 +2469,23 @@ func (q *Queries) InsertarPosiciones(ctx context.Context, arg InsertarPosiciones
 	return result.RowsAffected(), nil
 }
 
+const intentosDeUnidadEnOrden = `-- name: IntentosDeUnidadEnOrden :one
+SELECT count(*)::int FROM campo.orden_equipos WHERE orden_id = $1 AND accion = 'no_recuperado' AND unidad_id = $2
+`
+
+type IntentosDeUnidadEnOrdenParams struct {
+	OrdenID  int64
+	UnidadID *int64
+}
+
+// Intentos de recuperación de la unidad en la orden (con Argos < 0.14.0, uno por unidad y orden).
+func (q *Queries) IntentosDeUnidadEnOrden(ctx context.Context, arg IntentosDeUnidadEnOrdenParams) (int32, error) {
+	row := q.db.QueryRow(ctx, intentosDeUnidadEnOrden, arg.OrdenID, arg.UnidadID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const intentosNoRecuperado = `-- name: IntentosNoRecuperado :one
 SELECT count(*)::int FROM campo.orden_equipos
 WHERE accion = 'no_recuperado' AND unidad_id = $1
@@ -2919,6 +2940,16 @@ func (q *Queries) MarcarDatosArgos(ctx context.Context, arg MarcarDatosArgosPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const marcarEnviadoAlAplicar = `-- name: MarcarEnviadoAlAplicar :exec
+UPDATE campo.orden_equipos SET enviado_al_aplicar = true WHERE id = $1
+`
+
+// El cambio o el intento ya se encoló hacia Argos al aplicarse (0.14.0 §3.10).
+func (q *Queries) MarcarEnviadoAlAplicar(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, marcarEnviadoAlAplicar, id)
+	return err
 }
 
 const materialPorID = `-- name: MaterialPorID :one

@@ -29,8 +29,10 @@ func posicion(t *testing.T, tec int64, lat, lon float64, registrada, recibida ti
 func fotoDe(t *testing.T, orden, autor int64) uuid.UUID {
 	t.Helper()
 	id := uuid.Must(uuid.NewV7())
-	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO nucleo.adjuntos (id, entidad, entidad_id, tipo, mime, tamano, sha256, subido_por, almacenamiento, clave)
-		VALUES ($1, 'orden', $2, 'foto', 'image/jpeg', 10, repeat('a', 64), $3, 'local', $4)`, id, strconv.FormatInt(orden, 10), autor, "orden/"+id.String()); err != nil {
+	// tomadoEn: un minuto después del inicio del reloj de las pruebas (después de llegar, antes del lote).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO nucleo.adjuntos (id, entidad, entidad_id, tipo, mime, tamano, sha256, subido_por, almacenamiento, clave, tomado_en)
+		VALUES ($1, 'orden', $2, 'foto', 'image/jpeg', 10, repeat('a', 64), $3, 'local', $4, $5)`, id, strconv.FormatInt(orden, 10), autor, "orden/"+id.String(),
+		inicio.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	return id

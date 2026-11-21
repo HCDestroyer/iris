@@ -2,6 +2,7 @@ package campo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -189,7 +190,7 @@ func enComodato(pre *prelectura, f campobd.CampoOrden, unidad int64) (validado b
 // fotoDeLaOrden (M-271-3): la foto es un adjunto tipo foto de esta orden (puede no haber terminado de
 // subir), del mismo técnico, registrado después de llegar al sitio, no rechazado ni abandonado y no
 // usado en otro cambio o intento.
-func fotoDeLaOrden(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, foto uuid.UUID, f campobd.CampoOrden, llegada time.Time) error {
+func fotoDeLaOrden(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, foto uuid.UUID, f campobd.CampoOrden, llegada, recibido time.Time) error {
 	invalida := func(motivo string) error { return campoInvalido("fotoAdjuntoId", motivo, "foto") }
 	a, err := adjuntos.DeEntidad(ctx, t, foto, "orden", strconv.FormatInt(f.ID, 10))
 	if err != nil || a.Tipo != "foto" {
@@ -201,7 +202,15 @@ func fotoDeLaOrden(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, fot
 	if a.Estado == "rechazado" {
 		return invalida("La foto se rechazó al subir: tómala de nuevo")
 	}
-	if a.CreadoEn.Before(llegada) {
+	// tomadoEn (0.14.0 §3.10): obligatorio en estas fotos, no anterior a la llegada ni posterior al
+	// lote (con 5 min de tolerancia por el reloj del teléfono).
+	if a.TomadoEn == nil {
+		return invalida("La foto debe traer su hora de captura (tomadoEn)")
+	}
+	if a.TomadoEn.After(recibido.Add(5 * time.Minute)) {
+		return invalida("La hora de captura de la foto es posterior a su envío")
+	}
+	if a.TomadoEn.Before(llegada) {
 		return invalida("La foto debe tomarse en el sitio, después de llegar")
 	}
 	usada, err := q.FotoUsadaEnEquipo(ctx, &foto)
@@ -367,12 +376,16 @@ func (m *Modulo) nuevoCambiarEquipo() *auditoria.Caso[EntradaCambiarEquipo, Orde
 					return f, "", campoInvalido("cobroPropuesto.motivo", "Motivo desconocido", "enum")
 				}
 				cobroMotivo = &in.CobroPropuesto.Motivo
+				if in.FotoAdjuntoID == nil {
+					// 0.14.0 §3.10: un cobro propuesto exige la foto.
+					return f, "", campoInvalido("fotoAdjuntoId", "La foto es obligatoria si propones un cobro", "required")
+				}
 				if cobroNota, err = notaOpcional("cobroPropuesto.nota", in.CobroPropuesto.Nota); err != nil {
 					return f, "", err
 				}
 			}
 			if in.FotoAdjuntoID != nil {
-				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f, llegada); err != nil {
+				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f, llegada, m.recibidoDe(in.Sync)); err != nil {
 					return f, "", err
 				}
 			}
@@ -399,6 +412,9 @@ func (m *Modulo) nuevoCambiarEquipo() *auditoria.Caso[EntradaCambiarEquipo, Orde
 				return f, "", err
 			}
 			t.RegistrarCambios("orden_equipo", eq.ID, nil, sinNotas(eq))
+			if err := m.encolarAlAplicar(ctx, t, q, f, tipo.Codigo, eq); err != nil {
+				return f, "", err
+			}
 			f, err = tocar(ctx, t, q, f)
 			return f, "", err
 		})
@@ -458,15 +474,11 @@ func (m *Modulo) nuevoNoRecuperado() *auditoria.Caso[EntradaNoRecuperado, Orden]
 			if err != nil {
 				return f, "", err
 			}
-			recibidoLote := m.ahora()
-			if in.Sync != nil && !in.Sync.RecibidoEn.IsZero() {
-				recibidoLote = in.Sync.RecibidoEn
-			}
-			if err := ubicacionEnSitio(ctx, q, f, actor, *in.Lat, *in.Lon, in.PrecisionM, cuando, recibidoLote); err != nil {
+			if err := ubicacionEnSitio(ctx, q, f, actor, *in.Lat, *in.Lon, in.PrecisionM, cuando, m.recibidoDe(in.Sync)); err != nil {
 				return f, "", err
 			}
 			if in.FotoAdjuntoID != nil {
-				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f, llegada); err != nil {
+				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f, llegada, m.recibidoDe(in.Sync)); err != nil {
 					return f, "", err
 				}
 			}
@@ -492,6 +504,9 @@ func (m *Modulo) nuevoNoRecuperado() *auditoria.Caso[EntradaNoRecuperado, Orden]
 			if n > 0 {
 				return f, "", nucleo.NuevoProblema(http.StatusTooManyRequests, CodigoDemasiadosIntentos, "Ya hubo un intento hoy",
 					"Ya se registró un intento de recuperación de este equipo hoy: se puede intentar de nuevo otro día")
+			}
+			if err := m.unIntentoPorOrden(ctx, t, q, f, in.UnidadID); err != nil {
+				return f, "", err
 			}
 			validado, err := enComodato(in.pre, f, in.UnidadID)
 			if err != nil {
@@ -520,7 +535,64 @@ func (m *Modulo) nuevoNoRecuperado() *auditoria.Caso[EntradaNoRecuperado, Orden]
 				return f, "", err
 			}
 			t.RegistrarCambios("orden_equipo", eq.ID, nil, sinNotas(eq))
+			if err := m.encolarAlAplicar(ctx, t, q, f, tipo.Codigo, eq); err != nil {
+				return f, "", err
+			}
 			f, err = tocar(ctx, t, q, f)
 			return f, "", err
 		})
+}
+
+// recibidoDe: la hora del servidor al aceptar el lote (o ahora, fuera del lote).
+func (m *Modulo) recibidoDe(s *OpSync) time.Time {
+	if s != nil && !s.RecibidoEn.IsZero() {
+		return s.RecibidoEn
+	}
+	return m.ahora()
+}
+
+// CodigoIntentoRepetido: con un Argos < 0.14.0 la clave del intento no lleva su id: un solo intento
+// por unidad y orden (0.14.0 §4.5).
+const CodigoIntentoRepetido = "intento_repetido"
+
+// unIntentoPorOrden: con un Argos conectado que informa < 0.14.0, un segundo intento de la unidad
+// en la orden se rechaza (su clave repetiría la del primero).
+func (m *Modulo) unIntentoPorOrden(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f campobd.CampoOrden, unidad int64) error {
+	if m.cfg.Equipos == nil {
+		return nil
+	}
+	nuevo, err := m.cfg.Equipos.ClavesPorOperacion(ctx, t)
+	if err != nil || nuevo {
+		return err
+	}
+	n, err := q.IntentosDeUnidadEnOrden(ctx, campobd.IntentosDeUnidadEnOrdenParams{OrdenID: f.ID, UnidadID: &unidad})
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nucleo.ReglaNegocio(CodigoIntentoRepetido,
+			"Esta orden ya tiene un intento de recuperación de este equipo: para otro intento, despacho programa otra visita")
+	}
+	return nil
+}
+
+// encolarAlAplicar (0.14.0 §3.10): el cambio o el intento sale hacia Argos al aplicarse, con el
+// cuerpo de orden.cerrada de ese equipo; si quedó encolado, el cierre solo lo resume.
+func (m *Modulo) encolarAlAplicar(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f campobd.CampoOrden, tipo string, fila campobd.CampoOrdenEquipo) error {
+	if m.cfg.Equipos == nil {
+		return nil
+	}
+	cuerpo, err := json.Marshal(map[string]any{
+		"orden_id": f.ID, "numero": f.Numero, "tipo": tipo, "empresa_id": f.EmpresaID, "cliente_id": f.ClienteID,
+		"servicio_id": f.ServicioID, "tecnico_id": f.TecnicoID, "bodega_id": f.BodegaID,
+		"equipos": []any{equipoCerrada(f, equipoDeFila(fila))},
+	})
+	if err != nil {
+		return err
+	}
+	encolado, err := m.cfg.Equipos.EncolarAlAplicar(ctx, t, cuerpo)
+	if err != nil || !encolado {
+		return err
+	}
+	return q.MarcarEnviadoAlAplicar(ctx, fila.ID)
 }

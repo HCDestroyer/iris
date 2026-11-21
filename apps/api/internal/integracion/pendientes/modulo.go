@@ -91,6 +91,7 @@ type Modulo struct {
 	EncolarCierreOrden *auditoria.Caso[OrdenCerrada, ResultadoCierre]
 	resolver           *auditoria.Caso[resultadoIntento, Pendiente]
 	resolverListos     *auditoria.Caso[time.Time, int]
+	armarIntento       *auditoria.Caso[entradaArmarIntento, string]
 }
 
 // Nuevo arma el módulo.
@@ -107,6 +108,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.ResolverManual = nuevoResolverManual(m)
 	m.EncolarCierreOrden = nuevoEncolarCierreOrden(m)
 	m.resolver = nuevoResolver(m)
+	m.armarIntento = m.nuevoArmarIntento()
 	m.resolverListos = auditoria.Nuevo(auditoria.Caso[time.Time, int]{
 		Accion: "integraciones.resolver_pendientes", Acceso: auditoria.Autenticado,
 		AuditarExito: func(n int) bool { return n > 0 },

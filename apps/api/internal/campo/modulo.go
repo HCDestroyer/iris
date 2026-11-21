@@ -98,8 +98,19 @@ type Inventario interface {
 	BodegaDeEmpresa(ctx context.Context, empresaID, bodegaID int64) (bool, error)
 }
 
+// EquiposArgos encola hacia Argos un cambio o un intento de recuperación al aplicarse la operación
+// del lote (contrato 0.14.0 §3.10; pendientes.Modulo de I1). nil = como en 0.12.0, salen al cerrar.
+type EquiposArgos interface {
+	// ClavesPorOperacion: Argos informa contrato ≥ 0.14.0 (falla cerrado).
+	ClavesPorOperacion(ctx context.Context, t *auditoria.Tx) (bool, error)
+	// EncolarAlAplicar recibe el cuerpo de orden.cerrada con ese único equipo; true si lo encoló.
+	EncolarAlAplicar(ctx context.Context, t *auditoria.Tx, orden []byte) (bool, error)
+}
+
 // Config del módulo.
 type Config struct {
+	// Equipos: cambios e intentos hacia Argos al aplicarse (nil = al cerrar la orden).
+	Equipos EquiposArgos
 	// Reloj da la hora actual (time.Now por defecto). Las pruebas lo fijan.
 	Reloj func() time.Time
 	// AsegurarArgos (argos.Modulo.AsegurarInstantanea): antes de crear una orden con cliente y

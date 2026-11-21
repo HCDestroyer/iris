@@ -549,6 +549,39 @@ func (q *Queries) DesbloquearDependientes(ctx context.Context, arg DesbloquearDe
 	return items, nil
 }
 
+const esperandoFoto = `-- name: EsperandoFoto :many
+SELECT id FROM integracion.pendientes
+WHERE estado = 'bloqueado' AND ultimo_error = $1::text AND operacion IN ('cambio', 'no_recuperado')
+  AND payload->>'foto_ref' = $2::text
+ORDER BY id
+`
+
+type EsperandoFotoParams struct {
+	Motivo  string
+	FotoRef string
+}
+
+// Los cambios e intentos que esperan esta foto (0.14.0 §3.10).
+func (q *Queries) EsperandoFoto(ctx context.Context, arg EsperandoFotoParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, esperandoFoto, arg.Motivo, arg.FotoRef)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fallarEsperando = `-- name: FallarEsperando :one
 UPDATE integracion.pendientes
 SET estado = 'fallido_negocio', ultimo_error = $1::text, codigo_error = $2::text, version = version + 1, updated_at = now()
@@ -1090,6 +1123,24 @@ func (q *Queries) NotasDeEquipos(ctx context.Context, ids []uuid.UUID) ([]NotasD
 		return nil, err
 	}
 	return items, nil
+}
+
+const otroIntentoDelDia = `-- name: OtroIntentoDelDia :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.pendientes p, integracion.pendientes yo
+    WHERE yo.id = $1 AND p.id <> yo.id AND p.operacion = 'no_recuperado' AND p.ruta = yo.ruta
+      AND ((p.payload->>'fecha')::timestamptz AT TIME ZONE 'America/Guatemala')::date
+        = ((yo.payload->>'fecha')::timestamptz AT TIME ZONE 'America/Guatemala')::date
+)::boolean
+`
+
+// Otro intento de Iris de la misma unidad (misma ruta) el mismo día de America/Guatemala que este
+// (0.14.0 §3.10): sin él, un 429 demasiados_intentos es un «posible intento ajeno».
+func (q *Queries) OtroIntentoDelDia(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, otroIntentoDelDia, id)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const pendientePorClave = `-- name: PendientePorClave :one

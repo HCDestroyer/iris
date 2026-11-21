@@ -39,6 +39,11 @@ func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 	if _, err := m.resolverListos.Ejecutar(ctx, ahora); err != nil {
 		return 0, fmt.Errorf("pendientes: resolver dependientes listos: %w", err)
 	}
+	// Cambios e intentos que esperan su foto (0.14.0 §3.10): la que ya subió, a la cola; la
+	// rechazada o fuera de la ventana de 72 h, conflicto.
+	if _, err := m.BarrerFotos(ctx); err != nil {
+		return 0, fmt.Errorf("pendientes: revisar fotos de intentos: %w", err)
+	}
 	n := 0
 	for n < maxPorCorrida {
 		f, ok, err := m.tomar(ctx, ahora)
@@ -86,6 +91,9 @@ type resultadoIntento struct {
 	Codigo string `json:"codigo,omitempty"`
 	// Conciliado: un 409 que significa «ya está hecho en Argos» (cargo_duplicado, traslado_ya_recibido).
 	Conciliado string `json:"conciliado,omitempty"`
+	// Espera: el Retry-After de Argos (429 o 503 que se reintentan), si pide más que la espera de
+	// la cola.
+	Espera time.Duration `json:"espera,omitempty"`
 
 	// respuesta del 2xx, ya limpia (no va a la auditoría: queda en el pendiente).
 	respuesta []byte
@@ -157,8 +165,17 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		r.Exito, r.Conciliado = true, CodigoTrasladoYaRecibido
 		return r
 	}
-	r.Negocio = EsNegocio(er)
+	r.Negocio = EsNegocioEn(f.Operacion, er)
 	r.Error = describir(er)
+	if r.Negocio && f.Operacion == OpNoRecuperado && strings.TrimSpace(er.Tipo) == URNDemasiadosIntentos {
+		// 0.14.0 §3.10: sin otro intento de Iris de esa unidad ese día, el cupo lo ocupa otro.
+		if otro, err := pendientesbd.New(nucleo.BDDe(ctx)).OtroIntentoDelDia(ctx, f.ID); err == nil && !otro {
+			r.Error = PosibleIntentoAjeno + ": " + r.Error
+		}
+	}
+	if !r.Negocio {
+		r.Espera = min(er.ReintentarEn(), conector.MaxRetryAfter)
+	}
 	return r
 }
 
@@ -276,39 +293,73 @@ const TipoServicioNoPendiente = "servicio_no_pendiente"
 // 0.3.1 §3.1: de los 409, solo idempotencia_en_curso se reintenta; cualquier otro (con otro
 // type, sin type o con about:blank) es de negocio.
 func EsNegocio(er *conector.ErrorRemoto) bool {
+	return EsNegocioEn("", er)
+}
+
+// EsNegocioEn: EsNegocio según la operación. Desde 0.14.0 (§3.9, §3.10, §4.5) los de negocio se
+// reconocen por la URN completa del type, cualquiera que sea la versión de Argos:
+//   - un 403 de ProhibidosURN (bodega, actor, jefe, empresa, asistente o actor sin vínculo);
+//   - en …/no-recuperado, el 429 urn:argosisp:problema:demasiados_intentos, aunque venga con
+//     Retry-After. Cualquier otro 429 (tope de peticiones) y el 503 se reintentan.
+//
+// 409 vinculos_en_carga (la carga inicial de vínculos de §6.6 no terminó) se reintenta.
+func EsNegocioEn(operacion string, er *conector.ErrorRemoto) bool {
 	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
 		return false
 	}
-	if er.Status == http.StatusTooManyRequests && TipoDe(er) == TipoDemasiadosIntentos {
-		// Un intento de recuperación por unidad al día (0.12.0 §3.10): reintentarlo no lo arregla.
-		return true
+	urn := strings.TrimSpace(er.Tipo)
+	if er.Status == http.StatusTooManyRequests {
+		return operacion == OpNoRecuperado && urn == URNDemasiadosIntentos
 	}
-	if er.Status == http.StatusForbidden && ConflictosProhibidos[TipoDe(er)] {
+	if er.Status == http.StatusForbidden && ProhibidosURN[urn] {
 		// Un 403 con estos type es una decisión de Argos sobre el pedido (B-268-4), no la falta de un
 		// permiso del token: reintentar no lo arregla. Conflicto para una persona.
 		return true
 	}
 	switch er.Status {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout,
-		http.StatusTooEarly, http.StatusTooManyRequests:
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusTooEarly:
 		return false
 	case http.StatusConflict:
-		return TipoDe(er) != TipoEnCurso
+		t := TipoDe(er)
+		return t != TipoEnCurso && t != TipoVinculosEnCarga
 	}
 	return true
 }
+
+// PosibleIntentoAjeno: el 429 demasiados_intentos de una unidad sin otro intento de Iris ese día
+// (0.14.0 §3.10): lo muestra la cola de pendientes.
+const PosibleIntentoAjeno = "posible intento ajeno"
+
+// PrefijoProblema: el prefijo de los type de Argos (problem+json).
+const PrefijoProblema = "urn:argosisp:problema:"
 
 // TipoDemasiadosIntentos: 429 de …/no-recuperado (más de un intento por unidad al día). De
 // negocio: no se reintenta solo (A-271-2).
 const TipoDemasiadosIntentos = "demasiados_intentos"
 
-// ConflictosProhibidos son los 403 de negocio de Argos (contrato 0.11.0 §3.9 y 0.12.0 §3.10): la
-// bodega no es del técnico, el actor no coincide, solo el jefe recibe, el servicio es de otra
-// empresa o el actor es el asistente. No se reintentan solos.
+// URNDemasiadosIntentos: el type exacto del 429 de negocio de …/no-recuperado (0.14.0 §3.10).
+const URNDemasiadosIntentos = PrefijoProblema + TipoDemasiadosIntentos
+
+// TipoVinculosEnCarga: 409 mientras Iris no cierra la carga inicial de vínculos (0.14.0 §6.6): se
+// reintenta.
+const TipoVinculosEnCarga = "vinculos_en_carga"
+
+// ConflictosProhibidos son los 403 de negocio de Argos (contrato 0.11.0 §3.9, 0.12.0 §3.10 y 0.14.0
+// §3.9): la bodega no es del técnico, el actor no coincide, solo el jefe recibe, el servicio es de
+// otra empresa, el actor es el asistente o no tiene vínculo conocido. No se reintentan solos.
 var ConflictosProhibidos = map[string]bool{
 	"no_es_miembro": true, "actor_no_coincide": true, "solo_jefe_recibe": true,
-	"empresa_no_permitida": true, "actor_ia_no_permitido": true,
+	"empresa_no_permitida": true, "actor_ia_no_permitido": true, "actor_desconocido": true,
 }
+
+// ProhibidosURN: ConflictosProhibidos con la URN completa (0.14.0: se reconocen solo así).
+var ProhibidosURN = func() map[string]bool {
+	m := make(map[string]bool, len(ConflictosProhibidos))
+	for t := range ConflictosProhibidos {
+		m[PrefijoProblema+t] = true
+	}
+	return m
+}()
 
 // TipoDe es el type del problem+json de Argos sin prefijo (acepta «x», «urn:…:x» o una URL
 // …/x).
@@ -418,7 +469,7 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				evento, payload = EventoFallido, eventoFallo{eventoPendiente: eventoDe(antes), Intentos: intentos, Status: in.Status, Detalle: in.Error}
 			case int(intentos) <= len(Esperas):
 				p.Estado, p.UltimoError, p.CodigoError = EstadoPendiente, &in.Error, texto(in.Codigo)
-				p.ProximoIntento = in.ahora.Add(Esperas[intentos-1])
+				p.ProximoIntento = in.ahora.Add(max(Esperas[intentos-1], in.Espera))
 			default:
 				p.Estado, p.UltimoError, p.CodigoError = EstadoAgotado, &in.Error, texto(in.Codigo)
 				evento, payload = EventoAgotado, eventoFallo{eventoPendiente: eventoDe(antes), Intentos: intentos, Status: in.Status, Detalle: in.Error}

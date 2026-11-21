@@ -34,6 +34,23 @@ SELECT bodega_id FROM integracion.argos_bodegas_tecnico WHERE bodega_id = ANY(@b
 SELECT usuario_id, argos_id_externo::text AS id_externo FROM agenda.tecnicos
 WHERE usuario_id = ANY(@usuarios::bigint[]) AND argos_id_externo IS NOT NULL AND argos_id_externo <> '';
 
+-- name: EsperandoFoto :many
+-- Los cambios e intentos que esperan esta foto (0.14.0 §3.10).
+SELECT id FROM integracion.pendientes
+WHERE estado = 'bloqueado' AND ultimo_error = @motivo::text AND operacion IN ('cambio', 'no_recuperado')
+  AND payload->>'foto_ref' = @foto_ref::text
+ORDER BY id;
+
+-- name: OtroIntentoDelDia :one
+-- Otro intento de Iris de la misma unidad (misma ruta) el mismo día de America/Guatemala que este
+-- (0.14.0 §3.10): sin él, un 429 demasiados_intentos es un «posible intento ajeno».
+SELECT EXISTS (
+    SELECT 1 FROM integracion.pendientes p, integracion.pendientes yo
+    WHERE yo.id = @id AND p.id <> yo.id AND p.operacion = 'no_recuperado' AND p.ruta = yo.ruta
+      AND ((p.payload->>'fecha')::timestamptz AT TIME ZONE 'America/Guatemala')::date
+        = ((yo.payload->>'fecha')::timestamptz AT TIME ZONE 'America/Guatemala')::date
+)::boolean;
+
 -- name: PendientePorClave :one
 SELECT * FROM integracion.pendientes WHERE idempotency_key = @idempotency_key;
 

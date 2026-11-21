@@ -37,7 +37,7 @@ func TestEquiposDelClienteConArgos012(t *testing.T) {
 		"tecnico_id": otro, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-27b"},
 		"equipos": []any{map[string]any{"id": "0193f000-0000-7000-8000-000000000001", "accion": "cambio", "sale_unidad_id": 812,
 			"serie": "ZTEGC8A1B2C3", "motivo": "danado", "destino_sale": "revision", "cobro_propuesto": map[string]any{"motivo": "golpe"},
-			"fecha": "2026-11-21T16:02:00Z", "recibido_en_iris": "2026-11-21T16:40:11Z", "registrado_por": tec}},
+			"fecha": "2026-11-21T16:02:00Z", "recibido_en_iris": "2026-11-21T16:40:11Z", "usuario_id": tec}},
 		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_gasto",
 			"fecha": "2026-11-21T16:01:00Z", "recibido_en_iris": "2026-11-21T16:40:11Z"}},
 	})
@@ -66,7 +66,7 @@ func TestEquiposDelClienteConArgos012(t *testing.T) {
 		"equipos": []any{
 			map[string]any{"accion": "no_recuperado", "unidad_id": 91, "motivo": "se_nego", "foto_ref": "0193f000-0000-7000-8000-0000000000aa",
 				"ubicacion": map[string]any{"lat": 14.6, "lng": -90.5, "precision_m": 12}, "fecha": "2026-11-21T16:02:00Z", "recibido_en_iris": "2026-11-21T16:40:11Z",
-				"registrado_por": tec},
+				"usuario_id": tec},
 			map[string]any{"accion": "retirar", "unidad_id": 92, "serie": "VIEJA", "condicion": "perdido"},
 		}})
 	e.procesar()

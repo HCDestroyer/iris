@@ -322,32 +322,33 @@ type CampoOrdenChecklistHistorial struct {
 }
 
 type CampoOrdenEquipo struct {
-	ID            uuid.UUID
-	OrdenID       int64
-	Accion        string
-	UnidadID      *int64
-	Serie         *string
-	Mac           *string
-	Modelo        string
-	Condicion     *string
-	RegistradoPor *int64
-	Canal         string
-	OcurridoEn    time.Time
-	OperacionID   pgtype.UUID
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Validado      bool
-	SaleUnidadID  *int64
-	Motivo        *string
-	DestinoSale   *string
-	CobroMotivo   *string
-	CobroNota     *string
-	Nota          *string
-	FotoAdjuntoID pgtype.UUID
-	Lat           *float64
-	Lon           *float64
-	PrecisionM    *float32
-	RecibidoEn    *time.Time
+	ID               uuid.UUID
+	OrdenID          int64
+	Accion           string
+	UnidadID         *int64
+	Serie            *string
+	Mac              *string
+	Modelo           string
+	Condicion        *string
+	RegistradoPor    *int64
+	Canal            string
+	OcurridoEn       time.Time
+	OperacionID      pgtype.UUID
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Validado         bool
+	SaleUnidadID     *int64
+	Motivo           *string
+	DestinoSale      *string
+	CobroMotivo      *string
+	CobroNota        *string
+	Nota             *string
+	FotoAdjuntoID    pgtype.UUID
+	Lat              *float64
+	Lon              *float64
+	PrecisionM       *float32
+	RecibidoEn       *time.Time
+	EnviadoAlAplicar bool
 }
 
 type CampoOrdenEvento struct {
