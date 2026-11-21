@@ -17242,7 +17242,7 @@ export interface components {
              */
             ordenId?: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular" | "orden.registrar_identidad" | "orden.cambiar_titular" | "orden.completar_datos" | "orden.cambiar_plan";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular" | "llamada.directa" | "orden.registrar_identidad" | "orden.cambiar_titular" | "orden.completar_datos" | "orden.cambiar_plan";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -19757,6 +19757,8 @@ export interface components {
             /** @enum {string} */
             estado: "aplicada" | "duplicada" | "rechazada";
             id: string;
+            /** @description llamada.directa: la llamada anotada en la orden (el mismo id de la operación) */
+            llamadaId?: string;
             /** @description Versión y estado de la orden (también en los rechazos, si el técnico la ve o la tuvo) */
             orden?: components["schemas"]["EstadoOrden"];
             /** @description traslado.recibir: la recepción encolada hacia Argos (su estado sigue en GET /campo/cambios, recepciones[]) */
@@ -20201,6 +20203,7 @@ export interface components {
         Servicio: {
             /** Format: int64 */
             clienteId: number;
+            /** @description Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce) */
             codigo: string;
             /** @description Quien atiende en el sitio; solo con servicios.ver_ubicacion */
             contactoNombre?: string;
@@ -20230,6 +20233,8 @@ export interface components {
             lon?: number;
             /** @description Moneda de precioMensual (GTQ); ausente si no hay precio */
             moneda?: string;
+            /** @description Nombre que eligió el cliente o el personal en Argos («Casa»; ausente si no tiene). Texto del cliente: se muestra escapado; nunca va a la IA */
+            nombre?: string;
             /**
              * Format: int64
              * @description Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA
@@ -20330,6 +20335,7 @@ export interface components {
         ServicioResumenConversacion: {
             /** Format: int64 */
             clienteId: number;
+            /** @description Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce) */
             codigo: string;
             /** @description Quien atiende en el sitio; solo con servicios.ver_ubicacion */
             contactoNombre?: string;
@@ -20359,6 +20365,8 @@ export interface components {
             lon?: number;
             /** @description Moneda de precioMensual (GTQ); ausente si no hay precio */
             moneda?: string;
+            /** @description Nombre que eligió el cliente o el personal en Argos («Casa»; ausente si no tiene). Texto del cliente: se muestra escapado; nunca va a la IA */
+            nombre?: string;
             /**
              * Format: int64
              * @description Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA

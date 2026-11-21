@@ -254,7 +254,9 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		// Paso «Confirmar titular y plan» (contrato 0.10.0 §3.4): lo sensible va cifrado al depósito
 		// de tránsito y sale a Argos por la cola de pendientes.
 		Titular: campo.ConfigTitular{Cifrador: acfg.Cifrador, Conector: campo.ConectorDeArgos(conectorArgos), Encolar: integracion.Encolar(cola)},
-		Agenda:  agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
+		// llamada.directa del lote: la anota la mensajería (fila y evento) en la transacción de la operación.
+		LlamadasDirectas: mensajeria.LlamadasDirectas{},
+		Agenda:           agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
 	// (pendientes hacia Argos y orden de instalación en campo).
 	comercial.RegistrarAdjuntos()

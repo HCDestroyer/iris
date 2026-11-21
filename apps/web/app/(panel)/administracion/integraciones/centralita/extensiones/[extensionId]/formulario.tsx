@@ -17,7 +17,7 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { credencialRechazada, esperaPruebaRegistro, esquemaExtension, textoPruebaRegistro, type ValoresExtension } from "@/lib/telefono/administracion";
 import { guardarTelefonoExtension, probarRegistro } from "@/lib/telefono/api";
-import type { PruebaRegistro } from "@/lib/telefono/tipos";
+import type { PruebaRegistro } from "@iris/telefono";
 
 const VOLVER = "/administracion/integraciones/centralita";
 
