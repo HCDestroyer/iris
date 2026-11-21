@@ -426,7 +426,12 @@ func TestChatSoloLecturaAlCerrarLaOrden(t *testing.T) {
 		if e.conversacionesDe(sup)[c]["solo_lectura"] != true {
 			t.Fatalf("%s: la lista no marca solo lectura", fin[0])
 		}
-		e.exigir(e.enviarChat(tec, c, nuevoID(), "una cosa más"), http.StatusUnprocessableEntity, "type", "urn:iris:problema:conversacion_cerrada")
+		// La app de campo sabe que es de solo lectura (y por qué) al abrir el hilo desde la orden.
+		e.exigir(e.chat(tec, http.MethodPost, fmt.Sprintf("/ordenes/%d/abrir", o), "", nil), http.StatusOK, "solo_lectura", "true", "orden_estado", fin[0])
+		e.exigir(e.chat(tec, http.MethodGet, "/conversaciones/"+c, "", nil), http.StatusOK, "orden_estado", fin[0])
+		// El rechazo es un problema RFC 9457 con el motivo en llano (la app lo muestra tal cual).
+		e.exigir(e.enviarChat(tec, c, nuevoID(), "una cosa más"), http.StatusUnprocessableEntity, "type", "urn:iris:problema:conversacion_cerrada",
+			"status", "422", "detail", "La orden está cerrada, fallida o cancelada: su chat es de solo lectura")
 		e.exigir(e.enviarChat(sup, c, nuevoID(), "gracias"), http.StatusUnprocessableEntity, "type", "urn:iris:problema:conversacion_cerrada")
 		// La cola sin conexión reenvía lo que ya había llegado: 200.
 		e.exigir(e.chat(tec, http.MethodPost, "/conversaciones/"+c+"/mensajes", "", cuerpo), http.StatusOK)

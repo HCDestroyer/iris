@@ -12,12 +12,15 @@ import {
     estadoEnvio,
     horaLista,
     horaMensaje,
+    motivoNoEnviado,
     puedeEliminar,
+    puedeReintentar,
     RESPUESTAS_RAPIDAS,
     segmentosTexto,
     subtituloConversacion,
     TEXTO_ELIMINADO,
     textoContador,
+    textoSoloLectura,
     textoValido,
     tituloConversacion,
     vistaPrevia,
@@ -26,7 +29,7 @@ import {
     type PersonaChat,
 } from "@iris/sync/chat";
 import { iniciales } from "@iris/sync/campo";
-import { ArrowDown, ArrowLeft, Ban, Camera, ChevronRight, ClipboardList, MapPin, MessageCircle, MessageSquarePlus, RotateCcw, Search, Send, Trash2, TriangleAlert, Users, WifiOff } from "lucide-react-native";
+import { ArrowDown, ArrowLeft, Ban, Camera, ChevronRight, ClipboardList, Lock, MapPin, MessageCircle, MessageSquarePlus, RotateCcw, Search, Send, Trash2, TriangleAlert, Users, WifiOff } from "lucide-react-native";
 import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from "react";
 import { Image, Linking, RefreshControl, ScrollView, StyleSheet, Text, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -216,7 +219,9 @@ export function ListaChat() {
             ) : (
                 estado.conversaciones.map((c) => {
                     const titulo = tituloConversacion(c);
-                    const etiqueta = [titulo, c.no_leidos > 0 ? `${c.no_leidos} sin leer` : null, c.fallidos > 0 ? "con mensajes no enviados" : null].filter(Boolean).join(", ");
+                    const etiqueta = [titulo, c.solo_lectura ? "orden cerrada, solo lectura" : null, c.no_leidos > 0 ? `${c.no_leidos} sin leer` : null, c.fallidos > 0 ? "con mensajes no enviados" : null]
+                        .filter(Boolean)
+                        .join(", ");
                     return (
                         <Tocable key={c.id} etiqueta={etiqueta} alPresionar={() => navegar({ tipo: "conversacion", id: c.id })} estilo={[estilos.filaConversacion, { backgroundColor: campo.panel, borderColor: colores.borde }]} testID={`conversacion-${c.id}`}>
                             <Avatar c={c} />
@@ -230,6 +235,11 @@ export function ListaChat() {
                                 <View style={estilos.filaEntre}>
                                     <Text numberOfLines={1} style={[estilos.flex, { color: c.no_leidos > 0 ? colores.texto : colores.textoSuave, fontSize: 14 }]}>
                                         {c.fallidos > 0 ? <Text style={{ color: colores.error, fontWeight: "600" }}>No enviado · </Text> : c.pendientes > 0 ? <Text style={{ color: colores.tono.warning }}>Por enviar · </Text> : null}
+                                        {c.solo_lectura ? (
+                                            <Text style={{ fontWeight: "500" }} testID={`conversacion-cerrada-${c.id}`}>
+                                                Cerrada ·{" "}
+                                            </Text>
+                                        ) : null}
                                         {vistaPrevia(c, sesion.usuarioId)}
                                     </Text>
                                     {c.no_leidos > 0 ? <Contador n={c.no_leidos} /> : null}
@@ -428,7 +438,22 @@ function FotoBurbuja({ m }: { m: MensajeVista }) {
     );
 }
 
-function Burbuja({ m, conAutor, alMenu, alReintentar }: { m: MensajeVista; conAutor: boolean; alMenu: (m: MensajeVista) => void; alReintentar: (m: MensajeVista) => void }) {
+function Burbuja({
+    m,
+    conAutor,
+    reintentable,
+    alMenu,
+    alReintentar,
+    alDescartar,
+}: {
+    m: MensajeVista;
+    conAutor: boolean;
+    /** Falso si la orden se cerró: el motivo en llano y solo «Descartar». */
+    reintentable: boolean;
+    alMenu: (m: MensajeVista) => void;
+    alReintentar: (m: MensajeVista) => void;
+    alDescartar: (m: MensajeVista) => void;
+}) {
     const { colores, campo } = useTema();
     const estado = estadoEnvio(m);
     const hora = horaMensaje(m);
@@ -468,16 +493,26 @@ function Burbuja({ m, conAutor, alMenu, alReintentar }: { m: MensajeVista; conAu
                     {estado ? ` · ${estado.texto}` : ""}
                 </Text>
             </TocableLargo>
-            {m.envio === "fallido" ? (
+            {m.envio === "fallido" && reintentable ? (
                 <Boton variante="fantasma" icono={TriangleAlert} alPresionar={() => alReintentar(m)} testID="reintentar-mensaje">
                     No enviado — Reintentar
                 </Boton>
+            ) : m.envio === "fallido" ? (
+                <View style={estilos.noEnviadoCerrada} testID="no-enviado-cerrada">
+                    <View style={estilos.filaAviso}>
+                        <Lock size={16} color={colores.error} />
+                        <Text style={[estilos.flexTexto, { color: colores.error, fontSize: 14 }]}>{motivoNoEnviado(m)}</Text>
+                    </View>
+                    <Boton variante="fantasma" icono={Trash2} alPresionar={() => alDescartar(m)} testID="descartar-mensaje">
+                        Descartar
+                    </Boton>
+                </View>
             ) : null}
         </View>
     );
 }
 
-function MenuMensaje({ m, alCerrar }: { m: MensajeVista | null; alCerrar: () => void }) {
+function MenuMensaje({ m, reintentable, alCerrar }: { m: MensajeVista | null; reintentable: boolean; alCerrar: () => void }) {
     const { chat } = useChat();
     const { notificar, servicios } = useCampo();
     const ahora = useAhora(15_000);
@@ -499,9 +534,13 @@ function MenuMensaje({ m, alCerrar }: { m: MensajeVista | null; alCerrar: () => 
             <Pila>
                 {m.envio === "fallido" ? (
                     <>
-                        <Boton variante="secundario" icono={RotateCcw} alPresionar={() => void correr(() => chat.reintentar(m.id), "Se enviará de nuevo")}>
-                            Reintentar
-                        </Boton>
+                        {reintentable ? (
+                            <Boton variante="secundario" icono={RotateCcw} alPresionar={() => void correr(() => chat.reintentar(m.id), "Se enviará de nuevo")}>
+                                Reintentar
+                            </Boton>
+                        ) : (
+                            <Texto suave>{motivoNoEnviado(m)}</Texto>
+                        )}
                         <Boton variante="peligro" icono={Trash2} alPresionar={() => void correr(() => chat.descartar(m.id), "Mensaje descartado")}>
                             Descartar
                         </Boton>
@@ -647,9 +686,18 @@ export function ConversacionChat({ id }: { id: number }) {
             navegar({ tipo: "chat" });
         }
     };
+    const soloLectura = c ? textoSoloLectura(c) : null;
     const reintentar = async (m: MensajeVista) => {
-        await chat.reintentar(m.id);
-        notificar({ tono: "success", texto: "Se enviará de nuevo" });
+        try {
+            await chat.reintentar(m.id);
+            notificar({ tono: "success", texto: "Se enviará de nuevo" });
+        } catch (e) {
+            notificar({ tono: "error", texto: e instanceof ErrorChatLocal ? e.message : "No se pudo guardar en el teléfono." });
+        }
+    };
+    const descartar = async (m: MensajeVista) => {
+        await chat.descartar(m.id);
+        notificar({ tono: "success", texto: "Mensaje descartado" });
     };
 
     let cuerpo: ReactNode;
@@ -671,14 +719,22 @@ export function ConversacionChat({ id }: { id: number }) {
                         No se pudo actualizar · Reintentar
                     </Boton>
                 ) : null}
-                {elementos.length === 0 && v.carga !== "cargando" ? <Texto suave>Sin mensajes todavía. Escribe el primero.</Texto> : null}
+                {elementos.length === 0 && v.carga !== "cargando" ? <Texto suave>{soloLectura ? "Sin mensajes." : "Sin mensajes todavía. Escribe el primero."}</Texto> : null}
                 {elementos.map((e) =>
                     e.tipo === "dia" ? (
                         <View key={e.clave} style={[estilos.separador, { backgroundColor: campo.marcaSuave }]} testID="separador-dia">
                             <Text style={[estilos.textoSeparador, { color: campo.marcaSuaveTexto }]}>{e.texto}</Text>
                         </View>
                     ) : (
-                        <Burbuja key={e.clave} m={e.mensaje} conAutor={e.conAutor} alMenu={setMenu} alReintentar={(m) => void reintentar(m)} />
+                        <Burbuja
+                            key={e.clave}
+                            m={e.mensaje}
+                            conAutor={e.conAutor}
+                            reintentable={puedeReintentar(e.mensaje, c)}
+                            alMenu={setMenu}
+                            alReintentar={(m) => void reintentar(m)}
+                            alDescartar={(m) => void descartar(m)}
+                        />
                     ),
                 )}
             </>
@@ -730,8 +786,16 @@ export function ConversacionChat({ id }: { id: number }) {
                     </View>
                 ) : null}
             </View>
-            {c && puedeEnviar ? <Compositor conversacionId={id} alEnviar={seguir.alEnviar} placeholder={c.tipo === "orden" ? "Escribe a despacho…" : c.tipo === "cuadrilla" ? "Escribe a tu cuadrilla…" : `Escribe a ${tituloConversacion(c)}…`} /> : null}
-            <MenuMensaje m={menu} alCerrar={() => setMenu(null)} />
+            {c && soloLectura ? (
+                <View style={[estilos.compositor, { backgroundColor: campo.panel, borderColor: colores.borde, paddingBottom: margen.bottom + 12 }]} testID="chat-solo-lectura">
+                    <Aviso tono="info" icono={Lock} titulo={soloLectura}>
+                        Puedes leer los mensajes, pero ya no escribir en este chat.
+                    </Aviso>
+                </View>
+            ) : c && puedeEnviar ? (
+                <Compositor conversacionId={id} alEnviar={seguir.alEnviar} placeholder={c.tipo === "orden" ? "Escribe a despacho…" : c.tipo === "cuadrilla" ? "Escribe a tu cuadrilla…" : `Escribe a ${tituloConversacion(c)}…`} />
+            ) : null}
+            <MenuMensaje m={menu} reintentable={menu ? puedeReintentar(menu, c) : false} alCerrar={() => setMenu(null)} />
         </View>
         </EvitarTeclado>
     );
@@ -772,6 +836,8 @@ const estilos = StyleSheet.create({
     separador: { alignSelf: "center", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 4 },
     textoSeparador: { fontSize: 12, fontWeight: "600" },
     compositor: { borderTopWidth: 1, paddingHorizontal: 14, paddingTop: 10, gap: 10 },
+    noEnviadoCerrada: { alignItems: "flex-end", gap: 2, maxWidth: "100%" },
+    flexTexto: { flexShrink: 1 },
     rapidas: { gap: 8 },
     personas: { gap: 8 },
     persona: { justifyContent: "flex-start", minHeight: 56 },

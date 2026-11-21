@@ -21,10 +21,10 @@ import type {
 
 export type MetodoChat = keyof TransporteChat | "crearAdjunto" | "enviarParte";
 
-const problema = (codigo: string, status: number) => ({ type: `urn:iris:problema:${codigo}`, title: codigo, status });
+const problema = (codigo: string, status: number, detail?: string) => ({ type: `urn:iris:problema:${codigo}`, title: codigo, status, ...(detail ? { detail } : {}) });
 
-export function errorHttp(status: number, codigo: string, cabeceras?: Record<string, string>): ErrorTransporte {
-    return new ErrorTransporte("http", codigo, status, problema(codigo, status), cabeceras ? new Headers(cabeceras) : null);
+export function errorHttp(status: number, codigo: string, cabeceras?: Record<string, string>, detail?: string): ErrorTransporte {
+    return new ErrorTransporte("http", codigo, status, problema(codigo, status, detail), cabeceras ? new Headers(cabeceras) : null);
 }
 
 export const errorRed = () => new ErrorTransporte("red", "Sin conexión");
@@ -248,6 +248,10 @@ export class ServidorChatFalso implements TransporteChat {
                 return Promise.reject(errorHttp(409, "mensaje_id_reutilizado"));
             }
             return Promise.resolve({ mensaje: structuredClone(previo), reenvio: true });
+        }
+        if (this.conversaciones.get(conversacionId)?.solo_lectura) {
+            // Como el servidor: un reenvío de lo ya llegado responde 200 (arriba); uno nuevo, 422.
+            return Promise.reject(errorHttp(422, "conversacion_cerrada", undefined, "La orden está cerrada, fallida o cancelada: su chat es de solo lectura"));
         }
         const m: MensajeChat = {
             id: cuerpo.id,

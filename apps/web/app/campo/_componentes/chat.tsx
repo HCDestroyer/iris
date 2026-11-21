@@ -7,12 +7,15 @@ import {
     estadoEnvio,
     horaLista,
     horaMensaje,
+    motivoNoEnviado,
     puedeEliminar,
+    puedeReintentar,
     RESPUESTAS_RAPIDAS,
     segmentosTexto,
     subtituloConversacion,
     TEXTO_ELIMINADO,
     textoContador,
+    textoSoloLectura,
     textoValido,
     tituloConversacion,
     vistaPrevia,
@@ -22,7 +25,7 @@ import {
 } from "@iris/sync/chat";
 import { iniciales, urlDeVista, type Vista } from "@iris/sync/campo";
 import { AreaTexto, Aviso, Boton, Camara, CampoBusqueda, Cargando, EstadoVacio, cn } from "@iris/ui";
-import { ArrowLeft, Ban, ChevronRight, ClipboardList, Copy, MapPin, MessageCircle, MessageSquarePlus, RefreshCw, RotateCcw, Send, Trash2, TriangleAlert, Users, WifiOff } from "lucide-react";
+import { ArrowLeft, Ban, ChevronRight, ClipboardList, Copy, Lock, MapPin, MessageCircle, MessageSquarePlus, RefreshCw, RotateCcw, Send, Trash2, TriangleAlert, Users, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { ErrorTransporte } from "@iris/sync";
 import { useAhora } from "@/componentes/tickets/insignias";
@@ -277,7 +280,9 @@ export function ListaChat() {
                 <ul className="grid grid-cols-[minmax(0,1fr)] gap-2" aria-label="Conversaciones">
                     {estado.conversaciones.map((c) => {
                         const titulo = tituloConversacion(c);
-                        const etiqueta = [titulo, c.no_leidos > 0 ? `${c.no_leidos} sin leer` : null, c.fallidos > 0 ? "con mensajes no enviados" : null].filter(Boolean).join(", ");
+                        const etiqueta = [titulo, c.solo_lectura ? "orden cerrada, solo lectura" : null, c.no_leidos > 0 ? `${c.no_leidos} sin leer` : null, c.fallidos > 0 ? "con mensajes no enviados" : null]
+                            .filter(Boolean)
+                            .join(", ");
                         return (
                             <li key={c.id}>
                                 <a
@@ -300,6 +305,12 @@ export function ListaChat() {
                                                     <span className="font-semibold text-error">No enviado · </span>
                                                 ) : c.pendientes > 0 ? (
                                                     <span className="text-warning">Por enviar · </span>
+                                                ) : null}
+                                                {c.solo_lectura ? (
+                                                    <span className="font-medium" data-slot="fila-cerrada">
+                                                        <Lock aria-hidden className="mr-1 inline size-3.5 align-[-2px]" />
+                                                        Cerrada ·{" "}
+                                                    </span>
                                                 ) : null}
                                                 {vistaPrevia(c, sesion.usuarioId)}
                                             </span>
@@ -528,7 +539,22 @@ function FotoBurbuja({ m }: { m: MensajeVista }) {
     );
 }
 
-function Burbuja({ m, conAutor, alMenu, alReintentar }: { m: MensajeVista; conAutor: boolean; alMenu: (m: MensajeVista) => void; alReintentar: (m: MensajeVista) => void }) {
+function Burbuja({
+    m,
+    conAutor,
+    reintentable,
+    alMenu,
+    alReintentar,
+    alDescartar,
+}: {
+    m: MensajeVista;
+    conAutor: boolean;
+    /** Falso si la orden se cerró: el motivo en llano y solo «Descartar». */
+    reintentable: boolean;
+    alMenu: (m: MensajeVista) => void;
+    alReintentar: (m: MensajeVista) => void;
+    alDescartar: (m: MensajeVista) => void;
+}) {
     const pulsacion = useRef<ReturnType<typeof setTimeout> | null>(null);
     const estado = estadoEnvio(m);
     const cancelar = () => {
@@ -604,17 +630,27 @@ function Burbuja({ m, conAutor, alMenu, alReintentar }: { m: MensajeVista; conAu
                     {estado ? ` · ${estado.texto}` : ""}
                 </span>
             </div>
-            {m.envio === "fallido" ? (
+            {m.envio === "fallido" && reintentable ? (
                 <Boton variante="enlace" className="min-h-12 px-1 text-sm text-error [--button-fg:var(--hx-error)]" onClick={() => alReintentar(m)}>
                     <TriangleAlert aria-hidden />
                     No enviado — Reintentar
                 </Boton>
+            ) : m.envio === "fallido" ? (
+                <span className="flex flex-wrap items-center justify-end gap-x-2 text-sm text-error" data-slot="no-enviado-cerrada">
+                    <span className="flex items-center gap-1.5">
+                        <Lock aria-hidden className="size-4 shrink-0" />
+                        {motivoNoEnviado(m)}
+                    </span>
+                    <Boton variante="enlace" className="min-h-12 px-1 text-sm" onClick={() => alDescartar(m)}>
+                        Descartar
+                    </Boton>
+                </span>
             ) : null}
         </li>
     );
 }
 
-function MenuMensaje({ m, alCerrar }: { m: MensajeVista | null; alCerrar: () => void }) {
+function MenuMensaje({ m, reintentable, alCerrar }: { m: MensajeVista | null; reintentable: boolean; alCerrar: () => void }) {
     const { chat } = useChat();
     const { notificar } = useCampo();
     const ahora = useAhora(15_000);
@@ -653,10 +689,14 @@ function MenuMensaje({ m, alCerrar }: { m: MensajeVista | null; alCerrar: () => 
                 ) : null}
                 {m.envio === "fallido" ? (
                     <>
-                        <Boton variante="secundario" tamano="lg" className="h-12 justify-start md:h-12" onClick={() => void correr(() => chat.reintentar(m.id), "Se enviará de nuevo")}>
-                            <RotateCcw aria-hidden />
-                            Reintentar
-                        </Boton>
+                        {reintentable ? (
+                            <Boton variante="secundario" tamano="lg" className="h-12 justify-start md:h-12" onClick={() => void correr(() => chat.reintentar(m.id), "Se enviará de nuevo")}>
+                                <RotateCcw aria-hidden />
+                                Reintentar
+                            </Boton>
+                        ) : (
+                            <p className="text-sm text-muted-foreground">{motivoNoEnviado(m)}</p>
+                        )}
                         <Boton variante="peligro" tamano="lg" className="h-12 justify-start md:h-12" onClick={() => void correr(() => chat.descartar(m.id), "Mensaje descartado")}>
                             <Trash2 aria-hidden />
                             Descartar
@@ -853,9 +893,18 @@ export function ConversacionPantalla({ id }: { id: number }) {
     const grupo = c?.tipo !== "directa";
     const otras = estado.conversaciones.filter((x) => x.id !== id).slice(0, 3);
     const titulo = c ? tituloConversacion(c) : "Conversación";
+    const soloLectura = c ? textoSoloLectura(c) : null;
     const reintentar = async (m: MensajeVista) => {
-        await chat.reintentar(m.id);
-        notificar({ tono: "success", texto: "Se enviará de nuevo" });
+        try {
+            await chat.reintentar(m.id);
+            notificar({ tono: "success", texto: "Se enviará de nuevo" });
+        } catch (e) {
+            notificar({ tono: "error", texto: e instanceof ErrorChatLocal ? e.message : "No se pudo guardar en el teléfono." });
+        }
+    };
+    const descartar = async (m: MensajeVista) => {
+        await chat.descartar(m.id);
+        notificar({ tono: "success", texto: "Mensaje descartado" });
     };
 
     let cuerpo: ReactNode;
@@ -898,14 +947,24 @@ export function ConversacionPantalla({ id }: { id: number }) {
                         </Boton>
                     </li>
                 ) : null}
-                {elementos.length === 0 && v.carga !== "cargando" ? <li className="self-center py-8 text-sm text-muted-foreground">Sin mensajes todavía. Escribe el primero.</li> : null}
+                {elementos.length === 0 && v.carga !== "cargando" ? (
+                    <li className="self-center py-8 text-sm text-muted-foreground">{soloLectura ? "Sin mensajes." : "Sin mensajes todavía. Escribe el primero."}</li>
+                ) : null}
                 {elementos.map((e) =>
                     e.tipo === "dia" ? (
                         <li key={e.clave} className="self-center rounded-full bg-[var(--campo-marca-suave)] px-3 py-1 text-xs font-semibold text-[var(--campo-marca-suave-texto)]" data-slot="separador-dia">
                             {e.texto}
                         </li>
                     ) : (
-                        <Burbuja key={e.clave} m={e.mensaje} conAutor={e.conAutor} alMenu={setMenu} alReintentar={(m) => void reintentar(m)} />
+                        <Burbuja
+                            key={e.clave}
+                            m={e.mensaje}
+                            conAutor={e.conAutor}
+                            reintentable={puedeReintentar(e.mensaje, c)}
+                            alMenu={setMenu}
+                            alReintentar={(m) => void reintentar(m)}
+                            alDescartar={(m) => void descartar(m)}
+                        />
                     ),
                 )}
             </ol>
@@ -946,8 +1005,16 @@ export function ConversacionPantalla({ id }: { id: number }) {
             <div ref={lista} onScroll={alDesplazar} className="min-h-0 flex-1 overflow-y-auto overscroll-contain" data-slot="hilo-chat">
                 {cuerpo}
             </div>
-            {c && puedeEnviar ? <Compositor conversacionId={id} placeholder={c.tipo === "orden" ? "Escribe a despacho…" : c.tipo === "cuadrilla" ? "Escribe a tu cuadrilla…" : `Escribe a ${tituloConversacion(c)}…`} /> : null}
-            <MenuMensaje m={menu} alCerrar={() => setMenu(null)} />
+            {c && soloLectura ? (
+                <div className="border-t border-border bg-[var(--campo-panel)] px-3.5 pt-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))]" data-slot="chat-solo-lectura">
+                    <Aviso tono="info" icono={Lock} titulo={soloLectura}>
+                        Puedes leer los mensajes, pero ya no escribir en este chat.
+                    </Aviso>
+                </div>
+            ) : c && puedeEnviar ? (
+                <Compositor conversacionId={id} placeholder={c.tipo === "orden" ? "Escribe a despacho…" : c.tipo === "cuadrilla" ? "Escribe a tu cuadrilla…" : `Escribe a ${tituloConversacion(c)}…`} />
+            ) : null}
+            <MenuMensaje m={menu} reintentable={menu ? puedeReintentar(menu, c) : false} alCerrar={() => setMenu(null)} />
         </div>
     );
 }

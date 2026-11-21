@@ -12,7 +12,7 @@ import { AlmacenSqlite, type ConexionSqlite, type ValorSqlite } from "./almacen-
 import { AlmacenChatMemoria } from "./chat/almacen-memoria";
 import { ErrorChatLocal, MotorChat, type OpcionesMotorChat } from "./chat/motor";
 import type { AlmacenChat, MensajeChat, SalidaChat } from "./chat/tipos";
-import { elementosHilo, estadoEnvio, etiquetaDia, horaChat, horaLista, puedeEliminar, segmentosTexto, textoValido, vistaPrevia } from "./chat/vista";
+import { elementosHilo, estadoEnvio, etiquetaDia, horaChat, horaLista, motivoNoEnviado, puedeEliminar, puedeReintentar, rechazadoPorCierre, segmentosTexto, textoSoloLectura, textoValido, vistaPrevia } from "./chat/vista";
 import { pestanaDe, urlDeVista, vistaDeUrl } from "./campo/vista";
 import { errorHttp, errorRed, ServidorChatFalso } from "./pruebas/chat-falso";
 import { RelojManual, vaciarPromesas } from "./pruebas/reloj-manual";
@@ -308,6 +308,108 @@ describe("reintentos (§3)", () => {
         await motor.descartar(s.id);
         expect(motor.obtenerEstado().pendientes).toBe(0);
         expect(textos(motor)).toEqual([]);
+    });
+});
+
+describe("orden cerrada: hilo de solo lectura (§1)", () => {
+    it("un hilo de solo lectura no deja escribir: ni se encola", async () => {
+        const { motor, servidor } = await montar();
+        servidor.conversaciones.set(12, { ...hay(servidor.conversaciones.get(12)), solo_lectura: true, orden_estado: "cancelada" });
+        await arrancar(motor);
+        const c = hay(motor.obtenerConversacion(12).conversacion);
+        expect(textoSoloLectura(c)).toBe("Orden cancelada: ya no se pueden enviar mensajes");
+        await expect(motor.escribir(12, { texto: "hola" })).rejects.toMatchObject({ codigo: "conversacion_cerrada", message: "Orden cancelada: ya no se pueden enviar mensajes" });
+        expect(motor.obtenerEstado().pendientes).toBe(0);
+        expect(servidor.llamadasA("enviarMensaje")).toHaveLength(0);
+    });
+
+    it("la orden se cierra mientras escribía: 422 `conversacion_cerrada` no se reintenta, dice el motivo y el hilo pasa a solo lectura", async () => {
+        const { motor, servidor, reloj } = await montar();
+        await arrancar(motor);
+        expect(textoSoloLectura(hay(motor.obtenerConversacion(12).conversacion))).toBeNull();
+        // Despacho cierra la orden; el teléfono aún no lo sabe (cerrar no manda evento al feed).
+        servidor.conversaciones.set(12, { ...hay(servidor.conversaciones.get(12)), solo_lectura: true, orden_estado: "cerrada" });
+        const s = await motor.escribir(12, { texto: "ya terminé" });
+        await vaciarPromesas(20);
+        await reloj.avanzar(10 * 60_000);
+        expect(servidor.llamadasA("enviarMensaje")).toHaveLength(1);
+
+        const v = motor.obtenerConversacion(12);
+        const m = hay(v.mensajes.at(-1));
+        expect(m).toMatchObject({ envio: "fallido", error: { status: 422, codigo: "conversacion_cerrada" } });
+        expect(rechazadoPorCierre(m)).toBe(true);
+        expect(motivoNoEnviado(m)).toBe("No se envió: la orden se cerró y su chat ya no recibe mensajes.");
+        expect(puedeReintentar(m, v.conversacion)).toBe(false);
+        // Se releyó la conversación: solo lectura y el estado de la orden.
+        expect(servidor.llamadasA("verConversacion")).toContainEqual([12]);
+        expect(v.conversacion).toMatchObject({ solo_lectura: true, orden_estado: "cerrada" });
+        expect(textoSoloLectura(hay(v.conversacion))).toBe("Orden cerrada: ya no se pueden enviar mensajes");
+
+        // «Reintentar» no lo manda (fallaría igual); otro mensaje tampoco se encola.
+        await expect(motor.reintentar(s.id)).rejects.toMatchObject({ codigo: "conversacion_cerrada" });
+        await expect(motor.escribir(12, { texto: "otro" })).rejects.toMatchObject({ codigo: "conversacion_cerrada" });
+        await vaciarPromesas(10);
+        expect(servidor.llamadasA("enviarMensaje")).toHaveLength(1);
+        // «Descartar» lo quita.
+        await motor.descartar(s.id);
+        expect(motor.obtenerEstado().pendientes).toBe(0);
+        expect(motor.obtenerEstado().fallidos).toBe(0);
+    });
+
+    it("sin señal al releer: igual queda de solo lectura en el teléfono", async () => {
+        const { motor, servidor } = await montar();
+        await arrancar(motor);
+        servidor.conversaciones.set(12, { ...hay(servidor.conversaciones.get(12)), solo_lectura: true, orden_estado: "fallida" });
+        servidor.fallar("verConversacion", errorRed());
+        await motor.escribir(12, { texto: "hola" });
+        await vaciarPromesas(20);
+        const v = motor.obtenerConversacion(12);
+        expect(v.conversacion?.solo_lectura).toBe(true);
+        expect(textoSoloLectura(hay(v.conversacion))).toBe("Orden cerrada: ya no se pueden enviar mensajes");
+        expect(hay(v.mensajes.at(-1)).envio).toBe("fallido");
+    });
+
+    it("si la orden se reabre, el hilo vuelve a aceptar mensajes y «Reintentar» lo manda", async () => {
+        const { motor, servidor } = await montar();
+        await arrancar(motor);
+        servidor.conversaciones.set(12, { ...hay(servidor.conversaciones.get(12)), solo_lectura: true, orden_estado: "cerrada" });
+        const s = await motor.escribir(12, { texto: "ya terminé" });
+        await vaciarPromesas(20);
+        servidor.conversaciones.set(12, { ...hay(servidor.conversaciones.get(12)), solo_lectura: false, orden_estado: "en_sitio" });
+        await motor.cargarConversacion(12);
+        const m = hay(motor.obtenerConversacion(12).mensajes.at(-1));
+        expect(puedeReintentar(m, motor.obtenerConversacion(12).conversacion)).toBe(true);
+        await motor.reintentar(s.id);
+        await vaciarPromesas(20);
+        expect(motor.obtenerEstado().fallidos).toBe(0);
+        expect(textos(motor)).toEqual(["ya terminé"]);
+    });
+
+    it("un reenvío de lo que ya había llegado antes del cierre responde 200: la cola no se traba", async () => {
+        const { motor, servidor } = await montar();
+        await arrancar(motor);
+        servidor.fallar("enviarMensaje", errorRed());
+        await motor.escribir(12, { texto: "llegó" });
+        await vaciarPromesas(10);
+        // El primer intento sí llegó al servidor (se cortó la respuesta): está guardado.
+        const [, cuerpo] = hay(servidor.llamadasA("enviarMensaje")[0]) as [number, { id: string; texto: string }];
+        servidor.recibir(12, { id: YO, nombre: "Yo" }, "llegó");
+        const lista = hay(servidor.mensajes.get(12));
+        lista[lista.length - 1] = { ...hay(lista.at(-1)), id: cuerpo.id };
+        servidor.conversaciones.set(12, { ...hay(servidor.conversaciones.get(12)), solo_lectura: true, orden_estado: "cerrada" });
+        motor.reintentarAhora();
+        await vaciarPromesas(20);
+        expect(motor.obtenerEstado().fallidos).toBe(0);
+        expect(motor.obtenerEstado().pendientes).toBe(0);
+    });
+
+    it("textos del aviso por estado de la orden", () => {
+        expect(textoSoloLectura({ tipo: "orden", solo_lectura: false, orden_estado: "en_sitio" })).toBeNull();
+        expect(textoSoloLectura({ tipo: "orden", solo_lectura: true, orden_estado: "cerrada" })).toBe("Orden cerrada: ya no se pueden enviar mensajes");
+        expect(textoSoloLectura({ tipo: "orden", solo_lectura: true, orden_estado: "fallida" })).toBe("Orden fallida: ya no se pueden enviar mensajes");
+        expect(textoSoloLectura({ tipo: "orden", solo_lectura: true, orden_estado: "cancelada" })).toBe("Orden cancelada: ya no se pueden enviar mensajes");
+        expect(motivoNoEnviado({ envio: "fallido", error: { mensaje: "x", status: 422, codigo: "mensaje_vacio" } })).toBe("No enviado");
+        expect(puedeReintentar({ envio: "fallido", error: { mensaje: "x", status: 422, codigo: "mensaje_vacio" } }, { solo_lectura: false })).toBe(true);
     });
 });
 

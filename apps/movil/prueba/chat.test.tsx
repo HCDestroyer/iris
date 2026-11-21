@@ -137,6 +137,57 @@ describe.each(["light", "dark"] as const)("chat interno (%s)", (esquema) => {
         await waitFor(() => expect(screen.getByText(/· enviado$/)).toBeTruthy());
     });
 
+    it("orden cerrada: aviso «Orden cerrada» con candado en lugar del compositor y «Cerrada» en la lista", async () => {
+        const { m, chat, servidor } = await conChat();
+        servidor.crearConversacion({ id: 70, tipo: "orden", titulo: "OT-000070 · Instalación", orden_id: 70, orden_estado: "cerrada", solo_lectura: true });
+        servidor.recibir(70, ANDREA, "Gracias, quedó lista.");
+        await abrirCampo(m, { esquema, chat, vista: { tipo: "chat" } });
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        expect(await screen.findByTestId("conversacion-cerrada-70")).toBeTruthy();
+        await fireEvent.press(await screen.findByLabelText(/^OT-000070 · Instalación, orden cerrada, solo lectura/));
+        await screen.findByTestId("conversacion-chat");
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        const aviso = screen.getByTestId("chat-solo-lectura");
+        expect(within(aviso).getByText("Orden cerrada: ya no se pueden enviar mensajes")).toBeTruthy();
+        expect(screen.queryByTestId("compositor-chat")).toBeNull();
+        expect(screen.queryByLabelText("Mensaje")).toBeNull();
+        expect(screen.getByText("Gracias, quedó lista.")).toBeTruthy();
+    });
+
+    it("la orden se cierra mientras escribía: dice por qué no salió, sin «Reintentar», y bloquea el compositor", async () => {
+        const { m, chat, servidor } = await conChat();
+        servidor.crearConversacion({ id: 70, tipo: "orden", titulo: "OT-000070 · Instalación", orden_id: 70, orden_estado: "en_sitio" });
+        await abrirCampo(m, { esquema, chat, vista: { tipo: "conversacion", id: 70 } });
+        await screen.findByTestId("compositor-chat");
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        // Despacho cierra la orden (no llega evento al feed del chat).
+        const c = servidor.conversaciones.get(70);
+        if (c) {
+            servidor.conversaciones.set(70, { ...c, solo_lectura: true, orden_estado: "cerrada" });
+        }
+        await escribir("Ya terminé");
+        expect(await screen.findByTestId("no-enviado-cerrada")).toBeTruthy();
+        expect(screen.getByText("No se envió: la orden se cerró y su chat ya no recibe mensajes.")).toBeTruthy();
+        expect(screen.queryByTestId("reintentar-mensaje")).toBeNull();
+        await waitFor(() => expect(screen.getByTestId("chat-solo-lectura")).toBeTruthy());
+        expect(screen.getByText("Orden cerrada: ya no se pueden enviar mensajes")).toBeTruthy();
+        expect(screen.queryByTestId("compositor-chat")).toBeNull();
+        // «Descartar» lo quita de la cola.
+        await fireEvent.press(screen.getByTestId("descartar-mensaje"));
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        expect(screen.queryByText("Ya terminé")).toBeNull();
+        expect(chat.obtenerEstado().pendientes).toBe(0);
+        expect(servidor.llamadasA("enviarMensaje")).toHaveLength(1);
+    });
+
     it("mantener presionado el propio → «Eliminar para todos» deja la lápida", async () => {
         const { m, chat, servidor } = await conChat();
         await abrirConversacion(chat, m, esquema);
