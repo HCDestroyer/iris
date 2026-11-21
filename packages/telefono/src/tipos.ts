@@ -1,5 +1,4 @@
 import type { Schema } from "@iris/contratos";
-import type { Permiso } from "@/lib/menu";
 
 /*
  * El teléfono de Iris, E4c (`.claude/integration/contratos/voz.md` §3.12, «E4c»): la extensión
@@ -23,8 +22,6 @@ export type PruebaRegistro = Schema<"PruebaRegistro">;
 export type GrupoCentralita = Schema<"GrupoCentralita">;
 export type TipoTelefonoFicha = NonNullable<EntradaLlamarTelefono["telefono"]>;
 
-export const PERMISO_LLAMAR = "centralita.llamar" satisfies Permiso;
-export const PERMISO_TRANSFERIR = "centralita.transferir" satisfies Permiso;
 
 /** Por qué el teléfono de esta pestaña no está listo. Cada uno tiene su texto en llano (presentacion.ts). */
 export type ErrorTelefono =
@@ -74,6 +71,8 @@ export type LlamadaTelefono = {
     enEspera: boolean;
     /** Por qué terminó, en llano (solo si no fue un colgar normal). */
     motivoFin: string | null;
+    /** La causa de JsSIP con que terminó (`Busy`, `No Answer`…), para quien necesita distinguirla (la app de campo). */
+    causa: string | null;
     /** Es un compañero o un grupo (llamada interna, sin fila en Iris). */
     interna: boolean;
 };

@@ -12,7 +12,7 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { estadoTelefonoCentralita, textoPruebaTelefono } from "@/lib/telefono/administracion";
 import { activarTelefono, crearGrupo, desactivarTelefono, editarGrupo, leerGrupos, probarTelefonoCentralita } from "@/lib/telefono/api";
-import type { GrupoCentralita, PruebaTelefono } from "@/lib/telefono/tipos";
+import type { GrupoCentralita, PruebaTelefono } from "@iris/telefono";
 
 /*
  * Administración del teléfono de Iris (E4c) en la pantalla de la centralita: cómo llega Iris a la

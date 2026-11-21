@@ -17015,7 +17015,7 @@ export interface components {
              */
             ordenId?: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular" | "llamada.directa";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -19471,6 +19471,8 @@ export interface components {
             /** @enum {string} */
             estado: "aplicada" | "duplicada" | "rechazada";
             id: string;
+            /** @description llamada.directa: la llamada anotada en la orden (el mismo id de la operación) */
+            llamadaId?: string;
             /** @description Versión y estado de la orden (también en los rechazos, si el técnico la ve o la tuvo) */
             orden?: components["schemas"]["EstadoOrden"];
             /** @description traslado.recibir: la recepción encolada hacia Argos (su estado sigue en GET /campo/cambios, recepciones[]) */

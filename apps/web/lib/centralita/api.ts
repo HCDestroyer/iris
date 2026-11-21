@@ -55,7 +55,7 @@ export function quitarExtension(id: number, extensionId: number) {
     return resolver(api().POST(`${BASE}/centralitas/{id}/extensiones/{extensionId}/quitar`, { params: { path: { id, extensionId }, header: idem() } }));
 }
 
-export type FiltroLlamadas = { clienteId?: number; ticketId?: number; mias?: boolean; hoy?: boolean; cursor?: string; limit?: number };
+export type FiltroLlamadas = { clienteId?: number; ticketId?: number; ordenId?: number; mias?: boolean; hoy?: boolean; cursor?: string; limit?: number };
 
 export function listarLlamadasCentralita(filtro: FiltroLlamadas, signal?: AbortSignal) {
     return resolver(api().GET(`${BASE}/centralitas/llamadas`, { params: { query: filtro }, signal }));

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ErrorApi } from "@/lib/api/errores";
 import type { ExtensionCentralita } from "@/lib/centralita/tipos";
-import type { PruebaRegistro, PruebaTelefono, TelefonoCentralita } from "./tipos";
+import type { PruebaRegistro, PruebaTelefono, TelefonoCentralita } from "@iris/telefono";
 
 /*
  * Administración del teléfono de Iris (contratos/voz.md §3.12, E4c; runbook centralita-issabel §9):

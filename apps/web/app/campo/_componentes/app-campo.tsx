@@ -30,6 +30,7 @@ import { ProveedorAgenda } from "./agenda-datos";
 import { ProveedorChat } from "./chat-datos";
 import { EntrarCampo } from "./entrar";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
+import { ProveedorTelefonoCampo } from "./telefono";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { ProveedorInventario } from "./inventario-datos";
 import { ProveedorLibres } from "./libres-datos";
@@ -347,6 +348,12 @@ function ConMotor({
         };
     }, [sesion.usuarioId, sesion.nombre, empresa, intento, alSesionAjena, sesion.empresas.length]);
 
+    // El teléfono (E4c): cerrar sesión cuelga y suelta el micrófono antes de esperar a nada (también sin señal).
+    const detenerTelefono = useRef<(() => void) | null>(null);
+    const registrarTelefono = useCallback((detener: (() => void) | null) => {
+        detenerTelefono.current = detener;
+    }, []);
+
     // Uno por motor abierto: cerrar sesión termina su turno antes de esperar a nada.
     const rastreador = useMemo(
         () => (abierto ? new RastreadorUbicacion(abierto.posiciones, dependenciasNavegador(sesion.usuarioId, empresa)) : null),
@@ -368,6 +375,7 @@ function ConMotor({
             // Antes del primer await: con mala señal, `cerrarSesionApi` tarda y no deben entrar
             // puntos nuevos después de tocar «Cerrar sesión» (la cola, además, queda cerrada).
             rastreador?.terminarTurno();
+            detenerTelefono.current?.();
             motor.detener();
             posiciones.detener();
             chat.detener();
@@ -430,26 +438,28 @@ function ConMotor({
     return (
         <ProveedorUbicacion cola={abierto.posiciones} rastreador={rastreador}>
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
-                <ProveedorInventario inventario={abierto.inventario}>
-                    <ProveedorAgenda leer={abierto.agenda}>
-                        <ProveedorLibres api={abierto.libres}>
-                            <ProveedorHistorial leer={abierto.historialCliente}>
-                                {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
-                                {sesion.permisos?.includes("chat.ver") ? (
-                                    <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
-                                        <TurnoAutomatico rastreador={rastreador} />
-                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                                    </ProveedorChat>
-                                ) : (
-                                    <>
-                                        <TurnoAutomatico rastreador={rastreador} />
-                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                                    </>
-                                )}
-                            </ProveedorHistorial>
-                        </ProveedorLibres>
-                    </ProveedorAgenda>
-                </ProveedorInventario>
+                <ProveedorTelefonoCampo registrar={registrarTelefono}>
+                    <ProveedorInventario inventario={abierto.inventario}>
+                        <ProveedorAgenda leer={abierto.agenda}>
+                            <ProveedorLibres api={abierto.libres}>
+                                <ProveedorHistorial leer={abierto.historialCliente}>
+                                    {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
+                                    {sesion.permisos?.includes("chat.ver") ? (
+                                        <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
+                                            <TurnoAutomatico rastreador={rastreador} />
+                                            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                        </ProveedorChat>
+                                    ) : (
+                                        <>
+                                            <TurnoAutomatico rastreador={rastreador} />
+                                            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                        </>
+                                    )}
+                                </ProveedorHistorial>
+                            </ProveedorLibres>
+                        </ProveedorAgenda>
+                    </ProveedorInventario>
+                </ProveedorTelefonoCampo>
             </ProveedorCampo>
         </ProveedorUbicacion>
     );
