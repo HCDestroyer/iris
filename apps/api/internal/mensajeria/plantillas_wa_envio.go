@@ -68,6 +68,16 @@ func componentesEnvio(pm PlantillaMeta, datos map[string]string) ([]map[string]a
 	return out, ""
 }
 
+// necesitaDatosCliente: la plantilla lleva datos del cliente de Argos.
+func necesitaDatosCliente(pm PlantillaMeta) bool {
+	for _, p := range pm.Parametros {
+		if p.Dato == "cliente_nombre" || p.Dato == "cliente_codigo" || p.Dato == "plan" {
+			return true
+		}
+	}
+	return false
+}
+
 // datosParaEnvio: las variables del aviso, los derivados y los de la instantánea de Argos del cliente.
 func datosParaEnvio(ctx context.Context, q *mensajeriabd.Queries, p Plantilla, vars map[string]string, empresa int64, cliente, servicio *int64) (map[string]string, error) {
 	d := datosDerivados(p, vars)

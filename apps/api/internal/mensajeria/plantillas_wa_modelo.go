@@ -139,7 +139,7 @@ type PlantillaWA struct {
 	PausadaHasta        *time.Time     `json:"pausadaHasta" nullable:"true"`
 	Formato             string         `json:"formato" enum:"NAMED,POSITIONAL" doc:"Variables con nombre o por posición"`
 	Definicion          DefinicionPWA  `json:"definicion"`
-	Codigo              *string        `json:"codigo" nullable:"true" doc:"Código del catálogo de Iris que atiende (Argos pide avisos por código)"`
+	Codigos             []string       `json:"codigos" doc:"Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta"`
 	Parametros          []ParametroPWA `json:"parametros"`
 	Usos                []string       `json:"usos" doc:"avisos, conversaciones, asistente"`
 	Origen              string         `json:"origen" enum:"iris,sugerida,meta,migrada,canal"`
@@ -163,7 +163,7 @@ func aPlantillaWA(f mensajeriabd.MensajeriaPlantillaWA, ahora time.Time) Plantil
 	p := PlantillaWA{ID: f.ID, EmpresaID: f.EmpresaID, WabaID: f.WabaID, MetaID: f.MetaID, Nombre: f.Nombre, Idioma: f.Idioma, Etiqueta: f.Etiqueta,
 		Categoria: f.Categoria, CategoriaAnterior: f.CategoriaAnterior, CategoriaCambiadaEn: f.CategoriaCambiadaEn, CategoriaProxima: f.CategoriaProxima,
 		CategoriaProximaEn: f.CategoriaProximaEn, Estado: f.Estado, EstadoEn: f.EstadoEn, Motivo: f.Motivo, Calidad: f.Calidad, PausadaHasta: f.PausadaHasta,
-		Formato: f.Formato, Codigo: f.Codigo, Usos: lista(f.Usos), Origen: f.Origen, Sugerida: f.Sugerida, EnviadaEn: f.EnviadaEn, BorradaEn: f.BorradaEn,
+		Formato: f.Formato, Codigos: lista(f.Codigos), Usos: lista(f.Usos), Origen: f.Origen, Sugerida: f.Sugerida, EnviadaEn: f.EnviadaEn, BorradaEn: f.BorradaEn,
 		BorradaPor: f.BorradaPor, NombreLibreEn: f.NombreLibreEn, SincronizadaEn: f.SincronizadaEn, Version: f.Version, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt}
 	p.Definicion = definicionDe(f.Componentes)
 	p.Parametros = []ParametroPWA{}
@@ -223,7 +223,7 @@ func edicionesDe(ediciones []time.Time, ahora time.Time) EdicionesPWA {
 func atenderDe(f mensajeriabd.MensajeriaPlantillaWA) *string {
 	a := ""
 	switch {
-	case f.Estado == EstadoPWBorrada && derefTexto(f.BorradaPor) == "meta" && (f.Codigo != nil || len(f.Usos) > 0):
+	case f.Estado == EstadoPWBorrada && derefTexto(f.BorradaPor) == "meta" && (len(f.Codigos) > 0 || len(f.Usos) > 0):
 		a = "borrada_en_uso"
 	case f.Estado == EstadoPWRechazada:
 		a = "rechazada"

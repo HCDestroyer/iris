@@ -371,6 +371,15 @@ func nuevoCrearCanal(m *Modulo) *auditoria.Caso[EntradaCrearCanal, Canal] {
 			case len(in.VerifyToken) < 16:
 				return Canal{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "verifyToken", Message: "Demasiado corto (mínimo 16)", Rule: "minLength"})
 			}
+			// La cuenta de WhatsApp (WABA): de una sola empresa y comprobada en Meta con el token del número.
+			if in.WabaID != "" {
+				if err := reclamarWaba(ctx, q, in.WabaID, in.EmpresaID); err != nil {
+					return Canal{}, err
+				}
+				if err := m.verificarWabaNumero(ctx, in.WabaID, in.PhoneNumberID, in.Token); err != nil {
+					return Canal{}, err
+				}
+			}
 			id, err := q.SiguienteIDCanal(ctx)
 			if err != nil {
 				return Canal{}, err
@@ -511,6 +520,17 @@ func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Can
 					return Canal{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "credenciales", Message: "Demasiado corta", Rule: "minLength"})
 				}
 				*par.destino, cambioCred = par.nuevo, "***"
+			}
+			// La cuenta de WhatsApp (WABA): de una sola empresa y, si cambia (o el número o el token), comprobada en Meta.
+			if in.WabaID != "" {
+				if err := reclamarWaba(ctx, mensajeriabd.New(t), in.WabaID, antes.EmpresaID); err != nil {
+					return Canal{}, err
+				}
+				if antes.TipoConexion != ConexionQR && (in.WabaID != antes.WabaID || in.PhoneNumberID != antes.PhoneNumberID || in.Token != "") {
+					if err := m.verificarWabaNumero(ctx, in.WabaID, in.PhoneNumberID, cr.Token); err != nil {
+						return Canal{}, err
+					}
+				}
 			}
 			cifradas, err := m.cifrarCredenciales(in.ID, cr)
 			if err != nil {

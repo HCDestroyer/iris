@@ -12,6 +12,13 @@ Contrato: `contratos/plantillas-whatsapp.md`.
   `whatsapp_business_messaging`). Si falta, Iris lo dice en llano (424 `meta_sin_permiso`).
 - **I1 (núcleo):** se agregaron `Problema.sugerencia` y `Problema.disponibleEn` (extensiones de RFC 9457)
   y los permisos `plantillas_whatsapp.*` (supervisor y soporte: ver y sincronizar).
+- **Números de WhatsApp (mensajeria, formulario):** al crear o actualizar un número con WABA, Iris
+  fija la empresa dueña de la cuenta (409 `waba_de_otra_empresa`) y comprueba la WABA en Meta con el
+  token del número (422 `waba_no_coincide`). El panel de números debe mostrar los dos errores.
+  Cambiar `plantillas` en el formulario exige `plantillas_whatsapp.editar`.
+- **Bandeja (conversaciones):** una plantilla con datos del cliente responde 422
+  `cliente_sin_confirmar` si la conversación no tiene el cliente confirmado; el panel debe pedir
+  confirmar el cliente.
 - **Campana de avisos (notificaciones):** los eventos `plantilla_whatsapp.estado_cambiado` y
   `.categoria_cambiada` están listos para avisar «Meta aprobó / rechazó» (todavía nadie los consume).
 

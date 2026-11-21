@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,10 +39,12 @@ type metaPlantillas struct {
 	envios     []map[string]any
 	tokens     []string
 	pagina     int
+	// numeros: los phone_number_id de cada cuenta (GET /{waba}/phone_numbers).
+	numeros map[string][]string
 }
 
 func nuevaMetaPlantillas(t *testing.T) *metaPlantillas {
-	f := &metaPlantillas{cuentas: map[string][]map[string]any{}, siguiente: int(time.Now().UnixNano() / 100), editadas: map[string]map[string]any{}, pagina: 2}
+	f := &metaPlantillas{cuentas: map[string][]map[string]any{}, siguiente: int(time.Now().UnixNano() / 100), editadas: map[string]map[string]any{}, pagina: 2, numeros: map[string][]string{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.servir))
 	t.Cleanup(f.srv.Close)
 	return f
@@ -80,6 +84,12 @@ func (f *metaPlantillas) servir(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&c)
 		f.envios = append(f.envios, c)
 		responder(map[string]any{"messaging_product": "whatsapp", "messages": []map[string]any{{"id": fmt.Sprintf("wamid.%d", len(f.envios))}}})
+	case len(partes) == 2 && partes[1] == "phone_numbers" && r.Method == http.MethodGet:
+		data := []map[string]any{}
+		for _, n := range f.numeros[partes[0]] {
+			data = append(data, map[string]any{"id": n})
+		}
+		responder(map[string]any{"data": data})
 	case len(partes) == 2 && partes[1] == "message_templates":
 		if f.sinPermiso {
 			errorMeta(w, http.StatusForbidden, 200, 0, "(#200) Permissions error")
@@ -141,6 +151,48 @@ func (f *metaPlantillas) servir(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// La prueba y el servidor httptest corren en goroutines distintas: lo que la prueba cambia o lee de la
+// Meta falsa pasa por estos métodos, con el mismo candado que servir.
+
+func (f *metaPlantillas) modo(sinPermiso, caida bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sinPermiso, f.caida = sinPermiso, caida
+}
+
+func (f *metaPlantillas) porPagina(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pagina = n
+}
+
+func (f *metaPlantillas) agregarNumero(waba, pnid string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.numeros[waba] = append(f.numeros[waba], pnid)
+}
+
+// registroMeta es una copia de lo que recibió la Meta falsa.
+type registroMeta struct {
+	creadas    []map[string]any
+	editadas   map[string]map[string]any
+	borradas   []string
+	reanudadas []string
+	envios     []map[string]any
+	tokens     []string
+}
+
+func (f *metaPlantillas) registro() registroMeta {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	r := registroMeta{creadas: slices.Clone(f.creadas), editadas: map[string]map[string]any{}, borradas: slices.Clone(f.borradas),
+		reanudadas: slices.Clone(f.reanudadas), envios: slices.Clone(f.envios), tokens: slices.Clone(f.tokens)}
+	for k, v := range f.editadas {
+		r.editadas[k] = v
+	}
+	return r
+}
+
 // fijar cambia el estado (y lo demás) de una plantilla en Meta.
 func (f *metaPlantillas) fijar(waba, id string, campos map[string]any) {
 	f.mu.Lock()
@@ -184,9 +236,8 @@ type cuentaWA struct {
 	waba   string
 	canal  int64
 	pnidWA string
+	tiempo int64
 }
-
-var sigWaba sync.Mutex
 
 func nuevaCuentaWA(t *testing.T, plantillas map[string]any) *cuentaWA {
 	t.Helper()
@@ -195,12 +246,10 @@ func nuevaCuentaWA(t *testing.T, plantillas map[string]any) *cuentaWA {
 		c.MetaURL = f.srv.URL
 		c.BaseURL = "https://iris.ejemplo.gt/"
 	})
-	sigWaba.Lock()
-	waba := fmt.Sprint(time.Now().UnixNano() % 1e14)
-	time.Sleep(time.Microsecond)
-	sigWaba.Unlock()
-	c := &cuentaWA{bandeja: b, meta: f, admin: b.persona([]int64{1}, rolBase("admin")), waba: waba}
-	cuerpo := map[string]any{"wabaId": waba, "usos": []string{"avisos", "soporte"}, "avisosEmpresa": true}
+	waba, pnid := nuevaWaba(), nuevaWaba()
+	f.agregarNumero(waba, pnid)
+	c := &cuentaWA{bandeja: b, meta: f, admin: b.persona([]int64{1}, rolBase("admin")), waba: waba, tiempo: b.reloj.Unix()}
+	cuerpo := map[string]any{"wabaId": waba, "phoneNumberId": pnid, "usos": []string{"avisos", "soporte"}, "avisosEmpresa": true}
 	if plantillas != nil {
 		cuerpo["plantillas"] = plantillas
 	}
@@ -214,15 +263,21 @@ func nuevaCuentaWA(t *testing.T, plantillas map[string]any) *cuentaWA {
 
 func (c *cuentaWA) webhookWA(cuerpo string) {
 	c.t.Helper()
-	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("%s/canales/%d/webhook", rutaMsj, c.canal), strings.NewReader(cuerpo))
+	c.webhookDe(c.canal, "app-secret-de-prueba-0123", cuerpo)
+}
+
+// webhookDe manda un cuerpo de Meta firmado con el secreto de un número y procesa sus entrantes.
+func (c *cuentaWA) webhookDe(canal int64, secreto, cuerpo string) {
+	c.t.Helper()
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("%s/canales/%d/webhook", rutaMsj, canal), strings.NewReader(cuerpo))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Hub-Signature-256", mensajeria.FirmarMeta("app-secret-de-prueba-0123", []byte(cuerpo)))
+	req.Header.Set("X-Hub-Signature-256", mensajeria.FirmarMeta(secreto, []byte(cuerpo)))
 	w := httptest.NewRecorder()
 	c.h.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		c.t.Fatalf("webhook: %d %s", w.Code, w.Body.String())
 	}
-	filas, err := c.bd.Query(c.ctx, `SELECT id FROM mensajeria.entrantes WHERE canal_id = $1 AND procesado_en IS NULL ORDER BY id`, c.canal)
+	filas, err := c.bd.Query(c.ctx, `SELECT id FROM mensajeria.entrantes WHERE canal_id = $1 AND procesado_en IS NULL ORDER BY id`, canal)
 	if err != nil {
 		c.t.Fatal(err)
 	}
@@ -237,10 +292,49 @@ func (c *cuentaWA) webhookWA(cuerpo string) {
 	}
 }
 
+// estadoWebhook: Meta avisa un cambio de estado (cada aviso, un segundo después del anterior).
 func (c *cuentaWA) estadoWebhook(metaID, nombre, evento, extra string) {
+	c.tiempo++
+	c.estadoWebhookEn(c.tiempo, metaID, nombre, evento, extra)
+}
+
+func (c *cuentaWA) estadoWebhookEn(cuando int64, metaID, nombre, evento, extra string) {
 	c.webhookWA(fmt.Sprintf(`{"object":"whatsapp_business_account","entry":[{"id":%q,"time":%d,"changes":[{"field":"message_template_status_update",`+
 		`"value":{"event":%q,"message_template_id":%s,"message_template_name":%q,"message_template_language":"es","reason":"NONE"%s}}]}]}`,
-		c.waba, time.Now().UnixNano(), evento, metaID, nombre, extra))
+		c.waba, cuando, evento, metaID, nombre, extra))
+}
+
+var sigWabaN atomic.Int64
+
+func init() { sigWabaN.Store(time.Now().UnixNano() % 1e13) }
+
+// nuevaWaba: un id de Meta que no usa otra prueba.
+func nuevaWaba() string { return fmt.Sprint(sigWabaN.Add(1)) }
+
+// sincronizar: el botón (202) y el job que encola, como lo corre River.
+func (c *cuentaWA) sincronizar(p persona) map[string]any {
+	c.t.Helper()
+	r := c.apiClave(p, http.MethodPost, "/plantillas-whatsapp/cuentas/"+c.waba+"/sincronizar", "sinc-"+pruebas.Unico(), nil)
+	c.exigir(r, http.StatusAccepted, "wabaId", c.waba)
+	if err := c.m.SincronizarCuentaSistema(c.ctx, c.bd, c.waba, "manual"); err != nil {
+		c.t.Fatal(err)
+	}
+	*c.reloj = c.reloj.Add(3 * time.Minute) // el botón deja pasar 2 minutos entre relecturas
+	return c.cuenta()
+}
+
+// cuenta: la cuenta como la ve la pantalla (sincronizadaEn, resumen, error).
+func (c *cuentaWA) cuenta() map[string]any {
+	c.t.Helper()
+	r := c.api(c.admin, http.MethodGet, "/plantillas-whatsapp/cuentas", nil)
+	c.exigir(r, http.StatusOK)
+	for _, x := range r.cuerpo["data"].([]any) {
+		if x.(map[string]any)["wabaId"] == c.waba {
+			return x.(map[string]any)
+		}
+	}
+	c.t.Fatalf("la cuenta %s no aparece: %v", c.waba, r.cuerpo)
+	return nil
 }
 
 func (c *cuentaWA) plantilla(id any) map[string]any {
@@ -415,14 +509,14 @@ func TestPlantillasWASugeridaEnviarAprobarYUsarPorCodigo(t *testing.T) {
 
 	r = c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/sugeridas/aviso_corte/crear", "sug-"+pruebas.Unico(),
 		map[string]any{"wabaId": c.waba, "pie": "Kingnet Solution", "enviar": true})
-	c.exigir(r, http.StatusCreated, "nombre", "aviso_corte", "estado", "PENDING", "codigo", "corte_por_falta_de_pago", "origen", "sugerida")
+	c.exigir(r, http.StatusCreated, "nombre", "aviso_corte", "estado", "PENDING", "codigos", "[corte_por_falta_de_pago]", "origen", "sugerida")
 	if r.cuerpo["errorEnvio"] != nil {
 		t.Fatalf("errorEnvio: %v", r.cuerpo["errorEnvio"])
 	}
 	id := idPW(r.cuerpo)
 	metaID := r.cuerpo["metaId"].(string)
 	// Lo que recibió Meta: nombre, categoría, variables con nombre y sus ejemplos (nunca datos reales).
-	creada := c.meta.creadas[0]
+	creada := c.meta.registro().creadas[0]
 	if creada["name"] != "aviso_corte" || creada["category"] != "UTILITY" || creada["parameter_format"] != "named" || creada["language"] != "es" {
 		t.Fatalf("creada en Meta: %v", creada)
 	}
@@ -432,7 +526,7 @@ func TestPlantillasWASugeridaEnviarAprobarYUsarPorCodigo(t *testing.T) {
 			t.Fatalf("components sin %s: %s", s, comps)
 		}
 	}
-	for _, tk := range c.meta.tokens {
+	for _, tk := range c.meta.registro().tokens {
 		if tk != tokenPrueba {
 			t.Fatalf("token a Meta: %q", tk)
 		}
@@ -441,7 +535,7 @@ func TestPlantillasWASugeridaEnviarAprobarYUsarPorCodigo(t *testing.T) {
 		t.Fatal("faltan los eventos creada y enviada")
 	}
 	// Mientras está en revisión, Argos no la ve aprobada en esta cuenta.
-	if c.contar(`SELECT count(*) FROM mensajeria.plantillas_whatsapp WHERE waba_id = $1 AND codigo = 'corte_por_falta_de_pago' AND estado = 'APPROVED'`, c.waba) != 0 {
+	if c.contar(`SELECT count(*) FROM mensajeria.plantillas_whatsapp WHERE waba_id = $1 AND 'corte_por_falta_de_pago' = ANY(codigos) AND estado = 'APPROVED'`, c.waba) != 0 {
 		t.Fatal("aprobada antes de tiempo")
 	}
 
@@ -482,13 +576,13 @@ func TestPlantillasWASugeridaEnviarAprobarYUsarPorCodigo(t *testing.T) {
 	if p["estado"] != "PAUSED" || p["pausadaHasta"] == nil || p["atender"] != "pausada" {
 		t.Fatalf("pausada: %v", p)
 	}
-	if c.contar(`SELECT count(*) FROM mensajeria.plantillas_whatsapp WHERE waba_id = $1 AND estado = 'APPROVED' AND codigo IS NOT NULL`, c.waba) != 0 {
+	if c.contar(`SELECT count(*) FROM mensajeria.plantillas_whatsapp WHERE waba_id = $1 AND estado = 'APPROVED' AND cardinality(codigos) > 0`, c.waba) != 0 {
 		t.Fatal("una pausada sigue usable")
 	}
 	r = c.apiClave(c.admin, http.MethodPost, fmt.Sprintf("/plantillas-whatsapp/%d/reanudar", id), "rean-"+pruebas.Unico(), map[string]any{"version": p["version"]})
 	c.exigir(r, http.StatusOK, "estado", "APPROVED")
-	if len(c.meta.reanudadas) != 1 || c.meta.reanudadas[0] != metaID {
-		t.Fatalf("unpause: %v", c.meta.reanudadas)
+	if len(c.meta.registro().reanudadas) != 1 || c.meta.registro().reanudadas[0] != metaID {
+		t.Fatalf("unpause: %v", c.meta.registro().reanudadas)
 	}
 }
 
@@ -501,14 +595,13 @@ func (c *cuentaWA) avisoPorCodigo(codigo string, vars map[string]string) map[str
 	if r.status != http.StatusAccepted || r.cuerpo["estado"] != "en_cola" {
 		c.t.Fatalf("aviso: %d %v", r.status, r.cuerpo)
 	}
-	antes := len(c.meta.envios)
+	antes := len(c.meta.registro().envios)
 	c.despacharAvisos()
-	c.meta.mu.Lock()
-	defer c.meta.mu.Unlock()
-	if len(c.meta.envios) == antes {
+	envios := c.meta.registro().envios
+	if len(envios) == antes {
 		return nil
 	}
-	return c.meta.envios[len(c.meta.envios)-1]
+	return envios[len(envios)-1]
 }
 
 // nuevoClienteWA: un cliente de Argos de la empresa 1 con móvil, permiso de contacto y su instantánea

@@ -70,11 +70,12 @@ func (m *Modulo) registrarPlantillasWA(api huma.API) {
 		func(ctx context.Context, _ *struct{}) (*cuerpo[ListaCuentasPWA], error) {
 			return responder(k.Cuentas.Ejecutar(ctx, struct{}{}))
 		})
-	sincronizar := op("sincronizarPlantillasWhatsApp", http.MethodPost, base+"/cuentas/{waba}/sincronizar", "Sincronizar con Meta", sinc, http.StatusOK, errMeta...)
-	sincronizar.Description += " Lee todas las plantillas de la cuenta en Meta y deja Iris igual: nuevas (creadas en Meta), cambiadas y «Borrada en Meta» " +
-		"(nunca se eliminan en Iris). Si Meta no responde o el token no tiene `whatsapp_business_management`, no cambia nada (502 `meta_no_responde`, " +
-		"424 `meta_sin_permiso` / `meta_token_invalido`) y la cuenta guarda el error."
-	huma.Register(api, sincronizar, func(ctx context.Context, in *entradaCuentaHTTP) (*cuerpo[ResultadoSincronizacionPWA], error) {
+	sincronizar := op("sincronizarPlantillasWhatsApp", http.MethodPost, base+"/cuentas/{waba}/sincronizar", "Sincronizar con Meta", sinc, http.StatusAccepted, errMeta...)
+	sincronizar.Description += " Encola la relectura de la cuenta (un job único por cuenta) y responde 202. El resultado sale en `GET /cuentas`: " +
+		"`sincronizadaEn` cambia y `resumen` dice qué entró (nuevas en Meta), qué cambió y qué quedó «Borrada en Meta» (nunca se elimina en Iris); " +
+		"si Meta no respondió o el token no tiene `whatsapp_business_management`, `error` lo dice y nada cambia. Una cuenta sincronizada hace menos de " +
+		"2 minutos responde 429 `sincronizada_hace_poco` con `Retry-After`."
+	huma.Register(api, sincronizar, func(ctx context.Context, in *entradaCuentaHTTP) (*cuerpo[SincronizacionPedida], error) {
 		return responder(k.Sincronizar.Ejecutar(ctx, EntradaSincronizarPWA{WabaID: in.WabaID}))
 	})
 	huma.Register(api, op("sugeridasPlantillasWhatsApp", http.MethodGet, base+"/sugeridas", "Plantillas sugeridas para un ISP", ver, http.StatusOK, http.StatusNotFound),

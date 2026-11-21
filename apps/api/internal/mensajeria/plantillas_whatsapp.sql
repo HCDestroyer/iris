@@ -5,9 +5,9 @@ SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.plantillas_whatsapp:' 
 
 -- name: InsertarPlantillaWA :one
 INSERT INTO mensajeria.plantillas_whatsapp (empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, estado, motivo, rechazo, calidad,
-    formato, componentes, componentes_meta, codigo, parametros, usos, origen, sugerida, enviada_en, sincronizada_en, creada_por)
+    formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, enviada_en, sincronizada_en, creada_por)
 VALUES (sqlc.narg('empresa_id'), @waba_id, sqlc.narg('meta_id'), @nombre, @idioma, @etiqueta, @categoria, @estado, sqlc.narg('motivo'), sqlc.narg('rechazo'),
-    @calidad, @formato, @componentes, sqlc.narg('componentes_meta'), sqlc.narg('codigo'), @parametros, @usos, @origen, sqlc.narg('sugerida'),
+    @calidad, @formato, @componentes, sqlc.narg('componentes_meta'), @codigos, @parametros, @usos, @origen, sqlc.narg('sugerida'),
     sqlc.narg('enviada_en'), sqlc.narg('sincronizada_en'), sqlc.narg('creada_por'))
 RETURNING *;
 
@@ -18,7 +18,7 @@ SET meta_id = sqlc.narg('meta_id'), nombre = @nombre, idioma = @idioma, etiqueta
     categoria_proxima = sqlc.narg('categoria_proxima'), categoria_proxima_en = sqlc.narg('categoria_proxima_en'),
     estado = @estado, estado_en = @estado_en, motivo = sqlc.narg('motivo'), rechazo = sqlc.narg('rechazo'), calidad = @calidad,
     pausada_hasta = sqlc.narg('pausada_hasta'), formato = @formato, componentes = @componentes, componentes_meta = sqlc.narg('componentes_meta'),
-    codigo = sqlc.narg('codigo'), parametros = @parametros, usos = @usos, ediciones = @ediciones, enviada_en = sqlc.narg('enviada_en'),
+    codigos = @codigos, parametros = @parametros, usos = @usos, ediciones = @ediciones, enviada_en = sqlc.narg('enviada_en'),
     borrada_en = sqlc.narg('borrada_en'), borrada_por = sqlc.narg('borrada_por'), nombre_libre_en = sqlc.narg('nombre_libre_en'),
     sincronizada_en = sqlc.narg('sincronizada_en'), version = version + 1, updated_at = now()
 WHERE id = @id
@@ -31,18 +31,19 @@ SELECT * FROM mensajeria.plantillas_whatsapp WHERE id = @id AND coalesce(empresa
 SELECT * FROM mensajeria.plantillas_whatsapp WHERE id = @id AND coalesce(empresa_id, 0) = @empresa::bigint FOR UPDATE;
 
 -- name: PlantillasWADeCuenta :many
-SELECT * FROM mensajeria.plantillas_whatsapp WHERE waba_id = @waba_id ORDER BY id FOR UPDATE;
+SELECT * FROM mensajeria.plantillas_whatsapp WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint ORDER BY id FOR UPDATE;
 
 -- name: PlantillaWAPorMeta :one
 SELECT * FROM mensajeria.plantillas_whatsapp
-WHERE waba_id = @waba_id AND (meta_id = @meta_id OR (meta_id IS NULL AND estado <> 'BORRADOR' AND nombre = @nombre AND idioma = @idioma))
+WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint
+  AND (meta_id = @meta_id OR (meta_id IS NULL AND estado <> 'BORRADOR' AND nombre = @nombre AND idioma = @idioma))
   AND estado <> 'DELETED'
 ORDER BY meta_id NULLS LAST, id
 LIMIT 1 FOR UPDATE;
 
 -- name: PlantillaWAPorNombre :one
 SELECT * FROM mensajeria.plantillas_whatsapp
-WHERE waba_id = @waba_id AND nombre = @nombre AND idioma = @idioma AND estado <> 'DELETED'
+WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint AND nombre = @nombre AND idioma = @idioma AND estado <> 'DELETED'
 FOR UPDATE;
 
 -- name: ListarPlantillasWA :many
@@ -56,48 +57,51 @@ WHERE coalesce(p.empresa_id, 0) = @empresa::bigint
        OR (@grupo::text = 'activas' AND p.estado IN ('APPROVED', 'FLAGGED'))
        OR (@grupo::text = 'revision' AND p.estado IN ('PENDING', 'IN_APPEAL', 'BORRADOR'))
        OR (@grupo::text = 'atender' AND (p.estado IN ('REJECTED', 'PAUSED', 'DISABLED', 'LIMIT_EXCEEDED', 'LOCKED')
-            OR (p.estado = 'DELETED' AND p.borrada_por = 'meta' AND (p.codigo IS NOT NULL OR cardinality(p.usos) > 0))
+            OR (p.estado = 'DELETED' AND p.borrada_por = 'meta' AND (cardinality(p.codigos) > 0 OR cardinality(p.usos) > 0))
             OR p.categoria_anterior IS NOT NULL OR p.categoria_proxima IS NOT NULL)))
-  AND (@incluir_borradas::boolean OR p.estado <> 'DELETED' OR (p.borrada_por = 'meta' AND (p.codigo IS NOT NULL OR cardinality(p.usos) > 0)))
+  AND (@incluir_borradas::boolean OR p.estado <> 'DELETED' OR (p.borrada_por = 'meta' AND (cardinality(p.codigos) > 0 OR cardinality(p.usos) > 0)))
   AND p.id > @despues::bigint
 ORDER BY p.id
 LIMIT @limite;
 
 -- name: ContarPlantillasWA :one
 SELECT
-    count(*) FILTER (WHERE estado <> 'DELETED' OR (borrada_por = 'meta' AND (codigo IS NOT NULL OR cardinality(usos) > 0)))::bigint AS todas,
+    count(*) FILTER (WHERE estado <> 'DELETED' OR (borrada_por = 'meta' AND (cardinality(codigos) > 0 OR cardinality(usos) > 0)))::bigint AS todas,
     count(*) FILTER (WHERE estado IN ('APPROVED', 'FLAGGED'))::bigint AS activas,
     count(*) FILTER (WHERE estado IN ('PENDING', 'IN_APPEAL', 'BORRADOR'))::bigint AS revision,
     count(*) FILTER (WHERE estado IN ('REJECTED', 'PAUSED', 'DISABLED', 'LIMIT_EXCEEDED', 'LOCKED')
-        OR (estado = 'DELETED' AND borrada_por = 'meta' AND (codigo IS NOT NULL OR cardinality(usos) > 0))
+        OR (estado = 'DELETED' AND borrada_por = 'meta' AND (cardinality(codigos) > 0 OR cardinality(usos) > 0))
         OR categoria_anterior IS NOT NULL OR categoria_proxima IS NOT NULL)::bigint AS atender
 FROM mensajeria.plantillas_whatsapp
 WHERE coalesce(empresa_id, 0) = @empresa::bigint AND (@waba_id::text = '' OR waba_id = @waba_id::text);
 
 -- name: PlantillasWAUsables :many
--- Las que pueden salir: con código y aprobadas en Meta (sin pausa vigente).
-SELECT * FROM mensajeria.plantillas_whatsapp
-WHERE waba_id = @waba_id AND codigo IS NOT NULL AND estado IN ('APPROVED', 'FLAGGED')
-  AND (pausada_hasta IS NULL OR pausada_hasta <= @ahora)
-ORDER BY codigo;
+-- Las que pueden salir: de la empresa dueña, con código, aprobadas en Meta (sin pausa vigente) y, las de
+-- marketing, solo con marketing activado.
+SELECT * FROM mensajeria.plantillas_whatsapp p
+WHERE p.waba_id = @waba_id AND coalesce(p.empresa_id, 0) = @empresa::bigint AND cardinality(p.codigos) > 0 AND p.estado IN ('APPROVED', 'FLAGGED')
+  AND (p.pausada_hasta IS NULL OR p.pausada_hasta <= @ahora)
+  AND (p.categoria <> 'MARKETING' OR EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp_ajustes a WHERE a.empresa_id = @empresa::bigint AND a.marketing_permitido))
+ORDER BY p.id;
 
 -- name: PlantillasWACodigoDe :many
 SELECT * FROM mensajeria.plantillas_whatsapp
-WHERE waba_id = @waba_id AND codigo = @codigo AND id <> @excepto
+WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint AND @codigo::text = ANY(codigos) AND id <> @excepto
 ORDER BY id FOR UPDATE;
 
 -- name: NombreWABloqueado :one
 SELECT nombre_libre_en FROM mensajeria.plantillas_whatsapp
-WHERE waba_id = @waba_id AND nombre = @nombre AND estado = 'DELETED' AND nombre_libre_en > @ahora
+WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint AND nombre = @nombre AND estado = 'DELETED' AND nombre_libre_en > @ahora
 ORDER BY nombre_libre_en DESC LIMIT 1;
 
 -- name: NombreWAEnUso :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp
-    WHERE waba_id = @waba_id AND nombre = @nombre AND idioma = @idioma AND estado <> 'DELETED' AND id <> @excepto)::boolean;
+    WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint AND nombre = @nombre AND idioma = @idioma AND estado <> 'DELETED' AND id <> @excepto)::boolean;
 
 -- name: NombresWAParecidos :many
 SELECT nombre FROM mensajeria.plantillas_whatsapp
-WHERE waba_id = @waba_id AND (nombre = @nombre OR nombre LIKE @nombre || '\_%') AND (estado <> 'DELETED' OR nombre_libre_en > @ahora);
+WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint AND (nombre = @nombre OR nombre LIKE @nombre || '\_%')
+  AND (estado <> 'DELETED' OR nombre_libre_en > @ahora);
 
 -- name: InsertarHistorialPlantillaWA :exec
 INSERT INTO mensajeria.plantillas_whatsapp_historial (plantilla_id, tipo, de, a, detalle, origen, actor_id, ocurrido_en)
@@ -112,47 +116,60 @@ ORDER BY h.id DESC
 LIMIT 100;
 
 -- name: CuentasWADeEmpresa :many
--- Las cuentas (WABA) de los números de la empresa, con sus números activos.
-SELECT c.waba_id, min(c.empresa_id)::bigint AS empresa_id,
+-- Las cuentas (WABA) de las que la empresa es dueña, con sus números activos.
+SELECT c.waba_id, k.empresa_id,
        array_agg(c.numero ORDER BY c.avisos_empresa DESC, c.id)::text[] AS numeros,
        array_agg(c.nombre ORDER BY c.avisos_empresa DESC, c.id)::text[] AS nombres,
        k.sincronizada_en, k.resumen, k.error, k.error_en
 FROM mensajeria.canales c
-LEFT JOIN mensajeria.plantillas_whatsapp_cuentas k ON k.waba_id = c.waba_id
-WHERE coalesce(c.empresa_id, 0) = @empresa::bigint AND c.waba_id <> '' AND c.activo AND c.desconectado_en IS NULL
-GROUP BY c.waba_id, k.sincronizada_en, k.resumen, k.error, k.error_en
+JOIN mensajeria.plantillas_whatsapp_cuentas k ON k.waba_id = c.waba_id AND k.empresa_id = @empresa::bigint
+WHERE coalesce(c.empresa_id, 0) = @empresa::bigint AND c.activo AND c.desconectado_en IS NULL
+GROUP BY c.waba_id, k.empresa_id, k.sincronizada_en, k.resumen, k.error, k.error_en
 ORDER BY c.waba_id;
 
 -- name: CanalesDeCuentaWA :many
--- Los números activos de la cuenta (el de avisos primero): el token para hablar con Meta.
+-- Los números activos de la cuenta que son de la empresa (el de avisos primero): el token para hablar con Meta.
 SELECT * FROM mensajeria.canales
-WHERE waba_id = @waba_id AND activo AND desconectado_en IS NULL
+WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint AND activo AND desconectado_en IS NULL
 ORDER BY avisos_empresa DESC, (tipo_conexion = 'qr'), id;
 
 -- name: CuentaWA :one
 SELECT * FROM mensajeria.plantillas_whatsapp_cuentas WHERE waba_id = @waba_id;
 
--- name: GuardarCuentaWA :exec
-INSERT INTO mensajeria.plantillas_whatsapp_cuentas (waba_id, empresa_id, sincronizada_en, resumen, error, error_en)
-VALUES (@waba_id, sqlc.narg('empresa_id'), sqlc.narg('sincronizada_en'), sqlc.narg('resumen'), sqlc.narg('error'), sqlc.narg('error_en'))
-ON CONFLICT (waba_id) DO UPDATE
-SET empresa_id = EXCLUDED.empresa_id,
-    sincronizada_en = coalesce(EXCLUDED.sincronizada_en, mensajeria.plantillas_whatsapp_cuentas.sincronizada_en),
-    resumen = coalesce(EXCLUDED.resumen, mensajeria.plantillas_whatsapp_cuentas.resumen),
-    error = EXCLUDED.error, error_en = EXCLUDED.error_en, updated_at = now();
+-- name: ReclamarCuentaWA :one
+-- La dueña de la cuenta: la registra si no tenía (y bloquea la fila hasta el fin de la transacción).
+INSERT INTO mensajeria.plantillas_whatsapp_cuentas (waba_id, empresa_id)
+VALUES (@waba_id, @empresa::bigint)
+ON CONFLICT (waba_id) DO UPDATE SET waba_id = EXCLUDED.waba_id
+RETURNING empresa_id;
+
+-- name: ReasignarCuentaWA :exec
+UPDATE mensajeria.plantillas_whatsapp_cuentas SET empresa_id = @empresa::bigint, sincronizada_en = NULL, resumen = NULL, error = NULL, error_en = NULL, updated_at = now()
+WHERE waba_id = @waba_id;
+
+-- name: OtraEmpresaUsaWaba :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.canales WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) <> @empresa::bigint AND desconectado_en IS NULL)::boolean;
+
+-- name: EstadoCuentaWA :exec
+UPDATE mensajeria.plantillas_whatsapp_cuentas
+SET sincronizada_en = coalesce(sqlc.narg('sincronizada_en'), sincronizada_en), resumen = coalesce(sqlc.narg('resumen'), resumen),
+    error = sqlc.narg('error'), error_en = sqlc.narg('error_en'), updated_at = now()
+WHERE waba_id = @waba_id AND empresa_id = @empresa::bigint;
 
 -- name: CuentasWAParaNoche :many
--- Cuentas con un número activo que no se sincronizan desde @antes.
-SELECT DISTINCT c.waba_id FROM mensajeria.canales c
-LEFT JOIN mensajeria.plantillas_whatsapp_cuentas k ON k.waba_id = c.waba_id
-WHERE c.waba_id <> '' AND c.activo AND c.desconectado_en IS NULL
-  AND (k.sincronizada_en IS NULL OR k.sincronizada_en < @antes)
+-- Cuentas con un número activo de su dueña que no se sincronizan desde @antes.
+SELECT k.waba_id FROM mensajeria.plantillas_whatsapp_cuentas k
+WHERE (k.sincronizada_en IS NULL OR k.sincronizada_en < @antes)
   AND (k.error_en IS NULL OR k.error_en < @antes)
-ORDER BY c.waba_id
+  AND EXISTS (SELECT 1 FROM mensajeria.canales c WHERE c.waba_id = k.waba_id AND coalesce(c.empresa_id, 0) = k.empresa_id AND c.activo AND c.desconectado_en IS NULL)
+ORDER BY k.waba_id
 LIMIT 200;
 
--- name: AjustesPlantillasWA :one
-SELECT * FROM mensajeria.plantillas_whatsapp_ajustes WHERE empresa_id = @empresa_id;
+-- name: RegistrarAvisoMetaPW :execrows
+-- Un aviso de Meta sobre una plantilla (se aplica una sola vez aunque llegue por varios números).
+INSERT INTO mensajeria.plantillas_whatsapp_avisos_meta (waba_id, meta_id, campo, evento, ocurrido)
+VALUES (@waba_id, @meta_id, @campo, @evento, @ocurrido)
+ON CONFLICT DO NOTHING;
 
 -- Datos de Argos para las variables (instantánea; nunca se pide a Argos en el envío).
 
@@ -173,6 +190,9 @@ JOIN mensajeria.canales c ON c.id = p.canal_id
 JOIN nucleo.empresas e ON e.id = p.empresa_id
 WHERE c.waba_id = @waba_id AND p.activo
 ORDER BY e.nombre;
+
+-- name: AjustesPlantillasWA :one
+SELECT * FROM mensajeria.plantillas_whatsapp_ajustes WHERE empresa_id = @empresa_id;
 
 -- name: GuardarAjustesPlantillasWA :one
 INSERT INTO mensajeria.plantillas_whatsapp_ajustes (empresa_id, marketing_permitido)

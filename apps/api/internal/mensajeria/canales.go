@@ -255,18 +255,24 @@ func (m *Modulo) plantillasDeCanal(ctx context.Context, q *mensajeriabd.Queries,
 		return p, nil
 	}
 	ahora := m.ahora()
-	fs, err := q.PlantillasWAUsables(ctx, mensajeriabd.PlantillasWAUsablesParams{WabaID: c.WabaID, Ahora: &ahora})
+	// Solo las de la empresa dueña de la cuenta (la del número; un préstamo no la cambia).
+	fs, err := q.PlantillasWAUsables(ctx, mensajeriabd.PlantillasWAUsablesParams{WabaID: c.WabaID, Empresa: derefEmpresa(c.EmpresaID), Ahora: &ahora})
 	if err != nil {
 		return nil, err
 	}
 	for _, f := range fs {
-		if f.Codigo == nil || (uso != "" && !slices.Contains(f.Usos, uso)) {
+		if uso != "" && !slices.Contains(f.Usos, uso) {
 			continue
 		}
 		var params []ParametroPWA
 		_ = json.Unmarshal(f.Parametros, &params)
-		p[*f.Codigo] = PlantillaMeta{Nombre: f.Nombre, Idioma: f.Idioma, Parametros: params, Nombrados: f.Formato == "NAMED", Categoria: f.Categoria,
-			Usos: lista(f.Usos)}
+		for _, codigo := range f.Codigos {
+			if _, ya := p[codigo]; ya {
+				continue // la más antigua (no debería haber dos: lo cuida tomarCodigo)
+			}
+			p[codigo] = PlantillaMeta{Nombre: f.Nombre, Idioma: f.Idioma, Parametros: params, Nombrados: f.Formato == "NAMED", Categoria: f.Categoria,
+				Usos: lista(f.Usos)}
+		}
 	}
 	return p, nil
 }
