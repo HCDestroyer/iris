@@ -506,6 +506,18 @@ func inicioPeriodo(c mensajeriabd.MensajeriaConversacion) time.Time {
 	return *c.ReabiertaEn
 }
 
+// inicioTurnos: desde cuándo cuentan los turnos para maxTurnos: el periodo o, si una persona le
+// devolvió la conversación después («reanudar», §17.11), la reanudación (reanudado = true). Un turno
+// creado en el mismo instante de reanudar (el pendiente del mensaje que esperaba) ya es de la
+// atención nueva.
+func inicioTurnos(c mensajeriabd.MensajeriaConversacion) (time.Time, bool) {
+	desde := inicioPeriodo(c)
+	if c.AsistenteReanudadoEn != nil && c.AsistenteReanudadoEn.After(desde) {
+		return *c.AsistenteReanudadoEn, true
+	}
+	return desde, false
+}
+
 // inicioEntrantes: desde cuándo cuentan los mensajes del CLIENTE de este periodo. El mensaje que
 // reabre la conversación entra: su hora (la de WhatsApp) puede ser anterior a reabierta_en, nunca a
 // la resolución.
@@ -823,10 +835,15 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 			return noAplica(PasoTope)
 		}
 	}
-	// maxTurnos cuenta todos los turnos del periodo, también los descartados (gastaron igual).
-	if turnos, err := q.TurnosDelPeriodo(ctx, mensajeriabd.TurnosDelPeriodoParams{ConversacionID: c.ID, Desde: desde}); err != nil {
+	// maxTurnos cuenta todos los turnos del periodo, también los descartados (gastaron igual). Si una
+	// persona le devolvió la conversación («reanudar», §17.11), cuenta desde entonces: es una atención
+	// nueva y su decisión explícita. Antes contaba los turnos de antes de pasarla, y después de
+	// max_turnos el asistente la volvía a pasar con el siguiente mensaje: no había forma de
+	// devolvérsela. Los límites por hora y por día (arriba) siguen contando todo.
+	desdeTurnos, reanudado := inicioTurnos(c)
+	if turnos, err := q.TurnosDelPeriodo(ctx, mensajeriabd.TurnosDelPeriodoParams{ConversacionID: c.ID, Desde: desdeTurnos}); err != nil {
 		return nada, err
-	} else if !sinLimites && (turnos >= int64(aj.MaxTurnos) || c.AsistenteTurnos >= aj.MaxTurnos) {
+	} else if !sinLimites && (turnos >= int64(aj.MaxTurnos) || (!reanudado && c.AsistenteTurnos >= aj.MaxTurnos)) {
 		return pasar(PasoMaxTurnos)
 	}
 	texto := ""

@@ -2790,6 +2790,11 @@ una persona puede devolvérsela con `reanudar`.
   reanudar, el turno de ese mensaje se reabre **como mucho una vez** (`asistente_turnos.reaperturas`)
   y pasa otra vez por los límites por hora y por `maxTurnos`. Si lo vuelven a pausar a mitad, ya no
   revive: ese mensaje lo contesta una persona (la conversación queda `abierta`, con su SLA).
+- **`maxTurnos` cuenta desde la reanudación.** Devolverle la conversación es una atención nueva:
+  `maxTurnos` cuenta los turnos creados desde `asistente_reanudado_en` (o desde el inicio del periodo
+  si nadie la reanudó). Antes contaba también los de antes, y tras pasarla por `max_turnos` el
+  asistente la volvía a pasar con el siguiente mensaje: «Que siga el asistente» no servía (reporte
+  del PM, 0.34.0). Los límites por hora, por día sin cliente y por empresa siguen contando todo.
 - **Pausar y reanudar mientras el asistente escribe.** Lo que estaba generando no se envía; el mismo
   job corre el turno otra vez con la conversación como quedó. Si el job no se puede encolar porque ya
   corre otro (es único por conversación), el turno queda pendiente y el mantenimiento lo reencola.
