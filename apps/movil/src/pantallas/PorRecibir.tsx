@@ -26,6 +26,7 @@ import { sePuedeRecibir, situacionDe, useRecepcion } from "../campo/recepcion";
 import { useTema } from "../tema/tema";
 import { EstadoAdjunto } from "./orden/Fotos";
 import { LienzoFirma } from "./orden/LienzoFirma";
+import { useAccionPie } from "../campo/accion-pie";
 
 const ICONOS_SITUACION: Record<SituacionTraslado, LucideIcon> = {
     por_recibir: PackageOpen,
@@ -276,6 +277,11 @@ function FormularioRecibir({ traslado }: { traslado: Traslado }) {
     const { fields } = useFieldArray({ control: form.control, name: "lineas" });
     const valores = useWatch({ control: form.control, name: "lineas" });
     const confirmar = form.handleSubmit((d) => r.confirmar(d));
+    // «Confirmar recepción» va en la isla fija de abajo, siempre a la vista (como la PWA).
+    useAccionPie(
+        { texto: "Confirmar recepción", icono: "recibir", ocupado: r.ocupado || form.formState.isSubmitting, volver: { texto: "Por recibir", destino: { tipo: "recibir" } }, prueba: "confirmar-recepcion" },
+        () => void confirmar(),
+    );
 
     return (
         <Pila espacio={14}>
@@ -359,9 +365,6 @@ function FormularioRecibir({ traslado }: { traslado: Traslado }) {
                 <LienzoFirma etiqueta="Recuadro para la firma del técnico" alCambiar={r.setLienzo} />
                 {r.errorFirma ? <Aviso tono="error" icono={CircleAlert} titulo={r.errorFirma} testID="error-firma" /> : null}
             </Tarjeta>
-            <Boton icono={PackageCheck} cargando={r.ocupado || form.formState.isSubmitting} alPresionar={() => void confirmar()} testID="confirmar-recepcion">
-                Confirmar recepción
-            </Boton>
         </Pila>
     );
 }
