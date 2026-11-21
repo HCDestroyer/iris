@@ -26,13 +26,25 @@ describe("PanelLateral", () => {
         expect(html).toContain("Contenido");
         // Sin telón: ni el de HeroUI ni uno propio.
         expect(html).not.toMatch(/backdrop/);
-        // Sólido (la capa flotante del tema), bajo la barra superior: a pantalla completa en el
-        // teléfono y, desde `sm`, tarjeta flotante de 380 px separada de los bordes.
+        // Sólido (la capa flotante del tema): a pantalla completa en el teléfono y, desde `sm`, isla
+        // flotante de 470 px a 16 px de los bordes, con radio de isla (20 px) y la sombra de lo modal.
         expect(html).toContain("bg-[var(--overlay)]");
-        expect(html).toMatch(/fixed inset-x-0 top-14 bottom-0/);
-        expect(html).toContain("sm:right-3");
-        expect(html).toContain("sm:bottom-3");
-        expect(html).toContain("sm:w-[min(23.75rem,calc(100vw-1.5rem))]");
-        expect(html).toContain("sm:rounded-[var(--hx-radius-card)]");
+        expect(html).toMatch(/fixed inset-0 z-40/);
+        expect(html).toContain("sm:top-4");
+        expect(html).toContain("sm:right-4");
+        expect(html).toContain("sm:bottom-4");
+        expect(html).toContain("sm:w-[min(29.375rem,calc(100vw-2rem))]");
+        expect(html).toContain("sm:rounded-[var(--iris-radio-isla)]");
+        expect(html).toContain("var(--iris-sombra-modal)");
+    });
+
+    it("con telón es el Drawer de HeroUI (modal), con la misma isla", () => {
+        const html = renderToStaticMarkup(
+            <PanelLateral abierto telon alCerrar={() => undefined} etiqueta="Registrar visita">
+                <p>Formulario</p>
+            </PanelLateral>,
+        );
+        // El Drawer se monta en un portal (cliente): en el servidor no deja un panel sin telón.
+        expect(html).not.toContain('aria-modal="false"');
     });
 });

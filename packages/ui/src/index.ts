@@ -170,3 +170,35 @@ export {
     TarjetaTitulo,
 } from "./componentes/tarjeta";
 export { estadoHeroui, iconoPorTono, type Tono } from "./componentes/tonos";
+// Rediseño (nov. 2026): marco del panel, listas, fichas y piezas nuevas.
+export { AccionFija, type PropsAccionFija } from "./componentes/accion-fija";
+export { BotonManual, esClaveManual, PATRON_CLAVE_MANUAL, rutaManual, type PropsBotonManual } from "./componentes/boton-manual";
+export { CampoMoneda, type PropsCampoMoneda } from "./componentes/campo-moneda";
+export {
+    BotonBuscar,
+    BotonFlotante,
+    CLASE_ISLA_ENCABEZADO,
+    EncabezadoPanel,
+    IndicadorEstado,
+    type PropsBotonBuscar,
+    type PropsBotonFlotante,
+    type PropsEncabezadoPanel,
+    type PropsIndicadorEstado,
+    type TonoIndicador,
+} from "./componentes/encabezado-panel";
+export { FranjaFicha, type ContadorFicha, type PropsFranjaFicha } from "./componentes/franja-ficha";
+export { FilaLista, ListaFilas, type PropsFilaLista, type PropsListaFilas, type TonoIconoFila } from "./componentes/lista-filas";
+export { gruposMenuAcciones, MenuAcciones, type AccionMenu, type PropsMenuAcciones } from "./componentes/menu-acciones";
+export { MenuCuenta, type OpcionCuenta, type PropsMenuCuenta } from "./componentes/menu-cuenta";
+export {
+    IslaInferior,
+    MenuIsla,
+    textoContadorIsla,
+    type EntradaIsla,
+    type GrupoIsla,
+    type PropsIslaInferior,
+    type PropsMenuIsla,
+    type TonoContadorIsla,
+} from "./componentes/menu-isla";
+export { PestanasSegmentadas, type PestanaSegmentada, type PropsPestanasSegmentadas, type TonoContador } from "./componentes/pestanas-segmentadas";
+export { VistaRapida, type PropsVistaRapida } from "./componentes/vista-rapida";

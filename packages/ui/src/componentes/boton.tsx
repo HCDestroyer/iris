@@ -6,12 +6,13 @@ import { isValidElement, type ComponentProps, type MouseEvent, type ReactElement
 import { cn } from "../utilidades";
 import { Ranura } from "./ranura";
 
-export type VarianteBoton = "primario" | "tinta" | "secundario" | "contorno" | "fantasma" | "peligro" | "enlace";
+export type VarianteBoton = "primario" | "suave" | "tinta" | "secundario" | "contorno" | "fantasma" | "peligro" | "enlace";
 export type TamanoBoton = "md" | "sm" | "lg" | "icono" | "icono-sm";
 
-/** Variante de Iris → variante de HeroUI (`Button variant`). */
+/** Variante de Iris → variante de HeroUI (`Button variant`). `suave` es la `secondary` con el índigo tenue. */
 const VARIANTE_HEROUI = {
     primario: "primary",
+    suave: "secondary",
     tinta: "primary",
     secundario: "tertiary",
     contorno: "outline",
@@ -21,12 +22,14 @@ const VARIANTE_HEROUI = {
 } as const satisfies Record<VarianteBoton, string>;
 
 /**
- * Ajustes de Horus sobre la variante de HeroUI. Las medidas son las de siempre (40 / 32 / 44 px)
- * para que ninguna pantalla cambie de alto; el radio es el de Horus (6 px), no la píldora.
+ * Ajustes de Iris sobre la variante de HeroUI (rediseño, nov. 2026): píldora por omisión (quien
+ * necesite otra forma pasa su `rounded-*`, que gana por tailwind-merge). Medidas: 40 / 32 / 48 px.
  */
 const AJUSTE_VARIANTE: Record<VarianteBoton, string> = {
-    // La acción primaria de la vista: única con halo (solo en oscuro, por token).
-    primario: "shadow-glow hover:shadow-glow-fuerte",
+    // La acción primaria de la vista: índigo lleno, sin halo.
+    primario: "shadow-none",
+    // Relleno índigo tenue con texto índigo: acciones de una fila («Asignar») y accesos rápidos.
+    suave: "shadow-none [--button-bg:var(--iris-primario-suave)] [--button-fg:var(--iris-primario-texto)] [--button-bg-hover:color-mix(in_oklab,var(--iris-primario)_20%,transparent)] [--button-bg-pressed:color-mix(in_oklab,var(--iris-primario)_26%,transparent)]",
     // Acción principal en tinta (app de campo): fondo del color del texto y texto del fondo, sin halo.
     tinta: "shadow-none hover:shadow-none [--hx-glow-brand:transparent] [--button-bg:var(--hx-text)] [--button-fg:var(--hx-bg)] [--button-bg-hover:color-mix(in_oklab,var(--hx-text)_88%,var(--hx-bg))] [--button-bg-pressed:color-mix(in_oklab,var(--hx-text)_80%,var(--hx-bg))]",
     secundario: "text-foreground shadow-[0_0_0_1px_var(--hx-border)]",
@@ -40,7 +43,7 @@ const AJUSTE_VARIANTE: Record<VarianteBoton, string> = {
 const AJUSTE_TAMANO: Record<TamanoBoton, string> = {
     md: "h-10 px-4 text-sm md:h-10",
     sm: "h-8 px-3 text-sm md:h-8",
-    lg: "h-11 px-5 text-base md:h-11",
+    lg: "h-12 px-5 text-base md:h-12",
     icono: "size-10 p-0 md:size-10",
     "icono-sm": "size-8 p-0 md:size-8",
 };
@@ -59,9 +62,9 @@ function opcionesHeroui({ variante, tamano }: OpcionesBoton) {
     };
 }
 
-/** Ajustes de Horus que van encima de las clases de HeroUI. */
+/** Ajustes de Iris que van encima de las clases de HeroUI: píldora, íconos de 16 px y medidas. */
 function ajustesHorus(v: VarianteBoton, t: TamanoBoton): string {
-    return cn("rounded-md [&_svg]:size-4", AJUSTE_TAMANO[t], AJUSTE_VARIANTE[v]);
+    return cn("rounded-full [&_svg]:size-4", AJUSTE_TAMANO[t], AJUSTE_VARIANTE[v]);
 }
 
 /**
@@ -88,7 +91,7 @@ export type PropsBoton = ComponentProps<"button"> &
 const DIRECTO = /^(title|role|tabIndex|draggable|onDrag[A-Za-z]*|onDrop|aria-(invalid|keyshortcuts|busy|checked|selected|owns|live|atomic|errormessage|roledescription|hidden))$/;
 
 /**
- * Botón de Horus: el `Button` de HeroUI (React Aria) con las variantes de Iris. `disabled`,
+ * Botón de Iris: el `Button` de HeroUI (React Aria) con las variantes de Iris. `disabled`,
  * `onClick`, `type="submit"`, `title` y los `data-*` funcionan como en un `<button>`; React Aria
  * agrega el estado de presión, el foco visible (`data-focus-visible`) y el teclado. Como todo
  * `Button` de React Aria, el clic no sigue subiendo a los padres. Dentro de un disparador de
