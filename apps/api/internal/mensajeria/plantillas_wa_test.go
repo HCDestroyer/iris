@@ -41,6 +41,8 @@ type metaPlantillas struct {
 	pagina     int
 	// numeros: los phone_number_id de cada cuenta (GET /{waba}/phone_numbers).
 	numeros map[string][]string
+	// alListar: corre una vez mientras Iris lee las plantillas (p. ej. llega un webhook a media lectura).
+	alListar func()
 }
 
 func nuevaMetaPlantillas(t *testing.T) *metaPlantillas {
@@ -98,6 +100,10 @@ func (f *metaPlantillas) servir(w http.ResponseWriter, r *http.Request) {
 		waba := partes[0]
 		switch r.Method {
 		case http.MethodGet:
+			if fn := f.alListar; fn != nil {
+				f.alListar = nil
+				fn()
+			}
 			lista := f.cuentas[waba]
 			desde := 0
 			if a := r.URL.Query().Get("after"); a != "" {
@@ -158,6 +164,13 @@ func (f *metaPlantillas) modo(sinPermiso, caida bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.sinPermiso, f.caida = sinPermiso, caida
+}
+
+// duranteLaLectura: fn corre una vez mientras Iris lee las plantillas de Meta (no puede usar la Meta falsa).
+func (f *metaPlantillas) duranteLaLectura(fn func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.alListar = fn
 }
 
 func (f *metaPlantillas) porPagina(n int) {

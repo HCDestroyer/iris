@@ -604,6 +604,10 @@ func nuevoCambioCanal(m *Modulo, accion string, activo bool) *auditoria.Caso[Ent
 			// con la cuenta comprobada). Si la cuenta es suya, su mapa se refleja en los códigos libres;
 			// si es de otra empresa, sigue con su mapa propio.
 			if activo && f.WabaID != "" && f.Tipo == TipoWhatsAppCloud {
+				// El candado de la cuenta antes que su fila (mismo orden que la relectura).
+				if err := q.BloquearCuentaPlantillas(ctx, f.WabaID); err != nil {
+					return Canal{}, err
+				}
 				if _, err := q.ReclamarCuentaWA(ctx, mensajeriabd.ReclamarCuentaWAParams{WabaID: f.WabaID, Empresa: derefEmpresa(f.EmpresaID)}); err != nil {
 					return Canal{}, err
 				}

@@ -121,8 +121,9 @@ emojis y ≤ 15 datos; marketing activado. Lo que Iris no puede saber antes (cal
   en el job `mensajeria.procesar_entrante`. Solo cuenta si `entry[].id` es la WABA del número y el
   número es de la empresa dueña de la cuenta. **Orden y repetidos:** con `entry[].time`, un cambio de
   estado más viejo que el último aplicado (`meta_evento_en`, reloj de Meta; nunca `estadoEn`) no se
-  aplica y encola la relectura de la cuenta (y la relectura no pisa una fila con un aviso posterior al
-  inicio de su lectura), y cada aviso se aplica una vez por
+  aplica y encola la relectura de la cuenta (y la relectura no pisa una fila que recibió un aviso
+  mientras se leía: guarda su `meta_evento_en` antes de leer y la salta si cambió), y cada aviso se
+  aplica una vez por
   `(waba, message_template_id, campo, evento, time)` (`mensajeria.plantillas_whatsapp_avisos_meta`),
   aunque llegue por varios números de la cuenta (se guardan 30 días). `other_info.title`/`description` se recortan. Una
   plantilla que Iris no conoce encola la relectura de la cuenta. `PAUSED` con `FIRST_PAUSE` /
