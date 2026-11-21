@@ -323,7 +323,8 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 			if mt.OrdenID == f.ID {
 				d.Materiales = append(d.Materiales, MaterialOrden{ID: mt.ID, ProductoID: mt.ProductoID, Descripcion: mt.Descripcion,
 					Cantidad: numero(mt.Cantidad), BodegaID: mt.BodegaID, ExcedeExistencia: mt.ExcedeExistencia, Modalidad: mt.Modalidad, OcurridoEn: mt.OcurridoEn,
-					RecibidoEn: &mt.CreatedAt, registradoPor: mt.RegistradoPor, desdeApp: mt.OperacionID != nil})
+					RecibidoEn: &mt.CreatedAt, registradoPor: mt.RegistradoPor, desdeApp: mt.DesdeTecnico || mt.OperacionID != nil,
+					bodegaTipo: mt.BodegaTipo})
 			}
 		}
 		for _, e := range equipos {

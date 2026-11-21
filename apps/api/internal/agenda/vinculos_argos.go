@@ -29,12 +29,19 @@ const (
 
 // emitirVinculo emite el evento del vínculo, uno por empresa del usuario (sin empresas, uno sin
 // empresa, que no va a Argos), cada uno con su versión. extra: anterior_id_externo o motivo.
+// Devuelve cuántos van a Argos (los que tienen empresa).
 func emitirVinculo(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, f agendabd.AgendaTecnico, evento, idExterno string,
-	extra map[string]any, carga *uuid.UUID) error {
+	extra map[string]any, carga *uuid.UUID) (int, error) {
 	empresas, err := q.EmpresasDelUsuario(ctx, f.UsuarioID)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	return emitirVinculoEn(ctx, t, q, f, evento, idExterno, extra, carga, empresas)
+}
+
+// emitirVinculoEn: como emitirVinculo, solo para estas empresas (la asignada o la quitada).
+func emitirVinculoEn(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, f agendabd.AgendaTecnico, evento, idExterno string,
+	extra map[string]any, carga *uuid.UUID, empresas []int64) (int, error) {
 	destinos := make([]*int64, 0, len(empresas))
 	for i := range empresas {
 		destinos = append(destinos, &empresas[i])
@@ -45,7 +52,7 @@ func emitirVinculo(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, f 
 	for _, empresa := range destinos {
 		version, err := q.SubirVersionVinculo(ctx, f.ID)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		p := map[string]any{"tecnico_id": f.ID, "usuario_id": f.UsuarioID, "empresa_id": empresa, "version": version,
 			"id_externo": idExterno, "conector_id": f.ArgosConectorID}
@@ -56,10 +63,13 @@ func emitirVinculo(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, f 
 			p["carga_id"] = carga.String()
 		}
 		if err := t.EmitirEnEmpresa(evento, empresa, p); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	if destinos[0] == nil {
+		return 0, nil
+	}
+	return len(destinos), nil
 }
 
 // vinculoPorActivo: al activar o desactivar la ficha (o el usuario) de un técnico vinculado, Argos
@@ -68,10 +78,12 @@ func vinculoPorActivo(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries,
 	if f.ArgosIDExterno == nil {
 		return nil
 	}
+	evento, extra := EventoDesvinculado, map[string]any{"motivo": MotivoDesactivado}
 	if activo {
-		return emitirVinculo(ctx, t, q, f, EventoVinculado, *f.ArgosIDExterno, map[string]any{"anterior_id_externo": nil}, nil)
+		evento, extra = EventoVinculado, map[string]any{"anterior_id_externo": nil}
 	}
-	return emitirVinculo(ctx, t, q, f, EventoDesvinculado, *f.ArgosIDExterno, map[string]any{"motivo": MotivoDesactivado}, nil)
+	_, err := emitirVinculo(ctx, t, q, f, evento, *f.ArgosIDExterno, extra, nil)
+	return err
 }
 
 // EntradaCargaVinculos: la carga inicial de vínculos de un conector (al informar 0.14.0).
@@ -93,19 +105,23 @@ func (m *Modulo) nuevoCargarVinculos() *auditoria.Caso[EntradaCargaVinculos, int
 			if err != nil {
 				return 0, err
 			}
+			n := 0
 			for _, f := range fichas {
-				if err := emitirVinculo(ctx, t, q, f, EventoVinculado, *f.ArgosIDExterno, map[string]any{"anterior_id_externo": nil}, &in.CargaID); err != nil {
+				k, err := emitirVinculo(ctx, t, q, f, EventoVinculado, *f.ArgosIDExterno, map[string]any{"anterior_id_externo": nil}, &in.CargaID)
+				if err != nil {
 					return 0, err
 				}
+				n += k
 			}
-			t.Anotar(map[string]any{"vinculos": len(fichas), "carga_id": in.CargaID})
-			return len(fichas), nil
+			t.Anotar(map[string]any{"tecnicos": len(fichas), "vinculados": n, "carga_id": in.CargaID})
+			return n, nil
 		},
 	})
 }
 
-// CargarVinculos emite un tecnico.argos_vinculado por cada vínculo vigente que salió del conector,
-// marcado con la carga; devuelve cuántos (argos.Vinculos).
+// CargarVinculos emite un tecnico.argos_vinculado por cada vínculo vigente que salió del conector
+// (uno por empresa del técnico), marcado con la carga; devuelve cuántos van a Argos. Corre en la
+// transacción de quien lo llama (argos, al informar 0.14.0).
 func (m *Modulo) CargarVinculos(ctx context.Context, conectorID int64, carga uuid.UUID) (int, error) {
 	return m.cargarVinculos.Ejecutar(ctx, EntradaCargaVinculos{ConectorID: conectorID, CargaID: carga})
 }

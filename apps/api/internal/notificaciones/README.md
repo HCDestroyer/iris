@@ -88,6 +88,10 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   `usuarios[]` (quien tiene la conversación y quienes supervisan la cola) con el tipo `bandeja`
   (respeta ese interruptor y el «no molestar»), título «Llamada perdida» y `llamada_perdida: true`.
 
+Aviso `argos_clave_reutilizada` (contrato con Argos 0.14.0 §3.10): con `integracion.pendiente_clave_reutilizada`,
+a quien tiene `integraciones.conectar` con todas las empresas; uno por pendiente, `peligro` en un cambio o un
+intento de recuperación. Solo campana; se ve con cualquier empresa activa.
+
 ## Eventos
 
 - **Emite:** `dispositivo.registrado`, `dispositivo.quitado`, `notificaciones.preferencias_cambiadas`

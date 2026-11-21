@@ -247,18 +247,24 @@ func (q *Queries) AsegurarParticionPosiciones(ctx context.Context, fecha time.Ti
 }
 
 const asignacionesDeOrden = `-- name: AsignacionesDeOrden :many
-SELECT ocurrido_en, coalesce((datos->>'tecnico_id')::bigint, 0)::bigint AS tecnico_id FROM campo.orden_eventos
-WHERE orden_id = $1 AND tipo IN ('asignada', 'programada') AND datos ? 'tecnico_id'
+SELECT ocurrido_en,
+       (datos ? 'tecnico_id')::boolean AS trae_tecnico, coalesce((datos->>'tecnico_id')::bigint, 0)::bigint AS tecnico_id,
+       (datos ? 'cuadrilla_id')::boolean AS trae_cuadrilla, coalesce((datos->>'cuadrilla_id')::bigint, 0)::bigint AS cuadrilla_id
+FROM campo.orden_eventos
+WHERE orden_id = $1 AND tipo IN ('asignada', 'programada') AND (datos ? 'tecnico_id' OR datos ? 'cuadrilla_id')
 ORDER BY ocurrido_en, id
 `
 
 type AsignacionesDeOrdenRow struct {
-	OcurridoEn time.Time
-	TecnicoID  int64
+	OcurridoEn    time.Time
+	TraeTecnico   bool
+	TecnicoID     int64
+	TraeCuadrilla bool
+	CuadrillaID   int64
 }
 
-// El historial de asignación de la orden (asignaciones y programaciones con técnico), con la hora del
-// servidor: para orden_reasignada (0.13.1 §3.10).
+// El historial de asignación de la orden (asignaciones y programaciones con técnico o cuadrilla),
+// con la hora del servidor: para orden_reasignada (0.14.0 §3.10).
 func (q *Queries) AsignacionesDeOrden(ctx context.Context, ordenID int64) ([]AsignacionesDeOrdenRow, error) {
 	rows, err := q.db.Query(ctx, asignacionesDeOrden, ordenID)
 	if err != nil {
@@ -268,7 +274,13 @@ func (q *Queries) AsignacionesDeOrden(ctx context.Context, ordenID int64) ([]Asi
 	var items []AsignacionesDeOrdenRow
 	for rows.Next() {
 		var i AsignacionesDeOrdenRow
-		if err := rows.Scan(&i.OcurridoEn, &i.TecnicoID); err != nil {
+		if err := rows.Scan(
+			&i.OcurridoEn,
+			&i.TraeTecnico,
+			&i.TecnicoID,
+			&i.TraeCuadrilla,
+			&i.CuadrillaID,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -340,6 +352,22 @@ func (q *Queries) BodegaDeTecnico(ctx context.Context, usuarioID int64) (*int64,
 	var bodega_id *int64
 	err := row.Scan(&bodega_id)
 	return bodega_id, err
+}
+
+const bodegaEsDeCuadrilla = `-- name: BodegaEsDeCuadrilla :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = $1 AND cuadrilla_id = $2)::boolean
+`
+
+type BodegaEsDeCuadrillaParams struct {
+	BodegaID    int64
+	CuadrillaID int64
+}
+
+func (q *Queries) BodegaEsDeCuadrilla(ctx context.Context, arg BodegaEsDeCuadrillaParams) (bool, error) {
+	row := q.db.QueryRow(ctx, bodegaEsDeCuadrilla, arg.BodegaID, arg.CuadrillaID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const bodegaPersonalDelTecnico = `-- name: BodegaPersonalDelTecnico :one
@@ -1082,11 +1110,11 @@ func (q *Queries) CrearItems(ctx context.Context, arg CrearItemsParams) error {
 }
 
 const crearMaterial = `-- name: CrearMaterial :one
-INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia,
+INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, bodega_tipo, desde_tecnico, excede_existencia,
                                     registrado_por, canal, ocurrido_en, operacion_id, modalidad)
-VALUES ($1, $2, $3, $4, $5, $6, $7,
-        $8, $9, $10, $11, $12)
-RETURNING id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10, $11, $12, $13, $14)
+RETURNING id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad, bodega_tipo, desde_tecnico
 `
 
 type CrearMaterialParams struct {
@@ -1096,6 +1124,8 @@ type CrearMaterialParams struct {
 	Descripcion      string
 	Cantidad         pgtype.Numeric
 	BodegaID         *int64
+	BodegaTipo       *string
+	DesdeTecnico     bool
 	ExcedeExistencia bool
 	RegistradoPor    *int64
 	Canal            string
@@ -1112,6 +1142,8 @@ func (q *Queries) CrearMaterial(ctx context.Context, arg CrearMaterialParams) (C
 		arg.Descripcion,
 		arg.Cantidad,
 		arg.BodegaID,
+		arg.BodegaTipo,
+		arg.DesdeTecnico,
 		arg.ExcedeExistencia,
 		arg.RegistradoPor,
 		arg.Canal,
@@ -1135,6 +1167,8 @@ func (q *Queries) CrearMaterial(ctx context.Context, arg CrearMaterialParams) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Modalidad,
+		&i.BodegaTipo,
+		&i.DesdeTecnico,
 	)
 	return i, err
 }
@@ -1444,6 +1478,18 @@ func (q *Queries) CrearVersion(ctx context.Context, arg CrearVersionParams) (Cam
 	return i, err
 }
 
+const dejoAlgunaCuadrilla = `-- name: DejoAlgunaCuadrilla :one
+SELECT EXISTS (SELECT 1 FROM agenda.cuadrilla_miembros WHERE usuario_id = $1 AND hasta IS NOT NULL)::boolean
+`
+
+// El usuario dejó alguna cuadrilla (para leer de Argos la bodega de la unidad que entra, M-7).
+func (q *Queries) DejoAlgunaCuadrilla(ctx context.Context, usuarioID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, dejoAlgunaCuadrilla, usuarioID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const descartarDatosArgosOrden = `-- name: DescartarDatosArgosOrden :one
 UPDATE campo.ordenes SET
     datos_argos_cambiados_en = NULL, datos_argos_campos = '{}', version = version + 1, updated_at = now()
@@ -1689,7 +1735,8 @@ func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]Camp
 
 const esBodegaDeTecnicoOCuadrilla = `-- name: EsBodegaDeTecnicoOCuadrilla :one
 SELECT (EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = $1::bigint)
-     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = $1::bigint))::boolean
+     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = $1::bigint)
+     OR EXISTS (SELECT 1 FROM agenda.tecnicos ft WHERE ft.bodega_id = $1::bigint))::boolean
 `
 
 // La bodega es de una cuadrilla o la personal de un técnico según Argos (0.13.1 §3.9): desde el panel
@@ -2953,7 +3000,7 @@ func (q *Queries) MarcarEnviadoAlAplicar(ctx context.Context, id uuid.UUID) erro
 }
 
 const materialPorID = `-- name: MaterialPorID :one
-SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad FROM campo.orden_materiales WHERE id = $1
+SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad, bodega_tipo, desde_tecnico FROM campo.orden_materiales WHERE id = $1
 `
 
 func (q *Queries) MaterialPorID(ctx context.Context, id uuid.UUID) (CampoOrdenMaterial, error) {
@@ -2974,12 +3021,14 @@ func (q *Queries) MaterialPorID(ctx context.Context, id uuid.UUID) (CampoOrdenMa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Modalidad,
+		&i.BodegaTipo,
+		&i.DesdeTecnico,
 	)
 	return i, err
 }
 
 const materialesDeOrdenes = `-- name: MaterialesDeOrdenes :many
-SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad FROM campo.orden_materiales WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
+SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad, bodega_tipo, desde_tecnico FROM campo.orden_materiales WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
 `
 
 func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenMaterial, error) {
@@ -3006,7 +3055,40 @@ func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]C
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Modalidad,
+			&i.BodegaTipo,
+			&i.DesdeTecnico,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const membresiasDe = `-- name: MembresiasDe :many
+SELECT cuadrilla_id, desde, hasta FROM agenda.cuadrilla_miembros WHERE usuario_id = $1 ORDER BY desde
+`
+
+type MembresiasDeRow struct {
+	CuadrillaID int64
+	Desde       time.Time
+	Hasta       *time.Time
+}
+
+// Los periodos del usuario en cada cuadrilla (agenda.cuadrilla_miembros, hora del servidor).
+func (q *Queries) MembresiasDe(ctx context.Context, usuarioID int64) ([]MembresiasDeRow, error) {
+	rows, err := q.db.Query(ctx, membresiasDe, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MembresiasDeRow
+	for rows.Next() {
+		var i MembresiasDeRow
+		if err := rows.Scan(&i.CuadrillaID, &i.Desde, &i.Hasta); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

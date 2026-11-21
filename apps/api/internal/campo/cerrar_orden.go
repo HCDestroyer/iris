@@ -231,7 +231,9 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 			"fecha": mt.OcurridoEn, "recibido_en_iris": mt.RecibidoEn,
 			// desde_app: lo registró un técnico desde el lote (con registrado_por): sale con tecnico,
 			// bodega_id y X-Iris-Actor de quien lo usó (M-268-1). Si no, lo indicó despacho en el panel.
-			"desde_app": mt.desdeApp, "usuario_id": mt.registradoPor}
+			"desde_app": mt.desdeApp, "usuario_id": mt.registradoPor,
+			// bodega_tipo: el tipo de la bodega según Argos cuando despacho lo registró (M-4).
+			"bodega_tipo": mt.bodegaTipo}
 	}
 	materiales := make([]map[string]any, 0, len(orden))
 	for _, k := range orden {

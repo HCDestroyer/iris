@@ -116,6 +116,8 @@ type Modulo struct {
 	AvisarServidorIA *auditoria.Caso[EntradaAvisarServidorIA, ResultadoAvisarTope]
 	// AvisarCertificadoArgos: campana cuando cambia el certificado TLS de Argos (contrato 0.8.0 §1.5).
 	AvisarCertificadoArgos *auditoria.Caso[EntradaAvisarCertificadoArgos, ResultadoAvisarTope]
+	// AvisarClaveReutilizada: campana cuando Argos responde idempotency_key_reutilizada (0.14.0 §3.10).
+	AvisarClaveReutilizada *auditoria.Caso[EntradaAvisarClaveReutilizada, ResultadoAvisarTope]
 	prepararCorreo         *auditoria.Caso[int64, *correoListo]
 	cerrarCorreo           *auditoria.Caso[ResultadoCorreo, bool]
 	// Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
@@ -164,6 +166,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.AvisarTope = m.nuevoAvisarTope()
 	m.AvisarServidorIA = m.nuevoAvisarServidorIA()
 	m.AvisarCertificadoArgos = m.nuevoAvisarCertificadoArgos()
+	m.AvisarClaveReutilizada = m.nuevoAvisarClaveReutilizada()
 	m.prepararCorreo = m.nuevoPrepararCorreo()
 	m.cerrarCorreo = m.nuevoCerrarCorreo()
 	m.VerCorreoSistema = m.nuevoVerCorreoSistema()

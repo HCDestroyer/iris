@@ -18,8 +18,13 @@ func TestConsumoPorActorYBodega014(t *testing.T) {
 	despacho := e.tecnico("")
 	orden := nuevaOrden()
 	linea := func(producto, bodega, quien int64, app bool) map[string]any {
-		return map[string]any{"producto_id": producto, "cantidad": 1, "bodega_id": bodega, "modalidad": "consumible_gasto",
-			"desde_app": app, "usuario_id": quien}
+		l := map[string]any{"producto_id": producto, "cantidad": 1, "bodega_id": bodega, "modalidad": "consumible_gasto",
+			"desde_app": app, "usuario_id": quien, "fecha": "2026-11-21T16:0" + strconv.FormatInt(producto, 10) + ":00Z",
+			"recibido_en_iris": "2026-11-21T16:40:1" + strconv.FormatInt(producto, 10) + "Z"}
+		if !app {
+			l["bodega_tipo"] = "bodega"
+		}
+		return l
 	}
 	e.cerrar(map[string]any{
 		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
@@ -39,6 +44,13 @@ func TestConsumoPorActorYBodega014(t *testing.T) {
 		if l.Cuerpo["bodega_id"] != float64(c.bodega) || tec["id_externo"] != c.idExterno || l.Actor != "usuario:"+strconv.FormatInt(c.usuario, 10) {
 			t.Fatalf("consumo de %d en %d: %s actor=%q", c.usuario, c.bodega, l.Crudo, l.Actor)
 		}
+	}
+	// M-6: cada grupo lleva la fecha más reciente de sus líneas y su recibido_en_iris.
+	if l := e.llamadaA(clave(a, 3)); l.Cuerpo["fecha"] != "2026-11-21T16:05:00Z" || l.Cuerpo["recibido_en_iris"] != "2026-11-21T16:40:15Z" {
+		t.Fatalf("fecha del grupo: %s", l.Crudo)
+	}
+	if l := e.llamadaA(clave(b, 3)); l.Cuerpo["fecha"] != "2026-11-21T16:07:00Z" {
+		t.Fatalf("fecha del otro grupo: %s", l.Crudo)
 	}
 	if l := e.llamadaA(clave(despacho, 9)); l.Cuerpo["tecnico"] != nil || l.Actor != "" || l.Cuerpo["bodega_id"] != 9.0 {
 		t.Fatalf("consumo del panel: %s actor=%q", l.Crudo, l.Actor)

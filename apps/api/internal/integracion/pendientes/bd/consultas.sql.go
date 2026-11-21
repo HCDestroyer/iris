@@ -83,6 +83,16 @@ func (q *Queries) BloquearDependientes(ctx context.Context, arg BloquearDependie
 	return items, nil
 }
 
+const bloquearVerificacion = `-- name: BloquearVerificacion :exec
+SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
+`
+
+// M-1: el tope se cuenta e inserta con el conector y la clave bloqueados (consultas concurrentes).
+func (q *Queries) BloquearVerificacion(ctx context.Context, llave string) error {
+	_, err := q.db.Exec(ctx, bloquearVerificacion, llave)
+	return err
+}
+
 const bodegaDeOrden = `-- name: BodegaDeOrden :one
 SELECT bodega_id FROM campo.ordenes WHERE id = $1::bigint
 `
@@ -217,9 +227,12 @@ func (q *Queries) CompletarEsperando(ctx context.Context, arg CompletarEsperando
 
 const conectorDeToken = `-- name: ConectorDeToken :one
 SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = $1
+  AND CASE WHEN contrato_informado ~ '^[0-9]+\.[0-9]+\.[0-9]+$'
+           THEN string_to_array(contrato_informado, '.')::int[] >= '{0,14,0}'::int[] ELSE false END
 `
 
-// El conector Argos al que Iris entregó este token (el que consulta la verificación).
+// El conector Argos al que Iris entregó este token (el que consulta la verificación), solo si Iris
+// ya le informó contrato ≥ 0.14.0 (§4.5: la verificación y su permiso van detrás de esa versión).
 func (q *Queries) ConectorDeToken(ctx context.Context, tokenID *int64) (int64, error) {
 	row := q.db.QueryRow(ctx, conectorDeToken, tokenID)
 	var id int64
@@ -1075,15 +1088,14 @@ func (q *Queries) ListarPendientes(ctx context.Context, arg ListarPendientesPara
 const llegadaParaVerificar = `-- name: LlegadaParaVerificar :one
 SELECT coalesce(max(ocurrido_en), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz FROM campo.orden_eventos
 WHERE orden_id::text = $1::text AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
-  AND actor_id = $2 AND ocurrido_en <= $3
-  AND (ocurrido_en AT TIME ZONE 'America/Guatemala')::date = ($4)::date
+  AND actor_id = $2 AND ocurrido_en >= $3 AND ocurrido_en <= $4
 `
 
 type LlegadaParaVerificarParams struct {
-	OrdenID                                           string
-	ActorID                                           *int64
-	Fecha                                             time.Time
-	PgCatalogtimezoneAmericaGuatemalafechatimestamptz pgtype.Date
+	OrdenID string
+	ActorID *int64
+	Desde   time.Time
+	Fecha   time.Time
 }
 
 // La llegada del autor a la orden (último orden.llegar suyo el mismo día de la fecha, sin pasarla).
@@ -1091,8 +1103,8 @@ func (q *Queries) LlegadaParaVerificar(ctx context.Context, arg LlegadaParaVerif
 	row := q.db.QueryRow(ctx, llegadaParaVerificar,
 		arg.OrdenID,
 		arg.ActorID,
+		arg.Desde,
 		arg.Fecha,
-		arg.PgCatalogtimezoneAmericaGuatemalafechatimestamptz,
 	)
 	var column_1 time.Time
 	err := row.Scan(&column_1)
@@ -1718,6 +1730,31 @@ func (q *Queries) PorResolverListos(ctx context.Context, limite int32) ([]Integr
 	return items, nil
 }
 
+const postergarPendiente = `-- name: PostergarPendiente :exec
+UPDATE integracion.pendientes SET estado = 'pendiente', proximo_intento = $1, tomado_en = NULL,
+    ultimo_error = $2, codigo_error = $3, updated_at = now()
+WHERE id = $4 AND estado = 'en_curso'
+`
+
+type PostergarPendienteParams struct {
+	ProximoIntento time.Time
+	UltimoError    *string
+	CodigoError    *string
+	ID             int64
+}
+
+// Espera una dependencia que no es otro pendiente (el vinculado del técnico): vuelve a pendiente sin
+// gastar un intento.
+func (q *Queries) PostergarPendiente(ctx context.Context, arg PostergarPendienteParams) error {
+	_, err := q.db.Exec(ctx, postergarPendiente,
+		arg.ProximoIntento,
+		arg.UltimoError,
+		arg.CodigoError,
+		arg.ID,
+	)
+	return err
+}
+
 const purgarVerificaciones = `-- name: PurgarVerificaciones :exec
 DELETE FROM integracion.verificaciones_intento WHERE consultada_en < $1
 `
@@ -2160,6 +2197,29 @@ SELECT count(*)::int FROM campo.orden_equipos WHERE foto_adjunto_id = $1
 func (q *Queries) UsosDeFoto(ctx context.Context, foto pgtype.UUID) (int32, error) {
 	row := q.db.QueryRow(ctx, usosDeFoto, foto)
 	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const vinculadoEntregado = `-- name: VinculadoEntregado :one
+SELECT coalesce((
+    SELECT w.estado = 'entregado' FROM mensajeria.webhooks_salida w
+    WHERE w.evento = 'tecnico.argos_vinculado' AND (w.payload->>'usuario_id')::bigint = $1::bigint
+      AND w.empresa_id = $2::bigint AND w.conector_origen = $3::bigint
+    ORDER BY (w.payload->>'version')::int DESC LIMIT 1), false)::boolean
+`
+
+type VinculadoEntregadoParams struct {
+	UsuarioID  int64
+	EmpresaID  int64
+	ConectorID int64
+}
+
+// 0.14.0 §6.6: el último tecnico.argos_vinculado del técnico en la empresa, hacia este conector, ya
+// tuvo el 2xx de Argos (sin ninguno, o con uno sin entregar, la operación con `tecnico` espera).
+func (q *Queries) VinculadoEntregado(ctx context.Context, arg VinculadoEntregadoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, vinculadoEntregado, arg.UsuarioID, arg.EmpresaID, arg.ConectorID)
+	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
 }

@@ -178,7 +178,7 @@ func (m *Modulo) nuevoVincularArgos() *VincularArgos {
 			if f.ArgosConectorID, err = q.FijarConectorVinculo(ctx, f.ID); err != nil {
 				return TecnicoDetalle{}, err
 			}
-			if err := emitirVinculo(ctx, t, q, f, EventoVinculado, in.IDExterno,
+			if _, err := emitirVinculo(ctx, t, q, f, EventoVinculado, in.IDExterno,
 				map[string]any{"anterior_id_externo": antes.ArgosIDExterno}, nil); err != nil {
 				return TecnicoDetalle{}, err
 			}
@@ -259,7 +259,7 @@ func (m *Modulo) nuevoDesvincularArgos() *auditoria.Caso[EntradaDesvincularArgos
 			if s := strings.TrimSpace(in.Motivo); s != "" {
 				motivo = &s
 			}
-			if err := emitirVinculo(ctx, t, q, f, EventoDesvinculado, *antes.ArgosIDExterno, map[string]any{"motivo": motivo}, nil); err != nil {
+			if _, err := emitirVinculo(ctx, t, q, f, EventoDesvinculado, *antes.ArgosIDExterno, map[string]any{"motivo": motivo}, nil); err != nil {
 				return TecnicoDetalle{}, err
 			}
 			// Sin vínculo I1 no consume de la bodega de la cuadrilla ni puede ser su jefe (§3.9).

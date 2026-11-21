@@ -339,7 +339,7 @@ func (q *Queries) CerrarPruebaCorreo(ctx context.Context, arg CerrarPruebaCorreo
 
 const contarAvisosNoLeidos = `-- name: ContarAvisosNoLeidos :one
 SELECT count(*)::integer FROM notificaciones.avisos
-WHERE usuario_id = $1 AND ((NOT $2::boolean AND coalesce(empresa_id, 0) = coalesce($3::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral')) AND leido_en IS NULL
+WHERE usuario_id = $1 AND ((NOT $2::boolean AND coalesce(empresa_id, 0) = coalesce($3::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada')) AND leido_en IS NULL
 `
 
 type ContarAvisosNoLeidosParams struct {
@@ -1234,7 +1234,7 @@ func (q *Queries) InsertarRechazoCorreo(ctx context.Context, arg InsertarRechazo
 
 const leerAviso = `-- name: LeerAviso :one
 UPDATE notificaciones.avisos SET leido_en = coalesce(leido_en, $1)
-WHERE id = $2 AND usuario_id = $3 AND ((NOT $4::boolean AND coalesce(empresa_id, 0) = coalesce($5::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral'))
+WHERE id = $2 AND usuario_id = $3 AND ((NOT $4::boolean AND coalesce(empresa_id, 0) = coalesce($5::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada'))
 RETURNING id, usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id, leido_en, creado_en
 `
 
@@ -1275,7 +1275,7 @@ func (q *Queries) LeerAviso(ctx context.Context, arg LeerAvisoParams) (Notificac
 
 const leerTodosLosAvisos = `-- name: LeerTodosLosAvisos :execrows
 UPDATE notificaciones.avisos SET leido_en = $1
-WHERE usuario_id = $2 AND ((NOT $3::boolean AND coalesce(empresa_id, 0) = coalesce($4::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral')) AND leido_en IS NULL
+WHERE usuario_id = $2 AND ((NOT $3::boolean AND coalesce(empresa_id, 0) = coalesce($4::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada')) AND leido_en IS NULL
 `
 
 type LeerTodosLosAvisosParams struct {
@@ -1300,7 +1300,7 @@ func (q *Queries) LeerTodosLosAvisos(ctx context.Context, arg LeerTodosLosAvisos
 
 const listarAvisos = `-- name: ListarAvisos :many
 SELECT id, usuario_id, empresa_id, tipo, clave, nivel, titulo, enlace, datos, evento_id, leido_en, creado_en FROM notificaciones.avisos
-WHERE usuario_id = $1 AND ((NOT $2::boolean AND coalesce(empresa_id, 0) = coalesce($3::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral'))
+WHERE usuario_id = $1 AND ((NOT $2::boolean AND coalesce(empresa_id, 0) = coalesce($3::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada'))
   AND (NOT $4::boolean OR leido_en IS NULL)
   AND ($5::bigint = 0 OR id < $5::bigint)
 ORDER BY id DESC

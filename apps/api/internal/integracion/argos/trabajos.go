@@ -99,6 +99,7 @@ func (m *Modulo) RegistrarWorkers(workers *river.Workers, bd nucleo.BD) {
 	river.AddWorker(workers, &trabajadorRevisarContrato{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorPrimeraSincronizacion{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorInformarSincronizacion{m: m, bd: bd})
+	river.AddWorker(workers, &trabajadorCerrarCarga{m: m, bd: bd})
 	// 0.6.3: revocar el atk_ de un canje que Iris no completó (el núcleo es de este módulo; Horus no
 	// revoca canjes).
 	m.nucleo.RegistrarRevocarCanje(workers)
@@ -122,5 +123,9 @@ func TrabajosPeriodicos(intervalo time.Duration) []*river.PeriodicJob {
 		// 0.8.0 §7.8: relectura de las cuentas bancarias (la instantánea nunca pasa de 24 h).
 		river.NewPeriodicJob(river.PeriodicInterval(intervalo),
 			func() (river.JobArgs, *river.InsertOpts) { return ArgsSincronizarCuentas{}, nil },
+			&river.PeriodicJobOpts{RunOnStart: true}),
+		// 0.14.0 §6.6: cierre de la carga de vínculos con el 2xx de todos (consulta barata sin carga).
+		river.NewPeriodicJob(river.PeriodicInterval(time.Minute),
+			func() (river.JobArgs, *river.InsertOpts) { return ArgsCerrarCargaVinculos{}, nil },
 			&river.PeriodicJobOpts{RunOnStart: true})}
 }

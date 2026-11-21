@@ -51,6 +51,16 @@ func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 			return n, err
 		}
 		n++
+		if motivo, err := m.esperaVinculo(ctx, f); err != nil {
+			return n, err
+		} else if motivo != "" {
+			// 0.14.0 §6.6: la operación con `tecnico` no sale antes del 2xx del vinculado de su técnico.
+			if err := pendientesbd.New(nucleo.BDDe(ctx)).PostergarPendiente(ctx, pendientesbd.PostergarPendienteParams{ID: f.ID,
+				ProximoIntento: ahora.Add(EsperaVinculo), UltimoError: &motivo, CodigoError: texto(CodigoDependeDeVinculado)}); err != nil {
+				return n, err
+			}
+			continue
+		}
 		res := m.intentar(ctx, f)
 		res.ahora = ahora
 		if _, err := m.resolver.Ejecutar(ctx, res); err != nil {
@@ -58,6 +68,60 @@ func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 		}
 	}
 	return n, nil
+}
+
+// CodigoDependeDeVinculado: la operación lleva `tecnico` y el tecnico.argos_vinculado de ese técnico
+// todavía no tiene el 2xx de Argos (0.14.0 §6.6, depende_de).
+const CodigoDependeDeVinculado = "depende_de_vinculado"
+
+// EsperaVinculo: cada cuánto se vuelve a mirar el vinculado (no gasta intentos).
+var EsperaVinculo = time.Minute
+
+// esperaVinculo: con Iris y Argos en 0.14.0, una operación que lleva `tecnico` (en el cuerpo o en
+// alguna línea) espera el 2xx del último tecnico.argos_vinculado de su técnico en esa empresa hacia
+// el conector activo. Devuelve el motivo ("" = puede salir).
+func (m *Modulo) esperaVinculo(ctx context.Context, f pendientesbd.IntegracionPendiente) (string, error) {
+	if m.cfg.Argos == nil || f.TecnicoUsuarioID == nil || f.EmpresaID == nil || !llevaTecnico(f.Payload) || !m.cfg.Argos.InformaVinculos() {
+		return "", nil
+	}
+	bd := nucleo.BDDe(ctx)
+	ok, err := m.cfg.Argos.ClavesPorOperacion(ctx, bd)
+	if err != nil || !ok {
+		return "", err
+	}
+	conectorID, err := m.cfg.Argos.ConectorActivoID(ctx, bd)
+	if err != nil {
+		return "", nil //nolint:nilerr // sin conector activo: el intento lo registra como fallo temporal
+	}
+	entregado, err := pendientesbd.New(bd).VinculadoEntregado(ctx, pendientesbd.VinculadoEntregadoParams{
+		UsuarioID: *f.TecnicoUsuarioID, EmpresaID: *f.EmpresaID, ConectorID: conectorID})
+	if err != nil || entregado {
+		return "", err
+	}
+	return fmt.Sprintf("depende_de: el tecnico.argos_vinculado del usuario %d en la empresa %d todavía no tiene el 2xx de Argos",
+		*f.TecnicoUsuarioID, *f.EmpresaID), nil
+}
+
+// llevaTecnico: el cuerpo trae `tecnico` (no nulo) arriba o en alguna de sus líneas.
+func llevaTecnico(payload []byte) bool {
+	var p struct {
+		Tecnico any `json:"tecnico"`
+		Lineas  []struct {
+			Tecnico any `json:"tecnico"`
+		} `json:"lineas"`
+	}
+	if json.Unmarshal(payload, &p) != nil {
+		return false
+	}
+	if p.Tecnico != nil {
+		return true
+	}
+	for _, l := range p.Lineas {
+		if l.Tecnico != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Modulo) tomar(ctx context.Context, ahora time.Time) (pendientesbd.IntegracionPendiente, bool, error) {
@@ -497,6 +561,14 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				map[string]any{"estado": f.Estado, "intentos": f.Intentos})
 			if evento != "" {
 				if err := t.Emitir(evento, payload); err != nil {
+					return Pendiente{}, err
+				}
+			}
+			if f.Estado == EstadoFallidoNegocio && in.Codigo == CodigoIdempotenciaReutilizada {
+				// Nunca la clave ni los cuerpos: el aviso lleva al pendiente.
+				if err := t.Emitir(EventoClaveReutilizada, map[string]any{"pendiente_id": f.ID, "operacion": f.Operacion,
+					"entidad": f.Entidad, "entidad_id": f.EntidadID, "empresa_id": f.EmpresaID,
+					"seguridad": f.Operacion == OpCambio || f.Operacion == OpNoRecuperado}); err != nil {
 					return Pendiente{}, err
 				}
 			}

@@ -417,6 +417,17 @@ partes (ficha, ticket, orden, comercial y app de campo).
   `PUT /integraciones/iris/contrato`. Cada función nueva sigue dependiendo del contrato que informó Argos
   (§4.1): con un Argos de contrato < 0.8.0 se comporta como en 0.7.1 y el conector queda en `ok`.
 
+## Contrato 0.14.0: carga de vínculos y permiso de la verificación (§4.5, §6.6)
+
+Detrás de la versión que informa Iris (`Config.ContratoIris`, por defecto `ContratoIris`): con 0.14.0
+informado y aceptado por un Argos que lo habla, una vez por conector, `InformarContrato` suma
+`adjuntos.verificar_integracion` al `iris_pat_` vigente (si tiene lista de permisos) y pide a agenda la carga
+inicial de vínculos (`Config.Vinculos` / `UsarVinculos`). El job `integracion.argos_cerrar_carga_vinculos`
+(cada minuto) cierra la carga con `PUT /integraciones/iris/contrato { contrato, receptor_argos,
+vinculos_cargados }` cuando todos sus vinculados tuvieron el `2xx` (los omitidos no cuentan; uno agotado la
+deja abierta). Columnas: `integracion.conectores.vinculos_carga_id`, `vinculos_carga_n`,
+`vinculos_cargados_en`.
+
 ## Contrato 0.7.1 (A24)
 
 - Iris informó `0.7.1` hasta la 0.8.1. Es aditivo: con un Argos 1.15.x (que solo conoce 0.7.0) todo sigue igual. Iris informa

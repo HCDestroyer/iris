@@ -133,6 +133,8 @@ type entorno struct {
 	pool  *pgxpool.Pool
 	argos *argosFalso
 	am    *argos.Modulo
+	// acfg: la configuración del conector (para armar uno que informe otra versión del contrato).
+	acfg  argos.Config
 	m     *pendientes.Modulo
 	bus   *integracion.Bus
 	reloj time.Time
@@ -162,17 +164,18 @@ func nuevoEntorno(t *testing.T) *entorno {
 	}
 	fa := nuevoArgosFalso(t)
 	encolados := &[]string{}
-	am := argos.Nuevo(argos.Config{
+	acfg := argos.Config{
 		Encolar: func(_ context.Context, _ pgx.Tx, args river.JobArgs) error {
 			*encolados = append(*encolados, args.Kind())
 			return nil
 		},
 		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true, Timeout: 2 * time.Second, Origenes: []string{fa.srv.URL},
 		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
-	})
+	}
+	am := argos.Nuevo(acfg)
 	// El canje entrega un iris_pat_ (contrato §1.2); aquí uno fijo: el Argos falso no lo valida.
 	am.Nucleo().FijarTokens(pruebas.TokensFalsos{})
-	e := &entorno{t: t, pool: pool, argos: fa, am: am, bus: integracion.NuevoBus(), encolados: encolados,
+	e := &entorno{t: t, pool: pool, argos: fa, am: am, acfg: acfg, bus: integracion.NuevoBus(), encolados: encolados,
 		reloj: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}
 	e.m = pendientes.Nuevo(pendientes.Config{Argos: am, Reloj: func() time.Time { return e.reloj }})
 	e.m.Suscribir(e.bus)

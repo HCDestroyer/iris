@@ -220,8 +220,8 @@ SELECT id FROM mensajeria.entrantes WHERE procesado_en IS NULL AND created_at < 
 -- name: InsertarWebhookSalida :exec
 -- proximo_intento con el reloj del módulo (no el now() de la base): el despacho compara contra ese
 -- mismo reloj, y en las pruebas es fijo.
-INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento, conector_origen)
-VALUES (@id, @evento, @empresa_id, @payload, @ocurrido_en, @proximo_intento, sqlc.narg(conector_origen))
+INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento, conector_origen, carga_id)
+VALUES (@id, @evento, @empresa_id, @payload, @ocurrido_en, @proximo_intento, sqlc.narg(conector_origen), sqlc.narg(carga_id))
 ON CONFLICT (id) DO NOTHING;
 
 -- name: WebhooksPorEnviar :many

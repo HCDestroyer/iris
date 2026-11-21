@@ -79,6 +79,11 @@ type Config struct {
 	// RitmoSincronizacion: pausa mínima entre dos peticiones de la primera sincronización (200 ms:
 	// como máximo 5 por segundo en total, contrato 0.8.0 §2.5).
 	RitmoSincronizacion time.Duration
+	// ContratoIris: la versión del contrato que Iris informa a Argos ("" = ContratoIris). La carga de
+	// vínculos y el permiso de la verificación (0.14.0 §4.5, §6.6) corren solo si es ≥ 0.14.0.
+	ContratoIris string
+	// Vinculos: la carga inicial de vínculos (agenda.CargarVinculos; también con UsarVinculos).
+	Vinculos CargaVinculos
 }
 
 // Modulo reúne los casos de uso del conector Argos.
@@ -96,7 +101,10 @@ type Modulo struct {
 	cargaCuentas, cargaBancos CargaCatalogoBancario
 	cfg                       Config
 	nucleo                    *conector.Nucleo
-	conexion                  *conector.Conexion
+	// Carga inicial de vínculos (0.14.0 §6.6).
+	iniciarCarga       *auditoria.Caso[int64, ResultadoCargaVinculos]
+	marcarCargaCerrada *auditoria.Caso[ResultadoCargaVinculos, ResultadoCargaVinculos]
+	conexion           *conector.Conexion
 
 	Conectar        *conector.Conectar
 	Previsualizar   *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
@@ -156,6 +164,7 @@ func Nuevo(cfg Config) *Modulo {
 	}
 	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones(), refrescos: nuevosRefrescos(), guardarFichaInterna: nuevoGuardarFichaInterna(),
 		guardarTrasladoLeido: nuevoGuardarTrasladoLeido(), guardarCuentas: nuevoGuardarCuentas()}
+	m.iniciarCarga, m.marcarCargaCerrada = nuevoIniciarCargaVinculos(m), nuevoMarcarCargaCerrada(m)
 	m.nucleo = conector.Nuevo(conector.Config{
 		Cifrador: cfg.Cifrador, BaseURL: cfg.BaseURL, VentanaWebhook: cfg.VentanaWebhook, VigenciaEnlace: cfg.VigenciaEnlace,
 		PermitirHTTP: cfg.PermitirHTTP, Encolar: cfg.Encolar, Version: cfg.Version,
@@ -180,7 +189,7 @@ func Nuevo(cfg Config) *Modulo {
 			// 0.8.0 §2.5: primera sincronización de un conector que nunca la tuvo.
 			return m.encolarPrimeraSincronizacion(ctx, tx, conectorID)
 		},
-		Contrato: ContratoIris, Capacidades: capacidades,
+		Contrato: contratoIrisDe(cfg), Capacidades: capacidades,
 		// 0.6.2: el canje exige el receptor de Argos (§1.3) y manda receptor_argos: true.
 		ExigirReceptor: true,
 		// 0.6.3: el atk_ de un canje que Iris no completa se revoca en Argos (job).

@@ -1440,6 +1440,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/argosisp/tecnicos/{usuario_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Vínculo de un técnico para conciliar en Argos
+         * @description Permiso: `cuadrillas.leer_integracion`. Contrato 0.14.0 §6.6: lo usa Argos con su `iris_pat_` cuando le falta un `tecnico.argos_*` o al reevaluar un vínculo rechazado. `activo: false` equivale a desvinculado; `version` es la del último `tecnico.argos_*`. Responde 404 igual si el vínculo no salió de este conector, si el usuario no tiene ficha de técnico en esa empresa o si está fuera del alcance.
+         */
+        get: operations["tecnicoParaArgos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/webhook/{conector_id}": {
         parameters: {
             query?: never;
@@ -10130,10 +10150,10 @@ export interface components {
              */
             nivel: "info" | "alerta" | "peligro";
             /**
-             * @description argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
+             * @description argos_clave_reutilizada: Argos respondió idempotency_key_reutilizada a una acción de Iris, que quedó sin hacer para una persona (contrato 0.14.0 §3.10; datos: pendiente_id, operacion, entidad, entidad_id, empresa_id y seguridad; peligro si es un cambio o un intento de recuperación). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
              * @enum {string}
              */
-            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado";
+            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado" | "argos_clave_reutilizada";
             /** @description Texto en español, listo para mostrar */
             titulo: string;
         };
@@ -20728,6 +20748,23 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        TecnicoArgos: {
+            /** @description false equivale a desvinculado */
+            activo: boolean;
+            /** Format: int64 */
+            empresa_id: number;
+            /** @description El usuario de Argos vinculado (null: desvinculado) */
+            id_externo: string | null;
+            /** Format: int64 */
+            tecnico_id: number;
+            /** Format: int64 */
+            usuario_id: number;
+            /**
+             * Format: int32
+             * @description La del último tecnico.argos_*: Argos aplica solo una mayor
+             */
+            version: number;
+        };
         TecnicoDeArgos: {
             /** @description Sus bodegas técnico en las empresas que ves (la activa; todas con empresas.todas). Un usuario sin bodega en ellas no aparece */
             bodegas: components["schemas"]["BodegaTecnico"][] | null;
@@ -27457,6 +27494,76 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    tecnicoParaArgos: {
+        parameters: {
+            query: {
+                /** @description Empresa del vínculo (una por empresa) */
+                empresa_id: number;
+            };
+            header?: never;
+            path: {
+                usuario_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TecnicoArgos"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -92,6 +92,8 @@ type argosFalso struct {
 	sinWebhook bool
 	// receptores: receptor_argos de cada PUT …/contrato (0.6.2; nil = no vino).
 	receptores []any
+	// cargados: vinculos_cargados de cada PUT …/contrato (0.14.0 §6.6; nil = no vino).
+	cargados []any
 	// Contrato 0.6.3 §1.3. tokenCanje: el atk_ que entrega el próximo canje (vacío = token). Con un
 	// token en uso, el canje nuevo queda pendiente hasta la primera llamada autenticada con su atk_:
 	// entonces reemplaza a token (y el anterior deja de autenticar).
@@ -194,6 +196,7 @@ func (a *argosFalso) rutas050(mux *http.ServeMux) {
 		}
 		a.contratos++
 		a.receptores = append(a.receptores, p["receptor_argos"])
+		a.cargados = append(a.cargados, p["vinculos_cargados"])
 		escribir(w, map[string]any{"contrato": a.contrato, "version_argos": a.version})
 	}))
 	mux.HandleFunc("GET /api/v1/integraciones/iris/estado", solo16(func(w http.ResponseWriter, _ *http.Request) {

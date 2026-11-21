@@ -1922,13 +1922,14 @@
             "type": "string"
           },
           "tipo": {
-            "description": "argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)",
+            "description": "argos_clave_reutilizada: Argos respondió idempotency_key_reutilizada a una acción de Iris, que quedó sin hacer para una persona (contrato 0.14.0 §3.10; datos: pendiente_id, operacion, entidad, entidad_id, empresa_id y seguridad; peligro si es un cambio o un intento de recuperación). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)",
             "enum": [
               "asistente_tope",
               "servidor_ia_caido",
               "servidor_ia_incompatible",
               "servidor_ia_umbral",
-              "argos_certificado"
+              "argos_certificado",
+              "argos_clave_reutilizada"
             ],
             "type": "string"
           },
@@ -33225,6 +33226,48 @@
         ],
         "type": "object"
       },
+      "TecnicoArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "activo": {
+            "description": "false equivale a desvinculado",
+            "type": "boolean"
+          },
+          "empresa_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id_externo": {
+            "description": "El usuario de Argos vinculado (null: desvinculado)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tecnico_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "usuario_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "description": "La del último tecnico.argos_*: Argos aplica solo una mayor",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tecnico_id",
+          "usuario_id",
+          "empresa_id",
+          "id_externo",
+          "version",
+          "activo"
+        ],
+        "type": "object"
+      },
       "TecnicoDeArgos": {
         "additionalProperties": false,
         "properties": {
@@ -44384,6 +44427,112 @@
           "integraciones"
         ],
         "x-permiso": "agenda.vincular_argos"
+      }
+    },
+    "/api/v1/integraciones/argosisp/tecnicos/{usuario_id}": {
+      "get": {
+        "description": "Permiso: `cuadrillas.leer_integracion`. Contrato 0.14.0 §6.6: lo usa Argos con su `iris_pat_` cuando le falta un `tecnico.argos_*` o al reevaluar un vínculo rechazado. `activo: false` equivale a desvinculado; `version` es la del último `tecnico.argos_*`. Responde 404 igual si el vínculo no salió de este conector, si el usuario no tiene ficha de técnico en esa empresa o si está fuera del alcance.",
+        "operationId": "tecnicoParaArgos",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "usuario_id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Empresa del vínculo (una por empresa)",
+            "explode": false,
+            "in": "query",
+            "name": "empresa_id",
+            "required": true,
+            "schema": {
+              "description": "Empresa del vínculo (una por empresa)",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TecnicoArgos"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Vínculo de un técnico para conciliar en Argos",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "cuadrillas.leer_integracion"
       }
     },
     "/api/v1/integraciones/argosisp/webhook/{conector_id}": {

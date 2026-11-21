@@ -189,6 +189,14 @@ func (m *Modulo) nuevoArmarIntento() *auditoria.Caso[entradaArmarIntento, string
 			}
 			switch a.Estado {
 			case adjuntos.EstadoCompleto:
+				// M-3: completo, pero después de la ventana de 72 h desde la fecha: no sale.
+				completado := m.ahora()
+				if a.CompletadoEn != nil {
+					completado = *a.CompletadoEn
+				}
+				if cuerpo.Fecha != nil && completado.After(cuerpo.Fecha.Add(VentanaFoto)) {
+					return falla(CodigoFotoFueraDeVentana, "la foto quedó completa más de 72 h después de la fecha: el intento no sale; decide una persona")
+				}
 				_, ok, err := CompletarEsperando(ctx, t, f.ID, f.Version, EsperandoFoto, f.Payload, m.ahora(), m.cfg.Encolar)
 				if err != nil || !ok {
 					return "nada", err

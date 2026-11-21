@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/riverqueue/river"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -130,9 +131,10 @@ func (m *Modulo) SuscribirWebhooks(bus *integracion.Bus, bd nucleo.BD) {
 			if err != nil {
 				return struct{}{}, err
 			}
+			origen := vinculoDe(e.Evento, e.Payload)
 			return struct{}{}, mensajeriabd.New(t).InsertarWebhookSalida(ctx, mensajeriabd.InsertarWebhookSalidaParams{
 				ID: e.ID, Evento: e.Evento, EmpresaID: e.EmpresaID, Payload: crudo, OcurridoEn: e.OcurridoEn, ProximoIntento: m.ahora(),
-				ConectorOrigen: conectorOrigen(e.Evento, e.Payload)})
+				ConectorOrigen: origen.ConectorID, CargaID: origen.carga()})
 		},
 	})
 	for _, ev := range EventosWebhook {
@@ -143,18 +145,29 @@ func (m *Modulo) SuscribirWebhooks(bus *integracion.Bus, bd nucleo.BD) {
 	}
 }
 
-// conectorOrigen: el conector del que salió el vínculo de un tecnico.argos_* (solo a él se manda).
-func conectorOrigen(evento string, crudo json.RawMessage) *int64 {
+// origenVinculo: el conector del que salió el vínculo de un tecnico.argos_* (solo a él se manda) y
+// la carga inicial a la que pertenece (0.14.0 §6.6). Ninguno de los dos viaja a Argos.
+type origenVinculo struct {
+	ConectorID *int64     `json:"conector_id"`
+	CargaID    *uuid.UUID `json:"carga_id"`
+}
+
+func (o origenVinculo) carga() pgtype.UUID {
+	if o.CargaID == nil {
+		return pgtype.UUID{}
+	}
+	return pgtype.UUID{Bytes: *o.CargaID, Valid: true}
+}
+
+func vinculoDe(evento string, crudo json.RawMessage) origenVinculo {
+	var o origenVinculo
 	if evento != eventoVinculado && evento != eventoDesvinculado {
-		return nil
+		return o
 	}
-	var p struct {
-		ConectorID *int64 `json:"conector_id"`
+	if json.Unmarshal(crudo, &o) != nil {
+		return origenVinculo{}
 	}
-	if json.Unmarshal(crudo, &p) != nil {
-		return nil
-	}
-	return p.ConectorID
+	return o
 }
 
 // CuerpoWebhookArgos es el cuerpo que recibe Argos.

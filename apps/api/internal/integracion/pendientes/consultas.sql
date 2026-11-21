@@ -52,14 +52,21 @@ SELECT EXISTS (
 )::boolean;
 
 -- name: ConectorDeToken :one
--- El conector Argos al que Iris entregó este token (el que consulta la verificación).
-SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = @token_id;
+-- El conector Argos al que Iris entregó este token (el que consulta la verificación), solo si Iris
+-- ya le informó contrato ≥ 0.14.0 (§4.5: la verificación y su permiso van detrás de esa versión).
+SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = @token_id
+  AND CASE WHEN contrato_informado ~ '^[0-9]+\.[0-9]+\.[0-9]+$'
+           THEN string_to_array(contrato_informado, '.')::int[] >= '{0,14,0}'::int[] ELSE false END;
 
 -- name: ContarVerificaciones :one
 -- Consultas de verificación del conector en el último minuto y de la clave desde @dia.
 SELECT
     (SELECT count(*) FROM integracion.verificaciones_intento v WHERE v.conector_id = @conector_id AND v.consultada_en > @minuto)::int AS por_minuto,
     (SELECT count(*) FROM integracion.verificaciones_intento v WHERE v.clave = @clave AND v.consultada_en >= @dia)::int AS por_clave;
+
+-- name: BloquearVerificacion :exec
+-- M-1: el tope se cuenta e inserta con el conector y la clave bloqueados (consultas concurrentes).
+SELECT pg_advisory_xact_lock(hashtextextended(@llave::text, 0));
 
 -- name: RegistrarVerificacion :exec
 INSERT INTO integracion.verificaciones_intento (conector_id, clave, consultada_en) VALUES (@conector_id, @clave, @en);
@@ -71,8 +78,7 @@ DELETE FROM integracion.verificaciones_intento WHERE consultada_en < @antes;
 -- La llegada del autor a la orden (último orden.llegar suyo el mismo día de la fecha, sin pasarla).
 SELECT coalesce(max(ocurrido_en), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz FROM campo.orden_eventos
 WHERE orden_id::text = @orden_id::text AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
-  AND actor_id = @actor_id AND ocurrido_en <= @fecha
-  AND (ocurrido_en AT TIME ZONE 'America/Guatemala')::date = (@fecha::timestamptz AT TIME ZONE 'America/Guatemala')::date;
+  AND actor_id = @actor_id AND ocurrido_en >= @desde AND ocurrido_en <= @fecha;
 
 -- name: UsosDeFoto :one
 -- Cuántos cambios o intentos usan esta foto.
@@ -312,3 +318,19 @@ SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = 
     tomado_en = NULL, version = version + 1, updated_at = now()
 WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
 RETURNING *;
+
+-- name: VinculadoEntregado :one
+-- 0.14.0 §6.6: el último tecnico.argos_vinculado del técnico en la empresa, hacia este conector, ya
+-- tuvo el 2xx de Argos (sin ninguno, o con uno sin entregar, la operación con `tecnico` espera).
+SELECT coalesce((
+    SELECT w.estado = 'entregado' FROM mensajeria.webhooks_salida w
+    WHERE w.evento = 'tecnico.argos_vinculado' AND (w.payload->>'usuario_id')::bigint = @usuario_id::bigint
+      AND w.empresa_id = @empresa_id::bigint AND w.conector_origen = @conector_id::bigint
+    ORDER BY (w.payload->>'version')::int DESC LIMIT 1), false)::boolean;
+
+-- name: PostergarPendiente :exec
+-- Espera una dependencia que no es otro pendiente (el vinculado del técnico): vuelve a pendiente sin
+-- gastar un intento.
+UPDATE integracion.pendientes SET estado = 'pendiente', proximo_intento = @proximo_intento, tomado_en = NULL,
+    ultimo_error = @ultimo_error, codigo_error = @codigo_error, updated_at = now()
+WHERE id = @id AND estado = 'en_curso';

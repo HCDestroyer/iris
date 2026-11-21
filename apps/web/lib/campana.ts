@@ -1,5 +1,5 @@
 import type { Schema } from "@iris/contratos";
-import { Bell, Gauge, RefreshCw, Server, ShieldAlert, Sparkles, type LucideIcon } from "lucide-react";
+import { Bell, Gauge, KeyRound, RefreshCw, Server, ShieldAlert, Sparkles, type LucideIcon } from "lucide-react";
 import { textoPausado } from "./asistente/presentacion";
 
 /*
@@ -7,7 +7,9 @@ import { textoPausado } from "./asistente/presentacion";
  * `asistente_tope`: el asistente de IA llegó al 80 % (`alerta`) o al 100 % (`peligro`, se pausó) del
  * tope del mes. `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral`
  * (contratos/voz.md §4.12): uno por episodio, a quien administra la instalación. `argos_certificado`
- * (contrato con Argos 0.8.0 §1.5): cambió el certificado de la API de Argos; solo informa. El texto
+ * (contrato con Argos 0.8.0 §1.5): cambió el certificado de la API de Argos; solo informa.
+ * `argos_clave_reutilizada` (0.14.0 §3.10): Argos tiene otra acción con la clave de una de Iris; la
+ * acción quedó para una persona (`peligro` si es un cambio o un intento de recuperación). El texto
  * (`titulo`) lo arma el servidor; aquí solo cómo se pinta.
  */
 
@@ -18,7 +20,7 @@ export function tonoAvisoPanel(nivel: AvisoPanel["nivel"]): "info" | "warning" |
     return nivel === "peligro" ? "error" : nivel === "alerta" ? "warning" : "info";
 }
 
-const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert };
+const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert, argos_clave_reutilizada: KeyRound };
 
 /** El icono del tipo; uno que este panel aún no conoce (o un nombre heredado como «constructor») lleva la campana. */
 export function iconoAvisoPanel(tipo: AvisoPanel["tipo"]): LucideIcon {
@@ -60,6 +62,11 @@ export function detalleAvisoPanel(a: Pick<AvisoPanel, "tipo" | "nivel" | "datos"
     if (tipo === "servidor_ia_caido") return `Lo que el asistente atendía solo pasa a personas hasta que vuelva. Iris lo sigue intentando sola.${repetido}`;
     if (tipo === "servidor_ia_incompatible") return `El asistente no lo usa hasta actualizar. El tablero dice qué hay que actualizar.${repetido}`;
     if (tipo === "servidor_ia_umbral") return `${detalleUmbral(a.datos)}${repetido}`;
+    if (tipo === "argos_clave_reutilizada") {
+        return a.datos["seguridad"] === true
+            ? "Puede ser un intento ajeno. Iris no lo reintenta: revisa la acción en Argos antes de resolverla."
+            : "Iris no la reintenta: revisa en Argos qué quedó con esa clave y resuélvela a mano.";
+    }
     if (tipo === "argos_certificado") return "Lo normal es la renovación automática del certificado. Iris no detuvo nada; si no la esperabas, revisa el servidor de Argos.";
     if (tipo !== "asistente_tope") return null;
     if (a.nivel === "peligro") {

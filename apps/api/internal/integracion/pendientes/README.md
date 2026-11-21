@@ -98,7 +98,20 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 ## Eventos
 
 Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agotado`,
-`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado` y `_resuelto_manual` (contratos/eventos.md, «Pendientes hacia Argos»).
+`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado`, `_resuelto_manual` y
+`_clave_reutilizada` (contratos/eventos.md, «Pendientes hacia Argos»).
+
+## Contrato 0.14.0: vínculo del técnico y clave reutilizada (§6.6, §3.10)
+
+- **`depende_de` el vinculado.** Con Iris informando 0.14.0 (`argos.Config.ContratoIris`) y un Argos que
+  lo habla, una operación que lleva `tecnico` (arriba o en una línea) no sale antes del `2xx` del último
+  `tecnico.argos_vinculado` de su técnico en esa empresa hacia el conector activo
+  (`mensajeria.webhooks_salida`). Espera cada `EsperaVinculo` (1 min) con `codigo_error =
+  depende_de_vinculado`, sin gastar intentos.
+- **Clave reutilizada.** Un `422 idempotency_key_reutilizada` deja el pendiente `fallido_negocio` y emite
+  `integracion.pendiente_clave_reutilizada` (`seguridad` en cambios e intentos): la campana avisa al admin.
+- **Verificación.** `GET …/intentos-recuperacion/verificacion` solo responde a un conector al que Iris ya
+  informó 0.14.0; antes, el mismo `404`.
 
 ## Contrato 0.12.0: equipos del cliente (B27)
 

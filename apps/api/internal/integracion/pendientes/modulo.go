@@ -56,7 +56,11 @@ const (
 	EventoBloqueado      = "integracion.pendiente_bloqueado"
 	EventoDesbloqueado   = "integracion.pendiente_desbloqueado"
 	EventoResueltoManual = "integracion.pendiente_resuelto_manual"
-	EventoOrdenCerrada   = "orden.cerrada"
+	// EventoClaveReutilizada: Argos respondió idempotency_key_reutilizada (tiene otro cuerpo con la
+	// clave de Iris). Avisa al admin en la campana (notificaciones); en un cambio o un intento es
+	// además una alerta de seguridad (0.14.0 §3.10).
+	EventoClaveReutilizada = "integracion.pendiente_clave_reutilizada"
+	EventoOrdenCerrada     = "orden.cerrada"
 )
 
 // Esperas entre intentos (contratos/argosisp.md §0): tras el n-ésimo intento fallido se espera

@@ -45,6 +45,18 @@ describe("avisos del Servidor de IA en la campana", () => {
     });
 });
 
+describe("aviso de clave reutilizada en Argos", () => {
+    it("tiene su icono y dice que no se reintenta; con seguridad, que puede ser ajeno", () => {
+        const clave = (seguridad: boolean) =>
+            aviso({ tipo: "argos_clave_reutilizada", nivel: seguridad ? "peligro" : "alerta", enlace: "/administracion/integraciones/argos", datos: { pendiente_id: 9, operacion: "no_recuperado", seguridad }, empresaId: null });
+        expect(iconoAvisoPanel("argos_clave_reutilizada")).not.toBe(iconoAvisoPanel("tipo_nuevo" as AvisoPanel["tipo"]));
+        expect(detalleAvisoPanel(clave(true))).toContain("intento ajeno");
+        expect(detalleAvisoPanel(clave(false))).toContain("no la reintenta");
+        expect(detalleAvisoPanel(clave(false))).not.toContain("ajeno");
+        expect(tonoAvisoPanel(clave(true).nivel)).toBe("error");
+    });
+});
+
 describe("avisos de la campana", () => {
     it("tono por nivel", () => {
         expect(tonoAvisoPanel("peligro")).toBe("error");

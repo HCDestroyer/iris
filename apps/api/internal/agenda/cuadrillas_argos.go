@@ -288,6 +288,8 @@ func (m *Modulo) nuevoCuadrillaArgos() *auditoria.Caso[EntradaCuadrillaArgos, Cu
 // empresa): sus cuadrillas avisan a Argos.
 type EntradaRevisarUsuario struct {
 	UsuarioID int64 `json:"usuario_id"`
+	// EmpresaID: la de usuario.empresa_asignada o usuario.empresa_quitada.
+	EmpresaID *int64 `json:"empresa_id,omitempty"`
 	// Evento: el que lo disparó (usuario.desactivado avisa a Argos del vínculo, 0.14.0 §6.6).
 	Evento string `json:"-"`
 }
@@ -315,15 +317,28 @@ func (m *Modulo) nuevoRevisarUsuario() *auditoria.Caso[EntradaRevisarUsuario, Re
 				return ResultadoRevisarUsuario{}, err
 			default:
 				ids = append(ids, f.CuadrillaID)
-				// 0.14.0 §6.6: usuario desactivado → desvinculado (desactivado); empresa nueva → el
-				// vínculo también para ella.
+				// 0.14.0 §6.6: usuario desactivado → desvinculado (desactivado) en todas sus empresas;
+				// empresa nueva → el vinculado en ella; empresa quitada → el desvinculado en ella.
 				switch {
-				case in.Evento == "usuario.desactivado" && f.Activo:
+				case f.ArgosIDExterno == nil || !f.Activo:
+				case in.Evento == "usuario.desactivado":
 					if err := vinculoPorActivo(ctx, t, q, f, false); err != nil {
 						return ResultadoRevisarUsuario{}, err
 					}
-				case in.Evento == "usuario.empresa_asignada" && f.Activo:
-					if err := vinculoPorActivo(ctx, t, q, f, true); err != nil {
+				case in.Evento == "usuario.empresa_asignada" && in.EmpresaID != nil:
+					activo, err := q.UsuarioActivo(ctx, f.UsuarioID)
+					if err != nil {
+						return ResultadoRevisarUsuario{}, err
+					}
+					if activo {
+						if _, err := emitirVinculoEn(ctx, t, q, f, EventoVinculado, *f.ArgosIDExterno,
+							map[string]any{"anterior_id_externo": nil}, nil, []int64{*in.EmpresaID}); err != nil {
+							return ResultadoRevisarUsuario{}, err
+						}
+					}
+				case in.Evento == "usuario.empresa_quitada" && in.EmpresaID != nil:
+					if _, err := emitirVinculoEn(ctx, t, q, f, EventoDesvinculado, *f.ArgosIDExterno,
+						map[string]any{"motivo": nil}, nil, []int64{*in.EmpresaID}); err != nil {
 						return ResultadoRevisarUsuario{}, err
 					}
 				}

@@ -328,6 +328,9 @@ func (m *Modulo) nuevoCambiarEquipo() *auditoria.Caso[EntradaCambiarEquipo, Orde
 			if err != nil {
 				return f, "", err
 			}
+			if err := corteInmediato(ctx, q, in.Sync, actor); err != nil {
+				return f, "", err
+			}
 			destino := in.DestinoSale
 			if destino == "" {
 				destino = "revision"

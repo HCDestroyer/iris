@@ -162,6 +162,8 @@ func correr() error {
 	// Bodega de cuadrilla (contrato 0.11.0 §3.9): un usuario desactivado o con otra empresa cambia
 	// los miembros que van a Argos en cuadrilla.actualizada.
 	cmp.Agenda().SuscribirCuadrillas(bus, pool, log)
+	// 0.14.0 §6.6: la carga inicial de vínculos la emite agenda (creada después del conector).
+	conectorArgos.UsarVinculos(cmp.Agenda().CargarVinculos)
 	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,
 	// POST /servicios), encola el servicio y crea la orden de instalación; barrido cada 5 min.
 	comercial.RegistrarAdjuntos()

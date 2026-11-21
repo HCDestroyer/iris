@@ -410,6 +410,8 @@ type CampoOrdenMateriale struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Modalidad        *string
+	BodegaTipo       *string
+	DesdeTecnico     bool
 }
 
 type CampoOrdenNota struct {
@@ -2456,6 +2458,7 @@ type MensajeriaWebhooksSalida struct {
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	ConectorOrigen *int64
+	CargaID        *uuid.UUID
 }
 
 type NotificacionesAviso struct {
