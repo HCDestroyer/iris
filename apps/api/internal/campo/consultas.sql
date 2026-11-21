@@ -508,6 +508,17 @@ SELECT EXISTS (SELECT 1 FROM campo.orden_cambios WHERE tecnico_id = @tecnico_id 
 -- La bodega de Argos de la ficha de agenda del técnico (usuario).
 SELECT bodega_id FROM agenda.tecnicos WHERE usuario_id = @usuario_id AND activo;
 
+-- name: BodegaDeSuCuadrilla :one
+-- La bodega es la de la cuadrilla actual del técnico en la empresa (contrato 0.11.0 §3.9): ficha
+-- activa en una cuadrilla activa y la bodega vista en Argos para esa cuadrilla y empresa. Al quitar
+-- al técnico de la cuadrilla deja de serlo en ese momento (corte de sus lotes con esa bodega).
+SELECT EXISTS (
+    SELECT 1 FROM agenda.tecnicos t
+    JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
+    JOIN integracion.argos_bodegas_cuadrilla bc ON bc.cuadrilla_id = t.cuadrilla_id
+    WHERE t.usuario_id = @usuario_id AND t.activo AND bc.bodega_id = @bodega_id AND bc.empresa_id = @empresa_id
+)::boolean;
+
 -- name: VinculoArgosDeTecnico :one
 -- El vínculo con Argos de la ficha del técnico (contrato 0.5.0 §3.3): va como tecnico en orden.cerrada.
 SELECT coalesce(argos_id_externo, '')::text AS id_externo FROM agenda.tecnicos WHERE usuario_id = @usuario_id;

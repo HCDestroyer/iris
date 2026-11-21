@@ -44,8 +44,8 @@ const tokenArgos = "atk_prueba_inventario_0123456789"
 
 // recibida es un POST …/recibir que llegó al Argos falso.
 type recibida struct {
-	Ruta, Clave, Empresa string
-	Cuerpo               map[string]any
+	Ruta, Clave, Empresa, Actor string
+	Cuerpo                      map[string]any
 }
 
 // argosFalso: canje, GET /inventario/mi-bodega y POST /inventario/traslados/:id/recibir (Argos 1.6.0).
@@ -58,10 +58,12 @@ type argosFalso struct {
 	// traslados: GET /inventario/traslados/:id → cuerpo (200) o "503"; ausente = 404.
 	traslados map[string]string
 	lecturas  int
+	// miBodega: respuesta de GET /inventario/mi-bodega por id_externo (además de u-77).
+	miBodega map[string]string
 }
 
 func nuevoArgosFalso(t *testing.T) *argosFalso {
-	a := &argosFalso{respuesta: map[string][2]string{}, traslados: map[string]string{}}
+	a := &argosFalso{respuesta: map[string][2]string{}, traslados: map[string]string{}, miBodega: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/inventario/traslados/{id}", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
@@ -88,7 +90,13 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/inventario/mi-bodega", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		a.bodegas++
+		propia, hay := a.miBodega[r.URL.Query().Get("id_externo")]
 		a.mu.Unlock()
+		if hay && r.Header.Get("X-Empresa-Id") == "1" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(propia))
+			return
+		}
 		if r.URL.Query().Get("id_externo") != "u-77" || r.Header.Get("X-Empresa-Id") != "1" {
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.WriteHeader(404)
@@ -108,7 +116,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		var c map[string]any
 		_ = json.Unmarshal(crudo, &c)
 		a.mu.Lock()
-		a.recibidas = append(a.recibidas, recibida{Ruta: r.URL.Path, Clave: r.Header.Get("Idempotency-Key"), Empresa: r.Header.Get("X-Empresa-Id"), Cuerpo: c})
+		a.recibidas = append(a.recibidas, recibida{Ruta: r.URL.Path, Clave: r.Header.Get("Idempotency-Key"), Empresa: r.Header.Get("X-Empresa-Id"), Actor: r.Header.Get("X-Iris-Actor"), Cuerpo: c})
 		resp, ok := a.respuesta[r.PathValue("id")]
 		a.mu.Unlock()
 		if ok {

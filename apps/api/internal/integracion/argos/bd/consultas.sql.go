@@ -782,6 +782,25 @@ func (q *Queries) CrearSincronizacion(ctx context.Context, arg CrearSincronizaci
 	return i, err
 }
 
+const cuadrillaDelUsuario = `-- name: CuadrillaDelUsuario :one
+SELECT t.cuadrilla_id::bigint AS cuadrilla_id, c.jefe_usuario_id
+FROM agenda.tecnicos t JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id
+WHERE t.usuario_id = $1 AND t.activo AND c.activa
+`
+
+type CuadrillaDelUsuarioRow struct {
+	CuadrillaID   int64
+	JefeUsuarioID *int64
+}
+
+// La cuadrilla actual del técnico (ficha activa) y su jefe.
+func (q *Queries) CuadrillaDelUsuario(ctx context.Context, usuarioID int64) (CuadrillaDelUsuarioRow, error) {
+	row := q.db.QueryRow(ctx, cuadrillaDelUsuario, usuarioID)
+	var i CuadrillaDelUsuarioRow
+	err := row.Scan(&i.CuadrillaID, &i.JefeUsuarioID)
+	return i, err
+}
+
 const cuentaBancariaInstantanea = `-- name: CuentaBancariaInstantanea :one
 SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE id = $1
 `
@@ -1153,6 +1172,35 @@ func (q *Queries) FijarInformeSincronizacion(ctx context.Context, arg FijarInfor
 	return i, err
 }
 
+const guardarBodegaCuadrilla = `-- name: GuardarBodegaCuadrilla :exec
+INSERT INTO integracion.argos_bodegas_cuadrilla (bodega_id, empresa_id, cuadrilla_id, nombre, visto_en)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (bodega_id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, cuadrilla_id = excluded.cuadrilla_id,
+    nombre = coalesce(excluded.nombre, integracion.argos_bodegas_cuadrilla.nombre),
+    visto_en = excluded.visto_en, updated_at = now()
+`
+
+type GuardarBodegaCuadrillaParams struct {
+	BodegaID    int64
+	EmpresaID   int64
+	CuadrillaID int64
+	Nombre      *string
+	VistoEn     time.Time
+}
+
+// Una bodega `cuadrilla` de Argos (mi-bodega o un webhook de traslado, 0.11.0 §3.9).
+func (q *Queries) GuardarBodegaCuadrilla(ctx context.Context, arg GuardarBodegaCuadrillaParams) error {
+	_, err := q.db.Exec(ctx, guardarBodegaCuadrilla,
+		arg.BodegaID,
+		arg.EmpresaID,
+		arg.CuadrillaID,
+		arg.Nombre,
+		arg.VistoEn,
+	)
+	return err
+}
+
 const guardarCliente = `-- name: GuardarCliente :exec
 
 INSERT INTO integracion.argos_clientes (
@@ -1494,14 +1542,19 @@ const guardarTraslado = `-- name: GuardarTraslado :one
 
 INSERT INTO integracion.argos_traslados (
     id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en,
-    recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id
+    recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, cuadrilla_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12,
-    $13, $14, $15
+    $13, $14, $15,
+    -- La cuadrilla (0.11.0 §3.9): la del webhook o, si vino de GET /inventario/traslados/:id (que solo
+    -- trae la bodega), la que Iris conoce de esa bodega.
+    coalesce($16::bigint,
+             (SELECT bc.cuadrilla_id FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = $3::bigint))
 )
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = coalesce(excluded.empresa_id, integracion.argos_traslados.empresa_id),
+    cuadrilla_id = coalesce(excluded.cuadrilla_id, integracion.argos_traslados.cuadrilla_id),
     bodega_destino_id = coalesce(excluded.bodega_destino_id, integracion.argos_traslados.bodega_destino_id),
     tecnico_id_externo = coalesce(excluded.tecnico_id_externo, integracion.argos_traslados.tecnico_id_externo),
     tecnico_correo = coalesce(excluded.tecnico_correo, integracion.argos_traslados.tecnico_correo),
@@ -1516,7 +1569,7 @@ ON CONFLICT (id) DO UPDATE SET
     motivo = coalesce(excluded.motivo, integracion.argos_traslados.motivo),
     entrante_id = excluded.entrante_id, updated_at = now()
 WHERE integracion.argos_traslados.estado = 'enviado' OR integracion.argos_traslados.estado = excluded.estado
-RETURNING id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at
+RETURNING id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at, cuadrilla_id
 `
 
 type GuardarTrasladoParams struct {
@@ -1535,6 +1588,7 @@ type GuardarTrasladoParams struct {
 	CanceladoEn      *time.Time
 	Motivo           *string
 	EntranteID       *int64
+	CuadrillaID      *int64
 }
 
 // Órdenes de traslado (inventario.traslado_*, contrato 0.5.0) ------------------------------
@@ -1557,6 +1611,7 @@ func (q *Queries) GuardarTraslado(ctx context.Context, arg GuardarTrasladoParams
 		arg.CanceladoEn,
 		arg.Motivo,
 		arg.EntranteID,
+		arg.CuadrillaID,
 	)
 	var i IntegracionArgosTraslado
 	err := row.Scan(
@@ -1577,6 +1632,7 @@ func (q *Queries) GuardarTraslado(ctx context.Context, arg GuardarTrasladoParams
 		&i.EntranteID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CuadrillaID,
 	)
 	return i, err
 }
@@ -2505,7 +2561,7 @@ func (q *Queries) TecnicosVinculadosArgos(ctx context.Context, arg TecnicosVincu
 }
 
 const trasladoPorID = `-- name: TrasladoPorID :one
-SELECT id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at FROM integracion.argos_traslados WHERE id = $1
+SELECT id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at, cuadrilla_id FROM integracion.argos_traslados WHERE id = $1
 `
 
 func (q *Queries) TrasladoPorID(ctx context.Context, id int64) (IntegracionArgosTraslado, error) {
@@ -2529,35 +2585,40 @@ func (q *Queries) TrasladoPorID(ctx context.Context, id int64) (IntegracionArgos
 		&i.EntranteID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CuadrillaID,
 	)
 	return i, err
 }
 
 const trasladosDeTecnico = `-- name: TrasladosDeTecnico :many
-SELECT id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at FROM integracion.argos_traslados
-WHERE (tecnico_id_externo = $1 OR (tecnico_id_externo IS NULL AND $2::text <> '' AND lower(tecnico_correo) = lower($2::text)))
-  AND ($3::bigint = 0 OR empresa_id = $3::bigint)
-  AND ($4::text IS NULL OR estado = $4::text)
-  AND ($5::bigint = 0 OR id < $5::bigint)
+SELECT id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en, recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, created_at, updated_at, cuadrilla_id FROM integracion.argos_traslados
+WHERE ((tecnico_id_externo = $1 OR (tecnico_id_externo IS NULL AND $2::text <> '' AND lower(tecnico_correo) = lower($2::text)))
+       OR ($3::bigint IS NOT NULL AND cuadrilla_id = $3::bigint))
+  AND ($4::bigint = 0 OR empresa_id = $4::bigint)
+  AND ($5::text IS NULL OR estado = $5::text)
+  AND ($6::bigint = 0 OR id < $6::bigint)
 ORDER BY id DESC
-LIMIT $6
+LIMIT $7
 `
 
 type TrasladosDeTecnicoParams struct {
-	IDExterno *string
-	Correo    string
-	EmpresaID int64
-	Estado    *string
-	AntesDe   int64
-	Limite    int32
+	IDExterno   *string
+	Correo      string
+	CuadrillaID *int64
+	EmpresaID   int64
+	Estado      *string
+	AntesDe     int64
+	Limite      int32
 }
 
-// Los del técnico (por su vínculo: id_externo o, si Argos solo mandó el correo, el correo) en la
-// empresa (0 = todas), más recientes primero.
+// Los del técnico (por su vínculo: id_externo o, si Argos solo mandó el correo, el correo) y los de
+// su cuadrilla actual (0.11.0 §3.9; los recibe el jefe) en la empresa (0 = todas), más recientes
+// primero.
 func (q *Queries) TrasladosDeTecnico(ctx context.Context, arg TrasladosDeTecnicoParams) ([]IntegracionArgosTraslado, error) {
 	rows, err := q.db.Query(ctx, trasladosDeTecnico,
 		arg.IDExterno,
 		arg.Correo,
+		arg.CuadrillaID,
 		arg.EmpresaID,
 		arg.Estado,
 		arg.AntesDe,
@@ -2588,6 +2649,7 @@ func (q *Queries) TrasladosDeTecnico(ctx context.Context, arg TrasladosDeTecnico
 			&i.EntranteID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CuadrillaID,
 		); err != nil {
 			return nil, err
 		}

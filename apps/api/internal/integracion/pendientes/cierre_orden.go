@@ -209,7 +209,11 @@ func idRuta(id *IDArgos) string {
 // del servicio) en vez de `bodega_id`; una bodega explícita distinta de la de la orden (la indicó
 // despacho) sigue mandando `bodega_id`, que en Argos manda sobre `tecnico`. Sin vínculo o con un
 // Argos anterior, todo sigue con `bodega_id`.
-func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
+//
+// cuadrillas: las bodegas de cuadrilla de Argos (0.11.0 §3.9). Un consumo desde una de ellas manda
+// `tecnico` y `bodega_id` (la que eligió el técnico en la app) y sale con X-Iris-Actor; Argos valida
+// que sea miembro antes de mirar existencias. Nunca se cambia de bodega por cuenta de Iris.
+func planificar(o OrdenCerrada, porTecnico bool, cuadrillas map[int64]bool) ([]plan, []omision) {
 	orden := string(o.OrdenID)
 	sid := idRuta(o.ServicioID)
 	var planes []plan
@@ -350,10 +354,18 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 	if len(materiales) > 0 {
 		p := plan{operacion: OpConsumo, clave: "iris:consumo:" + orden, ruta: "/inventario/consumos"}
 		porBodega := tecnico == nil
+		deCuadrilla := false
 		for _, mat := range materiales {
-			if explicita(mat.BodegaID) {
+			b := bodegaDe(mat.BodegaID)
+			switch {
+			case tecnico != nil && b != nil && cuadrillas[int64(*b)]:
+				deCuadrilla = true // la bodega de la cuadrilla: tecnico + bodega_id
+			case explicita(mat.BodegaID):
 				porBodega = true // despacho indicó otra bodega: manda bodega_id
 			}
+		}
+		if deCuadrilla {
+			porBodega = true
 		}
 		var bodega *IDArgos
 		lineas := make([]map[string]any, 0, len(materiales))
@@ -382,9 +394,13 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 			lineas = append(lineas, linea)
 		}
 		p.payload = con(origen(orden), map[string]any{"lineas": lineas, "servicio_id": o.ServicioID})
-		if porBodega {
+		switch {
+		case deCuadrilla:
 			p.payload["bodega_id"] = bodega
-		} else {
+			p.payload["tecnico"], p.conTecnico = tecnico, true
+		case porBodega:
+			p.payload["bodega_id"] = bodega
+		default:
 			p.payload["tecnico"], p.conTecnico = tecnico, true
 		}
 		consumo = agregar(faltaServicio(p))
@@ -425,6 +441,31 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 	return planes, omisiones
 }
 
+// bodegasDeCuadrilla: las bodegas de los materiales de la orden que son de una cuadrilla.
+func bodegasDeCuadrilla(ctx context.Context, q *pendientesbd.Queries, o OrdenCerrada) (map[int64]bool, error) {
+	ids := []int64{}
+	if o.BodegaID != nil {
+		ids = append(ids, int64(*o.BodegaID))
+	}
+	for _, mat := range o.Materiales {
+		if mat.BodegaID != nil {
+			ids = append(ids, int64(*mat.BodegaID))
+		}
+	}
+	salida := map[int64]bool{}
+	if len(ids) == 0 {
+		return salida, nil
+	}
+	filas, err := q.BodegasDeCuadrilla(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, b := range filas {
+		salida[b] = true
+	}
+	return salida, nil
+}
+
 // claveEquipo: la serie (contrato: iris:comodato:<orden_id>:<serie>); sin serie, el unidad_id.
 // Escapada para que sea una cabecera válida.
 func claveEquipo(e Equipo) string {
@@ -458,7 +499,11 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					return res, err
 				}
 			}
-			planes, omisiones := planificar(o, porTecnico)
+			cuadrillas, err := bodegasDeCuadrilla(ctx, pendientesbd.New(t), o)
+			if err != nil {
+				return res, err
+			}
+			planes, omisiones := planificar(o, porTecnico, cuadrillas)
 			if len(planes) == 0 && len(omisiones) == 0 {
 				return res, nil
 			}

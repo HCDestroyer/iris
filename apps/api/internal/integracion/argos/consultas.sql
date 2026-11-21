@@ -294,14 +294,19 @@ WHERE plan_id = @id AND plan_nombre IS DISTINCT FROM @nombre;
 -- estado repetido. Sin fila = nada cambió (un webhook atrasado o de otro estado final).
 INSERT INTO integracion.argos_traslados (
     id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en,
-    recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id
+    recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, cuadrilla_id
 ) VALUES (
     @id, sqlc.narg(empresa_id), sqlc.narg(bodega_destino_id), sqlc.narg(tecnico_id_externo), sqlc.narg(tecnico_correo), @estado, @lineas,
     sqlc.narg(enviado_en), sqlc.narg(recibido_en), sqlc.narg(recibido_por), sqlc.narg(metodo_recepcion), sqlc.narg(origen_recepcion),
-    sqlc.narg(cancelado_en), sqlc.narg(motivo), sqlc.narg(entrante_id)
+    sqlc.narg(cancelado_en), sqlc.narg(motivo), sqlc.narg(entrante_id),
+    -- La cuadrilla (0.11.0 §3.9): la del webhook o, si vino de GET /inventario/traslados/:id (que solo
+    -- trae la bodega), la que Iris conoce de esa bodega.
+    coalesce(sqlc.narg(cuadrilla_id)::bigint,
+             (SELECT bc.cuadrilla_id FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = sqlc.narg(bodega_destino_id)::bigint))
 )
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = coalesce(excluded.empresa_id, integracion.argos_traslados.empresa_id),
+    cuadrilla_id = coalesce(excluded.cuadrilla_id, integracion.argos_traslados.cuadrilla_id),
     bodega_destino_id = coalesce(excluded.bodega_destino_id, integracion.argos_traslados.bodega_destino_id),
     tecnico_id_externo = coalesce(excluded.tecnico_id_externo, integracion.argos_traslados.tecnico_id_externo),
     tecnico_correo = coalesce(excluded.tecnico_correo, integracion.argos_traslados.tecnico_correo),
@@ -318,14 +323,31 @@ ON CONFLICT (id) DO UPDATE SET
 WHERE integracion.argos_traslados.estado = 'enviado' OR integracion.argos_traslados.estado = excluded.estado
 RETURNING *;
 
+-- name: GuardarBodegaCuadrilla :exec
+-- Una bodega `cuadrilla` de Argos (mi-bodega o un webhook de traslado, 0.11.0 §3.9).
+INSERT INTO integracion.argos_bodegas_cuadrilla (bodega_id, empresa_id, cuadrilla_id, nombre, visto_en)
+VALUES (@bodega_id, @empresa_id, @cuadrilla_id, sqlc.narg(nombre), @visto_en)
+ON CONFLICT (bodega_id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, cuadrilla_id = excluded.cuadrilla_id,
+    nombre = coalesce(excluded.nombre, integracion.argos_bodegas_cuadrilla.nombre),
+    visto_en = excluded.visto_en, updated_at = now();
+
+-- name: CuadrillaDelUsuario :one
+-- La cuadrilla actual del técnico (ficha activa) y su jefe.
+SELECT t.cuadrilla_id::bigint AS cuadrilla_id, c.jefe_usuario_id
+FROM agenda.tecnicos t JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id
+WHERE t.usuario_id = @usuario_id AND t.activo AND c.activa;
+
 -- name: TrasladoPorID :one
 SELECT * FROM integracion.argos_traslados WHERE id = @id;
 
 -- name: TrasladosDeTecnico :many
--- Los del técnico (por su vínculo: id_externo o, si Argos solo mandó el correo, el correo) en la
--- empresa (0 = todas), más recientes primero.
+-- Los del técnico (por su vínculo: id_externo o, si Argos solo mandó el correo, el correo) y los de
+-- su cuadrilla actual (0.11.0 §3.9; los recibe el jefe) en la empresa (0 = todas), más recientes
+-- primero.
 SELECT * FROM integracion.argos_traslados
-WHERE (tecnico_id_externo = @id_externo OR (tecnico_id_externo IS NULL AND @correo::text <> '' AND lower(tecnico_correo) = lower(@correo::text)))
+WHERE ((tecnico_id_externo = @id_externo OR (tecnico_id_externo IS NULL AND @correo::text <> '' AND lower(tecnico_correo) = lower(@correo::text)))
+       OR (sqlc.narg(cuadrilla_id)::bigint IS NOT NULL AND cuadrilla_id = sqlc.narg(cuadrilla_id)::bigint))
   AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
   AND (sqlc.narg(estado)::text IS NULL OR estado = sqlc.narg(estado)::text)
   AND (@antes_de::bigint = 0 OR id < @antes_de::bigint)

@@ -246,6 +246,31 @@ func (q *Queries) AsegurarParticionPosiciones(ctx context.Context, fecha time.Ti
 	return err
 }
 
+const bodegaDeSuCuadrilla = `-- name: BodegaDeSuCuadrilla :one
+SELECT EXISTS (
+    SELECT 1 FROM agenda.tecnicos t
+    JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
+    JOIN integracion.argos_bodegas_cuadrilla bc ON bc.cuadrilla_id = t.cuadrilla_id
+    WHERE t.usuario_id = $1 AND t.activo AND bc.bodega_id = $2 AND bc.empresa_id = $3
+)::boolean
+`
+
+type BodegaDeSuCuadrillaParams struct {
+	UsuarioID int64
+	BodegaID  int64
+	EmpresaID int64
+}
+
+// La bodega es la de la cuadrilla actual del técnico en la empresa (contrato 0.11.0 §3.9): ficha
+// activa en una cuadrilla activa y la bodega vista en Argos para esa cuadrilla y empresa. Al quitar
+// al técnico de la cuadrilla deja de serlo en ese momento (corte de sus lotes con esa bodega).
+func (q *Queries) BodegaDeSuCuadrilla(ctx context.Context, arg BodegaDeSuCuadrillaParams) (bool, error) {
+	row := q.db.QueryRow(ctx, bodegaDeSuCuadrilla, arg.UsuarioID, arg.BodegaID, arg.EmpresaID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const bodegaDeTecnico = `-- name: BodegaDeTecnico :one
 
 SELECT bodega_id FROM agenda.tecnicos WHERE usuario_id = $1 AND activo

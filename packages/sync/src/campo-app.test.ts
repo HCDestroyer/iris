@@ -129,8 +129,8 @@ describe("barra de estado discreta", () => {
 
     it("contadores: el chat en la isla, lo que falta por recibir en el mosaico (0 si no se leyó)", () => {
         const traslados: Traslado[] = [
-            { id: 1, estado: "enviado", lineas: [] },
-            { id: 2, estado: "enviado", lineas: [], recepcion: { estado: "recibida", trasladoId: 2, pendienteId: 9, actualizadoEn: "2026-10-28T15:00:00Z" } },
+            { id: 1, estado: "enviado", lineas: [], puedeRecibir: true },
+            { id: 2, estado: "enviado", lineas: [], puedeRecibir: true, recepcion: { estado: "recibida", trasladoId: 2, pendienteId: 9, actualizadoEn: "2026-10-28T15:00:00Z" } },
         ];
         const e = estado({ pendientes: 1, subidas: { pendientes: 2, bytesPendientes: 0, conError: 0, rechazadas: 1 } });
         expect(contadoresPestanas(3)).toEqual({ hoy: 0, chat: 3, agenda: 0, yo: 0 });

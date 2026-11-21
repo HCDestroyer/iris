@@ -93,6 +93,32 @@ func (q *Queries) BodegaDeOrden(ctx context.Context, id int64) (*int64, error) {
 	return bodega_id, err
 }
 
+const bodegasDeCuadrilla = `-- name: BodegasDeCuadrilla :many
+SELECT bodega_id FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = ANY($1::bigint[]) ORDER BY bodega_id
+`
+
+// Cuáles de estas bodegas de Argos son de una cuadrilla (contrato 0.11.0 §3.9): el consumo desde una
+// de ellas lleva `tecnico` y `bodega_id` a la vez, con X-Iris-Actor.
+func (q *Queries) BodegasDeCuadrilla(ctx context.Context, bodegas []int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, bodegasDeCuadrilla, bodegas)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var bodega_id int64
+		if err := rows.Scan(&bodega_id); err != nil {
+			return nil, err
+		}
+		items = append(items, bodega_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const completarEsperando = `-- name: CompletarEsperando :one
 UPDATE integracion.pendientes
 SET payload = $1, estado = 'pendiente', ultimo_error = NULL, proximo_intento = $2, version = version + 1, updated_at = now()

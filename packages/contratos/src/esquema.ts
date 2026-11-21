@@ -10112,6 +10112,23 @@ export interface components {
             id: number;
             nombre: string;
         };
+        BodegaDeTecnico: {
+            bodega: components["schemas"]["Bodega"];
+            /** @description Es la bodega compartida de su cuadrilla */
+            cuadrilla: boolean;
+            /**
+             * Format: int64
+             * @description La cuadrilla en Iris
+             */
+            cuadrillaId?: number;
+            existencias: components["schemas"]["ExistenciaBodega"][] | null;
+            /** @description Solo en la de cuadrilla; null = sin jefe (los traslados esperan) */
+            jefe?: components["schemas"]["JefeBodega"];
+            /** @description Últimos 50 movimientos */
+            kardex: components["schemas"]["MovimientoBodega"][] | null;
+            trasladosPendientes: number[] | null;
+            unidades: components["schemas"]["UnidadBodega"][] | null;
+        };
         BodegaTecnico: {
             activa: boolean;
             /** Format: int64 */
@@ -15029,7 +15046,7 @@ export interface components {
         EntradaUsarMaterial: {
             /**
              * Format: int64
-             * @description Otra bodega en Argos: solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos; nunca desde el lote. Por defecto, la de la orden
+             * @description Por defecto, la de la orden. Desde la app (lote): la bodega personal del técnico o la de su cuadrilla actual en la empresa de la orden (contrato 0.11.0 §3.9; si no, 403 no_es_miembro antes de mirar existencias); la app guarda la elegida en la cola. Desde el panel: otra bodega solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos
              */
             bodegaId?: number;
             /**
@@ -16189,6 +16206,11 @@ export interface components {
             tipo: "si_no" | "texto" | "numero" | "foto" | "medicion" | "seleccion";
             unidad: string;
         };
+        JefeBodega: {
+            nombre: string;
+            /** @description El jefe es el usuario que pregunta (recibe y firma los traslados) */
+            soyYo: boolean;
+        };
         LecturaChat: {
             hasta_mensaje_id: string;
             /** Format: date-time */
@@ -16813,6 +16835,8 @@ export interface components {
         };
         MiBodegaRespuesta: {
             bodega: components["schemas"]["Bodega"];
+            /** @description Primero la de su cuadrilla (si Argos ≥ 0.11.0 la tiene) y después la suya; con un Argos anterior, solo la suya (la de arriba) */
+            bodegas: components["schemas"]["BodegaDeTecnico"][] | null;
             existencias: components["schemas"]["ExistenciaBodega"][] | null;
             /** @description Últimos 50 movimientos */
             kardex: components["schemas"]["MovimientoBodega"][] | null;
@@ -20949,6 +20973,11 @@ export interface components {
             bodegaDestinoId?: number;
             /** Format: date-time */
             canceladoEn?: string;
+            /**
+             * Format: int64
+             * @description Va a la bodega de esta cuadrilla (contrato 0.11.0 §3.9); lo recibe y firma su jefe
+             */
+            cuadrillaId?: number;
             /** Format: int64 */
             empresaId?: number;
             /** Format: date-time */
@@ -20966,6 +20995,8 @@ export interface components {
             lineas: components["schemas"]["LineaTraslado"][] | null;
             /** @description Motivo de la cancelación */
             motivo?: string;
+            /** @description Este usuario lo recibe y firma: es su traslado o es el jefe de la cuadrilla. Los demás miembros lo ven en camino; si mandan la recepción, 403 solo_jefe_recibe */
+            puedeRecibir: boolean;
             /** @description La recepción que mandó el técnico desde Iris, si la hay */
             recepcion?: components["schemas"]["EstadoRecepcion"];
             /** Format: date-time */

@@ -113,6 +113,12 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		// Sin servicio, Argos toma la bodega del técnico en la empresa de X-Empresa-Id (0.5.0 §3.3).
 		cli = cli.ConCabecera(argos.CabeceraEmpresaArgos, strconv.FormatInt(*f.EmpresaID, 10))
 	}
+	if f.TecnicoUsuarioID != nil {
+		// Quien usó el material, instaló o devolvió el equipo, o recibió el traslado: el mismo técnico
+		// cuyo vínculo va en `tecnico` (0.11.0 §3.9: obligatoria sobre una bodega de cuadrilla, y
+		// Argos exige que coincidan). Sale de la columna, nunca del cuerpo.
+		cli = cli.ConCabecera(argos.CabeceraActor, "usuario:"+strconv.FormatInt(*f.TecnicoUsuarioID, 10))
+	}
 	err = cli.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, &crudo)
 	if err == nil {
 		r.Exito, r.respuesta = true, limpiarRespuesta(crudo)

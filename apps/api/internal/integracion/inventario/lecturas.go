@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -89,6 +90,25 @@ type MovimientoBodega struct {
 	Referencia  string     `json:"referencia" doc:"Origen del movimiento (p. ej. la orden de Iris)"`
 }
 
+// JefeBodega es el jefe de una bodega de cuadrilla.
+type JefeBodega struct {
+	Nombre string `json:"nombre"`
+	SoyYo  bool   `json:"soyYo" doc:"El jefe es el usuario que pregunta (recibe y firma los traslados)"`
+}
+
+// BodegaDeTecnico es una de las bodegas del técnico en la empresa: la de su cuadrilla (lo que va en
+// el vehículo) o la suya (contrato 0.11.0 §3.9). «Mi bodega» tiene una pestaña por cada una.
+type BodegaDeTecnico struct {
+	Bodega              Bodega             `json:"bodega"`
+	Cuadrilla           bool               `json:"cuadrilla" doc:"Es la bodega compartida de su cuadrilla"`
+	CuadrillaID         *int64             `json:"cuadrillaId,omitempty" doc:"La cuadrilla en Iris"`
+	Jefe                *JefeBodega        `json:"jefe,omitempty" doc:"Solo en la de cuadrilla; null = sin jefe (los traslados esperan)"`
+	Existencias         []ExistenciaBodega `json:"existencias"`
+	Unidades            []UnidadBodega     `json:"unidades"`
+	TrasladosPendientes []int64            `json:"trasladosPendientes"`
+	Kardex              []MovimientoBodega `json:"kardex" doc:"Últimos 50 movimientos"`
+}
+
 // MiBodegaRespuesta es la bodega del técnico en la empresa activa.
 type MiBodegaRespuesta struct {
 	Bodega              Bodega             `json:"bodega"`
@@ -96,16 +116,33 @@ type MiBodegaRespuesta struct {
 	Unidades            []UnidadBodega     `json:"unidades"`
 	TrasladosPendientes []int64            `json:"trasladosPendientes" doc:"Ids de las órdenes de traslado por recibir según Argos (detalle en GET /campo/inventario/traslados)"`
 	Kardex              []MovimientoBodega `json:"kardex" doc:"Últimos 50 movimientos"`
+	Bodegas             []BodegaDeTecnico  `json:"bodegas" doc:"Primero la de su cuadrilla (si Argos ≥ 0.11.0 la tiene) y después la suya; con un Argos anterior, solo la suya (la de arriba)"`
 	LeidoEn             time.Time          `json:"leidoEn" doc:"Cuándo se leyó de Argos (caché de 1 min por técnico y empresa)"`
 }
 
-// lo que Iris lee de mi-bodega (tolerante: snake_case o camelCase, números como texto).
+// lo que Iris lee de mi-bodega (tolerante: snake_case o camelCase, números como texto). Desde 0.11.0,
+// con empresa, Argos manda arriba la bodega principal y en bodegas[] cada una con su contenido.
 type miBodegaArgos struct {
-	Bodega *struct {
-		ID        int64  `json:"id"`
-		Nombre    string `json:"nombre"`
-		EmpresaID int64  `json:"empresa_id"`
+	contenidoArgos
+	Bodegas []json.RawMessage `json:"bodegas"`
+}
+
+// contenidoArgos es una bodega con lo suyo (arriba o en bodegas[]).
+type contenidoArgos struct {
+	ID        int64  `json:"id"`
+	EmpresaID int64  `json:"empresa_id"`
+	Nombre    string `json:"nombre"`
+	Bodega    *struct {
+		ID              int64           `json:"id"`
+		Nombre          string          `json:"nombre"`
+		EmpresaID       int64           `json:"empresa_id"`
+		CuadrillaIDIris argos.IDExterno `json:"cuadrilla_id_iris"`
 	} `json:"bodega"`
+	Cuadrilla bool `json:"cuadrilla"`
+	Jefe      *struct {
+		IDExterno argos.IDExterno `json:"id_externo"`
+		Nombre    string          `json:"nombre"`
+	} `json:"jefe"`
 	Existencias []argos.ExistenciaArgos `json:"existencias"`
 	Unidades    []struct {
 		ID          int64      `json:"id"`
@@ -131,12 +168,50 @@ type miBodegaArgos struct {
 		Referencia  string          `json:"referencia"`
 		OrigenID    json.RawMessage `json:"origen_id"`
 	} `json:"kardex"`
-	Bodegas []json.RawMessage `json:"bodegas"`
 }
 
-func (b miBodegaArgos) aRespuesta(leido time.Time) MiBodegaRespuesta {
+// cuadrillaIris: la cuadrilla de Iris de una bodega de cuadrilla (nil si no es o no se entiende).
+func (b contenidoArgos) cuadrillaIris() *int64 {
+	if !b.Cuadrilla || b.Bodega == nil {
+		return nil
+	}
+	id, err := strconv.ParseInt(strings.TrimSpace(string(b.Bodega.CuadrillaIDIris)), 10, 64)
+	if err != nil || id <= 0 {
+		return nil
+	}
+	return &id
+}
+
+// bodegas: las del técnico; con un Argos anterior a 0.11.0 (sin bodegas[]), solo la de arriba.
+func (b miBodegaArgos) bodegas(idExterno string) []BodegaDeTecnico {
+	salida := []BodegaDeTecnico{}
+	for _, crudo := range b.Bodegas {
+		var c contenidoArgos
+		if conector.Decodificar(crudo, &c) != nil || c.Bodega == nil {
+			continue
+		}
+		salida = append(salida, c.aBodega(idExterno))
+	}
+	if len(salida) == 0 && b.Bodega != nil {
+		salida = append(salida, b.aBodega(idExterno))
+	}
+	return salida
+}
+
+func (b contenidoArgos) aBodega(idExterno string) BodegaDeTecnico {
+	r := b.aRespuesta(time.Time{})
+	d := BodegaDeTecnico{Bodega: r.Bodega, Cuadrilla: b.Cuadrilla, CuadrillaID: b.cuadrillaIris(), Existencias: r.Existencias,
+		Unidades: r.Unidades, TrasladosPendientes: r.TrasladosPendientes, Kardex: r.Kardex}
+	if b.Cuadrilla && b.Jefe != nil {
+		// Del jefe solo el nombre y si es quien pregunta (su id de Argos no sale de Iris).
+		d.Jefe = &JefeBodega{Nombre: b.Jefe.Nombre, SoyYo: idExterno != "" && string(b.Jefe.IDExterno) == idExterno}
+	}
+	return d
+}
+
+func (b contenidoArgos) aRespuesta(leido time.Time) MiBodegaRespuesta {
 	r := MiBodegaRespuesta{Existencias: []ExistenciaBodega{}, Unidades: []UnidadBodega{}, TrasladosPendientes: []int64{},
-		Kardex: []MovimientoBodega{}, LeidoEn: leido}
+		Kardex: []MovimientoBodega{}, Bodegas: []BodegaDeTecnico{}, LeidoEn: leido}
 	if b.Bodega != nil {
 		r.Bodega = Bodega{ID: b.Bodega.ID, Nombre: b.Bodega.Nombre, EmpresaID: b.Bodega.EmpresaID}
 	}
@@ -216,6 +291,36 @@ type finalBodega struct {
 	Cache bool `json:"cache"`
 	r     MiBodegaRespuesta
 	err   error
+	// cuadrillas: las bodegas de cuadrilla que Argos mandó, para validar el bodega_id del lote.
+	cuadrillas []argosbd.GuardarBodegaCuadrillaParams
+}
+
+// bodegasCuadrilla: las bodegas de cuadrilla de la respuesta, para guardarlas.
+func (b miBodegaArgos) bodegasCuadrilla(ahora time.Time) []argosbd.GuardarBodegaCuadrillaParams {
+	var salida []argosbd.GuardarBodegaCuadrillaParams
+	for _, crudo := range b.Bodegas {
+		var c contenidoArgos
+		if conector.Decodificar(crudo, &c) != nil || c.Bodega == nil || c.Bodega.ID <= 0 || c.Bodega.EmpresaID <= 0 {
+			continue
+		}
+		if id := c.cuadrillaIris(); id != nil {
+			nombre := c.Bodega.Nombre
+			salida = append(salida, argosbd.GuardarBodegaCuadrillaParams{BodegaID: c.Bodega.ID, EmpresaID: c.Bodega.EmpresaID,
+				CuadrillaID: *id, Nombre: recortar(nombre, 200), VistoEn: ahora})
+		}
+	}
+	return salida
+}
+
+func recortar(s string, n int) *string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	if r := []rune(s); len(r) > n {
+		s = string(r[:n])
+	}
+	return &s
 }
 
 func nuevoMiBodega(m *Modulo) *MiBodega {
@@ -238,9 +343,14 @@ func nuevoMiBodega(m *Modulo) *MiBodega {
 	b.final = auditoria.Nuevo(auditoria.Caso[finalBodega, MiBodegaRespuesta]{
 		Accion: "campo.ver_bodega", Permiso: nucleo.PermCampoVerBodega,
 		AuditarExito: func(MiBodegaRespuesta) bool { return false },
-		Logica: func(_ context.Context, _ *auditoria.Tx, in finalBodega) (MiBodegaRespuesta, error) {
+		Logica: func(ctx context.Context, t *auditoria.Tx, in finalBodega) (MiBodegaRespuesta, error) {
 			if in.err != nil {
 				return MiBodegaRespuesta{}, in.err
+			}
+			for _, c := range in.cuadrillas {
+				if err := argosbd.New(t).GuardarBodegaCuadrilla(ctx, c); err != nil {
+					return MiBodegaRespuesta{}, err
+				}
 			}
 			return in.r, nil
 		},
@@ -290,6 +400,8 @@ func (b *MiBodega) Ejecutar(ctx context.Context) (MiBodegaRespuesta, error) {
 		f.err = nucleo.ReglaNegocio("empresa_requerida", "Tienes bodega en varias empresas de Argos: elige la empresa activa")
 	case err == nil:
 		f.r = crudo.aRespuesta(ahora)
+		f.r.Bodegas = crudo.bodegas(p.vinculo.IDExterno)
+		f.cuadrillas = crudo.bodegasCuadrilla(ahora)
 		b.m.cacheMu.Lock()
 		b.m.cache[clave] = bodegaEnCache{r: f.r, expira: ahora.Add(b.m.cfg.CacheBodega)}
 		b.m.cacheMu.Unlock()
@@ -351,6 +463,8 @@ type Traslado struct {
 	CanceladoEn     *time.Time       `json:"canceladoEn,omitempty"`
 	Motivo          *string          `json:"motivo,omitempty" doc:"Motivo de la cancelación"`
 	Recepcion       *EstadoRecepcion `json:"recepcion,omitempty" doc:"La recepción que mandó el técnico desde Iris, si la hay"`
+	CuadrillaID     *int64           `json:"cuadrillaId,omitempty" doc:"Va a la bodega de esta cuadrilla (contrato 0.11.0 §3.9); lo recibe y firma su jefe"`
+	PuedeRecibir    bool             `json:"puedeRecibir" doc:"Este usuario lo recibe y firma: es su traslado o es el jefe de la cuadrilla. Los demás miembros lo ven en camino; si mandan la recepción, 403 solo_jefe_recibe"`
 }
 
 // PaginaTraslados es la lista paginada.
@@ -383,9 +497,20 @@ func nuevoTraslados(m *Modulo) *auditoria.Caso[EntradaTraslados, PaginaTraslados
 			if in.Estado != "" {
 				estado = &in.Estado
 			}
+			// Los de su cuadrilla actual también (0.11.0 §3.9): el jefe los recibe; los demás los ven.
+			var cuadrilla, jefe *int64
+			c, err := argosbd.New(t).CuadrillaDelUsuario(ctx, usuario)
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+			case err != nil:
+				return PaginaTraslados{}, err
+			default:
+				cuadrilla, jefe = &c.CuadrillaID, c.JefeUsuarioID
+			}
 			filas, err := argosbd.New(t).TrasladosDeTecnico(ctx, argosbd.TrasladosDeTecnicoParams{
 				IDExterno: &v.IDExterno, Correo: v.Correo, EmpresaID: contexto.EmpresaDe(ctx), Estado: estado, AntesDe: antes,
-				Limite: int32(limite + 1), //nolint:gosec // ≤ 101
+				Limite:      int32(limite + 1), //nolint:gosec // ≤ 101
+				CuadrillaID: cuadrilla,
 			})
 			if err != nil {
 				return PaginaTraslados{}, err
@@ -398,6 +523,7 @@ func nuevoTraslados(m *Modulo) *auditoria.Caso[EntradaTraslados, PaginaTraslados
 					break
 				}
 				tr := aTraslado(f)
+				tr.PuedeRecibir = f.CuadrillaID == nil || (jefe != nil && *jefe == usuario)
 				if p, err := pendientes.PorClave(ctx, t, ClaveRecepcion(f.ID)); err == nil {
 					e := estadoRecepcion(p)
 					tr.Recepcion = &e
@@ -413,7 +539,7 @@ func nuevoTraslados(m *Modulo) *auditoria.Caso[EntradaTraslados, PaginaTraslados
 
 func aTraslado(f argosbd.IntegracionArgosTraslado) Traslado {
 	t := Traslado{ID: f.ID, EmpresaID: f.EmpresaID, BodegaDestinoID: f.BodegaDestinoID, Estado: f.Estado, Lineas: []LineaTraslado{},
-		EnviadoEn: f.EnviadoEn, RecibidoEn: f.RecibidoEn, CanceladoEn: f.CanceladoEn, Motivo: f.Motivo}
+		EnviadoEn: f.EnviadoEn, RecibidoEn: f.RecibidoEn, CanceladoEn: f.CanceladoEn, Motivo: f.Motivo, CuadrillaID: f.CuadrillaID}
 	var lineas []struct {
 		ID         json.RawMessage `json:"id"`
 		LineaID    json.RawMessage `json:"linea_id"`

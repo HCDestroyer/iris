@@ -575,9 +575,13 @@ func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, or
 		}
 		info, ok := ordenes[op.OrdenID]
 		if !ok || info.bodega == nil {
-			continue // la orden no es visible o no tiene bodega (siempre la de la orden)
+			continue // la orden no es visible o no tiene bodega
 		}
 		eb := [2]int64{info.empresa, *info.bodega}
+		if e.BodegaID != nil {
+			// La que eligió el técnico (su cuadrilla o la suya, §3.9); se valida al aplicar.
+			eb[1] = *e.BodegaID
+		}
 		lineas, ok := leidas[eb]
 		if !ok {
 			lista, err := m.cfg.Inventario.Existencias(ctx, eb[0], eb[1])
