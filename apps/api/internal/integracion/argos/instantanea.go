@@ -386,9 +386,17 @@ func plantaDe(b []byte) *Planta {
 	return &p
 }
 
-// NombreServicio: el nombre del servicio de Argos (A45) en una línea, sin controles y hasta 60
+// NombreServicio: el nombre del servicio de Argos (A45) en una línea, sin controles ni caracteres de
+// formato Unicode y hasta 60
 // caracteres (lo que guarda la instantánea).
 func NombreServicio(s string) string {
+	// Sin caracteres de formato (U+202E, U+200B, U+FEFF…): podrían invertir o esconder el texto.
+	s = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
 	s = strings.Join(strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
 	if r := []rune(s); len(r) > 60 {
 		s = strings.TrimSpace(string(r[:60]))
