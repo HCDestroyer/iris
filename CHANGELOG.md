@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.35.0](https://github.com/HCDestroyer/iris/compare/v0.34.1...v0.35.0) (2026-11-21)
+
+
+### Funcionalidades
+
+* **mensajeria:** E4c fase 1, contrato y servidor del teléfono de Iris ([#246](https://github.com/HCDestroyer/iris/issues/246)) ([e86600c](https://github.com/HCDestroyer/iris/commit/e86600c0c3ed1d0d5ddde9d5e3a5508a54ab418e))
+* **voz:** instalación de un paso del Servidor de IA (setup-voz.sh) ([#248](https://github.com/HCDestroyer/iris/issues/248)) ([0cb70c0](https://github.com/HCDestroyer/iris/commit/0cb70c0525cfc4a45d0d12efc2c59b2329b3f90d))
+
 ## [0.34.1](https://github.com/HCDestroyer/iris/compare/v0.34.0...v0.34.1) (2026-11-21)
 
 
