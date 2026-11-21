@@ -1,11 +1,15 @@
 package nucleo
 
 import (
+	"context"
+	"net/http"
 	"net/url"
 	"reflect"
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Parámetros de consulta desconocidos.
@@ -71,4 +75,57 @@ func juntarNombresConsulta(t reflect.Type, m map[string]bool) {
 			juntarNombresConsulta(ft, m)
 		}
 	}
+}
+
+// UnirAlias resuelve un filtro que llega con su nombre (campo) o con su alias en snake_case
+// (campoAlias, el que usa Argos): devuelve el valor que vale (0 = sin filtro) o un ErrorCampo si
+// llegaron los dos con valores distintos.
+func UnirAlias(valor, alias int64, campo, campoAlias string) (int64, *ErrorCampo) {
+	switch {
+	case alias == 0:
+		return valor, nil
+	case valor == 0 || valor == alias:
+		return alias, nil
+	}
+	return 0, &ErrorCampo{Field: campoAlias, Rule: "distinto",
+		Message: campoAlias + " es un alias de " + campo + " y llegaron con valores distintos; manda solo uno"}
+}
+
+// ExigirFiltroCliente: un token (de integración, como el de Argos, o de API de una persona) que
+// lista datos de clientes sin filtro de cliente recibe 422 filtro_cliente_requerido, salvo que
+// tenga el permiso explícito de listar todo. Las personas con sesión (panel, app de campo con
+// cookie) no cambian. recurso es el nombre para el mensaje («tickets», «órdenes»).
+func ExigirFiltroCliente(ctx context.Context, clienteID int64, listarTodos Permiso, recurso string) error {
+	switch contexto.ActorDe(ctx).Tipo {
+	case contexto.ActorIntegracion, contexto.ActorToken:
+	default:
+		return nil
+	}
+	if clienteID > 0 || contexto.PermisosDe(ctx).Tiene(string(listarTodos)) {
+		return nil
+	}
+	return NuevoProblema(http.StatusUnprocessableEntity, "filtro_cliente_requerido", "Falta el filtro de cliente",
+		"Con un token, la lista de "+recurso+" exige clienteId (o su alias cliente_id); para listar todo, el token necesita "+string(listarTodos),
+		ErrorCampo{Field: "clienteId", Rule: "requerido", Message: "Indica el cliente de Argos (clienteId o cliente_id)"})
+}
+
+// NormalizarFiltrosCliente: lo común de las listas que lee Argos (tickets, órdenes). Rechaza los
+// parámetros desconocidos y une los alias cliente_id y servicio_id en clienteID y servicioID
+// (422 validacion si alguno llega con los dos nombres y valores distintos).
+func NormalizarFiltrosCliente(desconocidos []string, clienteID *int64, clienteAlias int64, servicioID *int64, servicioAlias int64) error {
+	if len(desconocidos) > 0 {
+		return Validacion(ErroresParametrosDesconocidos(desconocidos)...)
+	}
+	var errs []ErrorCampo
+	var e *ErrorCampo
+	if *clienteID, e = UnirAlias(*clienteID, clienteAlias, "clienteId", "cliente_id"); e != nil {
+		errs = append(errs, *e)
+	}
+	if *servicioID, e = UnirAlias(*servicioID, servicioAlias, "servicioId", "servicio_id"); e != nil {
+		errs = append(errs, *e)
+	}
+	if len(errs) > 0 {
+		return Validacion(errs...)
+	}
+	return nil
 }

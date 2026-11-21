@@ -92,6 +92,10 @@ const (
 	PermOrdenesReprogramar Permiso = "ordenes.reprogramar"
 	PermOrdenesVer         Permiso = "ordenes.ver"
 	PermOrdenesVerPropias  Permiso = "ordenes.ver_propias"
+	// PermOrdenesListarTodos: un token (de integración o de API) con ordenes.ver lista órdenes
+	// sin filtro de cliente. Sin él, GET /ordenes por token exige clienteId (422
+	// filtro_cliente_requerido). Como tickets.listar_todos: solo admin (todos) lo trae.
+	PermOrdenesListarTodos Permiso = "ordenes.listar_todos"
 
 	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
 	// asignarla (y programarla) en un paso; exige además ordenes.crear, ordenes.asignar y, con
@@ -584,6 +588,7 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
 	{PermOrdenesIgualarAsignacion, "Igualar la asignación (técnico y cuadrilla) de una orden y su ticket, en el sentido que se elija"},
 	{PermOrdenesIniciarCamino, "Marcar una orden en camino"},
+	{PermOrdenesListarTodos, "Por token de API o de integración: listar las órdenes de la empresa sin filtrar por cliente (sin él, GET /ordenes por token exige clienteId). No cambia nada en el panel ni en la app de campo"},
 	{PermOrdenesLlegar, "Marcar la llegada al sitio de una orden"},
 	{PermOrdenesPausar, "Pausar una orden en camino o en sitio, con su motivo"},
 	{PermOrdenesProgramar, "Programar órdenes pendientes (técnico y fecha)"},

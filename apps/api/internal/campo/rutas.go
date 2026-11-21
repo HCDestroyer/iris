@@ -156,6 +156,14 @@ func puedeVerTodas(ctx context.Context) bool {
 	return contexto.PermisosDe(ctx).Tiene(string(nucleo.PermOrdenesVer))
 }
 
+// Resolve (huma.Resolver) anota los parámetros de consulta que la ruta no declara: el caso de
+// uso responde 422 en vez de ignorarlos (un filtro mal escrito no amplía la lista).
+func (in *EntradaListarOrdenes) Resolve(ctx huma.Context) []error {
+	u := ctx.URL()
+	in.desconocidos = nucleo.ParametrosDesconocidos(in, u.Query())
+	return nil
+}
+
 // Registrar publica las rutas de campo.
 func (m *Modulo) Registrar(api huma.API) {
 	tipos := operacion("listarTiposOrden", http.MethodGet, "/api/v1/tipos-orden", "Tipos de orden con sus plantillas de checklist", "", http.StatusOK)
@@ -166,7 +174,10 @@ func (m *Modulo) Registrar(api huma.API) {
 		})
 
 	listar := operacion("listarOrdenes", http.MethodGet, "/api/v1/ordenes", "Listar órdenes de trabajo (tablero)", nucleo.PermOrdenesVer, http.StatusOK)
-	listar.Description = "Permiso: `ordenes.ver` (según el alcance) u `ordenes.ver_propias` (solo las asignadas al actor)."
+	listar.Description = "Permiso: `ordenes.ver` (según el alcance) u `ordenes.ver_propias` (solo las asignadas al actor)." +
+		" `cliente_id` y `servicio_id` son alias de `clienteId` y `servicioId` (contrato con Argos, A7); si llegan los dos con valores distintos, 422 `validacion`." +
+		" Con `ordenes.ver` y un token (de integración o de API) la lista exige `clienteId` (o `cliente_id`): sin él, 422 `filtro_cliente_requerido`, salvo que el token tenga `ordenes.listar_todos`." +
+		" Un parámetro de consulta que la ruta no conoce responde 422 `validacion` (regla `desconocido`)."
 	huma.Register(api, listar, func(ctx context.Context, in *EntradaListarOrdenes) (*cuerpo[nucleo.Pagina[Orden]], error) {
 		if puedeVerTodas(ctx) {
 			return responder(m.ListarOrdenes.Ejecutar(ctx, *in))

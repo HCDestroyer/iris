@@ -2,7 +2,6 @@ package soporte
 
 import (
 	"context"
-	"net/http"
 	"strings"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -41,55 +40,6 @@ type EntradaListarTickets struct {
 	desconocidos []string
 }
 
-// unirAlias resuelve los alias: devuelve el valor que vale (0 = sin filtro) o un ErrorCampo si
-// llegaron los dos con valores distintos.
-func unirAlias(valor, alias int64, campo, campoAlias string) (int64, *nucleo.ErrorCampo) {
-	switch {
-	case alias == 0:
-		return valor, nil
-	case valor == 0 || valor == alias:
-		return alias, nil
-	}
-	return 0, &nucleo.ErrorCampo{Field: campoAlias, Rule: "distinto",
-		Message: campoAlias + " es un alias de " + campo + " y llegaron con valores distintos; manda solo uno"}
-}
-
-// normalizar valida los parámetros desconocidos y une los alias en ClienteID y ServicioID.
-func (in *EntradaListarTickets) normalizar() error {
-	if len(in.desconocidos) > 0 {
-		return nucleo.Validacion(nucleo.ErroresParametrosDesconocidos(in.desconocidos)...)
-	}
-	var errs []nucleo.ErrorCampo
-	var e *nucleo.ErrorCampo
-	if in.ClienteID, e = unirAlias(in.ClienteID, in.ClienteIDAlias, "clienteId", "cliente_id"); e != nil {
-		errs = append(errs, *e)
-	}
-	if in.ServicioID, e = unirAlias(in.ServicioID, in.ServicioIDAlias, "servicioId", "servicio_id"); e != nil {
-		errs = append(errs, *e)
-	}
-	if len(errs) > 0 {
-		return nucleo.Validacion(errs...)
-	}
-	in.ClienteIDAlias, in.ServicioIDAlias = 0, 0
-	return nil
-}
-
-// exigirFiltroCliente: un token (de integración o de API de una persona) que lista sin cliente
-// recibe 422, salvo con tickets.listar_todos. Las personas del panel (sesión) no cambian.
-func exigirFiltroCliente(ctx context.Context, clienteID int64) error {
-	switch contexto.ActorDe(ctx).Tipo {
-	case contexto.ActorIntegracion, contexto.ActorToken:
-	default:
-		return nil
-	}
-	if clienteID > 0 || contexto.PermisosDe(ctx).Tiene(string(nucleo.PermTicketsListarTodos)) {
-		return nil
-	}
-	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "filtro_cliente_requerido", "Falta el filtro de cliente",
-		"Con un token, la lista de tickets exige clienteId (o su alias cliente_id); para listar todos, el token necesita tickets.listar_todos",
-		nucleo.ErrorCampo{Field: "clienteId", Rule: "requerido", Message: "Indica el cliente de Argos (clienteId o cliente_id)"})
-}
-
 func filtro(v int64) *int64 {
 	if v <= 0 {
 		return nil
@@ -110,10 +60,10 @@ func (m *Modulo) nuevoListarTickets() *auditoria.Caso[EntradaListarTickets, nucl
 		Permiso:      nucleo.PermTicketsVer,
 		AuditarExito: soloLecturas[nucleo.Pagina[Ticket]],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarTickets) (nucleo.Pagina[Ticket], error) {
-			if err := in.normalizar(); err != nil {
+			if err := nucleo.NormalizarFiltrosCliente(in.desconocidos, &in.ClienteID, in.ClienteIDAlias, &in.ServicioID, in.ServicioIDAlias); err != nil {
 				return nucleo.Pagina[Ticket]{}, err
 			}
-			if err := exigirFiltroCliente(ctx, in.ClienteID); err != nil {
+			if err := nucleo.ExigirFiltroCliente(ctx, in.ClienteID, nucleo.PermTicketsListarTodos, "tickets"); err != nil {
 				return nucleo.Pagina[Ticket]{}, err
 			}
 			var antesDe int64
