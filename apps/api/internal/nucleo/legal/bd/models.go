@@ -713,7 +713,6 @@ type ComercialProspecto struct {
 	ClienteExistenteID *int64
 	ClienteValidado    *bool
 	GanadoPor          *int64
-	PermisosContacto   []byte
 }
 
 type ComercialProspectoEvento struct {

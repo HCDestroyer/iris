@@ -389,8 +389,8 @@ func TestGanarProspectoDesdeArgos(t *testing.T) {
 	if srv == nil || srv["cliente_id"] != float64(8801) {
 		t.Fatalf("POST /servicios: %v", srv)
 	}
-	// El contacto, solo para el servicio nuevo, con X-Iris-Actor de quien ganó y sin permisos por
-	// encima de los suyos (ventas: estado de cuenta sí; tickets y boletas no).
+	// El contacto, solo para el servicio nuevo, con X-Iris-Actor de quien ganó y con todos los
+	// permisos (decisión 7 del PM, §10.5).
 	var clave2 string
 	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT idempotency_key FROM integracion.pendientes
 		WHERE idempotency_key LIKE 'iris:contacto:8801:pt%'`).Scan(&clave2); err != nil {
@@ -400,7 +400,7 @@ func TestGanarProspectoDesdeArgos(t *testing.T) {
 	servs, _ := ct2["servicios"].([]any)
 	perm, _ := ct2["permisos"].(map[string]any)
 	idSrv := r.e.falso.altas[comercial.ClaveServicio(id2)]
-	if len(servs) != 1 || servs[0] != float64(idSrv) || perm["consultar"] != true || perm["reportar"] != false || perm["pagar"] != false {
+	if len(servs) != 1 || servs[0] != float64(idSrv) || perm["consultar"] != true || perm["reportar"] != true || perm["pagar"] != true || perm["avisos"] != true {
 		t.Fatalf("contacto del cliente existente: %v", ct2)
 	}
 	r.e.falso.fijar(func(a *argosFalso) {

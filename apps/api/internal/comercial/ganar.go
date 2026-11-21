@@ -247,7 +247,7 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 					// Nunca sin confirmar que el cliente es de la empresa (GanarProspecto lo confirma con Argos).
 					return Prospecto{}, clienteSinConfirmar()
 				}
-				d.GanadoPor, d.PermisosContacto = actorUsuario(t), permisosQueOtorga(ctx)
+				d.GanadoPor = actorUsuario(t)
 				if antes.ClienteExistenteID != nil {
 					// Cliente que eligió quien lo registró en Argos: Iris no lo crea ni lo edita (§3.6, ajuste
 					// ad): el servicio sale con su id y los números sin nombre quedan solo en el prospecto.
@@ -389,18 +389,13 @@ func contratoArgosAlMenos(ctx context.Context, q *comercialbd.Queries, minima st
 
 // encolarContactos: los números del prospecto con nombre (que no son el principal) se crean como
 // contactos del cliente (A42, §3.6), con su relación, solo para el servicio nuevo (servicios: [id
-// del servicio], que sale de la respuesta de su pendiente: dependen de él) y con los permisos que
-// tenía quien ganó el prospecto (nunca más que los suyos, §10.5 ajuste i). X-Iris-Actor es esa
-// persona (§3.5: contactos.gestionar exige X-Iris-Actor).
+// del servicio], que sale de la respuesta de su pendiente: dependen de él) y con todos los permisos
+// (decisión 7 del PM, §10.5: el titular recibe un aviso y puede quitarlos). X-Iris-Actor es quien
+// ganó el prospecto (§3.5: contactos.gestionar exige X-Iris-Actor).
 func (m *Modulo) encolarContactos(ctx context.Context, t *auditoria.Tx, p comercialbd.ComercialProspecto, cliente int64,
 	tels []comercialbd.ComercialProspectoTelefono, servicio pendientes.Registro) ([]int64, error) {
 	ids := []int64{}
-	permisos := map[string]bool{"consultar": false, "reportar": false, "pagar": false, "avisos": false}
-	if len(p.PermisosContacto) > 0 {
-		if err := json.Unmarshal(p.PermisosContacto, &permisos); err != nil {
-			return nil, err
-		}
-	}
+	permisos := map[string]bool{"consultar": true, "reportar": true, "pagar": true, "avisos": true}
 	actor := ""
 	if p.GanadoPor != nil {
 		actor = "usuario:" + idTexto(*p.GanadoPor)
@@ -429,20 +424,6 @@ func (m *Modulo) encolarContactos(ctx context.Context, t *auditoria.Tx, p comerc
 		ids = append(ids, r.ID)
 	}
 	return ids, nil
-}
-
-// permisosQueOtorga: los permisos de contacto (A42) que puede dar quien gana el prospecto, según
-// los suyos en Iris (§10.5 ajuste i): consultar y avisos (saldo y avisos de cobro) con
-// clientes.estado_cuenta; reportar con tickets.crear; pagar con registrar boletas o promesas.
-func permisosQueOtorga(ctx context.Context) []byte {
-	tiene := contexto.PermisosDe(ctx).Tiene
-	b, _ := json.Marshal(map[string]bool{
-		"consultar": tiene(string(nucleo.PermClientesEstadoCuenta)),
-		"reportar":  tiene(string(nucleo.PermTicketsCrear)),
-		"pagar":     tiene(string(nucleo.PermConversacionesRegistrarBoleta)) || tiene(string(nucleo.PermConversacionesRegistrarPromesa)),
-		"avisos":    tiene(string(nucleo.PermClientesEstadoCuenta)),
-	})
-	return b
 }
 
 // payloadServicio: cuerpo de POST /servicios (Argos 1.2): cliente, router y plan obligatorios,

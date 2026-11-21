@@ -252,7 +252,7 @@ func guardar(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, antes
 		MotivoPerdida: d.MotivoPerdida, PerdidoEn: d.PerdidoEn, GanadoEn: d.GanadoEn, ObraConfirmada: d.ObraConfirmada,
 		AltaModo: d.AltaModo, AltaEstado: d.AltaEstado, ClienteArgosID: d.ClienteArgosID, ServicioArgosID: d.ServicioArgosID,
 		OrdenID: d.OrdenID, RouterID: d.RouterID, AltaError: d.AltaError, ClienteValidado: d.ClienteValidado,
-		GanadoPor: d.GanadoPor, PermisosContacto: d.PermisosContacto, ID: antes.ID, Version: antes.Version,
+		GanadoPor: d.GanadoPor, ID: antes.ID, Version: antes.Version,
 	})
 	if err != nil {
 		return f, nucleo.VerificarVersion(err, "prospecto", antes.ID)
