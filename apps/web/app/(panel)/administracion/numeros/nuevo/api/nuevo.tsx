@@ -20,6 +20,7 @@ import { crearCanal, leerCanales, probarCanal } from "@/lib/numeros/api";
 import { esquemaNuevoNumero, USOS, type EntradaNuevoNumero, type ValoresNuevoNumero } from "@/lib/numeros/esquemas";
 import { dejarRecienCreado, olvidarRecienCreado } from "@/lib/numeros/recien-creado";
 import type { Canal, PruebaCanal } from "@/lib/numeros/tipos";
+import { errorDeWaba } from "@/lib/numeros/errores-waba";
 import type { Schema } from "@iris/contratos";
 import { useSesion } from "@/lib/sesion";
 
@@ -90,6 +91,11 @@ function Formulario({ canales, colas }: { canales: Canal[]; colas: Schema<"ColaC
             clave.trasError(e);
             if (e instanceof ErrorApi && e.estado === 409 && e.codigo === "canal_existente") {
                 form.setError("phoneNumberId", { message: "Ya hay un número activo con ese Phone number ID" });
+                return;
+            }
+            const deWaba = errorDeWaba(e);
+            if (deWaba) {
+                form.setError("wabaId", { message: deWaba }, { shouldFocus: true });
                 return;
             }
             if (!erroresACampos(e, CAMPOS, form.setError)) setError(e);

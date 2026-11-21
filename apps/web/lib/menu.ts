@@ -112,6 +112,7 @@ export const MENU: readonly EntradaMenu[] = [
         permisos: [
             "buzones.ver",
             "plantillas.ver",
+            "plantillas_whatsapp.ver",
             "integraciones.ver",
             "tokens.ver",
             "roles.ver",
