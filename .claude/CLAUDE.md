@@ -285,6 +285,10 @@ Una tarea está terminada solo si:
 | `llamada.tomada` / `llamada.transferida` | mensajeria (voz, E3) | llamada_id, conversacion_id, empresa_id, usuario_id; de (asistente o usuario_id), a_usuario_id (o null), a_cola_id (o null) |
 | `llamada.escucha_iniciada` / `llamada.escucha_terminada` | mensajeria (voz, E3) | llamada_id, conversacion_id, empresa_id, usuario_id (quien escucha); duracion_seg (terminada) |
 | `canal_mensajeria.llamadas_cambiadas` | mensajeria (voz) | canal_id, empresa_id, campos[], llamadas_activas |
+| `centralita.telefono_cambiado` / `centralita.telefono_probado` | mensajeria (voz, E4c) | centralita_id, empresa_id; campos[], activo (cambiado); estado (probado); nunca un secreto |
+| `extension.telefono_cambiado` / `extension.registro_probado` | mensajeria (voz, E4c) | centralita_id, empresa_id, extension_id, usuario_id; tipo, credencial (guardada, borrada, sin_cambio) (cambiado); estado, origen (probado); nunca la contraseña |
+| `grupo_centralita.creado` / `grupo_centralita.actualizado` | mensajeria (voz, E4c) | grupo_id, centralita_id, empresa_id; nombre, numero (creado); campos[], activo (actualizado) |
+| `llamada.directa_registrada` | mensajeria (voz, E4c) | llamada_id, empresa_id, orden_id, cliente_id (o null), servicio_id (o null), usuario_id, origen (celular); nunca el número |
 | `voz.ajustes_cambiados` / `voz.tope_alcanzado` | mensajeria (voz) | empresa_id; campos[] (ajustes; nunca claves); tipo (asistente, salientes), porcentaje (80, 100), mes, minutos, tope (tope) |
 | `voz.mal_uso_detectado` / `voz.numero_bloqueado` / `voz.numero_desbloqueado` | mensajeria (voz) | empresa_id; llamada_id, conversacion_id, tipo, regla, accion (mal uso); bloqueo_id, hasta, motivo, usuario_id (o null) (bloqueo); nunca el texto ni el número |
 | `voz.rafaga_levantada` | mensajeria (voz) | empresa_id, canal_id, conversacion_id (o null), origen (manual, llamada), usuario_id (o null), llamada_id (o null); nunca el número |
