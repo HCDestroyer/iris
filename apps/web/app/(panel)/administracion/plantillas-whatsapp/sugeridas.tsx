@@ -17,7 +17,8 @@ import { ErrorPlantilla, VistaPrevia } from "./comunes";
 /** Pantalla d de la maqueta: las 7 de fábrica, ya conectadas con los datos de Iris y Argos. */
 export function SugeridasPWA() {
     const waba = useSearchParams().get("cuenta") ?? "";
-    const lectura = useLectura((signal) => P.leerSugeridas(waba, signal));
+    // La cuenta de la URL tiene que ser una de las de la empresa (como en la lista); si no, no se lee nada más.
+    const lectura = useLectura(async (signal) => ((await P.leerCuentas(signal)).some((c) => c.wabaId === waba) ? P.leerSugeridas(waba, signal) : null));
     const { puede } = useSesion();
     const crear = puede([PERMISO_CREAR]);
     const [pie, setPie] = useState<string | null>(null);
@@ -25,10 +26,15 @@ export function SugeridasPWA() {
     const [creando, setCreando] = useState<string | null>(null);
     const [error, setError] = useState<{ clave: string; e: unknown } | null>(null);
 
-    if (!waba) {
+    if (!waba || (lectura.estado === "listo" && lectura.datos === null)) {
         return (
             <Tarjeta>
                 <EstadoVacio icono={MessageSquare} titulo="Elige primero la cuenta de WhatsApp" descripcion="Entra desde la lista de plantillas de la cuenta." />
+                <div className="flex justify-center pb-4">
+                    <Boton asChild variante="contorno">
+                        <Link href={RUTA}>Ir a Plantillas de WhatsApp</Link>
+                    </Boton>
+                </div>
             </Tarjeta>
         );
     }
@@ -90,7 +96,7 @@ export function SugeridasPWA() {
                 </div>
             ) : lectura.estado === "error" ? (
                 <ErrorLectura error={lectura.error} reintentar={lectura.reintentar} que="las plantillas sugeridas" />
-            ) : (
+            ) : lectura.datos === null ? null : (
                 <div className="grid min-w-0 gap-4">
                     <Tarjeta className="flex flex-wrap items-center gap-2 p-3 text-sm" data-slot="se-crean-con">
                         <span className="text-muted-foreground">Se crean con:</span>
@@ -179,7 +185,7 @@ function TarjetaSugerida({
                 ) : puedeCrear ? (
                     <>
                         <Boton asChild variante="contorno" tamano="sm">
-                            <Link href={`${RUTA}/nueva?cuenta=${waba}&sugerida=${s.clave}`}>Revisar</Link>
+                            <Link href={`${RUTA}/nueva?cuenta=${encodeURIComponent(waba)}&sugerida=${encodeURIComponent(s.clave)}`}>Revisar</Link>
                         </Boton>
                         <Boton tamano="sm" className="flex-1" onClick={alCrear} disabled={ocupado}>
                             <Plus />

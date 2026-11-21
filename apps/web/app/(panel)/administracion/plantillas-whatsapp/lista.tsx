@@ -49,7 +49,7 @@ export function ListaPlantillasWA() {
             {puede([PERMISO_EDITAR]) ? <AjustesMarketing /> : null}
             {waba ? (
                 <Boton asChild variante="contorno">
-                    <Link href={`${RUTA}/sugeridas?cuenta=${waba}`}>
+                    <Link href={`${RUTA}/sugeridas?cuenta=${encodeURIComponent(waba)}`}>
                         <Sparkles />
                         Sugeridas
                     </Link>
@@ -57,7 +57,7 @@ export function ListaPlantillasWA() {
             ) : null}
             {waba && puede([PERMISO_CREAR]) ? (
                 <Boton asChild>
-                    <Link href={`${RUTA}/nueva?cuenta=${waba}`}>
+                    <Link href={`${RUTA}/nueva?cuenta=${encodeURIComponent(waba)}`}>
                         <Plus />
                         Nueva plantilla
                     </Link>

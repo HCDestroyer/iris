@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { definicionDe, esquemaPlantilla, formatoDe, insertarDato, nombreMetaDe, partesVistaPrevia, revisar, sincronizarVariables, valoresDe } from "./reglas";
+import { definicionDe, esquemaPlantilla, revisarArchivoEjemplo, formatoDe, insertarDato, nombreMetaDe, partesVistaPrevia, revisar, sincronizarVariables, valoresDe } from "./reglas";
 import type { DatoPWA, DefinicionPWA } from "./tipos";
 
 const DATOS: DatoPWA[] = [
@@ -112,5 +112,21 @@ describe("ayudas del formulario", () => {
         expect(esquemaPlantilla.safeParse(v).success).toBe(true);
         expect(definicionDe(v)).toMatchObject({ cuerpo: d.cuerpo, pie: "Kingnet", encabezado: { tipo: "texto", texto: "Aviso" } });
         expect(esquemaPlantilla.safeParse({ ...v, nombre: "Con Mayúsculas" }).success).toBe(false);
+    });
+});
+
+describe("archivo de ejemplo del encabezado (antes de subirlo)", () => {
+    const MB = 1024 * 1024;
+    it("acepta el tipo y el tamaño que Meta pide para cada encabezado", () => {
+        expect(revisarArchivoEjemplo("imagen", { type: "image/png", size: 2 * MB })).toBeNull();
+        expect(revisarArchivoEjemplo("video", { type: "video/mp4", size: 15 * MB })).toBeNull();
+        expect(revisarArchivoEjemplo("documento", { type: "application/pdf", size: MB })).toBeNull();
+    });
+    it("rechaza otro tipo o uno demasiado pesado", () => {
+        expect(revisarArchivoEjemplo("imagen", { type: "application/pdf", size: MB })).toMatch(/JPG o PNG/);
+        expect(revisarArchivoEjemplo("imagen", { type: "image/webp", size: MB })).toMatch(/JPG o PNG/);
+        expect(revisarArchivoEjemplo("imagen", { type: "image/jpeg", size: 6 * MB })).toMatch(/5 MB/);
+        expect(revisarArchivoEjemplo("video", { type: "video/mp4", size: 17 * MB })).toMatch(/16 MB/);
+        expect(revisarArchivoEjemplo("documento", { type: "image/png", size: MB })).toMatch(/PDF/);
     });
 });

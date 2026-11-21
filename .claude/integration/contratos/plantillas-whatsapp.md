@@ -100,6 +100,7 @@ Toda acción que cambia algo acepta `Idempotency-Key` y lleva `version` (409 `co
 | `sincronizada_hace_poco` | 429 | Botón «Sincronizar» antes de 2 minutos; `Retry-After`. |
 | `cliente_sin_confirmar` | 422 | Plantilla con datos del cliente en una conversación sin cliente confirmado. |
 | `cuenta_sin_token`, `sin_app_meta` | 422 | Sin token guardado; encabezado con archivo sin app ID en «Conexión con Meta». |
+| `archivo_no_coincide` | 422 | El archivo de ejemplo no es del tipo o tamaño del encabezado: imagen JPG o PNG de hasta 5 MB, video MP4 o 3GPP de hasta 16 MB, documento PDF de hasta 16 MB (Meta admite 100 MB; Iris lee el ejemplo hasta 16 MB). |
 
 ## 4. Reglas de Meta revisadas antes de enviar
 

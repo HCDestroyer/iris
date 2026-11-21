@@ -244,6 +244,22 @@ export function insertarDato(texto: string, desde: number, hasta: number, clave:
     return { texto: antes + token + despues, cursor: antes.length + token.length };
 }
 
+/** Lo que Meta acepta como archivo de ejemplo de cada encabezado (espejo de ArchivosEjemploPW). */
+export const ARCHIVOS_EJEMPLO = {
+    imagen: { mimes: ["image/jpeg", "image/png"], maxMB: 5, texto: "una imagen JPG o PNG" },
+    video: { mimes: ["video/mp4", "video/3gpp"], maxMB: 16, texto: "un video MP4" },
+    // Meta admite documentos de hasta 100 MB; Iris lee el ejemplo hasta 16 MB.
+    documento: { mimes: ["application/pdf"], maxMB: 16, texto: "un PDF" },
+} as const;
+
+/** Por qué el archivo no sirve para ese encabezado (null si sirve). */
+export function revisarArchivoEjemplo(tipo: keyof typeof ARCHIVOS_EJEMPLO, archivo: { type: string; size: number }): string | null {
+    const regla = ARCHIVOS_EJEMPLO[tipo];
+    if (!(regla.mimes as readonly string[]).includes(archivo.type)) return `Para este encabezado, Meta pide ${regla.texto}.`;
+    if (archivo.size > regla.maxMB * 1024 * 1024) return `El archivo pesa más de ${regla.maxMB} MB: elige uno más liviano.`;
+    return null;
+}
+
 /* Formulario (react-hook-form + zod): lo que el servidor rechaza de entrada. Las reglas de Meta van
  * aparte (lista «Antes de enviar»): un borrador se puede guardar aunque no las cumpla. */
 

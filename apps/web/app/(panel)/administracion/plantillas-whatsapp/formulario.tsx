@@ -30,8 +30,9 @@ import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import * as P from "@/lib/plantillas-whatsapp/api";
-import { definicionDe, esquemaPlantilla, insertarDato, MAX, nombreMetaDe, revisar, sincronizarVariables, type ValoresPlantilla } from "@/lib/plantillas-whatsapp/reglas";
-import { CATEGORIAS, IDIOMAS, RUTA, USOS, type DatoPWA, type DefinicionPWA, type PlantillaWADetalle } from "@/lib/plantillas-whatsapp/tipos";
+import { definicionDe, esquemaPlantilla, insertarDato, MAX, nombreMetaDe, revisar, revisarArchivoEjemplo, sincronizarVariables, type ValoresPlantilla } from "@/lib/plantillas-whatsapp/reglas";
+import { CATEGORIAS, IDIOMAS, PERMISO_CREAR, RUTA, USOS, type DatoPWA, type DefinicionPWA, type PlantillaWADetalle } from "@/lib/plantillas-whatsapp/tipos";
+import { useSesion } from "@/lib/sesion";
 import { ErrorPlantilla, VistaPrevia } from "./comunes";
 
 /*
@@ -89,6 +90,9 @@ export function FormularioPlantillaWA(props: ModoFormulario) {
 function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
     const { datos } = props;
     const router = useRouter();
+    const { puede } = useSesion();
+    // Enviar a Meta es de quien crea plantillas (el servidor lo exige igual).
+    const puedeEnviar = puede([PERMISO_CREAR]);
     const clave = useClaveIdempotencia();
     const claveEnvio = useClaveIdempotencia();
     const plantilla = props.modo === "nueva" ? null : props.plantilla;
@@ -170,6 +174,13 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
 
     async function elegirArchivo(archivo: File) {
         setErrorArchivo(null);
+        const tipo = valores.encabezado;
+        if (tipo !== "imagen" && tipo !== "video" && tipo !== "documento") return;
+        const problema = revisarArchivoEjemplo(tipo, archivo);
+        if (problema) {
+            setErrorArchivo(problema);
+            return;
+        }
         setSubiendo(true);
         try {
             const id = await subirAdjunto(archivo, waba, { entidad: "plantilla_whatsapp" });
@@ -237,7 +248,7 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
                 descripcion="Escríbela como te gustaría que la lea el cliente. Iris revisa las reglas de Meta antes de enviarla."
                 alEnviar={form.handleSubmit((v) => guardar(v, corregir))}
                 navegar={router.push}
-                volverA={plantilla ? `${RUTA}/${plantilla.id}` : `${RUTA}?cuenta=${waba}`}
+                volverA={plantilla ? `${RUTA}/${plantilla.id}` : `${RUTA}?cuenta=${encodeURIComponent(waba)}`}
                 sucio={form.formState.isDirty}
                 barra={{
                     textoGuardar: corregir ? textoEnviar : "Guardar borrador",
@@ -256,10 +267,12 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
                                     Corrige {fallan.length === 1 ? "1 cosa" : `${fallan.length} cosas`} para poder enviarla.
                                 </span>
                             ) : null}
-                            <Boton variante="secundario" disabled={enviando || fallan.length > 0} onClick={() => void form.handleSubmit((v) => guardar(v, true))()} data-accion="enviar-meta">
-                                <Send />
-                                {textoEnviar}
-                            </Boton>
+                            {puedeEnviar ? (
+                                <Boton variante="secundario" disabled={enviando || fallan.length > 0} onClick={() => void form.handleSubmit((v) => guardar(v, true))()} data-accion="enviar-meta">
+                                    <Send />
+                                    {textoEnviar}
+                                </Boton>
+                            ) : null}
                         </span>
                     ),
                 }}

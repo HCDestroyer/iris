@@ -141,6 +141,13 @@ test.describe("Administración › Plantillas de WhatsApp", () => {
         expect(api.plantillasWA.recibido.sugeridas).toEqual(["tecnico_en_camino"]);
     });
 
+    test("sugeridas con una cuenta que no es de la empresa: no las lee y lleva a la lista", async ({ page }) => {
+        const api = await abrir(page, `${RUTA}/sugeridas?cuenta=999%26x%3D1`);
+        await expect(page.getByText("Elige primero la cuenta de WhatsApp")).toBeVisible();
+        await expect(page.getByRole("link", { name: "Ir a Plantillas de WhatsApp" })).toHaveAttribute("href", RUTA);
+        expect(api.orden.filter((x) => x.includes("/plantillas-whatsapp/sugeridas"))).toEqual([]);
+    });
+
     test("soporte ve y sincroniza, pero no crea ni borra", async ({ page }) => {
         await abrir(page, RUTA, {}, SOPORTE);
         await expect(fila(page, "aviso_corte")).toBeVisible();

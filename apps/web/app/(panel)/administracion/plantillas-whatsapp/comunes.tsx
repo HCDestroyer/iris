@@ -1,5 +1,7 @@
 "use client";
 
+import type { Schema } from "@iris/contratos";
+
 import { Aviso, Boton, cn, InsigniaEstado } from "@iris/ui";
 import { CircleCheck, CircleDashed, CircleX, Clock, Copy, ExternalLink, KeyRound, PauseCircle, Phone, Reply, RotateCw, Trash2, type LucideIcon } from "lucide-react";
 import Link from "next/link";
@@ -82,7 +84,7 @@ export function VistaPrevia({ definicion, categoria, valor, titulo = "Así lo ve
 /** Qué hacer con un error de Meta o de las reglas, en llano (pantalla e de la maqueta). */
 export function ErrorPlantilla({ error, reintentar, alUsarNombre, titulo }: { error: unknown; reintentar?: () => void; alUsarNombre?: (nombre: string) => void; titulo?: string }) {
     const e = error instanceof ErrorApi ? error : null;
-    const problema = (e?.problema ?? {}) as { sugerencia?: string; disponibleEn?: string };
+    const problema: Partial<Schema<"Problema">> = e?.problema && typeof e.problema === "object" ? (e.problema as Partial<Schema<"Problema">>) : {};
     const m = mensajeDeError(error);
     const fecha = (iso?: string) => (iso ? new Intl.DateTimeFormat("es-GT", { timeZone: "America/Guatemala", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(Date.parse(iso)) : "");
     const reintentarBoton = reintentar ? (

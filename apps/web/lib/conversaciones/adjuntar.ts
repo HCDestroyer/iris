@@ -71,6 +71,11 @@ type OpcionesSubida = {
     entidad?: string;
 };
 
+/** El tipo del adjunto según el archivo: una imagen es `foto`; lo demás (PDF, video…), `documento`. */
+export function tipoAdjunto(mime: string): "foto" | "documento" {
+    return mime.startsWith("image/") ? "foto" : "documento";
+}
+
 /** La subida se cortó porque quien la pidió ya no la quiere (`seguir` devolvió `false`). */
 export class SubidaCortada extends Error {}
 
@@ -102,7 +107,7 @@ export async function subirAdjunto(archivo: File, conversacionId: number | strin
                     id: avance.id,
                     entidad,
                     entidadId: String(conversacionId),
-                    tipo: archivo.type === "application/pdf" ? "documento" : "foto",
+                    tipo: tipoAdjunto(archivo.type),
                     mime: archivo.type,
                     tamano: archivo.size,
                     sha256,

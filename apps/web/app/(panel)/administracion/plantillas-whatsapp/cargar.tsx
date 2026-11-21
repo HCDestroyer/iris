@@ -66,7 +66,8 @@ export function CargarNueva() {
     const waba = params.get("cuenta") ?? "";
     const clave = params.get("sugerida");
     const sugerida = useLectura(async (signal) => {
-        if (!waba) return { sinCuenta: true as const };
+        // La cuenta de la URL tiene que ser una de las de la empresa.
+        if (!waba || !(await P.leerCuentas(signal)).some((c) => c.wabaId === waba)) return { sinCuenta: true as const };
         if (!clave) return { sinCuenta: false as const, inicial: undefined };
         const r = await P.leerSugeridas(waba, signal);
         const s = r.data.find((x) => x.clave === clave);
