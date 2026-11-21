@@ -13,7 +13,8 @@ import { DetalleOrden } from "./detalle-orden";
 import { BarraCompacta, EncabezadoCampo, FranjaSuperior } from "./encabezado";
 import { DetalleTraslado, MiBodega, PorRecibir } from "./inventario";
 import { ProveedorBorradores } from "./borradores";
-import { IslaMenu, IslaPasos } from "./isla";
+import { ProveedorAccionPie } from "./accion-pie";
+import { IslasCampo } from "./isla";
 import { ListaOrdenes } from "./lista-ordenes";
 import { OrdenesLibresPantalla } from "./libres";
 import { NuevaTarea } from "./tareas";
@@ -119,12 +120,6 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
     const encabezado = useRef<HTMLElement | null>(null);
     const desplazamiento = useDesplazamiento(encabezado);
     useAvisoDeRechazos();
-    // Los pasos de la orden llevan su propia isla («Anterior» · «Siguiente» o «Guardar y seguir»); la firma
-    // y el cierre, su botón al pie.
-    const paso = vista.tipo === "orden" ? vista.paso : undefined;
-    // La conversación ocupa la pantalla (encabezado propio y compositor abajo): sin isla.
-    const conIsla = paso === undefined && vista.tipo !== "conversacion";
-    const conIslaPasos = vista.tipo === "orden" && paso !== undefined && paso !== "cierre";
 
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
     const { envio } = useUbicacion();
@@ -235,6 +230,7 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
 
     return (
         <ProveedorBorradores>
+        <ProveedorAccionPie>
         <div className="campo-app relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col pb-[calc(11rem+env(safe-area-inset-bottom))]">
             <FranjaSuperior />
             <EncabezadoCampo ref={encabezado} empresa={nombreEmpresa} pedirEmpresa={pedirEmpresa} />
@@ -301,9 +297,10 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                 )}
             </main>
             <AvisoDelMarco />
-            {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} /> : null}
-            {conIslaPasos && vista.tipo === "orden" && paso ? <IslaPasos id={vista.id} paso={paso} encogida={desplazamiento.islaEncogida} /> : null}
+            {/* Menú, pasos de la orden o la acción al pie de una pantalla con firma (`IslasCampo`). */}
+            <IslasCampo encogida={desplazamiento.islaEncogida} />
         </div>
+        </ProveedorAccionPie>
         </ProveedorBorradores>
     );
 }

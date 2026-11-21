@@ -4,13 +4,14 @@
 // Hoy · Chat · «+» · Agenda · Yo, que se encoge al bajar. «Atrás» de Android vuelve a la vista anterior. Baja el
 // paquete del día al abrir y al cambiar el día, con espera exponencial tras un error (como la PWA).
 import { ErrorTransporte } from "@iris/sync";
-import { DESPLAZAMIENTO_INICIAL, desplazar, hoyEnGuatemala, urlDeVista } from "@iris/sync/campo";
+import { DESPLAZAMIENTO_INICIAL, desplazar, hoyEnGuatemala, RegistroAccionPie, urlDeVista } from "@iris/sync/campo";
 import { Building2, KeyRound, LocateFixed, LocateOff } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View, type NativeScrollEvent, type NativeSyntheticEvent } from "react-native";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Aviso, AvisoEmergente, Boton } from "../componentes";
+import { ProveedorAccionPie, useAccionPieDe } from "../campo/accion-pie";
 import { ProveedorBorradores } from "../campo/borradores";
 import { useAtrasAndroid } from "../campo/atras";
 import { useCampo } from "../campo/contexto";
@@ -21,7 +22,7 @@ import { NuevaTarea } from "./Tareas";
 import { AgendaDia, AgendaSemana } from "./Agenda";
 import { ConversacionChat, ListaChat, NuevoChat } from "./Chat";
 import { BarraCompacta, Encabezado } from "./Encabezado";
-import { IslaMenu, IslaPasos } from "./Isla";
+import { IslaAccion, IslaMenu, IslaPasos } from "./Isla";
 import { ListaOrdenes, type CargaPaquete } from "./ListaOrdenes";
 import { MiBodega } from "./MiBodega";
 import { DetalleOrden } from "./orden/DetalleOrden";
@@ -62,14 +63,20 @@ export function Marco({
         },
         [url],
     );
-    // Los pasos de la orden llevan su propia isla («Anterior» · «Siguiente» o «Guardar y seguir»); la firma y
-    // el cierre, su botón al pie.
+    // Las pantallas con firma («Firmar y cerrar orden», «Confirmar recepción») ponen su acción en una
+    // isla fija abajo, en lugar de la de menú o la de pasos (sobre la isla no flota nada).
+    const [registroPie] = useState(() => new RegistroAccionPie());
+    const accionPie = useAccionPieDe(registroPie);
+    // Mientras el dedo firma, el contenido no se desplaza (el trazo no mueve la pantalla).
+    const [firmando, setFirmando] = useState(false);
+    // Los pasos de la orden llevan su propia isla («Anterior» · «Siguiente» o «Guardar y seguir»); la
+    // firma y el cierre, la de su acción.
     const paso = vista.tipo === "orden" ? vista.paso : undefined;
     // La conversación ocupa la pantalla (encabezado propio y compositor sobre el teclado): sin isla.
-    const conIsla = paso === undefined && vista.tipo !== "conversacion";
+    const conIsla = accionPie === null && paso === undefined && vista.tipo !== "conversacion";
     // El chat lleva su propio desplazamiento (deslizar para actualizar, el hilo).
     const pantallaChat = vista.tipo === "chat" || vista.tipo === "chat_nuevo" || vista.tipo === "conversacion";
-    const conIslaPasos = vista.tipo === "orden" && paso !== undefined && paso !== "cierre";
+    const conIslaPasos = accionPie === null && vista.tipo === "orden" && paso !== undefined && paso !== "cierre";
     const [carga, setCarga] = useState<CargaPaquete>({ estado: "inactiva" });
     const descargando = useRef(false);
     const espera = useRef({ fallos: 0, hasta: 0 });
@@ -128,6 +135,7 @@ export function Marco({
 
     return (
         <ProveedorBorradores>
+        <ProveedorAccionPie registro={registroPie} bloquearDesplazamiento={setFirmando}>
         <View className="flex-1 bg-background" style={[estilos.pantalla, { backgroundColor: campo.lienzo }]}>
             {pantallaChat ? (
                 vista.tipo === "conversacion" ? (
@@ -146,6 +154,7 @@ export function Marco({
                 contentContainerStyle={[estilos.contenido, { paddingTop: margen.top + 8, paddingBottom: margen.bottom + 180 }]}
                 keyboardShouldPersistTaps="handled"
                 onScroll={alDesplazar}
+                scrollEnabled={!firmando}
                 scrollEventThrottle={16}
                 testID="desplazamiento"
             >
@@ -204,8 +213,10 @@ export function Marco({
             <View testID="franja-superior" pointerEvents="none" style={[estilos.franja, { height: margen.top, backgroundColor: campo.lienzo }]} />
             {conIsla ? <IslaMenu encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
             {conIslaPasos && vista.tipo === "orden" && paso ? <IslaPasos id={vista.id} paso={paso} encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
+            {accionPie ? <IslaAccion registrada={accionPie} encogida={desplazamiento.islaEncogida} abajo={margen.bottom} /> : null}
             <AvisoDelMarco />
         </View>
+        </ProveedorAccionPie>
         </ProveedorBorradores>
     );
 }

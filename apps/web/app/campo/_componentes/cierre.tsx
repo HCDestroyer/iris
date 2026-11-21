@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { MOTIVOS_FALLA as CODIGOS_FALLA, type OrdenVista } from "@iris/sync";
-import { encolarFirmaYCierre, estadoPasos, faltantesAntesDeFirmar, resumenTrabajo } from "@iris/sync/campo";
+import { encolarFirmaYCierre, estadoPasos, faltantesAntesDeFirmar, resumenTrabajo, volverDelCierre } from "@iris/sync/campo";
 import {
     Aviso,
     Boton,
@@ -29,6 +29,7 @@ import { useForm } from "react-hook-form";
 import { esquemaFallar, esquemaFirma, type DatosFallar, type DatosFirma } from "@/lib/campo/esquemas";
 import { accionesDe } from "@/lib/campo/reglas";
 import { MOTIVOS_FALLA } from "@/lib/campo/textos";
+import { useAccionPie } from "./accion-pie";
 import { useCampo } from "./contexto";
 import { HojaCampo } from "./hoja";
 import { useUbicacion } from "./ubicacion";
@@ -210,9 +211,15 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
         e.preventDefault();
         void cerrar(null);
     };
+    // El botón va en la isla fija de abajo, siempre a la vista: envía este formulario (con su validación).
+    const formulario = useRef<HTMLFormElement>(null);
+    useAccionPie(
+        { texto: ocupado ? "Guardando…" : tomaFirma ? "Firmar y cerrar orden" : "Cerrar orden", icono: "cerrar", ocupado: ocupado || form.formState.isSubmitting, volver: volverDelCierre(orden.id), prueba: "firmar-y-cerrar" },
+        () => formulario.current?.requestSubmit(),
+    );
 
     return (
-        <form onSubmit={enviar} noValidate aria-label="Firma del cliente y cierre" className="grid gap-4">
+        <form ref={formulario} onSubmit={enviar} noValidate aria-label="Firma del cliente y cierre" className="grid gap-4">
             <ResumenTrabajo orden={orden} />
             <Tarjeta>
                 <TarjetaEncabezado>
@@ -256,12 +263,6 @@ function FirmaYCierre({ orden }: { orden: OrdenVista }) {
                     El cierre queda guardado y se envía solo cuando terminen de subir.
                 </Aviso>
             ) : null}
-            <div className="glass-material sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 -mx-4 border-t border-border px-4 py-3">
-                <Boton type="submit" tamano="lg" className="w-full" disabled={ocupado || form.formState.isSubmitting}>
-                    <CircleCheck aria-hidden />
-                    {ocupado ? "Guardando…" : tomaFirma ? "Firmar y cerrar orden" : "Cerrar orden"}
-                </Boton>
-            </div>
         </form>
     );
 }

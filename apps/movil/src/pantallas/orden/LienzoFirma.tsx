@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { PanResponder, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { Boton } from "../../componentes";
+import { useBloquearDesplazamiento } from "../../campo/accion-pie";
 import { base64ABytes } from "../../campo/base64";
 import type { LienzoListo } from "../../campo/firma";
 import { useTema } from "../../tema/tema";
@@ -29,12 +30,15 @@ export class ControladorFirma {
     private svg: Svg | null = null;
     private oyentes = new Set<() => void>();
     private alCambiar: (l: LienzoListo) => void = () => undefined;
+    private bloquear: (bloqueado: boolean) => void = () => undefined;
 
     /**
      * Gestos del sistema de respuesta de React Native (`PanResponder`), no de Gesture Handler: el
      * lienzo no va dentro de ningún detector de Gesture Handler 3 y así no compite con él. Una vez
      * que el dedo empieza a firmar, el trazo es del lienzo: el desplazamiento de la vista no se lo
-     * lleva (en un lienzo dentro de un `ScrollView`, un trazo vertical movía la pantalla).
+     * lleva (en un lienzo dentro de un `ScrollView`, un trazo vertical movía la pantalla). Además,
+     * mientras el dedo está en el recuadro, el marco apaga el desplazamiento (`bloquearDesplazamiento`):
+     * en iOS el `UIScrollView` reconoce el arrastre por su cuenta y no pregunta al `PanResponder`.
      */
     readonly gestos = PanResponder.create({
         onStartShouldSetPanResponder: () => true,
@@ -43,9 +47,23 @@ export class ControladorFirma {
         onMoveShouldSetPanResponderCapture: () => true,
         onPanResponderTerminationRequest: () => false,
         onShouldBlockNativeResponder: () => true,
-        onPanResponderGrant: (e) => this.empezar(e.nativeEvent.locationX, e.nativeEvent.locationY),
+        onPanResponderGrant: (e) => {
+            this.bloquear(true);
+            this.empezar(e.nativeEvent.locationX, e.nativeEvent.locationY);
+        },
         onPanResponderMove: (e) => this.seguir(e.nativeEvent.locationX, e.nativeEvent.locationY),
+        onPanResponderRelease: () => this.bloquear(false),
+        onPanResponderTerminate: () => this.bloquear(false),
     });
+
+    /** Quién apaga el desplazamiento de la pantalla mientras se firma (el marco). */
+    bloquearCon(bloquear: (bloqueado: boolean) => void): () => void {
+        this.bloquear = bloquear;
+        return () => {
+            bloquear(false);
+            this.bloquear = () => undefined;
+        };
+    }
 
     suscribir = (oyente: () => void) => {
         this.oyentes.add(oyente);
@@ -109,6 +127,8 @@ export function LienzoFirma({ alCambiar, etiqueta = "Recuadro para firmar" }: { 
     const [lienzo] = useState(() => new ControladorFirma());
     const trazos = useSyncExternalStore(lienzo.suscribir, lienzo.obtener, lienzo.obtener);
     useEffect(() => lienzo.conectar(alCambiar), [lienzo, alCambiar]);
+    const bloquear = useBloquearDesplazamiento();
+    useEffect(() => lienzo.bloquearCon(bloquear), [lienzo, bloquear]);
     const ponerSvg = useCallback((svg: Svg | null) => lienzo.ponerSvg(svg), [lienzo]);
 
     return (

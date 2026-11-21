@@ -1197,6 +1197,14 @@ de Argos donde se muestra o se elige:
   no, dice qué falta y lleva ahí); muestra al cliente el resumen (checklist, fotos, materiales y
   equipos), el cliente firma y «Firmar y cerrar orden» guarda la firma y el cierre juntos. La firma
   no aparece en otro lugar.
+- **Botón de las pantallas con firma, en una isla fija** (reporte del PM, nov 2026: «el botón lo
+  tiene hasta abajo y no está flotante»): «Firmar y cerrar orden» y «Confirmar recepción» van en la
+  misma píldora sólida que la isla de pasos, fija abajo sobre el área segura, con «Anterior» (o «Por
+  recibir») redondo a la izquierda; reemplaza a la isla de menú o de pasos (sobre la isla no flota
+  nada). La pantalla la registra (`RegistroAccionPie` de `@iris/sync/campo`, `useAccionPie`) y el
+  marco la dibuja; el contenido deja su espacio debajo y nunca tapa el recuadro. Firmar no desplaza
+  la pantalla (`touch-action: none` en la web; en la nativa el lienzo se queda con el gesto y apaga
+  el desplazamiento mientras dura el trazo).
 - **Barra de estado discreta:** con conexión y todo enviado es un punto junto a «Iris Campo»
   (`role="status"`, «En línea, todo enviado»). Crece con texto y acción solo si hay algo por
   enviar (sin señal o enviando), un rechazo, la sesión venció o la empresa ya no vale.
