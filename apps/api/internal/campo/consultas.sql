@@ -398,6 +398,23 @@ INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, mo
 VALUES (@id, @orden_id, @accion, @unidad_id, @serie, @mac, @modelo, @condicion, @validado, @registrado_por, @canal, @ocurrido_en, @operacion_id)
 RETURNING *;
 
+-- name: CrearEquipoCliente :one
+-- Cambio de equipo o intento de recuperación (contrato 0.12.0 §3.10, B27).
+INSERT INTO campo.orden_equipos (
+    id, orden_id, accion, unidad_id, serie, mac, modelo, validado, registrado_por, canal, ocurrido_en, operacion_id,
+    sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en
+) VALUES (
+    @id, @orden_id, @accion, sqlc.narg(unidad_id), sqlc.narg(serie), sqlc.narg(mac), '', @validado, sqlc.narg(registrado_por), @canal,
+    @ocurrido_en, sqlc.narg(operacion_id), sqlc.narg(sale_unidad_id), @motivo, sqlc.narg(destino_sale), sqlc.narg(cobro_motivo),
+    sqlc.narg(cobro_nota), sqlc.narg(nota), sqlc.narg(foto_adjunto_id), sqlc.narg(lat), sqlc.narg(lon), sqlc.narg(precision_m), @recibido_en
+)
+RETURNING *;
+
+-- name: IntentosNoRecuperado :one
+-- Intentos de recuperación de la unidad registrados en Iris entre desde y hasta (un día local).
+SELECT count(*)::int FROM campo.orden_equipos
+WHERE accion = 'no_recuperado' AND unidad_id = @unidad_id AND ocurrido_en >= @desde AND ocurrido_en < @hasta;
+
 -- name: EquiposDeOrdenes :many
 SELECT * FROM campo.orden_equipos WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, ocurrido_en, created_at;
 

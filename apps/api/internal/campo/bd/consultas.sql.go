@@ -657,7 +657,7 @@ func (q *Queries) CrearCambio(ctx context.Context, arg CrearCambioParams) error 
 const crearEquipo = `-- name: CrearEquipo :one
 INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, validado, registrado_por, canal, ocurrido_en, operacion_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado
+RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en
 `
 
 type CrearEquipoParams struct {
@@ -709,6 +709,112 @@ func (q *Queries) CrearEquipo(ctx context.Context, arg CrearEquipoParams) (Campo
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Validado,
+		&i.SaleUnidadID,
+		&i.Motivo,
+		&i.DestinoSale,
+		&i.CobroMotivo,
+		&i.CobroNota,
+		&i.Nota,
+		&i.FotoAdjuntoID,
+		&i.Lat,
+		&i.Lon,
+		&i.PrecisionM,
+		&i.RecibidoEn,
+	)
+	return i, err
+}
+
+const crearEquipoCliente = `-- name: CrearEquipoCliente :one
+INSERT INTO campo.orden_equipos (
+    id, orden_id, accion, unidad_id, serie, mac, modelo, validado, registrado_por, canal, ocurrido_en, operacion_id,
+    sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en
+) VALUES (
+    $1, $2, $3, $4, $5, $6, '', $7, $8, $9,
+    $10, $11, $12, $13, $14, $15,
+    $16, $17, $18, $19, $20, $21, $22
+)
+RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en
+`
+
+type CrearEquipoClienteParams struct {
+	ID            uuid.UUID
+	OrdenID       int64
+	Accion        string
+	UnidadID      *int64
+	Serie         *string
+	Mac           *string
+	Validado      bool
+	RegistradoPor *int64
+	Canal         string
+	OcurridoEn    time.Time
+	OperacionID   *uuid.UUID
+	SaleUnidadID  *int64
+	Motivo        *string
+	DestinoSale   *string
+	CobroMotivo   *string
+	CobroNota     *string
+	Nota          *string
+	FotoAdjuntoID *uuid.UUID
+	Lat           *float64
+	Lon           *float64
+	PrecisionM    *float32
+	RecibidoEn    *time.Time
+}
+
+// Cambio de equipo o intento de recuperación (contrato 0.12.0 §3.10, B27).
+func (q *Queries) CrearEquipoCliente(ctx context.Context, arg CrearEquipoClienteParams) (CampoOrdenEquipo, error) {
+	row := q.db.QueryRow(ctx, crearEquipoCliente,
+		arg.ID,
+		arg.OrdenID,
+		arg.Accion,
+		arg.UnidadID,
+		arg.Serie,
+		arg.Mac,
+		arg.Validado,
+		arg.RegistradoPor,
+		arg.Canal,
+		arg.OcurridoEn,
+		arg.OperacionID,
+		arg.SaleUnidadID,
+		arg.Motivo,
+		arg.DestinoSale,
+		arg.CobroMotivo,
+		arg.CobroNota,
+		arg.Nota,
+		arg.FotoAdjuntoID,
+		arg.Lat,
+		arg.Lon,
+		arg.PrecisionM,
+		arg.RecibidoEn,
+	)
+	var i CampoOrdenEquipo
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.Accion,
+		&i.UnidadID,
+		&i.Serie,
+		&i.Mac,
+		&i.Modelo,
+		&i.Condicion,
+		&i.RegistradoPor,
+		&i.Canal,
+		&i.OcurridoEn,
+		&i.OperacionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Validado,
+		&i.SaleUnidadID,
+		&i.Motivo,
+		&i.DestinoSale,
+		&i.CobroMotivo,
+		&i.CobroNota,
+		&i.Nota,
+		&i.FotoAdjuntoID,
+		&i.Lat,
+		&i.Lon,
+		&i.PrecisionM,
+		&i.RecibidoEn,
 	)
 	return i, err
 }
@@ -1370,7 +1476,7 @@ func (q *Queries) EmpresaRegistrada(ctx context.Context, id int64) (bool, error)
 }
 
 const equipoPorID = `-- name: EquipoPorID :one
-SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado FROM campo.orden_equipos WHERE id = $1
+SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en FROM campo.orden_equipos WHERE id = $1
 `
 
 func (q *Queries) EquipoPorID(ctx context.Context, id uuid.UUID) (CampoOrdenEquipo, error) {
@@ -1392,12 +1498,23 @@ func (q *Queries) EquipoPorID(ctx context.Context, id uuid.UUID) (CampoOrdenEqui
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Validado,
+		&i.SaleUnidadID,
+		&i.Motivo,
+		&i.DestinoSale,
+		&i.CobroMotivo,
+		&i.CobroNota,
+		&i.Nota,
+		&i.FotoAdjuntoID,
+		&i.Lat,
+		&i.Lon,
+		&i.PrecisionM,
+		&i.RecibidoEn,
 	)
 	return i, err
 }
 
 const equiposDeOrdenes = `-- name: EquiposDeOrdenes :many
-SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado FROM campo.orden_equipos WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
+SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en FROM campo.orden_equipos WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
 `
 
 func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenEquipo, error) {
@@ -1425,6 +1542,17 @@ func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]Camp
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Validado,
+			&i.SaleUnidadID,
+			&i.Motivo,
+			&i.DestinoSale,
+			&i.CobroMotivo,
+			&i.CobroNota,
+			&i.Nota,
+			&i.FotoAdjuntoID,
+			&i.Lat,
+			&i.Lon,
+			&i.PrecisionM,
+			&i.RecibidoEn,
 		); err != nil {
 			return nil, err
 		}
@@ -2190,6 +2318,25 @@ func (q *Queries) InsertarPosiciones(ctx context.Context, arg InsertarPosiciones
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const intentosNoRecuperado = `-- name: IntentosNoRecuperado :one
+SELECT count(*)::int FROM campo.orden_equipos
+WHERE accion = 'no_recuperado' AND unidad_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
+`
+
+type IntentosNoRecuperadoParams struct {
+	UnidadID *int64
+	Desde    time.Time
+	Hasta    time.Time
+}
+
+// Intentos de recuperación de la unidad registrados en Iris entre desde y hasta (un día local).
+func (q *Queries) IntentosNoRecuperado(ctx context.Context, arg IntentosNoRecuperadoParams) (int32, error) {
+	row := q.db.QueryRow(ctx, intentosNoRecuperado, arg.UnidadID, arg.Desde, arg.Hasta)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const invalidarFirma = `-- name: InvalidarFirma :execrows

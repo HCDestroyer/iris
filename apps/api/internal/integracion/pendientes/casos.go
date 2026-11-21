@@ -226,6 +226,21 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 			case f.Estado == EstadoHecho || f.Estado == EstadoEnCurso || f.Estado == EstadoResueltoManual:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_reintentable", "El pendiente está "+f.Estado)
 			}
+			if f.Operacion == OpPerdida {
+				// La pérdida de un comodato la decide una persona (0.12.0 §10.7 d): con Argos anterior,
+				// quien tiene ordenes.declarar_perdida; desde 0.12.0, una persona en Argos.
+				if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermOrdenesDeclararPerdida)) {
+					return Pendiente{}, nucleo.Prohibido("Declarar la pérdida de un equipo exige ordenes.declarar_perdida")
+				}
+				if m.cfg.Argos != nil {
+					if nuevo, err := m.cfg.Argos.EquiposDelCliente(ctx, t); err != nil {
+						return Pendiente{}, err
+					} else if nuevo {
+						return Pendiente{}, nucleo.ReglaNegocio("perdida_en_argos",
+							"Desde el contrato 0.12.0 la pérdida la declara una persona en Argos, con los intentos de recuperación a la vista")
+					}
+				}
+			}
 			if corregido, ok, err := m.corregirTecnico(ctx, t, f, in.Version); err != nil || ok {
 				return corregido, err
 			}

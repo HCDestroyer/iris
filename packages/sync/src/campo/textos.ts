@@ -71,6 +71,8 @@ export const OPERACIONES: Record<TipoOperacionLote, string> = {
     "material.usar": "Material",
     "equipo.instalar": "Equipo instalado",
     "equipo.retirar": "Equipo retirado",
+    "equipo.cambiar": "Cambio de equipo",
+    "equipo.no_recuperado": "Equipo no recuperado",
     "firma.capturar": "Firma del cliente",
     "adjunto.registrar": "Foto o archivo",
     "orden.cerrar": "Cierre de la orden",

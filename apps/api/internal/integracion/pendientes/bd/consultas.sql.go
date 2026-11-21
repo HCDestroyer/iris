@@ -9,6 +9,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -1029,6 +1030,38 @@ type MarcarEnCursoParams struct {
 func (q *Queries) MarcarEnCurso(ctx context.Context, arg MarcarEnCursoParams) error {
 	_, err := q.db.Exec(ctx, marcarEnCurso, arg.Ahora, arg.ID)
 	return err
+}
+
+const notasDeEquipos = `-- name: NotasDeEquipos :many
+SELECT id, nota, cobro_nota FROM campo.orden_equipos WHERE id = ANY($1::uuid[])
+`
+
+type NotasDeEquiposRow struct {
+	ID        uuid.UUID
+	Nota      *string
+	CobroNota *string
+}
+
+// Las notas de los cambios e intentos de recuperación de la orden (0.12.0 §3.10): van a Argos en el
+// cuerpo, nunca en el evento ni en los logs.
+func (q *Queries) NotasDeEquipos(ctx context.Context, ids []uuid.UUID) ([]NotasDeEquiposRow, error) {
+	rows, err := q.db.Query(ctx, notasDeEquipos, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NotasDeEquiposRow
+	for rows.Next() {
+		var i NotasDeEquiposRow
+		if err := rows.Scan(&i.ID, &i.Nota, &i.CobroNota); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const pendientePorClave = `-- name: PendientePorClave :one

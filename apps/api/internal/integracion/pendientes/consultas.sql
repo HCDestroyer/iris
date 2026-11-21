@@ -19,6 +19,11 @@ RETURNING *;
 -- de ellas lleva `tecnico` y `bodega_id` a la vez, con X-Iris-Actor.
 SELECT bodega_id FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = ANY(@bodegas::bigint[]) ORDER BY bodega_id;
 
+-- name: NotasDeEquipos :many
+-- Las notas de los cambios e intentos de recuperación de la orden (0.12.0 §3.10): van a Argos en el
+-- cuerpo, nunca en el evento ni en los logs.
+SELECT id, nota, cobro_nota FROM campo.orden_equipos WHERE id = ANY(@ids::uuid[]);
+
 -- name: PendientePorClave :one
 SELECT * FROM integracion.pendientes WHERE idempotency_key = @idempotency_key;
 

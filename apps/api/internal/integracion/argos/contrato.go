@@ -85,6 +85,22 @@ func SoportaSinPersonal(contrato *string) bool {
 	return conector.VersionAlMenos(contrato, ContratoSinPersonal)
 }
 
+// ContratoEquipos es el primer contrato con los equipos del cliente (0.12.0 §3.10, A48):
+// POST /servicios/:id/equipos/cambiar, …/no-recuperado y fecha + recibido_en_iris en el cuerpo.
+const ContratoEquipos = "0.12.0"
+
+// EquiposDelCliente indica si el conector Argos registrado más reciente (activo o, si no hay, el
+// último) informa contrato ≥ 0.12.0. Falla cerrado: false sin conector o sin contrato informado.
+func (m *Modulo) EquiposDelCliente(ctx context.Context, q conector.DBTX) (bool, error) {
+	var contrato *string
+	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1
+		ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1`, Sistema).Scan(&contrato)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return conector.VersionAlMenos(contrato, ContratoEquipos), err
+}
+
 // ReconexionSinPersonal indica si el conector Argos activo informa contrato ≥ 0.8.0 (false sin
 // conector activo: falla cerrado). q puede ser una transacción o el pool.
 func (m *Modulo) ReconexionSinPersonal(ctx context.Context, q conector.DBTX) (bool, error) {

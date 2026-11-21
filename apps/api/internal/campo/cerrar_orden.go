@@ -166,7 +166,10 @@ func requisitosDeCierre(d OrdenDetalle, tipo campobd.CampoTiposOrden) []nucleo.E
 		switch e.Accion {
 		case AccionInstalar:
 			instalados++
-		case AccionRetirar:
+		case AccionRetirar, AccionNoRecuperado:
+			retirados++
+		case AccionCambio:
+			instalados++
 			retirados++
 		}
 	}
@@ -195,6 +198,12 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		k := clave{mt.ProductoID, deref(mt.BodegaID)}
 		if s, ok := suma[k]; ok {
 			s["cantidad"] = s["cantidad"].(float64) + mt.Cantidad
+			if mt.OcurridoEn.After(s["fecha"].(time.Time)) {
+				s["fecha"] = mt.OcurridoEn
+			}
+			if r, ok := s["recibido_en_iris"].(*time.Time); mt.RecibidoEn != nil && (!ok || r == nil || mt.RecibidoEn.After(*r)) {
+				s["recibido_en_iris"] = mt.RecibidoEn
+			}
 			s["excede_existencia"] = s["excede_existencia"].(bool) || mt.ExcedeExistencia
 			if s["modalidad"] == (*string)(nil) && mt.Modalidad != nil {
 				s["modalidad"] = mt.Modalidad
@@ -204,7 +213,9 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		orden = append(orden, k)
 		// modalidad (Argos ≥ 1.6.0, o null): un comodato no va en el consumo (contrato 0.5.0 §3.3).
 		suma[k] = map[string]any{"producto_id": mt.ProductoID, "cantidad": mt.Cantidad, "bodega_id": mt.BodegaID,
-			"excede_existencia": mt.ExcedeExistencia, "modalidad": mt.Modalidad}
+			"excede_existencia": mt.ExcedeExistencia, "modalidad": mt.Modalidad,
+			// 0.12.0 §3.3: la fecha del teléfono (la última del producto) y la del servidor al aceptarlo.
+			"fecha": mt.OcurridoEn, "recibido_en_iris": mt.RecibidoEn}
 	}
 	materiales := make([]map[string]any, 0, len(orden))
 	for _, k := range orden {
@@ -218,11 +229,33 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		if e.Accion == AccionRetirar && !e.Validado {
 			validados = false
 		}
-		// condicion: buena | danada | perdido (perdido → pérdida del comodato en Argos).
-		equipos = append(equipos, map[string]any{
+		// condicion: buena | danada | perdido (perdido: desde 0.12.0 nunca sale solo como pérdida;
+		// queda para una persona).
+		eq := map[string]any{
 			"id": e.ID, "accion": e.Accion, "unidad_id": e.UnidadID, "serie": e.Serie, "mac": e.MAC,
 			"modelo": e.Modelo, "condicion": e.Condicion, "bodega_id": f.BodegaID, "validado": e.Validado,
-		})
+		}
+		// 0.12.0 §3.10 (B27): fecha del teléfono y recibido_en_iris; nunca la nota.
+		switch e.Accion {
+		case AccionCambio, AccionNoRecuperado:
+			if !e.Validado {
+				validados = false
+			}
+			eq["motivo"], eq["foto_ref"] = e.Motivo, e.FotoAdjuntoID
+			eq["fecha"], eq["recibido_en_iris"] = e.OcurridoEn, e.RecibidoEn
+		}
+		switch e.Accion {
+		case AccionCambio:
+			var cobro any
+			if e.CobroPropuesto != nil {
+				cobro = map[string]any{"motivo": *e.CobroPropuesto}
+			}
+			eq["sale_unidad_id"], eq["destino_sale"], eq["cobro_propuesto"] = e.SaleUnidadID, e.DestinoSale, cobro
+			eq["entra"] = map[string]any{"unidad_id": e.UnidadID, "serie": e.Serie, "mac": e.MAC}
+		case AccionNoRecuperado:
+			eq["ubicacion"] = map[string]any{"lat": e.Lat, "lng": e.Lon, "precision_m": e.PrecisionM}
+		}
+		equipos = append(equipos, eq)
 	}
 	return map[string]any{
 		"orden_id": f.ID, "numero": f.Numero, "tipo": tipo, "resultado": f.Resultado,

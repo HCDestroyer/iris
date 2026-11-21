@@ -90,6 +90,9 @@ type Material struct {
 	BodegaID   *IDArgos    `json:"bodega_id"`
 	// Modalidad del producto en Argos (0.5.0) al registrarlo; vacía si no se sabía.
 	Modalidad string `json:"modalidad"`
+	// Fecha (del teléfono) y RecibidoEnIris (del servidor): 0.12.0 §3.3, para la ventana de Argos.
+	Fecha          *time.Time `json:"fecha"`
+	RecibidoEnIris *time.Time `json:"recibido_en_iris"`
 }
 
 // TecnicoArgos es `tecnico` en orden.cerrada (contrato 0.5.0 §3.3): el vínculo de la ficha.
@@ -99,12 +102,55 @@ type TecnicoArgos struct {
 
 // Equipo instalado o retirado en la orden.
 type Equipo struct {
-	Accion    string   `json:"accion"` // instalar | retirar
+	ID        string   `json:"id"`
+	Accion    string   `json:"accion"` // instalar | retirar | cambio | no_recuperado
 	UnidadID  *IDArgos `json:"unidad_id"`
 	Serie     string   `json:"serie"`
 	MAC       string   `json:"mac"`
 	Condicion string   `json:"condicion"` // al retirar: bueno, danado… o perdido (no se recuperó)
 	BodegaID  *IDArgos `json:"bodega_id"` // bodega a la que se devuelve (si no, la de la orden)
+	// Cambio y no recuperado (0.12.0 §3.10). La nota no viaja en el evento: se lee de la orden.
+	SaleUnidadID   *IDArgos `json:"sale_unidad_id"`
+	Motivo         string   `json:"motivo"`
+	DestinoSale    string   `json:"destino_sale"`
+	CobroPropuesto *struct {
+		Motivo string `json:"motivo"`
+	} `json:"cobro_propuesto"`
+	FotoRef   string `json:"foto_ref"`
+	Ubicacion *struct {
+		Lat        *float64 `json:"lat"`
+		Lng        *float64 `json:"lng"`
+		PrecisionM *float64 `json:"precision_m"`
+	} `json:"ubicacion"`
+	Fecha          *time.Time `json:"fecha"`
+	RecibidoEnIris *time.Time `json:"recibido_en_iris"`
+}
+
+// Acciones de equipo de 0.12.0 (§3.10).
+const (
+	AccionCambio       = "cambio"
+	AccionNoRecuperado = "no_recuperado"
+	OpCambio           = "cambio"
+	OpNoRecuperado     = "no_recuperado"
+	// MotivoPerdidaSinIntento: un retiro «perdido» de una app anterior, sin foto ni ubicación, con
+	// Argos ≥ 0.12.0: no se manda (la pérdida la declara una persona en Argos).
+	MotivoPerdidaSinIntento = "perdida_sin_intento"
+	// EsperaPersonaPerdida: con Argos < 0.12.0, la pérdida espera a una persona con
+	// ordenes.declarar_perdida; nunca sale sola desde el cierre.
+	EsperaPersonaPerdida = "requiere una persona con ordenes.declarar_perdida: revisa el intento y reintenta a mano (Argos < 0.12.0)"
+)
+
+// notasEquipo: las notas de los equipos de la orden (la nota y la del cobro propuesto), que no viajan
+// en el evento (§10.7 i). Por id del equipo.
+type notasEquipo struct{ nota, cobro *string }
+
+// opcionesPlan es lo que planificar necesita saber de Argos y de Iris (sin E/S en planificar).
+type opcionesPlan struct {
+	porTecnico bool
+	cuadrillas map[int64]bool
+	// equipos: Argos con contrato ≥ 0.12.0 (cambiar y no-recuperado, fecha y recibido_en_iris).
+	equipos bool
+	notas   map[string]notasEquipo
 }
 
 // Cargo único que la orden indica cobrar.
@@ -148,8 +194,12 @@ type plan struct {
 	payload                map[string]any
 	depende                []int  // índices de otros planes de la misma orden
 	incompleto             string // dato faltante: nace fallido_negocio
+	// esperaPersona: nace fallido_negocio (sin ser dato faltante) hasta que una persona lo decida.
+	esperaPersona string
 	// conTecnico: el cuerpo lleva `tecnico` (se corrige al reintentar a mano tras vincular).
 	conTecnico bool
+	// conActor: sin `tecnico` en el cuerpo, pero con X-Iris-Actor del técnico (0.12.0 §3.10).
+	conActor bool
 }
 
 // omision es algo de la orden que no se manda a Argos, con su motivo (integracion.pendiente_omitido).
@@ -213,7 +263,8 @@ func idRuta(id *IDArgos) string {
 // cuadrillas: las bodegas de cuadrilla de Argos (0.11.0 §3.9). Un consumo desde una de ellas manda
 // `tecnico` y `bodega_id` (la que eligió el técnico en la app) y sale con X-Iris-Actor; Argos valida
 // que sea miembro antes de mirar existencias. Nunca se cambia de bodega por cuenta de Iris.
-func planificar(o OrdenCerrada, porTecnico bool, cuadrillas map[int64]bool) ([]plan, []omision) {
+func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
+	porTecnico, cuadrillas := op.porTecnico, op.cuadrillas
 	orden := string(o.OrdenID)
 	sid := idRuta(o.ServicioID)
 	var planes []plan
@@ -241,10 +292,118 @@ func planificar(o OrdenCerrada, porTecnico bool, cuadrillas map[int64]bool) ([]p
 		return o.BodegaID
 	}
 
+	// fechas: fecha y recibido_en_iris (0.12.0 §3.10).
+	fechas := func(p map[string]any, fecha, recibido *time.Time) {
+		if fecha != nil {
+			p["fecha"] = fecha.UTC().Format(time.RFC3339)
+		}
+		if recibido != nil {
+			p["recibido_en_iris"] = recibido.UTC().Format(time.RFC3339)
+		}
+	}
+	// noRecuperado: un intento de recuperación (0.12.0) o, con Argos anterior, la pérdida que espera
+	// a una persona. Nunca sale como pérdida desde el cierre.
+	noRecuperado := func(e Equipo) (int, bool) {
+		if e.UnidadID == nil {
+			return 0, false
+		}
+		uid := idRuta(e.UnidadID)
+		if !op.equipos {
+			return agregar(faltaServicio(plan{
+				operacion: OpPerdida, clave: "iris:perdida:" + orden + ":" + uid,
+				ruta: "/servicios/" + sid + "/equipos/" + uid + "/perdida", payload: origen(orden), esperaPersona: EsperaPersonaPerdida,
+			})), true
+		}
+		p := plan{operacion: OpNoRecuperado, clave: "iris:no_recuperado:" + orden + ":" + uid,
+			ruta: "/servicios/" + sid + "/equipos/" + uid + "/no-recuperado", payload: origen(orden), conActor: true}
+		p.payload["motivo"] = e.Motivo
+		if e.FotoRef != "" {
+			p.payload["foto_ref"] = e.FotoRef
+		}
+		if e.Ubicacion != nil {
+			p.payload["ubicacion"] = map[string]any{"lat": e.Ubicacion.Lat, "lng": e.Ubicacion.Lng, "precision_m": e.Ubicacion.PrecisionM}
+		} else {
+			p.incompleto = "intento de recuperación sin ubicación"
+		}
+		if n := op.notas[e.ID]; n.nota != nil {
+			p.payload["nota"] = *n.nota
+		}
+		fechas(p.payload, e.Fecha, e.RecibidoEnIris)
+		return agregar(faltaServicio(p)), true
+	}
+	// cambios: 0.12.0, una sola llamada por unidad que sale; con Argos anterior, una devolución y una
+	// asignación (devuelve si la que sale funciona o no).
+	cambios := func() {
+		for _, e := range o.Equipos {
+			if e.Accion != AccionCambio || e.SaleUnidadID == nil {
+				continue
+			}
+			sale := idRuta(e.SaleUnidadID)
+			entra := map[string]any{}
+			switch {
+			case e.UnidadID != nil:
+				entra["unidad_id"] = int64(*e.UnidadID)
+			case strings.TrimSpace(e.Serie) != "":
+				entra["serie"] = strings.TrimSpace(e.Serie)
+			case strings.TrimSpace(e.MAC) != "":
+				entra["mac"] = strings.TrimSpace(e.MAC)
+			}
+			if !op.equipos {
+				condicion := "danada"
+				if e.DestinoSale == "funciona" {
+					condicion = "buena"
+				}
+				dev := plan{operacion: OpDevolucion, clave: "iris:devolucion:" + orden + ":" + sale,
+					ruta:    "/servicios/" + sid + "/equipos/" + sale + "/devolver",
+					payload: con(origen(orden), map[string]any{"bodega_id": o.BodegaID, "condicion": condicion})}
+				if tecnico != nil {
+					delete(dev.payload, "bodega_id")
+					dev.payload["tecnico"], dev.conTecnico = tecnico, true
+				}
+				d := agregar(faltaServicio(dev))
+				asig := plan{operacion: OpAsignarComodato, clave: "iris:comodato:" + orden + ":" + claveEquipo(e),
+					ruta: "/servicios/" + sid + "/equipos", payload: con(origen(orden), entra), depende: []int{d}}
+				if tecnico != nil {
+					asig.payload["tecnico"], asig.conTecnico = tecnico, true
+				}
+				if len(entra) == 0 {
+					asig.incompleto = "cambio sin la unidad que entra"
+				}
+				agregar(faltaServicio(asig))
+				continue
+			}
+			p := plan{operacion: OpCambio, clave: "iris:cambio:" + orden + ":" + sale, ruta: "/servicios/" + sid + "/equipos/cambiar",
+				payload: origen(orden), conActor: true}
+			p.payload["sale"] = map[string]any{"unidad_id": int64(*e.SaleUnidadID)}
+			p.payload["entra"] = entra
+			p.payload["motivo"], p.payload["destino_sale"] = e.Motivo, e.DestinoSale
+			n := op.notas[e.ID]
+			if e.CobroPropuesto != nil {
+				cobro := map[string]any{"motivo": e.CobroPropuesto.Motivo}
+				if n.cobro != nil {
+					cobro["nota"] = *n.cobro
+				}
+				p.payload["cobro_propuesto"] = cobro
+			}
+			p.payload["nota"] = n.nota
+			fechas(p.payload, e.Fecha, e.RecibidoEnIris)
+			if len(entra) == 0 {
+				p.incompleto = "cambio sin la unidad que entra"
+			}
+			agregar(faltaServicio(p))
+		}
+	}
+
 	// Equipos retirados (devolución o pérdida): retiro y primer paso del cambio de equipo.
 	retirados := func() []int {
 		var idx []int
 		for _, e := range o.Equipos {
+			if e.Accion == AccionNoRecuperado {
+				if i, ok := noRecuperado(e); ok {
+					idx = append(idx, i)
+				}
+				continue
+			}
 			if e.Accion != AccionRetirar {
 				continue
 			}
@@ -258,9 +417,14 @@ func planificar(o OrdenCerrada, porTecnico bool, cuadrillas map[int64]bool) ([]p
 			}
 			uid := idRuta(e.UnidadID)
 			if strings.EqualFold(e.Condicion, CondicionPerdido) {
+				// Desde 0.12.0 Iris nunca declara la pérdida desde el cierre (§3.10, §10.7 d).
+				if op.equipos {
+					omisiones = append(omisiones, omision{motivo: MotivoPerdidaSinIntento, operaciones: []string{"unidad:" + uid}})
+					continue
+				}
 				idx = append(idx, agregar(faltaServicio(plan{
 					operacion: OpPerdida, clave: "iris:perdida:" + orden + ":" + uid,
-					ruta: "/servicios/" + sid + "/equipos/" + uid + "/perdida", payload: origen(orden),
+					ruta: "/servicios/" + sid + "/equipos/" + uid + "/perdida", payload: origen(orden), esperaPersona: EsperaPersonaPerdida,
 				})))
 				continue
 			}
@@ -328,8 +492,9 @@ func planificar(o OrdenCerrada, porTecnico bool, cuadrillas map[int64]bool) ([]p
 			}
 		case TipoCambioEquipo:
 			// Una devolución y una asignación, en ese orden: cada asignación espera a todas las
-			// devoluciones o pérdidas de la orden.
+			// devoluciones o pérdidas de la orden. Los cambios de 0.12.0 van en una sola llamada.
 			instalados(retirados())
+			cambios()
 		}
 	}
 
@@ -394,6 +559,19 @@ func planificar(o OrdenCerrada, porTecnico bool, cuadrillas map[int64]bool) ([]p
 			lineas = append(lineas, linea)
 		}
 		p.payload = con(origen(orden), map[string]any{"lineas": lineas, "servicio_id": o.ServicioID})
+		if op.equipos {
+			// 0.12.0 §3.3: la fecha más reciente de los materiales y cuándo los aceptó Iris.
+			var fecha, recibido *time.Time
+			for _, mat := range materiales {
+				if mat.Fecha != nil && (fecha == nil || mat.Fecha.After(*fecha)) {
+					fecha = mat.Fecha
+				}
+				if mat.RecibidoEnIris != nil && (recibido == nil || mat.RecibidoEnIris.After(*recibido)) {
+					recibido = mat.RecibidoEnIris
+				}
+			}
+			fechas(p.payload, fecha, recibido)
+		}
 		switch {
 		case deCuadrilla:
 			p.payload["bodega_id"] = bodega
@@ -439,6 +617,31 @@ func planificar(o OrdenCerrada, porTecnico bool, cuadrillas map[int64]bool) ([]p
 		agregar(p)
 	}
 	return planes, omisiones
+}
+
+// notasDeEquipos lee de la orden las notas de sus cambios e intentos (no viajan en el evento).
+func notasDeEquipos(ctx context.Context, q *pendientesbd.Queries, o OrdenCerrada) (map[string]notasEquipo, error) {
+	salida := map[string]notasEquipo{}
+	ids := []uuid.UUID{}
+	for _, e := range o.Equipos {
+		if e.Accion != AccionCambio && e.Accion != AccionNoRecuperado {
+			continue
+		}
+		if id, err := uuid.Parse(e.ID); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return salida, nil
+	}
+	filas, err := q.NotasDeEquipos(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range filas {
+		salida[f.ID.String()] = notasEquipo{nota: f.Nota, cobro: f.CobroNota}
+	}
+	return salida, nil
 }
 
 // bodegasDeCuadrilla: las bodegas de los materiales de la orden que son de una cuadrilla.
@@ -503,7 +706,17 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			if err != nil {
 				return res, err
 			}
-			planes, omisiones := planificar(o, porTecnico, cuadrillas)
+			equipos := false
+			if m.cfg.Argos != nil {
+				if equipos, err = m.cfg.Argos.EquiposDelCliente(ctx, t); err != nil {
+					return res, err
+				}
+			}
+			notas, err := notasDeEquipos(ctx, pendientesbd.New(t), o)
+			if err != nil {
+				return res, err
+			}
+			planes, omisiones := planificar(o, opcionesPlan{porTecnico: porTecnico, cuadrillas: cuadrillas, equipos: equipos, notas: notas})
 			if len(planes) == 0 && len(omisiones) == 0 {
 				return res, nil
 			}
@@ -558,15 +771,18 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				}
 				estado := EstadoPendiente
 				var ultimo *string
-				if p.incompleto != "" {
+				switch {
+				case p.incompleto != "":
 					estado, ultimo = EstadoFallidoNegocio, errorf("datos incompletos: %s", p.incompleto)
+				case p.esperaPersona != "":
+					estado, ultimo = EstadoFallidoNegocio, &p.esperaPersona
 				}
 				var empresaID *int64
 				if empresa != 0 {
 					empresaID = &empresa
 				}
 				var tecnicoUsuario *int64
-				if p.conTecnico {
+				if p.conTecnico || p.conActor {
 					tecnicoUsuario = o.TecnicoID
 				}
 				f, err := q.InsertarPendiente(ctx, pendientesbd.InsertarPendienteParams{
