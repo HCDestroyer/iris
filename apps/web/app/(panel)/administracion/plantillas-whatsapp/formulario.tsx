@@ -21,7 +21,7 @@ import {
 } from "@iris/ui";
 import { CircleCheck, CircleX, Clock, ListChecks, Paperclip, Plus, Send, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { ErrorApi } from "@/lib/api/errores";
@@ -61,6 +61,9 @@ const VACIO: ValoresPlantilla = {
 
 /** Los datos que se ofrecen primero al escribir (los demás, en «Más datos»). */
 const DATOS_RAPIDOS = ["cliente_nombre", "monto_con_moneda", "fecha_corte", "plan", "cliente_codigo"];
+
+/** El área del mensaje: «Insertar dato» pone el dato donde está el cursor. */
+const ID_CUERPO = "plantilla-wa-cuerpo";
 
 const TIPOS_BOTON = [
     { valor: "url", texto: "Abrir página" },
@@ -121,8 +124,6 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
     const [error, setError] = useState<unknown>(null);
     const [subiendo, setSubiendo] = useState(false);
     const [errorArchivo, setErrorArchivo] = useState<string | null>(null);
-    const enviarRef = useRef(false);
-    const cuerpoRef = useRef<HTMLTextAreaElement | null>(null);
 
     const auth = valores.categoria === "AUTHENTICATION";
     // Las variables siguen al texto: se conservan los ejemplos ya escritos.
@@ -146,7 +147,7 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
     }
 
     function insertar(claveDato: string) {
-        const area = cuerpoRef.current;
+        const area = document.getElementById(ID_CUERPO) as HTMLTextAreaElement | null;
         const texto = form.getValues("cuerpo");
         const desde = area?.selectionStart ?? texto.length;
         const hasta = area?.selectionEnd ?? texto.length;
@@ -180,9 +181,7 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
         }
     }
 
-    async function guardar(v: ValoresPlantilla) {
-        const enviar = enviarRef.current;
-        enviarRef.current = false;
+    async function guardar(v: ValoresPlantilla, enviar: boolean) {
         setError(null);
         const d0 = definicionDe(v);
         const d: DefinicionPWA = { ...d0, variables: sincronizarVariables(d0, datos) };
@@ -236,7 +235,7 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
                 className="xl:max-w-none"
                 titulo={titulo}
                 descripcion="Escríbela como te gustaría que la lea el cliente. Iris revisa las reglas de Meta antes de enviarla."
-                alEnviar={form.handleSubmit(guardar)}
+                alEnviar={form.handleSubmit((v) => guardar(v, corregir))}
                 navegar={router.push}
                 volverA={plantilla ? `${RUTA}/${plantilla.id}` : `${RUTA}?cuenta=${waba}`}
                 sucio={form.formState.isDirty}
@@ -257,7 +256,7 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
                                     Corrige {fallan.length === 1 ? "1 cosa" : `${fallan.length} cosas`} para poder enviarla.
                                 </span>
                             ) : null}
-                            <Boton type="submit" variante="secundario" disabled={enviando || fallan.length > 0} onClick={() => (enviarRef.current = true)} data-accion="enviar-meta">
+                            <Boton variante="secundario" disabled={enviando || fallan.length > 0} onClick={() => void form.handleSubmit((v) => guardar(v, true))()} data-accion="enviar-meta">
                                 <Send />
                                 {textoEnviar}
                             </Boton>
@@ -438,16 +437,8 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
                                 maxLength={4000}
                                 ayuda={`${[...(valores.cuerpo ?? "")].length}/${MAX.cuerpo} · *negrita*, _cursiva_ y emojis como en WhatsApp.`}
                                 error={reglas.find((r) => !r.ok && r.campo === "definicion.cuerpo")?.mensaje}
-                                {...(() => {
-                                    const { ref, ...resto } = form.register("cuerpo");
-                                    return {
-                                        ...resto,
-                                        ref: (el: HTMLTextAreaElement | null) => {
-                                            ref(el);
-                                            cuerpoRef.current = el;
-                                        },
-                                    };
-                                })()}
+                                id={ID_CUERPO}
+                                {...form.register("cuerpo")}
                             />
                             {definicion.variables.length > 0 ? (
                                 <div className="grid gap-2" data-slot="ejemplos">
@@ -508,7 +499,7 @@ function Formulario(props: ModoFormulario & { datos: DatoPWA[] }) {
                             }}
                         >
                             <option value="">Agregar botón…</option>
-                            {TIPOS_BOTON.filter((t) => (auth ? t.valor === "copiar_codigo" : t.valor !== "copiar_codigo" || true)).map((t) => (
+                            {TIPOS_BOTON.filter((t) => !auth || t.valor === "copiar_codigo").map((t) => (
                                 <option key={t.valor} value={t.valor}>
                                     {t.texto}
                                 </option>
