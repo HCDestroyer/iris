@@ -1,5 +1,5 @@
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
-import type { EntradaLlamarTelefono, EntradaTelefonoCentralita, EntradaTelefonoExtension } from "./tipos";
+import type { EntradaLlamarTelefono, EntradaTelefonoCentralita, EntradaTelefonoExtension } from "@iris/telefono";
 
 /* Llamadas a la API del teléfono de Iris (contratos/voz.md §3.12, «E4c»), con el cliente tipado. */
 

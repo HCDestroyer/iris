@@ -1,5 +1,4 @@
-import { ErrorApi } from "@/lib/api/errores";
-import { ErrorMicrofono } from "@/lib/voz/medios";
+import { esErrorDeApi, esErrorMicrofono } from "./errores";
 import { motivoFin } from "./presentacion";
 import { CIERRE_ABRIR, SocketIris, type CierreSocket } from "./socket";
 import type { ConexionTelefono, ErrorTelefono, EstadoTelefono, LlamadaTelefono, MotivoTelefono, SesionTelefono } from "./tipos";
@@ -82,7 +81,7 @@ const MOTIVOS: readonly MotivoTelefono[] = ["sin_centralita", "sin_extension", "
 
 /** Qué hacer con un error de `abrir`. */
 export function clasificarErrorAbrir(e: unknown, ahora: number): ResultadoAbrir {
-    if (e instanceof ErrorApi) {
+    if (esErrorDeApi(e)) {
         if (e.codigo === "registro_sin_probar") return { tipo: "error", error: { tipo: "clave" } };
         const m = MOTIVOS.find((x) => x === e.codigo);
         if (m) return { tipo: "no_disponible", motivo: m };
@@ -315,7 +314,7 @@ export class MotorTelefono {
                 for (const t of m.getTracks()) t.stop();
                 this.conexion(this.registrado ? { fase: "listo" } : { fase: "conectando" });
             } catch (e) {
-                if (e instanceof ErrorMicrofono) this.microfonoBloqueado(e.estado);
+                if (esErrorMicrofono(e)) this.microfonoBloqueado(e.estado);
             }
             return;
         }
@@ -347,7 +346,7 @@ export class MotorTelefono {
         try {
             return await this.d.pedirMicrofono();
         } catch (e) {
-            this.microfonoBloqueado(e instanceof ErrorMicrofono ? e.estado : "no_disponible");
+            this.microfonoBloqueado(esErrorMicrofono(e) ? e.estado : "no_disponible");
             return null;
         }
     }

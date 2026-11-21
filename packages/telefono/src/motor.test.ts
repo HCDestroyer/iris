@@ -1,9 +1,31 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ErrorApi } from "@/lib/api/errores";
-import { ErrorMicrofono } from "@/lib/voz/medios";
 import { clasificarCierre, clasificarErrorAbrir, MotorTelefono, type ConfigUa, type EventoSip, type SesionSip, type UaSip } from "./motor";
 import { CIERRE_ABRIR, urlWebSocket } from "./socket";
 import type { SesionTelefono } from "./tipos";
+
+/** Un error de la API con la forma del `ErrorApi` del panel (el motor lo distingue por su forma). */
+class ErrorApiPrueba extends Error {
+    readonly estado: number;
+    readonly codigo: string;
+    readonly titulo: string;
+    readonly detalle: string | undefined;
+    readonly reintentarEn: number | undefined;
+    constructor(d: { estado: number; codigo: string; titulo: string; detalle?: string; reintentarEn?: number | undefined }) {
+        super(d.titulo);
+        this.estado = d.estado;
+        this.codigo = d.codigo;
+        this.titulo = d.titulo;
+        this.detalle = d.detalle;
+        this.reintentarEn = d.reintentarEn;
+    }
+}
+
+/** Como el `ErrorMicrofono` del panel. */
+class ErrorMicrofono extends Error {
+    constructor(readonly estado: "denegado" | "sin_microfono" | "no_disponible") {
+        super(estado);
+    }
+}
 
 /*
  * El motor del teléfono con un agente SIP y un WebSocket falsos: ticket por conexión, contacto con
@@ -240,7 +262,7 @@ describe("conectar", () => {
 
     it("abrir: motivos del servidor, 429 y la red", () => {
         const ahora = 1000;
-        const e = (estado: number, codigo: string, reintentarEn?: number) => new ErrorApi({ estado, codigo, titulo: "x", reintentarEn });
+        const e = (estado: number, codigo: string, reintentarEn?: number) => new ErrorApiPrueba({ estado, codigo, titulo: "x", reintentarEn });
         expect(clasificarErrorAbrir(e(422, "telefono_apagado"), ahora)).toEqual({ tipo: "no_disponible", motivo: "telefono_apagado" });
         expect(clasificarErrorAbrir(e(422, "registro_sin_probar"), ahora)).toEqual({ tipo: "error", error: { tipo: "clave" } });
         expect(clasificarErrorAbrir(e(429, "demasiados_intentos", 60), ahora)).toEqual({ tipo: "error", error: { tipo: "espera", hasta: 61_000 } });
