@@ -197,7 +197,7 @@ Hoy la facturación arranca cuando Iris pide `activar-instalacion` al cerrar. Co
 **Portal del cliente**
 
 - **P1. ¿El cliente usa un solo portal?** Recomiendo que sí: el portal de Argos muestra los tickets y las solicitudes; el de Iris queda solo como respaldo.
-- **P2. Cliente que entró solo por su IP (sin contraseña).** Recomiendo: puede abrir un ticket y ver la lista con su estado, pero no leer las respuestas, no responder y no pedir servicios. Para eso, entrar con documento y contraseña. (Cualquiera conectado a ese internet, por ejemplo un vecino con la clave Wi-Fi, quedaría identificado como el titular.)
+- **P2. Cliente que entró solo por su IP (sin contraseña).** Recomiendo: puede abrir un ticket y ver la lista con su estado, pero no leer las respuestas, no responder y no pedir servicios. Para eso, entrar con documento y contraseña. (Cualquiera conectado a ese internet, por ejemplo un vecino con la clave Wi-Fi, quedaría identificado como el titular.) **Decidido por el PM (21 nov): sí, aprobada la recomendación. Además, para pedir o hacer un cambio de contraseña (WiFi) desde el portal, el cliente vuelve a confirmar su contraseña del portal o su identidad aunque ya tenga sesión (lado de Argos).**
 - **P3. ¿Firma extra por cada petición de Argos?** Recomiendo que no por ahora: no protege más de lo que ya protege el token, y se puede agregar después.
 - **P4. Fotos en los tickets.** Recomiendo hasta 3 archivos por mensaje (fotos o PDF, 10 MB cada uno) desde el primer día.
 - **P5. ¿Cambio de plan y traslado necesitan contrato firmado?** Recomiendo: el traslado sí (nueva dirección); el cambio de plan solo con la cotización aceptada, y cada empresa puede exigir contrato si quiere.
