@@ -2024,17 +2024,17 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 
 **Notas de implementación (B23, aceptadas):** la clave de los contactos que nacen de un prospecto es `iris:contacto:<cliente_id>:pt<id del teléfono>`; se crean con todos los permisos (decisión 7, §10.5) y solo sobre el servicio nuevo; el `url_iris` del `409 prospecto_duplicado` incluye el id del prospecto.
 
-**Ajustes de la revisión de seguridad de la 0.13.0** (acordados con Argos):
+**Ajustes de la revisión de seguridad de la 0.13.0** (todos aceptados por Argos):
 
-- **a. Falla general acotada (M1).** Absorbe solo tickets de conectividad de servicios afectados creados después de `desde`; los hijos no se cierran solos (verificar con el cliente, o resueltos si Horus o PPP confirman); reabrir el mismo `alcance_id` antes de 30 min reusa el ticket general; un aviso de cierre por cliente e incidente, máximo 1 cada 6 h, con §6.5; Argos registra quién abrió a mano un incidente y por qué.
-- **b. Caídas durante una falla (M2).** Nota en el ticket general en vez de un ticket nuevo; más de N tickets de caídas en 10 min (20 de fábrica) agrupados en «posible falla general» con aviso a supervisión; al llegar la falla, los abiertos pasan a hijos.
-- **c. Clave y fecha de la gestión (M3).** `iris:gestion:<gestion_id>` (UUID v7 de Iris); `ocurrido_en` entre ahora − 7 días y ahora + 5 min.
-- **d. Empresas en la falla general (M4).** Un evento por empresa con el mismo `incidente_id`; `empresa_id` en el GET y solo ids del alcance; ids desconocidos leídos con `GET /servicios/:id` y descartados si son de otra empresa.
-- **e. Lectura de incidentes (B1).** `404` fuera del alcance, auditada con actor `token`, `limit` hasta 1000.
-- **f. Gestión informativa (B2).** Nunca cambia estados, cortes ni promesas; con el asistente, `pago_informado` y `promete_pagar` solo con promesa o comprobante real; `X-Iris-Contacto` si habló un contacto.
-- **g. Aviso de falla (B3).** Solo a números con cliente, sin servicio ni dirección.
-- **h. Plantillas por empresa (B4).** Solo las que la empresa puede usar.
-- **i. Clave `pt<id>` (B5).** Se queda: el id es el de `comercial.prospecto_telefonos`, único por prospecto.
+- **a. Falla general acotada (M1).** Absorbe solo tickets de conectividad de servicios afectados creados después de `desde`; los hijos no se cierran solos (verificar con el cliente, o resueltos si Horus o PPP confirman); reabrir el mismo `alcance_id` antes de 30 min reusa el ticket general; un aviso de cierre por cliente e incidente, máximo 1 cada 6 h, con §6.5; Argos registra quién abrió a mano un incidente y por qué. Aceptado por Argos.
+- **b. Caídas durante una falla (M2).** Nota en el ticket general en vez de un ticket nuevo; más de N tickets de caídas en 10 min (20 de fábrica) agrupados en «posible falla general» con aviso a supervisión; al llegar la falla, los abiertos pasan a hijos. Aceptado por Argos.
+- **c. Clave y fecha de la gestión (M3).** `iris:gestion:<gestion_id>` (UUID v7 de Iris); `ocurrido_en` entre ahora − 7 días y ahora + 5 min. Aceptado por Argos.
+- **d. Empresas en la falla general (M4).** Un evento por empresa con el mismo `incidente_id`; `empresa_id` en el GET y solo ids del alcance; ids desconocidos leídos con `GET /servicios/:id` y descartados si son de otra empresa. Aceptado por Argos.
+- **e. Lectura de incidentes (B1).** `404` fuera del alcance, auditada con actor `token`, `limit` hasta 1000. Aceptado por Argos.
+- **f. Gestión informativa (B2).** Nunca cambia estados, cortes ni promesas; con el asistente, `pago_informado` y `promete_pagar` solo con promesa o comprobante real; `X-Iris-Contacto` si habló un contacto. Aceptado por Argos.
+- **g. Aviso de falla (B3).** Solo a números con cliente, sin servicio ni dirección. Aceptado por Argos.
+- **h. Plantillas por empresa (B4).** Solo las que la empresa puede usar. Aceptado por Argos.
+- **i. Clave `pt<id>` (B5).** Se queda: el id es el de `comercial.prospecto_telefonos`, único por prospecto. Aceptado por Argos.
 
 ## 11. Portal del cliente de Argos (0.9.0, bloque P)
 
