@@ -4,7 +4,8 @@
 //
 // - Escribir guarda primero (cola de salida con id uuid v7 y `creado_en`) y despierta el envío.
 //   Sale uno a uno, en orden de creación; 201/200 reemplaza el local por el del servidor.
-//   No se reintenta: 403, 404, 409, 422 (queda «no enviado», con «Reintentar»). Sí: 429 (con
+//   No se reintenta: 403, 404, 409, 422 (queda «no enviado», con «Reintentar»; 422
+//   `conversacion_cerrada`: la orden se cerró, solo «Descartar» y el hilo pasa a solo lectura). Sí: 429 (con
 //   `Retry-After`), 5xx y sin red, con espera exponencial. 401 detiene todo (hay que entrar).
 // - Tiempo real solo en primer plano y con un solo flujo: SSE si hay flujo (PWA con EventSource, app
 //   nativa con `crearFlujoFetch`) o sondeo de `/cambios` cada 12 s. Un flujo que dura menos de 5 s es
@@ -37,6 +38,7 @@ import {
     type UbicacionChat,
     type VistaPreviaChat,
 } from "./tipos";
+import { CODIGO_CONVERSACION_CERRADA, textoSoloLectura } from "./vista";
 
 const MINUTO_MS = 60_000;
 /** Un flujo que se cerró antes de esto es «corto» (la misma regla que la bandeja del panel). */
@@ -156,7 +158,7 @@ export interface OpcionesMotorChat {
 
 /** El teléfono no acepta lo que se pidió (antes de encolar). */
 export class ErrorChatLocal extends Error {
-    readonly codigo: "mensaje_vacio" | "texto_largo" | "ubicacion_invalida" | "mencion_invalida" | "conversacion_desconocida" | "no_eliminable" | "sin_subidor";
+    readonly codigo: "mensaje_vacio" | "texto_largo" | "ubicacion_invalida" | "mencion_invalida" | "conversacion_desconocida" | "conversacion_cerrada" | "no_eliminable" | "sin_subidor";
 
     constructor(codigo: ErrorChatLocal["codigo"], mensaje: string) {
         super(mensaje);
@@ -605,8 +607,13 @@ export class MotorChat {
      * Si la escritura falla, lanza y no queda nada.
      */
     async escribir(conversacionId: number, entrada: EntradaMensaje): Promise<SalidaChat> {
-        if (!this.conversaciones.has(conversacionId)) {
+        const conversacion = this.conversaciones.get(conversacionId);
+        if (!conversacion) {
             throw new ErrorChatLocal("conversacion_desconocida", "Esa conversación no está en el teléfono.");
+        }
+        if (conversacion.solo_lectura) {
+            // El servidor respondería 422 `conversacion_cerrada`: ni se encola (§1).
+            throw new ErrorChatLocal("conversacion_cerrada", textoSoloLectura(conversacion) ?? "Este chat ya no admite mensajes");
         }
         const texto = entrada.texto?.trim() ?? "";
         if (texto.length > TEXTO_MAXIMO) {
@@ -675,6 +682,11 @@ export class MotorChat {
         const s = this.salida.get(id);
         if (!s || s.estado !== "fallido") {
             return;
+        }
+        const conversacion = this.conversaciones.get(s.conversacionId);
+        if (s.error?.codigo === CODIGO_CONVERSACION_CERRADA && conversacion?.solo_lectura) {
+            // Fallaría igual: la orden sigue cerrada. Solo «Descartar» (o reintentar si se reabre).
+            throw new ErrorChatLocal("conversacion_cerrada", textoSoloLectura(conversacion) ?? "Este chat ya no admite mensajes");
         }
         if (s.tipo === "enviar" && !s.enviado && (CODIGOS_ID_NUEVO.has(s.error?.codigo ?? "") || (s.error?.status === 409 && s.foto))) {
             // El id (o la foto) ya está en otro mensaje: sale como uno nuevo, en el mismo lugar.
@@ -939,10 +951,30 @@ export class MotorChat {
             // El mensaje ya salió; la foto no se pudo terminar de subir: se deja de intentar.
             await this.guardar({ salida: { borrar: [actual.id] }, ...(actual.foto ? { bytes: { borrar: [actual.foto.id] } } : {}) });
             this.avisar("warning", "Una foto del chat no se pudo subir.");
+        } else if (error.codigo === CODIGO_CONVERSACION_CERRADA) {
+            // La orden se cerró mientras escribía (§1): el mensaje queda «no enviado» con ese motivo
+            // (sin reintento: solo «Descartar»), el hilo pasa a solo lectura en el teléfono y se
+            // relee la conversación para traer el estado de la orden. Nunca en silencio.
+            const conversacion = this.conversaciones.get(actual.conversacionId);
+            await this.guardar({
+                salida: { poner: [{ ...actual, estado: "fallido", error }] },
+                ...(conversacion && !conversacion.solo_lectura ? { conversaciones: { poner: [{ ...conversacion, solo_lectura: true }] } } : {}),
+            });
+            void this.releerDetalle(actual.conversacionId);
         } else {
             await this.guardar({ salida: { poner: [{ ...actual, estado: "fallido", error }] } });
         }
         this.emitir();
+    }
+
+    /** Relee el detalle de una conversación sin tocar su estado de carga. No lanza. */
+    private async releerDetalle(id: number): Promise<void> {
+        try {
+            await this.verificar();
+            await this.guardarDetalle(await this.transporte.verConversacion(id));
+        } catch {
+            // Sin señal o sin acceso: queda la marca local de solo lectura; al abrirla se relee.
+        }
     }
 
     private despertarSalida(): void {

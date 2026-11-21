@@ -19,7 +19,7 @@ afterEach(() => {
     }
 });
 
-async function conChat(): Promise<{ m: Montaje; chat: MotorChat; servidor: ServidorChatFalso }> {
+async function conChat(): Promise<{ m: Montaje; chat: MotorChat; servidor: ServidorChatFalso; almacen: AlmacenChatMemoria }> {
     const m = await montar();
     m.transporte.paquete = (fecha) => ({ ...paqueteDePrueba(fecha), ruta: undefined as never, ordenes: [ordenDePrueba(1, { tipo: "visita", estado: "en_sitio" })] });
     await m.motor.cargarPaquete("2026-10-28");
@@ -30,9 +30,10 @@ async function conChat(): Promise<{ m: Montaje; chat: MotorChat; servidor: Servi
     servidor.nombres.set(ANDREA.id, ANDREA.nombre);
     servidor.crearConversacion({ id: CUADRILLA, tipo: "cuadrilla", titulo: "Cuadrilla Norte", cuadrilla_id: 3 });
     servidor.recibir(CUADRILLA, ANDREA, "La caja NAP 14 tiene la potencia baja.");
-    const chat = await MotorChat.abrir({ almacen: new AlmacenChatMemoria(), transporte: servidor, subidor: servidor.subidor, usuarioId: sesion.usuarioId, reloj: m.reloj });
+    const almacen = new AlmacenChatMemoria();
+    const chat = await MotorChat.abrir({ almacen, transporte: servidor, subidor: servidor.subidor, usuarioId: sesion.usuarioId, reloj: m.reloj });
     abiertos.push(chat);
-    return { m, chat, servidor };
+    return { m, chat, servidor, almacen };
 }
 
 async function abrirConversacion(chat: MotorChat, m: Montaje, esquema: "light" | "dark") {
@@ -135,6 +136,90 @@ describe.each(["light", "dark"] as const)("chat interno (%s)", (esquema) => {
             await vaciarPromesas(10);
         });
         await waitFor(() => expect(screen.getByText(/· enviado$/)).toBeTruthy());
+    });
+
+    it("orden cerrada: aviso «Orden cerrada» con candado en lugar del compositor y «Cerrada» en la lista", async () => {
+        const { m, chat, servidor } = await conChat();
+        servidor.crearConversacion({ id: 70, tipo: "orden", titulo: "OT-000070 · Instalación", orden_id: 70, orden_estado: "cerrada", solo_lectura: true });
+        servidor.recibir(70, ANDREA, "Gracias, quedó lista.");
+        await abrirCampo(m, { esquema, chat, vista: { tipo: "chat" } });
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        expect(await screen.findByTestId("conversacion-cerrada-70")).toBeTruthy();
+        await fireEvent.press(await screen.findByLabelText(/^OT-000070 · Instalación, orden cerrada, solo lectura/));
+        await screen.findByTestId("conversacion-chat");
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        const aviso = screen.getByTestId("chat-solo-lectura");
+        expect(within(aviso).getByText("Orden cerrada: ya no se pueden enviar mensajes")).toBeTruthy();
+        expect(screen.queryByTestId("compositor-chat")).toBeNull();
+        expect(screen.queryByLabelText("Mensaje")).toBeNull();
+        expect(screen.getByText("Gracias, quedó lista.")).toBeTruthy();
+    });
+
+    it("la orden se cierra mientras escribía: dice por qué no salió, sin «Reintentar», y bloquea el compositor", async () => {
+        const { m, chat, servidor } = await conChat();
+        servidor.crearConversacion({ id: 70, tipo: "orden", titulo: "OT-000070 · Instalación", orden_id: 70, orden_estado: "en_sitio" });
+        await abrirCampo(m, { esquema, chat, vista: { tipo: "conversacion", id: 70 } });
+        await screen.findByTestId("compositor-chat");
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        // Despacho cierra la orden (no llega evento al feed del chat).
+        const c = servidor.conversaciones.get(70);
+        if (c) {
+            servidor.conversaciones.set(70, { ...c, solo_lectura: true, orden_estado: "cerrada" });
+        }
+        await escribir("Ya terminé");
+        expect(await screen.findByTestId("no-enviado-cerrada")).toBeTruthy();
+        expect(screen.getByText("No se envió: la orden se cerró y su chat ya no recibe mensajes.")).toBeTruthy();
+        expect(screen.queryByTestId("reintentar-mensaje")).toBeNull();
+        await waitFor(() => expect(screen.getByTestId("chat-solo-lectura")).toBeTruthy());
+        expect(screen.getByText("Orden cerrada: ya no se pueden enviar mensajes")).toBeTruthy();
+        expect(screen.queryByTestId("compositor-chat")).toBeNull();
+        // «Descartar» lo quita de la cola.
+        await fireEvent.press(screen.getByTestId("descartar-mensaje"));
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        expect(screen.queryByText("Ya terminé")).toBeNull();
+        expect(chat.obtenerEstado().pendientes).toBe(0);
+        expect(servidor.llamadasA("enviarMensaje")).toHaveLength(1);
+    });
+
+    it("si «Descartar» no se puede guardar en el teléfono: error en llano con «Reintentar», que lo descarta", async () => {
+        const { m, chat, servidor, almacen } = await conChat();
+        servidor.crearConversacion({ id: 70, tipo: "orden", titulo: "OT-000070 · Instalación", orden_id: 70, orden_estado: "en_sitio" });
+        await abrirCampo(m, { esquema, chat, vista: { tipo: "conversacion", id: 70 } });
+        await screen.findByTestId("compositor-chat");
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        const c = servidor.conversaciones.get(70);
+        if (c) {
+            servidor.conversaciones.set(70, { ...c, solo_lectura: true, orden_estado: "cerrada" });
+        }
+        await escribir("Ya terminé");
+        expect(await screen.findByTestId("no-enviado-cerrada")).toBeTruthy();
+        // La escritura del teléfono falla una vez (disco lleno).
+        const escribirChat = almacen.escribirChat.bind(almacen);
+        let fallas = 1;
+        almacen.escribirChat = (lote) => (fallas-- > 0 ? Promise.reject(new Error("disco lleno")) : escribirChat(lote));
+        await fireEvent.press(screen.getByTestId("descartar-mensaje"));
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        expect((await screen.findAllByText("No se pudo descartar el mensaje en el teléfono.")).length).toBeGreaterThan(0);
+        expect(screen.getByText("Ya terminé")).toBeTruthy();
+        const [reintentar] = await screen.findAllByText("Reintentar");
+        await fireEvent.press(reintentar as never);
+        await act(async () => {
+            await vaciarPromesas(10);
+        });
+        await waitFor(() => expect(screen.queryByText("Ya terminé")).toBeNull());
+        expect(chat.obtenerEstado().pendientes).toBe(0);
     });
 
     it("mantener presionado el propio → «Eliminar para todos» deja la lápida", async () => {
