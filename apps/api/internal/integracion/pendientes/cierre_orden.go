@@ -155,9 +155,14 @@ type notasEquipo struct{ nota, cobro *string }
 type opcionesPlan struct {
 	porTecnico bool
 	cuadrillas map[int64]bool
+	// personales: las bodegas personales de técnicos según Argos (0.13.1 §3.9).
+	personales map[int64]bool
 	// bodegaApp: Argos con contrato ≥ 0.11.0 (§3.9): el material de la app sale con tecnico,
 	// bodega_id y X-Iris-Actor de quien lo registró.
 	bodegaApp bool
+	// vinculos: el vínculo I1 (id_externo) de cada usuario que registró algo de la orden: el
+	// `tecnico` del cuerpo es el del actor, no el del técnico actual de la orden (0.13.1).
+	vinculos map[int64]string
 	// equipos: Argos con contrato ≥ 0.12.0 (cambiar y no-recuperado, fecha y recibido_en_iris).
 	equipos bool
 	notas   map[string]notasEquipo
@@ -208,7 +213,8 @@ type plan struct {
 	esperaPersona string
 	// conTecnico: el cuerpo lleva `tecnico` (se corrige al reintentar a mano tras vincular).
 	conTecnico bool
-	// conActor: sin `tecnico` en el cuerpo, pero con X-Iris-Actor del técnico (0.12.0 §3.10).
+	// conActor: X-Iris-Actor es `actor` (quien lo registró), nunca el técnico actual de la orden;
+	// sin actor, sale sin X-Iris-Actor (y el plan queda incompleto).
 	conActor bool
 	// actor: quien va en X-Iris-Actor (tecnico_usuario_id) si no es el técnico de la orden.
 	actor *int64
@@ -537,33 +543,51 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	if len(materiales) > 0 {
 		p := plan{operacion: OpConsumo, clave: "iris:consumo:" + orden, ruta: "/inventario/consumos"}
 		porBodega := tecnico == nil
-		deCuadrilla, panel := false, false
+		app, panel, sinActor, panelEspecial := false, false, false, false
 		var actores []int64
 		for _, mat := range materiales {
 			b := bodegaDe(mat.BodegaID)
-			switch {
-			case tecnico != nil && mat.DesdeApp && op.bodegaApp:
-				// Lo eligió el técnico en la app (su bodega o la de su cuadrilla, ya validada al
-				// recibir el lote): siempre tecnico + bodega_id + X-Iris-Actor (M-268-1).
-				deCuadrilla = true
-			case tecnico != nil && b != nil && cuadrillas[int64(*b)]:
-				deCuadrilla = true // la bodega de la cuadrilla: tecnico + bodega_id
-			case explicita(mat.BodegaID):
-				porBodega, panel = true, true // despacho indicó otra bodega: manda bodega_id
+			if mat.DesdeApp {
+				app = true
+				switch {
+				case mat.RegistradoPor == nil:
+					sinActor = true
+				case !slices.Contains(actores, *mat.RegistradoPor):
+					actores = append(actores, *mat.RegistradoPor)
+				}
+				continue
 			}
-			if mat.DesdeApp && mat.RegistradoPor != nil && !slices.Contains(actores, *mat.RegistradoPor) {
-				actores = append(actores, *mat.RegistradoPor)
+			panel = true
+			if b != nil && (cuadrillas[int64(*b)] || op.personales[int64(*b)]) {
+				panelEspecial = true
+			}
+			if !op.bodegaApp && explicita(mat.BodegaID) {
+				porBodega = true // Argos < 0.11.0: despacho indicó otra bodega, manda bodega_id
 			}
 		}
-		if deCuadrilla {
+		// Argos ≥ 0.11.0 (§3.9; 0.13.1 §10.10): lo de la app sale con tecnico (el I1 de quien lo
+		// registró) + bodega_id + su X-Iris-Actor; lo de despacho en el panel, solo con bodega_id
+		// de una bodega tipo bodega. Nunca un consumo a nombre de otro.
+		var deApp map[string]any
+		conApp := op.bodegaApp && app
+		if op.bodegaApp {
 			porBodega = true
-			switch {
-			case panel:
-				p.incompleto = "materiales de la app y de una bodega que indicó despacho en una orden (un consumo por orden)"
-			case len(actores) > 1:
-				p.incompleto = "materiales registrados por varios técnicos en una orden (un consumo por orden, un X-Iris-Actor)"
-			case len(actores) == 1:
-				p.actor = &actores[0]
+		}
+		switch {
+		case op.bodegaApp && panelEspecial:
+			p.incompleto = "despacho indicó una bodega de cuadrilla o personal (desde el panel solo bodegas tipo bodega)"
+		case conApp && panel:
+			p.incompleto = "materiales de la app y del panel en una orden (un consumo por orden)"
+		case conApp && sinActor:
+			p.incompleto = "material de la app sin quien lo registró"
+		case conApp && len(actores) > 1:
+			p.incompleto = "materiales registrados por varios técnicos en una orden (un consumo por orden, un X-Iris-Actor)"
+		case conApp:
+			p.actor = &actores[0]
+			if v := strings.TrimSpace(op.vinculos[actores[0]]); v != "" {
+				deApp = map[string]any{"id_externo": v}
+			} else {
+				p.incompleto = "quien registró el material no está vinculado a Argos (I1)"
 			}
 		}
 		var bodega *IDArgos
@@ -607,9 +631,9 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 			fechas(p.payload, fecha, recibido)
 		}
 		switch {
-		case deCuadrilla:
+		case conApp:
 			p.payload["bodega_id"] = bodega
-			p.payload["tecnico"], p.conTecnico = tecnico, true
+			p.payload["tecnico"], p.conTecnico, p.conActor = deApp, true, true
 		case porBodega:
 			p.payload["bodega_id"] = bodega
 		default:
@@ -678,8 +702,9 @@ func notasDeEquipos(ctx context.Context, q *pendientesbd.Queries, o OrdenCerrada
 	return salida, nil
 }
 
-// bodegasDeCuadrilla: las bodegas de los materiales de la orden que son de una cuadrilla.
-func bodegasDeCuadrilla(ctx context.Context, q *pendientesbd.Queries, o OrdenCerrada) (map[int64]bool, error) {
+// bodegasDeCuadrilla: las bodegas de los materiales de la orden que son de una cuadrilla, y las que
+// son la personal de un técnico.
+func bodegasDeCuadrilla(ctx context.Context, q *pendientesbd.Queries, o OrdenCerrada) (map[int64]bool, map[int64]bool, error) {
 	ids := []int64{}
 	if o.BodegaID != nil {
 		ids = append(ids, int64(*o.BodegaID))
@@ -689,16 +714,45 @@ func bodegasDeCuadrilla(ctx context.Context, q *pendientesbd.Queries, o OrdenCer
 			ids = append(ids, int64(*mat.BodegaID))
 		}
 	}
-	salida := map[int64]bool{}
+	salida, personales := map[int64]bool{}, map[int64]bool{}
 	if len(ids) == 0 {
-		return salida, nil
+		return salida, personales, nil
 	}
 	filas, err := q.BodegasDeCuadrilla(ctx, ids)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, b := range filas {
 		salida[b] = true
+	}
+	filas, err = q.BodegasPersonales(ctx, ids)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, b := range filas {
+		personales[b] = true
+	}
+	return salida, personales, nil
+}
+
+// vinculosDeActores: el vínculo I1 de quienes registraron materiales de la orden desde la app.
+func vinculosDeActores(ctx context.Context, q *pendientesbd.Queries, o OrdenCerrada) (map[int64]string, error) {
+	usuarios := []int64{}
+	for _, mat := range o.Materiales {
+		if mat.RegistradoPor != nil && !slices.Contains(usuarios, *mat.RegistradoPor) {
+			usuarios = append(usuarios, *mat.RegistradoPor)
+		}
+	}
+	salida := map[int64]string{}
+	if len(usuarios) == 0 {
+		return salida, nil
+	}
+	filas, err := q.VinculosArgosDeTecnicos(ctx, usuarios)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range filas {
+		salida[f.UsuarioID] = f.IDExterno
 	}
 	return salida, nil
 }
@@ -736,7 +790,11 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					return res, err
 				}
 			}
-			cuadrillas, err := bodegasDeCuadrilla(ctx, pendientesbd.New(t), o)
+			cuadrillas, personales, err := bodegasDeCuadrilla(ctx, pendientesbd.New(t), o)
+			if err != nil {
+				return res, err
+			}
+			vinculos, err := vinculosDeActores(ctx, pendientesbd.New(t), o)
 			if err != nil {
 				return res, err
 			}
@@ -753,7 +811,8 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			if err != nil {
 				return res, err
 			}
-			planes, omisiones := planificar(o, opcionesPlan{porTecnico: porTecnico, cuadrillas: cuadrillas, bodegaApp: bodegaApp, equipos: equipos, notas: notas})
+			planes, omisiones := planificar(o, opcionesPlan{porTecnico: porTecnico, cuadrillas: cuadrillas, personales: personales,
+				bodegaApp: bodegaApp, vinculos: vinculos, equipos: equipos, notas: notas})
 			if len(planes) == 0 && len(omisiones) == 0 {
 				return res, nil
 			}
@@ -822,7 +881,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				switch {
 				case (p.conTecnico || p.conActor) && p.actor != nil:
 					tecnicoUsuario = p.actor // quien lo registró (X-Iris-Actor)
-				case p.conTecnico:
+				case p.conTecnico && !p.conActor:
 					tecnicoUsuario = o.TecnicoID
 				}
 				f, err := q.InsertarPendiente(ctx, pendientesbd.InsertarPendienteParams{

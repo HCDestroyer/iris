@@ -561,6 +561,12 @@ SELECT (EXISTS (
     SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = @usuario_id AND t.activo AND t.bodega_id = @bodega_id
 )))::boolean;
 
+-- name: EsBodegaDeTecnicoOCuadrilla :one
+-- La bodega es de una cuadrilla o la personal de un técnico según Argos (0.13.1 §3.9): desde el panel
+-- no se usa (despacho solo con bodegas tipo = bodega).
+SELECT (EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = @bodega::bigint)
+     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = @bodega::bigint))::boolean;
+
 -- name: BodegasPermitidas :many
 -- Las bodegas que el técnico puede elegir en la empresa (personal y de su cuadrilla actual): las
 -- únicas cuyas existencias se leen de Argos para el lote (B-268-2).

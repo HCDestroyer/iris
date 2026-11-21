@@ -17,19 +17,6 @@ CREATE TABLE integracion.argos_bodegas_cuadrilla (
 );
 CREATE INDEX argos_bodegas_cuadrilla_idx ON integracion.argos_bodegas_cuadrilla (cuadrilla_id, empresa_id);
 
--- argos_bodegas_tecnico: las bodegas personales del técnico en cada empresa, vistas en
--- GET /inventario/mi-bodega. El bodegaId personal del lote se valida contra la empresa de la orden
--- (M-268-1): una bodega personal de otra empresa no vale.
-CREATE TABLE integracion.argos_bodegas_tecnico (
-    bodega_id  bigint      PRIMARY KEY,
-    empresa_id bigint      NOT NULL,
-    usuario_id bigint      NOT NULL REFERENCES nucleo.usuarios (id),
-    visto_en   timestamptz NOT NULL DEFAULT now(),
-    created_at timestamptz NOT NULL DEFAULT now(),
-    updated_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX argos_bodegas_tecnico_idx ON integracion.argos_bodegas_tecnico (usuario_id, empresa_id);
-
 -- El traslado a una bodega de cuadrilla lo recibe y firma el jefe (§3.9).
 ALTER TABLE integracion.argos_traslados ADD COLUMN cuadrilla_id bigint;
 CREATE INDEX argos_traslados_cuadrilla_idx ON integracion.argos_traslados (cuadrilla_id, estado) WHERE cuadrilla_id IS NOT NULL;
@@ -37,5 +24,4 @@ CREATE INDEX argos_traslados_cuadrilla_idx ON integracion.argos_traslados (cuadr
 -- +goose Down
 DROP INDEX IF EXISTS integracion.argos_traslados_cuadrilla_idx;
 ALTER TABLE integracion.argos_traslados DROP COLUMN IF EXISTS cuadrilla_id;
-DROP TABLE IF EXISTS integracion.argos_bodegas_tecnico;
 DROP TABLE IF EXISTS integracion.argos_bodegas_cuadrilla;

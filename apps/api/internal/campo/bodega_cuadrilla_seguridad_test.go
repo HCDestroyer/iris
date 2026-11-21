@@ -116,3 +116,33 @@ func TestLoteBodegaCuadrillaConcurrenteConQuitarMiembro(t *testing.T) {
 		t.Fatal("el lote no terminó")
 	}
 }
+
+// M-268-1 (0.13.1 §3.9): desde el panel solo se usan bodegas tipo bodega; la de una cuadrilla o la
+// personal de un técnico (según Argos) se rechaza con 422 bodega_no_permitida, también si es la de
+// la orden.
+func TestPanelSoloBodegasGenerales(t *testing.T) {
+	base := int64(9_100_000) + time.Now().UnixNano()%100000*10
+	cuadrilla, personal, general := base, base+1, base+2
+	inv := &inventarioFalso{existencias: map[int64][]campo.Existencia{cuadrilla: {}, personal: {}, general: {}}}
+	e := nuevoEntorno(func(c *campo.Config) { c.Inventario = inv })
+	d, tec := despacho(t), tecnico(t)
+	cd := como(t, d, "despacho")
+	pool := pruebas.Pool(t)
+	if _, err := pool.Exec(context.Background(), `INSERT INTO integracion.argos_bodegas_cuadrilla (bodega_id, empresa_id, cuadrilla_id) VALUES ($1, 0, 1)`, cuadrilla); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO integracion.argos_bodegas_tecnico (bodega_id, empresa_id, usuario_id) VALUES ($1, 0, $2)`, personal, tec); err != nil {
+		t.Fatal(err)
+	}
+	o := crearOrden(t, e, cd, "instalacion")
+	o = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: o.ID, Version: o.Version, TecnicoID: &tec,
+		BodegaID: ptr(personal), Inicio: inicio}))(t)
+	for _, b := range []*int64{ptr(cuadrilla), ptr(personal), nil} {
+		_, err := e.m.UsarMaterialPanel(cd, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 77, Cantidad: 1, BodegaID: b})
+		problema(t, err, 422, campo.CodigoBodegaNoPermitida)
+	}
+	deber(e.m.UsarMaterialPanel(cd, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 77, Cantidad: 1, BodegaID: ptr(general)}))(t)
+	if n := contar(t, "SELECT count(*) FROM campo.orden_materiales WHERE orden_id = $1", o.ID); n != 1 {
+		t.Fatalf("solo el de la bodega general: %d", n)
+	}
+}

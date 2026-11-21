@@ -15140,7 +15140,7 @@ export interface components {
         EntradaUsarMaterial: {
             /**
              * Format: int64
-             * @description Por defecto, la de la orden. Desde la app (lote): la bodega personal del técnico o la de su cuadrilla actual en la empresa de la orden (contrato 0.11.0 §3.9; si no, 403 no_es_miembro antes de mirar existencias); la app guarda la elegida en la cola. Desde el panel: otra bodega solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos
+             * @description Por defecto, la de la orden. Desde la app (lote): la bodega personal del técnico o la de su cuadrilla actual en la empresa de la orden (contrato 0.11.0 §3.9; si no, 403 no_es_miembro antes de mirar existencias); la app guarda la elegida en la cola. Desde el panel: otra bodega solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos, y solo bodegas generales: una de cuadrilla o personal da 422 bodega_no_permitida (0.13.1)
              */
             bodegaId?: number;
             /**

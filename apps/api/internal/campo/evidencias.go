@@ -58,7 +58,7 @@ type EntradaUsarMaterial struct {
 	Version     *int32  `json:"version,omitempty" minimum:"1" doc:"Versión leída (opcional); si cambió, 409"`
 	ProductoID  int64   `json:"productoId" minimum:"1" doc:"Producto en Argos"`
 	Cantidad    float64 `json:"cantidad" exclusiveMinimum:"0" maximum:"1000000" doc:"Hasta 3 decimales (metros de cable, unidades…)"`
-	BodegaID    *int64  `json:"bodegaId,omitempty" minimum:"1" doc:"Por defecto, la de la orden. Desde la app (lote): la bodega personal del técnico o la de su cuadrilla actual en la empresa de la orden (contrato 0.11.0 §3.9; si no, 403 no_es_miembro antes de mirar existencias); la app guarda la elegida en la cola. Desde el panel: otra bodega solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos"`
+	BodegaID    *int64  `json:"bodegaId,omitempty" minimum:"1" doc:"Por defecto, la de la orden. Desde la app (lote): la bodega personal del técnico o la de su cuadrilla actual en la empresa de la orden (contrato 0.11.0 §3.9; si no, 403 no_es_miembro antes de mirar existencias); la app guarda la elegida en la cola. Desde el panel: otra bodega solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos, y solo bodegas generales: una de cuadrilla o personal da 422 bodega_no_permitida (0.13.1)"`
 	Descripcion string  `json:"descripcion,omitempty" maxLength:"200"`
 	Sync        *OpSync `json:"-"`
 
@@ -302,6 +302,18 @@ func (m *Modulo) nuevoUsarMaterial() *auditoria.Caso[EntradaUsarMaterial, Orden]
 					return f, "", nucleo.ReglaNegocio("bodega_invalida", "La bodega no existe en la empresa según Argos (o no hay conector para verificarla)")
 				}
 				bodega = in.BodegaID
+			}
+			if in.Sync == nil && bodega != nil {
+				// Desde el panel, solo bodegas tipo = bodega (0.13.1 §3.9): la de una cuadrilla o la
+				// personal de un técnico la usa el técnico desde la app, con su X-Iris-Actor.
+				especial, err := q.EsBodegaDeTecnicoOCuadrilla(ctx, *bodega)
+				if err != nil {
+					return f, "", err
+				}
+				if especial {
+					return f, "", nucleo.ReglaNegocio(CodigoBodegaNoPermitida,
+						"Desde el panel solo se usan bodegas generales: la de una cuadrilla o la personal de un técnico se usa desde la app de campo")
+				}
 			}
 			// Más que la existencia de la bodega (según Argos, leída antes por el lote): se acepta
 			// con aviso; el consumo en Argos queda pendiente con error (contratos/sync.md §3).
@@ -594,6 +606,9 @@ func (m *Modulo) bodegaDe(ctx context.Context, empresa, bodega int64) *prelectur
 
 // CodigoNoEsMiembro: la bodega del material no es la del técnico ni la de su cuadrilla (§3.9).
 const CodigoNoEsMiembro = "no_es_miembro"
+
+// CodigoBodegaNoPermitida: desde el panel, una bodega de cuadrilla o personal (0.13.1 §3.9).
+const CodigoBodegaNoPermitida = "bodega_no_permitida"
 
 // exigirBodegaDelTecnico: la bodega es la personal del actor (su ficha) o la de su cuadrilla actual
 // en la empresa. La respuesta no depende de existencias.
