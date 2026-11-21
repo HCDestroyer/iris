@@ -2,7 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import { api, resolver } from "@/lib/api/cliente";
-import type { PlantillaWA } from "./tipos";
+import type { CuentaPWA, PlantillaWA } from "./tipos";
 
 /* Llamadas de «Plantillas de WhatsApp» (contratos/plantillas-whatsapp.md §3). */
 
@@ -41,8 +41,40 @@ export function guardarAjustes(body: Schema<"EntradaAjustesPWA">, clave: string)
     return resolver(api().POST("/api/v1/mensajeria/plantillas-whatsapp/ajustes", { params: { header: idem(clave) }, body }));
 }
 
+/** Pide la relectura (202: queda en cola; el resultado se ve en la cuenta). */
 export function sincronizar(waba: string, clave: string) {
     return resolver(api().POST("/api/v1/mensajeria/plantillas-whatsapp/cuentas/{waba}/sincronizar", { params: { path: { waba }, header: idem(clave) } }));
+}
+
+export type FinSincronizacion = { cuenta: CuentaPWA; fin: "lista" | "error" | "sigue" };
+
+/**
+ * Relee `GET /cuentas` hasta que la cuenta cambie: `sincronizadaEn` distinto al de antes (lista) o un
+ * error nuevo de Meta (error). Si no cambia en `limiteMs`, «sigue» (el job sigue en cola).
+ */
+export async function esperarSincronizacion(
+    waba: string,
+    antes: { sincronizadaEn: string | null; errorEn: string | null },
+    opciones: { intervaloMs?: number; limiteMs?: number; signal?: AbortSignal } = {},
+): Promise<FinSincronizacion> {
+    const intervalo = opciones.intervaloMs ?? 2000;
+    const fin = Date.now() + (opciones.limiteMs ?? 60_000);
+    for (;;) {
+        await esperar(intervalo, opciones.signal);
+        const cuenta = (await leerCuentas(opciones.signal)).find((c) => c.wabaId === waba);
+        if (!cuenta) throw new Error("La cuenta ya no está disponible");
+        if (cuenta.sincronizadaEn && cuenta.sincronizadaEn !== antes.sincronizadaEn) return { cuenta, fin: "lista" };
+        const errorEn = cuenta.error?.en ?? null;
+        if (errorEn && errorEn !== antes.errorEn) return { cuenta, fin: "error" };
+        if (Date.now() >= fin) return { cuenta, fin: "sigue" };
+    }
+}
+
+function esperar(ms: number, signal?: AbortSignal) {
+    return new Promise<void>((ok, mal) => {
+        const t = setTimeout(ok, ms);
+        signal?.addEventListener("abort", () => (clearTimeout(t), mal(signal.reason)), { once: true });
+    });
 }
 
 export function crearPlantilla(body: Schema<"EntradaCrearPWA">, clave: string) {

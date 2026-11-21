@@ -163,6 +163,17 @@ export function ErrorPlantilla({ error, reintentar, alUsarNombre, titulo }: { er
                     <p>Actívalas en «Ajustes» de esta pantalla. Meta cobra más por cada mensaje de marketing.</p>
                 </Aviso>
             );
+        case "sincronizada_hace_poco": {
+            const segundos = e?.reintentarEn ?? 0;
+            return (
+                <Aviso tono="info" titulo="Ya se sincronizó hace un momento" data-error="sincronizada_hace_poco">
+                    <p>
+                        Las plantillas están al día con Meta. Puedes volver a sincronizar {segundos > 0 ? `en ${segundos < 60 ? `${segundos} s` : `${Math.ceil(segundos / 60)} min`}` : "en un par de minutos"}; los
+                        cambios de Meta también llegan solos.
+                    </p>
+                </Aviso>
+            );
+        }
         case "meta_limite":
             return (
                 <Aviso tono="warning" titulo="Meta pide esperar" data-error="meta_limite">

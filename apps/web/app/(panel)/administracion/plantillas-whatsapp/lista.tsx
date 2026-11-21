@@ -4,7 +4,7 @@ import { avisar, Aviso, Boton, CampoBusqueda, CampoSelector, cn, Dialogo, Dialog
 import { Check, CircleCheck, MessageSquare, Pencil, Plus, RefreshCw, Settings2, Sparkles, Trash2, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { ErrorApi } from "@/lib/api/errores";
@@ -102,6 +102,7 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
     const [sincronizando, setSincronizando] = useState(false);
     const [resumen, setResumen] = useState<ResumenSincronizacion | null>(null);
     const [errorSync, setErrorSync] = useState<unknown>(null);
+    const [sigue, setSigue] = useState(false);
     const [grupo, setGrupo] = useState<Grupo>("todas");
     const [buscar, setBuscar] = useState("");
     const [buscarDiferido, setBuscarDiferido] = useState("");
@@ -137,22 +138,39 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
         if (lista.estado === "listo") setCursor(lista.datos.nextCursor ?? null);
     }, [lista]);
 
+    // El botón encola la relectura (202) y se vuelve a leer la cuenta hasta ver el resultado.
+    const montado = useRef(new AbortController());
+    useEffect(() => {
+        const c = new AbortController();
+        montado.current = c;
+        return () => c.abort();
+    }, []);
     async function sincronizar() {
         setSincronizando(true);
         setErrorSync(null);
+        setResumen(null);
+        setSigue(false);
         try {
-            const r = await P.sincronizar(waba, clave.actual());
+            const pedida = await P.sincronizar(waba, clave.actual());
             clave.renovar();
-            setResumen(r.resumen);
-            setMas([]);
-            avisar({ titulo: "Listo: Iris quedó igual que Meta" });
+            const r = await P.esperarSincronizacion(waba, { sincronizadaEn: pedida.sincronizadaEn, errorEn: cuenta?.error?.en ?? null }, { signal: montado.current.signal });
             alSincronizar();
-            reintentar();
+            if (r.fin === "lista") {
+                setResumen(r.cuenta.resumen);
+                setMas([]);
+                avisar({ titulo: "Listo: Iris quedó igual que Meta" });
+                reintentar();
+            } else if (r.fin === "error" && r.cuenta.error) {
+                setErrorSync(new ErrorApi({ estado: 0, codigo: r.cuenta.error.codigo, titulo: "No se pudo hablar con Meta" }));
+            } else {
+                setSigue(true);
+            }
         } catch (e) {
+            if (montado.current.signal.aborted) return;
             clave.trasError(e);
             setErrorSync(e);
         } finally {
-            setSincronizando(false);
+            if (!montado.current.signal.aborted) setSincronizando(false);
         }
     }
 
@@ -220,6 +238,11 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
 
             {errorSync ? <ErrorPlantilla error={errorSync} reintentar={() => void sincronizar()} /> : errorCuenta && !resumen ? <ErrorPlantilla error={errorCuenta} {...(puedeSincronizar ? { reintentar: () => void sincronizar() } : {})} /> : null}
             {resumen ? <ResultadoSincronizacion resumen={resumen} /> : null}
+            {sigue ? (
+                <Aviso tono="info" titulo="Meta está tardando en contestar" data-slot="sincronizacion-en-curso">
+                    <p>La sincronización sigue en curso. La lista se pone al día sola; vuelve en un momento.</p>
+                </Aviso>
+            ) : null}
 
             <Tarjeta className="min-w-0 overflow-hidden p-0">
                 <div className="flex flex-wrap items-end gap-2 border-b border-border p-3">
@@ -301,7 +324,7 @@ function ResultadoSincronizacion({ resumen }: { resumen: ResumenSincronizacion }
     if (resumen.nuevas.length) cambios.push({ icono: Plus, tono: "text-success", texto: <><strong>{resumen.nuevas.length} {resumen.nuevas.length === 1 ? "nueva" : "nuevas"}</strong> que alguien creó en Meta: {resumen.nuevas.map((x) => x.nombre).join(", ")}</> });
     if (resumen.cambiadas.length) cambios.push({ icono: Pencil, tono: "text-info", texto: <><strong>{resumen.cambiadas.length} {resumen.cambiadas.length === 1 ? "cambió" : "cambiaron"}</strong>: {resumen.cambiadas.map((x) => `${x.etiqueta} (${estadoVisible({ estado: x.estado as PlantillaWA["estado"], pausadaHasta: null, borradaPor: null }).texto.toLowerCase()})`).join(", ")}</> });
     for (const b of resumen.borradas)
-        cambios.push({ icono: Trash2, tono: "text-error", texto: <><strong>Ya no está en Meta</strong>: {b.nombre}.{b.codigo || b.usos.length ? " Se usaba: elige otra." : ""}</> });
+        cambios.push({ icono: Trash2, tono: "text-error", texto: <><strong>Ya no está en Meta</strong>: {b.nombre}.{b.codigos.length || b.usos.length ? " Se usaba: elige otra." : ""}</> });
     return (
         <Aviso tono="success" icono={CircleCheck} titulo="Listo: Iris quedó igual que Meta" data-slot="resultado-sincronizacion">
             <p>

@@ -83,6 +83,12 @@ export function textoCodigo(c: string | null | undefined): string {
     return c ? (CODIGOS[c] ?? c) : "";
 }
 
+/** «Factura por vencer» y «Factura vencida». */
+export function textoCodigos(cs: readonly string[]): string {
+    const t = cs.map((c) => `«${textoCodigo(c)}»`);
+    return t.length <= 1 ? (t[0] ?? "") : `${t.slice(0, -1).join(", ")} y ${t[t.length - 1]}`;
+}
+
 const HORA = new Intl.DateTimeFormat("es-GT", { timeZone: "America/Guatemala", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const DIA = new Intl.DateTimeFormat("es-GT", { timeZone: "America/Guatemala", day: "numeric", month: "short" });
 const DIA_CLAVE = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala" });
@@ -151,10 +157,12 @@ export function calidadVisible(p: Pick<PlantillaWA, "estado" | "calidad">): { te
 }
 
 /** Por qué hay que atenderla, en llano (o null). */
-export function textoAtender(p: Pick<PlantillaWA, "atender" | "codigo" | "categoria" | "categoriaAnterior" | "categoriaProxima">): string | null {
+export function textoAtender(p: Pick<PlantillaWA, "atender" | "codigos" | "categoria" | "categoriaAnterior" | "categoriaProxima">): string | null {
     switch (p.atender) {
         case "borrada_en_uso":
-            return p.codigo ? `Ya no está en Meta. Se usaba en «${textoCodigo(p.codigo)}»: elige otra.` : "Ya no está en Meta y se usaba: elige otra.";
+            return p.codigos.length > 0
+                ? `Ya no está en Meta. Se usaba en ${textoCodigos(p.codigos)}: elige otra.`
+                : "Ya no está en Meta y se usaba: elige otra.";
         case "rechazada":
             return "Meta la rechazó: corrígela y vuelve a enviarla.";
         case "pausada":
@@ -172,6 +180,6 @@ export function textoAtender(p: Pick<PlantillaWA, "atender" | "codigo" | "catego
 }
 
 /** Usos en llano para la columna «Se usa en». */
-export function usosVisibles(p: Pick<PlantillaWA, "usos" | "codigo">): string[] {
+export function usosVisibles(p: Pick<PlantillaWA, "usos">): string[] {
     return p.usos.map(textoUso);
 }
