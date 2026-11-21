@@ -317,7 +317,10 @@ describe("BotonManual («?»)", () => {
     it("la clave es modulo/pantalla: minúsculas, números y guiones", () => {
         for (const bien of ["tickets/lista", "campo/orden", "administracion/integraciones/argos", "agenda/dia-tecnico"]) expect(esClaveManual(bien)).toBe(true);
         for (const mal of ["tickets", "/tickets/lista", "Tickets/Lista", "tickets/", "tickets//lista", "tickets/lista?x=1", "tíckets/lista"]) expect(esClaveManual(mal)).toBe(false);
-        expect(rutaManual("inicio/panel")).toBe("/manual/inicio/panel");
+        expect(rutaManual("inicio/tablero")).toBe("/manual/inicio/tablero");
+        // Dentro de /campo, el manual que guarda el service worker (abre sin señal).
+        expect(rutaManual("campo/hoy", "/campo/manual")).toBe("/campo/manual/hoy");
+        expect(renderToStaticMarkup(<BotonManual clave="campo/orden" base="/campo/manual" />)).toMatch(/href="\/campo\/manual\/orden"/);
         expect(() => rutaManual("mal")).toThrow(/modulo\/pantalla/);
     });
 });

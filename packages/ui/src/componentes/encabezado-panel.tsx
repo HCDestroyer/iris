@@ -38,6 +38,9 @@ export function BotonFlotante({ redondo = false, acento = false, className, vari
     );
 }
 
+// Es un `Boton` por dentro: los disparadores (menú, popover, globo) se conectan solos.
+BotonFlotante.esBotonAria = true;
+
 export type PropsBotonBuscar = {
     alAbrir: () => void;
     /** «Buscar…» */

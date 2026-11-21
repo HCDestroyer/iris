@@ -22,8 +22,8 @@ export type PropsMenuCuenta = {
     correo?: string;
     /** «Supervisora». */
     rol?: string;
-    /** Empresa activa («Kns Telecom»). */
-    empresa?: string;
+    /** Empresa activa («Kns Telecom»); puede llegar envuelta (p. ej. con su `data-testid`). */
+    empresa?: ReactNode;
     /** Punto de disponibilidad sobre el avatar: `true` disponible, `false` no; sin él, no hay punto. */
     disponible?: boolean | null;
     /** Controles bajo el nombre: empresa activa, disponibilidad en la bandeja y tema. */
@@ -42,10 +42,6 @@ export type PropsMenuCuenta = {
     className?: string;
 };
 
-/** «Supervisora · Kns Telecom». */
-function lineaRol(rol: string | undefined, empresa: string | undefined): string {
-    return [rol, empresa].filter(Boolean).join(" · ");
-}
 
 /**
  * La cuenta en el encabezado (rediseño): isla con el avatar (y su punto de disponibilidad), el
@@ -75,7 +71,15 @@ export function MenuCuenta({
         setInterno(a);
         alCambiar?.(a);
     };
-    const linea = lineaRol(rol, empresa);
+    // «Supervisora · Kns Telecom».
+    const linea =
+        rol || empresa ? (
+            <>
+                {rol}
+                {rol && empresa ? " · " : null}
+                {empresa}
+            </>
+        ) : null;
     const estado = disponible === undefined || disponible === null ? "" : disponible ? ", disponible" : ", no disponible";
     const elegir = (accion: () => void) => () => {
         cambiar(false);

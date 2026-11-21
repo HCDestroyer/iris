@@ -1,22 +1,20 @@
 # Guía de interfaz de Iris
 
-Decisiones aprobadas por el PM (propuesta «Nueva interfaz de Iris», 31 oct 2026) y cómo aplicarlas. La
+Decisiones aprobadas por el PM (propuesta «Nueva interfaz de Iris», 31 oct 2026, y el rediseño del 21 nov 2026) y cómo aplicarlas. La
 siguen todos los frentes que tocan pantallas: panel (I3), app de campo (I4) y portal de soporte.
 
-## Librería
+## Sistema visual (rediseño, nov. 2026)
 
-- **Web (`apps/web`: panel, `/campo` y `/soporte`): HeroUI v3** (`@heroui/react` y `@heroui/styles`
-  3.2.6), sobre React Aria, Tailwind 4 y React 19. No necesita proveedor.
-- **App nativa (`apps/movil`, fase 5): HeroUI Native v1** (Expo SDK 58, Uniwind), con el mismo tema.
-- HeroUI se adapta a la identidad Horus y no la reemplaza:
-    - un solo color de marca (teal);
-    - todo estado con icono + texto + color;
-    - íconos solo de Lucide;
-    - modo claro y oscuro.
+Aprobado por el PM (maqueta del rediseño, 21 nov 2026). Iris toma la estructura y las reglas del
+rediseño de ArgosISP con su kit: **HeroUI v3 (`@heroui/react` 3.2.x) envuelto en `@iris/ui`**.
+
+- **Web (`apps/web`: panel, `/campo` y `/soporte`): HeroUI v3**, sobre React Aria, Tailwind 4 y
+  React 19. **App nativa (`apps/movil`): HeroUI Native**, con los mismos colores
+  (`apps/movil/src/tema/tokens.ts`).
 - **Las pantallas importan de `@iris/ui`, nunca de `@heroui/react`.** Si falta una pieza, se agrega a
   `packages/ui` con nombre en español, su prueba y su entrada en el mapa de abajo.
 - Nada de `<button>`, `<input>`, `<select>`, `<textarea>`, `<table>` ni `<dialog>` crudos fuera de
-  `packages/ui`.
+  `packages/ui`. El CSS propio que haga falta para lograr el diseño va dentro de los envoltorios.
 
 ### HeroUI primero (regla del PM, nov. 2026)
 
@@ -37,82 +35,134 @@ siguen todos los frentes que tocan pantallas: panel (I3), app de campo (I4) y po
 5. **Avisos emergentes y barra de guardar:** en escritorio, con `BarraGuardar` en pantalla, los
    avisos suben por encima de ella (`globals.css`): nunca tapan «Guardar» ni «Cancelar».
 
-## Tema Horus
+### Tokens `--iris-*` (`packages/ui/src/estilos/iris-tokens.css`)
 
-- `docs/marca/horus-tokens.css` es la única fuente de color. `packages/ui/src/estilos/horus-tokens.css`
-  es copia exacta (una prueba lo verifica).
-- `packages/ui/src/estilos/tema-heroui.css` apunta cada variable de HeroUI a un token `--hx-*`, sin
-  colores nuevos:
+`iris-tokens.css` es la única fuente de color (copia exacta de `docs/marca/iris-tokens.css`; una
+prueba lo verifica). Los `--hx-*` de Horus quedan como **alias** de los `--iris-*` (todo el código que
+los usa toma los colores nuevos) y **ningún teal queda en la interfaz** (lo verifica
+`heroui.test.tsx`). `horus-tokens.css` sigue cargado solo por su base (foco, preferencias del
+sistema).
 
-| HeroUI | Horus |
-| --- | --- |
-| `accent`, `focus`, `link` | `--hx-primary` (teal 700 en claro, 400 en oscuro) |
-| `success`, `warning`, `danger` | `--hx-success`, `--hx-warning`, `--hx-error`; texto sobre el relleno = fondo del tema |
-| `background`, `foreground`, `muted` | `--hx-bg`, `--hx-text`, `--hx-text-muted` |
-| `default`, `background-secondary` | `--hx-bg-elevated`, `--hx-bg-muted` |
-| `surface` (tarjetas) | `--hx-card`: casi sólida, radio 14 px |
-| `overlay` (todo lo flotante: modales, hojas, popovers, menús, listas, globos y avisos emergentes) | **sólido**: `--hx-card` en claro (blanco opaco) y `--hx-bg-elevated` en oscuro (opaco, más claro que el lienzo y las tarjetas), con borde de 1 px `--hx-border` y sombra; sin desenfoque |
-| `backdrop` (telón de modal, hoja y confirmación) | negro al 45 % en claro y al 62 % en oscuro: lo de atrás siempre se oscurece |
-| `field-*` | fondo del tema, borde de 1 px `--hx-border`, radio 6 px, foco teal |
-| `radius` | `--hx-radius` (6 px): botones con esquina de Horus, no píldora |
+| Token | Claro | Oscuro | Uso |
+| --- | --- | --- | --- |
+| `--iris-primario` | `#4F46E5` | `#818CF8` | acción principal, foco, selección |
+| `--iris-sobre-primario` | `#FFFFFF` | `#0B0F1A` | texto sobre el primario (el blanco sobre `#818CF8` no llega a 4,5:1) |
+| `--iris-primario-suave` / `-texto` | `#EEF2FF` / `#4338CA` | índigo al 14 % / `#A5B4FC` | relleno de lo elegido y botón `suave` |
+| `--iris-secundario` | `#06B6D4` | `#22D3EE` | solo en el degradado y detalles; nunca un estado |
+| `--iris-gradiente` | `#4F46E5 → #06B6D4` (135°) | igual | sin texto encima (logo, franjas) |
+| `--iris-gradiente-texto` | `#4F46E5 → #4338CA → #0E7490` | igual | con texto blanco encima |
+| `--iris-fondo` | `#F8F9FA` | `#0B0F1A` | lienzo (azul noche, nunca negro) |
+| `--iris-tarjeta` | `#FFFFFF` | `#121828` | tarjetas e islas |
+| `--iris-flotante` | `#FFFFFF` | `#18203A` | menús, vista rápida, paneles, modales: sólidos |
+| `--iris-relleno` | `#F1F5F9` | `#1A2236` | rellenos tenues, riel de las pestañas |
+| `--iris-borde` | `#E7EAEE` | `#222A40` | bordes de 1 px |
+| `--iris-texto` / `-tenue` / `-apagado` | `#0F172A` / `#475569` / `#5F6B7F` | `#E2E8F0` / `#A3B0C2` / `#8A96AA` | texto principal, secundario y terciario |
+| `--iris-exito/atencion/peligro/info` (+ `-fondo`, `-punto`) | `#166534`, `#92400E`, `#B91C1C`, `#1D4ED8` sobre su fondo | `#4ADE80`, `#FBBF24`, `#F87171`, `#60A5FA` al 13–14 % | estados: siempre con ícono y texto |
+| `--iris-grafica-1…5` | índigo `#4F46E5`, cian `#0891B2`, fucsia `#C026D3`, naranja `#C2410C`, amarillo `#A16207` | `#818CF8`, `#22D3EE`, `#E879F9`, `#FB923C`, `#FACC15` | series de gráficas; nunca un color de estado ni teal; siempre con leyenda |
+| Radios | control 10 px, tarjeta 12 px, modal 16 px, isla 20 px, isla grande 22 px (app de campo), botón píldora | | |
+| Sombras | `--iris-sombra-tarjeta` suave; `--iris-sombra-flotante` y `--iris-sombra-modal` marcadas; `--iris-telon` | | |
 
-- HeroUI no tiene «info»: el azul de Horus es la utilidad `info` de Iris (`text-info`, `bg-info/10`).
+**Cambios respecto a la maqueta:** el texto apagado pasa de `#64748B` a `#5F6B7F` (el de la maqueta
+daba 4,34:1 sobre el relleno) y la 4.ª serie de las gráficas pasa de teal a naranja 700 (ningún teal
+en la interfaz).
+
+`tema-heroui.css` apunta cada variable de HeroUI a un `--iris-*`: `accent` → primario, `accent-soft`
+→ primario suave, `background` → fondo, `surface` → tarjeta (sombra de tarjeta), `overlay` →
+flotante (sombra flotante, sin vidrio), `backdrop` → telón, `success/warning/danger` → estados,
+`field-*` → tarjeta + borde con radio de 10 px. Los botones son píldoras (`Boton` pone
+`rounded-full`; quien necesita otra forma pasa su `rounded-*`). Modales y confirmaciones con radio de
+16 px y la sombra de lo modal.
+
+- HeroUI no tiene «info»: el azul es la utilidad `info` de Iris (`text-info`, `bg-info-fondo`).
   `accent` nunca es un estado.
-- El modo oscuro va por la clase `.dark` (next-themes) o por `[data-theme]`. La variante `dark:` de
-  Iris reemplaza la de HeroUI, que además seguía `prefers-color-scheme` aunque se eligiera «Claro».
-- `muted` en HeroUI es texto atenuado. El fondo tenue de Iris es `bg-background-secondary`, antes
-  `bg-muted`.
-- **Nada de vidrio en lo flotante** (pedido del PM: «alertas o sidebars sin fondo se notan como
-  parte del primer plano»). El vidrio (`glass-material`) queda solo en la barra lateral y la
-  superior del panel, como pide la identidad Horus. Todo panel flotante es de color sólido con
-  borde y sombra, y toda capa modal lleva su telón oscurecido; lo verifica
-  `e2e/capas-flotantes.spec.ts` (estilo computado del panel y del telón, en los 4 proyectos).
-- Los `Aviso` de la página tienen fondo tintado **opaco** por tono: el 10 % del color del tono
-  mezclado con el lienzo del tema (`color-mix(… var(--hx-bg))`), con borde al 30 %.
-- Con `prefers-reduced-motion` no hay animaciones.
+- El modo oscuro va por la clase `.dark` (next-themes) o por `[data-theme]`.
+- Lo flotante es sólido, con borde y sombra; toda capa modal lleva su telón
+  (`e2e/capas-flotantes.spec.ts`). Con `prefers-reduced-motion` no hay animaciones.
 
-## Reglas de experiencia
+### Contraste (WCAG 2.2 AA)
 
-1. **Formularios de más de 3 campos van en pantalla propia**, con su ruta (`/ordenes/nueva`,
-   `/usuarios/[id]/editar`) y `FormularioPagina`:
-    - secciones;
-    - «Guardar» siempre visible al pie (`BarraGuardar`);
-    - se puede compartir el enlace.
-2. **Un formulario nunca se abre encima de otro.** Desde una ficha, «Editar» lleva a otra pantalla y
-   «Atrás» vuelve a donde estabas. Si sales con cambios sin guardar, Iris pregunta antes de
-   descartar, sea por un enlace, por «Cancelar», por «Atrás» o al recargar.
-3. **Los diálogos son solo para confirmar y para acciones cortas (1 a 3 campos):** desactivar,
-   cancelar, cambiar contraseña, reautenticar, «Mover a…», cuadrilla o zona nueva, guardar vista. Las
-   confirmaciones destructivas usan `DialogoConfirmar peligro`.
-4. **Migas en cada pantalla del panel** (`Migas`). Reemplazan los enlaces «← Volver».
-5. **Aviso emergente después de cada acción** que cambia algo (`avisar`), con «Deshacer» cuando se
-   puede. Los errores que piden actuar no van en un aviso emergente: van como `Aviso` en la pantalla,
-   con «Reintentar».
-6. **Indicadores de estado discretos.** Si todo está bien, es solo un punto. Crecen y explican solo
-   cuando hace falta actuar: sin señal con cosas por enviar, sesión vencida o un error accionable.
-7. **Fichas con pestañas** (`Pestanas`):
-    - Ticket: Resumen · Conversación · Órdenes · Historial;
-    - Orden: Resumen · Evidencias · Formularios · Argos;
-    - Técnico: Datos · Agenda · Ausencias.
+Medido con la fórmula de WCAG sobre los valores de arriba (texto normal: 4,5:1; elementos gráficos y
+series: 3:1). Todos los pares de texto pasan.
 
-   Las acciones de la ficha van en un panel lateral.
-8. **App de campo:** cada paso de trabajo es una vista independiente que se guarda sola en el
-   teléfono:
-    - llegada;
-    - checklist;
-    - materiales y equipos;
-    - fotos.
+| Par | Claro | Oscuro |
+| --- | --- | --- |
+| texto / tarjeta · fondo · relleno | 17,85 · 16,94 · 16,30 | 14,35 · 15,52 · 12,85 |
+| texto tenue / tarjeta · fondo · relleno | 7,58 · 7,19 · 6,92 | 8,04 · 8,70 · 7,20 |
+| texto apagado / tarjeta · fondo · relleno | 5,39 · 5,11 · 4,92 | 5,92 · 6,40 · 5,30 |
+| primario (como texto o enlace) / tarjeta · fondo | 6,29 · 5,96 | 5,93 · 6,41 |
+| sobre-primario / primario (botón principal) | 6,29 (blanco) | 6,41 (`#0B0F1A`; el blanco daría 2,98) |
+| primario-texto / primario-suave (botón suave, lo elegido) | 7,07 | 7,23 |
+| éxito · atención · peligro · info sobre su `-fondo` | 6,49 · 6,37 · 5,30 · 5,49 | 7,80 · 8,14 · 5,29 · 5,51 |
+| neutro / neutro-fondo | 9,45 | 9,85 |
+| blanco / botón peligro (`-punto`) | 4,83 | 6,40 (`#121828` sobre `#F87171`) |
+| blanco / degradado con texto (`#4F46E5` · `#4338CA` · `#0E7490`) | 6,29 · 7,90 · 5,36 | igual |
+| blanco / cian `#06B6D4` | 2,43: **no apto** para texto (por eso existe el degradado con texto) | — |
+| series 1…5 / tarjeta | 6,29 · 3,68 · 4,71 · 5,18 · 4,92 | 5,93 · 9,79 · 7,19 · 7,82 · 11,55 |
 
-   La **firma del cliente es el paso final y único, junto con el cierre**. Solo se abre con todo lo
-   obligatorio completo, y la firma no aparece antes ni en otro lugar.
+### Marco del panel
+
+- **Menú isla** (`MenuIsla`): flota a 16 px de los bordes, radio 20 px, sólido. Compacto (80 px:
+  ícono + nombre corto; Negocio y Administración abren su grupo al lado) o expandido (248 px,
+  grupos que se abren —Disclosure de HeroUI— y «Mis vistas»). El botón `‹ ›` de 28 px va sobre el
+  borde derecho a la altura del logo, en el mismo lugar en los dos modos; la elección se recuerda en
+  el navegador. Mantiene los nombres de siempre para lectores y pruebas: «Barra lateral»,
+  «Principal», «Contraer menú» / «Expandir menú».
+- **Encabezado sin barra** (`EncabezadoPanel`): botones sueltos de 44 px, cada uno una isla
+  (`BotonFlotante`), a 16 px del borde de arriba. Izquierda: Buscar (`BotonBuscar`, Ctrl K), los
+  accesos rápidos «Ticket» y «Orden» y «Más» (todo lo que se puede crear). Derecha: el teléfono de
+  Iris, llamadas y chat del equipo cuando aplican, la conexión con Argos y Horus (`IndicadorEstado`:
+  un punto; gris si no se pudo leer, nunca un estado inventado), avisos y la cuenta (`MenuCuenta`:
+  nombre, rol y empresa; dentro, disponibilidad en la bandeja, empresa activa si hay varias, tema,
+  Mi perfil, contraseña, dos pasos, «Manual y atajos» y «Cerrar sesión» al final en rojo).
+- **Área de trabajo** (`#contenido`): empieza bajo el encabezado y se desplaza por dentro; la
+  página nunca se desplaza. Migas, título con su «?» y la acción principal; debajo, el contenido en
+  tarjetas.
+- **Teléfono:** isla de menú abajo (`IslaInferior`: Inicio · Tickets · Órdenes · Agenda · Más) y el
+  botón redondo «Crear». «Más» es una hoja con el resto del menú, la empresa, la cuenta y el tema. En
+  fichas y formularios la isla cede su lugar a la acción fija (`AccionFija`).
+
+### Reglas
+
+1. Solo componentes del kit; nada crudo fuera de `packages/ui` (ESLint). La personalización va en
+   los envoltorios.
+2. Claro y oscuro, revisados en 390 y 1280 px, sin desbordes.
+3. Fidelidad al diseño aprobado: si algo no puede quedar igual en código, se corrige el diseño y se
+   dice. Nunca una diferencia callada.
+4. Menú isla (arriba). 5. Encabezado sin barra (arriba).
+6. Íconos de Lucide en todo; estado = ícono + texto + color (`InsigniaEstado`, píldora con el
+   `-fondo` del estado); pestañas segmentadas (`PestanasSegmentadas`) dentro de la tarjeta de su
+   contenido, con contador y su URL (`?pestana=`).
+7. Listas (`ListaFilas`, `FilaLista`) en lugar de cuadros, con `CampoBusqueda`, vistas con contador
+   y «Filtros (n)»; vista rápida flotante (`VistaRapida`) y menú `⋯` por fila (`MenuAcciones`).
+8. Contenedores: modal (1 a 3 campos, nunca uno encima de otro), panel lateral (`PanelLateral`:
+   registrar o ver sin perder la lista; con `telon` si es un formulario), vista rápida (sin telón, no
+   quita ancho) y página propia (`FormularioPagina`, más de 3 campos o con pasos).
+9. Un solo campo destacado a la vez (el que tiene el foco o el error).
+10. El scroll va dentro del contenedor.
+11. Un «?» del manual (`BotonManual`) junto a cada título; abre el manual en la sección de esa
+    pantalla. Las claves son las de `docs/manual/claves.md` (las pone el manual); el panel las saca de
+    la ruta (`apps/web/lib/manual/claves.ts`) y las muestran `EncabezadoPagina`, `FormularioPagina` y
+    los títulos propios con `BotonManualPantalla`. Dentro de `/campo` el «?» va a
+    `/campo/manual/<pantalla>` (`base="/campo/manual"`): el service worker solo controla `/campo` y
+    así abre sin señal.
+12. En el teléfono, pantalla completa y acción principal fija abajo (`AccionFija`).
+13. Un dato, una vez por pantalla.
+14. Errores con «Reintentar»; sin totales sobre datos que no se leyeron.
 
 Además se mantienen las reglas de siempre:
 
-- react-hook-form + zod;
-- modo claro y oscuro;
-- revisar en 390 px y 1280 px;
-- «Reintentar» en los errores;
-- nunca totales calculados sobre datos que no se pudieron leer.
+1. **Formularios de más de 3 campos van en pantalla propia** (`FormularioPagina`, con secciones,
+   «Guardar» siempre visible al pie con `BarraGuardar` y su enlace). Un formulario nunca se abre
+   encima de otro; si sales con cambios sin guardar, Iris pregunta antes de descartar.
+2. **Los diálogos son solo para confirmar y para acciones cortas (1 a 3 campos).** Las
+   confirmaciones destructivas usan `DialogoConfirmar peligro`.
+3. **Migas en cada pantalla del panel** (`Migas`). **Aviso emergente después de cada acción**
+   (`avisar`), con «Deshacer» cuando se puede; los errores que piden actuar van como `Aviso` en la
+   pantalla, con «Reintentar».
+4. **App de campo:** cada paso de trabajo es una vista independiente que se guarda sola en el
+   teléfono (llegada, checklist, materiales y equipos, fotos); la **firma del cliente es el paso
+   final y único, junto con el cierre**.
+5. react-hook-form + zod.
 
 ## Mapa de componentes
 
@@ -133,7 +183,7 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `DialogoConfirmar` | `AlertDialog.Backdrop` + `AlertDialog.Container` + `AlertDialog.Dialog` + `AlertDialog.Heading` | `role="alertdialog"`, foco inicial en «Cancelar», no se cierra tocando fuera |
 | `Hoja*`, `PanelProtegido` | `Drawer.Backdrop` + `Drawer.Content` + `Drawer.Dialog` + `Drawer.Heading` | Siempre con telón oscurecido: `fondo="transparente"` se acepta pero ya no quita el telón. Se cierra también arrastrando hacia su lado; el contenido se desplaza en vertical (`touch-action: pan-y`) |
 | `PanelEmergente` | `Popover`, `Popover.Content`, `Popover.Dialog`, `Popover.Heading` | Diálogo no modal junto al disparador |
-| `PanelLateral` | — (`<section role="dialog" aria-modal="false">` propio) | **Excepción aprobada por el PM a la regla de `Hoja`:** panel **flotante** sin telón, bajo la barra superior. Desde `sm`: tarjeta de 380 px a 12 px de los bordes, con borde, sombra y esquinas (`--hx-radius-card`); en el teléfono, a pantalla completa bajo la barra. **Flota sobre la pantalla: la página no se corre ni cambia de ancho al abrirlo, y los clics fuera del panel le llegan a ella** (pedido del PM, nov. 2026: la agenda quedaba apretada). Lo que queda debajo se recupera cerrándolo: la cabecera con «Cerrar» no se desplaza y siempre se ve. En escritorio (desde 1024 px) los avisos emergentes se corren a su izquierda (`globals.css`, por `[data-region="avisos-emergentes"]`: HeroUI pisa el `data-slot` de la región); debajo van en la barra superior y no se cruzan con él. No atrapa el foco: al abrir lo lleva al elemento con `data-foco-inicial` (o al panel), Escape lo cierra solo con el foco adentro (y si nada de adentro usó la tecla) y al cerrar vuelve al disparador. Sólido (`--overlay`). Hoy solo lo usa el chat del equipo |
+| `PanelLateral` | — sin telón (`<section role="dialog" aria-modal="false">` propio); con `telon`, `Drawer` | Isla flotante a 16 px de los bordes, radio 20 px, 470 px desde `sm`, sombra de lo modal; en el teléfono a pantalla completa. **Sin telón (excepción aprobada por el PM a la regla de `Hoja`):** flota sobre la pantalla, la página no se corre ni cambia de ancho y los clics fuera le llegan a ella; no atrapa el foco (lo lleva a `data-foco-inicial` al abrir y lo devuelve al cerrar); Escape lo cierra con el foco adentro. Lo usan el chat del equipo y `VistaRapida`. **Con `telon`:** el `Drawer` de HeroUI con la misma isla (modal, telón oscurecido) para registrar algo sin perder la lista. En escritorio los avisos emergentes se corren a su izquierda (`globals.css`) |
 | `ListaSugerencias`, `teclasSugerencias`, `idOpcion` | — (combobox de ARIA con foco virtual) | Sugerencias bajo un `AreaTexto` que sigue con el foco: las `@menciones` del chat. El área lleva `role="combobox"`, `aria-controls` y `aria-activedescendant`; flechas, Enter/Tab y Escape. `Autocompletar` no sirve: reemplaza todo el valor de un campo de una línea |
 | `MenuDesplegable*`, `MenuEnLinea` | `Dropdown`, `Dropdown.Popover`, `Dropdown.Menu`, `Dropdown.Section`, `Dropdown.Item`, `Menu` y `Separator` | `onSelect` → `onAction`. Un `Boton` como disparador se conecta solo; otro elemento, por `Pressable` |
 | `Globo` | `Tooltip`, `Tooltip.Content` | Un `Boton` se conecta solo; otro elemento, por `Focusable` |
@@ -167,15 +217,27 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 | `VisorFotos` | `Modal.Backdrop` + `Modal.Container` + `Modal.Dialog` (nombre accesible «Foto 2 de 5: …» por `aria-label`) | A pantalla completa sobre fondo oscuro: la foto entera, quién y cuándo, «2 de 5», flechas (y ← →), deslizar en el teléfono, doble toque para acercar, pie y «Descargar» (la ruta autenticada del adjunto). Foco atrapado; Escape, la «X» y «Atrás» del navegador o del teléfono cierran sin salir de la pantalla (una entrada propia en el historial, que se consume al cerrar) |
 | `ListaRecortada` | — | Una línea con los chips que caben y «+N»; nunca desborda ni baja de línea. El nombre completo de todos lo pone quien la usa (`title` y texto para lectores) |
 | `AvatarUsuario` | `Avatar`, `Avatar.Fallback` | Iniciales (decorativo: el nombre va al lado) |
-| `Entrada`, `Campo` | `Input` | Un `<input>` nativo: sirve con `register` |
+| `Entrada` | `Input` | Un `<input>` nativo: sirve con `register` |
+| `Campo` | `TextField` + `Label` + `Input` | Etiqueta, ayuda y error enlazados por React Aria (`isInvalid`). Sirve igual que un `<input>`: con `register` el `ref` recibe el propio `<input>` envuelto (`conAvisoValor`), así `reset` y `setValue` mueven el `TextField`; controlado con `value` + `onChange(e)`; el resto de las props va al `<input>` |
 | `CampoSecreto` | `Input` | Credencial que se pega una vez (token, app secret), con el ojo «Mostrar …», monoespaciada y sin corrector. Para que el gestor de contraseñas no ofrezca guardarla: `type="text"` con `-webkit-text-security: disc` donde el navegador lo soporta y, si no, `type="password"`; siempre `autocomplete="new-password"`, `data-1p-ignore` y `data-lpignore`. Sirve con `register` |
 | `AreaTexto`, `CampoArea` | `TextArea` | |
 | `Etiqueta` | `Label` | |
 | `ProveedorRutas` | `RouterProvider` de React Aria | |
-| `GraficaSerie` | — | Propia de Iris (SVG, sin librería). Una a dos series en un solo eje, con leyenda si hay dos, el último valor rotulado, el tramo sin datos en gris (nunca una línea en cero), cursor al pasar o con las flechas y «Ver tabla». Colores `--hx-grafico-1` y `--hx-grafico-2` (validados para daltonismo en claro y oscuro); el texto va en color de texto, no de la serie. |
+| `GraficaSerie` | — | Propia de Iris (SVG, sin librería). Una a dos series en un solo eje, con leyenda si hay dos, el último valor rotulado, el tramo sin datos en gris (nunca una línea en cero), cursor al pasar o con las flechas y «Ver tabla». Colores `--iris-grafica-1` y `--iris-grafica-2` (por sus alias `--hx-grafico-*`); el texto va en color de texto, no de la serie |
 | `Medidor` | `Meter`, `Meter.Track`, `Meter.Fill` | «Cuánto de cuánto» (memoria, SLA cumplido) con tono `normal`, `aviso` o `error` y `claseRiel` para el alto. Con `parte: null` dibuja el riel de `Meter` con `role="meter"` y sin `aria-valuenow` (el `Meter` de React Aria siempre anuncia un valor; aquí no se inventa un cero) |
 | `TecladoTelefono`, `ControlLlamada` | `Button` (por `Boton`) | Teclas de 56 px y controles redondos de la llamada; `aria-pressed` en los que se prenden y apagan |
 | `BarraGuardar`, `FormularioPagina`, `SeccionFormulario` | — | Composición propia de Iris con `Boton`. `BarraGuardar` acepta `nota` (una línea a la izquierda: «Al guardar, Iris prueba la conexión con Meta.»). `FormularioPagina` acepta `accionTitulo` (a la derecha del título: el interruptor que enciende lo que la pantalla configura) |
+| `MenuIsla`, `IslaInferior` | `Disclosure` (grupos), `Popover` (grupos en la compacta), `Tooltip`, `Button`; enlaces de React Aria (`Link`) | Menú del panel como isla (ver «Marco del panel»). Las entradas llevan `aria-current`; en la compacta el contador es un punto y el número va en el nombre accesible. `IslaInferior`: «Accesos rápidos» del teléfono con «Más» y el botón redondo de la acción principal |
+| `EncabezadoPanel`, `BotonFlotante`, `BotonBuscar`, `IndicadorEstado` | `Button`, `Kbd`, `Tooltip` | Encabezado sin barra: islas de 44 px. `IndicadorEstado`: un punto; crece con texto (atención o peligro) cuando hay que actuar; el estado siempre en el nombre accesible y en el globo |
+| `MenuCuenta` | `Popover` (por `PanelEmergente`), `Menu` (por `MenuEnLinea`), `Avatar` | La cuenta: isla con avatar, nombre y «rol · empresa»; dentro, los controles (disponibilidad, empresa, tema), las opciones, «Manual y atajos» y «Cerrar sesión» al final en rojo |
+| `MenuAcciones` | `Dropdown`, `Dropdown.Section`, `Separator`, `Kbd` | Menú `⋯`: frecuentes primero (por sección), peligrosas al final, separadas y en rojo; `permitida: false` la quita; sin acciones visibles no se dibuja. `gruposMenuAcciones` arma el orden |
+| `VistaRapida` | — (por `PanelLateral` sin telón) | Flota sobre la lista sin quitarle ancho: «Vista rápida», código, título, estados, contenido que se desplaza y acciones al pie |
+| `ListaFilas`, `FilaLista` | — (lista semántica `<ul>` con nombre; `Button` / `Link` de React Aria por fila) | Reemplazan a `Tabla`: cabecera (buscador, vistas, filtros), barra de selección, filas con casilla, ícono en su ficha de color, título y detalle, estados y menú `⋯`; pie con «Mostrando n de m» y «Cargar más». `ListBox` no sirve: las filas llevan casillas y menús |
+| `FranjaFicha` | `Card` (por `surface-card`) | Identidad (`<h1>`), estados, el «?», contadores, una acción principal y «Más», en una fila |
+| `PestanasSegmentadas` | `Tabs` (el `Tabs.Indicator` es la píldora que se desliza) | Riel de relleno con radio de 14 px, ícono + texto + contador (tono índigo, ámbar o rojo); `ancho` reparte las opciones; con `href`, cada pestaña tiene URL |
+| `CampoMoneda` | `NumberField` con `formatOptions` de moneda (GTQ) | Montos en quetzales (`Q150.00`) con − / + que dicen su paso («Sumar Q 25.00»); el formulario recibe el número como texto (`"150"`). Sirve con `register` (puente `control-nativo`) |
+| `AccionFija` | — (composición con `Boton`) | Barra fija abajo con el área segura: en el teléfono (`telefono`, en su lugar desde `lg`) o siempre (`siempre`, columna de la app de campo) |
+| `BotonManual`, `BotonManualPantalla`, `ProveedorManual` | `Link` de React Aria con las clases de `Button`, `Tooltip` | El «?»: enlace a `/manual/<clave>` (o `base="/campo/manual"`), nombre «Manual de esta pantalla», globo y cursor de ayuda. `esClaveManual` valida `modulo/pantalla`. `BotonManualPantalla` usa la clave del `ProveedorManual` (el marco la saca de la ruta) |
 
 `useCambiosSinGuardar(isDirty, isSubmitting)` sirve igual dentro de `DialogoProtegido` que dentro de
 `FormularioPagina`.
@@ -253,7 +315,7 @@ Reemplaza lo que dicen las fases 1 y 3 donde no coincida.
 
 - **Colores del diseño → tokens existentes** (sin colores nuevos): lienzo `bg-background-secondary`
   (`--hx-bg-muted`), bloques `bg-card` con `border-border` y `rounded-xl` (12 px), relleno tenue
-  `bg-elevated` (`--hx-bg-elevated`), marca `primary` (teal 700 / 400), estados `success`,
+  `bg-elevated` (`--hx-bg-elevated`), marca `primary` (índigo `#4F46E5` / `#818CF8`), estados `success`,
   `warning`, `error`, `info` con fondo al 10 %. Bloques con el componente `Bloque`
   (`componentes/bloque.tsx`).
 - **Barra lateral** (`lib/menu.ts`): la operación arriba sin título visible (Inicio, Tickets,
@@ -402,7 +464,7 @@ Diseño aprobado por el PM (combinación de las opciones A y B; `contratos/chat.
       (`GET /ordenes/{id}/conversacion`); si no existe, «Abrir el chat de la orden». A la derecha,
       «En este chat» (miembros con su motivo) y «Agregar persona» (`chat.supervisar`, diálogo de un
       campo).
-- **Se distingue de la bandeja de clientes:** burbujas propias en teal relleno; avatares cuadrados
+- **Se distingue de la bandeja de clientes:** burbujas propias en índigo relleno; avatares cuadrados
   con icono para cuadrillas y órdenes; la franja «Chat interno: el cliente no lo ve»; nombre y rol
   de quien escribe; «visto» (no «leído»).
 - **Insignias (§10):** número solo en directas y en menciones; una cuadrilla con mensajes nuevos es
@@ -510,7 +572,7 @@ Diseño aprobado por el PM («Asistente de IA», contrato `conversaciones.md` §
 envía:** sugiere y la persona revisa y envía.
 
 - **Tarjeta «Sugerencia del asistente»** encima del compositor, en escritorio y teléfono: icono
-  `Sparkles`, solo teal (sin morados), fondo de marca al 6 % sobre la tarjeta y borde de marca al
+  `Sparkles`, solo índigo (sin morados), fondo de marca al 6 % sobre la tarjeta y borde de marca al
   30 %. Lleva el texto, las fuentes como chips con icono + texto (Horus `WifiOff` en rojo, Argos
   `CircleCheck` en verde, manual `BookOpen`, historial `History`), «Usar» (primaria), «Otra» y, si
   viene, «Etiquetar «X»»; arriba a la derecha 👍/👎 (`ThumbsUp`/`ThumbsDown`, `aria-pressed`) y
@@ -522,7 +584,7 @@ envía:** sugiere y la persona revisa y envía.
 - **No tapa el hilo:** la cabecera de la tarjeta la pliega (`aria-expanded`) y el cuerpo se desplaza
   dentro (máx. 38 dvh), así en 390 px con el teclado abierto se sigue viendo el último mensaje. En el
   teléfono «Usar» y «Otra» van a medias y «Etiquetar» a lo ancho.
-- **Modo botón:** «Sugerir» (`Sparkles`, fantasma en teal) junto a «Enviar» en lugar de la tarjeta.
+- **Modo botón:** «Sugerir» (`Sparkles`, fantasma en índigo) junto a «Enviar» en lugar de la tarjeta.
   En pausa por el tope, una línea discreta y ningún botón.
 - **Ficha del cliente:** «Resumen del asistente» arriba de Resumen, a pedido («Resumir»), con
   `Cargando` «Generando resumen…» y error con «Reintentar».
@@ -624,18 +686,18 @@ Diseño «más amigable y práctico» del PM (contrato `conversaciones.md` §17 
   naranja, `neutro` gris. Un tono que el panel no conoce se ve gris.
 - **Bandeja:**
     - arriba de la lista, **filtros por categoría** con su cifra: «Todas» primero y la elegida en
-      teal con `CircleCheck` (`aria-pressed`). Es una tira que se desliza a lo ancho si no cabe. El
+      índigo con `CircleCheck` (`aria-pressed`). Es una tira que se desliza a lo ancho si no cabe. El
       filtro va en la URL (`?categoria=2`) y «Quitar filtros» del popover no lo borra. La tira solo
       aparece cuando alguna conversación ya tiene categoría (sin asistente no hay categorías);
     - cada fila suma una tercera línea con el **chip** y la **actividad del asistente** (`Sparkles`
-      en teal + el texto corto que escribe el servidor);
+      en índigo + el texto corto que escribe el servidor);
     - bajo la cabecera de la conversación, la categoría con **«Cambiar»** (menú corto; con
       `conversaciones.categorizar`) y aviso emergente al cambiarla. Si otra persona cambió la
       conversación (409), se relee y dice «Alguien la cambió; inténtalo de nuevo» (igual en «Tomar»). Sin categoría y con el asistente
       activo dice «Sin categoría · Poner categoría»; con el asistente apagado no aparece nada;
-    - **«El asistente está atendiendo»**: franja discreta en teal con `Sparkles` y el botón
+    - **«El asistente está atendiendo»**: franja discreta en índigo con `Sparkles` y el botón
       «Tomar» (la acción de tomar de siempre: al tomarla una persona, el asistente se detiene);
-    - los mensajes del asistente llevan la etiqueta **«Asistente»** con `Sparkles` en teal y borde
+    - los mensajes del asistente llevan la etiqueta **«Asistente»** con `Sparkles` en índigo y borde
       de marca (distintos de los de una persona y de «Bot · mensaje automático»); su nota al pasar
       a una persona es una nota interna que dice «Nota interna del asistente».
 - **Boletas en la ficha del cliente** (sección «Boletas de pago», arriba de «Creado desde aquí»):
@@ -703,7 +765,7 @@ Contrato: `.claude/integration/contratos/conversaciones.md` §17.8, §17.8.1 y �
   `numero`, y confirmar el cliente de una conversación resuelta no lo sube). Si el servidor no manda
   el campo no se muestra nada. En el teléfono el indicador ocupa el lugar del número (queda en la
   ficha).
-- **Relevo a una persona:** la nota interna del asistente lleva antes una píldora teal «El asistente
+- **Relevo a una persona:** la nota interna del asistente lleva antes una píldora índigo «El asistente
   la pasó a una persona · hora», y la franja de la conversación dice «El asistente la pasó a una
   persona: espera en la cola» con «Tomar» mientras nadie la tenga.
 - **Mensajes de sistema nuevos:** `reconexion_pedida` («Reconexión temporal: Argos la aceptó (la
@@ -1084,7 +1146,7 @@ de Argos donde se muestra o se elige:
   listas y resultados de búsqueda. Con varios servicios, el número («Servicio 2», el mismo del
   asistente).
 - **`ListaServicios`**: todos los servicios del cliente en una tarjeta; el de la conversación lleva
-  borde teal y «De esta conversación». **`SelectorServicio`**: `GrupoOpciones` con `apiladas` y
+  borde índigo y «De esta conversación». **`SelectorServicio`**: `GrupoOpciones` con `apiladas` y
   `contenido` (radios reales con la línea completa). **`NotaPermisosServicio`**: «Tu rol no ve…».
 - **Permisos.** El servidor omite la red sin `servicios.ver_red` y la ubicación sin
   `servicios.ver_ubicacion`; el componente muestra solo lo que llega y nunca escribe «Sin IP» (el
@@ -1260,15 +1322,38 @@ Reemplaza la barra inferior y la barra de estado de la fase 4; las reglas de arr
 - **Encabezado que no queda fijo:** fecha con el punto de conexión, «Hola, <nombre>», buscar y la
   cuenta, y en Hoy, Mañana y Semana los chips con su contador. Se va al bajar y vuelve como barra
   compacta al subir.
-- **Isla de menú flotante** (píldora centrada abajo, sólida): Hoy · Por recibir · «+» en teal ·
+- **Isla de menú flotante** (píldora centrada abajo, sólida): Hoy · Por recibir · «+» en índigo ·
   Agenda · Yo, zonas de 54 px (44 encogida al bajar). Lo que pide atención va como píldora encima
   («Sin conexión · 2 pendientes por enviar», un rechazo) y lleva a «Por enviar».
 - **«+»:** hoja de acciones rápidas con lo que tiene API (agregar formulario, con «Deshacer»); lo
   que no la tiene va deshabilitado con «Próximamente».
-- **Tarjetas de 28 px de radio, botones en píldora, avisos que entran desde arriba con su acción.**
-  Colores: los `--hx-*` y sus mezclas (`apps/web/app/campo/campo.css`, `coloresCampo` en la app
-  nativa); un solo teal.
+- **Botones en píldora, avisos que entran desde arriba con su acción.** (Radios y colores: ver «App
+  del técnico: rediseño».)
 - La lógica de pantalla es compartida: `@iris/sync/campo` `inicio.ts`.
+
+## App del técnico: rediseño (nov 2026, fase 1, web)
+
+Capturas aprobadas «campo-hoy» y «campo-orden». Solo cambia la presentación: la lógica y el motor
+de sincronización (`@iris/sync`) no cambian.
+
+- **Colores:** `campo.css` apunta sus variables a los `--iris-*`; lo elegido (día, botón de la isla)
+  va en índigo tenue y las acciones principales en índigo (`variante="primario"`; la «tinta» negra
+  de la versión anterior se fue con el rediseño). Tarjetas de 22 px de radio, sólidas.
+- **Encabezado:** fecha y, a la derecha, la nube y el GPS (discretos), el «?» del manual de la vista
+  (`/campo/manual/<pantalla>`, abre sin señal), el chat del equipo (con su punto de no leídos;
+  antes estaba en la isla) y buscar. Debajo, «Hola, <nombre>» y Hoy · Mañana · Semana como control
+  segmentado (riel de relleno, la elegida en una píldora blanca con texto índigo).
+- **Isla de menú** (píldora centrada abajo): Hoy · Por recibir · «+» (círculo índigo de 52 px) ·
+  Agenda · Yo, cada una con su ícono y su nombre; la activa en índigo tenue. «Por recibir» también
+  sigue en su mosaico de Hoy (con el contador leído).
+- **Tarjeta de la orden en curso:** borde índigo de 1,5 px, «Cómo llegar» (contorno) y la acción
+  principal («Empezar trabajo» / «Continuar trabajo») mitad y mitad, y «Llamar» redondo si hay
+  teléfono. El mosaico «Por recibir» con traslados pendientes va en índigo tenue.
+- **Orden:** la acción principal queda fija abajo (`AccionFija`, `data-slot="accion-fija-orden"`)
+  en lugar de la isla; «Volver» está arriba (un dato, una vez).
+- **Escritorio (1280 px):** una columna centrada de 480 px con bordes a los lados.
+- **App nativa (`apps/movil`):** sus tokens (`src/tema/tokens.ts`) toman los mismos colores; su isla
+  y sus pantallas no cambian en esta fase.
 
 ## Escáner de serie y MAC (igual en la web y en la app nativa)
 
@@ -1278,7 +1363,7 @@ veces un QR). El escáner nunca acepta en silencio el primero que ve:
 - **Por campo:** «Número de serie» y «MAC» llevan cada uno su botón (`ScanLine`, «Escanear número
   de serie» / «Escanear MAC», 44 px o más). El visor abre con su objetivo: «Escaneando: **Número de
   serie**» y «Apunta solo al código junto a S/N» (o «junto a MAC»).
-- **Visor:** la cámara se oscurece salvo un recuadro al centro con esquinas teal; solo cuentan los
+- **Visor:** la cámara se oscurece salvo un recuadro al centro con esquinas índigo; solo cuentan los
   códigos cuyo centro cae dentro (`bounds`/`cornerPoints` de expo-camera, `boundingBox` de
   `BarcodeDetector`; con ZXing, sin posición, cuentan todos). Debajo, «Detectados: N». Linterna si
   la cámara la tiene. Vibración corta con el primer código (`Vibration` en nativa,
@@ -1318,6 +1403,8 @@ Cada fase:
 | Voz E1 (hecha) | Llamadas de WhatsApp contestadas en el panel: recibir, contestar, barra en curso, nota, hilo, perdidas y ajustes | I3 |
 | Voz E1b (en revisión) | Llamar al cliente: permiso del contacto, «Llamar», «Devolver la llamada», límites y ajustes | I3 |
 | 6 · Portal de clientes | Mis casos, nuevo caso y conversación con el mismo estilo | I3 |
+| Rediseño 1 (esta PR) | Tokens `--iris-*` (índigo/cian), logo en degradado, piezas nuevas de `@iris/ui`, marco del panel (menú isla, encabezado sin barra, scroll por dentro, «?» del manual) y la app del técnico | rediseño |
+| Rediseño 2 | Las 11 tablas a `ListaFilas` (con `VistaRapida` y `MenuAcciones`) y las fichas a `FranjaFicha` + `PestanasSegmentadas` | rediseño |
 
 ## Uso rápido
 

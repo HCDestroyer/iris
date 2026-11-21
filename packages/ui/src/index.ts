@@ -172,7 +172,7 @@ export {
 export { estadoHeroui, iconoPorTono, type Tono } from "./componentes/tonos";
 // Rediseño (nov. 2026): marco del panel, listas, fichas y piezas nuevas.
 export { AccionFija, type PropsAccionFija } from "./componentes/accion-fija";
-export { BotonManual, esClaveManual, PATRON_CLAVE_MANUAL, rutaManual, type PropsBotonManual } from "./componentes/boton-manual";
+export { BotonManual, BotonManualPantalla, esClaveManual, PATRON_CLAVE_MANUAL, ProveedorManual, rutaManual, useClaveManual, type PropsBotonManual } from "./componentes/boton-manual";
 export { CampoMoneda, type PropsCampoMoneda } from "./componentes/campo-moneda";
 export {
     BotonBuscar,

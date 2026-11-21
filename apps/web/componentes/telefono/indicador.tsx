@@ -35,7 +35,7 @@ export function BotonTelefono() {
                 data-slot="boton-telefono"
                 data-estado={c.fase === "error" ? c.error.tipo : c.fase}
                 aria-label={`Teléfono: ${punto.texto}`}
-                className={cn("h-9 max-w-[9.5rem] gap-1.5 rounded-lg px-2.5", punto.tono === "danger" ? "text-error shadow-[0_0_0_1px_color-mix(in_oklab,var(--hx-error)_45%,transparent)]" : "text-warning shadow-[0_0_0_1px_color-mix(in_oklab,var(--hx-warning)_45%,transparent)]")}
+                className={cn("h-11 max-w-[9.5rem] gap-1.5 rounded-full bg-[var(--iris-tarjeta)] px-3.5 shadow-[var(--iris-sombra-flotante)]", punto.tono === "danger" ? "text-error shadow-[0_0_0_1px_color-mix(in_oklab,var(--hx-error)_45%,transparent)]" : "text-warning shadow-[0_0_0_1px_color-mix(in_oklab,var(--hx-warning)_45%,transparent)]")}
             >
                 <Icono />
                 <span className="truncate text-xs font-semibold">{punto.corto}</span>
@@ -47,7 +47,7 @@ export function BotonTelefono() {
                 data-slot="boton-telefono"
                 data-estado={c.fase}
                 aria-label={`Teléfono: ${punto.texto}`}
-                className="relative size-9 rounded-lg"
+                className="relative size-11 min-w-11 rounded-full border border-border bg-[var(--iris-tarjeta)] p-0 text-muted-foreground shadow-[var(--iris-sombra-flotante)] md:size-11 [&_svg]:size-[1.125rem]"
             >
                 <PhoneCall />
                 <span aria-hidden className={cn("absolute top-1.5 right-1.5 size-2 rounded-full ring-2 ring-card", punto.tono === "success" ? "bg-success" : "bg-[var(--hx-text-dim)]", c.fase === "conectando" && "motion-safe:animate-pulse")} />

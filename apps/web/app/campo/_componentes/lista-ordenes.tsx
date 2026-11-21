@@ -3,7 +3,7 @@
 import type { OrdenVista, RutaCampo } from "@iris/sync";
 import { accionPrincipal, anilloAvance, intercalarTareas, mosaicoPorRecibir, mosaicoRuta, nombreCliente, resumenHoy, tareasDelDia } from "@iris/sync/campo";
 import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, cn } from "@iris/ui";
-import { CalendarX, ChevronRight, Clock, CloudUpload, ListChecks, MapPin, Phone, Play, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react";
+import { CalendarX, ChevronRight, Clock, CloudUpload, MapPin, Navigation, Phone, Play, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { horaCorta, hoyEnGuatemala, ventanaCita } from "@/lib/campo/fechas";
 import { enlaceComoLlegar } from "@/lib/campo/gps";
@@ -88,7 +88,7 @@ export function ListaOrdenes({ carga, bajarPaquete }: { carga: CargaPaquete; baj
                     <EstadoVacio icono={CalendarX} titulo="No tienes órdenes para hoy" descripcion="Si despacho te asigna una, aparecerá aquí." />
                 )
             ) : (
-                <div role="region" aria-label="Órdenes del día" className="grid gap-4">
+                <div role="region" aria-label="Órdenes del día" className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
                     {siguiente ? <SiguienteOrden orden={siguiente} posicion={posicion(siguiente)} parada={paradaDe(estado.ruta, siguiente.id)} /> : null}
                     <Mosaicos />
                     {entradas.length > 0 ? (
@@ -190,12 +190,12 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
     const principalAccion = accionPrincipal(orden);
     const llamar = telefonoDe(orden);
     const comoLlegar = enlaceComoLlegar(orden.lat ?? orden.cliente?.lat ?? null, orden.lon ?? orden.cliente?.lon ?? null, orden.direccion);
-    const IconoAccion = principalAccion.texto === "Empezar trabajo" ? Play : principalAccion.texto === "Continuar trabajo" ? ListChecks : ChevronRight;
+    const IconoAccion = principalAccion.texto === "Ver orden" ? ChevronRight : Play;
     return (
         <section
             aria-label="Siguiente orden"
             data-slot="siguiente-orden"
-            className="grid gap-3.5 rounded-[1.75rem] border border-[var(--campo-heroe-borde)] bg-[var(--campo-heroe)] p-[1.125rem] shadow-[var(--campo-sombra)]"
+            className="grid min-w-0 gap-3 rounded-[var(--iris-radio-isla-grande)] border-[1.5px] border-[var(--campo-heroe-borde)] bg-[var(--campo-heroe)] px-4 py-3.5 shadow-[var(--campo-sombra)]"
         >
             <a
                 href={urlDeVista({ tipo: "orden", id: orden.id })}
@@ -232,19 +232,20 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
                     {orden.estado !== "pendiente" ? <AnilloAvance fraccion={anillo.fraccion} texto={anillo.texto} etiqueta={anillo.etiqueta} /> : null}
                 </span>
             </a>
-            <div className="flex gap-2.5">
-                {/* La acción principal en «tinta», como en la orden (decisión del PM). */}
-                <Boton variante="tinta" tamano="lg" className="h-[3.25rem] flex-1 rounded-full text-[0.9375rem]" onClick={() => navegar(principalAccion.vista)}>
-                    <IconoAccion aria-hidden />
-                    {principalAccion.texto}
-                </Boton>
+            <div className={cn("grid gap-2", llamar ? "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]" : "grid-cols-[minmax(0,1fr)_minmax(0,1fr)]")}>
+                {/* Rediseño: «Cómo llegar» (contorno) y la acción principal en índigo, mitad y mitad. */}
                 {comoLlegar ? (
-                    <BotonRedondo etiqueta="Cómo llegar">
-                        <a href={comoLlegar} target="_blank" rel="noopener noreferrer">
-                            <Route aria-hidden />
+                    <Boton asChild variante="contorno" className="h-11 w-full min-w-0 rounded-full text-[0.9375rem] font-semibold">
+                        <a href={comoLlegar} target="_blank" rel="noopener noreferrer" aria-label="Cómo llegar">
+                            <Navigation aria-hidden />
+                            <span className="truncate">Cómo llegar</span>
                         </a>
-                    </BotonRedondo>
+                    </Boton>
                 ) : null}
+                <Boton variante="primario" className={cn("h-11 w-full min-w-0 rounded-full text-[0.9375rem] font-semibold", !comoLlegar && "col-span-2")} onClick={() => navegar(principalAccion.vista)}>
+                    <IconoAccion aria-hidden />
+                    <span className="truncate">{principalAccion.texto}</span>
+                </Boton>
                 {llamar ? (
                     <BotonRedondo etiqueta="Llamar al cliente">
                         <a href={llamar}>
@@ -259,7 +260,7 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
 
 function BotonRedondo({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
     return (
-        <Boton asChild variante="secundario" aria-label={etiqueta} title={etiqueta} className="size-[3.25rem] shrink-0 rounded-full bg-[var(--campo-panel-2)] p-0 md:size-[3.25rem] [&_svg]:size-5">
+        <Boton asChild variante="secundario" aria-label={etiqueta} title={etiqueta} className="size-11 shrink-0 rounded-full bg-[var(--campo-panel-2)] p-0 md:size-11 [&_svg]:size-5">
             {children}
         </Boton>
     );
@@ -296,7 +297,7 @@ function Mosaicos() {
     }
     return (
         <section aria-label="Resumen del día" className="grid grid-cols-2 gap-2.5">
-            <div className="grid content-start gap-1.5 rounded-[1.375rem] border border-border bg-[var(--campo-panel)] p-3.5" data-slot="mosaico-ruta">
+            <div className="grid content-start gap-1.5 rounded-[var(--iris-radio-isla-grande)] border border-border bg-[var(--campo-panel)] p-3.5 shadow-[var(--campo-sombra)]" data-slot="mosaico-ruta">
                 <span className="text-[0.8125rem] text-muted-foreground">Ruta de hoy</span>
                 <span className="text-2xl font-bold tracking-[-0.02em]">{ruta.valor}</span>
                 <span className="text-xs font-medium text-muted-foreground">{ruta.detalle}</span>
@@ -309,8 +310,8 @@ function Mosaicos() {
                 }}
                 data-slot="mosaico-recibir"
                 className={cn(
-                    "grid content-start gap-1.5 rounded-[1.375rem] border p-3.5 focus-visible:outline-2 focus-visible:outline-offset-2",
-                    recibir && recibir.cantidad > 0 ? "border-[var(--campo-aviso-borde)] bg-[var(--campo-aviso-fondo)] text-warning" : "border-border bg-[var(--campo-panel)]",
+                    "grid content-start gap-1.5 rounded-[var(--iris-radio-isla-grande)] border p-3.5 focus-visible:outline-2 focus-visible:outline-offset-2",
+                    recibir && recibir.cantidad > 0 ? "border-transparent bg-primario-suave text-primario-texto" : "border-border bg-[var(--campo-panel)]",
                 )}
             >
                 <span className="text-[0.8125rem]">Por recibir</span>
@@ -341,9 +342,9 @@ function FilaOrden({ orden, posicion, parada = null }: { orden: OrdenVista; posi
                 href={urlDeVista({ tipo: "orden", id: orden.id })}
                 onClick={abrir}
                 aria-label={`${orden.numero}, ${nombre}`}
-                className="flex items-center gap-3 rounded-[1.375rem] border border-border bg-[var(--campo-panel)] p-3 transition-colors hover:bg-[var(--campo-panel-2)] focus-visible:outline-2 focus-visible:outline-offset-2"
+                className="flex items-center gap-3 rounded-[var(--iris-radio-isla-grande)] border border-border bg-[var(--campo-panel)] px-4 py-3.5 shadow-[var(--campo-sombra)] transition-colors hover:bg-[var(--campo-panel-2)] focus-visible:outline-2 focus-visible:outline-offset-2"
             >
-                <span className="relative grid size-[3.25rem] shrink-0 place-content-center rounded-2xl bg-[var(--campo-panel-2)] text-[0.9375rem] font-bold tabular-nums">
+                <span className="relative grid size-[3.25rem] shrink-0 place-content-center rounded-[14px] bg-[var(--campo-panel-2)] text-[0.9375rem] font-bold tabular-nums">
                     {hora ?? "—"}
                     {posicion !== null ? (
                         <span aria-label={`Parada ${posicion}`} className="absolute -top-1.5 -left-1.5 grid size-5 place-content-center rounded-full bg-primary text-[0.6875rem] font-semibold text-primary-foreground">

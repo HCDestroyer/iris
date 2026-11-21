@@ -104,8 +104,8 @@ test("Hoy: la siguiente orden en grande, mosaicos con datos reales y «Después�
     // Mosaicos: con el paquete y los traslados leídos (2 enviados).
     await expect(page.locator('[data-slot="mosaico-ruta"]')).toContainText("3 órdenes");
     await expect(page.locator('[data-slot="mosaico-recibir"]')).toContainText("2 traslados");
-    // «Por recibir» ya no está en la isla: el mosaico lleva su contador.
-    await expect(isla(page).getByRole("link", { name: /Por recibir/ })).toHaveCount(0);
+    // Rediseño: «Por recibir» también está en la isla (el contador va en el mosaico).
+    await expect(isla(page).getByRole("link", { name: "Por recibir" })).toBeVisible();
     const despues = page.getByRole("list", { name: "Después" }).getByRole("link");
     await expect(despues).toHaveCount(2);
     await expect(despues.nth(0)).toContainText("OT-000101");
@@ -245,7 +245,7 @@ for (const [franja, instante] of [
     });
 }
 
-test("pasos: chips, tarjetas de 28 px, − / + en materiales y el aviso desde arriba", async ({ page }, info) => {
+test("pasos: chips, tarjetas de 22 px, − / + en materiales y el aviso desde arriba", async ({ page }, info) => {
     await simularApiCampo(page, { ordenes: conUnaEnSitio() });
     await page.goto("/campo?orden=102&paso=materiales");
     await expect(page.getByRole("heading", { level: 1, name: "Materiales y equipos" })).toBeVisible();
@@ -256,7 +256,8 @@ test("pasos: chips, tarjetas de 28 px, − / + en materiales y el aviso desde ar
     await expect(isla(page)).toHaveCount(0);
     await expect(page.getByRole("navigation", { name: "Pasos", exact: true }).getByRole("button", { name: "Siguiente: fotos" })).toBeVisible();
     const radio = await page.locator('[data-slot="tarjeta"]').first().evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
-    expect(radio).toBe("28px");
+    // Rediseño: las tarjetas de la app de campo van con el radio de isla grande (22 px).
+    expect(radio).toBe("22px");
 
     await elegirMaterial(page, "Cable drop 1 hilo");
     // Al elegir queda en 1; − / + suman o restan desde ahí.

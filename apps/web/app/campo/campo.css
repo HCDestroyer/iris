@@ -1,55 +1,41 @@
 /*
- * App de campo con el diseño «combinada» (nov 2026): los dos temas de C-Hoy llevados a los tokens
- * de Horus. Nada de colores nuevos: cada variable sale de un `--hx-*` (o de una mezcla de dos), así
- * el teal sigue siendo uno solo (claro #0f766e, oscuro #2dd4bf) y el modo oscuro sigue al teléfono.
- * Solo vale dentro de `.campo-app` (el panel no cambia).
+ * App de campo con el rediseño (nov 2026, capturas «campo-hoy» y «campo-orden»): cada variable sale
+ * de un `--iris-*` (índigo #4F46E5, #818CF8 en oscuro). Nada de colores nuevos; el modo oscuro
+ * sigue al teléfono. Solo vale dentro de `.campo-app` y de sus hojas (`.campo-hoja`).
  */
 .campo-app {
-    /* Lienzo apenas teñido de la marca; tarjetas blancas; relleno de botones redondos. */
-    --campo-lienzo: color-mix(in srgb, var(--hx-primary) 4%, var(--hx-bg-elevated));
-    --campo-panel: var(--hx-bg);
-    --campo-panel-2: color-mix(in srgb, var(--hx-primary) 4%, var(--hx-bg-elevated));
-    --campo-heroe: var(--hx-bg);
-    --campo-heroe-borde: var(--hx-border);
-    /* Lo elegido (chip, botón de la isla): tinta del texto con el fondo del tema encima. */
-    --campo-tinta: var(--hx-text);
-    --campo-sobre-tinta: var(--hx-bg);
+    /* Lienzo del rediseño; tarjetas blancas (azul noche en oscuro); relleno de botones redondos. */
+    --campo-lienzo: var(--iris-fondo);
+    --campo-panel: var(--iris-tarjeta);
+    --campo-panel-2: var(--iris-relleno);
+    /* La orden en curso: tarjeta con borde índigo. */
+    --campo-heroe: var(--iris-tarjeta);
+    --campo-heroe-borde: var(--iris-primario);
+    /* Lo elegido (día, botón de la isla): índigo tenue con texto índigo. */
+    --campo-tinta: var(--iris-primario-suave);
+    --campo-sobre-tinta: var(--iris-primario-texto);
     /* Marca suave: pasos listos, «En sitio». */
-    --campo-marca-suave: color-mix(in srgb, var(--hx-primary) 18%, var(--hx-bg));
-    --campo-marca-suave-texto: var(--hx-primary-hover);
-    /* Aviso e info: el 10 % del tono sobre el fondo, borde al 30 % (como `Aviso`). */
-    --campo-aviso-fondo: color-mix(in srgb, var(--hx-warning) 10%, var(--hx-bg));
-    --campo-aviso-borde: color-mix(in srgb, var(--hx-warning) 30%, var(--hx-bg));
-    --campo-info-fondo: color-mix(in srgb, var(--hx-info) 10%, var(--hx-bg));
-    --campo-info-borde: color-mix(in srgb, var(--hx-info) 30%, var(--hx-bg));
-    --campo-error-fondo: color-mix(in srgb, var(--hx-error) 10%, var(--hx-bg));
-    --campo-error-borde: color-mix(in srgb, var(--hx-error) 30%, var(--hx-bg));
-    --campo-anillo: var(--hx-border);
-    --campo-isla: var(--hx-bg);
-    --campo-sombra: 0 10px 30px color-mix(in srgb, var(--hx-text) 7%, transparent);
-    --campo-sombra-isla: 0 16px 36px color-mix(in srgb, var(--hx-text) 16%, transparent);
+    --campo-marca-suave: var(--iris-primario-suave);
+    --campo-marca-suave-texto: var(--iris-primario-texto);
+    /* Aviso, info y error: el fondo del estado y un borde al 30 %. */
+    --campo-aviso-fondo: var(--iris-atencion-fondo);
+    --campo-aviso-borde: color-mix(in srgb, var(--iris-atencion) 30%, transparent);
+    --campo-info-fondo: var(--iris-info-fondo);
+    --campo-info-borde: color-mix(in srgb, var(--iris-info) 30%, transparent);
+    --campo-error-fondo: var(--iris-peligro-fondo);
+    --campo-error-borde: color-mix(in srgb, var(--iris-peligro) 30%, transparent);
+    --campo-anillo: var(--iris-relleno);
+    --campo-isla: var(--iris-tarjeta);
+    --campo-sombra: var(--iris-sombra-tarjeta);
+    --campo-sombra-isla: var(--iris-sombra-flotante);
 
-    /* Tarjetas de 28 px de radio y sólidas (lo flotante ya es sólido en Iris). */
-    --hx-radius-card: 1.75rem;
-    --radius-card: 1.75rem;
-    --hx-card: var(--campo-panel);
+    /* Tarjetas de 22 px de radio y sólidas (rediseño). */
+    --iris-radio-tarjeta: var(--iris-radio-isla-grande);
+    --hx-radius-card: var(--iris-radio-isla-grande);
+    --radius-card: var(--iris-radio-isla-grande);
 
     background: var(--campo-lienzo);
-    color: var(--hx-text);
-}
-
-.dark .campo-app,
-[data-theme='dark'] .campo-app {
-    --campo-lienzo: var(--hx-bg);
-    --campo-panel: var(--hx-bg-muted);
-    --campo-panel-2: var(--hx-bg-elevated);
-    --campo-heroe: color-mix(in srgb, var(--hx-primary) 7%, var(--hx-bg));
-    --campo-heroe-borde: color-mix(in srgb, var(--hx-primary) 22%, var(--hx-bg));
-    --campo-marca-suave: color-mix(in srgb, var(--hx-primary) 14%, var(--hx-bg));
-    --campo-marca-suave-texto: var(--hx-primary);
-    --campo-isla: var(--hx-bg-elevated);
-    --campo-sombra: 0 10px 30px rgb(0 0 0 / 0.35);
-    --campo-sombra-isla: 0 16px 36px rgb(0 0 0 / 0.55);
+    color: var(--iris-texto);
 }
 
 /*
@@ -57,16 +43,10 @@
  * variables que usan sus botones y sus cuadros (`campo-hoja`), sin el lienzo ni el color.
  */
 .campo-hoja {
-    --campo-panel: var(--hx-bg);
-    --campo-panel-2: color-mix(in srgb, var(--hx-primary) 4%, var(--hx-bg-elevated));
-    --campo-tinta: var(--hx-text);
-    --campo-sobre-tinta: var(--hx-bg);
-}
-
-.dark .campo-hoja,
-[data-theme='dark'] .campo-hoja {
-    --campo-panel: var(--hx-bg-muted);
-    --campo-panel-2: var(--hx-bg-elevated);
+    --campo-panel: var(--iris-tarjeta);
+    --campo-panel-2: var(--iris-relleno);
+    --campo-tinta: var(--iris-primario-suave);
+    --campo-sobre-tinta: var(--iris-primario-texto);
 }
 
 /*
@@ -147,29 +127,30 @@ html:has(.campo-app) {
 }
 
 /*
- * Barra segmentada Hoy · Mañana · Semana del encabezado (opción elegida por el PM): el
- * `GrupoSegmentado` de @iris/ui a lo ancho, en píldora, con 44 px de alto y la elegida en la tinta
- * del texto (como el botón activo de la isla).
+ * Hoy · Mañana · Semana (rediseño): el `GrupoSegmentado` de @iris/ui a lo ancho, como control
+ * segmentado: riel de relleno con 14 px de radio y la elegida en una píldora de tarjeta con el texto
+ * índigo.
  */
 .campo-app .campo-dias {
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
     width: 100%;
-    gap: 0.25rem;
+    gap: 0.125rem;
     padding: 0.25rem;
-    border-radius: 999px;
-    border: 1px solid var(--hx-border);
-    background: var(--campo-panel);
+    border-radius: 14px;
+    border: 0;
+    background: var(--iris-relleno);
 }
 .campo-app .campo-dias > button {
     height: 2.75rem;
-    border-radius: 999px;
-    font-size: 0.9375rem;
-    color: var(--hx-text);
+    border-radius: 10px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--iris-texto-tenue);
 }
 .campo-app .campo-dias > button[data-selected] {
-    background: var(--campo-tinta);
-    color: var(--campo-sobre-tinta);
-    box-shadow: none;
+    background: var(--iris-tarjeta);
+    color: var(--iris-primario-texto);
+    box-shadow: 0 1px 3px rgb(15 23 42 / 0.12);
 }

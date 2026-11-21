@@ -13,7 +13,7 @@ test.beforeEach(async ({ context, baseURL }) => {
     await conSesion(context, baseURL ?? "", ADMIN.correo);
 });
 
-test("menú agrupado; en escritorio se contrae a íconos (con globo) y lo recuerda; en el teléfono hay barra inferior", async ({ page }) => {
+test("menú isla agrupado; en escritorio se compacta a ícono y nombre corto y lo recuerda; en el teléfono hay isla inferior", async ({ page }) => {
     await simularApi(page);
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Hola, Ana" })).toBeVisible();
@@ -37,24 +37,36 @@ test("menú agrupado; en escritorio se contrae a íconos (con globo) y lo recuer
     await expect(nav.getByRole("link", { name: "Inicio" })).toHaveAttribute("aria-current", "page");
     await expect(barraInferior(page)).toBeHidden();
 
+    // La isla flota a 16 px de los bordes; expandida mide 248 px.
+    const barra = page.getByRole("complementary", { name: "Barra lateral" });
+    const caja = await barra.boundingBox();
+    expect(caja?.x).toBe(16);
+    expect(caja?.y).toBe(16);
+    expect(caja?.width).toBe(248);
+    // El botón ‹ › de 28 px va sobre el borde derecho, a la altura del logo.
     const contraer = page.getByRole("button", { name: "Contraer menú" });
     await expect(contraer).toHaveAttribute("aria-expanded", "true");
+    const boton = await contraer.boundingBox();
+    expect(boton?.width).toBe(28);
+    expect(Math.round((boton?.x ?? 0) + 14)).toBe(16 + 248);
     await contraer.click();
-    const barra = page.getByRole("complementary", { name: "Barra lateral" });
     await expect(barra).toHaveAttribute("data-contraida", "true");
-    // Solo íconos: el nombre sigue para lectores de pantalla y aparece en un globo.
-    const tickets = menu(page).getByRole("link", { name: "Tickets" });
+    // Compacta (80 px): ícono y nombre corto; el contador va en el nombre accesible.
+    const tickets = menu(page).getByRole("link", { name: /^Tickets/ });
     await expect(tickets).toBeVisible();
-    expect((await barra.boundingBox())?.width).toBeLessThan(80);
-    await tickets.hover();
-    await expect(page.getByRole("tooltip")).toHaveText("Tickets");
+    await expect(tickets).toContainText("Tickets");
+    expect((await barra.boundingBox())?.width).toBe(80);
+    // El botón queda en el mismo lugar respecto al borde de la isla.
+    const botonCompacta = await page.getByRole("button", { name: "Expandir menú" }).boundingBox();
+    expect(Math.round((botonCompacta?.x ?? 0) + 14)).toBe(16 + 80);
+    expect(botonCompacta?.y).toBe(boton?.y);
 
     // La preferencia se queda en este navegador.
     await page.reload();
     await expect(page.getByRole("complementary", { name: "Barra lateral" })).toHaveAttribute("data-contraida", "true");
     await page.getByRole("button", { name: "Expandir menú" }).click();
     await expect(page.getByRole("complementary", { name: "Barra lateral" })).not.toHaveAttribute("data-contraida", "true");
-    await expect(menu(page).getByRole("link", { name: "Tickets" })).toContainText("Tickets");
+    await expect(menu(page).getByRole("link", { name: /^Tickets/ })).toContainText("Tickets");
 });
 
 test("migas en cada pantalla: sección, ficha con su número y regreso; en el teléfono solo «‹ anterior»", async ({ page }) => {

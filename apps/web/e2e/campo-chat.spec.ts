@@ -50,10 +50,10 @@ async function escribir(page: Page, texto: string) {
     await page.getByRole("button", { name: "Enviar" }).click();
 }
 
-test("«Chat» de la isla lleva a la lista con los no leídos, vista previa, hora y contador", async ({ page }) => {
+test("«Chat» del encabezado lleva a la lista con los no leídos, vista previa, hora y contador", async ({ page }) => {
     await montar(page);
     await page.goto("/campo");
-    const entrada = page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: "Chat (3 sin leer)" });
+    const entrada = page.locator('[data-slot="encabezado-campo"]').getByRole("button", { name: "Chat (3 sin leer)" });
     await expect(entrada).toBeVisible();
     await entrada.click();
     await expect(page.getByRole("heading", { level: 1, name: "Chat del equipo" })).toBeVisible();
@@ -63,8 +63,9 @@ test("«Chat» de la isla lleva a la lista con los no leídos, vista previa, hor
     await expect(page.getByRole("link", { name: `${LUIS.nombre}, 1 sin leer` })).toContainText("¿Tienes conectores SC/APC?");
     // Los hilos de las órdenes del día se abren solos (idempotente): aparecen aunque no tengan mensajes.
     await expect(page.getByRole("link", { name: "OT-000101" })).toContainText("Sin mensajes todavía");
-    // La isla no cambia mientras el PM decide (sigue con sus cuatro secciones y el «+»).
+    // La isla sigue con sus cuatro secciones y el «+»; el chat queda marcado arriba.
     await expect(page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: "Agenda" })).toBeVisible();
+    await expect(page.locator('[data-slot="encabezado-campo"] [data-slot="boton-chat"]')).toHaveAttribute("aria-current", "page");
 });
 
 test("la lista llena no se corta: margen de 18 px a cada lado y sin hueco bajo el encabezado", async ({ page }) => {

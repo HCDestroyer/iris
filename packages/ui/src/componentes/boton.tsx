@@ -143,5 +143,7 @@ export function Boton({ className, variante, tamano, asChild = false, type, disa
  * popover, globo); el resto (enlaces, `asChild`) se envuelve con `Pressable` o `Focusable`.
  */
 export function esBotonAria(elemento: ReactElement): boolean {
-    return isValidElement<PropsBoton>(elemento) && elemento.type === Boton && !elemento.props.asChild;
+    if (!isValidElement<PropsBoton>(elemento) || elemento.props.asChild) return false;
+    // Los envoltorios de `Boton` (p. ej. `BotonFlotante`) se marcan con `esBotonAria`.
+    return elemento.type === Boton || (elemento.type as { esBotonAria?: boolean }).esBotonAria === true;
 }
