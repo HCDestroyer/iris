@@ -500,7 +500,7 @@ func TestTelefonoLlamarReglas(t *testing.T) {
 	b.sql(`UPDATE mensajeria.centralitas SET llamadas_simultaneas = 100, llamadas_por_usuario_dia = 2 WHERE id = $1`, b.id)
 	b.exigirProblema(b.api(b.agente, http.MethodPost, "/telefono/llamar", map[string]any{"numero": "33335555"}), http.StatusUnprocessableEntity, "limite_llamadas")
 	// Las marcaciones sin INVITE en 60 s quedan fallidas (y siguen contando para el día).
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	b.sql(`UPDATE mensajeria.centralitas SET llamadas_por_usuario_dia = 300 WHERE id = $1`, b.id)
 	b.exigir(b.api(b.agente, http.MethodPost, "/telefono/llamar", map[string]any{"numero": "33335555"}), http.StatusCreated)
 	var fallidas int

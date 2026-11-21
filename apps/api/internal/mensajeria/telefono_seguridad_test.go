@@ -61,7 +61,7 @@ func TestTelefonoAbrirConLimiteYTURNEstable(t *testing.T) {
 			t.Fatalf("usuario TURN distinto en la misma ventana: %v", usuarios)
 		}
 	}
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	b.exigir(b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"}), http.StatusCreated)
 }
 
@@ -203,7 +203,7 @@ func TestTelefonoAbrirEnParaleloYTopePorEmpresa(t *testing.T) {
 	if abiertos != 6 {
 		t.Fatalf("en paralelo se abrieron %d (tope 6 por persona)", abiertos)
 	}
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	b.exigir(b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"}), http.StatusCreated)
 	// Otros 119 de la misma empresa en el mismo minuto (de otra persona): el agente ya no abre.
 	b.sql(`INSERT INTO mensajeria.telefono_tickets (hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en)
