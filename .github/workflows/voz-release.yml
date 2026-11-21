@@ -1,14 +1,16 @@
 # Publica una versión de «Iris Voz» (Servidor de IA, contrato voz.md §4.7). Versión propia,
 # independiente de la de Iris: se publica al empujar una etiqueta voz-vX.Y.Z (protegida: solo quien
-# puede publicar puede crearla), que debe coincidir con infra/voz/manifiesto.json.
+# puede publicar puede crearla), que debe coincidir con infra/voz/manifiesto.json y estar en main.
+# La etiqueta la crea sola voz-etiqueta.yml (con una GitHub App, cuyo push sí dispara este workflow)
+# cuando sube `version` en el manifiesto en main; también se puede crear a mano.
 #
 # Tres jobs con los permisos mínimos de cada uno:
 #
 # 1. construir (packages: write): comprueba los archivos, construye y publica la imagen
 #    ghcr.io/<dueño>/iris-voz:X.Y.Z y arma el paquete con la imagen fijada por digest.
-#    Antes, el job `entorno` comprueba que el entorno `voz-release` existe y exige revisores: si
-#    no, nada se construye ni se firma (GitHub crearía el entorno vacío y los jobs correrían sin
-#    aprobación).
+#    Antes, el job `entorno` comprueba que el commit de la etiqueta está en main y que el entorno
+#    `voz-release` existe y exige revisores: si no, nada se construye ni se firma (GitHub crearía el
+#    entorno vacío y los jobs correrían sin aprobación).
 # 2. firmar (id-token: write, nada más; entorno `voz-release`, con aprobación): firma el paquete, el instalador y el manifiesto con cosign
 #    SIN CLAVE. La identidad es este workflow en esta etiqueta (OIDC de GitHub Actions); no hay claves
 #    ni secretos que guardar. No hace checkout ni ejecuta nada del repositorio: baja cosign fijado
@@ -40,13 +42,29 @@ concurrency:
 
 jobs:
   entorno:
-    name: El entorno de publicación exige aprobación
+    name: Etiqueta en main y entorno con aprobación
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       actions: read
       contents: read
     steps:
+      - name: El commit de la etiqueta está en main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Solo se publica lo que ya pasó por main (revisión y CI), nunca un commit de otra rama.
+          # Evita errores honestos (una etiqueta hecha a mano en otra rama); NO es una barrera de
+          # seguridad: esta comprobación vive en el mismo archivo que corre en la etiqueta. La barrera
+          # es la regla de etiquetas voz-v* y que la llave de la App solo esté en el entorno
+          # voz-etiqueta (docs/runbooks/servidor-ia.md §8).
+          estado="$(gh api "repos/$GITHUB_REPOSITORY/compare/main...$GITHUB_SHA" --jq .status)" ||
+            { echo "::error::no se pudo comparar $GITHUB_SHA con main"; exit 1; }
+          case "$estado" in
+            identical | behind) ;;
+            *) echo "::error::el commit $GITHUB_SHA de $GITHUB_REF_NAME no está en main ($estado)"; exit 1 ;;
+          esac
+
       - name: Comprobar el entorno voz-release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
