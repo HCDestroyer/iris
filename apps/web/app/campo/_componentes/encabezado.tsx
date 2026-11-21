@@ -32,10 +32,10 @@ export const EncabezadoCampo = forwardRef<HTMLElement, { empresa?: string | unde
     return (
         <header ref={ref} data-slot="encabezado-campo" className="grid grid-cols-[minmax(0,1fr)] gap-3 px-[1.125rem] pt-[calc(env(safe-area-inset-top)+1rem)] pb-1">
             <div className="flex items-center justify-between gap-2">
-                {/* Menos de 390 px: «Sáb 21 nov» (cabe sin cortarse); desde 390 px, la fecha larga. */}
+                {/* En el teléfono (menos de 640 px), siempre «Sáb 21 nov»: cabe con cualquier fuente. La larga, en pantallas anchas. */}
                 <p data-slot="fecha-encabezado" className="min-w-0 truncate text-[0.8125rem] font-medium text-[var(--iris-texto-apagado)]">
-                    <span className="min-[390px]:hidden">{fechaEncabezadoCorta()}</span>
-                    <span className="hidden min-[390px]:inline">{fechaEncabezado()}</span>
+                    <span className="sm:hidden">{fechaEncabezadoCorta()}</span>
+                    <span className="hidden sm:inline">{fechaEncabezado()}</span>
                 </p>
                 <BotonesCuenta pedirEmpresa={pedirEmpresa} />
             </div>

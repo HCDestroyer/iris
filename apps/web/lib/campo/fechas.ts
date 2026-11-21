@@ -4,7 +4,7 @@ export { diaLargo, duracionCorta, horaCorta, hoyEnGuatemala, ventanaCita } from 
 const corta = new Intl.DateTimeFormat("es-GT", { timeZone: "America/Guatemala", weekday: "short", day: "numeric", month: "short" });
 
 /**
- * Fecha corta del encabezado de la app en pantallas angostas (menos de 390 px): «Sáb 21 nov».
+ * Fecha corta del encabezado de la app en pantallas angostas (menos de 640 px): «Sáb 21 nov».
  * La larga («Sábado 21 de noviembre») es `fechaEncabezado` de `@iris/sync/campo`.
  */
 export function fechaEncabezadoCorta(ms = Date.now()): string {

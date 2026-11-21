@@ -13,6 +13,24 @@ import { esTelefono } from "./ayudas";
 
 const carpeta = process.env.IRIS_CAPTURAS_REDISENO;
 
+/*
+ * Con IRIS_FUENTE_PRUEBA=<familia> (p. ej. «DejaVu Sans», la fuente de CI, más ancha) toda la página
+ * usa esa fuente: así se revisa en local que nada se corta con la fuente de CI.
+ */
+const fuente = process.env.IRIS_FUENTE_PRUEBA;
+test.beforeEach(async ({ page }) => {
+    if (!fuente) return;
+    await page.addInitScript((familia) => {
+        const poner = () => {
+            const estilo = document.createElement("style");
+            estilo.textContent = `*, *::before, *::after { font-family: "${familia}" !important; }`;
+            document.head.append(estilo);
+        };
+        if (document.head) poner();
+        else document.addEventListener("DOMContentLoaded", poner);
+    }, fuente);
+});
+
 async function capturar(page: Page, info: TestInfo, que: string) {
     if (!carpeta) return;
     const tema = info.project.name.split("-")[1];
@@ -145,10 +163,10 @@ test.describe("app del técnico", () => {
             await expect(acciones.getByRole("button", { name: "Empezar trabajo" })).toHaveText("Empezar trabajo");
             await expect(acciones.getByRole("link", { name: "Cómo llegar" })).toBeVisible();
             expect(await botonesCortados(page, ".campo-app")).toEqual([]);
-            // La fecha del encabezado no se corta: corta («Sáb 21 nov») a 360 px, larga desde 390 px.
+            // La fecha del encabezado no se corta: en el teléfono siempre la corta («Sáb 21 nov»).
             const fecha = page.locator('[data-slot="encabezado-campo"] [data-slot="fecha-encabezado"]');
             expect(await fecha.evaluate((e) => e.scrollWidth <= e.clientWidth)).toBe(true);
-            if (esTelefono(page)) await expect(fecha.locator("span").filter({ visible: true })).toHaveText(ancho < 390 ? /^\p{Lu}\p{Ll}{2} \d{1,2} \p{Ll}{3}$/u : / de /);
+            if (esTelefono(page)) await expect(fecha.locator("span").filter({ visible: true })).toHaveText(/^\p{Lu}\p{Ll}{2} \d{1,2} \p{Ll}{3}$/u);
             if (ancho === 360) await capturar(page, info, "campo-hoy");
         }
         if (esTelefono(page)) await page.setViewportSize({ width: 390, height: 844 });
