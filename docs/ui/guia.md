@@ -384,7 +384,11 @@ Diseño aprobado por el PM (combinación de las opciones A y B; `contratos/chat.
   plazo de 15 min (menos 10 s) se revisa al pedir y al salir. Solo se resaltan las menciones que trae
   el mensaje, y la foto se pide siempre por la ruta armada con su id (`rutaDescargaAdjunto`).
 - **Orden cerrada, fallida o cancelada:** solo lectura (`solo_lectura`), con el motivo en lugar del
-  compositor y sin «Agregar persona».
+  compositor y sin «Agregar persona». En la app de campo (PWA y nativa), en lugar del compositor va
+  un `Aviso` informativo con candado (`Lock`): «Orden cerrada: ya no se pueden enviar mensajes»
+  (o «fallida»/«cancelada», de `textoSoloLectura`), y la fila de la lista dice «Cerrada ·». Si la
+  orden se cerró mientras escribía, la burbuja queda «no enviado» con el motivo en llano
+  (`motivoNoEnviado`) y solo «Descartar» (sin «Reintentar» mientras siga cerrada).
 - **Foto y ubicación:** en escritorio, deshabilitadas («Foto y ubicación, desde la app de campo»);
   en el ancho del teléfono, habilitadas (cámara del navegador y geolocalización, por la cola).
 - **Nuevo mensaje:** diálogo con Persona / Cuadrilla, búsqueda en el servidor y «Ya existe».

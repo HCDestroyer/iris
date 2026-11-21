@@ -322,6 +322,15 @@ data: {"id":"1543","tipo":"mensaje_nuevo",…}
    tratamiento de la cola de adjuntos de las órdenes.
 3. **Enviar la cola:** en orden de creación, uno a uno por conversación. 201/200 → reemplaza el
    local por el del servidor (ya con `seq` y `enviado_en`). Ver §3 para qué no se reintenta.
+   **Orden cerrada (§1):** con `solo_lectura: true` la app no deja escribir (ni encola): en lugar
+   del compositor muestra «Orden cerrada: ya no se pueden enviar mensajes» (o «fallida»/«cancelada»,
+   por `orden_estado`), con candado, texto y color. Si un envío responde 422
+   `conversacion_cerrada` (la orden se cerró mientras escribía), el mensaje queda «no enviado» con
+   el motivo en llano («No se envió: la orden se cerró y su chat ya no recibe mensajes.»), sin
+   «Reintentar» (fallaría igual) y con «Descartar»; el hilo pasa a solo lectura en el teléfono en el
+   acto y se relee la conversación (`GET /conversaciones/{id}`) para traer `orden_estado`. Si la
+   orden se reabre, la relectura devuelve `solo_lectura: false` y «Reintentar» vuelve. Nunca en
+   silencio ni como un error genérico.
 4. **Al volver la señal:** sigue el feed desde el cursor guardado. Con 410, borra la caché del chat
    (no la cola de salida), recarga y sigue sin cursor.
 5. **Hueco de mensajes:** si una conversación quedó atrás (p. ej. se abrió el detalle tras días sin

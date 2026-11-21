@@ -166,6 +166,128 @@ test("422: «no enviado — Reintentar» y al reintentar sale", async ({ page })
     await expect(burbujas(page).last()).toContainText(/· enviado$/);
 });
 
+const ORDEN_CHAT = 70;
+const avisoCerrada = (page: Page) => page.locator('[data-slot="chat-solo-lectura"]');
+
+/** Hilo de una orden ya terminada (o viva, para cerrarla en la prueba). */
+function conOrden(estado: "cerrada" | "cancelada" | "en_sitio") {
+    return (s: ServidorChatFalso) => {
+        conversacionesBase(s);
+        s.crearConversacion({ id: ORDEN_CHAT, tipo: "orden", titulo: "OT-000070 · Instalación", orden_id: 70, orden_estado: estado, solo_lectura: estado !== "en_sitio" });
+        s.recibir(ORDEN_CHAT, ANDREA, "¿Cómo quedó la potencia?");
+    };
+}
+
+/** Despacho cierra la orden: el feed del chat no avisa (`contratos/chat.md` §1). */
+function cerrarOrden(s: ServidorChatFalso) {
+    const c = s.conversaciones.get(ORDEN_CHAT);
+    if (c) {
+        s.conversaciones.set(ORDEN_CHAT, { ...c, solo_lectura: true, orden_estado: "cerrada" });
+    }
+}
+
+test("orden cerrada: el chat lo dice con candado y no deja escribir; la lista la marca «Cerrada»", async ({ page }) => {
+    const { chat } = await montar(page, conOrden("cerrada"));
+    await page.goto("/campo?vista=chat");
+    const fila = page.getByRole("link", { name: /^OT-000070 · Instalación, orden cerrada, solo lectura/ });
+    await expect(fila).toContainText("Cerrada ·");
+    await fila.click();
+    await expect(hilo(page)).toBeVisible();
+    await expect(burbujas(page).last()).toContainText("¿Cómo quedó la potencia?");
+    await expect(avisoCerrada(page)).toContainText("Orden cerrada: ya no se pueden enviar mensajes");
+    await expect(avisoCerrada(page)).toContainText("Puedes leer los mensajes, pero ya no escribir en este chat.");
+    await expect(avisoCerrada(page).locator("svg").first()).toBeVisible();
+    await expect(compositor(page)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Enviar" })).toHaveCount(0);
+    expect(chat.servidor.llamadasA("enviarMensaje")).toHaveLength(0);
+    // Sin desbordar a lo ancho.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
+test("orden cancelada: el aviso dice «Orden cancelada»", async ({ page }) => {
+    await montar(page, conOrden("cancelada"));
+    await abrirConversacion(page, /^OT-000070/);
+    await expect(avisoCerrada(page)).toContainText("Orden cancelada: ya no se pueden enviar mensajes");
+    await expect(compositor(page)).toHaveCount(0);
+});
+
+test("la orden se cierra mientras escribía: dice por qué no salió, sin «Reintentar», y bloquea el compositor", async ({ page }) => {
+    const { chat } = await montar(page, conOrden("en_sitio"));
+    await abrirConversacion(page, /^OT-000070/);
+    await expect(compositor(page)).toBeVisible();
+    // Escribe, despacho cierra la orden y entonces toca «Enviar».
+    await compositor(page).fill("Ya quedó, −19 dBm.");
+    cerrarOrden(chat.servidor);
+    await page.getByRole("button", { name: "Enviar" }).click();
+    const fallido = burbujas(page).last();
+    await expect(fallido).toHaveAttribute("data-envio", "fallido");
+    await expect(fallido).toContainText("No se envió: la orden se cerró y su chat ya no recibe mensajes.");
+    await expect(fallido.getByRole("button", { name: "No enviado — Reintentar" })).toHaveCount(0);
+    await expect(avisoCerrada(page)).toContainText("Orden cerrada: ya no se pueden enviar mensajes");
+    await expect(compositor(page)).toHaveCount(0);
+    // El menú del mensaje tampoco ofrece «Reintentar»: solo «Descartar».
+    await fallido.locator('[aria-haspopup="dialog"]').click({ button: "right" });
+    const menu = page.getByRole("dialog", { name: "Mensaje" });
+    await expect(menu.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+    await expect(menu).toContainText("la orden se cerró");
+    await menu.getByRole("button", { name: "Descartar" }).click();
+    await expect(burbujas(page).last()).toContainText("¿Cómo quedó la potencia?");
+    // Un solo intento: el rechazo por estado no se reintenta.
+    expect(chat.servidor.llamadasA("enviarMensaje")).toHaveLength(1);
+});
+
+test("si «Descartar» no se puede guardar en el teléfono: error en llano con «Reintentar», que lo descarta", async ({ page }) => {
+    const { chat } = await montar(page, conOrden("en_sitio"));
+    await abrirConversacion(page, /^OT-000070/);
+    await compositor(page).fill("Ya quedó, −19 dBm.");
+    cerrarOrden(chat.servidor);
+    await page.getByRole("button", { name: "Enviar" }).click();
+    const fallido = burbujas(page).last();
+    await expect(fallido).toContainText("No se envió: la orden se cerró");
+    // El próximo borrado de la cola del chat en IndexedDB falla una vez (disco lleno, base bloqueada).
+    await page.evaluate(() => {
+        const ventana = window as unknown as { __fallasBorrado: number };
+        ventana.__fallasBorrado = 1;
+        const original = IDBObjectStore.prototype.delete;
+        IDBObjectStore.prototype.delete = function (this: IDBObjectStore, clave: IDBValidKey | IDBKeyRange) {
+            if (this.name === "chatSalida" && ventana.__fallasBorrado > 0) {
+                ventana.__fallasBorrado -= 1;
+                throw new DOMException("Falla de prueba", "UnknownError");
+            }
+            return original.call(this, clave);
+        };
+    });
+    await fallido.getByRole("button", { name: "Descartar" }).click();
+    await expect(page.getByText("No se pudo descartar el mensaje en el teléfono.")).toBeVisible();
+    await expect(burbujas(page).last()).toContainText("Ya quedó, −19 dBm.");
+    await page.getByRole("button", { name: "Reintentar" }).click();
+    await expect(burbujas(page).last()).toContainText("¿Cómo quedó la potencia?");
+    expect(await page.evaluate(() => (window as unknown as { __fallasBorrado: number }).__fallasBorrado)).toBe(0);
+});
+
+test("capturas del chat de una orden cerrada (390 px)", async ({ page }, info) => {
+    test.skip(!info.project.name.startsWith("telefono"), "Capturas del teléfono.");
+    const carpeta = process.env.IRIS_CAPTURAS_CHAT ?? path.join("test-results", "capturas-chat");
+    const tema = info.project.name.endsWith("oscuro") ? "oscuro" : "claro";
+    const nombre = (n: string) => path.join(carpeta, `${n}-${tema}.png`);
+    const { chat } = await montar(page, conOrden("en_sitio"));
+    await abrirConversacion(page, /^OT-000070/);
+    // Escribe, despacho cierra la orden y entonces toca «Enviar».
+    await compositor(page).fill("Ya quedó, −19 dBm.");
+    cerrarOrden(chat.servidor);
+    await page.getByRole("button", { name: "Enviar" }).click();
+    await expect(burbujas(page).last()).toContainText("No se envió: la orden se cerró");
+    await expect(avisoCerrada(page)).toBeVisible();
+    await page.screenshot({ path: nombre("05-orden-cerrada-al-enviar") });
+    await burbujas(page).last().getByRole("button", { name: "Descartar" }).click();
+    await expect(burbujas(page).last()).toContainText("¿Cómo quedó la potencia?");
+    await expect(page.getByText("Mensaje descartado")).toBeHidden({ timeout: 15_000 });
+    await page.screenshot({ path: nombre("06-orden-cerrada") });
+    await page.goto("/campo?vista=chat");
+    await expect(page.getByRole("link", { name: /^OT-000070/ })).toContainText("Cerrada ·");
+    await page.screenshot({ path: nombre("07-lista-orden-cerrada") });
+});
+
 test("eliminar el propio desde el menú del mensaje deja «Mensaje eliminado»", async ({ page }) => {
     const { chat } = await montar(page);
     await abrirConversacion(page, /^Cuadrilla Norte/);
