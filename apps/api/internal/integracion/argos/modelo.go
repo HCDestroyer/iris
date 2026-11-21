@@ -43,7 +43,8 @@ type Servicio struct {
 	ID         int64  `json:"id" doc:"Id del servicio en Argos"`
 	EmpresaID  int64  `json:"empresaId"`
 	ClienteID  int64  `json:"clienteId"`
-	Codigo     string `json:"codigo"`
+	Codigo     string `json:"codigo" doc:"Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce)"`
+	Nombre     string `json:"nombre,omitempty" doc:"Nombre que eligió el cliente o el personal en Argos («Casa»; ausente si no tiene). Texto del cliente: se muestra escapado; nunca va a la IA"`
 	Numero     int    `json:"numero" doc:"Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA"`
 	PlanID     *int64 `json:"planId" nullable:"true"`
 	PlanNombre string `json:"planNombre"`

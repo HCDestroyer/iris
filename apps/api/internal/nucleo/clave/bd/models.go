@@ -870,6 +870,7 @@ type IntegracionArgosServicio struct {
 	PrefijoEnlaceV6   string
 	PrefijoDelegadoV6 string
 	Planta            []byte
+	Nombre            string
 }
 
 type IntegracionArgosSincronizacionEtapa struct {

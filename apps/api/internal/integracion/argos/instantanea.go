@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -142,7 +143,7 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 		// Un servicio sin empresa no hereda la del cliente: queda en 0 y no se atribuye a nadie.
 		v := AServicio(s, c.IDZona())
 		if err := guardarServicio(ctx, t, q, argosbd.GuardarServicioParams{
-			ID: v.ID, EmpresaID: v.EmpresaID, ClienteID: v.ClienteID, Codigo: v.Codigo,
+			ID: v.ID, EmpresaID: v.EmpresaID, ClienteID: v.ClienteID, Codigo: v.Codigo, Nombre: v.Nombre,
 			PlanID: v.PlanID, PlanNombre: v.PlanNombre, RouterID: v.RouterID, RouterNombre: v.RouterNombre,
 			ZonaID: v.ZonaID, ZonaNombre: v.ZonaNombre, Ip: v.IP, Direccion: v.Direccion, Lat: v.Lat, Lon: v.Lon,
 			Estado: v.Estado, SincronizadoEn: f.leidoEn, UserPpp: v.UserPPP, TipoConexion: v.TipoConexion,
@@ -255,7 +256,7 @@ func AServicio(s ServicioArgos, zonaCliente *int64) Servicio {
 		zona = zonaCliente
 	}
 	v := Servicio{
-		ID: s.ID, EmpresaID: s.EmpresaID, ClienteID: s.ClienteID, Codigo: s.Codigo,
+		ID: s.ID, EmpresaID: s.EmpresaID, ClienteID: s.ClienteID, Codigo: s.Codigo, Nombre: NombreServicio(s.Nombre),
 		PlanID: idDe(s.PlanID, s.Plan), PlanNombre: nombreDe(s.PlanNombre, s.Plan),
 		RouterID: idDe(s.RouterID, s.Router), RouterNombre: nombreDe(s.RouterNombre, s.Router),
 		ZonaID: zona, ZonaNombre: nombreDe(s.ZonaNombre, s.Zona), IP: s.IPVigente(), Direccion: s.Direccion,
@@ -279,7 +280,7 @@ func AServicio(s ServicioArgos, zonaCliente *int64) Servicio {
 
 func aServicio(f argosbd.IntegracionArgosServicio) Servicio {
 	return Servicio{
-		ID: f.ID, EmpresaID: f.EmpresaID, ClienteID: f.ClienteID, Codigo: f.Codigo, PlanID: f.PlanID,
+		ID: f.ID, EmpresaID: f.EmpresaID, ClienteID: f.ClienteID, Codigo: f.Codigo, Nombre: f.Nombre, PlanID: f.PlanID,
 		PlanNombre: f.PlanNombre, RouterID: f.RouterID, RouterNombre: f.RouterNombre, ZonaID: f.ZonaID,
 		ZonaNombre: f.ZonaNombre, IP: f.Ip, Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon, Estado: f.Estado,
 		UserPPP: f.UserPpp, TipoConexion: f.TipoConexion, SincronizadoEn: f.SincronizadoEn,
@@ -383,4 +384,22 @@ func plantaDe(b []byte) *Planta {
 		return nil
 	}
 	return &p
+}
+
+// NombreServicio: el nombre del servicio de Argos (A45) en una línea, sin controles ni caracteres de
+// formato Unicode y hasta 60
+// caracteres (lo que guarda la instantánea).
+func NombreServicio(s string) string {
+	// Sin caracteres de formato (U+202E, U+200B, U+FEFF…): podrían invertir o esconder el texto.
+	s = strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.FieldsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }), " ")
+	if r := []rune(s); len(r) > 60 {
+		s = strings.TrimSpace(string(r[:60]))
+	}
+	return s
 }
