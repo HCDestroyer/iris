@@ -28,7 +28,7 @@ import (
 // MiembroArgos es un miembro de la cuadrilla tal como viaja a Argos.
 type MiembroArgos struct {
 	UsuarioID int64   `json:"usuario_id"`
-	IDExterno *string `json:"id_externo" nullable:"true" doc:"Usuario de Argos (vínculo I1) si opera en la empresa; null si no"`
+	IDExterno *string `json:"id_externo" nullable:"true" doc:"Usuario de Argos (vínculo I1); null sin vínculo. Solo van los miembros que operan en la empresa"`
 }
 
 // CuadrillaArgos es la cuadrilla para conciliar la bodega en Argos (GET
@@ -42,8 +42,9 @@ type CuadrillaArgos struct {
 	JefeUsuarioID *int64         `json:"jefe_usuario_id" nullable:"true"`
 }
 
-// miembrosParaArgos: miembros activos de la cuadrilla, con el id_externo solo si el usuario opera en
-// la empresa (nil = sin empresa: el vínculo tal cual).
+// miembrosParaArgos: miembros activos de la cuadrilla. Con empresa, solo los que operan en ella
+// (asignada o empresas.todas global): a Argos de una empresa nunca llegan usuarios de otra (B-265-1).
+// nil = sin empresa (modo sin conector, o la revisión interna del jefe): todos, con su vínculo.
 func miembrosParaArgos(ctx context.Context, q *agendabd.Queries, cuadrilla int64, empresa *int64) ([]MiembroArgos, []agendabd.MiembrosDeCuadrillaRow, error) {
 	fs, err := q.MiembrosDeCuadrilla(ctx, agendabd.MiembrosDeCuadrillaParams{CuadrillaID: &cuadrilla, EmpresaID: empresa})
 	if err != nil {
@@ -51,13 +52,25 @@ func miembrosParaArgos(ctx context.Context, q *agendabd.Queries, cuadrilla int64
 	}
 	salida := make([]MiembroArgos, 0, len(fs))
 	for _, f := range fs {
-		m := MiembroArgos{UsuarioID: f.UsuarioID}
-		if f.OperaEnEmpresa {
-			m.IDExterno = f.ArgosIDExterno
+		if !f.OperaEnEmpresa {
+			continue
 		}
-		salida = append(salida, m)
+		salida = append(salida, MiembroArgos{UsuarioID: f.UsuarioID, IDExterno: f.ArgosIDExterno})
 	}
 	return salida, fs, nil
+}
+
+// jefeEnMiembros: el jefe solo si está entre los miembros de esa empresa con vínculo I1; si no, null.
+func jefeEnMiembros(jefe *int64, miembros []MiembroArgos) *int64 {
+	if jefe == nil {
+		return nil
+	}
+	for _, m := range miembros {
+		if m.UsuarioID == *jefe && m.IDExterno != nil {
+			return jefe
+		}
+	}
+	return nil
 }
 
 // jefeValido: el usuario es miembro activo de la cuadrilla con vínculo I1.
@@ -101,7 +114,7 @@ func emitirCuadrilla(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, 
 		}
 		p := map[string]any{
 			"cuadrilla_id": c.ID, "empresa_id": empresa, "version": c.VersionArgos, "nombre": c.Nombre,
-			"activa": c.Activa, "miembros": miembros, "jefe_usuario_id": c.JefeUsuarioID,
+			"activa": c.Activa, "miembros": miembros, "jefe_usuario_id": jefeEnMiembros(c.JefeUsuarioID, miembros),
 		}
 		for k, v := range extra {
 			p[k] = v
@@ -266,7 +279,7 @@ func (m *Modulo) nuevoCuadrillaArgos() *auditoria.Caso[EntradaCuadrillaArgos, Cu
 				return CuadrillaArgos{}, err
 			}
 			return CuadrillaArgos{CuadrillaID: c.ID, EmpresaID: &in.EmpresaID, Version: c.VersionArgos, Activa: c.Activa,
-				Miembros: miembros, JefeUsuarioID: c.JefeUsuarioID}, nil
+				Miembros: miembros, JefeUsuarioID: jefeEnMiembros(c.JefeUsuarioID, miembros)}, nil
 		},
 	})
 }
