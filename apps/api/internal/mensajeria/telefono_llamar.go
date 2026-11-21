@@ -36,12 +36,12 @@ const (
 
 // Motivos por los que el teléfono no está disponible.
 const (
-	motivoSinCentralita      = "sin_centralita"
-	motivoSinExtension       = "sin_extension"
+	motivoSinCentralita       = "sin_centralita"
+	motivoSinExtension        = "sin_extension"
 	motivoExtensionEscritorio = "extension_escritorio"
-	motivoSinCredencial      = "sin_credencial"
-	motivoTelefonoApagado    = "telefono_apagado"
-	motivoTURN               = "turn_no_configurado"
+	motivoSinCredencial       = "sin_credencial" //nolint:gosec // un código de motivo, no una credencial
+	motivoTelefonoApagado     = "telefono_apagado"
+	motivoTURN                = "turn_no_configurado"
 )
 
 var detallesTelefono = map[string]string{
@@ -205,7 +205,7 @@ type GrupoDestino struct {
 func nacionalGT(crudo string) string {
 	s := strings.TrimSpace(crudo)
 	for _, c := range s {
-		if !(c >= '0' && c <= '9') && !strings.ContainsRune("+ -()", c) {
+		if (c < '0' || c > '9') && !strings.ContainsRune("+ -()", c) {
 			return ""
 		}
 	}
@@ -383,8 +383,8 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 			}
 			ice, iceVence := m.cfg.TURN.credencial(actor.ID, ahora)
 			return SesionTelefono{WS: RutaTelefonoSIP + "?ticket=" + ticket, TicketVence: vence,
-				SIP:         SIPTelefono{URI: "sip:" + *x.SipUsuario + "@" + x.Dominio, Usuario: *x.SipUsuario, Dominio: x.Dominio, Nombre: nombre},
-				ICE:         []ServidorICE{ice}, PoliticaIce: "relay", IceVence: iceVence}, nil
+				SIP: SIPTelefono{URI: "sip:" + *x.SipUsuario + "@" + x.Dominio, Usuario: *x.SipUsuario, Dominio: x.Dominio, Nombre: nombre},
+				ICE: []ServidorICE{ice}, PoliticaIce: "relay", IceVence: iceVence}, nil
 		},
 	})
 	k.Llamar = auditoria.Nuevo(auditoria.Caso[EntradaLlamarTelefono, MarcacionTelefono]{

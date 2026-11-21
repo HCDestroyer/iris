@@ -285,7 +285,9 @@ func (b *banco) recibidosCon(f func(string) bool) []string {
 	return out
 }
 
-func empieza(p string) func(string) bool { return func(m string) bool { return strings.HasPrefix(m, p) } }
+func empieza(p string) func(string) bool {
+	return func(m string) bool { return strings.HasPrefix(m, p) }
+}
 
 func TestRegistroSinDesafioParaElNavegador(t *testing.T) {
 	b := nuevoBanco(t, nil, secretoSIP)

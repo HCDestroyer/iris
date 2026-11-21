@@ -78,7 +78,7 @@ ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_origen_check CHECK (orig
 ALTER TABLE mensajeria.llamadas DROP CONSTRAINT llamadas_motivo_fin_check;
 ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_motivo_fin_check CHECK (motivo_fin IN ('cliente_colgo', 'agente_colgo', 'asistente_termino',
     'nadie_contesto', 'rechazada_agente', 'fuera_de_horario', 'sin_capacidad', 'motor_no_disponible', 'duracion_maxima', 'silencio', 'mal_uso', 'tope',
-    'limite', 'error_medio', 'error_meta', 'sin_permiso', 'transferencia_fallida', 'directa'));
+    'limite', 'error_medio', 'error_meta', 'sin_permiso', 'transferencia_fallida', 'tope_alcanzado', 'agente_salio', 'directa'));
 ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_celular_ck
     CHECK (origen <> 'celular' OR (orden_id IS NOT NULL AND canal_id IS NULL AND centralita_id IS NULL AND conversacion_id IS NULL));
 CREATE INDEX llamadas_orden_idx ON mensajeria.llamadas (orden_id, sono_en DESC) WHERE orden_id IS NOT NULL;
@@ -96,7 +96,7 @@ UPDATE mensajeria.llamadas SET motivo_fin = NULL WHERE motivo_fin = 'directa';
 ALTER TABLE mensajeria.llamadas DROP CONSTRAINT llamadas_motivo_fin_check;
 ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_motivo_fin_check CHECK (motivo_fin IN ('cliente_colgo', 'agente_colgo', 'asistente_termino',
     'nadie_contesto', 'rechazada_agente', 'fuera_de_horario', 'sin_capacidad', 'motor_no_disponible', 'duracion_maxima', 'silencio', 'mal_uso', 'tope',
-    'limite', 'error_medio', 'error_meta', 'sin_permiso', 'transferencia_fallida'));
+    'limite', 'error_medio', 'error_meta', 'sin_permiso', 'transferencia_fallida', 'tope_alcanzado', 'agente_salio'));
 ALTER TABLE mensajeria.llamadas DROP CONSTRAINT llamadas_origen_check;
 ALTER TABLE mensajeria.llamadas ADD CONSTRAINT llamadas_origen_check CHECK (origen IN ('whatsapp', 'centralita'));
 ALTER TABLE mensajeria.llamadas DROP COLUMN invite_en;

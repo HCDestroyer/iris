@@ -81,7 +81,7 @@ func (l *LadoWS) Cerrar(codigo int, motivo string) {
 	hecho := make(chan struct{})
 	go func() {
 		defer close(hecho)
-		_ = l.c.Close(websocket.StatusCode(codigo), motivo) //nolint:gosec // códigos acotados por el paquete
+		_ = l.c.Close(websocket.StatusCode(codigo), motivo)
 	}()
 	select {
 	case <-hecho:

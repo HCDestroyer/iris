@@ -3,7 +3,7 @@ package mensajeria_test
 import (
 	"context"
 	"crypto/hmac"
-	"crypto/sha1" //nolint:gosec // verificar la credencial efímera de TURN (HMAC-SHA1 por estándar)
+	"crypto/sha1"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -52,6 +52,10 @@ func nuevoBancoTelefono(t *testing.T) *bancoTelefono {
 		c.Campo = campo.Nuevo(campo.Config{Reloj: c.Ahora, Soporte: c.Soporte, Adjuntos: campo.SinAdjuntosObligatorios{}})
 	})
 	b := &bancoTelefono{bancoCentralita: x, sip: falso}
+	t.Cleanup(func() {
+		b.srv.CloseClientConnections()
+		x.limpiar()
+	})
 	b.srv = httptest.NewServer(x.h)
 	t.Cleanup(b.srv.Close)
 	x.conectar()
@@ -114,7 +118,7 @@ type telefonoWS struct {
 	c *websocket.Conn
 }
 
-func (b *bancoTelefono) dial(p persona, ruta string, origen string) (*telefonoWS, *http.Response, error) {
+func (b *bancoTelefono) dial(p persona, ruta string, origen string) (*telefonoWS, int, error) {
 	h := http.Header{}
 	h.Add("Cookie", identidad.CookieSesion+"="+p.cookie)
 	if p.empresa != 0 {
@@ -126,12 +130,19 @@ func (b *bancoTelefono) dial(p persona, ruta string, origen string) (*telefonoWS
 	ctx, cancelar := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelar()
 	c, resp, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(b.srv.URL, "http")+ruta, &websocket.DialOptions{Subprotocols: []string{"sip"}, HTTPHeader: h})
+	status := 0
+	if resp != nil {
+		status = resp.StatusCode
+		if resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+	}
 	if err != nil {
-		return nil, resp, err
+		return nil, status, err
 	}
 	w := &telefonoWS{t: b.t, c: c}
 	b.t.Cleanup(func() { _ = c.CloseNow() })
-	return w, resp, nil
+	return w, status, nil
 }
 
 func (w *telefonoWS) mandar(s string) {
@@ -324,18 +335,18 @@ func TestTelefonoMioYAbrir(t *testing.T) {
 	}
 	// El ticket es de un solo uso, de esta sesión y con Origin del panel.
 	ws := r.cuerpo["ws"].(string)
-	if _, resp, err := b.dial(b.agente, ws, "https://otro.sitio"); err == nil || resp == nil || resp.StatusCode != http.StatusForbidden {
+	if _, status, err := b.dial(b.agente, ws, "https://otro.sitio"); err == nil || status != http.StatusForbidden {
 		t.Fatalf("Origin ajeno: %v", err)
 	}
 	otraSesion := b.sesion(b.agente)
-	if _, resp, err := b.dial(otraSesion, b.abrir(b.agente, "panel"), baseIris); err == nil || resp == nil || resp.StatusCode != http.StatusForbidden {
+	if _, status, err := b.dial(otraSesion, b.abrir(b.agente, "panel"), baseIris); err == nil || status != http.StatusForbidden {
 		t.Fatalf("ticket de otra sesión: %v", err)
 	}
 	ws = b.abrir(b.agente, "panel")
 	if _, _, err := b.dial(b.agente, ws, baseIris); err != nil {
 		t.Fatal(err)
 	}
-	if _, resp, err := b.dial(b.agente, ws, baseIris); err == nil || resp == nil || resp.StatusCode != http.StatusForbidden {
+	if _, status, err := b.dial(b.agente, ws, baseIris); err == nil || status != http.StatusForbidden {
 		t.Fatalf("ticket reusado: %v", err)
 	}
 }

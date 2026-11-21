@@ -65,11 +65,11 @@ func TURNDesdeVariables() (TURNEntorno, error) {
 func validarURLTURN(u string) error {
 	esquema, resto, ok := strings.Cut(u, ":")
 	if !ok || (esquema != "turn" && esquema != "turns") || resto == "" || strings.ContainsAny(resto, " \"'<>\\") {
-		return fmt.Errorf("%q no es una URL turn: o turns:", u)
+		return fmt.Errorf("%q no es una URL turn o turns", u)
 	}
 	hp, consulta, _ := strings.Cut(resto, "?")
 	if hp == "" || strings.Contains(hp, "/") || strings.Contains(hp, "@") {
-		return fmt.Errorf("%q no es una URL turn: o turns:", u)
+		return fmt.Errorf("%q no es una URL turn o turns", u)
 	}
 	if consulta != "" {
 		v, err := url.ParseQuery(consulta)

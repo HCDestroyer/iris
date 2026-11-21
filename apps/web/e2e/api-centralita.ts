@@ -48,7 +48,7 @@ function centralitaInicial(o: OpcionesCentralita): Centralita | null {
     const base: Centralita = {
         id: 7, nombre: "Oficina central", tipo: "issabel", host: "10.20.0.5", puerto: 5039, usuario: "iris_lectura", secretoGuardadoEn: "2026-11-19T15:00:00Z",
         huellaTls: HUELLA_AMI, huellaVista: null, modo: "lectura", estado: "conectada", errorCodigo: null, probadaEn: ahora, conectadaEn: ahora,
-        desconectadaDesde: null, ultimoEventoEn: new Date(Date.now() - 60_000).toISOString(), activa: true, version: 3,
+        desconectadaDesde: null, ultimoEventoEn: new Date(Date.now() - 60_000).toISOString(), activa: true, telefono: { activo: false, wssPuerto: 8089, wssRuta: "/ws", huellaWss: null, sipDominio: null, prefijoSalida: "", llamadasPorUsuarioDia: 60, llamadasSimultaneas: 10, probadoEn: null }, version: 3,
     };
     if (o.estado === "desconectada") return { ...base, estado: "desconectada", desconectadaDesde: new Date(Date.now() - 10 * 60_000).toISOString() };
     if (o.estado === "huella_cambiada") return { ...base, estado: "error", errorCodigo: "huella_cambiada", huellaVista: HUELLA_NUEVA };
@@ -60,6 +60,7 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
     let siguienteExt = 100;
     const extensiones: Extension[] = Object.entries(o.extensiones ?? {}).map(([u, ext]) => ({
         id: siguienteExt++, extension: ext, usuarioId: Number(u), usuarioNombre: PERSONAS_CENTRALITA.find((p) => p.id === Number(u))?.nombre ?? "Persona",
+        tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null,
     }));
     const llamadas: Llamada[] = structuredClone(o.llamadas ?? []);
     const recibido = { pruebas: [] as unknown[], creadas: [] as unknown[], actualizadas: [] as unknown[], activaciones: 0, asignaciones: [] as unknown[], quitadas: 0,
@@ -93,7 +94,7 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
         if (ruta === `${BASE}/chat/personas`) return (await json(route, { data: PERSONAS_CENTRALITA, nextCursor: null }), true);
         if (metodo === "GET" && ruta === `${BASE}/centralita/mi-extension`) {
             const x = centralita?.activa ? extensiones.find((e) => e.usuarioId === actor) : undefined;
-            return (await json(route, x && centralita ? { extension: x.extension, centralitaId: centralita.id, estado: centralita.estado } : { extension: null, centralitaId: null, estado: null }), true);
+            return (await json(route, x && centralita ? { extension: x.extension, centralitaId: centralita.id, estado: centralita.estado, tipo: x.tipo } : { extension: null, centralitaId: null, estado: null, tipo: null }), true);
         }
         const configura = puede("centralita.configurar");
         const asigna = puede("centralita.asignar_extension");
@@ -139,7 +140,7 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
             centralita = {
                 id: 7, nombre: String(c?.nombre), tipo: "issabel", host: String(c?.host), puerto: Number(c?.puerto ?? 5039), usuario: String(c?.usuario),
                 secretoGuardadoEn: new Date().toISOString(), huellaTls: String(c?.huellaTls), huellaVista: null, modo: "lectura", estado: "desactivada", errorCodigo: null,
-                probadaEn: null, conectadaEn: null, desconectadaDesde: null, ultimoEventoEn: null, activa: false, version: 1,
+                probadaEn: null, conectadaEn: null, desconectadaDesde: null, ultimoEventoEn: null, activa: false, telefono: { activo: false, wssPuerto: 8089, wssRuta: "/ws", huellaWss: null, sipDominio: null, prefijoSalida: "", llamadasPorUsuarioDia: 60, llamadasSimultaneas: 10, probadoEn: null }, version: 1,
             };
             return (await json(route, centralita, 201), true);
         }
@@ -151,7 +152,8 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
             recibido.asignaciones.push(c);
             const usuarioId = Number(c?.usuarioId);
             if (extensiones.some((e) => e.extension === c?.extension)) return (await problema(route, P("extension_ocupada", 409, "Esa extensión ya es de otra persona: quítasela primero")), true);
-            const x = { id: siguienteExt++, extension: String(c?.extension), usuarioId, usuarioNombre: PERSONAS_CENTRALITA.find((p) => p.id === usuarioId)?.nombre ?? "Persona" };
+            const x: Extension = { id: siguienteExt++, extension: String(c?.extension), usuarioId, usuarioNombre: PERSONAS_CENTRALITA.find((p) => p.id === usuarioId)?.nombre ?? "Persona",
+                tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null };
             extensiones.push(x);
             return (await json(route, x), true);
         }

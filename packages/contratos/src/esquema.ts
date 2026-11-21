@@ -2626,7 +2626,7 @@ export interface paths {
         };
         /**
          * Llamadas de la centralita
-         * @description Permiso: `llamadas.ver`. Por cliente (`clienteId`, ficha del cliente; exige `clientes.ver`), por ticket (`ticketId`; el ticket tiene que ser visible para ti: si no, 404) o las tuyas (`mias=true`, con `hoy=true` las de hoy). `{ data, nextCursor }`, de la más nueva a la más vieja. Nombres de clientes solo con `clientes.ver`. La `nota` solo viene en las llamadas que te sonaron, contestaste o marcaste, o si supervisas las extensiones; si no, null. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
+         * @description Exige `llamadas.ver`, salvo con solo `ordenId` (E4c: las de una orden que ves con `ordenes.ver` u `ordenes.ver_propias`, también las directas del celular; si no la ves, 404). Por cliente (`clienteId`, ficha del cliente; exige `clientes.ver`), por ticket (`ticketId`; el ticket tiene que ser visible para ti: si no, 404) o las tuyas (`mias=true`, con `hoy=true` las de hoy). `{ data, nextCursor }`, de la más nueva a la más vieja. Nombres de clientes solo con `clientes.ver`. La `nota` solo viene en las llamadas que te sonaron, contestaste o marcaste, o si supervisas las extensiones; si no, null. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
          */
         get: operations["listarLlamadasCentralita"];
         put?: never;
@@ -2857,6 +2857,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/centralitas/{id}/extensiones/{extensionId}/probar-registro": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probar registro
+         * @description Permiso: `centralita.asignar_extension`. REGISTER de consulta (sin Contact: no agrega ni quita registros) con la credencial guardada: `ok`, `credenciales`, `huella_distinta`, `no_conecta` o `sin_credencial`. Con `ok` deja `sipProbadoEn`. Evento `extension.registro_probado`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["probarRegistroExtension"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/centralitas/{id}/extensiones/{extensionId}/quitar": {
         parameters: {
             query?: never;
@@ -2877,6 +2897,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/centralitas/{id}/extensiones/{extensionId}/telefono": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Tipo y credencial SIP de una extensión
+         * @description Permiso: `centralita.asignar_extension`. `navegador` exige `sipUsuario` (de fábrica la extensión) y `sipSecreto` la primera vez o al cambiar el usuario (422 `clave_requerida`); `escritorio` borra la credencial. La contraseña se guarda cifrada y nunca se devuelve. Cualquier cambio corta la conexión de esa persona. Evento `extension.telefono_cambiado`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["telefonoExtension"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/grupos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Grupos de la centralita
+         * @description Permiso: `centralita.configurar`. Grupos de timbrado y colas de Issabel a los que se puede transferir. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        get: operations["gruposCentralita"];
+        put?: never;
+        /**
+         * Agregar un grupo
+         * @description Permiso: `centralita.configurar`. 409 `grupo_existente`. Evento `grupo_centralita.creado`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["crearGrupoCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/grupos/{grupoId}/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar un grupo
+         * @description Permiso: `centralita.configurar`. Con `version`. 409 `grupo_existente`. Evento `grupo_centralita.actualizado`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["editarGrupoCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/centralitas/{id}/probar": {
         parameters: {
             query?: never;
@@ -2891,6 +2975,86 @@ export interface paths {
          * @description Permiso: `centralita.configurar`. Con la huella fijada (`huella_distinta` si cambió). Si pasa, deja `probadaEn` (encender la exige); con `permisos_de_mas` la apaga. Solo personas con sesión del panel. La contraseña del AMI nunca se devuelve ni sale en la auditoría. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4a).
          */
         post: operations["probarCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/telefono": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Configurar el teléfono de Iris
+         * @description Permiso: `centralita.configurar`. Con `version`. Cambiar puerto, ruta, huella o dominio apaga el teléfono y borra la última prueba. Evento `centralita.telefono_cambiado`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["telefonoCentralita"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/telefono/activar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Encender el teléfono de Iris
+         * @description Permiso: `centralita.configurar`. Con `version`. Encender exige una prueba del WSS que pasó (422 `sin_probar`) y el TURN de la instalación (422 `turn_no_configurado`). Apagar corta las conexiones de la empresa (4003). Evento `centralita.telefono_cambiado`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["activarTelefono"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/telefono/desactivar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Apagar el teléfono de Iris
+         * @description Permiso: `centralita.configurar`. Con `version`. Encender exige una prueba del WSS que pasó (422 `sin_probar`) y el TURN de la instalación (422 `turn_no_configurado`). Apagar corta las conexiones de la empresa (4003). Evento `centralita.telefono_cambiado`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["desactivarTelefono"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/centralitas/{id}/telefono/probar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probar el WSS de la centralita
+         * @description Permiso: `centralita.configurar`. Abre el WSS y manda un OPTIONS sin credenciales: `ok`, `huella_distinta`, `no_es_sip` o `no_conecta`, con la huella para compararla. Sin datos (o con los guardados) usa la huella fijada y, si pasa, deja `probadoEn`. Evento `centralita.telefono_probado`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["probarTelefonoCentralita"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5523,6 +5687,126 @@ export interface paths {
          * @description Permiso: `conversaciones.sugerencias`. Solo desde `lista` (422 `sugerencia_no_vigente`); repetir sobre `usada` es 200. No envía nada: lo envía la persona.
          */
         post: operations["usarSugerencia"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/telefono": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Mi teléfono de Iris
+         * @description Sin permiso: es el tuyo. `disponible` y, si no, `motivo`. `puede` (llamar, transferir, recibir) y el límite de hoy. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        get: operations["verTelefono"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/telefono/abrir": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Abrir el teléfono (ticket del WebSocket y TURN)
+         * @description Devuelve la ruta del WebSocket con un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. `dispositivo: app` solo marca (no registra ni recibe). Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["abrirTelefono"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/telefono/llamada-directa": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Anotar una llamada desde el celular (orden)
+         * @description Permiso: `centralita.llamar`. «Llamar desde mi celular»: deja la llamada en la orden (`origen: celular`, sin duración ni audio) y devuelve el número para abrir `tel:`. No necesita extensión ni cuenta para el límite. 422 `sin_contacto`; 404 si no ves la orden. Evento `llamada.directa_registrada`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["llamadaDirecta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/telefono/llamar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Llamar con tu extensión
+         * @description Permiso: `centralita.llamar`. Uno de `clienteId`, `ticketId`, `ordenId` (con `telefono` opcional), `usuarioId` (un compañero) o `numero` (teclado). El número externo lo pone el servidor y solo puede ser de Guatemala (+502 y 8 dígitos que empiezan por 2 a 7); el teclado acepta además extensiones y grupos de la centralita. Devuelve el `destino` que el teléfono marca (60 s) y la llamada en `marcando`. 422 `destino_no_permitido`, `sin_contacto`, `limite_llamadas`, los de `abrir`; 409 `llamadas_simultaneas`; 404 si no ves el cliente, el ticket o la orden. Evento `llamada.saliente_iniciada`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        post: operations["llamarTelefono"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/telefono/sip": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * WebSocket SIP del teléfono (subprotocolo sip, RFC 7118)
+         * @description Iris es el puente con la Issabel: responde los desafíos de autenticación en el servidor, deja marcar solo los destinos de `llamar` (o extensiones y grupos de la centralita) y transferir solo a `transferir/destinos`. 403 `ticket_no_valido` u `origen_no_permitido`; 503 `centralita_no_responde`. Cierres: 4001 `reemplazada`, 4003 `sin_acceso`, 4008 `limite`, 4502 `centralita_no_responde`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        get: operations["telefonoSIP"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/telefono/transferir/destinos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A quién se puede transferir
+         * @description Permiso: `centralita.transferir`. Las personas con extensión de tu empresa (sin ti) y los grupos activos. El teléfono transfiere con REFER solo a estos números. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         */
+        get: operations["destinosTransferencia"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9982,6 +10266,7 @@ export interface components {
              * @description Cuándo se guardó la contraseña del AMI (nunca se devuelve)
              */
             secretoGuardadoEn: string | null;
+            telefono: components["schemas"]["TelefonoCentralita"];
             /** @enum {string} */
             tipo: "issabel";
             /**
@@ -11360,6 +11645,10 @@ export interface components {
             /** @enum {string} */
             tipo: "ticket" | "orden" | "prospecto";
         };
+        DestinosTransferencia: {
+            grupos: components["schemas"]["GrupoDestino"][] | null;
+            personas: components["schemas"]["PersonaDestino"][] | null;
+        };
         DevolucionLlamada: {
             /** Format: int64 */
             conversacionId: number;
@@ -11688,6 +11977,13 @@ export interface components {
              * @description Con quién (un usuario persona, activo, de la empresa activa y con chat.ver)
              */
             usuario_id: number;
+        };
+        EntradaAbrirTelefono: {
+            /**
+             * @description panel llama y recibe; app (primera etapa) solo llama
+             * @enum {string}
+             */
+            dispositivo: "panel" | "app";
         };
         EntradaAccionConv: {
             /** Format: int32 */
@@ -12113,6 +12409,10 @@ export interface components {
              */
             version: number;
         };
+        EntradaCambioTelefono: {
+            /** Format: int32 */
+            version: number;
+        };
         EntradaCanalQR: {
             /** @description El código del callback de FB.login (vive ~30 s). Nunca se guarda */
             code: string;
@@ -12474,6 +12774,11 @@ export interface components {
             id: number;
             nit?: string;
             nombre: string;
+        };
+        EntradaCrearGrupo: {
+            nombre: string;
+            /** @description El número del grupo o la cola en Issabel */
+            numero: string;
         };
         EntradaCrearOrden: {
             /**
@@ -12878,6 +13183,13 @@ export interface components {
              * Format: int32
              * @description Versión leída; si cambió, 409
              */
+            version: number;
+        };
+        EntradaEditarGrupo: {
+            activo: boolean;
+            nombre: string;
+            numero: string;
+            /** Format: int32 */
             version: number;
         };
         EntradaEditarNota: {
@@ -13359,6 +13671,10 @@ export interface components {
             /** @enum {string} */
             tipo: "plan" | "instalacion" | "equipo" | "descuento" | "otro";
         };
+        EntradaLlamadaDirecta: {
+            /** Format: int64 */
+            ordenId: number;
+        };
         EntradaLlamadasCanal: {
             /** Format: int64 */
             colaId?: number;
@@ -13378,6 +13694,26 @@ export interface components {
             segundosSonando: number;
             /** Format: int32 */
             version: number;
+        };
+        EntradaLlamarTelefono: {
+            /** Format: int64 */
+            clienteId?: number;
+            /** @description Teclado: un número de Guatemala o una extensión o grupo del equipo */
+            numero?: string;
+            /** Format: int64 */
+            ordenId?: number;
+            /**
+             * @description Con clienteId, ticketId u ordenId: cuál de sus teléfonos
+             * @enum {string}
+             */
+            telefono?: "principal" | "movil" | "contacto";
+            /** Format: int64 */
+            ticketId?: number;
+            /**
+             * Format: int64
+             * @description Un compañero: su extensión
+             */
+            usuarioId?: number;
         };
         EntradaLote: {
             /** @description Cursor de cambios que tiene el teléfono (se devuelve igual) */
@@ -13613,6 +13949,11 @@ export interface components {
         EntradaProbarMensaje: {
             ajustes?: components["schemas"]["AjustesPrueba"];
             texto: string;
+        };
+        EntradaProbarTelefono: {
+            /** Format: int32 */
+            wssPuerto?: number;
+            wssRuta?: string;
         };
         EntradaProgramarOrden: {
             /**
@@ -14024,6 +14365,37 @@ export interface components {
             usuarioIds: number[] | null;
             /** Format: int32 */
             version: number;
+        };
+        EntradaTelefonoCentralita: {
+            /** @description La huella que mostró «Probar» y que el administrador comparó con la de Issabel */
+            huellaWss: string;
+            /** Format: int32 */
+            llamadasPorUsuarioDia: number;
+            /** Format: int32 */
+            llamadasSimultaneas: number;
+            prefijoSalida: string;
+            /** @description Vacío = la dirección de la centralita */
+            sipDominio?: string;
+            /** Format: int32 */
+            version: number;
+            /**
+             * Format: int32
+             * @description 8089 de fábrica
+             */
+            wssPuerto?: number;
+            /** @description /ws de fábrica */
+            wssRuta?: string;
+        };
+        EntradaTelefonoExtension: {
+            /** @description Contraseña SIP del endpoint (solo escritura: se guarda cifrada y nunca se devuelve) */
+            sipSecreto?: string;
+            /** @description El usuario SIP del endpoint en Issabel (de fábrica, la extensión) */
+            sipUsuario?: string;
+            /**
+             * @description navegador: contesta y llama en el teléfono de Iris
+             * @enum {string}
+             */
+            tipo: "escritorio" | "navegador";
         };
         EntradaTicketConv: {
             asunto: string;
@@ -14629,10 +15001,25 @@ export interface components {
             extension: string;
             /** Format: int64 */
             id: number;
+            /**
+             * Format: date-time
+             * @description Cuándo se guardó la contraseña SIP (nunca se devuelve)
+             */
+            sipGuardadoEn: string | null;
+            /**
+             * Format: date-time
+             * @description La última vez que «Probar registro» pasó
+             */
+            sipProbadoEn: string | null;
+            /** @description Usuario SIP del endpoint (navegador) */
+            sipUsuario: string | null;
+            /** @enum {string} */
+            tipo: "escritorio" | "navegador";
             /** Format: int64 */
             usuarioId: number;
             usuarioNombre: string;
         };
+        "ExtensionAccionHTTPStruct {}Body": Record<string, never>;
         Factibilidad: {
             /**
              * Format: int64
@@ -15079,6 +15466,21 @@ export interface components {
             estado: "ok" | "sin_gpu" | "omitido";
             lista: components["schemas"]["GPUTablero"][] | null;
         };
+        GrupoCentralita: {
+            activo: boolean;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            numero: string;
+            /** Format: int32 */
+            version: number;
+        };
+        GrupoDestino: {
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            numero: string;
+        };
         GuardiaFueraDeHorario: {
             activa: boolean;
             /** @description Conversaciones con alguna de estas etiquetas (p. ej. Empresarial) */
@@ -15226,6 +15628,12 @@ export interface components {
             /** Format: int64 */
             no_leidos: number;
         };
+        LimiteTelefono: {
+            /** Format: int32 */
+            porDia: number;
+            /** Format: int32 */
+            usadasHoy: number;
+        };
         LimitesAsistente: {
             /**
              * Format: int32
@@ -15327,6 +15735,9 @@ export interface components {
         ListaExtensiones: {
             data: components["schemas"]["Extension"][] | null;
         };
+        ListaGrupos: {
+            data: components["schemas"]["GrupoCentralita"][] | null;
+        };
         ListaHorarios: {
             data: components["schemas"]["Horario"][];
             nextCursor: string | null;
@@ -15403,8 +15814,16 @@ export interface components {
             motivoFin?: string;
             nota?: string;
             numero: string;
-            /** @enum {string} */
-            origen: "whatsapp" | "centralita";
+            /**
+             * Format: int64
+             * @description La orden desde la que se llamó (teléfono de Iris o llamada directa)
+             */
+            ordenId?: number;
+            /**
+             * @description celular: llamada directa desde el celular del técnico (E4c), sin duración ni audio
+             * @enum {string}
+             */
+            origen: "whatsapp" | "centralita" | "celular";
             puede: components["schemas"]["PuedeLlamada"];
             /** @enum {string} */
             resultado?: "resuelto" | "ticket_creado" | "devolver" | "equivocado" | "otro";
@@ -15434,6 +15853,11 @@ export interface components {
              * @description Para editar la nota de una llamada de la centralita (409 conflicto_version)
              */
             version?: number;
+        };
+        LlamadaDirecta: {
+            llamada: components["schemas"]["Llamada"];
+            /** @description E.164 para abrir tel: en el celular */
+            telefono: string;
         };
         LlamadaEnMensaje: {
             /** @enum {string} */
@@ -15603,6 +16027,17 @@ export interface components {
             titulo: string;
             /** @enum {string} */
             visibilidad: "interna" | "cliente";
+        };
+        MarcacionTelefono: {
+            /** @description La URI SIP que el teléfono marca (el puente solo deja pasar esta) */
+            destino: string;
+            /** @description La llamada en marcando (ausente en una interna) */
+            llamada?: components["schemas"]["Llamada"];
+            /**
+             * Format: date-time
+             * @description Hasta cuándo vale el destino
+             */
+            vence: string;
         };
         MaterialOrden: {
             /** Format: int64 */
@@ -15814,6 +16249,11 @@ export interface components {
             estado: "conectada" | "desconectada" | "error" | "desactivada" | null;
             /** @description Null si no tiene una extensión activa en la centralita activa de la empresa */
             extension: string | null;
+            /**
+             * @description navegador: contesta y llama en el teléfono de Iris (E4c)
+             * @enum {string|null}
+             */
+            tipo: "escritorio" | "navegador" | null;
         };
         MiembroChat: {
             /**
@@ -17216,7 +17656,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -17276,6 +17716,12 @@ export interface components {
             /** Format: int64 */
             id: number;
             nombre: string;
+        };
+        PersonaDestino: {
+            extension: string;
+            nombre: string;
+            /** Format: int64 */
+            usuarioId: number;
         };
         PersonaProblema: {
             /** Format: int64 */
@@ -17813,11 +18259,24 @@ export interface components {
             /** Format: date-time */
             probadoEn: string;
         } | null;
+        PruebaRegistro: {
+            /** @enum {string} */
+            estado: "ok" | "credenciales" | "huella_distinta" | "no_conecta" | "sin_credencial";
+            extension?: components["schemas"]["Extension"];
+        };
         PruebaServidor: {
             /** @enum {string|null} */
             codigo: "destino_no_permitido" | "dns" | "conexion" | "tls" | "sin_tls" | "autenticacion" | "carpeta" | "protocolo" | "cifrado" | null;
             detalle: string | null;
             ok: boolean;
+        };
+        PruebaTelefono: {
+            /** @description Al día, si se probaron los datos guardados */
+            centralita?: components["schemas"]["Centralita"];
+            /** @enum {string} */
+            estado: "ok" | "huella_distinta" | "no_es_sip" | "no_conecta";
+            /** @description La huella del certificado que presentó el WSS (para compararla con la de Issabel) */
+            huella: string | null;
         };
         PuedeLlamada: {
             anotar: boolean;
@@ -17829,6 +18288,11 @@ export interface components {
             /** @description E3: siempre false en E1 */
             tomar: boolean;
             /** @description E3: siempre false en E1 */
+            transferir: boolean;
+        };
+        PuedeTelefono: {
+            llamar: boolean;
+            recibir: boolean;
             transferir: boolean;
         };
         PuntoPosicion: {
@@ -18581,6 +19045,12 @@ export interface components {
             /** Format: int32 */
             viajeSeg: number;
         };
+        SIPTelefono: {
+            dominio: string;
+            nombre: string;
+            uri: string;
+            usuario: string;
+        };
         SLA: {
             activo: boolean;
             /** Format: int64 */
@@ -18830,6 +19300,11 @@ export interface components {
             /** @description Los modelos que el servidor deja usar */
             modelos: string[] | null;
         };
+        ServidorICE: {
+            credential: string;
+            urls: string[] | null;
+            username: string;
+        };
         ServidorIMAP: {
             carpeta: string;
             /** @description Carpeta a la que se mueve cada correo ya guardado; null = solo se marca leído */
@@ -18909,6 +19384,22 @@ export interface components {
             cliente: components["schemas"]["ClientePortal"];
             /** Format: date-time */
             expiraEn: string;
+        };
+        SesionTelefono: {
+            /** @description Servidores TURN con credencial efímera */
+            ice: components["schemas"]["ServidorICE"][] | null;
+            /** Format: date-time */
+            iceVence: string;
+            /**
+             * @description El audio siempre va por el relevo de Iris
+             * @enum {string}
+             */
+            politicaIce: "relay";
+            sip: components["schemas"]["SIPTelefono"];
+            /** Format: date-time */
+            ticketVence: string;
+            /** @description Ruta del WebSocket (subprotocolo sip) con el ticket de un solo uso */
+            ws: string;
         };
         SesionesCerradas: {
             /** Format: int64 */
@@ -19197,6 +19688,37 @@ export interface components {
              * @enum {string}
              */
             tipo: "telefono" | "movil";
+        };
+        TelefonoCentralita: {
+            activo: boolean;
+            /** @description SHA-256 del certificado del WSS que confirmó un administrador */
+            huellaWss: string | null;
+            /** Format: int32 */
+            llamadasPorUsuarioDia: number;
+            /** Format: int32 */
+            llamadasSimultaneas: number;
+            /** @description Lo que se antepone a los 8 dígitos para salir por la troncal */
+            prefijoSalida: string;
+            /**
+             * Format: date-time
+             * @description La última prueba del WSS que pasó con los datos actuales (encender la exige)
+             */
+            probadoEn: string | null;
+            /** @description Dominio SIP de From/To (null = la dirección de la centralita) */
+            sipDominio: string | null;
+            /** Format: int32 */
+            wssPuerto: number;
+            wssRuta: string;
+        };
+        TelefonoMio: {
+            disponible: boolean;
+            /** @description Dónde se puede usar: panel (llama y recibe) y app (primera etapa, solo llama) */
+            dispositivos: string[] | null;
+            extension: string | null;
+            limite: components["schemas"]["LimiteTelefono"];
+            /** @enum {string|null} */
+            motivo: "sin_centralita" | "sin_extension" | "extension_escritorio" | "sin_credencial" | "telefono_apagado" | "turn_no_configurado" | null;
+            puede: components["schemas"]["PuedeTelefono"];
         };
         TextoConCuenta: {
             /**
@@ -30373,6 +30895,8 @@ export interface operations {
                 clienteId?: number;
                 /** @description Las vinculadas al ticket */
                 ticketId?: number;
+                /** @description Las de la orden (teléfono de Iris y llamadas directas del celular) */
+                ordenId?: number;
                 /** @description Las que te sonaron o marcaste */
                 mias?: boolean;
                 /** @description Solo las de hoy (hora de Guatemala) */
@@ -31285,6 +31809,81 @@ export interface operations {
             };
         };
     };
+    probarRegistroExtension: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                extensionId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExtensionAccionHTTPStruct {}Body"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PruebaRegistro"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     quitarExtension: {
         parameters: {
             query?: never;
@@ -31356,6 +31955,315 @@ export interface operations {
             };
         };
     };
+    telefonoExtension: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                extensionId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaTelefonoExtension"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Extension"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    gruposCentralita: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaGrupos"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearGrupoCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearGrupo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrupoCentralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarGrupoCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+                grupoId: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarGrupo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GrupoCentralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     probarCentralita: {
         parameters: {
             query?: never;
@@ -31381,6 +32289,329 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PruebaCentralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    telefonoCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaTelefonoCentralita"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Centralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarTelefono: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambioTelefono"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Centralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    desactivarTelefono: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambioTelefono"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Centralita"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    probarTelefonoCentralita: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaProbarTelefono"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PruebaTelefono"];
                 };
             };
             /** @description Unauthorized */
@@ -41773,6 +43004,401 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verTelefono: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TelefonoMio"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    abrirTelefono: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAbrirTelefono"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SesionTelefono"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    llamadaDirecta: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaLlamadaDirecta"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlamadaDirecta"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    llamarTelefono: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaLlamarTelefono"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarcacionTelefono"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    telefonoSIP: {
+        parameters: {
+            query?: {
+                /** @description El ticket de un solo uso de POST /telefono/abrir */
+                ticket?: string;
+            };
+            header?: {
+                /** @description Si viene, tiene que ser el de IRIS_BASE_URL */
+                Origin?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cambio a WebSocket (subprotocolo sip) */
+            101: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    destinosTransferencia: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DestinosTransferencia"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

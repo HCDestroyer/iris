@@ -539,12 +539,12 @@ func nuevoTelefonoExtension(m *Modulo) *auditoria.Caso[EntradaTelefonoExtension,
 				return Extension{}, err
 			}
 			antes := map[string]any{"tipo": x.Tipo, "sip_usuario": x.SipUsuario, "credencial_guardada": x.SipSecretoCifrado != nil}
-			credencial := "sin_cambio"
+			estadoClave := "sin_cambio"
 			p := mensajeriabd.GuardarTelefonoExtensionParams{ID: x.ID, Tipo: in.Tipo}
 			switch in.Tipo {
 			case "escritorio":
 				if x.SipSecretoCifrado != nil {
-					credencial = "borrada"
+					estadoClave = "borrada"
 				}
 			case "navegador":
 				usuario := x.Extension
@@ -567,7 +567,7 @@ func nuevoTelefonoExtension(m *Modulo) *auditoria.Caso[EntradaTelefonoExtension,
 						return Extension{}, err
 					}
 					ahora := m.ahora()
-					p.SipSecretoCifrado, p.SipGuardadoEn, credencial = cif, &ahora, "guardada"
+					p.SipSecretoCifrado, p.SipGuardadoEn, estadoClave = cif, &ahora, "guardada"
 				case x.SipSecretoCifrado == nil || cambiaUsuario:
 					return Extension{}, nucleo.ReglaNegocio("clave_requerida", "Escribe la contraseña SIP de la extensión (se guarda cifrada y no se vuelve a mostrar)")
 				default:
@@ -590,7 +590,7 @@ func nuevoTelefonoExtension(m *Modulo) *auditoria.Caso[EntradaTelefonoExtension,
 				nombre = u.Nombre
 			}
 			return aExtension(n, nombre), t.Emitir("extension.telefono_cambiado", map[string]any{"centralita_id": c.ID, "empresa_id": c.EmpresaID,
-				"extension_id": n.ID, "usuario_id": n.UsuarioID, "tipo": n.Tipo, "credencial": credencial})
+				"extension_id": n.ID, "usuario_id": n.UsuarioID, "tipo": n.Tipo, "credencial": estadoClave})
 		},
 	})
 }
