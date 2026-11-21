@@ -931,11 +931,11 @@ func (q *Queries) CrearItems(ctx context.Context, arg CrearItemsParams) error {
 }
 
 const crearMaterial = `-- name: CrearMaterial :one
-INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia,
+INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, bodega_tipo, desde_tecnico, excede_existencia,
                                     registrado_por, canal, ocurrido_en, operacion_id, modalidad)
-VALUES ($1, $2, $3, $4, $5, $6, $7,
-        $8, $9, $10, $11, $12)
-RETURNING id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10, $11, $12, $13, $14)
+RETURNING id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad, bodega_tipo, desde_tecnico
 `
 
 type CrearMaterialParams struct {
@@ -945,6 +945,8 @@ type CrearMaterialParams struct {
 	Descripcion      string
 	Cantidad         pgtype.Numeric
 	BodegaID         *int64
+	BodegaTipo       *string
+	DesdeTecnico     bool
 	ExcedeExistencia bool
 	RegistradoPor    *int64
 	Canal            string
@@ -961,6 +963,8 @@ func (q *Queries) CrearMaterial(ctx context.Context, arg CrearMaterialParams) (C
 		arg.Descripcion,
 		arg.Cantidad,
 		arg.BodegaID,
+		arg.BodegaTipo,
+		arg.DesdeTecnico,
 		arg.ExcedeExistencia,
 		arg.RegistradoPor,
 		arg.Canal,
@@ -984,6 +988,8 @@ func (q *Queries) CrearMaterial(ctx context.Context, arg CrearMaterialParams) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Modalidad,
+		&i.BodegaTipo,
+		&i.DesdeTecnico,
 	)
 	return i, err
 }
@@ -1514,7 +1520,8 @@ func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]Camp
 
 const esBodegaDeTecnicoOCuadrilla = `-- name: EsBodegaDeTecnicoOCuadrilla :one
 SELECT (EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = $1::bigint)
-     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = $1::bigint))::boolean
+     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = $1::bigint)
+     OR EXISTS (SELECT 1 FROM agenda.tecnicos ft WHERE ft.bodega_id = $1::bigint))::boolean
 `
 
 // La bodega es de una cuadrilla o la personal de un técnico según Argos (0.13.1 §3.9): desde el panel
@@ -2681,7 +2688,7 @@ func (q *Queries) MarcarDatosArgos(ctx context.Context, arg MarcarDatosArgosPara
 }
 
 const materialPorID = `-- name: MaterialPorID :one
-SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad FROM campo.orden_materiales WHERE id = $1
+SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad, bodega_tipo, desde_tecnico FROM campo.orden_materiales WHERE id = $1
 `
 
 func (q *Queries) MaterialPorID(ctx context.Context, id uuid.UUID) (CampoOrdenMaterial, error) {
@@ -2702,12 +2709,14 @@ func (q *Queries) MaterialPorID(ctx context.Context, id uuid.UUID) (CampoOrdenMa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Modalidad,
+		&i.BodegaTipo,
+		&i.DesdeTecnico,
 	)
 	return i, err
 }
 
 const materialesDeOrdenes = `-- name: MaterialesDeOrdenes :many
-SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad FROM campo.orden_materiales WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
+SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad, bodega_tipo, desde_tecnico FROM campo.orden_materiales WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
 `
 
 func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenMaterial, error) {
@@ -2734,6 +2743,8 @@ func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]C
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Modalidad,
+			&i.BodegaTipo,
+			&i.DesdeTecnico,
 		); err != nil {
 			return nil, err
 		}

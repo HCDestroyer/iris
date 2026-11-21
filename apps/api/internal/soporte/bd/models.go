@@ -388,6 +388,8 @@ type CampoOrdenMateriale struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Modalidad        *string
+	BodegaTipo       *string
+	DesdeTecnico     bool
 }
 
 type CampoOrdenNota struct {

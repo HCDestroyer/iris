@@ -96,6 +96,9 @@ type Inventario interface {
 	Existencias(ctx context.Context, empresaID, bodegaID int64) ([]Existencia, error)
 	// BodegaDeEmpresa: la bodega existe en la empresa (para que despacho use otra bodega).
 	BodegaDeEmpresa(ctx context.Context, empresaID, bodegaID int64) (bool, error)
+	// TipoDeBodega: bodega, tecnico o cuadrilla según Argos; "" si no es de la empresa (despacho
+	// solo usa bodegas tipo = bodega, 0.13.1 §3.9).
+	TipoDeBodega(ctx context.Context, empresaID, bodegaID int64) (string, error)
 }
 
 // Config del módulo.

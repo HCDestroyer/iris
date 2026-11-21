@@ -94,6 +94,9 @@ type Material struct {
 	// DesdeApp: lo registró un técnico desde el lote (RegistradoPor); si no, despacho en el panel.
 	DesdeApp      bool   `json:"desde_app"`
 	RegistradoPor *int64 `json:"registrado_por"`
+	// BodegaTipo: el tipo de la bodega según Argos al registrarlo desde el panel (o null si no se
+	// supo). Con Argos ≥ 0.11.0, despacho solo usa bodegas tipo = bodega (M-4).
+	BodegaTipo *string `json:"bodega_tipo"`
 }
 
 // opcionesPlan es lo que planificar necesita saber de Argos y de Iris (sin E/S en planificar).
@@ -393,7 +396,9 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				continue
 			}
 			panel = true
-			if b != nil && (cuadrillas[int64(*b)] || op.personales[int64(*b)]) {
+			// M-4: lista de permitidas. Una bodega de cuadrilla, personal o de tipo desconocido (no se
+			// leyó de Argos al registrarlo) no sale desde el panel.
+			if b != nil && (cuadrillas[int64(*b)] || op.personales[int64(*b)] || mat.BodegaTipo == nil || *mat.BodegaTipo != "bodega") {
 				panelEspecial = true
 			}
 			if !op.bodegaApp && explicita(mat.BodegaID) {
@@ -410,7 +415,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 		}
 		switch {
 		case op.bodegaApp && panelEspecial:
-			p.incompleto = "despacho indicó una bodega de cuadrilla o personal (desde el panel solo bodegas tipo bodega)"
+			p.incompleto = "despacho indicó una bodega de cuadrilla, personal o de tipo desconocido (desde el panel solo bodegas tipo bodega)"
 		case conApp && panel:
 			p.incompleto = "materiales de la app y del panel en una orden (un consumo por orden)"
 		case conApp && sinActor:

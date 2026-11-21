@@ -61,7 +61,7 @@ func TestConsumoDesdeLaBodegaDeLaCuadrilla(t *testing.T) {
 	e.cerrar(map[string]any{
 		"orden_id": panel, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26"},
-		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_gasto"}},
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_gasto", "bodega_tipo": "bodega"}},
 	})
 	e.procesar()
 	c = e.llamadaA("iris:consumo:" + panel)

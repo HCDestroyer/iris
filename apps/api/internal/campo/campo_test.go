@@ -79,6 +79,8 @@ type inventarioFalso struct {
 	existencias map[int64][]campo.Existencia
 	comodato    map[int64][]campo.EquipoComodato
 	caido       bool
+	// tipos: el tipo de cada bodega en Argos (por defecto, «bodega» si tiene existencias).
+	tipos map[int64]string
 	// lecturas: cuántas veces se pidieron las existencias de cada bodega.
 	mu       sync.Mutex
 	lecturas map[int64]int
@@ -89,6 +91,19 @@ func (i *inventarioFalso) EquiposEnComodato(_ context.Context, _, servicio int64
 		return nil, errors.New("argos caído")
 	}
 	return i.comodato[servicio], nil
+}
+
+func (i *inventarioFalso) TipoDeBodega(_ context.Context, _, bodega int64) (string, error) {
+	if i.caido {
+		return "", errors.New("argos caído")
+	}
+	if t, ok := i.tipos[bodega]; ok {
+		return t, nil
+	}
+	if _, ok := i.existencias[bodega]; ok {
+		return "bodega", nil
+	}
+	return "", nil
 }
 
 func (i *inventarioFalso) BodegaDeEmpresa(_ context.Context, _, bodega int64) (bool, error) {

@@ -379,9 +379,9 @@ WHERE id = @id
 RETURNING *;
 
 -- name: CrearMaterial :one
-INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia,
+INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, bodega_tipo, desde_tecnico, excede_existencia,
                                     registrado_por, canal, ocurrido_en, operacion_id, modalidad)
-VALUES (@id, @orden_id, @producto_id, @descripcion, @cantidad, @bodega_id, @excede_existencia,
+VALUES (@id, @orden_id, @producto_id, @descripcion, @cantidad, @bodega_id, sqlc.narg(bodega_tipo), @desde_tecnico, @excede_existencia,
         @registrado_por, @canal, @ocurrido_en, @operacion_id, sqlc.narg(modalidad))
 RETURNING *;
 
@@ -534,7 +534,8 @@ SELECT (EXISTS (
 -- La bodega es de una cuadrilla o la personal de un técnico según Argos (0.13.1 §3.9): desde el panel
 -- no se usa (despacho solo con bodegas tipo = bodega).
 SELECT (EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = @bodega::bigint)
-     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = @bodega::bigint))::boolean;
+     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = @bodega::bigint)
+     OR EXISTS (SELECT 1 FROM agenda.tecnicos ft WHERE ft.bodega_id = @bodega::bigint))::boolean;
 
 -- name: BodegasPermitidas :many
 -- Las bodegas que el técnico puede elegir en la empresa (personal y de su cuadrilla actual): las

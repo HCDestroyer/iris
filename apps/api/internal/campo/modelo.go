@@ -177,6 +177,8 @@ type MaterialOrden struct {
 	// Para el cierre (no salen por la API): quién lo registró y si fue desde la app (el lote).
 	registradoPor *int64
 	desdeApp      bool
+	// bodegaTipo: el tipo de la bodega según Argos al registrarlo desde el panel (M-4).
+	bodegaTipo *string
 }
 
 // EquipoOrden: equipo instalado o retirado.
