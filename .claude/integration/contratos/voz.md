@@ -1,6 +1,6 @@
 # Contrato de la fase de voz (llamadas de WhatsApp, asistente en voz y centralita)
 
-Estado (19 nov 2026): **E4a (centralita de solo lectura) hecha** (§3.12, «E4a hecha»). Antes, el 17 nov 2026: **E1 entrantes implementada en el servidor** (`voz_*.go`; ver «Estado de E1» al
+Estado (21 nov 2026): **E4c (el teléfono dentro de Iris) contratada** (§3.12, «E4c: el teléfono dentro de Iris»). El 19 nov 2026: **E4a (centralita de solo lectura) hecha** (§3.12, «E4a hecha»). Antes, el 17 nov 2026: **E1 entrantes implementada en el servidor** (`voz_*.go`; ver «Estado de E1» al
 final de §1); el resto, diseño sin código. Lo implementa I1 en el servicio de mensajería
 (`apps/api/internal/mensajeria/voz_*.go`, schema `mensajeria`) y en un servicio nuevo, `cmd/voz`
 (motor de voz, en un servidor dedicado). Lo usará el panel (I3). Valen las reglas del inicio de
@@ -36,7 +36,7 @@ técnica (§9)**; los que más pesan están listados en §10.
 | **E3** Verificación fuerte y traspaso en vivo | Verificación `fuerte` por teclado (DTMF); `consultar_saldo`, visitas (`ofrecer_visita`, `agendar_visita`), promesa y reconexión con las reglas de §17 del chat **más** las de voz (todo eso pide `fuerte` en la llamada, §5.1.1); **escuchar en vivo**; una persona **toma la llamada en vivo** (`tomar`) y transferencia entre personas | E2 |
 | **E4a** Centralita Issabel, solo lectura | Conexión AMI de solo lectura + CDR: ventana con el cliente cuando suena la extensión del usuario; la llamada queda en la ficha del cliente y, si se elige, en un ticket | Independiente de E1–E3 |
 | **E4b** Centralita, llamar y grabaciones | Clic-para-llamar (`Originate`), extensión por usuario, grabaciones de Issabel servidas por Iris con su ACL | E4a |
-| **E4c** Contestar y llamar desde el navegador | SIP sobre WebRTC contra el Asterisk 18 de Issabel (PJSIP con WSS, 8089): la extensión `navegador` de cada persona contesta y llama en el panel con los mismos componentes y la misma máquina de estados que WhatsApp (una sola fuente de verdad, sin mezclar teléfonos de escritorio con la web). Solo el panel web al inicio; la app móvil después | E4a |
+| **E4c** El teléfono dentro de Iris | SIP sobre WebRTC contra el Asterisk 18 de Issabel con **Iris como puente** (PJSIP con WSS, 8089; la contraseña SIP nunca sale del servidor; audio por el TURN de Iris): la extensión `navegador` de cada persona contesta y llama en el panel con los mismos componentes y la misma máquina de estados que WhatsApp (una sola fuente de verdad). La app del técnico (Expo y `/campo`), primera etapa solo salientes: «Llamar por la empresa» o «Llamar desde mi celular» (llamada directa anotada en la orden). §3.12 «E4c» | E4a |
 
 **Estado de E1 (decisiones del líder, 17 nov 2026).** E1 se parte en dos PR:
 
@@ -596,7 +596,7 @@ conexión no). E4b sumará `contexto_salida`, `prefijo_salida` y `grabaciones`.
 **`mensajeria.centralita_extensiones`**: `id`, `empresa_id`, `centralita_id`, `extension` (2–8 dígitos),
 `usuario_id`, `tipo` (`escritorio` \| `navegador`; **E4c**, de fábrica `escritorio`), `sip_usuario` y
 `sip_secreto_cifrado` (**E4c**: credencial SIP del navegador, cifrada con datos asociados
-`mensajeria.centralita_extension:<id>:sip`; prevista y sin usar en E4a), `activa`, `quitada_en`. Únicas
+`mensajeria.centralita_extension:<id>:sip`; prevista en E4a, usada desde E4c, que suma `sip_guardado_en` y `sip_probado_en`), `activa`, `quitada_en`. Únicas
 por `(centralita_id, extension)` y por `(centralita_id, usuario_id)` entre las activas.
 
 **Las llamadas de la centralita van en `mensajeria.llamadas`** (`origen = centralita`, decisión del PM:
@@ -1161,17 +1161,280 @@ Lo que quedó al construirla (manda sobre lo anterior de esta sección donde dif
 - **Pruebas:** `ami_test.go`, `centralita_ami_interno_test.go` y `centralita_test.go` contra un AMI
   falso sobre TLS (`internal/mensajeria/ami/amifalso`); e2e `e2e/centralita.spec.ts`.
 
-#### E4c: requisitos (más adelante)
+#### E4c: el teléfono dentro de Iris (contrato, 21 nov 2026)
 
-- Asterisk: `http.conf` con TLS en 8089 (WSS) y un certificado válido para el nombre con que entra el
-  navegador; `pjsip.conf` con `transport-wss` y, por persona, un endpoint con `webrtc=yes` (DTLS,
-  ICE, `rtcp_mux`, opus/ulaw). ICE con STUN, y TURN si el navegador no llega por la VPN.
-- Iris: la extensión pasa a `tipo = navegador` con su credencial SIP cifrada solo en el servidor; al
-  navegador se le entrega **por sesión y con vida corta** (nunca en un log, nunca en la auditoría ni en
-  un evento). El panel usa la misma máquina y los mismos componentes que WhatsApp; la llamada de
-  la centralita gana «Contestar» (`puede.contestar`). Solo el panel web al inicio; la app móvil después.
-- Seguridad a revisar antes de construir: WSS solo desde la red o VPN de Iris, credencial por persona
-  (nunca compartida), corte al desactivar el usuario o quitarle la extensión.
+Decisiones del PM (maqueta aprobada el 21 nov 2026), que este apartado no reabre y que **mandan sobre
+«E4c: requisitos» de antes** (allí la credencial se entregaba al navegador; ya no):
+
+- **Iris es el puente.** El navegador (panel) y la app (Expo y `/campo`) hablan **solo con Iris**
+  (`https://iris.kns.gt`), con su sesión de Iris. Iris abre el registro SIP contra la Issabel (Asterisk
+  18.19, PJSIP, WSS 8089 con el certificado fijado por huella, como el AMI de E4a) y **responde los
+  desafíos de autenticación en el servidor**: la contraseña SIP nunca sale del servidor (ni al navegador,
+  ni a un log, ni a la auditoría, ni a un evento). La Issabel nunca se expone a internet: 8089 y el rango
+  de audio solo a la IP de Iris.
+- **Audio:** WebRTC con DTLS-SRTP, siempre por el **relevo TURN propio de Iris** (`iceTransportPolicy:
+  relay`), con credenciales efímeras. El TURN solo puede relevar hacia la IP de la Issabel.
+- La extensión del navegador la asigna la empresa en Administración; la contraseña SIP se escribe una vez
+  (cifrada con `IRIS_CLAVE_CIFRADO`) y nunca se vuelve a mostrar; «Probar registro».
+- Suena en **una sola pestaña** (coordinación entre pestañas como `lib/voz/canal`; el servidor admite
+  **una** conexión por persona: la nueva reemplaza a la vieja). No se graba desde el navegador.
+- **Transferir:** cualquiera con extensión y `centralita.transferir`, solo a personas y grupos de su
+  empresa, de una lista; nunca a un número libre. El técnico no transfiere.
+- **Llamar** usa siempre la extensión propia. Desde una ficha (cliente, ticket, orden) el número lo pone
+  el servidor. El teclado libre solo admite números de Guatemala y extensiones del equipo, con límite por
+  día (configurable por empresa).
+- **App del técnico** (primera etapa, solo salientes): «Llamar por la empresa» (el cliente ve el número
+  de la empresa; queda en la orden) y «Llamar desde mi celular» (`tel:`), que se anota en la orden como
+  **llamada directa** (hora, sin duración ni audio). Sin extensión o sin puente: solo la directa.
+- **Una sola fuente de verdad:** todas las llamadas en `mensajeria.llamadas` (`origen = centralita` las
+  de la extensión, `origen = celular` las directas), enlazadas a cliente, ticket y orden; mismas
+  pantallas y estados que WhatsApp y E4a (app = `/campo` = panel).
+
+##### Modelo (migración `mensajeria_telefono_e4c`)
+
+`mensajeria.centralitas` suma (todo de `centralita.configurar`):
+
+| Columna | De fábrica | Qué es |
+| --- | --- | --- |
+| `telefono_activo` | false | El teléfono de Iris encendido para la empresa |
+| `wss_puerto` | 8089 | WSS de Asterisk (`http.conf`). Otro solo si la instalación lo permite (`IRIS_CENTRALITA_PUERTOS`) |
+| `wss_ruta` | `/ws` | `^/[A-Za-z0-9/_.-]{0,63}$` |
+| `wss_huella` | null | SHA-256 del certificado del WSS (puede ser distinto del del AMI), fijada al probar y confirmada por un admin |
+| `sip_dominio` | null | Dominio SIP de From/To (null = `host`). Mismo patrón que `host` |
+| `prefijo_salida` | `''` | Lo que se antepone a los 8 dígitos para salir por la troncal (`^[0-9]{0,6}$`) |
+| `llamadas_por_usuario_dia` | 60 | 1–300: salientes externas por persona y día (Guatemala) |
+| `llamadas_simultaneas` | 10 | 1–100: salientes por el puente vivas a la vez en la empresa |
+| `telefono_probado_en` | null | La última prueba del WSS que pasó con los datos actuales (encender la exige) |
+
+`mensajeria.centralita_extensiones` usa `tipo` (`escritorio` \| `navegador`), `sip_usuario` y
+`sip_secreto_cifrado` (datos asociados `mensajeria.centralita_extension:<id>:sip`, rotados por
+`irisctl rotate-key` como los demás), y suma `sip_guardado_en` y `sip_probado_en`. Con `tipo = navegador`
+la credencial es obligatoria (CHECK). Quitar la extensión borra la credencial.
+
+`mensajeria.centralita_grupos` (nuevo): `id`, `empresa_id`, `centralita_id`, `nombre` (1–60), `numero`
+(`^[0-9]{2,8}$`, el del grupo de timbrado o la cola en Issabel), `activo`, `version`. Únicos por
+`(centralita_id, numero)` entre los activos. Son los destinos de «Transferir» además de las personas.
+
+`mensajeria.telefono_tickets` (nuevo): `hash` (SHA-256 del ticket, PK), `usuario_id`, `empresa_id`,
+`extension_id`, `dispositivo` (`panel` \| `app`), `sesion_hash` (la sesión que lo pidió), `expira_en`
+(30 s), `usado_en`. De un solo uso. Se borran a la hora.
+
+`mensajeria.telefono_conexiones` (nuevo): `id` (uuid), `usuario_id` (**único**: una conexión por
+persona), `empresa_id`, `extension_id`, `dispositivo`, `replica`, `abierta_en`, `latido_en`. La nueva
+reemplaza a la vieja (la réplica que la tenía la cierra en su siguiente latido con el código `4001`).
+
+`mensajeria.llamadas` suma `orden_id` (la orden desde la que se llamó), `puente` (la saliente la marcó el
+puente de Iris) e `invite_en` (cuándo el puente dejó pasar su INVITE: un solo uso). `origen` suma
+`celular` (`centralita_id`, `canal_id` y `conversacion_id` null; `orden_id` obligatorio) y `motivo_fin`
+suma `directa`.
+
+##### Permisos
+
+| Permiso | Qué permite | Roles base | Sensible |
+| --- | --- | --- | --- |
+| `centralita.llamar` | Llamar con su extensión (desde una ficha o el teclado) y anotar la llamada directa de una orden | `soporte`, `ventas`, `despacho`, `supervisor`, `tecnico`, `admin` | |
+| `centralita.transferir` | Pasar una llamada en curso a una persona o grupo de su empresa | `soporte`, `ventas`, `despacho`, `supervisor`, `admin` (**no** `tecnico`) | |
+| `centralita.configurar` | Además de E4a: el teléfono (WSS, huella, dominio, prefijo, límites), probarlo, encenderlo y los grupos | `admin` | Sí |
+| `centralita.asignar_extension` | Además de E4a: tipo de la extensión, credencial SIP (solo escritura) y «Probar registro» | `supervisor`, `admin` | Sí |
+
+Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una extensión `navegador` activa
+(es la suya). Ningún token de API ni integración usa nada de esto (404).
+
+##### API (base `/api/v1/mensajeria`)
+
+**Mi teléfono** (persona con sesión; sin permiso: es el suyo):
+
+- `GET /telefono` → `TelefonoMio`: `disponible` (bool), `motivo` (null o `sin_extension`,
+  `extension_escritorio`, `sin_credencial`, `telefono_apagado`, `sin_centralita`, `turn_no_configurado`),
+  `extension`, `dispositivos` (`["panel"]` o `["panel","app"]`), `puede` (`llamar`, `transferir`,
+  `recibir`), `limite` (`porDia`, `usadasHoy`). Lo usa el panel para pintar el teléfono y la app para
+  decidir si ofrece «Llamar por la empresa».
+- `POST /telefono/abrir { dispositivo: panel | app }` → 201 `SesionTelefono`: `ws` (ruta relativa
+  `/api/v1/mensajeria/telefono/sip?ticket=…`), `ticketVence`, `sip` (`uri` = `sip:<sip_usuario>@<dominio>`,
+  `usuario`, `dominio`, `nombre` para mostrar), `ice` (`[{ urls[], username, credential }]`, TURN
+  efímero), `politicaIce: "relay"`, `iceVence`. **Sin contraseña SIP.** CSRF como toda acción. 422
+  `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503
+  `turn_no_configurado`. El ticket: 32 bytes aleatorios, vale **30 s**, un solo uso, atado a la persona,
+  a la sesión que lo pidió, a la empresa activa, a la extensión y al dispositivo.
+- `GET /telefono/sip?ticket=` → **WebSocket** con subprotocolo `sip` (RFC 7118). Exige la misma sesión
+  (cookie) que pidió el ticket; si el navegador manda `Origin`, tiene que ser el de `IRIS_BASE_URL`
+  (si no, 403). Errores antes del *upgrade* como RFC 9457: 401 sin sesión, 403 `ticket_no_valido`
+  (vencido, usado, de otra sesión o de otra persona) u `origen_no_permitido`, 422 los de `abrir`, 503
+  `centralita_no_responde`. Cierres después del *upgrade* (código y motivo en el *close frame*):
+  `4001 reemplazada` (otra pestaña o dispositivo tomó el teléfono), `4003 sin_acceso` (usuario
+  desactivado, sesión cerrada, extensión quitada o cambiada, teléfono apagado), `4008 limite` (mensajes
+  de más), `4502 centralita_no_responde`, `1001` al apagar el servicio.
+- `POST /telefono/llamar` (`centralita.llamar`), **uno** de:
+  `{ clienteId, telefono: principal|movil|contacto }`, `{ ticketId, telefono }`, `{ ordenId, telefono? }`
+  (de fábrica el primero que exista: contacto del servicio, móvil, principal), `{ usuarioId }` (un
+  compañero: su extensión) o `{ numero }` (teclado). → 201 `MarcacionTelefono`: `destino` (la URI SIP que
+  el teléfono marca: `sip:iris-<llamadaId>@<dominio>` para un número externo, `sip:<extension>@<dominio>`
+  para una interna), `llamada` (la `Llamada` en `marcando` con `origen: centralita`, o null en una
+  interna), `vence` (60 s para mandar el INVITE). Reglas:
+  - El número externo **lo pone el servidor**: el de la ficha (instantánea de Argos, como E4b) o el del
+    teclado normalizado. Solo Guatemala: `+502` y 8 dígitos que empiezan por 2–7 (fijos y móviles); ni
+    otros países, ni números cortos, ni 1XXX, ni de tarificación especial (422 `destino_no_permitido`).
+    El teclado acepta también 2–8 dígitos si son una extensión activa o un grupo activo de la
+    centralita (llamada interna, sin fila ni límite); cualquier otro corto: 422 `destino_no_permitido`.
+  - Cliente, ticket u orden que la persona no ve: 404. Sin teléfono de ese tipo: 422 `sin_contacto`.
+  - Límite por persona y día (`llamadas_por_usuario_dia`, solo externas): 422 `limite_llamadas`.
+    Simultáneas de la empresa por el puente (`llamadas_simultaneas`): 409 `llamadas_simultaneas`. Una
+    marcación sin INVITE en 60 s se cierra como `fallida` (`error_medio`) y sí cuenta para el límite.
+  - La fila guarda `numero`, `cliente_id`/`servicio_id` (de la ficha o por la regla de una sola
+    coincidencia), `ticket_id`, `orden_id`, `usuario_id`, `extension`, `puente = true` e
+    `id_externo = iris:<llamadaId>`. Cuando el AMI de E4a ve la misma llamada (DialBegin desde esa
+    extensión al mismo número en los 2 min siguientes), **adopta esa fila** (cambia `id_externo` al
+    `Linkedid`) en vez de crear otra: una sola fila por llamada.
+  - Auditoría con cliente, ticket u orden y la extensión, **sin el número**. Evento
+    `llamada.saliente_iniciada` (`origen: centralita`, `orden_id`, `ticket_id`).
+- `POST /telefono/llamada-directa { ordenId }` (`centralita.llamar`; la orden tiene que verse, como
+  `GET /ordenes/{id}`): «Llamar desde mi celular». → 201 `{ llamada, telefono }`: la fila con
+  `origen: celular`, `direccion: saliente`, `estado: terminada`, `motivo_fin: directa`, sin
+  `contestada_en` ni `duracion_seg` (Iris no sabe si contestaron), `orden_id`, `cliente_id`,
+  `servicio_id`, `usuario_id`; y el número (E.164) para abrir `tel:`. No necesita extensión ni puente y no
+  cuenta para el límite diario. 422 `sin_contacto`. Evento `llamada.directa_registrada`. En el
+  historial de la orden se ve como «Llamada directa» con la hora.
+- `GET /telefono/transferir/destinos` (`centralita.transferir`) → `{ personas: [{ usuarioId, nombre,
+  extension }], grupos: [{ id, nombre, numero }] }`: las extensiones activas de su empresa (sin la suya)
+  y los grupos activos.
+- `GET /centralitas/llamadas?ordenId=` (además de `clienteId` y `ticketId` de E4a): las llamadas de una
+  orden (centralita y directas), con `ordenes.ver` o `ordenes.ver_propias` sobre esa orden (si no, 404).
+  `Llamada` suma `ordenId` y `origen` acepta `celular`.
+
+**Administración** (`/administracion/integraciones/centralita/telefono`, pantalla propia):
+
+- `POST /centralitas/{id}/telefono` (`centralita.configurar`) `{ version, wssPuerto, wssRuta, huellaWss,
+  sipDominio, prefijoSalida, llamadasPorUsuarioDia, llamadasSimultaneas }` → `Centralita` (suma el
+  objeto `telefono` con esos campos, `activo`, `probadoEn`; nunca un secreto). Cambiar puerto, ruta,
+  huella o dominio apaga el teléfono y borra `telefono_probado_en`. Evento `centralita.telefono_cambiado`.
+- `POST /centralitas/{id}/telefono/probar { wssPuerto?, wssRuta? }` (`centralita.configurar`): conecta
+  por TLS al WSS de Asterisk, abre el WebSocket `sip` y manda un `OPTIONS` (sin credenciales): `ok`
+  (respondió SIP), `huella_distinta`, `no_es_sip` (abrió pero no habla SIP) o `no_conecta` (un solo error
+  para todo lo demás). Devuelve `huella`. Con los datos guardados y la huella fijada, `ok` deja
+  `telefono_probado_en`. Evento `centralita.telefono_probado`.
+- `POST /centralitas/{id}/telefono/activar|desactivar { version }` (`centralita.configurar`): encender
+  exige `telefono_probado_en` (422 `sin_probar`) y TURN configurado en la instalación (422
+  `turn_no_configurado`). Apagar corta todas las conexiones de la empresa (`4003`). Evento
+  `centralita.telefono_cambiado` (`activo`).
+- `GET /centralitas/{id}/grupos`, `POST /centralitas/{id}/grupos { nombre, numero }`,
+  `POST /centralitas/{id}/grupos/{grupoId}/actualizar { version, nombre, numero, activo }`
+  (`centralita.configurar`). 409 `grupo_existente`. Eventos `grupo_centralita.creado` /
+  `grupo_centralita.actualizado`.
+- `POST /centralitas/{id}/extensiones/{extensionId}/telefono { tipo, sipUsuario?, sipSecreto? }`
+  (`centralita.asignar_extension`): `navegador` exige `sipUsuario` (`^[A-Za-z0-9_.-]{1,64}$`, de
+  fábrica la extensión) y `sipSecreto` (8–128, sin CR, LF, NUL, comillas ni `\`) la primera vez;
+  cambiar `sipUsuario` sin volver a escribirla: 422 `clave_requerida`. `escritorio` borra la
+  credencial. Se guarda cifrada y **nunca se devuelve** (`sipGuardadoEn`). Cualquier cambio corta la
+  conexión de esa persona (`4003`) y borra `sip_probado_en`. Evento `extension.telefono_cambiado`.
+  `Extension` suma `tipo`, `sipUsuario`, `sipGuardadoEn`, `sipProbadoEn`.
+- `POST /centralitas/{id}/extensiones/{extensionId}/probar-registro` (`centralita.asignar_extension`):
+  Iris abre el WSS y manda un `REGISTER` **de consulta** (sin `Contact`: no agrega ni quita registros)
+  y responde el desafío con la credencial guardada: `ok`, `credenciales` (rechazada), `huella_distinta`,
+  `no_conecta`, `sin_credencial`. Con `ok` deja `sip_probado_en`. Evento `extension.registro_probado`.
+- `Extension` y `MiExtension` también se ven en `GET /centralitas/{id}/extensiones` (con los campos de
+  arriba) y `GET /centralita/mi-extension` (suma `tipo`).
+
+##### El puente (cómo funciona)
+
+`cmd/mensajeria` (`internal/mensajeria/sippuente`, sobre `github.com/emiago/sipgo/sip` solo para leer y
+escribir mensajes SIP, y `github.com/coder/websocket` para los dos WebSocket). Una conexión del
+navegador = una conexión de Iris al WSS de la Issabel (1:1); Iris no es una centralita ni un B2BUA:
+reenvía mensajes, con estas reglas **escritas en el servidor**:
+
+1. **Abrir.** Ticket válido + sesión + `Origin` → se reemplaza la conexión anterior de la persona
+   (`telefono_conexiones`), se lee la credencial **en memoria del proceso** y se abre
+   `wss://<host>:<wss_puerto><wss_ruta>` con TLS fijado a `wss_huella` (otra huella: no conecta, 503), el
+   marcador con las reglas de red de §16.1 del chat (sin loopback, link-local ni metadata; revisión
+   después de resolver el DNS) y plazo de 10 s.
+2. **Del navegador a la Issabel** (solo mensajes de texto de hasta 16 KB; 200 mensajes por minuto, si
+   no `4008`):
+   - Métodos: `REGISTER`, `INVITE`, `ACK`, `BYE`, `CANCEL`, `OPTIONS`, `INFO`, `UPDATE`, `PRACK`, `REFER`
+     y respuestas. Cualquier otro (`MESSAGE`, `SUBSCRIBE`, `PUBLISH`, `NOTIFY` propio…): 405 local, no se
+     reenvía.
+   - Se quitan `Authorization` y `Proxy-Authorization` que traiga.
+   - Fuera de un diálogo, `From` tiene que ser `sip:<sip_usuario>@<dominio>` (y `To` también en
+     `REGISTER`): si no, 403 local. `REGISTER` solo con `dispositivo = panel` (la app, primera etapa, solo
+     marca) y `Expires` ≤ 600.
+   - `INVITE` nuevo (sin *tag* en `To`): la Request-URI tiene que ser un `destino` que dio `llamar` a
+     **esta** persona: `iris-<llamadaId>` (en `marcando`, `puente`, sin `invite_en`, de hace menos de
+     60 s; el puente la reescribe a `sip:<prefijo_salida><8 dígitos>@<dominio>` y deja `invite_en`) o una
+     extensión o grupo activos de la centralita. Cualquier otra URI: 403 local y no llega a la Issabel.
+     Sin `centralita.llamar` (revisado en cada latido): 403.
+   - Dentro de un diálogo, solo de un diálogo que esta conexión conoce (por `Call-ID`).
+   - `REFER`: solo `panel`, con `centralita.transferir`, en un diálogo establecido, `Refer-To` a una
+     extensión o grupo de `transferir/destinos` (se reescribe a `sip:<numero>@<dominio>`, sin
+     parámetros ni cabeceras: nunca `Replaces`, solo transferencia ciega). Si no, 403 local. La
+     transferencia aceptada (202) audita y emite `llamada.transferida`.
+3. **Desafíos.** Un `401`/`407` de la Issabel **nunca llega al navegador**: Iris calcula el Digest
+   (MD5 o SHA-256, `qop=auth`) con la credencial guardada y reenvía la petición con `Authorization` (o
+   `Proxy-Authorization`), CSeq + 1 y otra *branch*; manda el `ACK` del 401 de un INVITE. Para que el
+   navegador no note nada, el puente lleva por `Call-ID` el desfase de CSeq y por transacción la *branch*
+   original: las respuestas vuelven con la CSeq y la *branch* del navegador, y sus peticiones
+   siguientes (ACK, CANCEL, BYE…) salen corregidas. Si el segundo intento también recibe un desafío
+   (salvo `stale=true`, que se reintenta una vez): el navegador recibe `403` y la extensión queda con
+   `sip_probado_en` vacío.
+4. **De la Issabel al navegador** (hasta 64 KB): respuestas con la CSeq y *branch* del navegador;
+   peticiones tal cual (a la app no le llega un INVITE: no se registra). A un INVITE entrante el puente le
+   suma `X-Iris-Llamada: <id>` si el AMI ya creó la llamada (`sonando`, receptor esa persona, mismo
+   número, últimos 30 s); si no, el panel la empareja por número.
+5. **Estados de una saliente del puente** (la misma máquina de §2.3, sin pasos de Meta): el `2xx` al
+   INVITE la pasa a `en_curso` (`llamada.contestada`); un final ≥ 300 a `perdida` (`nadie_contesto` con
+   408, 480, 486, 487, 600, 603; `agente_colgo` si el navegador mandó CANCEL) o `fallida`
+   (`error_medio`, el resto); el `BYE` de cualquiera de los dos lados, a `terminada`
+   (`llamada.terminada`; la duración la corrige el CDR del AMI si llega). Lo que ya está final no
+   cambia (el AMI y el puente pueden decir lo mismo dos veces).
+6. **Latido y corte** (cada 10 s): vuelve a leer la sesión y los permisos (`identidad.Revalidar`), que
+   la extensión siga activa, `navegador`, con la misma credencial y en la empresa, que el teléfono siga
+   encendido y que la conexión siga siendo la de la persona. Si algo falla, el puente manda `BYE` a cada
+   diálogo establecido (la llamada no sigue sin control), cierra los dos lados (`4003` o `4001`) y la
+   llamada queda `terminada`. Quitar o cambiar la extensión, desactivar al usuario, cerrar sus sesiones
+   o apagar el teléfono corta así **en menos de 10 s**. La conexión no vive más de 12 h (se reabre con un
+   ticket nuevo).
+7. **Topes:** una conexión por persona; 3 diálogos a la vez por conexión (el cuarto INVITE: 486 local);
+   `llamadas_simultaneas` por empresa y `llamadas_por_usuario_dia`; nada de esto se puede subir desde el
+   navegador.
+8. **Nunca** se escribe en un log ni en la auditoría un mensaje SIP completo, la cabecera
+   `Authorization`, el nonce ni la contraseña; la auditoría guarda la acción, la extensión y el
+   resultado.
+
+**TURN.** `IRIS_TURN_URLS` (lista: `turns:iris.kns.gt:5349?transport=tcp`,
+`turn:iris.kns.gt:3478?transport=udp`), `IRIS_TURN_SECRETO` (el `static-auth-secret` de coturn, en el
+`.env`, nunca en el repo) e `IRIS_TURN_VIDA` (10 min). Credencial efímera estándar (*TURN REST API*):
+`username = <vence_unix>:iris-<usuario_id>`, `credential = base64(HMAC-SHA1(secreto, username))`. El
+servicio `turn` (coturn, perfil `telefono` del compose) corre con `use-auth-secret`,
+`denied-peer-ip` para todo y `allowed-peer-ip` solo para la IP de la Issabel (no es un relevo abierto
+hacia la red interna), `no-multicast-peers`, `no-cli`, `relay-ip` = la IP de Iris en la VPN.
+
+##### Errores propios
+
+`sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`, `turn_no_configurado`
+(503 en `abrir`, 422 al encender), `ticket_no_valido` (403), `origen_no_permitido` (403),
+`centralita_no_responde` (503), `destino_no_permitido`, `sin_contacto`, `limite_llamadas` (422),
+`llamadas_simultaneas` (409), `sin_probar`, `clave_requerida`, `grupo_existente` (409).
+
+##### Eventos nuevos (outbox)
+
+| Evento | Payload |
+| --- | --- |
+| `centralita.telefono_cambiado` | centralita_id, empresa_id, campos[], activo; nunca un secreto |
+| `centralita.telefono_probado` | centralita_id, empresa_id, estado (ok, huella_distinta, no_es_sip, no_conecta) |
+| `extension.telefono_cambiado` | centralita_id, empresa_id, extension_id, usuario_id, tipo, credencial (guardada, borrada, sin_cambio); nunca la contraseña |
+| `extension.registro_probado` | centralita_id, empresa_id, extension_id, usuario_id, estado (ok, credenciales, huella_distinta, no_conecta, sin_credencial) |
+| `grupo_centralita.creado` / `grupo_centralita.actualizado` | grupo_id, centralita_id, empresa_id; nombre, numero (creado); campos[], activo (actualizado) |
+| `llamada.directa_registrada` | llamada_id, empresa_id, orden_id, cliente_id (o null), servicio_id (o null), usuario_id, origen (celular); nunca el número |
+
+Ganan campos: `llamada.saliente_iniciada` (`origen: centralita`, `orden_id`, `ticket_id`, `puente`),
+`llamada.transferida` (`origen: centralita`, `a_grupo_id`; `conversacion_id` null).
+
+##### Pruebas
+
+Contra Postgres real y un **Asterisk falso** (`internal/mensajeria/sippuente/sipfalso`: WSS con TLS
+propio, desafíos Digest de verdad, INVITE/REGISTER/OPTIONS/BYE/REFER/CANCEL) — no hay Issabel en CI:
+que la contraseña y los desafíos nunca lleguen al navegador; que el INVITE a un número libre, el REFER a
+un número libre, el `From` ajeno, el `MESSAGE` y el `Authorization` del navegador no pasen; desfase de
+CSeq y *branch* (re-REGISTER, CANCEL, ACK, BYE después de un desafío); un solo uso del ticket y del
+destino; corte al quitar la extensión y al desactivar al usuario (BYE a la Issabel); reemplazo por otra
+conexión; límites; adopción por el AMI; llamada directa.
 
 ## 4. Interfaz mensajería ↔ `cmd/voz`
 
@@ -2337,6 +2600,8 @@ todos modos a ese cliente.
 | 25 | **Grabaciones de la centralita** (E4b) | Iris las trae con una credencial de solo lectura y las sirve con **su** ACL (`llamadas.escuchar_grabacion` + alcance de la llamada); nunca un enlace directo a Issabel; nombre de archivo validado contra el del CDR (sin `..` ni rutas) | F | Pedir la grabación de una llamada de otra extensión sin permiso: 404. Nombre de archivo con ruta relativa: rechazado |
 | 26 | **Escucha en vivo abusiva** (espiar a clientes o a compañeros) | Permiso propio y sensible (`llamadas.escuchar_en_vivo`), solo colas que supervisa; solo recepción; siempre visible para el agente; aviso al cliente configurable según la ley local; mudo durante capturas; auditado con duración; máximo 2 oyentes (§3.8.1) | F (permiso, visible al agente, mudo en capturas, auditoría) / C (aviso al cliente) | Supervisor de otra cola: 404. Navegador que intenta enviar audio: el motor lo descarta. Durante una captura el oyente no recibe paquetes. Cada escucha deja auditoría y evento |
 | 27 | **Clic-para-llamar como marcador libre o inyección en el AMI** (E4b) | Destino resuelto por el servidor desde el cliente o el ticket, nunca un número libre; solo nacional de fábrica; límite por usuario y día; `Originate` de plantilla fija; ningún campo con CR, LF, NUL ni `:`; eventos del AMI filtrados a extensiones registradas (§3.12) | F (resolución, validación, plantilla) / C (prefijos, límite) | Cuerpo con `numero`: 422 (campo desconocido). `contexto_salida` con salto de línea: 422 al guardar y nada llega al socket. Número internacional: 422. Evento de una extensión no registrada: no crea llamada |
+| 28 | **Puente SIP del teléfono de Iris** (E4c) | La contraseña SIP solo vive en el servidor (cifrada; Iris responde los desafíos Digest y ningún 401/407 llega al navegador); ticket de un uso (30 s) atado a la sesión, la empresa y la extensión + cookie + `Origin`; una conexión por persona; el navegador solo puede marcar destinos que dio `llamar` (número de Guatemala resuelto por el servidor, límite diario, simultáneas) o extensiones y grupos de la centralita; `REFER` solo a la lista de su empresa y sin `Replaces`; `From` fijo a su extensión; métodos y tamaños acotados; latido de 10 s que corta (BYE) al desactivar al usuario, cerrar su sesión, quitar o cambiar la extensión o apagar el teléfono; WSS con huella fijada y sin abrir la Issabel a internet | F (todo lo anterior) / C (límites) | INVITE a `sip:+15551234567@…` o a `sip:900…`: 403 local, nada llega a la Issabel. `Authorization` puesto por el navegador: se quita. REFER a un número libre: 403. Ticket reusado o de otra sesión: 403. Quitar la extensión con una llamada en curso: BYE a la Issabel en menos de 10 s |
+| 29 | **TURN como relevo abierto** (E4c) | Credenciales efímeras (HMAC con el secreto de coturn, 10 min) solo para quien abrió el teléfono; coturn con `denied-peer-ip` para todo salvo la IP de la Issabel, sin multicast ni CLI; el audio va siempre por el relevo (`relay`), así la Issabel no recibe medios de internet | F | Pedir una asignación TURN hacia otra IP de la red interna: rechazada por coturn. Credencial vencida: 401 de coturn |
 
 ### 6.3 Red del servidor dedicado
 
@@ -2439,7 +2704,8 @@ todos modos a ese cliente.
 | `sinClientePctTopeMes` | 20 | 0–20 (solo hacia abajo). Al llegar, las llamadas de números sin cliente **suenan a personas**; el resto del tope sigue para clientes |
 | `retencionTurnosVozDias` | 30 | 1–365 |
 | `avisoEscucha` (E3) | `en_saludo` | `en_saludo`, `al_escuchar`, `nunca` (este último, solo admin y auditado) |
-| `llamadasCentralitaPorUsuarioDia` (E4b) | 60 | 1–300 |
+| `llamadasCentralitaPorUsuarioDia` (E4b; en E4c es la columna `llamadas_por_usuario_dia` de la centralita) | 60 | 1–300 |
+| `llamadasSimultaneas` (E4c, columna `llamadas_simultaneas` de la centralita) | 10 | 1–100 |
 | `prefijosPermitidos` (E4b) | `+502` | Lista explícita, solo admin |
 | `accionesVoz` | las del perfil que existan en la etapa | Solo puede restar |
 | `exigeVerificacionFuerte.*` en voz | No aplica | En voz todo lo de §7.1-8 pide `fuerte`; los valores del chat no la bajan |
@@ -2498,6 +2764,10 @@ cortada emite además su `llamada.fallida` **con** su empresa. El detalle está 
 | `extension.asignada` / `extension.quitada` | mensajeria (voz) | centralita_id, empresa_id, extension_id, usuario_id | E4a |
 | `llamada.vinculada` | mensajeria (voz) | llamada_id, empresa_id, ticket_id, cliente_id (o null), usuario_id, origen (centralita) | E4a |
 | `llamada.cliente_asociado` | mensajeria (voz) | llamada_id, empresa_id, cliente_id, servicio_id (o null), usuario_id, origen (centralita) | E4a |
+| `centralita.telefono_cambiado` / `centralita.telefono_probado` | mensajeria (voz) | centralita_id, empresa_id; campos[], activo (cambiado); estado (probado); nunca un secreto | E4c |
+| `extension.telefono_cambiado` / `extension.registro_probado` | mensajeria (voz) | centralita_id, empresa_id, extension_id, usuario_id; tipo, credencial (guardada, borrada, sin_cambio) (cambiado); estado (probado); nunca la contraseña | E4c |
+| `grupo_centralita.creado` / `grupo_centralita.actualizado` | mensajeria (voz) | grupo_id, centralita_id, empresa_id; nombre, numero (creado); campos[], activo (actualizado) | E4c |
+| `llamada.directa_registrada` | mensajeria (voz) | llamada_id, empresa_id, orden_id, cliente_id (o null), servicio_id (o null), usuario_id, origen (celular); nunca el número | E4c |
 
 Eventos que ya existen y ganan campos: `asistente.accion_ejecutada`, `asistente.paso_a_persona` y
 `conversacion.identidad_verificada` suman `canal` (`whatsapp` \| `voz`; ausente = `whatsapp`) y
@@ -2534,7 +2804,8 @@ Eventos que ya existen y ganan campos: `asistente.accion_ejecutada`, `asistente.
 | `servidor_ia.administrar` | «Servidor de IA»: enlazar, activar, probar, rotar credenciales, empresas permitidas y desactivar (instalación). Solo admin con `empresas.todas`. Sustituye a `voz.administrar_motor`, que nunca se publicó | Sí |
 | `centralita.configurar` (E4) | Conexión con la centralita | Sí |
 | `centralita.asignar_extension` (E4) | Extensión de cada usuario | |
-| `centralita.llamar` (E4b) | Clic-para-llamar desde su extensión | |
+| `centralita.llamar` (E4b, E4c) | Llamar con su extensión (E4c: teléfono de Iris, desde una ficha o el teclado) y anotar la llamada directa de una orden. Roles base: `soporte`, `ventas`, `despacho`, `supervisor`, `tecnico` | |
+| `centralita.transferir` (E4c) | Pasar una llamada en curso a una persona o grupo de su empresa (nunca a un número libre). Roles base: `soporte`, `ventas`, `despacho`, `supervisor`; **no** `tecnico` | |
 
 Roles base:
 
