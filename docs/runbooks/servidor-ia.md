@@ -9,9 +9,12 @@ Esta primera entrega no trae audio (STT, TTS ni llamadas): solo el modelo de len
 
 ## 1. Qué hace falta
 
-- Un servidor Ubuntu o Debian con **GPU NVIDIA**, el controlador y `nvidia-container-toolkit`
-  (`nvidia-ctk runtime configure --runtime=docker`).
-- Docker con el plugin compose 2.24 o más nuevo.
+- Un servidor Ubuntu, Debian, RHEL, Rocky Linux o AlmaLinux con **GPU NVIDIA** y su controlador
+  (`nvidia-smi` funciona). El controlador lo instalas tú porque pide reiniciar; `setup-voz.sh` dice
+  cómo si falta.
+- Docker con el plugin compose 2.24 o más nuevo y `nvidia-container-toolkit`
+  (`nvidia-ctk runtime configure --runtime=docker`). Si faltan, `setup-voz.sh` los instala de los
+  repositorios oficiales (preguntando antes).
 - **Reloj sincronizado por NTP** (las peticiones van firmadas con la hora; más de 30 s de desfase se
   rechaza con `reloj_desfasado`).
 - **Sin intercambio a disco** (o cifrado): lo que el modelo tiene en memoria no debe llegar al disco.
@@ -22,10 +25,95 @@ Las cifras de hardware (VRAM, simultáneas) no están medidas todavía: ver §7.
 
 ## 2. Instalar
 
-En el servidor de IA:
+### Con tres líneas (lo recomendado)
+
+En el servidor de IA, con un usuario que pueda usar `sudo`, copia y pega:
 
 ```sh
-V=0.1.0
+curl -fsSLO https://github.com/HCDestroyer/iris/releases/download/voz-v0.1.1/setup-voz.sh
+echo "bde9c117f9f0b61c470d493f8fdfe39fb7100bb377a65e3bcb5932ecf65fdb00  setup-voz.sh" | sha256sum -c -
+sudo bash setup-voz.sh
+```
+
+La primera línea baja el script; la segunda comprueba que es **exactamente** el que se revisó en
+este repositorio (la suma está escrita aquí, no en la release; `infra/voz/verificar.sh` comprueba
+que coincide con `setup-voz.sh`). Si dice algo distinto de `setup-voz.sh: OK`, **no sigas**. La
+tercera lo ejecuta.
+
+`setup-voz.sh` hace todo, con un mensaje en cada paso, y se detiene explicando qué hacer si algo
+falta:
+
+1. Comprueba que corre como administrador, la distribución (Ubuntu, Debian, RHEL, Rocky o Alma), la
+   arquitectura (x86_64 o arm64), el reloj (si no está sincronizado ofrece activar NTP), el
+   intercambio a disco (ofrece apagarlo) y que el puerto 8443 esté libre (o que ya sea de Iris Voz).
+2. Comprueba la tarjeta: si `nvidia-smi` no funciona, se detiene y explica cómo instalar el
+   controlador; después de reiniciar se vuelve a correr `sudo bash setup-voz.sh`.
+3. Si faltan Docker (con compose 2.24 o más nuevo) o el NVIDIA Container Toolkit, pregunta
+   `¿Instalar …? [s/N]` y los instala de sus repositorios oficiales (`download.docker.com` y
+   `nvidia.github.io`), con la llave GPG de cada uno comprobada por su huella; configura el runtime de
+   NVIDIA y reinicia Docker.
+4. Usa el `cosign` del sistema si es 2.4 o más nuevo; si no, baja el oficial de sigstore con versión
+   y sha256 fijos dentro del script (si la suma no coincide, se detiene).
+5. Elige la última versión `voz-vX.Y.Z` publicada (ni borrador ni prerelease), o la de
+   `--version X.Y.Z`. Nunca una anterior a la de la release que trae el script (`VOZ_MIN`).
+6. Baja `install-voz.sh` y su firma a una carpeta temporal propia, comprueba que lo firmó el
+   workflow `voz-release.yml` en la etiqueta `voz-vX.Y.Z` y **solo entonces** lo ejecuta (abajo, lo
+   que hace el instalador). Al final recuerda los pasos del §3.
+
+Correrlo otra vez no rompe nada: lo que ya está instalado se deja, y si hay una versión más nueva
+la instala. Opciones: `sudo bash setup-voz.sh --version X.Y.Z --port N …`
+
+- `--version X.Y.Z` (también `voz-vX.Y.Z`), `--port N`, `--listen IP`, `--dir RUTA`, `--no-models`,
+  `--allow-swap` (solo con intercambio cifrado), `--allow-unsynced-clock`.
+- `--yes`: no pregunta y **acepta todo lo que preguntaría**: agregar los repositorios e instalar
+  Docker y el NVIDIA Container Toolkit, activar NTP, apagar el intercambio y comentarlo en
+  `/etc/fstab` (con copia en `/etc/fstab.antes-de-iris-voz`), y que `nvidia-ctk` reescriba
+  `/etc/docker/daemon.json` y reinicie Docker, **lo que detiene un momento los demás contenedores**
+  del servidor. Úsalo solo en un servidor dedicado a Iris Voz.
+
+La dirección es la de una release `voz-v*` concreta: `releases/latest/download/…` **no sirve**,
+porque «latest» es siempre la release de Iris, no la de Iris Voz. El script instala siempre la
+última publicada. Cuando cambia `setup-voz.sh`, se actualizan la versión de la URL y la suma de
+arriba (lo exige `verificar.sh`).
+
+### Atajo de una línea (con un riesgo)
+
+```sh
+curl -fsSL https://github.com/HCDestroyer/iris/releases/download/voz-v0.1.1/setup-voz.sh | sudo bash
+```
+
+Hace lo mismo, pero **ejecuta como administrador lo que llegue de esa dirección sin comprobarlo
+antes**. Si alguien lograra cambiar el archivo publicado en la release (por ejemplo, con acceso a la
+cuenta de GitHub del repositorio), esta línea correría su versión con todos los permisos del
+servidor. Las tres líneas de arriba lo evitan: la suma no coincidiría y no se ejecutaría nada. Con la
+tubería, las opciones van después de `bash -s --` (`… | sudo bash -s -- --version 0.1.1`).
+
+### Verificar con la firma (opcional)
+
+Para comprobar además quién lo publicó, con cosign 2.4 o más nuevo de una fuente tuya:
+
+```sh
+V=0.1.1
+base=https://github.com/HCDestroyer/iris/releases/download/voz-v$V
+curl -fsSLO $base/setup-voz.sh
+curl -fsSLO $base/setup-voz.sh.sigstore.json
+cosign verify-blob --new-bundle-format --bundle setup-voz.sh.sigstore.json \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity https://github.com/HCDestroyer/iris/.github/workflows/voz-release.yml@refs/tags/voz-v$V \
+  setup-voz.sh
+sudo bash setup-voz.sh
+```
+
+La firma prueba que lo publicó `voz-release.yml` en esa etiqueta, con la aprobación del entorno
+`voz-release` (§8). La release también trae `setup-voz.sh.sha256`, pero esa suma viene del mismo
+sitio que el script: solo detecta una descarga rota.
+
+### A mano
+
+Lo mismo sin `setup-voz.sh`, con Docker, `nvidia-container-toolkit` y cosign ya instalados:
+
+```sh
+V=0.1.1
 base=https://github.com/HCDestroyer/iris/releases/download/voz-v$V
 curl -fsSLO $base/install-voz.sh
 curl -fsSLO $base/install-voz.sh.sigstore.json
@@ -37,7 +125,7 @@ cosign verify-blob --new-bundle-format --bundle install-voz.sh.sigstore.json \
 sudo bash install-voz.sh --version $V
 ```
 
-El instalador:
+El instalador (`install-voz.sh`, también cuando lo llama `setup-voz.sh`):
 
 1. Comprueba Docker, la GPU (`nvidia-smi` y el runtime de NVIDIA), el reloj y el intercambio. Sin
    GPU se detiene (`--no-gpu` existe solo para pruebas).
@@ -130,8 +218,10 @@ Anota los resultados de la primera instalación en `voz.md` §4.9.
 
 ## 8. Publicar una versión (mantenedores)
 
-1. Sube `version` en `infra/voz/manifiesto.json` (y `irisMin`/`irisMax` si cambia la compatibilidad)
-   y mergea a `main`.
+1. Sube `version` en `infra/voz/manifiesto.json` (y `irisMin`/`irisMax` si cambia la compatibilidad),
+   `VOZ_MIN` en `infra/voz/setup-voz.sh` a esa misma versión y, en el §2, la versión de las URLs de
+   `setup-voz.sh` y su sha256 (`sha256sum infra/voz/setup-voz.sh`); `verificar.sh` falla si algo no
+   cuadra. Mergea a `main`. Hasta que el PM apruebe la release, la URL del §2 aún no existe.
 2. **La etiqueta y la construcción salen solas.** El workflow `voz-etiqueta.yml` crea la etiqueta
    `voz-vX.Y.Z` sobre ese commit y eso dispara `voz-release.yml`, que publica la imagen y arma el
    paquete. Si la etiqueta ya existe con el mismo manifiesto no hace nada; si existe con otro
@@ -193,3 +283,9 @@ El workflow comprueba primero el commit y el entorno y después corre tres jobs 
 `construir` (publica la imagen y exporta las sumas), `firmar` (solo `id-token: write`; no hace
 checkout ni ejecuta nada del repositorio, y comprueba las sumas antes de firmar) y `publicar`
 (verifica sin red y crea la release). Todas las acciones van fijadas por SHA.
+
+Cada release `voz-vX.Y.Z` publica, firmados igual (sha256 y bundle de Sigstore): el paquete
+`iris-voz-X.Y.Z.tar.gz`, `install-voz.sh`, `setup-voz.sh` (la instalación de un paso del §2) y
+`manifiesto.json`. `infra/voz/verificar.sh` comprueba que `setup-voz.sh` fija el mismo cosign y la
+misma identidad que `install-voz.sh`, y `infra/voz/prueba-setup.sh` lo prueba con comandos falsos
+(sin GPU, sin Docker, cosign alterado, firma inválida, versión inválida…).
