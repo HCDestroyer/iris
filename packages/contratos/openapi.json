@@ -2520,11 +2520,11 @@
       "CambioCuentaPWA": {
         "additionalProperties": false,
         "properties": {
-          "codigo": {
-            "type": [
-              "string",
-              "null"
-            ]
+          "codigos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "estado": {
             "type": "string"
@@ -2551,7 +2551,7 @@
           "nombre",
           "etiqueta",
           "estado",
-          "codigo",
+          "codigos",
           "usos"
         ],
         "type": "object"
@@ -11324,10 +11324,16 @@
             ],
             "type": "string"
           },
-          "codigo": {
-            "description": "Código del catálogo de Iris que atenderá",
-            "maxLength": 64,
-            "type": "string"
+          "codigos": {
+            "description": "Códigos del catálogo de Iris que atenderá",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 13,
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "definicion": {
             "$ref": "#/components/schemas/DefinicionPWA"
@@ -15776,11 +15782,14 @@
       "EntradaUsosPWA": {
         "additionalProperties": false,
         "properties": {
-          "codigo": {
-            "description": "Código del catálogo que atiende (null = ninguno). Si otra plantilla de la cuenta lo tenía, lo suelta",
-            "maxLength": 64,
+          "codigos": {
+            "description": "Códigos del catálogo que atiende ([] = ninguno). Si otra plantilla de la cuenta tenía alguno, lo suelta",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 13,
             "type": [
-              "string",
+              "array",
               "null"
             ]
           },
@@ -15813,7 +15822,7 @@
         },
         "required": [
           "usos",
-          "codigo",
+          "codigos",
           "version"
         ],
         "type": "object"
@@ -26350,12 +26359,12 @@
               "null"
             ]
           },
-          "codigo": {
-            "description": "Código del catálogo de Iris que atiende (Argos pide avisos por código)",
-            "type": [
-              "string",
-              "null"
-            ]
+          "codigos": {
+            "description": "Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "createdAt": {
             "format": "date-time",
@@ -26531,7 +26540,7 @@
           "pausadaHasta",
           "formato",
           "definicion",
-          "codigo",
+          "codigos",
           "parametros",
           "usos",
           "origen",
@@ -26998,12 +27007,12 @@
               "null"
             ]
           },
-          "codigo": {
-            "description": "Código del catálogo de Iris que atiende (Argos pide avisos por código)",
-            "type": [
-              "string",
-              "null"
-            ]
+          "codigos": {
+            "description": "Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "createdAt": {
             "format": "date-time",
@@ -27174,7 +27183,7 @@
           "pausadaHasta",
           "formato",
           "definicion",
-          "codigo",
+          "codigos",
           "parametros",
           "usos",
           "origen",
@@ -27272,12 +27281,12 @@
               "null"
             ]
           },
-          "codigo": {
-            "description": "Código del catálogo de Iris que atiende (Argos pide avisos por código)",
-            "type": [
-              "string",
-              "null"
-            ]
+          "codigos": {
+            "description": "Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           },
           "createdAt": {
             "format": "date-time",
@@ -27463,7 +27472,7 @@
           "pausadaHasta",
           "formato",
           "definicion",
-          "codigo",
+          "codigos",
           "parametros",
           "usos",
           "origen",
@@ -30118,27 +30127,6 @@
         ],
         "type": "object"
       },
-      "ResultadoSincronizacionPWA": {
-        "additionalProperties": false,
-        "properties": {
-          "resumen": {
-            "$ref": "#/components/schemas/ResumenSincronizacionPWA"
-          },
-          "sincronizadaEn": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "wabaId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "wabaId",
-          "sincronizadaEn",
-          "resumen"
-        ],
-        "type": "object"
-      },
       "ResumenAvisos": {
         "additionalProperties": false,
         "properties": {
@@ -30291,7 +30279,8 @@
             "enum": [
               "manual",
               "nocturna",
-              "webhook"
+              "webhook",
+              "canal"
             ],
             "type": "string"
           },
@@ -32211,6 +32200,27 @@
           "plazo",
           "contactos",
           "mensajes"
+        ],
+        "type": "object"
+      },
+      "SincronizacionPedida": {
+        "additionalProperties": false,
+        "properties": {
+          "sincronizadaEn": {
+            "description": "La sincronización anterior (cambia al terminar la pedida)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wabaId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "wabaId",
+          "sincronizadaEn"
         ],
         "type": "object"
       },
@@ -67833,7 +67843,7 @@
     },
     "/api/v1/mensajeria/plantillas-whatsapp/cuentas/{waba}/sincronizar": {
       "post": {
-        "description": "Permiso: `plantillas_whatsapp.sincronizar`. Lee todas las plantillas de la cuenta en Meta y deja Iris igual: nuevas (creadas en Meta), cambiadas y «Borrada en Meta» (nunca se eliminan en Iris). Si Meta no responde o el token no tiene `whatsapp_business_management`, no cambia nada (502 `meta_no_responde`, 424 `meta_sin_permiso` / `meta_token_invalido`) y la cuenta guarda el error.",
+        "description": "Permiso: `plantillas_whatsapp.sincronizar`. Encola la relectura de la cuenta (un job único por cuenta) y responde 202. El resultado sale en `GET /cuentas`: `sincronizadaEn` cambia y `resumen` dice qué entró (nuevas en Meta), qué cambió y qué quedó «Borrada en Meta» (nunca se elimina en Iris); si Meta no respondió o el token no tiene `whatsapp_business_management`, `error` lo dice y nada cambia. Una cuenta sincronizada hace menos de 2 minutos responde 429 `sincronizada_hace_poco` con `Retry-After`.",
         "operationId": "sincronizarPlantillasWhatsApp",
         "parameters": [
           {
@@ -67857,15 +67867,15 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResultadoSincronizacionPWA"
+                  "$ref": "#/components/schemas/SincronizacionPedida"
                 }
               }
             },
-            "description": "OK"
+            "description": "Accepted"
           },
           "401": {
             "content": {

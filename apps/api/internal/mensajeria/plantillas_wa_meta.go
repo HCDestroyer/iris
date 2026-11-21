@@ -42,7 +42,7 @@ type ErrMetaPlantilla struct {
 	Subcodigo int
 	// SinRespuesta: red, plazo o 5xx (no se sabe si Meta la aplicó).
 	SinRespuesta bool
-	// Mensaje para personas de Meta (error_user_msg o message), recortado.
+	// Mensaje para personas de Meta (solo error_user_msg, recortado; nunca message, que es técnico).
 	Mensaje string
 }
 
@@ -102,6 +102,8 @@ type GraphPlantillas interface {
 	// Permiso: leido = Meta respondió la lista de permisos; tiene = whatsapp_business_management concedido.
 	Permiso(ctx context.Context, c CuentaGraph) (tiene, leido bool)
 	SubirArchivo(ctx context.Context, c CuentaGraph, nombre, mime string, datos []byte) (string, error)
+	// VerificarNumero: el phone_number_id es de la WABA (GET /{waba}/phone_numbers con el token).
+	VerificarNumero(ctx context.Context, c CuentaGraph, phoneNumberID string) (bool, error)
 }
 
 // PlazoMetaPlantillas: lo que se espera a Meta por petición (el panel dice «Meta no contestó en 15 s»).
@@ -168,11 +170,7 @@ func (g graphPlantillasHTTP) hacer(req *http.Request) ([]byte, error) {
 	}
 	if json.Unmarshal(leido, &r) == nil {
 		e.Codigo, e.Subcodigo = r.Error.Code, r.Error.Subcode
-		msg := r.Error.UserMsg
-		if msg == "" {
-			msg = r.Error.Message
-		}
-		e.Mensaje = recortar(limpiarTextoMeta(msg), 300)
+		e.Mensaje = recortar(limpiarTextoMeta(r.Error.UserMsg), 300)
 	}
 	return nil, e
 }
@@ -200,7 +198,7 @@ func (g graphPlantillasHTTP) Listar(ctx context.Context, c CuentaGraph) ([]Plant
 		if despues != "" {
 			q.Set("after", despues)
 		}
-		b, err := g.pedir(ctx, http.MethodGet, "/"+c.WabaID+"/message_templates", q, nil, c.Token)
+		b, err := g.pedir(ctx, http.MethodGet, "/"+url.PathEscape(c.WabaID)+"/message_templates", q, nil, c.Token)
 		var em *ErrMetaPlantilla
 		if errors.As(err, &em) && em.Codigo == 100 && pagina == 0 && campos == camposPlantillasMeta {
 			// Una versión de la Graph API que no conoce algún campo opcional: se leen los básicos.
@@ -234,7 +232,7 @@ func (g graphPlantillasHTTP) Listar(ctx context.Context, c CuentaGraph) ([]Plant
 }
 
 func (g graphPlantillasHTTP) Crear(ctx context.Context, c CuentaGraph, cuerpo map[string]any) (RespuestaCrearMeta, error) {
-	b, err := g.pedir(ctx, http.MethodPost, "/"+c.WabaID+"/message_templates", nil, cuerpo, c.Token)
+	b, err := g.pedir(ctx, http.MethodPost, "/"+url.PathEscape(c.WabaID)+"/message_templates", nil, cuerpo, c.Token)
 	if err != nil {
 		return RespuestaCrearMeta{}, err
 	}
@@ -246,7 +244,7 @@ func (g graphPlantillasHTTP) Crear(ctx context.Context, c CuentaGraph, cuerpo ma
 }
 
 func (g graphPlantillasHTTP) Editar(ctx context.Context, c CuentaGraph, metaID string, cuerpo map[string]any) error {
-	_, err := g.pedir(ctx, http.MethodPost, "/"+metaID, nil, cuerpo, c.Token)
+	_, err := g.pedir(ctx, http.MethodPost, "/"+url.PathEscape(metaID), nil, cuerpo, c.Token)
 	return err
 }
 
@@ -255,12 +253,12 @@ func (g graphPlantillasHTTP) Borrar(ctx context.Context, c CuentaGraph, nombre, 
 	if metaID != "" {
 		q.Set("hsm_id", metaID)
 	}
-	_, err := g.pedir(ctx, http.MethodDelete, "/"+c.WabaID+"/message_templates", q, nil, c.Token)
+	_, err := g.pedir(ctx, http.MethodDelete, "/"+url.PathEscape(c.WabaID)+"/message_templates", q, nil, c.Token)
 	return err
 }
 
 func (g graphPlantillasHTTP) Reanudar(ctx context.Context, c CuentaGraph, metaID string) error {
-	_, err := g.pedir(ctx, http.MethodPost, "/"+metaID+"/unpause", nil, nil, c.Token)
+	_, err := g.pedir(ctx, http.MethodPost, "/"+url.PathEscape(metaID)+"/unpause", nil, nil, c.Token)
 	return err
 }
 
@@ -288,8 +286,11 @@ func (g graphPlantillasHTTP) Permiso(ctx context.Context, c CuentaGraph) (bool, 
 
 // SubirArchivo usa la carga reanudable de Meta (una sola parte) y devuelve el handle.
 func (g graphPlantillasHTTP) SubirArchivo(ctx context.Context, c CuentaGraph, nombre, mime string, datos []byte) (string, error) {
+	if !reDigitos.MatchString(c.AppID) {
+		return "", &ErrMetaPlantilla{Status: http.StatusBadRequest}
+	}
 	q := url.Values{"file_name": {nombre}, "file_length": {strconv.Itoa(len(datos))}, "file_type": {mime}}
-	b, err := g.pedir(ctx, http.MethodPost, "/"+c.AppID+"/uploads", q, nil, c.Token)
+	b, err := g.pedir(ctx, http.MethodPost, "/"+url.PathEscape(c.AppID)+"/uploads", q, nil, c.Token)
 	if err != nil {
 		return "", err
 	}
@@ -301,6 +302,9 @@ func (g graphPlantillasHTTP) SubirArchivo(ctx context.Context, c CuentaGraph, no
 	}
 	ctx, cancelar := context.WithTimeout(ctx, 2*PlazoMetaPlantillas)
 	defer cancelar()
+	if strings.ContainsAny(strings.TrimPrefix(s.ID, "upload:"), "/?#") {
+		return "", &ErrMetaPlantilla{SinRespuesta: true}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.m.cfg.MetaURL+"/"+s.ID, bytes.NewReader(datos))
 	if err != nil {
 		return "", err
@@ -319,6 +323,30 @@ func (g graphPlantillasHTTP) SubirArchivo(ctx context.Context, c CuentaGraph, no
 		return "", &ErrMetaPlantilla{SinRespuesta: true}
 	}
 	return h.H, nil
+}
+
+func (g graphPlantillasHTTP) VerificarNumero(ctx context.Context, c CuentaGraph, phoneNumberID string) (bool, error) {
+	if !reDigitos.MatchString(c.WabaID) {
+		return false, nil
+	}
+	b, err := g.pedir(ctx, http.MethodGet, "/"+url.PathEscape(c.WabaID)+"/phone_numbers", url.Values{"fields": {"id"}, "limit": {"100"}}, nil, c.Token)
+	if err != nil {
+		return false, err
+	}
+	var r struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(b, &r) != nil {
+		return false, &ErrMetaPlantilla{SinRespuesta: true}
+	}
+	for _, n := range r.Data {
+		if n.ID == phoneNumberID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // Iris → Meta ----------------------------------------------------------------------------------------

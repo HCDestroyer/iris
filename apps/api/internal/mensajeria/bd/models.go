@@ -2043,7 +2043,7 @@ type MensajeriaPlantillaWA struct {
 	Formato             string
 	Componentes         []byte
 	ComponentesMeta     []byte
-	Codigo              *string
+	Codigos             []string
 	Parametros          []byte
 	Usos                []string
 	Origen              string
@@ -2069,7 +2069,7 @@ type MensajeriaPlantillaWAAjuste struct {
 
 type MensajeriaPlantillaWACuenta struct {
 	WabaID         string
-	EmpresaID      *int64
+	EmpresaID      int64
 	SincronizadaEn *time.Time
 	Resumen        []byte
 	Error          *string
@@ -2087,6 +2087,15 @@ type MensajeriaPlantillaWAHistorial struct {
 	Origen      string
 	ActorID     *int64
 	OcurridoEn  time.Time
+}
+
+type MensajeriaPlantillasWhatsappAvisosMetum struct {
+	WabaID     string
+	MetaID     string
+	Campo      string
+	Evento     string
+	Ocurrido   int64
+	RecibidoEn time.Time
 }
 
 type MensajeriaPromesa struct {

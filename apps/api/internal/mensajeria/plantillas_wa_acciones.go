@@ -139,12 +139,12 @@ func nuevaAccionMetaPW[In any](m *Modulo, accion string, permiso nucleo.Permiso,
 				p := problemaMetaPW(r.err)
 				if codigo := errorDeCuentaPW(r.err); codigo != "" {
 					t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
-						return mensajeriabd.New(tx).GuardarCuentaWA(ctx, mensajeriabd.GuardarCuentaWAParams{WabaID: antes.WabaID, EmpresaID: antes.EmpresaID,
+						return mensajeriabd.New(tx).EstadoCuentaWA(ctx, mensajeriabd.EstadoCuentaWAParams{WabaID: antes.WabaID, Empresa: derefEmpresa(antes.EmpresaID),
 							Error: &codigo, ErrorEn: &ahora})
 					})
 				}
 				if p.Codigo() == "nombre_en_uso" {
-					if s, err := nombreLibre(ctx, q, antes.WabaID, antes.Nombre, ahora); err == nil && s != antes.Nombre {
+					if s, err := nombreLibre(ctx, q, derefEmpresa(antes.EmpresaID), antes.WabaID, antes.Nombre, ahora); err == nil && s != antes.Nombre {
 						p.Sugerencia = &s
 					}
 				}
@@ -157,7 +157,7 @@ func nuevaAccionMetaPW[In any](m *Modulo, accion string, permiso nucleo.Permiso,
 			t.RegistrarCambios("plantilla_whatsapp", f.ID, auditablePW(antes), auditablePW(f))
 			if !r.l.local {
 				// Meta respondió: la cuenta deja de mostrar el último error.
-				if err := q.GuardarCuentaWA(ctx, mensajeriabd.GuardarCuentaWAParams{WabaID: f.WabaID, EmpresaID: f.EmpresaID}); err != nil {
+				if err := q.EstadoCuentaWA(ctx, mensajeriabd.EstadoCuentaWAParams{WabaID: f.WabaID, Empresa: derefEmpresa(f.EmpresaID)}); err != nil {
 					return PlantillaWA{}, err
 				}
 			}
@@ -207,9 +207,9 @@ func problemaMetaPW(err error) *nucleo.Problema {
 			"Meta ya tiene una plantilla con ese nombre en ese idioma. Tu plantilla quedó guardada; no se perdió nada.",
 			nucleo.ErrorCampo{Field: "nombre", Message: "Ese nombre ya está en uso en este idioma", Rule: "nombre_en_uso"})
 	}
-	detalle := "Meta no aceptó la plantilla."
+	detalle := "Meta no aceptó la plantilla. Revisa el texto y los ejemplos, y vuelve a intentar."
 	if e.Mensaje != "" {
-		detalle += " Meta dijo: «" + e.Mensaje + "»"
+		detalle = "Meta no aceptó la plantilla. Meta dijo: «" + e.Mensaje + "»"
 	}
 	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "meta_rechazo", "Meta no la aceptó", detalle)
 }
@@ -229,15 +229,9 @@ func problemaReglas(r ResultadoReglasPWA) *nucleo.Problema {
 
 // Meta ----------------------------------------------------------------------------------------------
 
-// cuentaGraph: el token de un número de la cuenta (empresa < 0 = cualquiera, para el sistema).
+// cuentaGraph: el token de un número de la empresa dueña de la cuenta.
 func (m *Modulo) cuentaGraph(ctx context.Context, q *mensajeriabd.Queries, empresa int64, waba string) (CuentaGraph, error) {
-	var canales []mensajeriabd.MensajeriaCanal
-	var err error
-	if empresa < 0 {
-		canales, err = q.CanalesDeCuentaWA(ctx, waba)
-	} else {
-		canales, err = canalesDeCuentaEmpresa(ctx, q, empresa, waba)
-	}
+	canales, err := canalesDeCuentaEmpresa(ctx, q, empresa, waba)
 	if err != nil {
 		return CuentaGraph{}, err
 	}
@@ -291,7 +285,7 @@ func (m *Modulo) archivoEjemplo(ctx context.Context, t *auditoria.Tx, waba strin
 	if d.Encabezado == nil || d.Encabezado.AdjuntoID == nil || !slices.Contains([]string{"imagen", "video", "documento"}, d.Encabezado.Tipo) {
 		return nil, nil
 	}
-	if cuenta.AppID == "" {
+	if !reDigitos.MatchString(cuenta.AppID) {
 		return nil, reglaPW("sin_app_meta", "Para un encabezado con archivo, Iris necesita el app ID de tu app de Meta: complétalo en «Conexión con Meta»")
 	}
 	datos, a, err := adjuntos.Contenido(ctx, m.cfg.Almacen, t, *d.Encabezado.AdjuntoID, EntidadAdjuntosPlantillaWA, waba, MaxArchivoEjemploPW)
@@ -423,8 +417,8 @@ func nuevoEditarMetaPWA(m *Modulo) *AccionMetaPWA[EntradaEditarMetaPWA] {
 				return llamadaPW{}, problemaReglas(res)
 			}
 			formato := formatoDeDefinicion(d)
-			if f.Codigo != nil {
-				if err := revisarCodigo(*f.Codigo, categoria, d, formato, parametrosDe(d)); err != nil {
+			for _, codigo := range f.Codigos {
+				if err := revisarCodigo(codigo, categoria, d, formato, parametrosDe(d)); err != nil {
 					return llamadaPW{}, err
 				}
 			}
@@ -505,25 +499,25 @@ func nuevoBorrarPWA(m *Modulo) *AccionMetaPWA[EntradaVersionPWA] {
 // los usos; borrada en Meta los conserva para que el panel pida elegir otra.
 func borrarPW(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, f mensajeriabd.MensajeriaPlantillaWA, por, origen string, ahora time.Time) (mensajeriabd.MensajeriaPlantillaWA, error) {
 	antes := f
-	enUso := f.Codigo != nil || len(f.Usos) > 0
+	enUso := len(f.Codigos) > 0 || len(f.Usos) > 0
 	f.Estado, f.EstadoEn, f.BorradaEn, f.BorradaPor = EstadoPWBorrada, ahora, &ahora, &por
 	if !slices.Contains([]string{EstadoPWBorrador, EstadoPWPendiente, EstadoPWRechazada}, antes.Estado) && antes.MetaID != nil {
 		libre := ahora.Add(30 * 24 * time.Hour)
 		f.NombreLibreEn = &libre
 	}
 	if por == "iris" {
-		f.Codigo, f.Usos = nil, []string{}
+		f.Codigos, f.Usos = []string{}, []string{}
 	}
 	f, err := guardarPW(ctx, q, f)
 	if err != nil {
 		return f, err
 	}
-	if err := historialPW(ctx, q, f.ID, "borrada", &antes.Estado, &f.Estado, map[string]any{"por": por, "estaba_en_uso": enUso, "codigo": antes.Codigo},
+	if err := historialPW(ctx, q, f.ID, "borrada", &antes.Estado, &f.Estado, map[string]any{"por": por, "estaba_en_uso": enUso, "codigos": lista(antes.Codigos)},
 		origen, actorPW(ctx), ahora); err != nil {
 		return f, err
 	}
 	return f, t.Emitir("plantilla_whatsapp.borrada", conPW(basePW(f), map[string]any{"nombre": f.Nombre, "idioma": f.Idioma, "origen": por,
-		"estaba_en_uso": enUso, "codigo": antes.Codigo, "nombre_libre_en": f.NombreLibreEn}))
+		"estaba_en_uso": enUso, "codigos": lista(antes.Codigos), "nombre_libre_en": f.NombreLibreEn}))
 }
 
 // Reanudar -----------------------------------------------------------------------------------------
@@ -596,5 +590,5 @@ func emitirCategoriaPW(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Que
 		return err
 	}
 	return t.Emitir("plantilla_whatsapp.categoria_cambiada", conPW(basePW(f), map[string]any{"de": de, "a": a, "origen": origen, "pendiente": pendiente,
-		"en_uso": f.Codigo != nil || len(f.Usos) > 0}))
+		"en_uso": len(f.Codigos) > 0 || len(f.Usos) > 0}))
 }

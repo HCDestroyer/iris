@@ -38,8 +38,10 @@ CREATE TABLE mensajeria.plantillas_whatsapp (
     componentes            jsonb       NOT NULL,
     -- Lo que devolvió Meta la última vez (tal cual).
     componentes_meta       jsonb,
-    -- Código del catálogo de Iris que atiende (factura_por_vencer…) y qué dato de Iris va en cada variable.
-    codigo                 text        CHECK (codigo IS NULL OR codigo ~ '^[a-z][a-z0-9_]{0,63}$'),
+    -- Códigos del catálogo de Iris que atiende (factura_por_vencer…; uno por cuenta, lo cuida Iris con
+    -- el candado de la cuenta) y qué dato de Iris va en cada variable.
+    codigos                text[]      NOT NULL DEFAULT '{}'
+                                       CHECK (array_to_string(codigos, ',') ~ '^([a-z][a-z0-9_]{0,63}(,[a-z][a-z0-9_]{0,63})*)?$'),
     parametros             jsonb       NOT NULL DEFAULT '[]',
     usos                   text[]      NOT NULL DEFAULT '{}' CHECK (usos <@ ARRAY['avisos', 'conversaciones', 'asistente']::text[]),
     origen                 text        NOT NULL CHECK (origen IN ('iris', 'sugerida', 'meta', 'migrada', 'canal')),
@@ -60,7 +62,6 @@ CREATE TABLE mensajeria.plantillas_whatsapp (
     CONSTRAINT plantillas_whatsapp_borrada_ck CHECK ((estado = 'DELETED') = (borrada_en IS NOT NULL))
 );
 CREATE UNIQUE INDEX plantillas_whatsapp_nombre_uq ON mensajeria.plantillas_whatsapp (waba_id, nombre, idioma) WHERE estado <> 'DELETED';
-CREATE UNIQUE INDEX plantillas_whatsapp_codigo_uq ON mensajeria.plantillas_whatsapp (waba_id, codigo) WHERE codigo IS NOT NULL AND estado <> 'DELETED';
 CREATE UNIQUE INDEX plantillas_whatsapp_meta_uq ON mensajeria.plantillas_whatsapp (meta_id) WHERE meta_id IS NOT NULL AND estado <> 'DELETED';
 CREATE INDEX plantillas_whatsapp_empresa_idx ON mensajeria.plantillas_whatsapp (empresa_id, waba_id, id);
 
@@ -78,10 +79,12 @@ CREATE TABLE mensajeria.plantillas_whatsapp_historial (
 );
 CREATE INDEX plantillas_whatsapp_historial_idx ON mensajeria.plantillas_whatsapp_historial (plantilla_id, id DESC);
 
--- Estado de la sincronización de cada cuenta.
+-- Dueña de cada cuenta (una WABA es de una sola empresa: la de sus números; un préstamo de número no
+-- la cambia) y estado de su sincronización. Toda consulta de plantillas filtra por esta empresa.
 CREATE TABLE mensajeria.plantillas_whatsapp_cuentas (
     waba_id          text PRIMARY KEY CHECK (waba_id ~ '^[0-9]{1,30}$'),
-    empresa_id       bigint,
+    -- 0 = sin conector (números sin empresa).
+    empresa_id       bigint      NOT NULL,
     sincronizada_en  timestamptz,
     -- Resumen de la última sincronización (nuevas, cambiadas, borradas).
     resumen          jsonb,
@@ -91,6 +94,19 @@ CREATE TABLE mensajeria.plantillas_whatsapp_cuentas (
     updated_at       timestamptz NOT NULL DEFAULT now()
 );
 
+-- Cambios de plantillas avisados por Meta ya aplicados: el mismo aviso puede llegar por varios números
+-- de la cuenta (o repetido) y se aplica una sola vez.
+CREATE TABLE mensajeria.plantillas_whatsapp_avisos_meta (
+    waba_id      text        NOT NULL,
+    meta_id      text        NOT NULL,
+    campo        text        NOT NULL,
+    evento       text        NOT NULL,
+    ocurrido     bigint      NOT NULL,
+    recibido_en  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (waba_id, meta_id, campo, evento, ocurrido)
+);
+CREATE INDEX plantillas_whatsapp_avisos_meta_recibido_idx ON mensajeria.plantillas_whatsapp_avisos_meta (recibido_en);
+
 -- Ajustes por empresa (0 = sin conector). Marketing apagado de fábrica.
 CREATE TABLE mensajeria.plantillas_whatsapp_ajustes (
     empresa_id           bigint PRIMARY KEY,
@@ -99,44 +115,83 @@ CREATE TABLE mensajeria.plantillas_whatsapp_ajustes (
     updated_at           timestamptz NOT NULL DEFAULT now()
 );
 
--- Migración de mensajeria.canales.plantillas (código → {nombre, idioma}) de los números con WABA. El
--- primero de cada cuenta fija el código; los demás quedan igual como plantillas de la cuenta. Las
--- variables del catálogo van por posición en el orden declarado (como se enviaban hasta hoy). La
--- columna de los canales NO se toca.
-INSERT INTO mensajeria.plantillas_whatsapp (empresa_id, waba_id, nombre, idioma, etiqueta, categoria, estado, formato, componentes, usos, origen)
-SELECT DISTINCT ON (c.waba_id, p.value ->> 'nombre', p.value ->> 'idioma')
-       c.empresa_id, c.waba_id, p.value ->> 'nombre', p.value ->> 'idioma', left(p.key, 80), 'UTILITY', 'APPROVED', 'POSITIONAL',
-       '{"cuerpo": "", "botones": [], "variables": []}'::jsonb, ARRAY['avisos', 'conversaciones'], 'migrada'
+-- Migración de mensajeria.canales.plantillas (código → {nombre, idioma}) de los números activos con
+-- WABA. La dueña de cada cuenta es la empresa de su número de avisos (o el más antiguo); los números de
+-- otra empresa con la misma WABA no se migran (quedan en el informe). Una fila por nombre e idioma, con
+-- todos los códigos que atendía; cada código a una sola plantilla (la del número de avisos primero).
+-- Las variables del catálogo van por posición (como se enviaban hasta hoy). La columna de los canales
+-- NO se toca. Lo que no cumple las reglas se descarta y se informa (nunca aborta el despliegue).
+INSERT INTO mensajeria.plantillas_whatsapp_cuentas (waba_id, empresa_id)
+SELECT DISTINCT ON (c.waba_id) c.waba_id, coalesce(c.empresa_id, 0)
 FROM mensajeria.canales c
-CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(c.plantillas) = 'object' THEN c.plantillas ELSE '{}'::jsonb END) p
-WHERE c.waba_id <> '' AND c.tipo = 'whatsapp_cloud'
-  AND (p.value ->> 'nombre') ~ '^[a-z0-9_]+$' AND char_length(p.value ->> 'nombre') <= 512
-  AND (p.value ->> 'idioma') ~ '^[a-z]{2,3}([_-][A-Za-z]{2,4})?$'
-ORDER BY c.waba_id, p.value ->> 'nombre', p.value ->> 'idioma', c.activo DESC, c.id
-ON CONFLICT DO NOTHING;
+WHERE c.waba_id ~ '^[0-9]{1,30}$' AND c.desconectado_en IS NULL
+ORDER BY c.waba_id, c.activo DESC, c.avisos_empresa DESC, c.id
+ON CONFLICT (waba_id) DO NOTHING;
 
--- El código: el del número de avisos de la empresa primero, luego el más antiguo.
-WITH candidatos AS (
-    SELECT DISTINCT ON (c.waba_id, p.key) c.waba_id, p.key AS codigo, p.value ->> 'nombre' AS nombre, p.value ->> 'idioma' AS idioma
+-- +goose StatementBegin
+DO $$
+DECLARE
+    r record;
+BEGIN
+    CREATE TEMPORARY TABLE plantillas_migrables AS
+    SELECT c.id AS canal_id, c.empresa_id, c.waba_id, c.avisos_empresa, p.key AS codigo, p.value ->> 'nombre' AS nombre, p.value ->> 'idioma' AS idioma,
+           (p.key ~ '^[a-z][a-z0-9_]{0,63}$'
+            AND coalesce(p.value ->> 'nombre', '') ~ '^[a-z0-9_]+$' AND char_length(p.value ->> 'nombre') <= 512
+            AND coalesce(p.value ->> 'idioma', '') ~ '^[a-z]{2,3}([_-][A-Za-z]{2,4})?$') AS valida,
+           coalesce(c.empresa_id, 0) = k.empresa_id AS de_la_duena
     FROM mensajeria.canales c
-    CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(c.plantillas) = 'object' THEN c.plantillas ELSE '{}'::jsonb END) p
-    WHERE c.waba_id <> '' AND c.tipo = 'whatsapp_cloud' AND p.key ~ '^[a-z][a-z0-9_]{0,63}$'
-    ORDER BY c.waba_id, p.key, c.avisos_empresa DESC, c.activo DESC, c.id
-)
-UPDATE mensajeria.plantillas_whatsapp t SET codigo = x.codigo
-FROM (
-    -- Una plantilla atiende un solo código: si el mismo nombre servía a dos, el primero (alfabético).
-    SELECT DISTINCT ON (waba_id, nombre, idioma) waba_id, codigo, nombre, idioma FROM candidatos ORDER BY waba_id, nombre, idioma, codigo
-) x
-WHERE t.waba_id = x.waba_id AND t.nombre = x.nombre AND t.idioma = x.idioma AND t.origen = 'migrada' AND t.codigo IS NULL
-  AND NOT EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp o WHERE o.waba_id = x.waba_id AND o.codigo = x.codigo AND o.estado <> 'DELETED');
+    JOIN mensajeria.plantillas_whatsapp_cuentas k ON k.waba_id = c.waba_id
+    CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(c.plantillas) = 'object' THEN c.plantillas ELSE '{}'::jsonb END) AS p(key, value)
+    WHERE c.tipo = 'whatsapp_cloud' AND c.activo AND c.desconectado_en IS NULL;
 
-INSERT INTO mensajeria.plantillas_whatsapp_historial (plantilla_id, tipo, a, detalle, origen)
-SELECT p.id, 'creada', p.estado, jsonb_build_object('origen', 'migrada', 'codigo', p.codigo), 'sistema'
-FROM mensajeria.plantillas_whatsapp p
-WHERE p.origen = 'migrada' AND NOT EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp_historial h WHERE h.plantilla_id = p.id);
+    INSERT INTO mensajeria.plantillas_whatsapp (empresa_id, waba_id, nombre, idioma, etiqueta, categoria, estado, formato, componentes, usos, origen)
+    SELECT DISTINCT ON (m.waba_id, m.nombre, m.idioma)
+           nullif(k.empresa_id, 0), m.waba_id, m.nombre, m.idioma, left(m.nombre, 80), 'UTILITY', 'APPROVED', 'POSITIONAL',
+           '{"cuerpo": "", "botones": [], "variables": []}'::jsonb, ARRAY['avisos', 'conversaciones'], 'migrada'
+    FROM plantillas_migrables m
+    JOIN mensajeria.plantillas_whatsapp_cuentas k ON k.waba_id = m.waba_id
+    WHERE m.valida AND m.de_la_duena
+    ORDER BY m.waba_id, m.nombre, m.idioma, m.avisos_empresa DESC, m.canal_id
+    ON CONFLICT DO NOTHING;
+
+    -- Cada código, a la plantilla del número de avisos (o del más antiguo); una plantilla puede atender varios.
+    UPDATE mensajeria.plantillas_whatsapp t SET codigos = x.codigos
+    FROM (
+        SELECT waba_id, nombre, idioma, array_agg(codigo ORDER BY codigo) AS codigos
+        FROM (
+            SELECT DISTINCT ON (waba_id, codigo) waba_id, codigo, nombre, idioma
+            FROM plantillas_migrables
+            WHERE valida AND de_la_duena
+            ORDER BY waba_id, codigo, avisos_empresa DESC, canal_id
+        ) c
+        GROUP BY waba_id, nombre, idioma
+    ) x
+    WHERE t.waba_id = x.waba_id AND t.nombre = x.nombre AND t.idioma = x.idioma AND t.origen = 'migrada' AND cardinality(t.codigos) = 0
+      AND NOT EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp o WHERE o.waba_id = x.waba_id AND o.codigos && x.codigos AND o.estado <> 'DELETED' AND o.id <> t.id);
+
+    INSERT INTO mensajeria.plantillas_whatsapp_historial (plantilla_id, tipo, a, detalle, origen)
+    SELECT p.id, 'creada', p.estado, jsonb_build_object('origen', 'migrada', 'codigos', p.codigos), 'sistema'
+    FROM mensajeria.plantillas_whatsapp p
+    WHERE p.origen = 'migrada' AND NOT EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp_historial h WHERE h.plantilla_id = p.id);
+
+    -- Informe de lo que no se migró (sale en el registro de `iris migrar`).
+    FOR r IN
+        SELECT canal_id, waba_id, codigo, CASE WHEN NOT valida THEN 'nombre, idioma o código no válidos' ELSE 'el número es de otra empresa que la dueña de la cuenta' END AS motivo
+        FROM plantillas_migrables WHERE NOT valida OR NOT de_la_duena
+        ORDER BY canal_id, codigo
+    LOOP
+        RAISE NOTICE 'plantillas de WhatsApp: no se migró el código % del número % (cuenta %): %', r.codigo, r.canal_id, r.waba_id, r.motivo;
+    END LOOP;
+    DROP TABLE plantillas_migrables;
+END
+$$;
+-- +goose StatementEnd
 
 -- +goose Down
+-- Borra las plantillas por cuenta, su historial, la dueña y el estado de cada cuenta y los ajustes de
+-- marketing (docs/runbooks/plantillas-whatsapp.md). mensajeria.canales.plantillas no se tocó: los
+-- números siguen saliendo con su mapa propio.
+DROP TABLE mensajeria.plantillas_whatsapp_avisos_meta;
 DROP TABLE mensajeria.plantillas_whatsapp_ajustes;
 DROP TABLE mensajeria.plantillas_whatsapp_cuentas;
 DROP TABLE mensajeria.plantillas_whatsapp_historial;

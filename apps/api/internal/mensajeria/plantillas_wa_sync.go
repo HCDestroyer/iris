@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,14 +30,25 @@ const (
 	SyncManual   = "manual"
 	SyncNocturna = "nocturna"
 	SyncWebhook  = "webhook"
+	SyncCanal    = "canal"
 )
+
+// EsperaSincronizarManual: el botón no relee una cuenta sincronizada hace menos de esto (429).
+const EsperaSincronizarManual = 2 * time.Minute
 
 // EntradaSincronizarPWA es POST /plantillas-whatsapp/cuentas/{waba}/sincronizar.
 type EntradaSincronizarPWA struct {
 	WabaID string `json:"waba_id"`
 }
 
-// ResultadoSincronizacionPWA es lo que quedó.
+// SincronizacionPedida es la respuesta 202: la relectura quedó en cola (único por cuenta). El
+// resultado sale en GET /plantillas-whatsapp/cuentas (sincronizadaEn, resumen y error).
+type SincronizacionPedida struct {
+	WabaID         string     `json:"wabaId"`
+	SincronizadaEn *time.Time `json:"sincronizadaEn" nullable:"true" doc:"La sincronización anterior (cambia al terminar la pedida)"`
+}
+
+// ResultadoSincronizacionPWA es lo que quedó (sincronización del sistema).
 type ResultadoSincronizacionPWA struct {
 	WabaID         string                   `json:"wabaId"`
 	SincronizadaEn time.Time                `json:"sincronizadaEn"`
@@ -44,7 +57,7 @@ type ResultadoSincronizacionPWA struct {
 
 type lecturaPW struct {
 	waba    string
-	empresa *int64
+	empresa int64
 	origen  string
 	leidas  []PlantillaMetaLeida
 	err     error
@@ -55,47 +68,63 @@ func (l lecturaPW) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"waba_id": l.waba, "origen": l.origen, "leidas": len(l.leidas), "error": l.err != nil})
 }
 
-// SincronizarPWA es la sincronización manual (dos casos con Meta en medio) y la del sistema.
+func empresaPtr(e int64) *int64 {
+	if e == 0 {
+		return nil
+	}
+	return &e
+}
+
+// SincronizarPWA: el botón (encola la relectura) y la relectura del sistema (job).
 type SincronizarPWA struct {
 	m       *Modulo
-	leer    *auditoria.Caso[EntradaSincronizarPWA, lecturaPW]
+	pedir   *auditoria.Caso[EntradaSincronizarPWA, SincronizacionPedida]
 	aplicar *auditoria.Caso[lecturaPW, ResultadoSincronizacionPWA]
 }
 
 func nuevoSincronizarPWA(m *Modulo) *SincronizarPWA {
 	s := &SincronizarPWA{m: m}
-	s.leer = auditoria.Nuevo(auditoria.Caso[EntradaSincronizarPWA, lecturaPW]{
-		Accion: "plantillas_whatsapp.sincronizar", Permiso: nucleo.PermPlantillasWhatsAppSincronizar, AuditarExito: func(lecturaPW) bool { return false },
-		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaSincronizarPWA) (lecturaPW, error) {
+	s.pedir = auditoria.Nuevo(auditoria.Caso[EntradaSincronizarPWA, SincronizacionPedida]{
+		Accion: "plantillas_whatsapp.sincronizar", Permiso: nucleo.PermPlantillasWhatsAppSincronizar,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaSincronizarPWA) (SincronizacionPedida, error) {
 			if err := soloPersonasPW(ctx); err != nil {
-				return lecturaPW{}, err
+				return SincronizacionPedida{}, err
 			}
 			q := mensajeriabd.New(t)
-			canales, err := canalesDeCuentaEmpresa(ctx, q, contexto.EmpresaDe(ctx), in.WabaID)
-			if err != nil {
-				return lecturaPW{}, err
+			empresa := contexto.EmpresaDe(ctx)
+			if _, err := canalesDeCuentaEmpresa(ctx, q, empresa, in.WabaID); err != nil {
+				return SincronizacionPedida{}, err
 			}
-			c, err := m.cuentaGraph(ctx, q, contexto.EmpresaDe(ctx), in.WabaID)
+			k, err := q.CuentaWA(ctx, in.WabaID)
 			if err != nil {
-				return lecturaPW{}, err
+				return SincronizacionPedida{}, err
 			}
-			return lecturaPW{waba: in.WabaID, empresa: canales[0].EmpresaID, origen: SyncManual, cuenta: c}, nil
+			t.FijarEntidad("cuenta_whatsapp", in.WabaID)
+			t.FijarEmpresa(empresa)
+			if k.SincronizadaEn != nil {
+				if falta := k.SincronizadaEn.Add(EsperaSincronizarManual).Sub(m.ahora()); falta > 0 {
+					seg := int(falta.Seconds()) + 1
+					return SincronizacionPedida{}, nucleo.NuevoProblema(http.StatusTooManyRequests, "sincronizada_hace_poco", "Se sincronizó hace poco",
+						"Esta cuenta se sincronizó hace menos de 2 minutos. Espera un momento y vuelve a intentar.").ConCabecera("Retry-After", strconv.Itoa(seg))
+				}
+			}
+			return SincronizacionPedida{WabaID: in.WabaID, SincronizadaEn: k.SincronizadaEn},
+				m.encolar(ctx, t.Tx, ArgsSincronizarPlantillas{WabaID: in.WabaID, Origen: SyncManual})
 		},
 	})
-	// aplicar corre para personas (manual) y para el sistema (noche y webhook): Autenticado; el
-	// permiso de la persona ya lo revisó leer.
+	// aplicar corre para el sistema (job): Autenticado; la persona ya pasó por pedir.
 	s.aplicar = auditoria.Nuevo(auditoria.Caso[lecturaPW, ResultadoSincronizacionPWA]{
 		Accion: "plantillas_whatsapp.sincronizar", Acceso: auditoria.Autenticado,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in lecturaPW) (ResultadoSincronizacionPWA, error) {
 			q := mensajeriabd.New(t)
 			t.FijarEntidad("cuenta_whatsapp", in.waba)
-			fijarEmpresaCanal(t, in.empresa)
+			t.FijarEmpresa(in.empresa)
 			ahora := m.ahora()
 			if in.err != nil {
 				p := problemaMetaPW(in.err)
 				codigo := p.Codigo()
 				t.AlFallar(func(ctx context.Context, tx pgx.Tx) error {
-					return mensajeriabd.New(tx).GuardarCuentaWA(ctx, mensajeriabd.GuardarCuentaWAParams{WabaID: in.waba, EmpresaID: in.empresa,
+					return mensajeriabd.New(tx).EstadoCuentaWA(ctx, mensajeriabd.EstadoCuentaWAParams{WabaID: in.waba, Empresa: in.empresa,
 						Error: &codigo, ErrorEn: &ahora})
 				})
 				return ResultadoSincronizacionPWA{}, p
@@ -111,14 +140,9 @@ func nuevoSincronizarPWA(m *Modulo) *SincronizarPWA {
 	return s
 }
 
-// Ejecutar es la sincronización manual.
-func (s *SincronizarPWA) Ejecutar(ctx context.Context, in EntradaSincronizarPWA) (ResultadoSincronizacionPWA, error) {
-	l, err := s.leer.Ejecutar(ctx, in)
-	if err != nil {
-		return ResultadoSincronizacionPWA{}, err
-	}
-	l.leidas, l.err = s.m.leerCuentaMeta(ctx, l.cuenta)
-	return s.aplicar.Ejecutar(ctx, l)
+// Ejecutar es el botón «Sincronizar con Meta»: encola la relectura.
+func (s *SincronizarPWA) Ejecutar(ctx context.Context, in EntradaSincronizarPWA) (SincronizacionPedida, error) {
+	return s.pedir.Ejecutar(ctx, in)
 }
 
 // leerCuentaMeta comprueba el permiso del token y lee todas las plantillas de la cuenta.
@@ -130,31 +154,29 @@ func (m *Modulo) leerCuentaMeta(ctx context.Context, c CuentaGraph) ([]Plantilla
 	return g.Listar(ctx, c)
 }
 
-// SincronizarCuentaSistema sincroniza una cuenta desde un job (noche o webhook).
+// SincronizarCuentaSistema relee una cuenta desde un job (botón, noche, webhook o el formulario del
+// número), con el token de un número de la empresa dueña y solo sus plantillas.
 func (m *Modulo) SincronizarCuentaSistema(ctx context.Context, bd nucleo.BD, waba, origen string) error {
 	var l lecturaPW
 	err := nucleo.EnTx(nucleo.ConBD(ctx, bd), func(ctx context.Context, tx pgx.Tx) error {
 		q := mensajeriabd.New(tx)
-		canales, err := q.CanalesDeCuentaWA(ctx, waba)
+		k, err := q.CuentaWA(ctx, waba)
 		if err != nil {
 			return err
 		}
-		if len(canales) == 0 {
-			return pgx.ErrNoRows
-		}
-		c, err := m.cuentaGraph(ctx, q, -1, waba)
+		c, err := m.cuentaGraph(ctx, q, k.EmpresaID, waba)
 		if err != nil {
 			return err
 		}
-		l = lecturaPW{waba: waba, empresa: canales[0].EmpresaID, origen: origen, cuenta: c}
+		l = lecturaPW{waba: waba, empresa: k.EmpresaID, origen: origen, cuenta: c}
 		return nil
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil // ya no hay números activos en la cuenta
+		return nil // la cuenta no tiene dueña registrada
 	}
 	var p *nucleo.Problema
 	if errors.As(err, &p) {
-		slog.WarnContext(ctx, "plantillas: la cuenta no tiene token para sincronizar", "waba_id", waba, "codigo", p.Codigo())
+		slog.WarnContext(ctx, "plantillas: la cuenta no tiene números ni token para sincronizar", "waba_id", waba, "codigo", p.Codigo())
 		return nil
 	}
 	if err != nil {
@@ -163,7 +185,7 @@ func (m *Modulo) SincronizarCuentaSistema(ctx context.Context, bd nucleo.BD, wab
 	l.leidas, l.err = m.leerCuentaMeta(ctx, l.cuenta)
 	_, err = m.PlantillasWA.Sincronizar.aplicar.Ejecutar(ctxSistema(ctx, bd), l)
 	if errors.As(err, &p) {
-		// Meta no respondió o el token no sirve: queda anotado en la cuenta; la próxima noche se reintenta.
+		// Meta no respondió o el token no sirve: queda anotado en la cuenta; la próxima vez se reintenta.
 		slog.WarnContext(ctx, "plantillas: sincronización con Meta fallida", "waba_id", waba, "codigo", p.Codigo(), "origen", origen)
 		return nil
 	}
@@ -171,7 +193,7 @@ func (m *Modulo) SincronizarCuentaSistema(ctx context.Context, bd nucleo.BD, wab
 }
 
 func cambioPW(f mensajeriabd.MensajeriaPlantillaWA) CambioCuentaPWA {
-	return CambioCuentaPWA{ID: f.ID, Nombre: f.Nombre, Etiqueta: f.Etiqueta, Estado: f.Estado, Codigo: f.Codigo, Usos: lista(f.Usos)}
+	return CambioCuentaPWA{ID: f.ID, Nombre: f.Nombre, Etiqueta: f.Etiqueta, Estado: f.Estado, Codigos: lista(f.Codigos), Usos: lista(f.Usos)}
 }
 
 // aplicarLectura compara lo que dijo Meta con lo que tiene Iris.
@@ -179,7 +201,7 @@ func (m *Modulo) aplicarLectura(ctx context.Context, t *auditoria.Tx, q *mensaje
 	if err := q.BloquearCuentaPlantillas(ctx, in.waba); err != nil {
 		return ResumenSincronizacionPWA{}, err
 	}
-	filas, err := q.PlantillasWADeCuenta(ctx, in.waba)
+	filas, err := q.PlantillasWADeCuenta(ctx, mensajeriabd.PlantillasWADeCuentaParams{WabaID: in.waba, Empresa: in.empresa})
 	if err != nil {
 		return ResumenSincronizacionPWA{}, err
 	}
@@ -240,10 +262,10 @@ func (m *Modulo) aplicarLectura(ctx context.Context, t *auditoria.Tx, q *mensaje
 		}
 	}
 	resumen, _ := json.Marshal(r)
-	if err := q.GuardarCuentaWA(ctx, mensajeriabd.GuardarCuentaWAParams{WabaID: in.waba, EmpresaID: in.empresa, SincronizadaEn: &ahora, Resumen: resumen}); err != nil {
+	if err := q.EstadoCuentaWA(ctx, mensajeriabd.EstadoCuentaWAParams{WabaID: in.waba, Empresa: in.empresa, SincronizadaEn: &ahora, Resumen: resumen}); err != nil {
 		return r, err
 	}
-	return r, t.EmitirEnEmpresa("plantilla_whatsapp.sincronizada", in.empresa, map[string]any{"waba_id": in.waba, "empresa_id": in.empresa,
+	return r, t.EmitirEnEmpresa("plantilla_whatsapp.sincronizada", empresaPtr(in.empresa), map[string]any{"waba_id": in.waba, "empresa_id": empresaPtr(in.empresa),
 		"origen": in.origen, "total": r.Total, "nuevas": len(r.Nuevas), "cambiadas": len(r.Cambiadas), "borradas": len(r.Borradas)})
 }
 
@@ -261,7 +283,7 @@ func (m *Modulo) insertarDeMeta(ctx context.Context, t *auditoria.Tx, q *mensaje
 	}
 	metaID := p.ID
 	etiqueta := recortar(strings.ReplaceAll(p.Name, "_", " "), 80)
-	f, err := q.InsertarPlantillaWA(ctx, mensajeriabd.InsertarPlantillaWAParams{EmpresaID: in.empresa, WabaID: in.waba, MetaID: &metaID, Nombre: p.Name,
+	f, err := q.InsertarPlantillaWA(ctx, mensajeriabd.InsertarPlantillaWAParams{EmpresaID: empresaPtr(in.empresa), WabaID: in.waba, Codigos: []string{}, MetaID: &metaID, Nombre: p.Name,
 		Idioma: p.Language, Etiqueta: etiqueta, Categoria: categoria, Estado: normalizarEstadoMeta(p.Status, EstadoPWPendiente), Motivo: motivoMeta(p.RejectedReason),
 		Calidad: p.Calidad(), Formato: formato, Componentes: comp, ComponentesMeta: p.Components, Parametros: params, Usos: []string{}, Origen: OrigenPWMeta,
 		SincronizadaEn: &ahora})
@@ -271,7 +293,7 @@ func (m *Modulo) insertarDeMeta(ctx context.Context, t *auditoria.Tx, q *mensaje
 	if err := historialPW(ctx, q, f.ID, "creada", nil, &f.Estado, map[string]any{"origen": "meta"}, "sincronizacion", nil, ahora); err != nil {
 		return f, err
 	}
-	return f, t.EmitirEnEmpresa("plantilla_whatsapp.creada", in.empresa, conPW(basePW(f), map[string]any{"nombre": f.Nombre, "idioma": f.Idioma,
+	return f, t.EmitirEnEmpresa("plantilla_whatsapp.creada", empresaPtr(in.empresa), conPW(basePW(f), map[string]any{"nombre": f.Nombre, "idioma": f.Idioma,
 		"categoria": f.Categoria, "origen": OrigenPWMeta}))
 }
 
@@ -392,9 +414,9 @@ type ArgsSincronizarPlantillas struct {
 // Kind implementa river.JobArgs.
 func (ArgsSincronizarPlantillas) Kind() string { return "mensajeria.sincronizar_plantillas" }
 
-// InsertOpts: cola de mensajería, uno por cuenta cada 10 minutos.
+// InsertOpts: cola de mensajería, uno por cuenta (en espera o corriendo) cada 2 minutos.
 func (ArgsSincronizarPlantillas) InsertOpts() river.InsertOpts {
-	return river.InsertOpts{Queue: Cola, MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByArgs: true, ByPeriod: 10 * time.Minute}}
+	return river.InsertOpts{Queue: Cola, MaxAttempts: 3, UniqueOpts: river.UniqueOpts{ByArgs: true, ByPeriod: EsperaSincronizarManual}}
 }
 
 type trabajadorSincronizarPlantillas struct {
@@ -415,6 +437,7 @@ func (m *Modulo) plantillasDelWebhook(ctx context.Context, t *auditoria.Tx, q *m
 	var w struct {
 		Entry []struct {
 			ID      string `json:"id"`
+			Time    int64  `json:"time"`
 			Changes []struct {
 				Field string          `json:"field"`
 				Value json.RawMessage `json:"value"`
@@ -427,7 +450,7 @@ func (m *Modulo) plantillasDelWebhook(ctx context.Context, t *auditoria.Tx, q *m
 	for _, e := range w.Entry {
 		for _, c := range e.Changes {
 			if slices.Contains(CamposWebhookPlantillas, c.Field) {
-				if err := m.webhookPlantilla(ctx, t, q, canal, e.ID, c.Field, c.Value, ahora); err != nil {
+				if err := m.webhookPlantilla(ctx, t, q, canal, e.ID, e.Time, c.Field, c.Value, ahora); err != nil {
 					return err
 				}
 			}
@@ -436,13 +459,22 @@ func (m *Modulo) plantillasDelWebhook(ctx context.Context, t *auditoria.Tx, q *m
 	return nil
 }
 
-// webhookPlantilla aplica un cambio de plantilla que avisó Meta. waba: entry[].id.
-func (m *Modulo) webhookPlantilla(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, canal mensajeriabd.MensajeriaCanal, waba, campo string,
-	crudo json.RawMessage, ahora time.Time) error {
-	// Solo cuenta lo de la cuenta del número que recibió el webhook (la firma es la de su app).
+// webhookPlantilla aplica un cambio de plantilla que avisó Meta. waba: entry[].id; ocurrido: entry[].time.
+func (m *Modulo) webhookPlantilla(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, canal mensajeriabd.MensajeriaCanal, waba string, ocurrido int64,
+	campo string, crudo json.RawMessage, ahora time.Time) error {
+	// Solo cuenta lo de la cuenta del número que recibió el webhook (la firma es la de su app), y solo si
+	// el número es de la empresa dueña de la cuenta.
 	if canal.WabaID == "" || waba != canal.WabaID {
 		t.Anotar(map[string]any{"plantilla_de_otra_cuenta": true})
 		return nil
+	}
+	k, err := q.CuentaWA(ctx, waba)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && k.EmpresaID != derefEmpresa(canal.EmpresaID)) {
+		t.Anotar(map[string]any{"plantilla_de_otra_empresa": true})
+		return nil
+	}
+	if err != nil {
+		return err
 	}
 	var v valorPlantillaMeta
 	if err := json.Unmarshal(crudo, &v); err != nil {
@@ -453,7 +485,23 @@ func (m *Modulo) webhookPlantilla(ctx context.Context, t *auditoria.Tx, q *mensa
 	if !reDigitos.MatchString(id) {
 		return nil
 	}
-	f, err := q.PlantillaWAPorMeta(ctx, mensajeriabd.PlantillaWAPorMetaParams{WabaID: waba, MetaID: &id, Nombre: v.MessageTemplateName, Idioma: v.MessageTemplateLanguage})
+	// El mismo aviso puede llegar por varios números de la cuenta (o repetido): se aplica una vez.
+	if ocurrido > 0 {
+		evento := toUpper(v.Event) + toUpper(v.NewCategory) + "/" + toUpper(v.CorrectCategory) + toUpper(v.NewQualityScore)
+		n, err := q.RegistrarAvisoMetaPW(ctx, mensajeriabd.RegistrarAvisoMetaPWParams{WabaID: waba, MetaID: id, Campo: campo, Evento: recortar(evento, 60), Ocurrido: ocurrido})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			t.Anotar(map[string]any{"plantilla_aviso_repetido": true})
+			return nil
+		}
+	}
+	cuando := ahora
+	if ocurrido > 0 {
+		cuando = time.Unix(ocurrido, 0).UTC()
+	}
+	f, err := q.PlantillaWAPorMeta(ctx, mensajeriabd.PlantillaWAPorMetaParams{WabaID: waba, Empresa: k.EmpresaID, MetaID: &id, Nombre: v.MessageTemplateName, Idioma: v.MessageTemplateLanguage})
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Una plantilla que Iris no conoce (creada en Meta): se relee la cuenta.
 		return m.encolar(ctx, t.Tx, ArgsSincronizarPlantillas{WabaID: waba, Origen: SyncWebhook})
@@ -466,6 +514,11 @@ func (m *Modulo) webhookPlantilla(ctx context.Context, t *auditoria.Tx, q *mensa
 	f.MetaID = &id
 	switch campo {
 	case "message_template_status_update":
+		// Un aviso más viejo que el último cambio de estado (llegó tarde) no lo deshace.
+		if ocurrido > 0 && cuando.Before(f.EstadoEn.Truncate(time.Second)) {
+			t.Anotar(map[string]any{"plantilla_aviso_viejo": true})
+			return nil
+		}
 		ev := toUpper(v.Event)
 		switch ev {
 		case "REINSTATED":
@@ -484,15 +537,15 @@ func (m *Modulo) webhookPlantilla(ctx context.Context, t *auditoria.Tx, q *mensa
 		if !slices.Contains(EstadosMetaPW, ev) {
 			return nil
 		}
-		f.Estado, f.EstadoEn = ev, ahora
+		f.Estado, f.EstadoEn = ev, cuando
 		f.PausadaHasta = nil
 		if ev == EstadoPWPausada && v.OtherInfo != nil {
 			switch toUpper(v.OtherInfo.Title) {
 			case "FIRST_PAUSE":
-				h := ahora.Add(3 * time.Hour)
+				h := cuando.Add(3 * time.Hour)
 				f.PausadaHasta = &h
 			case "SECOND_PAUSE":
-				h := ahora.Add(6 * time.Hour)
+				h := cuando.Add(6 * time.Hour)
 				f.PausadaHasta = &h
 			}
 		}
@@ -539,7 +592,7 @@ func (m *Modulo) webhookPlantilla(ctx context.Context, t *auditoria.Tx, q *mensa
 	}
 	t.FijarEntidad("plantilla_whatsapp", g.ID)
 	if g.Estado != antes.Estado {
-		if err := historialPW(ctx, q, g.ID, "estado", &antes.Estado, &g.Estado, map[string]any{"motivo": g.Motivo, "otro": v.OtherInfo}, "webhook", nil, ahora); err != nil {
+		if err := historialPW(ctx, q, g.ID, "estado", &antes.Estado, &g.Estado, map[string]any{"motivo": g.Motivo, "otro": otroInfoAcotado(v)}, "webhook", nil, ahora); err != nil {
 			return err
 		}
 		if err := t.Emitir("plantilla_whatsapp.estado_cambiado", conPW(basePW(g), map[string]any{"de": antes.Estado, "a": g.Estado, "motivo": g.Motivo,
@@ -564,6 +617,14 @@ func (m *Modulo) webhookPlantilla(ctx context.Context, t *auditoria.Tx, q *mensa
 		return t.Emitir("plantilla_whatsapp.calidad_cambiada", conPW(basePW(g), map[string]any{"de": antes.Calidad, "a": g.Calidad, "origen": SyncWebhook}))
 	}
 	return nil
+}
+
+// otroInfoAcotado: other_info de Meta recortado (título como literal; descripción corta).
+func otroInfoAcotado(v valorPlantillaMeta) map[string]string {
+	if v.OtherInfo == nil {
+		return nil
+	}
+	return map[string]string{"titulo": literalAcotado(v.OtherInfo.Title), "descripcion": recortar(limpiarTextoMeta(v.OtherInfo.Description), 200)}
 }
 
 // Noche ---------------------------------------------------------------------------------------------

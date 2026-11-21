@@ -303,8 +303,13 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 				if err != nil {
 					return MensajeConvEnviado{}, err
 				}
-				if _, ok := usables[p.Codigo]; !ok {
+				pm, ok := usables[p.Codigo]
+				if !ok {
 					return MensajeConvEnviado{}, reglaConv("plantilla_no_aprobada", "La plantilla no está aprobada en el número de esta conversación")
+				}
+				if necesitaDatosCliente(pm) && !c.ClienteVerificado {
+					return MensajeConvEnviado{}, reglaConv("cliente_sin_confirmar",
+						"Esta plantilla lleva datos del cliente de Argos (nombre, código o plan): confirma primero el cliente de la conversación o usa otra plantilla")
 				}
 				if in.Plantilla.Variables == nil {
 					in.Plantilla.Variables = map[string]string{}
@@ -621,7 +626,12 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 				}
 				vars := map[string]string{}
 				_ = json.Unmarshal(f.Variables, &vars)
-				datos, err := datosParaEnvio(ctx, q, p, vars, empresaDeConv(c), c.ClienteID, c.ServicioID)
+				// Los datos del cliente de Argos solo con el cliente confirmado en la conversación.
+				cliente, servicio := c.ClienteID, c.ServicioID
+				if !c.ClienteVerificado {
+					cliente, servicio = nil, nil
+				}
+				datos, err := datosParaEnvio(ctx, q, p, vars, empresaDeConv(c), cliente, servicio)
 				if err != nil {
 					return mensajePreparado{}, err
 				}

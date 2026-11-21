@@ -94,15 +94,17 @@ func actorPW(ctx context.Context) *int64 {
 
 // canalesDeCuentaEmpresa: los números activos de la cuenta que son de la empresa (404 si ninguno).
 func canalesDeCuentaEmpresa(ctx context.Context, q *mensajeriabd.Queries, empresa int64, waba string) ([]mensajeriabd.MensajeriaCanal, error) {
-	fs, err := q.CanalesDeCuentaWA(ctx, waba)
+	// La cuenta debe ser de la empresa (su dueña) y tener un número activo de ella.
+	k, err := q.CuentaWA(ctx, waba)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && k.EmpresaID != empresa) {
+		return nil, cuentaWANoEncontrada()
+	}
 	if err != nil {
 		return nil, err
 	}
-	out := []mensajeriabd.MensajeriaCanal{}
-	for _, f := range fs {
-		if derefEmpresa(f.EmpresaID) == empresa {
-			out = append(out, f)
-		}
+	out, err := q.CanalesDeCuentaWA(ctx, mensajeriabd.CanalesDeCuentaWAParams{WabaID: waba, Empresa: empresa})
+	if err != nil {
+		return nil, err
 	}
 	if len(out) == 0 {
 		return nil, cuentaWANoEncontrada()
@@ -149,14 +151,14 @@ func guardarPW(ctx context.Context, q *mensajeriabd.Queries, f mensajeriabd.Mens
 		Etiqueta: f.Etiqueta, Categoria: f.Categoria, CategoriaAnterior: f.CategoriaAnterior, CategoriaCambiadaEn: f.CategoriaCambiadaEn,
 		CategoriaProxima: f.CategoriaProxima, CategoriaProximaEn: f.CategoriaProximaEn, Estado: f.Estado, EstadoEn: f.EstadoEn, Motivo: f.Motivo,
 		Rechazo: f.Rechazo, Calidad: f.Calidad, PausadaHasta: f.PausadaHasta, Formato: f.Formato, Componentes: f.Componentes,
-		ComponentesMeta: f.ComponentesMeta, Codigo: f.Codigo, Parametros: f.Parametros, Usos: f.Usos, Ediciones: f.Ediciones, EnviadaEn: f.EnviadaEn,
+		ComponentesMeta: f.ComponentesMeta, Codigos: lista(f.Codigos), Parametros: f.Parametros, Usos: f.Usos, Ediciones: f.Ediciones, EnviadaEn: f.EnviadaEn,
 		BorradaEn: f.BorradaEn, BorradaPor: f.BorradaPor, NombreLibreEn: f.NombreLibreEn, SincronizadaEn: f.SincronizadaEn})
 }
 
 // auditablePW: lo que se compara en auditoria.cambios.
 func auditablePW(f mensajeriabd.MensajeriaPlantillaWA) map[string]any {
 	return map[string]any{"nombre": f.Nombre, "idioma": f.Idioma, "etiqueta": f.Etiqueta, "categoria": f.Categoria, "estado": f.Estado,
-		"definicion": json.RawMessage(f.Componentes), "codigo": f.Codigo, "usos": lista(f.Usos), "meta_id": f.MetaID, "calidad": f.Calidad}
+		"definicion": json.RawMessage(f.Componentes), "codigos": lista(f.Codigos), "usos": lista(f.Usos), "meta_id": f.MetaID, "calidad": f.Calidad}
 }
 
 func basePW(f mensajeriabd.MensajeriaPlantillaWA) map[string]any {
@@ -194,8 +196,8 @@ func NombreMetaDe(etiqueta string) string {
 }
 
 // nombreLibre propone base, base_2, base_3… sin usar ni bloqueado en la cuenta.
-func nombreLibre(ctx context.Context, q *mensajeriabd.Queries, waba, base string, ahora time.Time) (string, error) {
-	usados, err := q.NombresWAParecidos(ctx, mensajeriabd.NombresWAParecidosParams{WabaID: waba, Nombre: base, Ahora: &ahora})
+func nombreLibre(ctx context.Context, q *mensajeriabd.Queries, empresa int64, waba, base string, ahora time.Time) (string, error) {
+	usados, err := q.NombresWAParecidos(ctx, mensajeriabd.NombresWAParecidosParams{WabaID: waba, Empresa: empresa, Nombre: base, Ahora: &ahora})
 	if err != nil {
 		return "", err
 	}
@@ -212,8 +214,8 @@ func nombreLibre(ctx context.Context, q *mensajeriabd.Queries, waba, base string
 
 // revisarNombre: 409 nombre_en_uso (mismo nombre e idioma en la cuenta) o nombre_bloqueado (una
 // aprobada con ese nombre se borró hace menos de 30 días), con un nombre libre sugerido.
-func revisarNombre(ctx context.Context, q *mensajeriabd.Queries, waba, nombre, idioma string, excepto int64, ahora time.Time) error {
-	enUso, err := q.NombreWAEnUso(ctx, mensajeriabd.NombreWAEnUsoParams{WabaID: waba, Nombre: nombre, Idioma: idioma, Excepto: excepto})
+func revisarNombre(ctx context.Context, q *mensajeriabd.Queries, empresa int64, waba, nombre, idioma string, excepto int64, ahora time.Time) error {
+	enUso, err := q.NombreWAEnUso(ctx, mensajeriabd.NombreWAEnUsoParams{WabaID: waba, Empresa: empresa, Nombre: nombre, Idioma: idioma, Excepto: excepto})
 	if err != nil {
 		return err
 	}
@@ -224,7 +226,7 @@ func revisarNombre(ctx context.Context, q *mensajeriabd.Queries, waba, nombre, i
 				base = nombre[:i]
 			}
 		}
-		s, err := nombreLibre(ctx, q, waba, base, ahora)
+		s, err := nombreLibre(ctx, q, empresa, waba, base, ahora)
 		if err != nil || s == nombre {
 			return nil
 		}
@@ -237,7 +239,7 @@ func revisarNombre(ctx context.Context, q *mensajeriabd.Queries, waba, nombre, i
 		p.Sugerencia = libre()
 		return p
 	}
-	hasta, err := q.NombreWABloqueado(ctx, mensajeriabd.NombreWABloqueadoParams{WabaID: waba, Nombre: nombre, Ahora: &ahora})
+	hasta, err := q.NombreWABloqueado(ctx, mensajeriabd.NombreWABloqueadoParams{WabaID: waba, Empresa: empresa, Nombre: nombre, Ahora: &ahora})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -306,25 +308,41 @@ func revisarCodigo(codigo string, categoria string, d DefinicionPWA, formato str
 	return nil
 }
 
-// tomarCodigo: el código pasa a esta plantilla; las demás de la cuenta que lo tenían lo sueltan.
-func tomarCodigo(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, f mensajeriabd.MensajeriaPlantillaWA, codigo string, ahora time.Time) error {
-	otras, err := q.PlantillasWACodigoDe(ctx, mensajeriabd.PlantillasWACodigoDeParams{WabaID: f.WabaID, Codigo: &codigo, Excepto: f.ID})
-	if err != nil {
+// tomarCodigos: los códigos pasan a esta plantilla (id 0 = una que se está creando); las demás de la
+// cuenta que los tenían los sueltan. Con el candado de la cuenta: un código, una sola plantilla.
+func tomarCodigos(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, empresa int64, waba string, id int64, codigos []string, ahora time.Time) error {
+	if len(codigos) == 0 {
+		return nil
+	}
+	if err := q.BloquearCuentaPlantillas(ctx, waba); err != nil {
 		return err
 	}
-	for _, o := range otras {
-		o.Codigo = nil
-		if _, err := guardarPW(ctx, q, o); err != nil {
+	for _, codigo := range codigos {
+		otras, err := q.PlantillasWACodigoDe(ctx, mensajeriabd.PlantillasWACodigoDeParams{WabaID: waba, Empresa: empresa, Codigo: codigo, Excepto: id})
+		if err != nil {
 			return err
 		}
-		if err := historialPW(ctx, q, o.ID, "usos", &codigo, nil, map[string]any{"codigo_paso_a": f.ID}, "usuario", actorPW(ctx), ahora); err != nil {
-			return err
-		}
-		if err := t.Emitir("plantilla_whatsapp.actualizada", conPW(basePW(o), map[string]any{"campos": []string{"codigo"}})); err != nil {
-			return err
+		for _, o := range otras {
+			o.Codigos = slices.DeleteFunc(slices.Clone(o.Codigos), func(c string) bool { return c == codigo })
+			if _, err := guardarPW(ctx, q, o); err != nil {
+				return err
+			}
+			if err := historialPW(ctx, q, o.ID, "usos", &codigo, nil, map[string]any{"codigo_paso_a": id}, "usuario", actorPW(ctx), ahora); err != nil {
+				return err
+			}
+			if err := t.Emitir("plantilla_whatsapp.actualizada", conPW(basePW(o), map[string]any{"campos": []string{"codigos"}})); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+// normalizarCodigos: sin repetidos y en orden.
+func normalizarCodigos(c []string) []string {
+	out := slices.Clone(c)
+	slices.Sort(out)
+	return slices.Compact(lista(out))
 }
 
 // Datos -------------------------------------------------------------------------------------------
@@ -360,7 +378,7 @@ type ResumenSincronizacionPWA struct {
 	Nuevas    []CambioCuentaPWA `json:"nuevas" doc:"Creadas fuera de Iris (en Meta)"`
 	Cambiadas []CambioCuentaPWA `json:"cambiadas"`
 	Borradas  []CambioCuentaPWA `json:"borradas" doc:"Ya no están en Meta"`
-	Origen    string            `json:"origen" enum:"manual,nocturna,webhook"`
+	Origen    string            `json:"origen" enum:"manual,nocturna,webhook,canal"`
 }
 
 // CambioCuentaPWA es una plantilla en el resumen.
@@ -369,7 +387,7 @@ type CambioCuentaPWA struct {
 	Nombre   string   `json:"nombre"`
 	Etiqueta string   `json:"etiqueta"`
 	Estado   string   `json:"estado"`
-	Codigo   *string  `json:"codigo" nullable:"true"`
+	Codigos  []string `json:"codigos"`
 	Usos     []string `json:"usos"`
 }
 
@@ -591,7 +609,7 @@ func (m *Modulo) reglasCompletas(ctx context.Context, q *mensajeriabd.Queries, e
 	r := revisarPlantilla(in)
 	r.agregar("nombre_libre", "Nombre libre en esta cuenta y en este idioma")
 	if r.reglas["nombre"].Ok {
-		if err := revisarNombre(ctx, q, waba, in.Nombre, in.Idioma, excepto, m.ahora()); err != nil {
+		if err := revisarNombre(ctx, q, empresa, waba, in.Nombre, in.Idioma, excepto, m.ahora()); err != nil {
 			var p *nucleo.Problema
 			if !errors.As(err, &p) {
 				return ResultadoReglasPWA{}, err
@@ -659,7 +677,7 @@ type EntradaCrearPWA struct {
 	Categoria  string        `json:"categoria" enum:"UTILITY,MARKETING,AUTHENTICATION"`
 	Definicion DefinicionPWA `json:"definicion"`
 	Usos       []string      `json:"usos,omitempty" maxItems:"3" doc:"avisos, conversaciones, asistente"`
-	Codigo     *string       `json:"codigo,omitempty" maxLength:"64" doc:"Código del catálogo de Iris que atenderá"`
+	Codigos    []string      `json:"codigos,omitempty" maxItems:"13" doc:"Códigos del catálogo de Iris que atenderá"`
 	Enviar     bool          `json:"enviar,omitempty" doc:"Además, enviarla a Meta (si las reglas se cumplen)"`
 	sugerida   *string
 	origen     string
@@ -705,7 +723,7 @@ func nuevoCrearPWA(m *Modulo) *auditoria.Caso[EntradaCrearPWA, PlantillaWA] {
 			ahora := m.ahora()
 			in.Etiqueta = strings.TrimSpace(in.Etiqueta)
 			if in.Nombre = strings.TrimSpace(in.Nombre); in.Nombre == "" {
-				if in.Nombre, err = nombreLibre(ctx, q, in.WabaID, NombreMetaDe(in.Etiqueta), ahora); err != nil {
+				if in.Nombre, err = nombreLibre(ctx, q, empresa, in.WabaID, NombreMetaDe(in.Etiqueta), ahora); err != nil {
 					return PlantillaWA{}, err
 				}
 			}
@@ -718,7 +736,7 @@ func nuevoCrearPWA(m *Modulo) *auditoria.Caso[EntradaCrearPWA, PlantillaWA] {
 			if err := validarUsosPW(in.Usos); err != nil {
 				return PlantillaWA{}, err
 			}
-			if err := revisarNombre(ctx, q, in.WabaID, in.Nombre, in.Idioma, 0, ahora); err != nil {
+			if err := revisarNombre(ctx, q, empresa, in.WabaID, in.Nombre, in.Idioma, 0, ahora); err != nil {
 				return PlantillaWA{}, err
 			}
 			if in.Categoria == CategoriaMarketing {
@@ -733,13 +751,14 @@ func nuevoCrearPWA(m *Modulo) *auditoria.Caso[EntradaCrearPWA, PlantillaWA] {
 			d := normalizarDefinicion(in.Definicion)
 			formato := formatoDeDefinicion(d)
 			params := parametrosDe(d)
-			if in.Codigo != nil {
-				if err := revisarCodigo(*in.Codigo, in.Categoria, d, formato, params); err != nil {
+			codigos := normalizarCodigos(in.Codigos)
+			for _, codigo := range codigos {
+				if err := revisarCodigo(codigo, in.Categoria, d, formato, params); err != nil {
 					return PlantillaWA{}, err
 				}
-				if err := tomarCodigo(ctx, t, q, mensajeriabd.MensajeriaPlantillaWA{ID: 0, WabaID: in.WabaID}, *in.Codigo, ahora); err != nil {
-					return PlantillaWA{}, err
-				}
+			}
+			if err := tomarCodigos(ctx, t, q, empresa, in.WabaID, 0, codigos, ahora); err != nil {
+				return PlantillaWA{}, err
 			}
 			comp, _ := json.Marshal(d)
 			pj, _ := json.Marshal(params)
@@ -753,7 +772,7 @@ func nuevoCrearPWA(m *Modulo) *auditoria.Caso[EntradaCrearPWA, PlantillaWA] {
 			}
 			f, err := q.InsertarPlantillaWA(ctx, mensajeriabd.InsertarPlantillaWAParams{EmpresaID: canales[0].EmpresaID, WabaID: in.WabaID, Nombre: in.Nombre,
 				Idioma: in.Idioma, Etiqueta: in.Etiqueta, Categoria: in.Categoria, Estado: EstadoPWBorrador, Calidad: "UNKNOWN", Formato: formato,
-				Componentes: comp, Codigo: in.Codigo, Parametros: pj, Usos: usos, Origen: origen, Sugerida: in.sugerida, CreadaPor: actorPW(ctx)})
+				Componentes: comp, Codigos: codigos, Parametros: pj, Usos: usos, Origen: origen, Sugerida: in.sugerida, CreadaPor: actorPW(ctx)})
 			if err != nil {
 				return PlantillaWA{}, conflictoNombrePW(err)
 			}
@@ -804,7 +823,7 @@ func nuevoEditarPWA(m *Modulo) *auditoria.Caso[EntradaEditarPWA, PlantillaWA] {
 			if !reIdiomaPW.MatchString(in.Idioma) {
 				return PlantillaWA{}, campoConv("idioma", "Idioma de Meta (es, es_MX…)", "pattern")
 			}
-			if err := revisarNombre(ctx, q, antes.WabaID, in.Nombre, in.Idioma, antes.ID, ahora); err != nil {
+			if err := revisarNombre(ctx, q, contexto.EmpresaDe(ctx), antes.WabaID, in.Nombre, in.Idioma, antes.ID, ahora); err != nil {
 				return PlantillaWA{}, err
 			}
 			if in.Categoria == CategoriaMarketing && antes.Categoria != CategoriaMarketing {
@@ -820,8 +839,8 @@ func nuevoEditarPWA(m *Modulo) *auditoria.Caso[EntradaEditarPWA, PlantillaWA] {
 			f := antes
 			f.Nombre, f.Idioma, f.Etiqueta, f.Categoria, f.Formato = in.Nombre, in.Idioma, in.Etiqueta, in.Categoria, formatoDeDefinicion(d)
 			params := parametrosDe(d)
-			if f.Codigo != nil {
-				if err := revisarCodigo(*f.Codigo, f.Categoria, d, f.Formato, params); err != nil {
+			for _, codigo := range f.Codigos {
+				if err := revisarCodigo(codigo, f.Categoria, d, f.Formato, params); err != nil {
 					return PlantillaWA{}, err
 				}
 			}
@@ -847,9 +866,9 @@ func nuevoEditarPWA(m *Modulo) *auditoria.Caso[EntradaEditarPWA, PlantillaWA] {
 
 // EntradaUsosPWA dice dónde la usa Iris.
 type EntradaUsosPWA struct {
-	ID     int64    `json:"-"`
-	Usos   []string `json:"usos" maxItems:"3" doc:"avisos, conversaciones, asistente (vacío = no se usa)"`
-	Codigo *string  `json:"codigo" nullable:"true" maxLength:"64" doc:"Código del catálogo que atiende (null = ninguno). Si otra plantilla de la cuenta lo tenía, lo suelta"`
+	ID      int64    `json:"-"`
+	Usos    []string `json:"usos" maxItems:"3" doc:"avisos, conversaciones, asistente (vacío = no se usa)"`
+	Codigos []string `json:"codigos" maxItems:"13" doc:"Códigos del catálogo que atiende ([] = ninguno). Si otra plantilla de la cuenta tenía alguno, lo suelta"`
 	// Variables: qué dato de Iris va en cada variable (las de una plantilla creada fuera de Iris).
 	Variables []VariableDatoPWA `json:"variables,omitempty" maxItems:"40"`
 	Version   int32             `json:"version" minimum:"1"`
@@ -887,7 +906,7 @@ func nuevoUsosPWA(m *Modulo) *auditoria.Caso[EntradaUsosPWA, PlantillaWA] {
 			if err := validarUsosPW(in.Usos); err != nil {
 				return PlantillaWA{}, err
 			}
-			if antes.Categoria == CategoriaMarketing && (len(in.Usos) > 0 || in.Codigo != nil) {
+			if antes.Categoria == CategoriaMarketing && (len(in.Usos) > 0 || len(in.Codigos) > 0) {
 				ok, err := marketingPermitido(ctx, q, contexto.EmpresaDe(ctx))
 				if err != nil {
 					return PlantillaWA{}, err
@@ -913,19 +932,18 @@ func nuevoUsosPWA(m *Modulo) *auditoria.Caso[EntradaUsosPWA, PlantillaWA] {
 				f.Parametros, _ = json.Marshal(parametrosDe(d))
 			}
 			ahora := m.ahora()
-			if in.Codigo != nil && *in.Codigo != "" {
-				var params []ParametroPWA
-				_ = json.Unmarshal(f.Parametros, &params)
-				if err := revisarCodigo(*in.Codigo, f.Categoria, d, f.Formato, params); err != nil {
+			codigos := normalizarCodigos(in.Codigos)
+			var params []ParametroPWA
+			_ = json.Unmarshal(f.Parametros, &params)
+			for _, codigo := range codigos {
+				if err := revisarCodigo(codigo, f.Categoria, d, f.Formato, params); err != nil {
 					return PlantillaWA{}, err
 				}
-				if err := tomarCodigo(ctx, t, q, f, *in.Codigo, ahora); err != nil {
-					return PlantillaWA{}, err
-				}
-				f.Codigo = in.Codigo
-			} else {
-				f.Codigo = nil
 			}
+			if err := tomarCodigos(ctx, t, q, contexto.EmpresaDe(ctx), f.WabaID, f.ID, codigos, ahora); err != nil {
+				return PlantillaWA{}, err
+			}
+			f.Codigos = codigos
 			f.Usos = in.Usos
 			if f, err = guardarPW(ctx, q, f); err != nil {
 				return PlantillaWA{}, conflictoNombrePW(err)
@@ -938,7 +956,7 @@ func nuevoUsosPWA(m *Modulo) *auditoria.Caso[EntradaUsosPWA, PlantillaWA] {
 			if campos == nil {
 				campos = []string{}
 			}
-			if err := historialPW(ctx, q, f.ID, "usos", nil, nil, map[string]any{"usos": f.Usos, "codigo": f.Codigo}, "usuario", actorPW(ctx), ahora); err != nil {
+			if err := historialPW(ctx, q, f.ID, "usos", nil, nil, map[string]any{"usos": f.Usos, "codigos": f.Codigos}, "usuario", actorPW(ctx), ahora); err != nil {
 				return PlantillaWA{}, err
 			}
 			return aPlantillaWA(f, ahora), t.Emitir("plantilla_whatsapp.actualizada", conPW(basePW(f), map[string]any{"campos": campos}))
@@ -1065,7 +1083,7 @@ func nuevoSugeridasPWA(m *Modulo) *auditoria.Caso[EntradaSugeridasPWA, ListaSuge
 					if f.Estado == EstadoPWBorrada {
 						continue
 					}
-					if derefTexto(f.Sugerida) == s.Clave || f.Nombre == s.Clave || (s.Codigo != nil && derefTexto(f.Codigo) == *s.Codigo) {
+					if derefTexto(f.Sugerida) == s.Clave || f.Nombre == s.Clave || (s.Codigo != nil && slices.Contains(f.Codigos, *s.Codigo)) {
 						x.Plantilla = &SugeridaExistentePWA{ID: f.ID, Nombre: f.Nombre, Estado: f.Estado}
 						break
 					}
@@ -1094,6 +1112,13 @@ func nuevoCrearSugeridaPWA(m *Modulo) *auditoria.Caso[EntradaCrearSugeridaPWA, P
 	return auditoria.Nuevo(auditoria.Caso[EntradaCrearSugeridaPWA, PlantillaWA]{
 		Accion: "plantillas_whatsapp.crear_sugerida", Permiso: nucleo.PermPlantillasWhatsAppCrear, AuditarExito: sinAuditar[PlantillaWA],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCrearSugeridaPWA) (PlantillaWA, error) {
+			if err := soloPersonasPW(ctx); err != nil {
+				return PlantillaWA{}, err
+			}
+			empresa := contexto.EmpresaDe(ctx)
+			if _, err := canalesDeCuentaEmpresa(ctx, mensajeriabd.New(t), empresa, in.WabaID); err != nil {
+				return PlantillaWA{}, err
+			}
 			s, ok := SugeridaPorClave(in.Clave)
 			if !ok {
 				return PlantillaWA{}, nucleo.NoEncontrado("No es una plantilla sugerida")
@@ -1117,23 +1142,23 @@ func nuevoCrearSugeridaPWA(m *Modulo) *auditoria.Caso[EntradaCrearSugeridaPWA, P
 					d.Pie = ptr(recortar(p, MaxPiePW))
 				}
 			}
-			var codigo *string
+			codigos := []string{}
 			if s.Codigo != nil {
 				// Si otra plantilla ya atiende ese aviso, la sugerida se crea sin el código (se elige después).
-				fs, err := mensajeriabd.New(t).PlantillasWACodigoDe(ctx, mensajeriabd.PlantillasWACodigoDeParams{WabaID: in.WabaID, Codigo: s.Codigo, Excepto: 0})
+				fs, err := mensajeriabd.New(t).PlantillasWACodigoDe(ctx, mensajeriabd.PlantillasWACodigoDeParams{WabaID: in.WabaID, Empresa: empresa, Codigo: *s.Codigo, Excepto: 0})
 				if err != nil {
 					return PlantillaWA{}, err
 				}
 				if !slices.ContainsFunc(fs, func(f mensajeriabd.MensajeriaPlantillaWA) bool { return f.Estado != EstadoPWBorrada }) {
-					codigo = s.Codigo
+					codigos = []string{*s.Codigo}
 				}
 			}
-			nombre, err := nombreLibre(ctx, mensajeriabd.New(t), in.WabaID, s.Clave, m.ahora())
+			nombre, err := nombreLibre(ctx, mensajeriabd.New(t), empresa, in.WabaID, s.Clave, m.ahora())
 			if err != nil {
 				return PlantillaWA{}, err
 			}
 			return crear.Ejecutar(ctx, EntradaCrearPWA{WabaID: in.WabaID, Etiqueta: s.Etiqueta, Nombre: nombre, Idioma: in.Idioma, Categoria: s.Categoria,
-				Definicion: d, Usos: slices.Clone(s.Usos), Codigo: codigo, sugerida: &s.Clave, origen: OrigenPWSugerida})
+				Definicion: d, Usos: slices.Clone(s.Usos), Codigos: codigos, sugerida: &s.Clave, origen: OrigenPWSugerida})
 		},
 	})
 }
