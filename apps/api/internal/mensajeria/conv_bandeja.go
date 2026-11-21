@@ -347,7 +347,7 @@ type ListaPlantillasConv struct {
 	NextCursor *string               `json:"nextCursor" nullable:"true"`
 }
 
-func nuevoPlantillasConv(*Modulo) *auditoria.Caso[EntradaConversacion, ListaPlantillasConv] {
+func nuevoPlantillasConv(m *Modulo) *auditoria.Caso[EntradaConversacion, ListaPlantillasConv] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaConversacion, ListaPlantillasConv]{
 		Accion: "conversaciones.plantillas", Permiso: nucleo.PermConversacionesResponder, AuditarExito: sinAuditar[ListaPlantillasConv],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConversacion) (ListaPlantillasConv, error) {
@@ -364,7 +364,7 @@ func nuevoPlantillasConv(*Modulo) *auditoria.Caso[EntradaConversacion, ListaPlan
 			if err != nil {
 				return ListaPlantillasConv{}, err
 			}
-			return plantillasDisponibles(canal), nil
+			return m.plantillasDisponibles(ctx, q, canal)
 		},
 	})
 }

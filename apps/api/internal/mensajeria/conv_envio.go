@@ -130,12 +130,6 @@ func repetidoConv(ctx context.Context, q *mensajeriabd.Queries, conv int64, id u
 	return nil, nil
 }
 
-func plantillasDeCanal(c mensajeriabd.MensajeriaCanal) map[string]PlantillaMeta {
-	p := map[string]PlantillaMeta{}
-	_ = json.Unmarshal(c.Plantillas, &p)
-	return p
-}
-
 // permisoPlantilla: una plantilla nunca sale a un número con baja vigente (BAJA por chat o registrada
 // a mano), haya o no cliente. Fuera de la ventana exige además cliente de Argos verificado con
 // permiso vigente acepta (§6.4 del contrato con Argos) o contacto de Iris con acepta por número.
@@ -305,7 +299,11 @@ func nuevoResponder(m *Modulo) *auditoria.Caso[EntradaResponder, MensajeConvEnvi
 				if !ok {
 					return MensajeConvEnviado{}, campoConv("plantilla.codigo", "No es una plantilla de Iris", "plantilla")
 				}
-				if _, ok := plantillasDeCanal(canal)[p.Codigo]; !ok {
+				usables, err := m.plantillasDeCanal(ctx, q, canal, UsoPWConversaciones)
+				if err != nil {
+					return MensajeConvEnviado{}, err
+				}
+				if _, ok := usables[p.Codigo]; !ok {
 					return MensajeConvEnviado{}, reglaConv("plantilla_no_aprobada", "La plantilla no está aprobada en el número de esta conversación")
 				}
 				if in.Plantilla.Variables == nil {
@@ -603,7 +601,7 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 			if canal.PausadoHasta != nil && canal.PausadoHasta.After(ahora) {
 				return mensajePreparado{Accion: accionEsperar, Espera: canal.PausadoHasta.Sub(ahora)}, nil
 			}
-			r, err := m.resueltoDe(canal)
+			r, err := m.resueltoDe(ctx, q, canal)
 			if err != nil {
 				return mensajePreparado{}, err
 			}
@@ -623,7 +621,11 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 				}
 				vars := map[string]string{}
 				_ = json.Unmarshal(f.Variables, &vars)
-				s.Texto, s.Plantilla, s.Variables = nil, &p, vars
+				datos, err := datosParaEnvio(ctx, q, p, vars, empresaDeConv(c), c.ClienteID, c.ServicioID)
+				if err != nil {
+					return mensajePreparado{}, err
+				}
+				s.Texto, s.Plantilla, s.Variables, s.Datos = nil, &p, vars, datos
 			}
 			if f.Automatico != nil && *f.Automatico == AutomaticoPermisoLlamada {
 				// La solicitud de permiso de llamada: interactiva dentro de la ventana; fuera, la plantilla del número.

@@ -584,7 +584,11 @@ func (m *Modulo) avisarBoleta(ctx context.Context, t *auditoria.Tx, q *mensajeri
 		}
 	} else {
 		// Fuera de la ventana solo sale una plantilla aprobada en el número, con permiso de contacto.
-		if _, aprobada := plantillasDeCanal(canal)[p.Codigo]; !aprobada || (!uso.propio && !tieneUsoConversacion(uso.usos)) {
+		usables, err := m.plantillasDeCanal(ctx, q, canal, "")
+		if err != nil {
+			return "", nil, err
+		}
+		if _, aprobada := usables[p.Codigo]; !aprobada || (!uso.propio && !tieneUsoConversacion(uso.usos)) {
 			return AvisoBoletaSinAvis, nil, nil
 		}
 		if p.validarVariables(vars, m.ahora()) != nil {

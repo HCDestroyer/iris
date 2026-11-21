@@ -60,15 +60,17 @@ func nuevoListarPlantillas(m *Modulo) *auditoria.Caso[EntradaPlantillas, ListaPl
 				}
 				todas, empresas = false, []int64{in.EmpresaID}
 			}
-			canales, err := mensajeriabd.New(t).CanalesActivosDeEmpresas(ctx, mensajeriabd.CanalesActivosDeEmpresasParams{Todas: todas, Empresas: empresas})
+			q := mensajeriabd.New(t)
+			canales, err := q.CanalesActivosDeEmpresas(ctx, mensajeriabd.CanalesActivosDeEmpresasParams{Todas: todas, Empresas: empresas})
 			if err != nil {
 				return ListaPlantillas{}, err
 			}
 			aprobadas := map[string]map[string]bool{}
 			for _, c := range canales {
-				var p map[string]PlantillaMeta
-				if json.Unmarshal(c.Plantillas, &p) != nil {
-					continue
+				// Las de su cuenta de WhatsApp marcadas para avisos (o su mapa propio, sin cuenta).
+				p, err := m.plantillasDeCanal(ctx, q, c, UsoPWAvisos)
+				if err != nil {
+					return ListaPlantillas{}, err
 				}
 				for codigo := range p {
 					if aprobadas[codigo] == nil {
@@ -397,6 +399,9 @@ func nuevoCrearCanal(m *Modulo) *auditoria.Caso[EntradaCrearCanal, Canal] {
 				return Canal{}, conflictoCanal(err)
 			}
 			c := m.aCanal(f)
+			if err := m.reflejarPlantillasCanal(ctx, t, q, f, nil); err != nil {
+				return Canal{}, err
+			}
 			t.RegistrarCambios("canal_mensajeria", f.ID, nil, auditableCanal(c, "***"))
 			c.VerifyTokenGenerado = generado
 			return c, t.Emitir("canal_mensajeria.creado", map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID, "tipo": f.Tipo, "canal": f.Canal})
@@ -527,6 +532,9 @@ func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Can
 			}
 			c := m.aCanal(f)
 			fijarEmpresaCanal(t, f.EmpresaID)
+			if err := m.reflejarPlantillasCanal(ctx, t, mensajeriabd.New(t), f, antes.Plantillas); err != nil {
+				return Canal{}, err
+			}
 			campos := t.RegistrarCambios("canal_mensajeria", f.ID, auditableCanal(m.aCanal(antes), "sin_cambio"), auditableCanal(c, cambioCred))
 			if campos == nil {
 				campos = []string{}

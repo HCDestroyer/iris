@@ -195,6 +195,7 @@ sql:
       - internal/mensajeria/servidor_ia.sql
       - internal/mensajeria/centralita.sql
       - internal/mensajeria/telefono.sql
+      - internal/mensajeria/plantillas_whatsapp.sql
     gen:
       go:
         <<: *gen
@@ -211,6 +212,10 @@ sql:
           mensajeria_cola_supervisore: MensajeriaColaSupervisor
           mensajeria_conexion_metum: MensajeriaConexionMeta
           mensajeria_voz_motore: MensajeriaVozMotor
+          mensajeria_plantillas_whatsapp: MensajeriaPlantillaWA
+          mensajeria_plantillas_whatsapp_historial: MensajeriaPlantillaWAHistorial
+          mensajeria_plantillas_whatsapp_cuenta: MensajeriaPlantillaWACuenta
+          mensajeria_plantillas_whatsapp_ajuste: MensajeriaPlantillaWAAjuste
   - <<: *base
     queries: internal/notificaciones/consultas.sql
     gen:
