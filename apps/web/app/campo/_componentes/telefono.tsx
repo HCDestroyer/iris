@@ -343,8 +343,8 @@ function HojaLlamar({ orden, alCerrar }: { orden: OrdenVista; alCerrar: () => vo
     const nombre = orden.cliente?.nombre ?? orden.contacto.nombre ?? "el cliente";
     return (
         <HojaCampo abierto alCambiar={(a) => (a ? undefined : alCerrar())} titulo={`Llamar a ${nombre}`}>
-            <div className="grid gap-3" data-slot="hoja-llamar" data-empresa={forma.ofrecer ? "si" : forma.motivo}>
-                <div role="radiogroup" aria-label="Número" className="grid gap-2">
+            <div className="grid grid-cols-1 gap-3" data-slot="hoja-llamar" data-empresa={forma.ofrecer ? "si" : forma.motivo}>
+                <div role="radiogroup" aria-label="Número" className="grid grid-cols-1 gap-2">
                     {numeros.map((n) => {
                         const on = n.clave === numero?.clave;
                         const Icono = n.telefono.tipo === "movil" || n.clave === "movil" ? Smartphone : Phone;
@@ -373,12 +373,12 @@ function HojaLlamar({ orden, alCerrar }: { orden: OrdenVista; alCerrar: () => vo
                     </Aviso>
                 ) : null}
                 {numero && forma.ofrecer ? (
-                    <Boton tamano="lg" className="h-auto min-h-14 w-full flex-col gap-0 py-2" data-slot="llamar-empresa" onClick={() => void t.llamarEmpresa(orden, numero)}>
+                    <Boton tamano="lg" className="h-auto min-h-14 w-full flex-col gap-0 py-2 whitespace-normal" data-slot="llamar-empresa" onClick={() => void t.llamarEmpresa(orden, numero)}>
                         <span className="flex items-center gap-2">
                             <Phone aria-hidden />
                             Llamar por la empresa
                         </span>
-                        <span className="text-xs font-medium opacity-90">El cliente ve el número de la empresa · queda en la orden</span>
+                        <span className="text-center text-xs font-medium text-balance opacity-90">El cliente ve el número de la empresa · queda en la orden</span>
                     </Boton>
                 ) : null}
                 {numero ? (

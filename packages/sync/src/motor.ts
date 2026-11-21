@@ -456,6 +456,8 @@ export class MotorSync {
     private metaSucia = false;
 
     private conexion: Conexion = "desconocida";
+    /** Cuántas veces avisó el navegador que se cayó la señal (`establecerConexion(false)`). */
+    private caidas = 0;
     private sincronizando = 0;
     private proximoIntento: number | null = null;
     private ultimoError: ErrorVisible | null = null;
@@ -986,6 +988,7 @@ export class MotorSync {
     /** El adaptador avisa de `online`/`offline`. Al volver la señal, reintenta enseguida. */
     establecerConexion(enLinea: boolean): void {
         if (!enLinea) {
+            this.caidas += 1;
             this.actualizarConexion("sin_conexion");
             return;
         }
@@ -1113,6 +1116,7 @@ export class MotorSync {
     /** Llama a la API, mide el desfase y actualiza la conexión. */
     private async llamar<T>(fn: () => Promise<RespuestaApi<T>>): Promise<RespuestaApi<T>> {
         const inicio = this.reloj.ahora();
+        const caidas = this.caidas;
         try {
             const respuesta = await fn();
             const fin = this.reloj.ahora();
@@ -1123,7 +1127,9 @@ export class MotorSync {
             this.meta = { ...this.meta, ultimaSincronizacion: fin };
             this.metaSucia = true;
             this.ultimoError = null;
-            this.actualizarConexion("en_linea");
+            // Pedida antes de que el navegador avisara que se cayó la señal: la respuesta ya venía en
+            // camino y no dice que haya red ahora (si no, «en línea» hasta la próxima pasada).
+            if (caidas === this.caidas || this.conexion !== "sin_conexion") this.actualizarConexion("en_linea");
             return respuesta;
         } catch (e) {
             if (e instanceof ErrorTransporte) {

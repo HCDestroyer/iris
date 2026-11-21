@@ -238,3 +238,16 @@ test("cerrar sesión con una llamada en curso cuelga y suelta el micrófono", as
     expect(pistas.size).toBeGreaterThan(0);
     expect([...pistas.values()].every((e) => e === "ended")).toBe(true);
 });
+
+// En CI (Ubuntu) `system-ui` es DejaVu Sans, más ancha que la fuente de este contenedor (Inter): la
+// hoja no puede depender de la fuente del sistema para caber en 390 px.
+test("la hoja «Llamar a…» cabe en 390 px también con una fuente ancha (DejaVu Sans)", async ({ page }) => {
+    await abrir(page, {
+        antes: (p) =>
+            p.addInitScript(() =>
+                document.addEventListener("DOMContentLoaded", () => document.head.insertAdjacentHTML("beforeend", "<style>*{font-family:'DejaVu Sans' !important}</style>")),
+            ),
+    });
+    await abrirHoja(page);
+    await esperarSinDesbordes(page);
+});
