@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -88,8 +89,12 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 	if p.Payload == nil {
 		p.Payload = map[string]any{}
 	}
-	ocultarSensible(p.Payload)
-	ocultarSensible(p.PayloadConflicto)
+	ocultos := camposOcultos
+	if slices.Contains(OperacionesTitular, f.Operacion) {
+		ocultos = camposOcultosTitular
+	}
+	ocultarCampos(p.Payload, ocultos)
+	ocultarCampos(p.PayloadConflicto, ocultos)
 	return p
 }
 
@@ -97,20 +102,26 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 // recepción; su sha256 sí, para cotejarla). Se manda a Argos tal cual: solo se oculta al leer.
 var camposOcultos = map[string]bool{"png_base64": true}
 
-// ocultarSensible reemplaza por *** los camposOcultos en cualquier nivel del cuerpo.
-func ocultarSensible(v any) {
+// camposOcultosTitular: en los pasos del titular (contrato 0.10.0 §3.4.8) el documento, el teléfono,
+// el correo y el NIT/CUI nunca van en el payload (viajan en el depósito de tránsito); si alguno
+// llegara, el panel lo ve como ***.
+var camposOcultosTitular = map[string]bool{"png_base64": true, "documento_numero": true, "telefono": true, "movil": true,
+	"email": true, "nit_cui": true, "frente": true, "reverso": true}
+
+// ocultarCampos reemplaza por *** esos campos en cualquier nivel del cuerpo.
+func ocultarCampos(v any, ocultos map[string]bool) {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, hijo := range x {
-			if camposOcultos[k] {
+			if ocultos[k] {
 				x[k] = "***"
 				continue
 			}
-			ocultarSensible(hijo)
+			ocultarCampos(hijo, ocultos)
 		}
 	case []any:
 		for _, hijo := range x {
-			ocultarSensible(hijo)
+			ocultarCampos(hijo, ocultos)
 		}
 	}
 }
@@ -359,6 +370,10 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			}); err != nil {
 				return Pendiente{}, err
 			}
+			// Lo sensible del paso del titular ya no sale: se borra (§3.4.8).
+			if err := borrarTransito(ctx, t, nueva, "resuelto_manual", ahora); err != nil {
+				return Pendiente{}, err
+			}
 			if in.Cargo == CargoResolverTambien {
 				for _, c := range cargos {
 					if err := m.resolverCargoTambien(ctx, t, q, c, motivo, usuario, ahora); err != nil {
@@ -437,6 +452,11 @@ func (m *Modulo) resolverCargoTambien(ctx context.Context, t *auditoria.Tx, q *p
 
 // fallarPorResolucionManual: el dependiente esperaba la respuesta del pendiente resuelto a mano.
 func (m *Modulo) fallarPorResolucionManual(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries,
+	d pendientesbd.IntegracionPendiente, padre int64) error {
+	return fallarDependienteResuelto(ctx, t, q, d, padre)
+}
+
+func fallarDependienteResuelto(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries,
 	d pendientesbd.IntegracionPendiente, padre int64) error {
 	motivo := fmt.Sprintf("%s: el pendiente %d se resolvió a mano y este esperaba su respuesta; resuélvelo también a mano o corrígelo con los datos reales",
 		MotivoDependenciaResueltaAMano, padre)

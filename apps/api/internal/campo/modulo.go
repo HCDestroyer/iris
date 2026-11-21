@@ -128,6 +128,8 @@ type Config struct {
 	// Soporte: los casos de uso de tickets con que la orden iguala su asignación con la del
 	// ticket (tickets.asignar, tickets.ver). Por defecto, uno con el mismo reloj.
 	Soporte *soporte.Modulo
+	// Titular: el paso «Confirmar titular y plan» (titular.go; contrato 0.10.0 §3.4).
+	Titular ConfigTitular
 }
 
 // Modulo reúne los casos de uso de campo.
@@ -206,6 +208,9 @@ type Modulo struct {
 	// Ticket y orden de la mano (ticket_orden.go).
 	CrearOrdenDeTicket *auditoria.Caso[EntradaCrearOrdenDeTicket, Orden]
 	IgualarAsignacion  *auditoria.Caso[EntradaIgualarAsignacion, AsignacionTicketOrden]
+
+	// Titular: paso «Confirmar titular y plan» de la instalación (titular.go).
+	Titular CasosTitular
 }
 
 // Nuevo arma el módulo.
@@ -295,6 +300,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.TomarOrden = m.nuevoTomarOrden()
 	m.VerAjustes = m.nuevoVerAjustes()
 	m.FijarAjustes = m.nuevoFijarAjustes()
+	m.Titular = m.nuevosCasosTitular()
 	// Las tareas de agenda se ligan a órdenes que el actor ve (reglas de campo).
 	cfg.Agenda.UsarOrdenes(m)
 	return m

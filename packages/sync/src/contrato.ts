@@ -139,6 +139,12 @@ export interface DatosPorTipo {
     "orden.reanudar": SinVersion<Schema<"EntradaReanudar">>;
     "orden.agregar_formulario": Schema<"EntradaAgregarFormularioCampo">;
     "orden.quitar_formulario": Schema<"EntradaQuitarFormularioCampo">;
+    // Paso «Confirmar titular y plan» (contrato argosisp.md 0.10.0 §3.4; `contratos/sync.md` §3b). Las
+    // fotos del documento van solo en la cola local, cifradas, hasta que la operación queda aplicada.
+    "orden.registrar_identidad": Schema<"EntradaRegistrarIdentidad">;
+    "orden.cambiar_titular": Schema<"EntradaCambiarTitular">;
+    "orden.completar_datos": Schema<"EntradaCompletarDatos">;
+    "orden.cambiar_plan": Schema<"EntradaCambiarPlan">;
 }
 
 /** Una operación tal como viaja en `POST /sync/lote` (`OperacionLote` con `datos` tipados). */

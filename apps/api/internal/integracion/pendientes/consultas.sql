@@ -267,11 +267,32 @@ WHERE id = @id AND cifrado IS NOT NULL;
 UPDATE integracion.datos_transito SET cifrado = NULL, borrado_en = @ahora, motivo_borrado = 'vencido'
 WHERE cifrado IS NOT NULL AND tomado_en < @antes;
 
--- name: UltimoPendienteTitularDeOrden :one
--- El último pendiente del paso «Confirmar titular y plan» de la orden: la activación y el cobro
--- de la instalación dependen de él (§3.4, «Orden»).
-SELECT id FROM integracion.pendientes
-WHERE entidad = 'orden' AND entidad_id = @orden_id
+-- name: PasosTitularDeOrden :many
+-- Los pendientes del paso «Confirmar titular y plan» de la orden (A41, A39, A43, A40), en orden:
+-- la activación y el cobro de la instalación dependen de todos (§3.4, «Orden»). Los reemplazados
+-- (resuelto_manual) cuentan como hechos.
+SELECT * FROM integracion.pendientes
+WHERE entidad = 'orden' AND entidad_id = @orden_id::text
     AND operacion IN ('registrar_identidad', 'cambiar_titular', 'completar_datos', 'cambiar_plan')
-ORDER BY id DESC
-LIMIT 1;
+ORDER BY id;
+
+-- name: TransitoVigente :one
+-- El depósito sigue con sus datos (no se entregó, no se borró ni venció).
+SELECT (cifrado IS NOT NULL)::boolean AS vigente FROM integracion.datos_transito WHERE id = @id;
+
+-- name: RedirigirDependientes :many
+-- Un paso del titular rechazado se reemplaza por otra toma: lo que esperaba al viejo (los pasos
+-- siguientes, la activación, el cobro) pasa a esperar al nuevo, en la misma posición (los
+-- marcadores apuntan al nuevo).
+UPDATE integracion.pendientes
+SET depende_de = array_replace(depende_de, @viejo::bigint, @nuevo::bigint), version = version + 1, updated_at = now()
+WHERE @viejo::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: ReemplazarPendiente :one
+-- El paso rechazado (o agotado) queda resuelto_manual: lo reemplaza otra toma. Nunca vuelve a salir.
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = sqlc.narg(resuelto_por),
+    resuelto_en = @ahora::timestamptz, tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('fallido_negocio', 'agotado')
+RETURNING *;

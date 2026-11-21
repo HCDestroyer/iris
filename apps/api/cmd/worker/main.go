@@ -120,7 +120,8 @@ func correr() error {
 	sop.SuscribirHorus(bus, pool)
 	// Acciones en Argos al cerrar una orden (contrato §3): suscriptor de orden.cerrada y cola de
 	// pendientes con reintentos (1 min, 5 min, 30 min, 2 h, 12 h).
-	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos,
+	// Cifrador: abre el depósito de tránsito del paso del titular (contrato 0.10.0 §3.4.8).
+	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Cifrador: acfg.Cifrador,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})

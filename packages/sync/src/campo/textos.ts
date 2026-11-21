@@ -83,6 +83,10 @@ export const OPERACIONES: Record<TipoOperacionLote, string> = {
     "tarea.crear": "Tarea propia",
     "tarea.completar": "Tarea hecha",
     "tarea.anular": "Tarea anulada",
+    "orden.registrar_identidad": "Identidad del titular",
+    "orden.cambiar_titular": "Cambio de titular",
+    "orden.completar_datos": "Datos del titular y del lugar",
+    "orden.cambiar_plan": "Cambio de plan",
 };
 
 /** Motivo de un rechazo o error de la API, en palabras del técnico. */

@@ -1101,6 +1101,74 @@ func (q *Queries) MarcarEnCurso(ctx context.Context, arg MarcarEnCursoParams) er
 	return err
 }
 
+const pasosTitularDeOrden = `-- name: PasosTitularDeOrden :many
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes
+WHERE entidad = 'orden' AND entidad_id = $1::text
+    AND operacion IN ('registrar_identidad', 'cambiar_titular', 'completar_datos', 'cambiar_plan')
+ORDER BY id
+`
+
+// Los pendientes del paso «Confirmar titular y plan» de la orden (A41, A39, A43, A40), en orden:
+// la activación y el cobro de la instalación dependen de todos (§3.4, «Orden»). Los reemplazados
+// (resuelto_manual) cuentan como hechos.
+func (q *Queries) PasosTitularDeOrden(ctx context.Context, ordenID string) ([]IntegracionPendiente, error) {
+	rows, err := q.db.Query(ctx, pasosTitularDeOrden, ordenID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionPendiente
+	for rows.Next() {
+		var i IntegracionPendiente
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.Sistema,
+			&i.Operacion,
+			&i.IdempotencyKey,
+			&i.Entidad,
+			&i.EntidadID,
+			&i.Metodo,
+			&i.Ruta,
+			&i.Payload,
+			&i.DependeDe,
+			&i.DatosIncompletos,
+			&i.Estado,
+			&i.Intentos,
+			&i.ProximoIntento,
+			&i.TomadoEn,
+			&i.UltimoError,
+			&i.UltimoStatus,
+			&i.HechoEn,
+			&i.EventoID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Conflicto,
+			&i.ConflictoPayload,
+			&i.ConflictoEn,
+			&i.Respuesta,
+			&i.Plantilla,
+			&i.PorResolver,
+			&i.Verificar,
+			&i.TecnicoUsuarioID,
+			&i.CodigoError,
+			&i.ResueltoMotivo,
+			&i.ResueltoPor,
+			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const pendientePorClave = `-- name: PendientePorClave :one
 SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes WHERE idempotency_key = $1
 `
@@ -1619,6 +1687,145 @@ func (q *Queries) PurgarTransito(ctx context.Context, arg PurgarTransitoParams) 
 	return result.RowsAffected(), nil
 }
 
+const redirigirDependientes = `-- name: RedirigirDependientes :many
+UPDATE integracion.pendientes
+SET depende_de = array_replace(depende_de, $1::bigint, $2::bigint), version = version + 1, updated_at = now()
+WHERE $1::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
+`
+
+type RedirigirDependientesParams struct {
+	Viejo int64
+	Nuevo int64
+}
+
+// Un paso del titular rechazado se reemplaza por otra toma: lo que esperaba al viejo (los pasos
+// siguientes, la activación, el cobro) pasa a esperar al nuevo, en la misma posición (los
+// marcadores apuntan al nuevo).
+func (q *Queries) RedirigirDependientes(ctx context.Context, arg RedirigirDependientesParams) ([]IntegracionPendiente, error) {
+	rows, err := q.db.Query(ctx, redirigirDependientes, arg.Viejo, arg.Nuevo)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionPendiente
+	for rows.Next() {
+		var i IntegracionPendiente
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.Sistema,
+			&i.Operacion,
+			&i.IdempotencyKey,
+			&i.Entidad,
+			&i.EntidadID,
+			&i.Metodo,
+			&i.Ruta,
+			&i.Payload,
+			&i.DependeDe,
+			&i.DatosIncompletos,
+			&i.Estado,
+			&i.Intentos,
+			&i.ProximoIntento,
+			&i.TomadoEn,
+			&i.UltimoError,
+			&i.UltimoStatus,
+			&i.HechoEn,
+			&i.EventoID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Conflicto,
+			&i.ConflictoPayload,
+			&i.ConflictoEn,
+			&i.Respuesta,
+			&i.Plantilla,
+			&i.PorResolver,
+			&i.Verificar,
+			&i.TecnicoUsuarioID,
+			&i.CodigoError,
+			&i.ResueltoMotivo,
+			&i.ResueltoPor,
+			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const reemplazarPendiente = `-- name: ReemplazarPendiente :one
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = $1::text, resuelto_por = $2,
+    resuelto_en = $3::timestamptz, tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = $4 AND estado IN ('fallido_negocio', 'agotado')
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
+`
+
+type ReemplazarPendienteParams struct {
+	Motivo      string
+	ResueltoPor *int64
+	Ahora       time.Time
+	ID          int64
+}
+
+// El paso rechazado (o agotado) queda resuelto_manual: lo reemplaza otra toma. Nunca vuelve a salir.
+func (q *Queries) ReemplazarPendiente(ctx context.Context, arg ReemplazarPendienteParams) (IntegracionPendiente, error) {
+	row := q.db.QueryRow(ctx, reemplazarPendiente,
+		arg.Motivo,
+		arg.ResueltoPor,
+		arg.Ahora,
+		arg.ID,
+	)
+	var i IntegracionPendiente
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Sistema,
+		&i.Operacion,
+		&i.IdempotencyKey,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Metodo,
+		&i.Ruta,
+		&i.Payload,
+		&i.DependeDe,
+		&i.DatosIncompletos,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.TomadoEn,
+		&i.UltimoError,
+		&i.UltimoStatus,
+		&i.HechoEn,
+		&i.EventoID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Conflicto,
+		&i.ConflictoPayload,
+		&i.ConflictoEn,
+		&i.Respuesta,
+		&i.Plantilla,
+		&i.PorResolver,
+		&i.Verificar,
+		&i.TecnicoUsuarioID,
+		&i.CodigoError,
+		&i.ResueltoMotivo,
+		&i.ResueltoPor,
+		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
+	)
+	return i, err
+}
+
 const rehacerEsperando = `-- name: RehacerEsperando :one
 UPDATE integracion.pendientes
 SET payload = $1, estado = 'bloqueado', ultimo_error = $2::text, codigo_error = NULL, ultimo_status = NULL,
@@ -2032,21 +2239,16 @@ func (q *Queries) TomarVencido(ctx context.Context, arg TomarVencidoParams) (Int
 	return i, err
 }
 
-const ultimoPendienteTitularDeOrden = `-- name: UltimoPendienteTitularDeOrden :one
-SELECT id FROM integracion.pendientes
-WHERE entidad = 'orden' AND entidad_id = $1
-    AND operacion IN ('registrar_identidad', 'cambiar_titular', 'completar_datos', 'cambiar_plan')
-ORDER BY id DESC
-LIMIT 1
+const transitoVigente = `-- name: TransitoVigente :one
+SELECT (cifrado IS NOT NULL)::boolean AS vigente FROM integracion.datos_transito WHERE id = $1
 `
 
-// El último pendiente del paso «Confirmar titular y plan» de la orden: la activación y el cobro
-// de la instalación dependen de él (§3.4, «Orden»).
-func (q *Queries) UltimoPendienteTitularDeOrden(ctx context.Context, ordenID string) (int64, error) {
-	row := q.db.QueryRow(ctx, ultimoPendienteTitularDeOrden, ordenID)
-	var id int64
-	err := row.Scan(&id)
-	return id, err
+// El depósito sigue con sus datos (no se entregó, no se borró ni venció).
+func (q *Queries) TransitoVigente(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, transitoVigente, id)
+	var vigente bool
+	err := row.Scan(&vigente)
+	return vigente, err
 }
 
 const vinculoArgosDeTecnico = `-- name: VinculoArgosDeTecnico :one

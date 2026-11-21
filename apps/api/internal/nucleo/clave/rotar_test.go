@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -272,6 +273,7 @@ func limpiarCifrados(t *testing.T) {
 		"UPDATE nucleo.usuarios SET totp_secreto = NULL, totp_activo = false",
 		"DELETE FROM integracion.codigos_conexion", "DELETE FROM integracion.conectores",
 		"DELETE FROM soporte.buzones",
+		"UPDATE integracion.pendientes SET transito_id = NULL WHERE transito_id IS NOT NULL", "DELETE FROM integracion.datos_transito",
 	} {
 		if _, err := pruebas.Pool(t).Exec(context.Background(), sql); err != nil {
 			t.Fatalf("%s: %v", sql, err)
@@ -574,6 +576,45 @@ func TestRotarClaveCorreoSistema(t *testing.T) {
 	// Atada a su fila: con los datos de otra no abre.
 	if _, err := cNuevo.Descifrar(leer(), notificaciones.DatosAsociadosCorreo(id+1)); err == nil {
 		t.Fatal("la contraseña abrió con los datos asociados de otra fila")
+	}
+}
+
+// El depósito de tránsito del paso del titular (contrato argosisp.md 0.10.0 §3.4.8) también se rota:
+// lo que aún no salió a Argos se sigue pudiendo mandar con la clave nueva.
+func TestRotarClaveTransito(t *testing.T) {
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	limpiar := func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM integracion.datos_transito WHERE orden_id = -77`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	limpiar()
+	t.Cleanup(limpiar)
+	limpiarCifrados(t)
+	vieja, nueva := claveNueva(t), claveNueva(t)
+	cViejo, cNuevo, cTransicion := cifrador(t, vieja), cifrador(t, nueva), cifrador(t, nueva, vieja)
+	id := uuid.Must(uuid.NewV7())
+	ad := []byte("transito:" + id.String())
+	const plano = `{"campos":{"documento_numero":"1234567890101"}}`
+	cifrado, err := cViejo.Cifrar([]byte(plano), ad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO integracion.datos_transito (id, orden_id, cifrado, tomado_en) VALUES ($1, -77, $2, now())`, id, cifrado); err != nil {
+		t.Fatal(err)
+	}
+	r, err := clave.Nuevo(cTransicion).Rotar.Ejecutar(pruebas.ContextoSistema(pool), clave.EntradaRotar{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exigirConteos(t, r, map[string][3]int{clave.ColumnaTransito: {1, 1, 0}})
+	var b []byte
+	if err := pool.QueryRow(ctx, `SELECT cifrado FROM integracion.datos_transito WHERE id = $1`, id).Scan(&b); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := cNuevo.Descifrar(b, ad); err != nil || string(got) != plano {
+		t.Fatalf("tras rotar: %v", err)
 	}
 }
 
