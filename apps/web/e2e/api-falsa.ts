@@ -19,6 +19,7 @@ import { apiCuenta, CONTRASENA_DEFECTO, type ApiCuenta } from "./api-cuenta";
 import { apiEquipo, type ApiEquipo } from "./api-equipo";
 import { apiOrdenes } from "./api-ordenes";
 import { apiPlantillas, type ApiPlantillas } from "./api-plantillas";
+import { apiPlantillasWA, PERMISOS_PLANTILLAS_WA, PERMISOS_PLANTILLAS_WA_SOPORTE, type ApiPlantillasWA, type OpcionesPlantillasWA } from "./api-plantillas-wa";
 import { apiRutas, type ApiRutas } from "./api-rutas";
 import { apiCorreo, type ApiCorreo, type OpcionesCorreo } from "./api-correo";
 import { apiLegal, PERMISOS_LEGAL, type ApiLegal, type OpcionesLegal } from "./api-legal";
@@ -350,6 +351,11 @@ export type OpcionesApi = {
     servidorIa?: OpcionesServidorIa;
     /** Centralita Issabel (E4a): conexión, extensiones y llamadas. Ana tiene centralita.configurar. */
     centralita?: OpcionesCentralita;
+    /**
+     * Plantillas de WhatsApp (e2e/api-plantillas-wa.ts): Ana (admin) tiene todos los permisos
+     * `plantillas_whatsapp.*`; Sofía (soporte), ver y sincronizar. Sin esta opción nadie los tiene.
+     */
+    plantillasWA?: OpcionesPlantillasWA;
 };
 
 export type Peticion = { metodo: string; ruta: string; query: URLSearchParams; empresa: string | undefined; idempotencia: string | undefined; cuerpo: unknown };
@@ -410,6 +416,7 @@ export type ApiFalsa = {
     voz: ApiVoz;
     /** Servidor de IA: la tarjeta, el tablero y lo que recibió el servidor. */
     servidorIa: ApiServidorIa;
+    plantillasWA: ApiPlantillasWA;
     /** Centralita (E4a): hacer sonar una extensión y lo que recibió el servidor. */
     centralita: ApiCentralita;
     /** ¿Hay un flujo de eventos de conversaciones abierto ahora (esperando eventos)? */
@@ -557,6 +564,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
     const numeros = apiNumeros(conversaciones.canales, opciones.numeros);
     const meta = apiMeta(numeros.interno, conversaciones.conversaciones, opciones.meta);
     const servidorIa = apiServidorIa(opciones.servidorIa);
+    const plantillasWA = apiPlantillasWA(opciones.plantillasWA);
     const centralita = apiCentralita(opciones.centralita ?? {}, conversaciones.emitirEvento);
     const voz = apiVoz(
         {
@@ -728,6 +736,8 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
             ...(opciones.legal && (actual.correo === CONSULTA.correo || actual.correo === SUPERVISOR_ZONA.correo) ? PERMISOS_LEGAL.slice(0, 1) : []),
             ...(opciones.legal && actual.correo === CONSULTA.correo ? (["empresas.todas"] satisfies Permiso[]) : []),
             ...(opciones.servidorIa && actual.correo === ADMIN.correo ? [PERMISO_SIA_VER, PERMISO_SIA_ADMINISTRAR] : []),
+            ...(opciones.plantillasWA && actual.correo === ADMIN.correo ? PERMISOS_PLANTILLAS_WA : []),
+            ...(opciones.plantillasWA && actual.correo === SOPORTE.correo ? PERMISOS_PLANTILLAS_WA_SOPORTE : []),
             ...(opciones.centralita && actual.correo === ADMIN.correo ? (["centralita.configurar", "centralita.asignar_extension", "llamadas.ver", "llamadas.anotar"] satisfies Permiso[]) : []),
             ...(opciones.servidorIa?.soloUso && actual.correo === LECTOR.correo ? [PERMISO_SIA_VER_USO] : []),
             ...(opciones.servidorIa && actual.correo === SUPERVISOR_ZONA.correo ? (opciones.servidorIa.zonaAdministra ? [PERMISO_SIA_VER, PERMISO_SIA_ADMINISTRAR] : [PERMISO_SIA_VER_USO]) : []),
@@ -1026,6 +1036,9 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         if (opciones.centralita && (await centralita.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, actor: actual.id, puede }))) {
             return;
         }
+        if (opciones.plantillasWA && (await plantillasWA.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, puede }))) {
+            return;
+        }
         if (opciones.servidorIa && (await servidorIa.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, idempotencia: cabeceras["idempotency-key"], puede, empresas, empresaId }))) {
             return;
         }
@@ -1221,6 +1234,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         conversaciones,
         voz,
         servidorIa,
+        plantillasWA,
         centralita,
         flujoAbierto: conversaciones.flujoAbierto,
         pagos,
