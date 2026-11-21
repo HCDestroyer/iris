@@ -1253,10 +1253,12 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   `/api/v1/mensajeria/telefono/sip?ticket=…`), `ticketVence`, `sip` (`uri` = `sip:<sip_usuario>@<dominio>`,
   `usuario`, `dominio`, `nombre` para mostrar), `ice` (`[{ urls[], username, credential }]`, TURN
   efímero), `politicaIce: "relay"`, `iceVence`. **Sin contraseña SIP.** CSRF como toda acción. 422
-  `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503
+  `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503
   `turn_no_configurado`. El ticket: 32 bytes aleatorios, vale **30 s**, un solo uso, atado a la persona,
   a la sesión que lo pidió, a la empresa activa, a la extensión y al dispositivo.
-- `GET /telefono/sip?ticket=` → **WebSocket** con subprotocolo `sip` (RFC 7118). Exige la misma sesión
+- `GET /telefono/sip?ticket=` → **WebSocket** con subprotocolo `sip` (RFC 7118). El panel de Next no
+  reenvía WebSockets: el proxy delante de Iris manda esa ruta exacta a la API (`IRIS_API_PUERTO`), que la
+  pasa a la mensajería (runbook `centralita-issabel.md` §9.5 e `install.md`). Exige la misma sesión
   (cookie) que pidió el ticket; si el navegador manda `Origin`, tiene que ser el de `IRIS_BASE_URL`
   (si no, 403). Errores antes del *upgrade* como RFC 9457: 401 sin sesión, 403 `ticket_no_valido`
   (vencido, usado, de otra sesión o de otra persona) u `origen_no_permitido`, 422 los de `abrir`, 503
@@ -1269,7 +1271,7 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   (de fábrica el primero que exista: contacto del servicio, móvil, principal), `{ usuarioId }` (un
   compañero: su extensión) o `{ numero }` (teclado). → 201 `MarcacionTelefono`: `destino` (la URI SIP que
   el teléfono marca: `sip:iris-<llamadaId>@<dominio>` para un número externo, `sip:<extension>@<dominio>`
-  para una interna), `llamada` (la `Llamada` en `marcando` con `origen: centralita`, o null en una
+  para una interna), `llamada` (la `Llamada` en `marcando` con `origen: centralita`; ausente en una
   interna), `vence` (60 s para mandar el INVITE). Reglas:
   - El número externo **lo pone el servidor**: el de la ficha (instantánea de Argos, como E4b) o el del
     teclado normalizado. Solo Guatemala: `+502` y 8 dígitos que empiezan por 2–7 (fijos y móviles); ni
@@ -1299,7 +1301,11 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   y los grupos activos.
 - `GET /centralitas/llamadas?ordenId=` (además de `clienteId` y `ticketId` de E4a): las llamadas de una
   orden (centralita y directas), con `ordenes.ver` o `ordenes.ver_propias` sobre esa orden (si no, 404).
-  `Llamada` suma `ordenId` y `origen` acepta `celular`.
+  Con solo `ordenId` no hace falta `llamadas.ver` (el técnico ve las de sus órdenes); con cualquier otro
+  filtro, sí (403). `Llamada` suma `ordenId` y `origen` acepta `celular` (sin `centralita`).
+- Una entrante de la centralita que suena a quien tiene el teléfono de Iris encendido (extensión
+  `navegador`) trae `puede.contestar` y `puede.rechazar` en `true` (E4a: siempre `false`); se contesta con
+  el teléfono (SIP), no con `reclamar`. `GET /centralita/mi-extension` suma `tipo`.
 
 **Administración** (`/administracion/integraciones/centralita/telefono`, pantalla propia):
 

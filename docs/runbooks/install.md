@@ -183,6 +183,38 @@ reverse_proxy @eventos 127.0.0.1:3000 {
 reverse_proxy 127.0.0.1:3000
 ```
 
+Iris phone (optional, `IRIS_TELEFONO=true`; [centralita-issabel](centralita-issabel.md) §9): its
+WebSocket `/api/v1/mensajeria/telefono/sip` goes straight to the API port (the panel does not forward
+WebSockets), before the general rule. These snippets were not tested in CI:
+
+```nginx
+location = /api/v1/mensajeria/telefono/sip {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout 3600s;
+}
+```
+
+```apache
+# Apache (modules proxy_wstunnel and rewrite), before the general ProxyPass /
+RewriteEngine On
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
+RewriteRule ^/api/v1/mensajeria/telefono/sip$ ws://127.0.0.1:8080/api/v1/mensajeria/telefono/sip [P,L]
+```
+
+```caddyfile
+# Caddy: before the general reverse_proxy
+reverse_proxy /api/v1/mensajeria/telefono/sip 127.0.0.1:8080
+```
+
+Nginx Proxy Manager: turn on "Websockets Support" in the Proxy Host. The TURN relay (UDP and TCP 3478,
+UDP 49160–49200) is not behind the proxy: open those ports on the Iris server's firewall.
+
 Client IP: the API trusts `X-Forwarded-For` only from the panel's fixed IP (`IRIS_WEB_IP`). Never put
 the Docker network or its gateway in `IRIS_PROXIES_CONFIABLES` ([lab](lab.md), "IP del cliente").
 

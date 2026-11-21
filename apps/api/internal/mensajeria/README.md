@@ -777,3 +777,25 @@ ventana llega por el feed de la bandeja como evento dirigido a quien le sonó.
 - **Pruebas:** `ami/ami_test.go`, `centralita_ami_interno_test.go` y `centralita_test.go`, contra el AMI
   falso de `ami/amifalso` (TLS, Login, Ping, ListCommands, eventos, corte, cambio de certificado).
 - Guía para preparar Issabel: `docs/runbooks/centralita-issabel.md`.
+
+## El teléfono de Iris (voz E4c)
+
+Contrato: `.claude/integration/contratos/voz.md` §3.12 («E4c: el teléfono dentro de Iris»). El navegador y
+la app hablan SIP sobre WebRTC con la Issabel **a través de Iris**: `sippuente/` reenvía cada mensaje entre
+el WebSocket del navegador (`GET /telefono/sip`, con ticket de un uso de `POST /telefono/abrir`) y el WSS de
+la Issabel (8089, certificado fijado por huella), responde los desafíos Digest con la credencial guardada
+(la contraseña SIP nunca sale del servidor), deja marcar solo los destinos de `POST /telefono/llamar` (o
+extensiones y grupos) y transferir solo a `transferir/destinos`. Un latido (`TelefonoLatido`, 10 s) revisa
+sesión, permisos y extensión y corta con BYE. El audio va por el TURN de la instalación (`IRIS_TURN_*`,
+credenciales efímeras). Casos de uso en `telefono*.go`; consultas en `telefono.sql`. Las llamadas siguen en
+`mensajeria.llamadas` (`origen = centralita` con `puente`, `origen = celular` las directas de la app) y el
+AMI adopta la fila de una saliente del puente.
+
+- **Emite:** `centralita.telefono_cambiado`, `centralita.telefono_probado`, `extension.telefono_cambiado`,
+  `extension.registro_probado`, `grupo_centralita.creado`, `grupo_centralita.actualizado`,
+  `llamada.directa_registrada`; y `llamada.saliente_iniciada`, `llamada.contestada`, `llamada.terminada`,
+  `llamada.perdida`, `llamada.fallida`, `llamada.transferida` con `origen: centralita`.
+- **Consume:** nada.
+- **Pruebas:** `sippuente/puente_test.go` (puente, Digest, CSeq y branch, rechazos, corte) contra el Asterisk
+  falso de `sippuente/sipfalso`, y `telefono_test.go` de punta a punta contra Postgres y el mismo falso.
+- Guía para preparar Issabel y el servidor: `docs/runbooks/centralita-issabel.md` §9.
