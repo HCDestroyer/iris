@@ -185,7 +185,7 @@ var esquemasBandeja = []string{
 	// Plantillas de WhatsApp (contratos/plantillas-whatsapp.md).
 	"PlantillaWA", "PlantillaWADetalle", "PlantillaCreadaPWA", "ListaPlantillasWA", "DefinicionPWA", "ListaDatosPWA", "DatoPWA", "ListaCuentasPWA",
 	"CuentaPWA", "ResumenSincronizacionPWA", "CambioCuentaPWA", "ResultadoReglasPWA", "ListaSugeridasPWA", "SugeridaEnCuentaPWA", "PrestatariaPWA",
-	"ResultadoSincronizacionPWA",
+	"SincronizacionPedida",
 }
 
 // EsquemasBandeja devuelve los nombres (para la prueba del contrato).
