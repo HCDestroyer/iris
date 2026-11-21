@@ -2,8 +2,10 @@
 
 import { accionesDe, accionesRapidas, contadoresPestanas, estadoIslaPasos, pestanaDe, pestanasIsla, urlDeVista, type PasoOrden, type Pestana, type PrimarioIsla, type Vista } from "@iris/sync/campo";
 import { Boton, cn } from "@iris/ui";
-import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, Check, ChevronRight, CircleCheck, Hand, House, MessageCircle, PenLine, Plus, Save, User, type LucideIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarClock, CalendarDays, Check, ChevronRight, CircleCheck, Hand, House, MessageCircle, PackageCheck, PenLine, Plus, Save, User, type LucideIcon } from "lucide-react";
+import type { AccionPie, AccionPieRegistrada } from "@iris/sync/campo";
 import { useEffect, useState, type MouseEvent } from "react";
+import { useAccionPieActual } from "./accion-pie";
 import { useGuardarPaso, useRecienGuardado, useSinGuardar } from "./borradores";
 import { useChatOpcional } from "./chat-datos";
 import { useCampo, useOrden } from "./contexto";
@@ -189,6 +191,65 @@ export function IslaPasos({ id, paso, encogida }: { id: number; paso: PasoOrden;
                 ) : null}
             </Boton>
         </nav>
+    );
+}
+
+/**
+ * La isla que toca a la vista abierta: la de la acción al pie si una pantalla con firma la registró
+ * (sobre la isla no flota nada); si no, la de pasos en los pasos de la orden (no en el paso final) y
+ * la de menú en lo demás (no en la conversación, que ocupa la pantalla).
+ */
+export function IslasCampo({ encogida }: { encogida: boolean }) {
+    const { vista } = useCampo();
+    const accion = useAccionPieActual();
+    if (accion) {
+        return <IslaAccion registrada={accion} encogida={encogida} />;
+    }
+    if (vista.tipo === "orden" && vista.paso !== undefined) {
+        return vista.paso !== "cierre" ? <IslaPasos id={vista.id} paso={vista.paso} encogida={encogida} /> : null;
+    }
+    return vista.tipo !== "conversacion" ? <IslaMenu encogida={encogida} /> : null;
+}
+
+const ICONO_ACCION: Record<AccionPie["icono"], LucideIcon> = { cerrar: CircleCheck, recibir: PackageCheck };
+
+/**
+ * Isla de la acción al pie («Firmar y cerrar orden», «Confirmar recepción»; reporte del PM, nov
+ * 2026: el botón quedaba al final y había que bajar). La misma píldora sólida que la isla de pasos,
+ * fija abajo sobre el área segura: «volver» redondo y el primario. El contenido deja su espacio
+ * debajo (el `pb` del marco), así que nunca tapa el recuadro de la firma.
+ */
+export function IslaAccion({ registrada, encogida }: { registrada: AccionPieRegistrada; encogida: boolean }) {
+    const { navegar } = useCampo();
+    const { accion, presionar } = registrada;
+    const Icono = ICONO_ACCION[accion.icono];
+    const redondo = cn(BOTON_ISLA, encogida && BOTON_ENCOGIDO, "bg-[var(--campo-panel-2)] p-0 text-foreground shadow-none [&_svg]:size-6", encogida ? "md:size-12" : "md:size-[3.375rem]");
+    return (
+        <div
+            role="group"
+            aria-label={accion.texto}
+            data-slot="isla-accion"
+            data-encogida={encogida ? "true" : undefined}
+            className={cn(
+                "campo-suave fixed bottom-[calc(1.75rem+env(safe-area-inset-bottom))] left-1/2 z-30 flex w-[calc(100%-2.25rem)] max-w-md -translate-x-1/2 items-center gap-1.5 rounded-full border border-border bg-[var(--campo-isla)] p-1.5 shadow-[var(--campo-sombra-isla)]",
+                encogida && "bottom-[calc(1rem+env(safe-area-inset-bottom))] gap-1 p-1",
+            )}
+        >
+            <Boton variante="secundario" aria-label={accion.volver.texto} title={accion.volver.texto} className={redondo} onClick={() => navegar(accion.volver.destino)}>
+                <ArrowLeft aria-hidden />
+            </Boton>
+            <Boton
+                tamano="lg"
+                data-slot={accion.prueba}
+                disabled={accion.ocupado}
+                aria-busy={accion.ocupado || undefined}
+                className={cn("min-w-0 flex-1 rounded-full px-5 text-base shadow-none", encogida ? "h-12" : "h-[3.375rem]")}
+                onClick={presionar}
+            >
+                <Icono aria-hidden />
+                <span className="truncate">{accion.texto}</span>
+            </Boton>
+        </div>
     );
 }
 
