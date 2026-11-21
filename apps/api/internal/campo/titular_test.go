@@ -1,12 +1,16 @@
 package campo_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"image"
+	"image/jpeg"
 	"io"
 	"log/slog"
+	mrand "math/rand"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -99,6 +103,10 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 			}
 		}
 		a.mu.Unlock()
+		if rechazo == "503" {
+			http.Error(w, "no disponible", http.StatusServiceUnavailable)
+			return
+		}
 		if rechazo != "" {
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.WriteHeader(http.StatusUnprocessableEntity)
@@ -151,6 +159,7 @@ type entornoTitular struct {
 	bus   *integracion.Bus
 	sup   int64
 	cs    context.Context // supervisor en la empresa 1
+	citas int             // una hora distinta por orden (sin cruces en la agenda del técnico)
 }
 
 // nuevoEntornoTitular: conector Argos conectado (empresa 1), pendientes con el mismo cifrador y
@@ -218,7 +227,8 @@ func (e *entornoTitular) instalacion(tec int64, ct context.Context, conProspecto
 	}
 	o := deber(e.m.CrearOrden.Ejecutar(e.cs, in))(e.t)
 	o = deber(e.m.ProgramarOrden.Ejecutar(e.cs, campo.EntradaProgramarOrden{ID: o.ID, Version: o.Version, TecnicoID: &tec,
-		BodegaID: ptr(int64(9)), Inicio: hoyEnGuatemala(10)}))(e.t)
+		BodegaID: ptr(int64(9)), Inicio: hoyEnGuatemala(1 + 2*(e.citas%11))}))(e.t)
+	e.citas++
 	e.lote(ct, op(campo.OpLlegar, o.ID, nil))
 	return o
 }
@@ -249,6 +259,14 @@ func (e *entornoTitular) procesar() {
 	}
 }
 
+// purgar corre el job diario de la purga del depósito de tránsito.
+func (e *entornoTitular) purgar() {
+	e.t.Helper()
+	if _, err := e.pend.PurgarTransitoVencido(sistema(e.t)); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
 type filaPendiente struct {
 	ID        int64
 	Estado    string
@@ -268,24 +286,41 @@ func (e *entornoTitular) pendiente(clave string) filaPendiente {
 	return f
 }
 
-// jpegFalso: unos bytes que empiezan como JPEG.
-func jpegFalso(n int) string {
-	b := make([]byte, n)
-	copy(b, []byte{0xFF, 0xD8, 0xFF, 0xE0})
-	return base64.StdEncoding.EncodeToString(b)
+// Fotos del documento de prueba: JPEG reales (ruido con semilla fija), para que pasen la lectura de
+// la cabecera (image.DecodeConfig).
+var (
+	frenteJPEG  = jpegDePrueba(64, 1)
+	reversoJPEG = jpegDePrueba(32, 2)
+)
+
+func jpegDePrueba(lado int, semilla int64) []byte {
+	r := mrand.New(mrand.NewSource(semilla))
+	img := image.NewRGBA(image.Rect(0, 0, lado, lado))
+	for i := range img.Pix {
+		img.Pix[i] = byte(r.Intn(256))
+	}
+	var b bytes.Buffer
+	if err := jpeg.Encode(&b, img, &jpeg.Options{Quality: 90}); err != nil {
+		panic(err)
+	}
+	return b.Bytes()
 }
+
+func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+
+func tipoYTamano(b []byte) string { return "image/jpeg:" + strconv.Itoa(len(b)) }
 
 func datosIdentidad() map[string]any {
 	return map[string]any{"documentoTipo": "dpi", "documentoNumero": dpiPrueba, "nombre": "Ana  María Pérez", "mayorDeEdad": true,
-		"coincide": true, "frente": map[string]any{"mime": "image/jpeg", "base64": jpegFalso(2048)},
-		"reverso": map[string]any{"mime": "image/jpeg", "base64": jpegFalso(1024)}}
+		"coincide": true, "frente": map[string]any{"mime": "image/jpeg", "base64": b64(frenteJPEG)},
+		"reverso": map[string]any{"mime": "image/jpeg", "base64": b64(reversoJPEG)}}
 }
 
 func datosCambioTitular() map[string]any {
 	return map[string]any{
 		"titular": map[string]any{"nombre": "Ana Pérez", "documentoTipo": "dpi", "documentoNumero": dpiPrueba, "mayorDeEdad": true,
 			"telefono": "+502 " + telefonoPrueba, "whatsapp": true, "email": correoPrueba, "tipoDocumentoFiscal": "nit", "nitCui": nitPrueba, "relacion": "familiar"},
-		"coincide": true, "frente": map[string]any{"mime": "image/jpeg", "base64": jpegFalso(2048)},
+		"coincide": true, "frente": map[string]any{"mime": "image/jpeg", "base64": b64(frenteJPEG)},
 		"motivoCodigo": "menor_de_edad", "motivo": "El servicio lo pidió un menor; queda de titular su madre",
 	}
 }
@@ -294,7 +329,7 @@ func datosCambioTitular() map[string]any {
 // Iris fuera del depósito cifrado (auditoría, eventos, pendientes, operaciones del lote, la orden).
 func sinSensibles(t *testing.T) {
 	t.Helper()
-	foto := jpegFalso(2048)[:40]
+	foto := b64(frenteJPEG)[300:360]
 	for _, consulta := range []string{
 		"SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE $1 OR coalesce(resultado::text, '') LIKE $1 OR coalesce(error::text, '') LIKE $1",
 		"SELECT count(*) FROM auditoria.cambios WHERE coalesce(antes::text, '') LIKE $1 OR coalesce(despues::text, '') LIKE $1",
@@ -389,7 +424,7 @@ func TestTitularSinSenalHastaArgos(t *testing.T) {
 	if li.Ruta != "/clientes/990/identidad" || li.Actor != quiere || li.Partes["documento_numero"] != dpiPrueba || li.Partes["documento_tipo"] != "dpi" ||
 		li.Partes["nombre"] != "Ana María Pérez" || li.Partes["mayor_de_edad"] != "true" || li.Partes["coincide"] != "true" ||
 		li.Partes["metodo"] != "foto_documento" || li.Partes["origen_tipo"] != "iris_orden" || li.Partes["origen_id"] != orden ||
-		li.Archivos["frente"] != "image/jpeg:2048" || li.Archivos["reverso"] != "image/jpeg:1024" {
+		li.Archivos["frente"] != tipoYTamano(frenteJPEG) || li.Archivos["reverso"] != tipoYTamano(reversoJPEG) {
 		t.Fatalf("A41 multipart: %+v", li)
 	}
 	ld := e.falso.porClave("iris:datos:" + orden + ":1")
@@ -461,6 +496,7 @@ func TestTitularRechazoYOtraToma(t *testing.T) {
 		t.Fatalf("queda el depósito de la toma rechazada: %d", n)
 	}
 	e.reloj.avanzar(8 * 24 * time.Hour)
+	e.purgar()
 	e.procesar()
 	if n := contar(t, "SELECT count(*) FROM integracion.datos_transito WHERE orden_id = $1 AND cifrado IS NOT NULL", o.ID); n != 0 {
 		t.Fatalf("a los 7 días se purga: %d", n)
@@ -479,6 +515,7 @@ func TestTitularFotoVencida(t *testing.T) {
 	// El depósito vence antes de entregarse: foto_vencida (de negocio, sin reintento) y no sale nada.
 	esperar(t, e.lote(ct, op(campo.OpRegistrarIdentidad, o.ID, datosIdentidad())), "aplicada")
 	e.reloj.avanzar(8 * 24 * time.Hour)
+	e.purgar()
 	e.procesar()
 	if p := e.pendiente("iris:identidad:" + orden + ":1"); p.Estado != pendientes.EstadoFallidoNegocio || p.Codigo == nil || *p.Codigo != pendientes.CodigoFotoVencida {
 		t.Fatalf("foto vencida: %+v", p)
@@ -520,7 +557,7 @@ func TestTitularNoCoincideBloqueaLaActivacion(t *testing.T) {
 	l := e.falso.porClave("iris:titular:" + orden + ":1")
 	cli, _ := l.JSON["cliente"].(map[string]any)
 	if l.Ruta != "/servicios/9901/cambiar-titular" || cli["documento_numero"] != dpiPrueba || cli["telefono"] != "+502 "+telefonoPrueba ||
-		cli["nit_cui"] != nitPrueba || l.JSON["motivo_codigo"] != "menor_de_edad" || l.Archivos["frente"] != "image/jpeg:2048" ||
+		cli["nit_cui"] != nitPrueba || l.JSON["motivo_codigo"] != "menor_de_edad" || l.Archivos["frente"] != tipoYTamano(frenteJPEG) ||
 		l.Actor != "usuario:"+strconv.FormatInt(tec, 10) {
 		t.Fatalf("A39: %+v", l)
 	}
@@ -600,7 +637,7 @@ func TestTitularCierreExigeIdentidadYValidarDesdeElPanel(t *testing.T) {
 	}
 	e.procesar()
 	l := e.falso.porClave("iris:identidad:" + orden2 + ":2")
-	if l == nil || l.Partes["metodo"] != "revision_panel" || l.Partes["documento_numero"] != dpiPrueba || l.Archivos["frente"] != "image/jpeg:2048" {
+	if l == nil || l.Partes["metodo"] != "revision_panel" || l.Partes["documento_numero"] != dpiPrueba || l.Archivos["frente"] != tipoYTamano(frenteJPEG) {
 		t.Fatalf("A41 revisión desde el panel con la foto tomada en sitio: %+v", l)
 	}
 	if act := e.pendiente("iris:instalacion:" + orden2); act.Estado != pendientes.EstadoHecho {
@@ -617,6 +654,7 @@ func TestTitularCierreExigeIdentidadYValidarDesdeElPanel(t *testing.T) {
 	e.relay()
 	e.procesar()
 	e.reloj.avanzar(8 * 24 * time.Hour)
+	e.purgar()
 	e.procesar() // purga el depósito
 	f3 := deber(e.m.VerOrden.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o3.ID}))(t)
 	deber(e.m.Titular.ValidarIdentidad.Ejecutar(e.cs, campo.EntradaValidarIdentidad{ID: o3.ID, Version: f3.Version, Motivo: "Foto vencida; titular confirmado en persona"}))(t)
@@ -653,7 +691,7 @@ func TestTitularReglasDelLote(t *testing.T) {
 	sinMarca["coincide"] = false
 	esperar(t, e.lote(ct, op(campo.OpRegistrarIdentidad, o.ID, sinMarca)), "rechazada:validacion")
 	png := datosIdentidad()
-	png["frente"] = map[string]any{"mime": "image/png", "base64": jpegFalso(100)}
+	png["frente"] = map[string]any{"mime": "image/png", "base64": b64(frenteJPEG)}
 	esperar(t, e.lote(ct, op(campo.OpRegistrarIdentidad, o.ID, png)), "rechazada:mime_distinto")
 	// Otro técnico no ve la orden.
 	_, ctB := e.tecnicoEnEmpresa()

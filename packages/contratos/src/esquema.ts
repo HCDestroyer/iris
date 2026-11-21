@@ -6725,6 +6725,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/levantar-revision-titular": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Levantar la revisión del titular
+         * @description Permiso: `ordenes.validar_identidad`. Un supervisor, con motivo (10 a 500), cuando Argos respondió `titular_no_coincide`: mientras la orden está en revisión no se toma otra identidad ni otro titular (422 `titular_en_revision`). No manda nada a Argos. 409 `sin_revision`. Emite `orden.revision_titular_levantada`.
+         */
+        post: operations["levantarRevisionTitularOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/llegar": {
         parameters: {
             query?: never;
@@ -14212,6 +14232,15 @@ export interface components {
         EntradaLeerConv: {
             hastaMensajeId: string;
         };
+        EntradaLevantarRevision: {
+            /** @description Qué se revisó (queda en la auditoría) */
+            motivo: string;
+            /**
+             * Format: int32
+             * @description Versión leída de la orden; si cambió, 409
+             */
+            version: number;
+        };
         EntradaLinea: {
             /** @description Por defecto 1 */
             cantidad?: string;
@@ -15405,9 +15434,11 @@ export interface components {
             version: string | null;
         };
         EstadoTitular: {
+            /** @description La orden se canceló o falló, pero el titular o el plan ya cambiaron en Argos (no se deshace solo) */
+            cambiadoEnArgos: boolean;
             /** @enum {string|null} */
             documentoTipo: "dpi" | "pasaporte" | null;
-            /** @description Argos respondió titular_no_coincide: la activación no sale hasta que un supervisor lo resuelva */
+            /** @description El titular está en revisión de un supervisor: no se toma otra identidad ni otro titular hasta que la levante (POST /ordenes/{id}/levantar-revision-titular) */
             enRevision: boolean;
             /**
              * @description registrada: tomada en sitio y en la cola hacia Argos; validada: un supervisor la validó desde el panel (solo para activar)
@@ -18223,10 +18254,10 @@ export interface components {
             /** @description Código del rechazo (titular_no_coincide, foto_vencida, validacion…) */
             codigo?: string;
             /**
-             * @description enviando: en la cola; rechazado: Argos lo rechazó (codigo); agotado: Argos no respondió tras los reintentos; bloqueado: espera un paso anterior que falló; resuelto: reemplazado por otra toma o resuelto a mano
+             * @description enviando: en la cola; rechazado: Argos lo rechazó (codigo); agotado: Argos no respondió tras los reintentos; bloqueado: espera un paso anterior que falló; resuelto: reemplazado por otra toma, resuelto a mano o detenido al cancelar; en_revision: la identidad está en revisión de un supervisor (sin más detalle)
              * @enum {string}
              */
-            estado: "enviando" | "hecho" | "rechazado" | "agotado" | "bloqueado" | "resuelto";
+            estado: "enviando" | "hecho" | "rechazado" | "agotado" | "bloqueado" | "resuelto" | "en_revision";
             /** @enum {string} */
             operacion: "registrar_identidad" | "cambiar_titular" | "completar_datos" | "cambiar_plan";
             /** Format: int64 */
@@ -48465,6 +48496,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaPosicion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    levantarRevisionTitularOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaLevantarRevision"];
             };
         };
         responses: {

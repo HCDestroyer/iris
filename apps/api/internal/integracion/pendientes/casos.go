@@ -90,7 +90,10 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 		p.Payload = map[string]any{}
 	}
 	ocultos := camposOcultos
-	if slices.Contains(OperacionesTitular, f.Operacion) {
+	switch {
+	case f.Operacion == OpCambiarTitular:
+		ocultos = camposOcultosCambioTitular
+	case slices.Contains(OperacionesTitular, f.Operacion):
 		ocultos = camposOcultosTitular
 	}
 	ocultarCampos(p.Payload, ocultos)
@@ -106,7 +109,19 @@ var camposOcultos = map[string]bool{"png_base64": true}
 // el correo y el NIT/CUI nunca van en el payload (viajan en el depósito de tránsito); si alguno
 // llegara, el panel lo ve como ***.
 var camposOcultosTitular = map[string]bool{"png_base64": true, "documento_numero": true, "telefono": true, "movil": true,
-	"email": true, "nit_cui": true, "frente": true, "reverso": true}
+	"email": true, "nit_cui": true, "frente": true, "reverso": true,
+	// El texto libre del motivo del cambio de plan (A40): solo va a Argos.
+	"motivo_texto": true}
+
+// camposOcultosCambioTitular: en A39 también el motivo (texto libre; va a Argos y queda en su
+// auditoría, B1). motivo_codigo sí se ve.
+var camposOcultosCambioTitular = func() map[string]bool {
+	m := map[string]bool{"motivo": true}
+	for k := range camposOcultosTitular {
+		m[k] = true
+	}
+	return m
+}()
 
 // ocultarCampos reemplaza por *** esos campos en cualquier nivel del cuerpo.
 func ocultarCampos(v any, ocultos map[string]bool) {
@@ -267,6 +282,10 @@ type EntradaResolverManual struct {
 	Motivo  string `json:"motivo" minLength:"5" maxLength:"1000" doc:"Qué se hizo en Argos (queda en la auditoría y en el pendiente)"`
 	// Cargo: obligatorio si un cargo único esperaba a este consumo por un producto del consumo.
 	Cargo string `json:"cargo,omitempty" required:"false" enum:"liberar,resolver_tambien" doc:"Solo al resolver un consumo con un cargo de un producto del consumo esperándolo (si no, 422 decision_cargo_requerida). liberar: el cargo sale hacia Argos (el consumo hecho en Argos no lo cobró). resolver_tambien: el cargo también queda resuelto_manual con el mismo motivo y no sale (Argos ya lo cobró al consumir un consumible_cobro)"`
+	// ClienteID: solo al resolver un cambio de titular (cambiar_titular): el cliente que quedó como
+	// titular en Argos. Sin él, el cobro y el consumo de la instalación nacen fallido_negocio
+	// (titular resuelto a mano: confirma el cliente).
+	ClienteID *int64 `json:"clienteId,omitempty" required:"false" minimum:"1" doc:"Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro va a su nombre)"`
 }
 
 // Decisiones sobre el cargo que esperaba al consumo resuelto a mano.
@@ -326,6 +345,13 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if in.Cargo != "" && in.Cargo != CargoLiberar && in.Cargo != CargoResolverTambien {
 				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "cargo", Message: "liberar o resolver_tambien", Rule: "enum"})
 			}
+			if slices.Contains(OperacionesTitular, f.Operacion) && !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermOrdenesValidarIdentidad)) {
+				// Paso del titular (§3.4.8): solo un supervisor con ordenes.validar_identidad.
+				return Pendiente{}, nucleo.Prohibido("Un paso del titular lo resuelve a mano un supervisor con ordenes.validar_identidad")
+			}
+			if in.ClienteID != nil && f.Operacion != OpCambiarTitular {
+				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "clienteId", Message: "Solo al resolver un cambio de titular", Rule: "solo_titular"})
+			}
 			if f.Estado != EstadoFallidoNegocio {
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_resoluble",
 					"Solo se resuelve a mano lo que Argos rechazó (fallido_negocio); está "+f.Estado+
@@ -354,7 +380,7 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			}
 			ahora := m.ahora()
 			nueva, err := q.ResolverManual(ctx, pendientesbd.ResolverManualParams{
-				Motivo: motivo, ResueltoPor: usuario, Ahora: ahora, ID: f.ID, Version: in.Version,
+				Motivo: motivo, ResueltoPor: usuario, Ahora: ahora, ID: f.ID, Version: in.Version, ResueltoClienteID: in.ClienteID,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)

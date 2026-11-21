@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg" // cabecera de las fotos del documento
+	_ "image/png"  // cabecera de las fotos del documento
 	"net/http"
 	"net/mail"
 	"regexp"
@@ -64,6 +67,8 @@ const (
 	// MaxFotoDocumento: bytes de cada foto del documento en el lote (el teléfono la comprime; el
 	// lote completo es de hasta 4 MiB).
 	MaxFotoDocumento = 1 << 20
+	// MaxLadoFoto: píxeles por lado de la foto del documento (solo se lee la cabecera).
+	MaxLadoFoto = 8000
 	// maxBase64Foto: largo en base64 de MaxFotoDocumento.
 	maxBase64Foto = (MaxFotoDocumento + 2) / 3 * 4
 	// maxTomasIdentidad: tomas de la identidad por orden (A41 y A39 juntas, también las rechazadas).
@@ -81,6 +86,7 @@ const (
 	EventoDatosCompletados       = "orden.datos_completados"
 	EventoCambioPlan             = "orden.cambio_plan_registrado"
 	EventoIdentidadValidada      = "orden.identidad_validada"
+	EventoRevisionLevantada      = "orden.revision_titular_levantada"
 	metodoFotoDocumento          = "foto_documento"
 	metodoRevisionPanel          = "revision_panel"
 	metodoSinIdentidad           = "sin_identidad"
@@ -215,21 +221,22 @@ func (e EntradaCambiarPlan) ordenID() int64        { return e.ID }
 type PasoTitularVista struct {
 	PendienteID   int64     `json:"pendienteId"`
 	Operacion     string    `json:"operacion" enum:"registrar_identidad,cambiar_titular,completar_datos,cambiar_plan"`
-	Estado        string    `json:"estado" enum:"enviando,hecho,rechazado,agotado,bloqueado,resuelto" doc:"enviando: en la cola; rechazado: Argos lo rechazó (codigo); agotado: Argos no respondió tras los reintentos; bloqueado: espera un paso anterior que falló; resuelto: reemplazado por otra toma o resuelto a mano"`
+	Estado        string    `json:"estado" enum:"enviando,hecho,rechazado,agotado,bloqueado,resuelto,en_revision" doc:"enviando: en la cola; rechazado: Argos lo rechazó (codigo); agotado: Argos no respondió tras los reintentos; bloqueado: espera un paso anterior que falló; resuelto: reemplazado por otra toma, resuelto a mano o detenido al cancelar; en_revision: la identidad está en revisión de un supervisor (sin más detalle)"`
 	Codigo        *string   `json:"codigo,omitempty" doc:"Código del rechazo (titular_no_coincide, foto_vencida, validacion…)"`
 	ActualizadoEn time.Time `json:"actualizadoEn"`
 }
 
 // EstadoTitular es el paso «Confirmar titular y plan» de una orden.
 type EstadoTitular struct {
-	OrdenID       int64   `json:"ordenId"`
-	QuienFirma    *string `json:"quienFirma" nullable:"true" enum:"misma,otra" doc:"misma: la persona de la venta (A41); otra: cambio de titular (A39)"`
-	DocumentoTipo *string `json:"documentoTipo" nullable:"true" enum:"dpi,pasaporte"`
-	Nombre        *string `json:"nombre" nullable:"true" doc:"Del titular, como en el documento (nunca el número)"`
-	Identidad     string  `json:"identidad" enum:"falta,registrada,validada" doc:"registrada: tomada en sitio y en la cola hacia Argos; validada: un supervisor la validó desde el panel (solo para activar)"`
-	EnRevision    bool    `json:"enRevision" doc:"Argos respondió titular_no_coincide: la activación no sale hasta que un supervisor lo resuelva"`
-	Pendiente     bool    `json:"pendienteEnArgos" doc:"Algún paso no llegó a Argos y no saldrá solo: la activación queda bloqueada"`
-	PlanID        *int64  `json:"planId" nullable:"true" doc:"El último plan pedido"`
+	OrdenID         int64   `json:"ordenId"`
+	QuienFirma      *string `json:"quienFirma" nullable:"true" enum:"misma,otra" doc:"misma: la persona de la venta (A41); otra: cambio de titular (A39)"`
+	DocumentoTipo   *string `json:"documentoTipo" nullable:"true" enum:"dpi,pasaporte"`
+	Nombre          *string `json:"nombre" nullable:"true" doc:"Del titular, como en el documento (nunca el número)"`
+	Identidad       string  `json:"identidad" enum:"falta,registrada,validada" doc:"registrada: tomada en sitio y en la cola hacia Argos; validada: un supervisor la validó desde el panel (solo para activar)"`
+	EnRevision      bool    `json:"enRevision" doc:"El titular está en revisión de un supervisor: no se toma otra identidad ni otro titular hasta que la levante (POST /ordenes/{id}/levantar-revision-titular)"`
+	CambiadoEnArgos bool    `json:"cambiadoEnArgos" doc:"La orden se canceló o falló, pero el titular o el plan ya cambiaron en Argos (no se deshace solo)"`
+	Pendiente       bool    `json:"pendienteEnArgos" doc:"Algún paso no llegó a Argos y no saldrá solo: la activación queda bloqueada"`
+	PlanID          *int64  `json:"planId" nullable:"true" doc:"El último plan pedido"`
 	// Pasos, en el orden en que se encolaron.
 	Pasos   []PasoTitularVista `json:"pasos"`
 	Version int32              `json:"version" doc:"0 si la orden aún no tiene el paso"`
@@ -242,6 +249,7 @@ type CasosTitular struct {
 	CompletarDatos     *auditoria.Caso[EntradaCompletarDatos, Orden]
 	CambiarPlan        *auditoria.Caso[EntradaCambiarPlan, Orden]
 	ValidarIdentidad   *auditoria.Caso[EntradaValidarIdentidad, Orden]
+	LevantarRevision   *auditoria.Caso[EntradaLevantarRevision, Orden]
 	Ver                *auditoria.Caso[EntradaVerOrden, EstadoTitular]
 }
 
@@ -252,6 +260,7 @@ func (m *Modulo) nuevosCasosTitular() CasosTitular {
 		CompletarDatos:     m.nuevoCompletarDatos(),
 		CambiarPlan:        m.nuevoCambiarPlan(),
 		ValidarIdentidad:   m.nuevoValidarIdentidad(),
+		LevantarRevision:   m.nuevoLevantarRevision(),
 		Ver:                m.nuevoVerTitular(),
 	}
 }
@@ -305,6 +314,10 @@ func (m *Modulo) abrirPaso(ctx context.Context, t *auditoria.Tx, q *campobd.Quer
 	f, err := tomar(ctx, t, q, id, permiso, nil, s)
 	if err != nil {
 		return paso{}, err
+	}
+	// Solo el técnico de la orden, en sus órdenes en curso (§3.4, «Quién»): ni despacho ni otro técnico.
+	if !propia(ctx, f) {
+		return paso{}, fueraDeAlcance("El paso del titular lo hace el técnico asignado a la orden, en sitio")
 	}
 	if err := noPausada(f, accion); err != nil {
 		return paso{}, err
@@ -363,6 +376,7 @@ func guardarTitular(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, an
 		Nombre: despues.Nombre, IdentidadPendienteID: despues.IdentidadPendienteID, UltimoPendienteID: despues.UltimoPendienteID,
 		Tomas: despues.Tomas, CambiosTitular: despues.CambiosTitular, DatosN: despues.DatosN, CambiosPlan: despues.CambiosPlan,
 		PlanID: despues.PlanID, ValidadaPor: despues.ValidadaPor, ValidadaMotivo: despues.ValidadaMotivo, ValidadaEn: despues.ValidadaEn,
+		EnRevision: despues.EnRevision, RevisionDesde: despues.RevisionDesde,
 	})
 	if err != nil {
 		return err
@@ -379,11 +393,23 @@ func guardarTitular(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, an
 // la anterior: si la anterior quedó rechazada o agotada, la nueva ocupa su lugar en la cadena (lo
 // que la esperaba pasa a esperar a la nueva). Si no, va después del último paso, siempre antes de
 // completar datos o cambiar el plan (§3.4, «Orden»).
-func identidadNueva(p paso) (deps []int64, reemplaza *pendientes.PasoDeTitular, err error) {
+func identidadNueva(p paso, operacion string) (deps []int64, reemplaza *pendientes.PasoDeTitular, err error) {
+	if p.tit.EnRevision {
+		return nil, nil, titularEnRevision()
+	}
 	if p.tit.Tomas >= maxTomasIdentidad {
 		return nil, nil, nucleo.ReglaNegocio("demasiadas_tomas", "Ya se tomó la identidad demasiadas veces en esta orden; pide a un supervisor que la revise")
 	}
-	if previo := p.buscar(p.tit.IdentidadPendienteID); previo != nil && previo.Fallido() {
+	previo := p.buscar(p.tit.IdentidadPendienteID)
+	if previo != nil && previo.Estado == pendientes.EstadoAgotado {
+		// Argos no respondió: se reintenta con la misma clave, no se toma otra vez.
+		return nil, nil, nucleo.Conflicto("paso_agotado", "La identidad no llegó a Argos (sin respuesta): reintenta su envío desde Integraciones")
+	}
+	if previo != nil && previo.Rechazado() {
+		if operacion == pendientes.OpRegistrarIdentidad && previo.Operacion == pendientes.OpCambiarTitular {
+			// «La misma persona de la venta» nunca reemplaza a un cambio de titular rechazado.
+			return nil, nil, nucleo.ReglaNegocio("titular_ya_cambiado", "Un cambio de titular rechazado se rehace como cambio de titular")
+		}
 		return previo.DependeDe, previo, nil
 	}
 	if p.tit.DatosN > 0 || p.tit.CambiosPlan > 0 {
@@ -442,7 +468,7 @@ func (m *Modulo) nuevoRegistrarIdentidad() *auditoria.Caso[EntradaRegistrarIdent
 			if err != nil {
 				return p.f, "", err
 			}
-			deps, previo, err := identidadNueva(p)
+			deps, previo, err := identidadNueva(p, pendientes.OpRegistrarIdentidad)
 			if err != nil {
 				return p.f, "", err
 			}
@@ -532,7 +558,7 @@ func (m *Modulo) nuevoCambiarTitular() *auditoria.Caso[EntradaCambiarTitular, Or
 			if err != nil {
 				return p.f, "", err
 			}
-			deps, previo, err := identidadNueva(p)
+			deps, previo, err := identidadNueva(p, pendientes.OpCambiarTitular)
 			if err != nil {
 				return p.f, "", err
 			}
@@ -721,6 +747,13 @@ func (m *Modulo) nuevoCambiarPlan() *auditoria.Caso[EntradaCambiarPlan, Orden] {
 		})
 }
 
+// titularEnRevision: Argos respondió titular_no_coincide; hasta que un supervisor levante la
+// revisión no se toma otra identidad ni otro titular (y no se dice más: el técnico no ve datos del
+// otro cliente).
+func titularEnRevision() *nucleo.Problema {
+	return nucleo.ReglaNegocio("titular_en_revision", "El titular de esta orden está en revisión de un supervisor")
+}
+
 func faltaIdentidad() *nucleo.Problema {
 	return nucleo.ReglaNegocio("falta_identidad", "Primero confirma quién firma y su identidad (titular → datos → plan)")
 }
@@ -771,6 +804,9 @@ func (m *Modulo) nuevoValidarIdentidad() *auditoria.Caso[EntradaValidarIdentidad
 				return f, "", err
 			}
 			p := paso{f: f, tit: tit, pasos: pasos, cuando: m.ahora(), actor: a.ID}
+			if tit.EnRevision {
+				return f, "", titularEnRevision()
+			}
 			if tit.ValidadaEn != nil {
 				return f, "", nucleo.Conflicto("identidad_ya_validada", "La identidad de esta orden ya se validó desde el panel")
 			}
@@ -786,8 +822,9 @@ func (m *Modulo) nuevoValidarIdentidad() *auditoria.Caso[EntradaValidarIdentidad
 						"El cambio de titular no se valida desde Iris: resuélvelo en Argos o que el técnico lo tome otra vez")
 				case previo.Estado == pendientes.EstadoHecho:
 					return f, "", nucleo.Conflicto("identidad_registrada", "La identidad ya está registrada en Argos")
-				case !previo.Fallido():
-					return f, "", nucleo.Conflicto("identidad_en_envio", "La identidad va en camino a Argos; espera su resultado")
+				case !previo.Rechazado():
+					// En la cola, saliendo o agotada (se reintenta con su clave): no se valida encima.
+					return f, "", nucleo.Conflicto("identidad_en_envio", "La identidad va en camino a Argos (o se reintenta); espera su resultado")
 				case previo.TransitoVigente && previo.TransitoID != nil:
 					// Revisión desde el panel sobre la foto tomada en sitio (A41 con revision_panel).
 					antes, err := pendientes.PorID(ctx, t, previo.ID)
@@ -834,13 +871,78 @@ func (m *Modulo) nuevoValidarIdentidad() *auditoria.Caso[EntradaValidarIdentidad
 		})
 }
 
+// reiniciarTitular: al reabrir una orden fallida o cancelada todo el paso se toma de nuevo (sus
+// pasos pendientes ya se detuvieron al cancelar o fallar). Se conservan los contadores (las claves
+// de idempotencia no se repiten) y la marca de revisión (solo la levanta un supervisor).
+func reiniciarTitular(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, orden int64) error {
+	antes, err := q.TitularDeOrden(ctx, orden)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	despues := antes
+	despues.QuienFirma, despues.DocumentoTipo, despues.Nombre, despues.PlanID = nil, nil, nil, nil
+	despues.IdentidadPendienteID, despues.UltimoPendienteID = nil, nil
+	despues.ValidadaPor, despues.ValidadaMotivo, despues.ValidadaEn = nil, nil, nil
+	return guardarTitular(ctx, t, q, antes, despues)
+}
+
+// EntradaLevantarRevision: POST /ordenes/{id}/levantar-revision-titular (supervisor).
+type EntradaLevantarRevision struct {
+	ID      int64  `json:"-"`
+	Version int32  `json:"version" minimum:"1" doc:"Versión leída de la orden; si cambió, 409"`
+	Motivo  string `json:"motivo" minLength:"10" maxLength:"500" doc:"Qué se revisó (queda en la auditoría)"`
+}
+
+// nuevoLevantarRevision: un supervisor con ordenes.validar_identidad levanta la revisión que dejó
+// titular_no_coincide, con motivo y auditado. Desde ahí el técnico puede tomar otro titular (el
+// rechazado se reemplaza); nada se manda solo.
+func (m *Modulo) nuevoLevantarRevision() *auditoria.Caso[EntradaLevantarRevision, Orden] {
+	return accionOrden("ordenes.levantar_revision_titular", nucleo.PermOrdenesValidarIdentidad, func(EntradaLevantarRevision) *OpSync { return nil },
+		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaLevantarRevision) (campobd.CampoOrden, string, error) {
+			f, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesValidarIdentidad, &in.Version, nil)
+			if err != nil {
+				return f, "", err
+			}
+			motivo, err := texto("motivo", in.Motivo, 10, 500)
+			if err != nil {
+				return f, "", err
+			}
+			a := contexto.ActorDe(ctx)
+			if !a.EsUsuario() {
+				return f, "", nucleo.Prohibido("La revisión la levanta una persona")
+			}
+			antes, err := q.TitularDeOrden(ctx, f.ID)
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return f, "", err
+			}
+			ahora := m.ahora()
+			g, err := q.LevantarRevisionTitular(ctx, campobd.LevantarRevisionTitularParams{Usuario: &a.ID, Motivo: &motivo, Ahora: &ahora, OrdenID: f.ID})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return f, "", nucleo.Conflicto("sin_revision", "El titular de esta orden no está en revisión")
+			}
+			if err != nil {
+				return f, "", err
+			}
+			t.RegistrarCambios("orden_titular", f.ID, map[string]any{"en_revision": antes.EnRevision},
+				map[string]any{"en_revision": g.EnRevision, "revision_levantada_por": a.ID, "revision_motivo": motivo})
+			if err := t.Emitir(EventoRevisionLevantada, map[string]any{"orden_id": f.ID, "usuario_id": a.ID}); err != nil {
+				return f, "", err
+			}
+			f, err = tocar(ctx, t, q, f)
+			return f, "", err
+		})
+}
+
 // --- Estado del paso ---------------------------------------------------------------------------
 
 func (m *Modulo) nuevoVerTitular() *auditoria.Caso[EntradaVerOrden, EstadoTitular] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaVerOrden, EstadoTitular]{
-		Accion:       "ordenes.ver_titular",
-		Acceso:       auditoria.Autenticado,
-		AuditarExito: soloLecturas[EstadoTitular],
+		// Se audita cada lectura (B13): dice si la identidad se registró y cómo va en Argos.
+		Accion: "ordenes.ver_titular",
+		Acceso: auditoria.Autenticado,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaVerOrden) (EstadoTitular, error) {
 			q := campobd.New(t)
 			t.FijarEntidad("orden", in.ID)
@@ -859,20 +961,22 @@ func (m *Modulo) nuevoVerTitular() *auditoria.Caso[EntradaVerOrden, EstadoTitula
 			if err != nil {
 				return EstadoTitular{}, err
 			}
-			return estadoTitular(tit, pasos), nil
+			return estadoTitular(f, tit, pasos), nil
 		},
 	})
 }
 
-func estadoTitular(tit campobd.CampoOrdenTitular, pasos []pendientes.PasoDeTitular) EstadoTitular {
+func estadoTitular(f campobd.CampoOrden, tit campobd.CampoOrdenTitular, pasos []pendientes.PasoDeTitular) EstadoTitular {
 	e := EstadoTitular{OrdenID: tit.OrdenID, QuienFirma: tit.QuienFirma, DocumentoTipo: tit.DocumentoTipo, Nombre: tit.Nombre,
-		Identidad: "falta", PlanID: tit.PlanID, Pasos: make([]PasoTitularVista, 0, len(pasos)), Version: tit.Version}
+		Identidad: "falta", PlanID: tit.PlanID, Pasos: make([]PasoTitularVista, 0, len(pasos)), Version: tit.Version,
+		EnRevision: tit.EnRevision}
 	switch {
 	case tit.ValidadaEn != nil:
 		e.Identidad = "validada"
 	case tit.IdentidadPendienteID != nil:
 		e.Identidad = "registrada"
 	}
+	terminada := f.Estado == EstadoCancelada || f.Estado == EstadoFallida
 	for _, p := range pasos {
 		v := PasoTitularVista{PendienteID: p.ID, Operacion: p.Operacion, ActualizadoEn: p.ActualizadoEn}
 		switch p.Estado {
@@ -880,11 +984,11 @@ func estadoTitular(tit campobd.CampoOrdenTitular, pasos []pendientes.PasoDeTitul
 			v.Estado = "enviando"
 		case pendientes.EstadoHecho:
 			v.Estado = "hecho"
+			if terminada && (p.Operacion == pendientes.OpCambiarTitular || p.Operacion == pendientes.OpCambiarPlan) {
+				e.CambiadoEnArgos = true
+			}
 		case pendientes.EstadoFallidoNegocio:
 			v.Estado, v.Codigo, e.Pendiente = "rechazado", p.CodigoError, true
-			if p.CodigoError != nil && *p.CodigoError == codigoTitularNoCoincide {
-				e.EnRevision = true
-			}
 		case pendientes.EstadoAgotado:
 			v.Estado, e.Pendiente = "agotado", true
 		case pendientes.EstadoBloqueado:
@@ -892,21 +996,37 @@ func estadoTitular(tit campobd.CampoOrdenTitular, pasos []pendientes.PasoDeTitul
 		default:
 			v.Estado = "resuelto"
 		}
+		// Sin oráculo (ALTA 2 de #273): titular_no_coincide nunca se muestra; en revisión, los pasos
+		// de identidad rechazados solo dicen «en revisión».
+		if v.Codigo != nil && *v.Codigo == pendientes.CodigoTitularNoCoincide {
+			v.Codigo = nil
+		}
+		if tit.EnRevision && pendientes.EsPasoIdentidad(p.Operacion) && p.Estado == pendientes.EstadoFallidoNegocio {
+			v.Estado, v.Codigo = "en_revision", nil
+		}
 		e.Pasos = append(e.Pasos, v)
 	}
 	return e
 }
 
-// exigirIdentidad: una instalación de una venta de Iris (prospecto) no se cierra con éxito sin la
-// identidad del titular registrada (tomada en sitio) o validada desde el panel (§3.4.8). Sin
-// conector (modo sin Argos) no aplica.
+// exigirIdentidad: una instalación cuyo servicio está pendiente_instalacion en Argos no se cierra
+// con éxito sin la identidad del titular registrada (tomada en sitio) o validada desde el panel
+// (§3.4.8; tenga prospecto o no). Si la instantánea no trae el servicio, se exige igual; si dice
+// otro estado (ya activo), no. Sin conector (modo sin Argos) no aplica.
 func (m *Modulo) exigirIdentidad(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f campobd.CampoOrden, tipo, resultado string) error {
-	if tipo != tipoInstalacion || resultado != "exitosa" || f.ProspectoID == nil {
+	if tipo != tipoInstalacion || resultado != "exitosa" || f.ServicioID == nil {
 		return nil
 	}
 	registrado, err := m.conectorRegistrado(ctx, t)
 	if err != nil || !registrado {
 		return err
+	}
+	estado, err := q.EstadoServicioArgos(ctx, *f.ServicioID)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if estado != "" && estado != "pendiente_instalacion" {
+		return nil
 	}
 	tit, err := q.TitularDeOrden(ctx, f.ID)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -1140,6 +1260,17 @@ func fotoDocumento(campo string, f FotoDocumento) (pendientes.FotoTransito, erro
 	if !bytes.HasPrefix(datos, esperado) {
 		return pendientes.FotoTransito{}, nucleo.NuevoProblema(http.StatusUnprocessableEntity, "mime_distinto", "La foto no es del tipo indicado",
 			"El contenido de la foto no coincide con su tipo", nucleo.ErrorCampo{Field: campo, Message: "No es " + f.Mime, Rule: "mime"})
+	}
+	// Solo la cabecera (nunca se decodifica ni se vuelve a codificar la imagen): una imagen válida y
+	// de medidas razonables (una bomba de descompresión no pasa a Argos).
+	cfg, formato, err := image.DecodeConfig(bytes.NewReader(datos))
+	if err != nil || (formato != "jpeg" && formato != "png") || "image/"+formato != f.Mime {
+		return pendientes.FotoTransito{}, nucleo.NuevoProblema(http.StatusUnprocessableEntity, "imagen_invalida", "La foto no se puede leer",
+			"La foto del documento no es una imagen JPEG o PNG válida", nucleo.ErrorCampo{Field: campo, Message: "Imagen inválida", Rule: "imagen"})
+	}
+	if cfg.Width < 1 || cfg.Height < 1 || cfg.Width > MaxLadoFoto || cfg.Height > MaxLadoFoto {
+		return pendientes.FotoTransito{}, nucleo.NuevoProblema(http.StatusUnprocessableEntity, "dimensiones_excedidas", "Foto demasiado grande",
+			"La foto del documento pasa de 8000 × 8000 px", nucleo.ErrorCampo{Field: campo, Message: "Hasta 8000 × 8000 px", Rule: "dimensiones"})
 	}
 	return pendientes.FotoTransito{Campo: campo, Mime: f.Mime, Datos: datos}, nil
 }

@@ -143,4 +143,12 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
 - `ReemplazarPaso`: otra toma de la identidad reemplaza a la rechazada (lo que la esperaba pasa a
   esperar a la nueva; la vieja queda `resuelto_manual`). `DarPorValidado`: la validación desde el panel
   sin la foto deja el paso resuelto y libera la activación.
-
+- Revisión de seguridad (#273): el consumo también espera a los pasos; cada depósito con su llave de
+  datos (`llave_cifrada`, cifrada con IRIS_CLAVE_CIFRADO y destruida al borrar; datos asociados
+  `transito:<uuid>:<orden>:<empresa>` verificados con la orden y la empresa del pendiente; la rotación
+  solo vuelve a cifrar la llave); purga en un job diario propio (`ArgsPurgarTransito`);
+  `resuelto_como` distingue a mano, reemplazado, cancelado y validado; un A39 resuelto a mano deja el
+  cobro y el consumo incompletos salvo `clienteId` al resolver; resolver un paso del titular exige
+  `ordenes.validar_identidad`; `titular_no_coincide` marca la orden en revisión; un paso hecho con la
+  orden cancelada o fallida emite `orden.paso_titular_tras_cancelar`; `motivo` (A39) y
+  `motivo_texto` (A40) no se ven en el panel.

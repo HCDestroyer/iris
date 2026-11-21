@@ -5,15 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"slices"
 	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/riverqueue/river"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	pendientesbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Paso «Confirmar titular y plan» de la orden de instalación (contrato argosisp.md 0.10.0 §3.4,
@@ -139,9 +144,9 @@ func ReemplazarPaso(ctx context.Context, t *auditoria.Tx, viejo, nuevo int64, mo
 	for _, f := range filas {
 		t.RegistrarCambios("pendiente", f.ID, map[string]any{"depende_de": viejo}, map[string]any{"depende_de": nuevo})
 	}
-	f, err := q.ReemplazarPendiente(ctx, pendientesbd.ReemplazarPendienteParams{Motivo: motivo, ResueltoPor: usuario, Ahora: ahora, ID: viejo})
+	f, err := q.ReemplazarPendiente(ctx, pendientesbd.ReemplazarPendienteParams{Motivo: motivo, ResueltoPor: usuario, Como: ComoReemplazado, Ahora: ahora, ID: viejo})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("pendientes.ReemplazarPaso: el pendiente %d no está rechazado ni agotado (%s)", viejo, antes.Estado)
+		return fmt.Errorf("pendientes.ReemplazarPaso: el pendiente %d no está rechazado (%s)", viejo, antes.Estado)
 	}
 	if err != nil {
 		return err
@@ -165,9 +170,9 @@ func DarPorValidado(ctx context.Context, t *auditoria.Tx, id int64, motivo strin
 	if err != nil {
 		return err
 	}
-	f, err := q.ReemplazarPendiente(ctx, pendientesbd.ReemplazarPendienteParams{Motivo: motivo, ResueltoPor: usuario, Ahora: ahora, ID: id})
+	f, err := q.ReemplazarPendiente(ctx, pendientesbd.ReemplazarPendienteParams{Motivo: motivo, ResueltoPor: usuario, Como: ComoValidadoPanel, Ahora: ahora, ID: id})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("pendientes.DarPorValidado: el pendiente %d no está rechazado ni agotado (%s)", id, antes.Estado)
+		return fmt.Errorf("pendientes.DarPorValidado: el pendiente %d no está rechazado (%s)", id, antes.Estado)
 	}
 	if err != nil {
 		return err
@@ -209,6 +214,8 @@ type PasoDeTitular struct {
 	// TransitoVigente: el depósito sigue con sus datos (no se entregó, borró ni venció).
 	TransitoVigente bool
 	ActualizadoEn   time.Time
+	// ResueltoComo: con resuelto_manual, cómo (ComoManual, ComoReemplazado…).
+	ResueltoComo *string
 }
 
 // PasosDeOrden lista los pasos del titular de una orden, en el orden en que se encolaron. q puede
@@ -222,7 +229,7 @@ func PasosDeOrden(ctx context.Context, q pendientesbd.DBTX, orden int64) ([]Paso
 	salida := make([]PasoDeTitular, 0, len(filas))
 	for _, f := range filas {
 		p := PasoDeTitular{ID: f.ID, Operacion: f.Operacion, Estado: f.Estado, CodigoError: f.CodigoError,
-			DependeDe: f.DependeDe, ActualizadoEn: f.UpdatedAt}
+			DependeDe: f.DependeDe, ActualizadoEn: f.UpdatedAt, ResueltoComo: f.ResueltoComo}
 		if f.TransitoID.Valid {
 			id := uuid.UUID(f.TransitoID.Bytes)
 			p.TransitoID = &id
@@ -240,4 +247,131 @@ func PasosDeOrden(ctx context.Context, q pendientesbd.DBTX, orden int64) ([]Paso
 // Fallido: el paso no llegó a Argos y no saldrá solo (rechazo de negocio o reintentos agotados).
 func (p PasoDeTitular) Fallido() bool {
 	return p.Estado == EstadoFallidoNegocio || p.Estado == EstadoAgotado
+}
+
+// Rechazado: Argos lo rechazó (fallido_negocio). Solo esto se reemplaza con otra toma; lo agotado
+// se reintenta con su misma clave.
+func (p PasoDeTitular) Rechazado() bool { return p.Estado == EstadoFallidoNegocio }
+
+// Formas de resolver un pendiente del titular (integracion.pendientes.resuelto_como).
+const (
+	ComoManual        = "manual"
+	ComoReemplazado   = "reemplazado"
+	ComoCancelada     = "orden_cancelada"
+	ComoFallida       = "orden_fallida"
+	ComoValidadoPanel = "validado_panel"
+)
+
+// CodigoTitularNoCoincide: Argos encontró el documento en otro cliente con otro nombre (A39, A41).
+const CodigoTitularNoCoincide = "titular_no_coincide"
+
+// EventoPasoTrasCancelar: un paso del titular que estaba saliendo cuando la orden se canceló o
+// falló quedó hecho en Argos: supervisión revisa (no se deshace solo).
+const EventoPasoTrasCancelar = "orden.paso_titular_tras_cancelar"
+
+// despuesDelPasoTitular, en la transacción del resultado de un intento:
+//   - titular_no_coincide (A39 o A41): la orden queda en revisión de un supervisor (marca persistente
+//     en campo.orden_titular);
+//   - hecho con la orden ya cancelada o fallida: avisa a supervisión (lo hecho no se deshace).
+func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, ahora time.Time) error {
+	if !slices.Contains(OperacionesTitular, f.Operacion) || f.Entidad != "orden" {
+		return nil
+	}
+	orden, err := strconv.ParseInt(f.EntidadID, 10, 64)
+	if err != nil {
+		return nil
+	}
+	q := pendientesbd.New(t)
+	switch {
+	case f.Estado == EstadoFallidoNegocio && EsPasoIdentidad(f.Operacion) && deref(f.CodigoError) == CodigoTitularNoCoincide:
+		n, err := q.MarcarTitularEnRevision(ctx, pendientesbd.MarcarTitularEnRevisionParams{Ahora: ahora, OrdenID: orden})
+		if err != nil || n == 0 {
+			return err
+		}
+		t.RegistrarCambios("orden_titular", orden, map[string]any{"en_revision": false}, map[string]any{"en_revision": true})
+	case f.Estado == EstadoHecho:
+		estado, err := q.EstadoDeOrden(ctx, orden)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if estado == "cancelada" || estado == "fallida" {
+			slog.WarnContext(ctx, "pendientes: paso del titular hecho en Argos con la orden ya terminada", "pendiente", f.ID, "orden", orden, "estado_orden", estado)
+			return t.Emitir(EventoPasoTrasCancelar, map[string]any{"orden_id": orden, "pendiente_id": f.ID, "operacion": f.Operacion, "estado_orden": estado})
+		}
+	}
+	return nil
+}
+
+// DetenerPasos: la orden se canceló o falló (como = ComoCancelada o ComoFallida). En la transacción
+// de esa acción, sus pasos del titular que no salieron quedan resuelto_manual con el motivo, su
+// depósito se borra (cancelado) y se avisa (integracion.pendiente_resuelto_manual). Un paso en_curso
+// termina (si sale bien, despuesDelPasoTitular avisa a supervisión); lo hecho no se deshace.
+func DetenerPasos(ctx context.Context, t *auditoria.Tx, orden int64, como string, usuario *int64, ahora time.Time) ([]int64, error) {
+	if como != ComoCancelada && como != ComoFallida {
+		return nil, fmt.Errorf("pendientes.DetenerPasos: motivo %q", como)
+	}
+	filas, err := pendientesbd.New(t).DetenerPasosTitular(ctx, pendientesbd.DetenerPasosTitularParams{
+		Motivo: como, ResueltoPor: usuario, Ahora: ahora, OrdenID: strconv.FormatInt(orden, 10)})
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, 0, len(filas))
+	for _, f := range filas {
+		ids = append(ids, f.ID)
+		t.RegistrarCambios("pendiente", f.ID, nil, map[string]any{"estado": f.Estado, "resuelto_como": como})
+		if err := borrarTransito(ctx, t, f, "cancelado", ahora); err != nil {
+			return nil, err
+		}
+		if err := t.Emitir(EventoResueltoManual, eventoResueltoManual{
+			PendienteID: f.ID, Operacion: f.Operacion, Entidad: f.Entidad, EntidadID: f.EntidadID,
+			IdempotencyKey: f.IdempotencyKey, De: "abierto", Motivo: como, UsuarioID: usuario,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return ids, nil
+}
+
+// --- Purga diaria del depósito de tránsito (job propio, único por día) -----------------------
+
+// ArgsPurgarTransito borra los depósitos con más de 7 días (contenido y llave).
+type ArgsPurgarTransito struct{}
+
+// Kind implementa river.JobArgs.
+func (ArgsPurgarTransito) Kind() string { return "integracion.purgar_transito" }
+
+// InsertOpts: cola de integración, único por día.
+func (ArgsPurgarTransito) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{Queue: integracion.ColaIntegracion, MaxAttempts: 5, UniqueOpts: river.UniqueOpts{ByPeriod: 24 * time.Hour}}
+}
+
+type trabajadorPurga struct {
+	river.WorkerDefaults[ArgsPurgarTransito]
+	m  *Modulo
+	bd nucleo.BD
+}
+
+func (w *trabajadorPurga) Work(ctx context.Context, _ *river.Job[ArgsPurgarTransito]) error {
+	ctx = nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalWorker), w.bd)
+	_, err := w.m.PurgarTransitoVencido(ctx)
+	return err
+}
+
+// PurgarTransitoVencido borra los depósitos con más de 7 días de tomados (§3.4.8).
+func (m *Modulo) PurgarTransitoVencido(ctx context.Context) (int64, error) {
+	n, err := PurgarTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), m.ahora())
+	if err == nil && n > 0 {
+		slog.InfoContext(ctx, "pendientes: depósitos de tránsito vencidos borrados", "cuantos", n)
+	}
+	return n, err
+}
+
+// TrabajoPurgaTransito corre la purga una vez al día (y al arrancar).
+func TrabajoPurgaTransito() *river.PeriodicJob {
+	return river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour),
+		func() (river.JobArgs, *river.InsertOpts) { return ArgsPurgarTransito{}, nil },
+		&river.PeriodicJobOpts{RunOnStart: true})
 }

@@ -489,6 +489,11 @@ type CampoOrdenTitular struct {
 	Version              int32
 	CreatedAt            time.Time
 	UpdatedAt            time.Time
+	EnRevision           bool
+	RevisionDesde        *time.Time
+	RevisionLevantadaPor *int64
+	RevisionMotivo       *string
+	RevisionLevantadaEn  *time.Time
 }
 
 type CampoPlantillaItem struct {
@@ -1053,6 +1058,7 @@ type IntegracionDatosTransito struct {
 	BorradoEn     *time.Time
 	MotivoBorrado *string
 	CreatedAt     time.Time
+	LlaveCifrada  []byte
 }
 
 type IntegracionEntrante struct {
@@ -1090,43 +1096,45 @@ type IntegracionOutbox struct {
 }
 
 type IntegracionPendiente struct {
-	ID               int64
-	EmpresaID        *int64
-	Sistema          string
-	Operacion        string
-	IdempotencyKey   string
-	Entidad          string
-	EntidadID        string
-	Metodo           string
-	Ruta             string
-	Payload          []byte
-	DependeDe        []int64
-	DatosIncompletos bool
-	Estado           string
-	Intentos         int32
-	ProximoIntento   time.Time
-	TomadoEn         *time.Time
-	UltimoError      *string
-	UltimoStatus     *int32
-	HechoEn          *time.Time
-	EventoID         *uuid.UUID
-	Version          int32
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	Conflicto        *string
-	ConflictoPayload []byte
-	ConflictoEn      *time.Time
-	Respuesta        []byte
-	Plantilla        []byte
-	PorResolver      bool
-	Verificar        []string
-	TecnicoUsuarioID *int64
-	CodigoError      *string
-	ResueltoMotivo   *string
-	ResueltoPor      *int64
-	ResueltoEn       *time.Time
-	Actor            *string
-	TransitoID       *uuid.UUID
+	ID                int64
+	EmpresaID         *int64
+	Sistema           string
+	Operacion         string
+	IdempotencyKey    string
+	Entidad           string
+	EntidadID         string
+	Metodo            string
+	Ruta              string
+	Payload           []byte
+	DependeDe         []int64
+	DatosIncompletos  bool
+	Estado            string
+	Intentos          int32
+	ProximoIntento    time.Time
+	TomadoEn          *time.Time
+	UltimoError       *string
+	UltimoStatus      *int32
+	HechoEn           *time.Time
+	EventoID          *uuid.UUID
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	Conflicto         *string
+	ConflictoPayload  []byte
+	ConflictoEn       *time.Time
+	Respuesta         []byte
+	Plantilla         []byte
+	PorResolver       bool
+	Verificar         []string
+	TecnicoUsuarioID  *int64
+	CodigoError       *string
+	ResueltoMotivo    *string
+	ResueltoPor       *int64
+	ResueltoEn        *time.Time
+	Actor             *string
+	TransitoID        *uuid.UUID
+	ResueltoComo      *string
+	ResueltoClienteID *int64
 }
 
 type MensajeriaAjustesBandeja struct {

@@ -1422,6 +1422,18 @@ func (q *Queries) EsPlantillaDeTipo(ctx context.Context, plantillaID int64) (boo
 	return exists, err
 }
 
+const estadoServicioArgos = `-- name: EstadoServicioArgos :one
+SELECT estado FROM integracion.argos_servicios WHERE id = $1
+`
+
+// Estado del servicio en la instantánea de Argos (” si no lo trae).
+func (q *Queries) EstadoServicioArgos(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, estadoServicioArgos, id)
+	var estado string
+	err := row.Scan(&estado)
+	return estado, err
+}
+
 const fijarResultadoOperacion = `-- name: FijarResultadoOperacion :exec
 UPDATE campo.operaciones_sync SET resultado = $1, updated_at = now() WHERE id = $2
 `
@@ -2052,11 +2064,13 @@ func (q *Queries) GuardarRechazo(ctx context.Context, arg GuardarRechazoParams) 
 const guardarTitular = `-- name: GuardarTitular :one
 INSERT INTO campo.orden_titular (
     orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id,
-    tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en
+    tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en,
+    en_revision, revision_desde
 ) VALUES (
     $1, $2, $3, $4, $5,
     $6, $7, $8, $9, $10, $11,
-    $12, $13, $14, $15
+    $12, $13, $14, $15,
+    $16, $17
 )
 ON CONFLICT (orden_id) DO UPDATE SET
     quien_firma = EXCLUDED.quien_firma, documento_tipo = EXCLUDED.documento_tipo, nombre = EXCLUDED.nombre,
@@ -2064,8 +2078,11 @@ ON CONFLICT (orden_id) DO UPDATE SET
     tomas = EXCLUDED.tomas, cambios_titular = EXCLUDED.cambios_titular, datos_n = EXCLUDED.datos_n,
     cambios_plan = EXCLUDED.cambios_plan, plan_id = EXCLUDED.plan_id, validada_por = EXCLUDED.validada_por,
     validada_motivo = EXCLUDED.validada_motivo, validada_en = EXCLUDED.validada_en,
+    -- La marca la pone también la cola (sin candado de la orden): nunca se quita aquí.
+    en_revision = campo.orden_titular.en_revision OR EXCLUDED.en_revision,
+    revision_desde = coalesce(campo.orden_titular.revision_desde, EXCLUDED.revision_desde),
     version = campo.orden_titular.version + 1, updated_at = now()
-RETURNING orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id, tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en, version, created_at, updated_at
+RETURNING orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id, tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en, version, created_at, updated_at, en_revision, revision_desde, revision_levantada_por, revision_motivo, revision_levantada_en
 `
 
 type GuardarTitularParams struct {
@@ -2084,10 +2101,13 @@ type GuardarTitularParams struct {
 	ValidadaPor          *int64
 	ValidadaMotivo       *string
 	ValidadaEn           *time.Time
+	EnRevision           bool
+	RevisionDesde        *time.Time
 }
 
 // Lo que ya se registró del paso (sin el documento ni los datos de contacto). La orden está tomada
-// con candado: no hay dos escrituras a la vez.
+// con candado: no hay dos escrituras a la vez. en_revision también la pone la cola de pendientes
+// (titular_no_coincide): se conserva si ya estaba (solo la levanta levantar_revision).
 func (q *Queries) GuardarTitular(ctx context.Context, arg GuardarTitularParams) (CampoOrdenTitular, error) {
 	row := q.db.QueryRow(ctx, guardarTitular,
 		arg.OrdenID,
@@ -2105,6 +2125,8 @@ func (q *Queries) GuardarTitular(ctx context.Context, arg GuardarTitularParams) 
 		arg.ValidadaPor,
 		arg.ValidadaMotivo,
 		arg.ValidadaEn,
+		arg.EnRevision,
+		arg.RevisionDesde,
 	)
 	var i CampoOrdenTitular
 	err := row.Scan(
@@ -2126,6 +2148,11 @@ func (q *Queries) GuardarTitular(ctx context.Context, arg GuardarTitularParams) 
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EnRevision,
+		&i.RevisionDesde,
+		&i.RevisionLevantadaPor,
+		&i.RevisionMotivo,
+		&i.RevisionLevantadaEn,
 	)
 	return i, err
 }
@@ -2325,6 +2352,58 @@ func (q *Queries) ItemsDeVersiones(ctx context.Context, versiones []int64) ([]Ca
 		return nil, err
 	}
 	return items, nil
+}
+
+const levantarRevisionTitular = `-- name: LevantarRevisionTitular :one
+UPDATE campo.orden_titular
+SET en_revision = false, revision_levantada_por = $1, revision_motivo = $2, revision_levantada_en = $3,
+    version = version + 1, updated_at = now()
+WHERE orden_id = $4 AND en_revision
+RETURNING orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id, tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en, version, created_at, updated_at, en_revision, revision_desde, revision_levantada_por, revision_motivo, revision_levantada_en
+`
+
+type LevantarRevisionTitularParams struct {
+	Usuario *int64
+	Motivo  *string
+	Ahora   *time.Time
+	OrdenID int64
+}
+
+// Un supervisor levanta la revisión por titular_no_coincide (con motivo).
+func (q *Queries) LevantarRevisionTitular(ctx context.Context, arg LevantarRevisionTitularParams) (CampoOrdenTitular, error) {
+	row := q.db.QueryRow(ctx, levantarRevisionTitular,
+		arg.Usuario,
+		arg.Motivo,
+		arg.Ahora,
+		arg.OrdenID,
+	)
+	var i CampoOrdenTitular
+	err := row.Scan(
+		&i.OrdenID,
+		&i.EmpresaID,
+		&i.QuienFirma,
+		&i.DocumentoTipo,
+		&i.Nombre,
+		&i.IdentidadPendienteID,
+		&i.UltimoPendienteID,
+		&i.Tomas,
+		&i.CambiosTitular,
+		&i.DatosN,
+		&i.CambiosPlan,
+		&i.PlanID,
+		&i.ValidadaPor,
+		&i.ValidadaMotivo,
+		&i.ValidadaEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.EnRevision,
+		&i.RevisionDesde,
+		&i.RevisionLevantadaPor,
+		&i.RevisionMotivo,
+		&i.RevisionLevantadaEn,
+	)
+	return i, err
 }
 
 const listarEventosOrden = `-- name: ListarEventosOrden :many
@@ -4178,7 +4257,7 @@ func (q *Queries) TipoPorID(ctx context.Context, id int64) (CampoTiposOrden, err
 
 const titularDeOrden = `-- name: TitularDeOrden :one
 
-SELECT orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id, tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en, version, created_at, updated_at FROM campo.orden_titular WHERE orden_id = $1
+SELECT orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id, tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en, version, created_at, updated_at, en_revision, revision_desde, revision_levantada_por, revision_motivo, revision_levantada_en FROM campo.orden_titular WHERE orden_id = $1
 `
 
 // --- Paso «Confirmar titular y plan» (contrato argosisp.md 0.10.0 §3.4, B18) -------------------
@@ -4204,6 +4283,11 @@ func (q *Queries) TitularDeOrden(ctx context.Context, ordenID int64) (CampoOrden
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EnRevision,
+		&i.RevisionDesde,
+		&i.RevisionLevantadaPor,
+		&i.RevisionMotivo,
+		&i.RevisionLevantadaEn,
 	)
 	return i, err
 }

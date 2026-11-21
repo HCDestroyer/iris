@@ -520,16 +520,16 @@ func (q *Queries) RecifrarTOTP(ctx context.Context, arg RecifrarTOTPParams) erro
 }
 
 const recifrarTransito = `-- name: RecifrarTransito :exec
-UPDATE integracion.datos_transito SET cifrado = $1 WHERE id = $2 AND cifrado IS NOT NULL
+UPDATE integracion.datos_transito SET llave_cifrada = $1 WHERE id = $2 AND llave_cifrada IS NOT NULL
 `
 
 type RecifrarTransitoParams struct {
-	Cifrado []byte
-	ID      uuid.UUID
+	LlaveCifrada []byte
+	ID           uuid.UUID
 }
 
 func (q *Queries) RecifrarTransito(ctx context.Context, arg RecifrarTransitoParams) error {
-	_, err := q.db.Exec(ctx, recifrarTransito, arg.Cifrado, arg.ID)
+	_, err := q.db.Exec(ctx, recifrarTransito, arg.LlaveCifrada, arg.ID)
 	return err
 }
 
@@ -584,19 +584,22 @@ func (q *Queries) TOTPCifrados(ctx context.Context) ([]TOTPCifradosRow, error) {
 }
 
 const transitoCifrado = `-- name: TransitoCifrado :many
-SELECT id, cifrado FROM integracion.datos_transito
-WHERE cifrado IS NOT NULL
+SELECT id, orden_id, empresa_id, llave_cifrada FROM integracion.datos_transito
+WHERE llave_cifrada IS NOT NULL
 ORDER BY id
 FOR UPDATE
 `
 
 type TransitoCifradoRow struct {
-	ID      uuid.UUID
-	Cifrado []byte
+	ID           uuid.UUID
+	OrdenID      int64
+	EmpresaID    *int64
+	LlaveCifrada []byte
 }
 
-// Depósito de tránsito del paso del titular (contrato argosisp.md 0.10.0 §3.4.8): lo que aún no se
-// entregó a Argos ni venció.
+// Llaves de datos del depósito de tránsito del paso del titular (contrato argosisp.md 0.10.0
+// §3.4.8): cada depósito va cifrado con su llave y la llave con IRIS_CLAVE_CIFRADO. Solo se rota la
+// llave.
 func (q *Queries) TransitoCifrado(ctx context.Context) ([]TransitoCifradoRow, error) {
 	rows, err := q.db.Query(ctx, transitoCifrado)
 	if err != nil {
@@ -606,7 +609,12 @@ func (q *Queries) TransitoCifrado(ctx context.Context) ([]TransitoCifradoRow, er
 	var items []TransitoCifradoRow
 	for rows.Next() {
 		var i TransitoCifradoRow
-		if err := rows.Scan(&i.ID, &i.Cifrado); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrdenID,
+			&i.EmpresaID,
+			&i.LlaveCifrada,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

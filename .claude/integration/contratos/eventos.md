@@ -577,6 +577,8 @@ repite).
 | `orden.datos_completados` | `orden_id`, `pendiente_id`, `n`, `campos[]` (solo nombres: `nombre`, `telefono`, `whatsapp`, `email`, `tipo_documento_fiscal`, `nit_cui`, `relacion`, `direccion`, `referencia`, `coordenadas`) | `orden.completar_datos` del lote (§3.4.6, A43). Nunca los valores. |
 | `orden.cambio_plan_registrado` | `orden_id`, `pendiente_id`, `cambio`, `plan_id`, `plan_anterior_id` (o null: el último pedido en la orden), `motivo` (`mas_velocidad` \| `menos_velocidad` \| `otro`) | `orden.cambiar_plan` del lote (§3.4.5, A40). Sin el texto del motivo. |
 | `orden.identidad_validada` | `orden_id`, `usuario_id` (el supervisor), `metodo` (`revision_panel` \| `sin_identidad`), `pendiente_id` (o null: la identidad mandada como revisión), `reemplaza_id` (o null) | `POST /ordenes/{id}/validar-identidad` (`ordenes.validar_identidad`, §3.4.8): solo permite activar. Sin el motivo (queda en la auditoría). |
+| `orden.revision_titular_levantada` | `orden_id`, `usuario_id` (el supervisor) | `POST /ordenes/{id}/levantar-revision-titular` (`ordenes.validar_identidad`): quita la marca de revisión que dejó `titular_no_coincide`. Sin el motivo (queda en la auditoría). |
+| `orden.paso_titular_tras_cancelar` | `orden_id`, `pendiente_id`, `operacion`, `estado_orden` (`cancelada` \| `fallida`) | integracion (pendientes): un paso del titular que estaba saliendo cuando la orden se canceló o falló quedó hecho en Argos. Supervisión lo revisa (no se deshace solo). |
 
 ### Ajustes de la app de campo
 

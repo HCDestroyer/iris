@@ -100,7 +100,8 @@ const (
 	PermOrdenesListarTodos Permiso = "ordenes.listar_todos"
 
 	// Paso «Confirmar titular y plan» de la orden de instalación (contrato argosisp.md 0.10.0 §3.4,
-	// B18). El técnico solo sobre sus órdenes en curso (asignadas a él y en sitio).
+	// B18). Solo el técnico, en sus órdenes en curso (asignadas a él y en sitio): no hay acciones
+	// del paso desde el panel (despacho no los tiene).
 	// ordenes.cambiar_titular: registrar la identidad del titular (A41) o cambiarlo (A39);
 	// ordenes.completar_datos: lo que falte del titular y del lugar (A43); ordenes.cambiar_plan: el
 	// plan antes de activar (A40); ordenes.validar_identidad: un supervisor deja activar sin la
@@ -724,7 +725,6 @@ var permisosOrdenes = []Permiso{
 	PermOrdenesCerrar, PermOrdenesFallar, PermOrdenesCancelar, PermOrdenesReabrir, PermCampoSincronizar,
 	PermOrdenesAsignarForm, PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer,
 	PermTicketsCrearOrden, PermOrdenesIgualarAsignacion, PermOrdenesAplicarDatosArgos, PermOrdenesDescartarDatosArgos,
-	PermOrdenesCambiarTitular, PermOrdenesCompletarDatos, PermOrdenesCambiarPlan,
 }
 
 // permisosPlantillas son los de administrar plantillas de formulario (supervisor).

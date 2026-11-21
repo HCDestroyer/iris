@@ -219,7 +219,7 @@ SELECT bodega_id FROM campo.ordenes WHERE id = @id::bigint;
 -- nunca vuelve a salir hacia Argos.
 UPDATE integracion.pendientes
 SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = sqlc.narg(resuelto_por), resuelto_en = @ahora::timestamptz,
-    tomado_en = NULL, version = version + 1, updated_at = now()
+    resuelto_como = 'manual', resuelto_cliente_id = sqlc.narg(resuelto_cliente_id), tomado_en = NULL, version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version AND estado = 'fallido_negocio'
 RETURNING *;
 
@@ -252,19 +252,20 @@ RETURNING *;
 -- --- Depósito de tránsito (contrato 0.10.0 §3.4.8) --------------------------------------------
 
 -- name: GuardarTransito :exec
-INSERT INTO integracion.datos_transito (id, empresa_id, orden_id, cifrado, tomado_en)
-VALUES (@id, sqlc.narg(empresa_id), @orden_id, @cifrado, @tomado_en);
+INSERT INTO integracion.datos_transito (id, empresa_id, orden_id, cifrado, llave_cifrada, tomado_en)
+VALUES (@id, sqlc.narg(empresa_id), @orden_id, @cifrado, @llave_cifrada, @tomado_en);
 
 -- name: LeerTransito :one
 SELECT * FROM integracion.datos_transito WHERE id = @id;
 
 -- name: BorrarTransito :exec
-UPDATE integracion.datos_transito SET cifrado = NULL, borrado_en = @ahora, motivo_borrado = @motivo
+-- Se destruye la llave de datos con el contenido.
+UPDATE integracion.datos_transito SET cifrado = NULL, llave_cifrada = NULL, borrado_en = @ahora, motivo_borrado = @motivo
 WHERE id = @id AND cifrado IS NOT NULL;
 
 -- name: PurgarTransito :execrows
 -- A los 7 días de tomado se borra lo que no se entregó (rechazado, agotado o en espera).
-UPDATE integracion.datos_transito SET cifrado = NULL, borrado_en = @ahora, motivo_borrado = 'vencido'
+UPDATE integracion.datos_transito SET cifrado = NULL, llave_cifrada = NULL, borrado_en = @ahora, motivo_borrado = 'vencido'
 WHERE cifrado IS NOT NULL AND tomado_en < @antes;
 
 -- name: PasosTitularDeOrden :many
@@ -290,9 +291,30 @@ WHERE @viejo::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
 RETURNING *;
 
 -- name: ReemplazarPendiente :one
--- El paso rechazado (o agotado) queda resuelto_manual: lo reemplaza otra toma. Nunca vuelve a salir.
+-- El paso que Argos rechazó (fallido_negocio; lo agotado se reintenta con su clave) queda
+-- resuelto_manual: lo reemplaza otra toma o lo valida un supervisor (@como). Nunca vuelve a salir.
 UPDATE integracion.pendientes
 SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = sqlc.narg(resuelto_por),
-    resuelto_en = @ahora::timestamptz, tomado_en = NULL, version = version + 1, updated_at = now()
-WHERE id = @id AND estado IN ('fallido_negocio', 'agotado')
+    resuelto_como = @como::text, resuelto_en = @ahora::timestamptz, tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'fallido_negocio'
 RETURNING *;
+
+-- name: DetenerPasosTitular :many
+-- La orden se canceló o falló: sus pasos del titular que no salieron (ni están saliendo) quedan
+-- resuelto_manual con el motivo. Lo en_curso termina; lo hecho no se deshace.
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_como = @motivo::text, resuelto_por = sqlc.narg(resuelto_por),
+    resuelto_en = @ahora::timestamptz, tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE entidad = 'orden' AND entidad_id = @orden_id::text
+    AND operacion IN ('registrar_identidad', 'cambiar_titular', 'completar_datos', 'cambiar_plan')
+    AND estado IN ('pendiente', 'bloqueado', 'fallido_negocio', 'agotado')
+RETURNING *;
+
+-- name: MarcarTitularEnRevision :execrows
+-- Argos respondió titular_no_coincide: la orden queda en revisión de un supervisor (persistente).
+UPDATE campo.orden_titular
+SET en_revision = true, revision_desde = coalesce(revision_desde, @ahora::timestamptz), version = version + 1, updated_at = now()
+WHERE orden_id = @orden_id::bigint AND NOT en_revision;
+
+-- name: EstadoDeOrden :one
+SELECT estado FROM campo.ordenes WHERE id = @id::bigint;

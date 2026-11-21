@@ -304,6 +304,14 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   validada (`identidad_requerida`). `GET /ordenes/{id}/titular` da el estado de cada paso en Argos.
 - **Emite** `orden.identidad_registrada`, `orden.cambio_titular_registrado`, `orden.datos_completados`,
   `orden.cambio_plan_registrado` y `orden.identidad_validada` (nunca el número ni datos de contacto).
+- Revisión de seguridad (#273): solo el técnico asignado (`propia`); `titular_no_coincide` deja la
+  orden **en revisión** (`campo.orden_titular.en_revision`, la pone la cola) y solo un supervisor la
+  levanta (`POST /ordenes/{id}/levantar-revision-titular`, `orden.revision_titular_levantada`); A41
+  nunca reemplaza a un A39 rechazado; lo agotado no se reemplaza; cancelar o fallar detiene los
+  pasos (`pendientes.DetenerPasos`) y reabrir los reinicia; el cierre exige la identidad en toda
+  instalación con el servicio `pendiente_instalacion` (o sin instantánea); las fotos pasan por
+  `image.DecodeConfig` (hasta 8000 × 8000); `GET /titular` se audita y nunca muestra
+  `titular_no_coincide`.
 - Configuración: `campo.Config.Titular` (cifrador, conector de Argos y aviso a la cola).
 
 ## Desarrollo

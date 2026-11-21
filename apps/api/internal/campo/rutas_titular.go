@@ -33,6 +33,11 @@ func (m *Modulo) registrarTitular(api huma.API) {
 			"422 `titular_en_revision` (un cambio de titular no se valida), `orden_no_es_instalacion`, `argos_sin_conector`. Emite `orden.identidad_validada`.",
 		nucleo.PermOrdenesValidarIdentidad), m.Titular.ValidarIdentidad.Ejecutar, func(e *EntradaValidarIdentidad, id int64) { e.ID = id })
 
+	registrarAccion(api, accion("levantarRevisionTitularOrden", "levantar-revision-titular", "Levantar la revisión del titular",
+		"Un supervisor, con motivo (10 a 500), cuando Argos respondió `titular_no_coincide`: mientras la orden está en revisión no se toma otra "+
+			"identidad ni otro titular (422 `titular_en_revision`). No manda nada a Argos. 409 `sin_revision`. Emite `orden.revision_titular_levantada`.",
+		nucleo.PermOrdenesValidarIdentidad), m.Titular.LevantarRevision.Ejecutar, func(e *EntradaLevantarRevision, id int64) { e.ID = id })
+
 	for _, v := range datosTitularLote {
 		api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(v), true, "")
 	}

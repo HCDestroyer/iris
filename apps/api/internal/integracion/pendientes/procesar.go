@@ -39,10 +39,6 @@ func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 	if _, err := m.resolverListos.Ejecutar(ctx, ahora); err != nil {
 		return 0, fmt.Errorf("pendientes: resolver dependientes listos: %w", err)
 	}
-	// Depósitos de tránsito con más de 7 días (§3.4.8): se borran aunque no se hayan entregado.
-	if _, err := PurgarTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), ahora); err != nil {
-		return 0, fmt.Errorf("pendientes: purgar el depósito de tránsito: %w", err)
-	}
 	n := 0
 	for n < maxPorCorrida {
 		f, ok, err := m.tomar(ctx, ahora)
@@ -123,7 +119,7 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	}
 	var partes []conector.Parte
 	if f.TransitoID.Valid {
-		d, err := m.leerTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f.TransitoID)
+		d, err := m.leerTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f)
 		if errors.Is(err, errVencido) {
 			// Se borró a los 7 días (o al resolverse): no se manda nada; hay que tomarlo otra vez.
 			r.Negocio, r.Codigo, r.Error = true, CodigoFotoVencida, "los datos del titular se borraron (7 días): hay que tomarlos otra vez"
@@ -467,6 +463,9 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 					return Pendiente{}, err
 				}
 			}
+			if err := despuesDelPasoTitular(ctx, t, f, in.ahora); err != nil {
+				return Pendiente{}, err
+			}
 			if deref(f.CodigoError) == CodigoBodegaRequerida && m.cfg.Argos != nil {
 				// Argos volvió a 1.5.x: se relee su versión ya (no al próximo periodo), para que lo
 				// que se encole desde ahora salga con bodega_id.
@@ -514,6 +513,7 @@ func (w *trabajador) Timeout(*river.Job[ArgsProcesar]) time.Duration { return 10
 // RegistrarWorkers agrega el worker de la cola al cliente de River.
 func (m *Modulo) RegistrarWorkers(workers *river.Workers, bd nucleo.BD) {
 	river.AddWorker(workers, &trabajador{m: m, bd: bd})
+	river.AddWorker(workers, &trabajadorPurga{m: m, bd: bd})
 }
 
 // TrabajoPeriodico procesa la cola cada intervalo (1 min por defecto: la espera más corta del

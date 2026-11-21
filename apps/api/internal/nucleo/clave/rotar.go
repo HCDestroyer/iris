@@ -8,10 +8,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/google/uuid"
-
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -54,9 +53,10 @@ const (
 	ColumnaExtensionSIP = "mensajeria.centralita_extensiones.sip_secreto_cifrado"
 	// ColumnaCorreoSistema: contraseña del SMTP del correo del sistema (contratos/correo-sistema.md).
 	ColumnaCorreoSistema = "notificaciones.correo_ajustes.contrasena_cifrada"
-	// ColumnaTransito: depósito de tránsito del paso del titular (documento, contacto y fotos del
-	// documento hasta entregarlos a Argos; contrato argosisp.md 0.10.0 §3.4.8).
-	ColumnaTransito = "integracion.datos_transito.cifrado"
+	// ColumnaTransito: la llave de datos de cada depósito de tránsito del paso del titular (el
+	// documento, el contacto y las fotos van cifrados con ella hasta entregarlos a Argos; contrato
+	// argosisp.md 0.10.0 §3.4.8). El contenido no se toca al rotar.
+	ColumnaTransito = "integracion.datos_transito.llave_cifrada"
 )
 
 // Columnas en el orden en que se rotan y se informan.
@@ -405,9 +405,6 @@ func (r *rotador) correosSistema(ctx context.Context, q *clavebd.Queries, simula
 	return nil
 }
 
-// datoAsociadoTransito es el de internal/integracion/pendientes (transito.go, I1): "transito:<id>".
-func datoAsociadoTransito(id uuid.UUID) []byte { return []byte("transito:" + id.String()) }
-
 func (r *rotador) transito(ctx context.Context, q *clavebd.Queries, simular bool) error {
 	filas, err := q.TransitoCifrado(ctx)
 	if err != nil {
@@ -415,7 +412,7 @@ func (r *rotador) transito(ctx context.Context, q *clavebd.Queries, simular bool
 	}
 	for _, f := range filas {
 		antes := len(r.res.Ilegibles)
-		nuevo, cambio, err := r.valor(ColumnaTransito, 0, f.Cifrado, datoAsociadoTransito(f.ID))
+		nuevo, cambio, err := r.valor(ColumnaTransito, 0, f.LlaveCifrada, pendientes.DatosAsociadosTransito(f.ID, f.OrdenID, f.EmpresaID))
 		if err != nil {
 			return err
 		}
@@ -423,7 +420,7 @@ func (r *rotador) transito(ctx context.Context, q *clavebd.Queries, simular bool
 			r.res.Ilegibles[antes].UUID = f.ID.String()
 		}
 		if cambio && !simular {
-			if err := q.RecifrarTransito(ctx, clavebd.RecifrarTransitoParams{ID: f.ID, Cifrado: nuevo}); err != nil {
+			if err := q.RecifrarTransito(ctx, clavebd.RecifrarTransitoParams{ID: f.ID, LlaveCifrada: nuevo}); err != nil {
 				return err
 			}
 		}

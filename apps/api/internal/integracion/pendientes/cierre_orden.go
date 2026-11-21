@@ -155,37 +155,54 @@ type plan struct {
 	externos []int64
 }
 
-// despuesDelTitular: la activación y el cobro de la instalación esperan a los pasos del titular
-// (contrato 0.10.0 §3.4, «Orden»: titular → datos → plan → activar). Si el titular cambió (A39),
-// el cobro va al cliente que quedó en el servicio (titular.cliente_id de la respuesta, B21): con
-// el último cambio de titular que no se reemplazó.
+// MotivoTitularResueltoAMano: el último cambio de titular de la orden se resolvió a mano en Argos y
+// nadie indicó el cliente final: el cobro y el consumo no salen solos (podrían ir al cliente
+// equivocado).
+const MotivoTitularResueltoAMano = "titular resuelto a mano: confirma el cliente"
+
+// despuesDelTitular: la activación, el consumo y el cobro de la instalación (lo que emite cargos)
+// esperan a los pasos del titular (contrato 0.10.0 §3.4, «Orden»: titular → datos → plan →
+// activar). Si el titular cambió (A39), el cobro va al cliente que quedó en el servicio
+// (titular.cliente_id de la respuesta, B21). Si ese cambio se resolvió a mano, va al cliente que
+// indicó quien lo resolvió o, sin él, el cobro y el consumo nacen incompletos.
 func despuesDelTitular(planes []plan, pasos []pendientesbd.IntegracionPendiente) {
 	if len(pasos) == 0 {
 		return
 	}
-	// Los resueltos a mano (o reemplazados por otra toma) ya cuentan como hechos: no se esperan (un
-	// marcador nunca se resolvería con ellos).
+	// Los resueltos (a mano, reemplazados por otra toma, por cancelar o validados) ya cuentan como
+	// hechos: no se esperan (un marcador nunca se resolvería con ellos).
 	ids := make([]int64, 0, len(pasos))
-	titular := -1
-	for _, p := range pasos {
+	titular := -1                                // índice en ids del último cambio de titular vivo
+	var aMano *pendientesbd.IntegracionPendiente // último cambio de titular resuelto a mano
+	for i, p := range pasos {
 		if p.Estado == EstadoResueltoManual {
+			if p.Operacion == OpCambiarTitular && (p.ResueltoComo == nil || *p.ResueltoComo == ComoManual) {
+				titular, aMano = -1, &pasos[i]
+			}
 			continue
 		}
 		ids = append(ids, p.ID)
 		if p.Operacion == OpCambiarTitular {
-			titular = len(ids) - 1
+			titular, aMano = len(ids)-1, nil
 		}
-	}
-	if len(ids) == 0 {
-		return
 	}
 	for i := range planes {
 		p := &planes[i]
-		if p.operacion != OpActivarInstalacion && p.operacion != OpCargo {
+		if p.operacion != OpActivarInstalacion && p.operacion != OpCargo && p.operacion != OpConsumo {
 			continue
 		}
 		p.externos = ids
-		if p.operacion == OpCargo && titular >= 0 && p.incompleto == "" {
+		if p.incompleto != "" {
+			continue
+		}
+		switch {
+		case aMano != nil && (p.operacion == OpCargo || p.operacion == OpConsumo):
+			if aMano.ResueltoClienteID == nil {
+				p.incompleto = MotivoTitularResueltoAMano
+			} else if p.operacion == OpCargo {
+				p.payload["cliente_id"] = *aMano.ResueltoClienteID
+			}
+		case p.operacion == OpCargo && titular >= 0:
 			p.payload["cliente_id"] = Ref(len(p.depende)+titular, "titular.cliente_id")
 		}
 	}

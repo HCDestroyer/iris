@@ -226,7 +226,7 @@ func correr() error {
 			notif.RegistrarTrabajos(pool)(w)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
-			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), inventario.TrabajoPeriodico(5*time.Minute),
+			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), pendientes.TrabajoPurgaTransito(), inventario.TrabajoPeriodico(5*time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
 			agenda.TrabajoPeriodicoZonas(10*time.Minute),
 			// Claves de Idempotency-Key vencidas (y las de SHA-256 plano de antes del HMAC).
