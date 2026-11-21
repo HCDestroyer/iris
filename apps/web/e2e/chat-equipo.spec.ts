@@ -158,7 +158,8 @@ test.describe("chat del equipo", () => {
         for (const ancho of anchos) {
             if (ancho) await page.setViewportSize({ width: ancho, height: 800 });
             if (!(await panel.isVisible())) await botonChat(page).click();
-            if (await fila(page, CONV.ordenViva).isVisible()) await fila(page, CONV.ordenViva).click();
+            // Abre la conversación si todavía no está abierta (la lista puede tardar en llegar: se espera la fila).
+            if (!(await compositor(page).isVisible())) await fila(page, CONV.ordenViva).click();
             await compositor(page).fill(`Aviso a ${ancho ?? "teléfono"}`);
             await page.keyboard.press("Enter");
             const mensaje = page.locator("[data-mensaje]").filter({ hasText: `Aviso a ${ancho ?? "teléfono"}` });
