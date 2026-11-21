@@ -59,10 +59,15 @@ type argosTitular struct {
 	mu       sync.Mutex
 	llamadas []llamadaArgos
 	rechazos map[string][]string
+	// servicios: GET /servicios/{id} → cuerpo JSON (sin entrada: 404).
+	servicios map[string]string
+	// alRecibir corre al recibir una escritura, antes de responder (simula lo que pasa mientras
+	// la llamada está en curso).
+	alRecibir func(ruta string)
 }
 
 func nuevoArgosTitular(t *testing.T) *argosTitular {
-	a := &argosTitular{rechazos: map[string][]string{}}
+	a := &argosTitular{rechazos: map[string][]string{}, servicios: map[string]string{}}
 	json200 := func(w http.ResponseWriter, status int, v string) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
@@ -71,6 +76,16 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, r *http.Request) {
 		json200(w, 200, `{"token":"atk_prueba_titular","webhook":{"url":"http://`+r.Host+`/api/v1/integraciones/iris/webhook","secreto":"secreto-de-argos-para-iris"},"empresas":[1]}`)
+	})
+	mux.HandleFunc("GET /api/v1/servicios/{id}", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		cuerpo, ok := a.servicios[r.PathValue("id")]
+		a.mu.Unlock()
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		json200(w, 200, cuerpo)
 	})
 	mux.HandleFunc("POST /api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		ruta := strings.TrimPrefix(r.URL.Path, "/api/v1")
@@ -102,7 +117,11 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 				rechazo, a.rechazos[sufijo] = codigos[0], codigos[1:]
 			}
 		}
+		alRecibir := a.alRecibir
 		a.mu.Unlock()
+		if alRecibir != nil {
+			alRecibir(ruta)
+		}
 		if rechazo == "503" {
 			http.Error(w, "no disponible", http.StatusServiceUnavailable)
 			return
@@ -125,6 +144,18 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 	return a
+}
+
+func (a *argosTitular) fijarServicio(id, cuerpo string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.servicios[id] = cuerpo
+}
+
+func (a *argosTitular) fijarAlRecibir(f func(ruta string)) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.alRecibir = f
 }
 
 func (a *argosTitular) rechazar(sufijo string, codigos ...string) {

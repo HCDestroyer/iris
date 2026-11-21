@@ -106,8 +106,11 @@ func abrir(llave, cifrado, ad []byte) ([]byte, error) {
 }
 
 // GuardarTransito cifra y guarda el depósito en la transacción del caso de uso, con su propia
-// llave de datos (aleatoria, cifrada con IRIS_CLAVE_CIFRADO y guardada en la fila). Sin cifrador no
-// se guarda nada sensible: error.
+// llave de datos (aleatoria, cifrada con IRIS_CLAVE_CIFRADO y guardada en la misma fila). Borrar el
+// depósito borra las dos de la fila viva, pero no del WAL ni de los respaldos tomados antes: ahí
+// siguen abriéndose con IRIS_CLAVE_CIFRADO (riesgo bajo aceptado; los respaldos con esta tabla son
+// datos personales con retención limitada, docs/runbooks/respaldos.md). Sin cifrador no se guarda
+// nada sensible: error.
 func GuardarTransito(ctx context.Context, t *auditoria.Tx, cif *nucleo.Cifrador, empresa *int64, orden int64, d Transito, tomadoEn time.Time) (uuid.UUID, error) {
 	if cif == nil {
 		return uuid.Nil, nucleo.NoDisponible("Falta IRIS_CLAVE_CIFRADO: Iris no guarda la identidad del titular sin cifrar")

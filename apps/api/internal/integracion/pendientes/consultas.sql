@@ -310,6 +310,34 @@ WHERE entidad = 'orden' AND entidad_id = @orden_id::text
     AND estado IN ('pendiente', 'bloqueado', 'fallido_negocio', 'agotado')
 RETURNING *;
 
+-- name: DetenerEnCurso :one
+-- Un paso del titular en_curso de una orden ya cancelada o fallida que no salió bien: detenido.
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_como = @motivo::text,
+    resuelto_en = @ahora::timestamptz, tomado_en = NULL, intentos = intentos + 1, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'en_curso'
+RETURNING *;
+
+-- name: ServicioArgosInstantanea :one
+-- El titular y la empresa del servicio según la instantánea de Argos.
+SELECT cliente_id, empresa_id FROM integracion.argos_servicios WHERE id = @id;
+
+-- name: FallarPorTitularAMano :one
+-- El cambio de titular se resolvió a mano sin decir el cliente final: el consumo y el cobro no
+-- salen solos (incompletos, para resolverlos también a mano o confirmar el cliente).
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, ultimo_error = @motivo::text,
+    codigo_error = 'titular_resuelto_a_mano', tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: FijarClienteCargo :one
+-- El cambio de titular se resolvió a mano con el cliente final: el cobro va a su nombre.
+UPDATE integracion.pendientes
+SET payload = @payload, por_resolver = false, proximo_intento = @ahora::timestamptz, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
 -- name: MarcarTitularEnRevision :execrows
 -- Argos respondió titular_no_coincide: la orden queda en revisión de un supervisor (persistente).
 UPDATE campo.orden_titular

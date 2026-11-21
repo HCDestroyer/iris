@@ -540,6 +540,68 @@ func (q *Queries) DesbloquearDependientes(ctx context.Context, arg DesbloquearDe
 	return items, nil
 }
 
+const detenerEnCurso = `-- name: DetenerEnCurso :one
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = $1::text, resuelto_como = $1::text,
+    resuelto_en = $2::timestamptz, tomado_en = NULL, intentos = intentos + 1, version = version + 1, updated_at = now()
+WHERE id = $3 AND estado = 'en_curso'
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id, resuelto_como, resuelto_cliente_id
+`
+
+type DetenerEnCursoParams struct {
+	Motivo string
+	Ahora  time.Time
+	ID     int64
+}
+
+// Un paso del titular en_curso de una orden ya cancelada o fallida que no salió bien: detenido.
+func (q *Queries) DetenerEnCurso(ctx context.Context, arg DetenerEnCursoParams) (IntegracionPendiente, error) {
+	row := q.db.QueryRow(ctx, detenerEnCurso, arg.Motivo, arg.Ahora, arg.ID)
+	var i IntegracionPendiente
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Sistema,
+		&i.Operacion,
+		&i.IdempotencyKey,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Metodo,
+		&i.Ruta,
+		&i.Payload,
+		&i.DependeDe,
+		&i.DatosIncompletos,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.TomadoEn,
+		&i.UltimoError,
+		&i.UltimoStatus,
+		&i.HechoEn,
+		&i.EventoID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Conflicto,
+		&i.ConflictoPayload,
+		&i.ConflictoEn,
+		&i.Respuesta,
+		&i.Plantilla,
+		&i.PorResolver,
+		&i.Verificar,
+		&i.TecnicoUsuarioID,
+		&i.CodigoError,
+		&i.ResueltoMotivo,
+		&i.ResueltoPor,
+		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
+		&i.ResueltoComo,
+		&i.ResueltoClienteID,
+	)
+	return i, err
+}
+
 const detenerPasosTitular = `-- name: DetenerPasosTitular :many
 UPDATE integracion.pendientes
 SET estado = 'resuelto_manual', resuelto_motivo = $1::text, resuelto_como = $1::text, resuelto_por = $2,
@@ -767,6 +829,68 @@ func (q *Queries) FallarPorResolucionManual(ctx context.Context, arg FallarPorRe
 	return i, err
 }
 
+const fallarPorTitularAMano = `-- name: FallarPorTitularAMano :one
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, ultimo_error = $1::text,
+    codigo_error = 'titular_resuelto_a_mano', tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = $2 AND estado IN ('pendiente', 'bloqueado')
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id, resuelto_como, resuelto_cliente_id
+`
+
+type FallarPorTitularAManoParams struct {
+	Motivo string
+	ID     int64
+}
+
+// El cambio de titular se resolvió a mano sin decir el cliente final: el consumo y el cobro no
+// salen solos (incompletos, para resolverlos también a mano o confirmar el cliente).
+func (q *Queries) FallarPorTitularAMano(ctx context.Context, arg FallarPorTitularAManoParams) (IntegracionPendiente, error) {
+	row := q.db.QueryRow(ctx, fallarPorTitularAMano, arg.Motivo, arg.ID)
+	var i IntegracionPendiente
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Sistema,
+		&i.Operacion,
+		&i.IdempotencyKey,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Metodo,
+		&i.Ruta,
+		&i.Payload,
+		&i.DependeDe,
+		&i.DatosIncompletos,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.TomadoEn,
+		&i.UltimoError,
+		&i.UltimoStatus,
+		&i.HechoEn,
+		&i.EventoID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Conflicto,
+		&i.ConflictoPayload,
+		&i.ConflictoEn,
+		&i.Respuesta,
+		&i.Plantilla,
+		&i.PorResolver,
+		&i.Verificar,
+		&i.TecnicoUsuarioID,
+		&i.CodigoError,
+		&i.ResueltoMotivo,
+		&i.ResueltoPor,
+		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
+		&i.ResueltoComo,
+		&i.ResueltoClienteID,
+	)
+	return i, err
+}
+
 const fallarResolucion = `-- name: FallarResolucion :one
 UPDATE integracion.pendientes
 SET estado = 'fallido_negocio', datos_incompletos = true, ultimo_error = $1,
@@ -783,6 +907,67 @@ type FallarResolucionParams struct {
 // La respuesta de la dependencia no trae el dato que pide el marcador: fallido de negocio.
 func (q *Queries) FallarResolucion(ctx context.Context, arg FallarResolucionParams) (IntegracionPendiente, error) {
 	row := q.db.QueryRow(ctx, fallarResolucion, arg.Motivo, arg.ID)
+	var i IntegracionPendiente
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Sistema,
+		&i.Operacion,
+		&i.IdempotencyKey,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Metodo,
+		&i.Ruta,
+		&i.Payload,
+		&i.DependeDe,
+		&i.DatosIncompletos,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.TomadoEn,
+		&i.UltimoError,
+		&i.UltimoStatus,
+		&i.HechoEn,
+		&i.EventoID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Conflicto,
+		&i.ConflictoPayload,
+		&i.ConflictoEn,
+		&i.Respuesta,
+		&i.Plantilla,
+		&i.PorResolver,
+		&i.Verificar,
+		&i.TecnicoUsuarioID,
+		&i.CodigoError,
+		&i.ResueltoMotivo,
+		&i.ResueltoPor,
+		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
+		&i.ResueltoComo,
+		&i.ResueltoClienteID,
+	)
+	return i, err
+}
+
+const fijarClienteCargo = `-- name: FijarClienteCargo :one
+UPDATE integracion.pendientes
+SET payload = $1, por_resolver = false, proximo_intento = $2::timestamptz, version = version + 1, updated_at = now()
+WHERE id = $3 AND estado IN ('pendiente', 'bloqueado')
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id, resuelto_como, resuelto_cliente_id
+`
+
+type FijarClienteCargoParams struct {
+	Payload []byte
+	Ahora   time.Time
+	ID      int64
+}
+
+// El cambio de titular se resolvió a mano con el cliente final: el cobro va a su nombre.
+func (q *Queries) FijarClienteCargo(ctx context.Context, arg FijarClienteCargoParams) (IntegracionPendiente, error) {
+	row := q.db.QueryRow(ctx, fijarClienteCargo, arg.Payload, arg.Ahora, arg.ID)
 	var i IntegracionPendiente
 	err := row.Scan(
 		&i.ID,
@@ -2356,6 +2541,23 @@ func (q *Queries) ResolverPendiente(ctx context.Context, arg ResolverPendientePa
 		&i.ResueltoComo,
 		&i.ResueltoClienteID,
 	)
+	return i, err
+}
+
+const servicioArgosInstantanea = `-- name: ServicioArgosInstantanea :one
+SELECT cliente_id, empresa_id FROM integracion.argos_servicios WHERE id = $1
+`
+
+type ServicioArgosInstantaneaRow struct {
+	ClienteID int64
+	EmpresaID int64
+}
+
+// El titular y la empresa del servicio según la instantánea de Argos.
+func (q *Queries) ServicioArgosInstantanea(ctx context.Context, id int64) (ServicioArgosInstantaneaRow, error) {
+	row := q.db.QueryRow(ctx, servicioArgosInstantanea, id)
+	var i ServicioArgosInstantaneaRow
+	err := row.Scan(&i.ClienteID, &i.EmpresaID)
 	return i, err
 }
 

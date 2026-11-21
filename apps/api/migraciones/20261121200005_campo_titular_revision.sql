@@ -20,8 +20,10 @@ ALTER TABLE integracion.pendientes
     ADD COLUMN resuelto_cliente_id bigint CHECK (resuelto_cliente_id > 0);
 
 -- Llave de datos propia de cada depósito (sobre de llaves): el contenido va cifrado con ella y ella
--- con IRIS_CLAVE_CIFRADO. Al borrar el depósito se destruye la llave: lo cifrado que quede en el WAL
--- o en un respaldo ya no se puede abrir. La rotación de la clave solo vuelve a cifrar la llave.
+-- con IRIS_CLAVE_CIFRADO. Al borrar el depósito se borran las dos en la fila viva; como viven en la
+-- misma fila, el WAL y los respaldos de antes del borrado contienen ambas, y con IRIS_CLAVE_CIFRADO
+-- se pueden abrir (riesgo bajo aceptado; docs/runbooks/respaldos.md). La rotación de la clave solo
+-- vuelve a cifrar la llave.
 ALTER TABLE integracion.datos_transito
     ADD COLUMN llave_cifrada bytea,
     ADD CONSTRAINT datos_transito_llave_check CHECK ((llave_cifrada IS NULL) = (cifrado IS NULL)) NOT VALID;

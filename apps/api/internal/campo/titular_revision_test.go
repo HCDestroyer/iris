@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
@@ -30,6 +31,13 @@ func (e *entornoTitular) versionPendiente(clave string) int32 {
 func (e *entornoTitular) versionOrden(id int64) int32 {
 	e.t.Helper()
 	return deber(e.m.VerOrden.Ejecutar(e.cs, campo.EntradaVerOrden{ID: id}))(e.t).Version
+}
+
+// fallarOrdenEnLaBase: la orden falla mientras una llamada de su paso está en curso.
+func (e *entornoTitular) fallarOrdenEnLaBase(id int64) {
+	if _, err := pruebas.Pool(e.t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'fallida', finalizada_en = now(), resultado = 'fallida', motivo_falla = 'cliente_rechaza', version = version + 1 WHERE id = $1", id); err != nil {
+		e.t.Error(err)
+	}
 }
 
 func (e *entornoTitular) cerradaConCargo(orden string) {
@@ -167,19 +175,17 @@ func TestTitularCancelarDetieneLosPasos(t *testing.T) {
 		t.Fatalf("tras reabrir: %+v", est)
 	}
 
-	// Un paso en curso al fallar la orden termina; si queda hecho, avisa a supervisión.
+	// Un paso que está saliendo cuando la orden falla termina; si queda hecho, avisa a supervisión.
 	p := e.instalacion(tec, ct, true)
 	ordenP := strconv.FormatInt(p.ID, 10)
 	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, p.ID, datosCambioTitular())), "aplicada")
-	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.pendientes SET estado = 'en_curso', tomado_en = now() - interval '1 hour' WHERE idempotency_key = $1",
-		"iris:titular:"+ordenP+":1"); err != nil {
-		t.Fatal(err)
-	}
-	esperar(t, e.lote(ct, op(campo.OpFallar, p.ID, map[string]any{"motivoFalla": "cliente_rechaza"})), "aplicada")
-	if pt := e.pendiente("iris:titular:" + ordenP + ":1"); pt.Estado != pendientes.EstadoEnCurso {
-		t.Fatalf("lo en curso no se toca: %+v", pt)
-	}
+	e.falso.fijarAlRecibir(func(ruta string) {
+		if strings.HasSuffix(ruta, "/cambiar-titular") {
+			e.fallarOrdenEnLaBase(p.ID)
+		}
+	})
 	e.procesar()
+	e.falso.fijarAlRecibir(nil)
 	if pt := e.pendiente("iris:titular:" + ordenP + ":1"); pt.Estado != pendientes.EstadoHecho {
 		t.Fatalf("el en curso termina: %+v", pt)
 	}
@@ -208,6 +214,7 @@ func TestTitularResueltoAManoConfirmaElCliente(t *testing.T) {
 		sinPermiso := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), e.sup, 1, nucleo.PermIntegracionesResolverPendiente, nucleo.PermIntegracionesVerPendientes)
 		_, err := e.pend.ResolverManual.Ejecutar(sinPermiso, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave), Motivo: "Lo corregí en Argos"})
 		problema(t, err, 403, "prohibido")
+		e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
 		deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
 			Motivo: "Lo corregí en Argos a mano", ClienteID: cliente}))(t)
 		e.cerradaConCargo(orden)
@@ -343,4 +350,137 @@ func TestTitularRevisionSeguridad(t *testing.T) {
 		t.Fatalf("el panel ve el motivo libre: %s", crudo)
 	}
 	sinSensibles(t)
+}
+
+// llamadasCon cuenta las escrituras que recibió el Argos falso con esa clave.
+func (e *entornoTitular) llamadasCon(clave string) int {
+	n := 0
+	for _, l := range e.falso.recibidas() {
+		if l.Clave == clave {
+			n++
+		}
+	}
+	return n
+}
+
+func (e *entornoTitular) resueltoComo(clave string) string {
+	e.t.Helper()
+	var como *string
+	if err := pruebas.Pool(e.t).QueryRow(context.Background(), "SELECT resuelto_como FROM integracion.pendientes WHERE idempotency_key = $1", clave).Scan(&como); err != nil {
+		e.t.Fatal(err)
+	}
+	if como == nil {
+		return ""
+	}
+	return *como
+}
+
+// N1 (segunda revisión): un paso en curso cuando la orden falla no vuelve a la cola tras un 503 ni
+// sale después; uno que se retoma con la orden ya fallida nunca se manda.
+func TestTitularEnCursoNoSaleConLaOrdenFallida(t *testing.T) {
+	e := nuevoEntornoTitular(t)
+	tec, ct := e.tecnicoEnEmpresa()
+
+	// La orden falla mientras A39 está saliendo y Argos responde 503.
+	o := e.instalacion(tec, ct, true)
+	clave := "iris:titular:" + strconv.FormatInt(o.ID, 10) + ":1"
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o.ID, datosCambioTitular())), "aplicada")
+	e.falso.rechazar("/cambiar-titular", "503")
+	e.falso.fijarAlRecibir(func(ruta string) {
+		if strings.HasSuffix(ruta, "/cambiar-titular") {
+			e.fallarOrdenEnLaBase(o.ID)
+		}
+	})
+	e.procesar()
+	e.falso.fijarAlRecibir(nil)
+	if p := e.pendiente(clave); p.Estado != pendientes.EstadoResueltoManual || e.resueltoComo(clave) != pendientes.ComoFallida {
+		t.Fatalf("el 503 con la orden fallida no vuelve a la cola: %+v", p)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.datos_transito WHERE orden_id = $1 AND cifrado IS NULL AND motivo_borrado = 'cancelado'", o.ID); n != 1 {
+		t.Fatalf("depósito borrado: %d", n)
+	}
+	e.reloj.avanzar(3 * time.Hour)
+	e.procesar()
+	if n := e.llamadasCon(clave); n != 1 {
+		t.Fatalf("salió otra vez con la orden fallida: %d", n)
+	}
+
+	// En curso (el worker cayó) al fallar la orden: al retomarlo, no se manda.
+	o2 := e.instalacion(tec, ct, true)
+	clave2 := "iris:titular:" + strconv.FormatInt(o2.ID, 10) + ":1"
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o2.ID, datosCambioTitular())), "aplicada")
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.pendientes SET estado = 'en_curso', tomado_en = $2 WHERE idempotency_key = $1",
+		clave2, e.reloj.ahora().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	esperar(t, e.lote(ct, op(campo.OpFallar, o2.ID, map[string]any{"motivoFalla": "cliente_rechaza"})), "aplicada")
+	e.procesar()
+	if n := e.llamadasCon(clave2); n != 0 {
+		t.Fatalf("un paso de una orden fallida salió: %d", n)
+	}
+	if p := e.pendiente(clave2); p.Estado != pendientes.EstadoResueltoManual || e.resueltoComo(clave2) != pendientes.ComoFallida {
+		t.Fatalf("retomado con la orden fallida: %+v", p)
+	}
+}
+
+// N2 y N3 (segunda revisión): el A39 y el cierre en el mismo lote; el A39 se resuelve a mano después
+// del cierre: el consumo y el cobro no salen sin el cliente confirmado, y el cliente se valida.
+func TestTitularResueltoAManoTrasElCierre(t *testing.T) {
+	e := nuevoEntornoTitular(t)
+	tec, ct := e.tecnicoEnEmpresa()
+
+	// Sin clienteId: el consumo del mismo lote queda incompleto y no sale.
+	o := e.instalacion(tec, ct, true)
+	orden := strconv.FormatInt(o.ID, 10)
+	e.falso.rechazar("/cambiar-titular", "validacion")
+	ops := append([]campo.OperacionLote{op(campo.OpCambiarTitular, o.ID, datosCambioTitular())}, trabajoDeInstalacion(o.ID)[2:]...)
+	esperar(t, e.lote(ct, ops...), repetir(len(ops), "aplicada")...)
+	e.relay()
+	e.procesar()
+	if c := e.pendiente("iris:consumo:" + orden); c.Estado != pendientes.EstadoBloqueado {
+		t.Fatalf("consumo bloqueado tras el rechazo: %+v", c)
+	}
+	clave := "iris:titular:" + orden + ":1"
+	deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: e.pendiente(clave).ID, Version: e.versionPendiente(clave), Motivo: "Lo corregí en Argos a mano"}))(t)
+	c := e.pendiente("iris:consumo:" + orden)
+	if c.Estado != pendientes.EstadoFallidoNegocio || c.Codigo == nil || *c.Codigo != "titular_resuelto_a_mano" {
+		t.Fatalf("consumo sin cliente confirmado: %+v", c)
+	}
+	e.procesar()
+	if n := e.llamadasCon("iris:consumo:" + orden); n != 0 {
+		t.Fatalf("el consumo salió con el titular resuelto a mano: %d", n)
+	}
+
+	// Con clienteId: se valida contra Argos (o la instantánea) en la empresa del pendiente.
+	o2 := e.instalacion(tec, ct, true)
+	orden2 := strconv.FormatInt(o2.ID, 10)
+	e.falso.rechazar("/cambiar-titular", "validacion")
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o2.ID, datosCambioTitular())), "aplicada")
+	e.cerradaConCargo(orden2)
+	e.procesar()
+	clave2 := "iris:titular:" + orden2 + ":1"
+	resolver := func(cliente int64) error {
+		_, err := e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: e.pendiente(clave2).ID, Version: e.versionPendiente(clave2),
+			Motivo: "Lo corregí en Argos a mano", ClienteID: &cliente})
+		return err
+	}
+	// Argos no lo conoce y la instantánea tampoco: no se acepta.
+	problema(t, resolver(888), 422, pendientes.CodigoClienteNoEsTitular)
+	// Otro cliente (titular de otro servicio) u otra empresa: 422.
+	e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
+	problema(t, resolver(777), 422, pendientes.CodigoClienteNoEsTitular)
+	e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":2,"cliente_id":888}`)
+	problema(t, resolver(888), 422, pendientes.CodigoClienteNoEsTitular)
+	// El titular actual en la empresa del pendiente: el cobro va a su nombre y los dos salen.
+	e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
+	if err := resolver(888); err != nil {
+		t.Fatal(err)
+	}
+	e.procesar()
+	if l := e.falso.porClave("iris:cargo:" + orden2); l == nil || l.JSON["cliente_id"] != 888.0 {
+		t.Fatalf("cobro al cliente confirmado: %+v", l)
+	}
+	if n := e.llamadasCon("iris:consumo:" + orden2); n != 1 {
+		t.Fatalf("el consumo sale con el cliente confirmado: %d", n)
+	}
 }

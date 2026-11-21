@@ -357,6 +357,11 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 					"Solo se resuelve a mano lo que Argos rechazó (fallido_negocio); está "+f.Estado+
 						": lo agotado se reintenta y lo bloqueado espera a su dependencia")
 			}
+			if in.ClienteID != nil {
+				if err := m.clienteEsTitular(ctx, t, f, *in.ClienteID); err != nil {
+					return Pendiente{}, err
+				}
+			}
 			dependientes, err := q.DependientesAbiertos(ctx, f.ID)
 			if err != nil {
 				return Pendiente{}, err
@@ -407,8 +412,13 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 					}
 				}
 			}
+			// Un cambio de titular resuelto a mano: su consumo y su cobro esperan el cliente final.
+			tocados, err := titularAManoEnDependientes(ctx, t, f, dependientes, in.ClienteID, ahora)
+			if err != nil {
+				return Pendiente{}, err
+			}
 			for _, d := range dependientes {
-				if d.PorResolver {
+				if d.PorResolver && !tocados[d.ID] {
 					if err := m.fallarPorResolucionManual(ctx, t, q, d, f.ID); err != nil {
 						return Pendiente{}, err
 					}

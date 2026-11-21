@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -333,6 +334,150 @@ func DetenerPasos(ctx context.Context, t *auditoria.Tx, orden int64, como string
 		}
 	}
 	return ids, nil
+}
+
+// CodigoClienteNoEsTitular: el clienteId al resolver a mano un cambio de titular no es el titular
+// actual del servicio según Argos (o su instantánea), en la empresa del pendiente.
+const CodigoClienteNoEsTitular = "cliente_no_es_titular"
+
+// clienteEsTitular comprueba que cliente sea el titular actual del servicio del cambio de titular f:
+// lo lee de Argos (GET /servicios/:id) y, si Argos no responde, de la instantánea; siempre en la
+// empresa del pendiente. Si no coincide (o no se sabe), 422 cliente_no_es_titular.
+func (m *Modulo) clienteEsTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, cliente int64) error {
+	noEs := nucleo.ReglaNegocio(CodigoClienteNoEsTitular, "Ese cliente no es el titular actual del servicio en Argos (en la empresa del pendiente)")
+	partes := strings.Split(strings.Trim(f.Ruta, "/"), "/")
+	if len(partes) < 2 || partes[0] != "servicios" || f.EmpresaID == nil {
+		return noEs
+	}
+	sid, err := strconv.ParseInt(partes[1], 10, 64)
+	if err != nil {
+		return noEs
+	}
+	var actual, empresa int64
+	leido := false
+	if m.cfg.Argos != nil {
+		if c, err := m.cfg.Argos.ClienteActivo(ctx, t); err == nil {
+			if s, err := c.ObtenerServicio(ctx, sid); err == nil {
+				actual, empresa, leido = s.ClienteID, s.EmpresaID, true
+			}
+		}
+	}
+	if !leido {
+		s, err := pendientesbd.New(t).ServicioArgosInstantanea(ctx, sid)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return noEs
+		}
+		if err != nil {
+			return err
+		}
+		actual, empresa = s.ClienteID, s.EmpresaID
+	}
+	if actual != cliente || empresa != *f.EmpresaID {
+		return noEs
+	}
+	return nil
+}
+
+// titularAManoEnDependientes: al resolver a mano un cambio de titular, su consumo y su cobro (de la
+// misma orden, que lo esperaban) no salen con un titular sin confirmar: sin cliente quedan
+// incompletos; con el cliente, el cobro va a su nombre y los dos siguen. Devuelve los que tocó.
+func titularAManoEnDependientes(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente,
+	dependientes []pendientesbd.IntegracionPendiente, cliente *int64, ahora time.Time) (map[int64]bool, error) {
+	tocados := map[int64]bool{}
+	if f.Operacion != OpCambiarTitular {
+		return tocados, nil
+	}
+	q := pendientesbd.New(t)
+	for _, d := range dependientes {
+		if d.Entidad != f.Entidad || d.EntidadID != f.EntidadID || (d.Operacion != OpConsumo && d.Operacion != OpCargo) {
+			continue
+		}
+		tocados[d.ID] = true
+		if cliente == nil {
+			g, err := q.FallarPorTitularAMano(ctx, pendientesbd.FallarPorTitularAManoParams{Motivo: MotivoTitularResueltoAMano, ID: d.ID})
+			if err != nil {
+				return nil, err
+			}
+			t.RegistrarCambios("pendiente", g.ID, map[string]any{"estado": d.Estado}, map[string]any{"estado": g.Estado, "codigo_error": "titular_resuelto_a_mano"})
+			if err := t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(g), Intentos: g.Intentos, Detalle: MotivoTitularResueltoAMano}); err != nil {
+				return nil, err
+			}
+			if err := bloquearDependientes(ctx, t, g.ID, g.Estado); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if d.Operacion != OpCargo {
+			continue // el consumo sigue (Argos lo cobra por el servicio)
+		}
+		base := d.Payload
+		if d.PorResolver && len(d.Plantilla) > 0 {
+			base = d.Plantilla
+		}
+		var cuerpo map[string]any
+		if err := json.Unmarshal(base, &cuerpo); err != nil {
+			return nil, err
+		}
+		cuerpo["cliente_id"] = *cliente
+		nuevo, err := json.Marshal(cuerpo)
+		if err != nil {
+			return nil, err
+		}
+		if tieneMarcadores(nuevo) {
+			return nil, fmt.Errorf("pendientes: el cargo %d tiene otros marcadores", d.ID)
+		}
+		g, err := q.FijarClienteCargo(ctx, pendientesbd.FijarClienteCargoParams{Payload: nuevo, Ahora: ahora, ID: d.ID})
+		if err != nil {
+			return nil, err
+		}
+		t.RegistrarCambios("pendiente", g.ID, map[string]any{"cliente_id": "titular"}, map[string]any{"cliente_id": *cliente})
+	}
+	return tocados, nil
+}
+
+// ordenTerminada: si f es un paso del titular y su orden está cancelada o fallida, devuelve cómo
+// (ComoCancelada o ComoFallida); si no, "".
+func ordenTerminada(ctx context.Context, q *pendientesbd.Queries, f pendientesbd.IntegracionPendiente) (string, error) {
+	if !slices.Contains(OperacionesTitular, f.Operacion) || f.Entidad != "orden" {
+		return "", nil
+	}
+	orden, err := strconv.ParseInt(f.EntidadID, 10, 64)
+	if err != nil {
+		return "", nil
+	}
+	estado, err := q.EstadoDeOrden(ctx, orden)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	switch {
+	case err != nil:
+		return "", err
+	case estado == "cancelada":
+		return ComoCancelada, nil
+	case estado == "fallida":
+		return ComoFallida, nil
+	}
+	return "", nil
+}
+
+// detenerEnCurso: el paso en_curso de una orden ya cancelada o fallida no terminó bien (o no se
+// mandó): queda resuelto_manual con ese motivo, su depósito se borra y se avisa.
+func detenerEnCurso(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, como string, ahora time.Time) (Pendiente, error) {
+	g, err := pendientesbd.New(t).DetenerEnCurso(ctx, pendientesbd.DetenerEnCursoParams{Motivo: como, Ahora: ahora, ID: f.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return aPendiente(f), nil // ya no estaba en curso
+	}
+	if err != nil {
+		return Pendiente{}, err
+	}
+	t.RegistrarCambios("pendiente", g.ID, map[string]any{"estado": f.Estado}, map[string]any{"estado": g.Estado, "resuelto_como": como})
+	if err := borrarTransito(ctx, t, g, "cancelado", ahora); err != nil {
+		return Pendiente{}, err
+	}
+	return aPendiente(g), t.Emitir(EventoResueltoManual, eventoResueltoManual{
+		PendienteID: g.ID, Operacion: g.Operacion, Entidad: g.Entidad, EntidadID: g.EntidadID,
+		IdempotencyKey: g.IdempotencyKey, De: f.Estado, Motivo: como,
+	})
 }
 
 // --- Purga diaria del depósito de tránsito (job propio, único por día) -----------------------

@@ -144,7 +144,8 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   esperar a la nueva; la vieja queda `resuelto_manual`). `DarPorValidado`: la validación desde el panel
   sin la foto deja el paso resuelto y libera la activación.
 - Revisión de seguridad (#273): el consumo también espera a los pasos; cada depósito con su llave de
-  datos (`llave_cifrada`, cifrada con IRIS_CLAVE_CIFRADO y destruida al borrar; datos asociados
+  datos (`llave_cifrada`, cifrada con IRIS_CLAVE_CIFRADO y borrada con el depósito; como viven en la
+  misma fila, el WAL y los respaldos anteriores conservan las dos: ver `docs/runbooks/respaldos.md`; datos asociados
   `transito:<uuid>:<orden>:<empresa>` verificados con la orden y la empresa del pendiente; la rotación
   solo vuelve a cifrar la llave); purga en un job diario propio (`ArgsPurgarTransito`);
   `resuelto_como` distingue a mano, reemplazado, cancelado y validado; un A39 resuelto a mano deja el
@@ -152,3 +153,9 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   `ordenes.validar_identidad`; `titular_no_coincide` marca la orden en revisión; un paso hecho con la
   orden cancelada o fallida emite `orden.paso_titular_tras_cancelar`; `motivo` (A39) y
   `motivo_texto` (A40) no se ven en el panel.
+- Segunda revisión (#273): un paso del titular de una orden cancelada o fallida nunca sale (se mira
+  antes de enviar y al guardar el resultado: lo que no salió bien queda `resuelto_manual` con
+  `orden_cancelada` u `orden_fallida` y se borra su depósito); resolver a mano un `cambiar_titular`
+  deja su consumo y su cobro incompletos o, con `clienteId`, reescribe el cobro; `clienteId` debe ser
+  el titular actual del servicio según Argos (o la instantánea) en la empresa del pendiente
+  (`422 cliente_no_es_titular`).

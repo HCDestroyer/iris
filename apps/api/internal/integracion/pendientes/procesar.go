@@ -95,6 +95,14 @@ type resultadoIntento struct {
 // intentar hace la llamada a Argos y clasifica el resultado.
 func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendiente) resultadoIntento {
 	r := resultadoIntento{ID: f.ID}
+	// Un paso del titular de una orden ya cancelada o fallida no sale (lo detiene el resolver).
+	if como, err := ordenTerminada(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f); err != nil {
+		r.Error = "no se pudo leer la orden: " + err.Error()
+		return r
+	} else if como != "" {
+		r.Error = "la orden se canceló o falló: el paso del titular no sale"
+		return r
+	}
 	if m.cfg.Argos == nil {
 		r.Error = "conector Argos no configurado en el worker"
 		return r
@@ -404,6 +412,17 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			t.FijarEntidad("pendiente", antes.ID)
 			if antes.EmpresaID != nil {
 				t.FijarEmpresa(*antes.EmpresaID)
+			}
+			// Paso del titular de una orden cancelada o fallida: si no salió bien, queda detenido (no
+			// vuelve a la cola: un 503 lo reintentaría con la orden ya terminada).
+			if !in.Exito && antes.Estado == EstadoEnCurso {
+				como, err := ordenTerminada(ctx, q, antes)
+				if err != nil {
+					return Pendiente{}, err
+				}
+				if como != "" {
+					return detenerEnCurso(ctx, t, antes, como, in.ahora)
+				}
 			}
 			p := pendientesbd.ResolverPendienteParams{ID: in.ID, ProximoIntento: in.ahora, UltimoStatus: in.Status}
 			evento, payload := "", any(nil)
