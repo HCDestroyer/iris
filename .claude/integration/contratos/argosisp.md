@@ -1,4 +1,4 @@
-Versión: 0.12.1 (21 nov 2026) · Iris ↔ ArgosISP
+Versión: 0.13.0 (21 nov 2026) · Iris ↔ ArgosISP
 
 # Contrato de integración Iris ↔ ArgosISP (copia de ArgosISP)
 
@@ -16,6 +16,7 @@ Versión: 0.12.1 (21 nov 2026) · Iris ↔ ArgosISP
 - **0.11.0 (21 nov 2026): minor y aditiva sobre la 0.10.1, pedida por el PM y acordada con Argos; pendiente de implementar en los dos lados.** Bodega de cuadrilla (A47 y B26, §3.9; decisiones del PM en §10.6).
 - **0.12.0 (21 nov 2026): minor y aditiva sobre la 0.11.0, pedida por el PM y acordada con Argos; pendiente de implementar en los dos lados.** Equipos del cliente con la consistencia de Argos: cambio de equipo en una transacción, estados de la unidad, revisión, garantía y equipos no recuperados (A48 y B27, §3.10; decisiones del PM en §10.7).
 - **0.12.1 (21 nov 2026): parche aditivo sobre la 0.12.0, acordado con Argos; pendiente de implementar en los dos lados.** Clave del consentimiento por número (§6.4) y tickets del portal pedidos por un contacto de un servicio a cargo (§11, B28; §10.8).
+- **0.13.0 (21 nov 2026): minor y aditiva sobre la 0.12.1, decidida por el PM y acordada con Argos; pendiente de implementar en los dos lados.** Caídas repetidas con umbral de Iris y falla general (§3.11), gestiones de cobro (§3.12) y lectura de plantillas de WhatsApp desde Argos (§6.7). Decisiones del PM en §10.9.
 
 ## 0. Principios
 
@@ -46,6 +47,7 @@ Iris guarda, cifrado y de solo escritura, un token de Argos `atk_…` del usuari
 - **0.9.0, cobro de la instalación (§3, A36):** sin permisos nuevos. El cargo único sigue con `facturas.emitir_cargo_unico` (arriba), más la lectura `GET /conceptos-cargo` del catálogo de conceptos. El token de Iris **no** tiene `facturas.cargo_sin_costo`: Iris nunca pide cargos en Q0.
 - **0.10.0 (§3.4):** `servicios.reservar_ip`, `servicios.cambiar_titular`, `servicios.cambiar_plan_pendiente`, `clientes.registrar_identidad` y `servicios.completar_datos`. Son permisos nuevos (Argos migra los tokens que ya existen) y solo valen sobre servicios `pendiente_instalacion` con una orden de Iris en curso. El token de Iris **no** recibe un permiso general para editar clientes ni `clientes.ver_identidad`: sube la identidad y no la puede leer.
 - **0.12.0 (§3.10):** `servicios.cambiar_equipo` (cambiar un equipo y registrar un intento de recuperación) e `inventario.ver_unidad` (leer una unidad). Son permisos nuevos (Argos migra los tokens). Con contrato ≥ 0.12.0, Argos rechaza `…/perdida` con el token de Iris (`403`) y la misma migración le **retira** `inventario.declarar_perdida_comodato`: declarar una pérdida lo decide una persona en Argos.
+- **0.13.0 (§3.11, §3.12):** `incidentes_red.leer` (leer los servicios afectados de una falla general) y `clientes.registrar_gestion_cobro`. Son permisos nuevos (Argos migra los tokens).
 - **0.10.0, contactos (§3.5, A42):** `contactos.buscar` y `contactos.gestionar` (nuevos, con migración de tokens). Con `contactos.gestionar` el token de Iris nunca crea ni edita un titular (§3.5).
 
 El usuario técnico Iris solo tiene alcance por empresas (o global), nunca por zona ni router: una lista completa y vacía significa sin servicios. Argos lo hace cumplir: un token, un rol o un correo que le darían alcance por zona o router responde `422 usuario_tecnico_solo_empresas`, y el canje nunca emite un token así.
@@ -61,6 +63,8 @@ Token `iris_pat_<32B base62>` con `tickets.ver`, `tickets.crear`, `ordenes.ver`,
 **0.10.0:** el token de arriba (no el `token_portal`) suma `prospectos.registrar_integracion` para registrar prospectos (§3.6, A44). No lee, no lista ni edita prospectos.
 
 **0.11.0:** el mismo token suma `cuadrillas.leer_integracion` para `GET /integraciones/argosisp/cuadrillas/:id` (§3.9), solo en las empresas del alcance del conector (fuera, `404`).
+
+**0.13.0:** el mismo token suma `plantillas_whatsapp.leer_integracion` para `GET /integraciones/argosisp/plantillas-whatsapp` (§6.7), solo en las empresas del alcance del conector.
 
 ### 1.3 Webhooks, enlace de conexión y autologin
 
@@ -236,7 +240,7 @@ Iris guarda en `integracion.argos_clientes` y `integracion.argos_servicios` solo
 | `servicio.creado`, `servicio.config_cambiada`, `asignacion.cambiada`. Los `campos[]` de `servicio.config_cambiada` (solo nombres, nunca valores) son: `plan`, `ips`, `prefijo_v6`, `router`, `tipo_conexion`, `mac`, `amarre_ip_mac`, `empresa`, `servidor_pppoe` y `credenciales` (cambió `user_ppp` o la clave PPP; la clave nunca viaja). Desde 0.8.0 también `precio`: cambió `costo_override`, o empezó o terminó un plan temporal con otro precio (hoy ese cambio no emite nada). `asignacion.cambiada` trae `ipv4[]`, una lista | Refresca la instantánea del servicio releyendo `GET /servicios/:id`. |
 | `servicio.estado_cambiado` | Refresca el estado. Con `a = retirado`, propone una orden de retiro si el servicio tiene equipos en comodato. |
 | `inventario.equipo_por_recuperar` | Crea una orden de retiro (`origen = argos`), si no hay una abierta para esa unidad. |
-| `servicio.caidas_repetidas` (pedido A6): servicio_id, empresa_id, cliente_id, router_id, sesion_id, sesiones, desde, hasta, umbral, ventana_minutos, causas. Por defecto 5 sesiones terminadas en 120 min, a lo sumo una vez por servicio y ventana; no cuentan los cortes que manda Argos ni los reinicios del NAS | Sugiere un ticket proactivo. |
+| `servicio.caidas_repetidas` (pedido A6): servicio_id, empresa_id, cliente_id, router_id, sesion_id, sesiones, desde, hasta, umbral, ventana_minutos, causas. Por defecto 5 sesiones terminadas en 120 min, a lo sumo una vez por servicio y ventana; no cuentan los cortes que manda Argos ni los reinicios del NAS. **Desde 0.13.0 (A49)**, a conectores con contrato ≥ 0.13.0 con umbral de 3 caídas en 60 min, configurable por empresa en Argos | Desde 0.13.0, Iris aplica su umbral por empresa y abre un ticket por servicio (o suma una nota al abierto de esa categoría), §3.11. |
 | `servicio.eliminado` (0.3.1): servicio_id, empresa_id, cliente_id, router_id. Solo servicios que nunca se usaron (sin facturas, pagos, sesiones ni otro historial); en Argos la fila ya no existe. Llega junto con un `asignacion.cambiada` de ips vacías. Solo si `empresa_id` está en el alcance del usuario técnico | Quita la instantánea del servicio y refresca la lista de servicios del cliente (`cliente_id`). Órdenes y tickets que lo referencian conservan su copia y lo muestran «eliminado en Argos». Un evento atrasado de ese servicio no recrea la instantánea; `GET /servicios/:id` responde 404 (esperado, no se reintenta; ver «Confirmar un borrado» abajo). |
 | `router.eliminado` (0.3.1): router_id, empresa_id (empresa sugerida del router, o null = router compartido, que llega a cualquier alcance; con empresa, solo si está en el alcance). Solo routers sin historial | Quita el router de factibilidad (router o nodo sugerido); una factibilidad ya evaluada conserva el id. `GET /routers/:id` responde 404 (ver «Confirmar un borrado» abajo). |
 | `comprobante.aprobado` / `comprobante.rechazado` (0.6.0): forma en §7.2. Solo a conectores con contrato ≥ 0.6.0 | Resuelve la boleta en la conversación y avisa al cliente (§6.3). |
@@ -252,6 +256,7 @@ Iris guarda en `integracion.argos_clientes` y `integracion.argos_servicios` solo
 | `servicio.config_cambiada` y `catalogo.cambiado` (0.10.0, cambios sin forma nueva): `servicio.config_cambiada` lleva además `origen_tipo`/`origen_id` cuando el cambio de plan vino de Iris (§3.4.5); `catalogo.cambiado` de plan suma `modo` y `routers` en `campos[]` | Refresca la instantánea; con `origen_tipo = iris_orden`, no avisa de nuevo al vendedor. |
 | `inventario.equipo_cambiado` (0.12.0, §3.10): servicio_id, cliente_id, empresa_id, sale_unidad_id, entra_unidad_id, motivo, destino_sale, origen (`iris_orden` o null; `origen_id`). Solo a conectores con contrato ≥ 0.12.0 | Actualiza los equipos del servicio en la orden y la ficha. |
 | `inventario.unidad_estado_cambiado` (0.12.0, §3.10): unidad_id, empresa_id, servicio_id (o null), de, a, motivo. Sin costos, proveedor ni RMA. Solo a conectores con contrato ≥ 0.12.0 | Actualiza el estado y el historial del equipo. |
+| `red.falla_general_abierta` / `red.falla_general_cerrada` (0.13.0, A50, §3.11): incidente_id, empresa_id, alcance (`router` \| `olt` \| `pon` \| `zona`), alcance_id, servicios_afectados `{ cantidad, ids[] }` (hasta 5000 ids; el resto con `GET /incidentes-red/:incidente_id/servicios`), desde, hasta (o null). Un evento por empresa afectada (mismo `incidente_id`). Nunca nombres ni direcciones. Solo a conectores con contrato ≥ 0.13.0 | Abre o cierra el ticket general del incidente (§3.11); lee con `GET /servicios/:id` los ids que no conoce y descarta uno por uno los de otra empresa. |
 
 **Confirmar un borrado (0.3.2).** Antes de quitar una instantánea por `servicio.eliminado` o `router.eliminado`, Iris puede confirmar con `GET /api/v1/servicios/:id` o `GET /api/v1/routers/:id`. Solo cuenta como borrado un `404` `application/problem+json` con `type` `urn:argosisp:problema:no_encontrado`. Un servicio de una empresa fuera del alcance del usuario técnico responde `403` (`type` `urn:argosisp:problema:empresa_no_permitida`, o el 403 genérico del ACL), nunca 404, y no es un borrado; los routers no se filtran por empresa (§2.1). Cualquier otra respuesta (5xx, timeout, 401) se reintenta con espera exponencial.
 
@@ -466,6 +471,8 @@ Todas las llamadas llevan `Idempotency-Key`. Cada una queda en `integracion.pend
 | Iris crea un servicio al ganar (§3.2), desde 0.10.0 con `nombre` opcional (A45, §3.7) | `POST /servicios` con `nombre?`; el `codigo` lo pone Argos y vuelve en la respuesta | `iris:servicio:<prospecto_id>` |
 | Un agente de Iris vincula un contacto con otro cliente (0.10.1, A46, §3.8) | `POST /clientes/:id/contactos` o `PUT /contactos/:id` con `persona_cliente_id`, solo si el número es el teléfono verificado de ese cliente | `iris:contacto:<cliente_id>:<contacto_iris_id>` · `iris:contacto:<contacto_id>:<version>` |
 | Un miembro de la cuadrilla usa material o equipos en una orden (0.11.0, A47, §3.9) | `POST /inventario/consumos` con `tecnico { id_externo }`, `bodega_id` elegido en la app (por defecto la de la cuadrilla) y `X-Iris-Actor` del técnico que lo usó; `POST /servicios/:id/equipos` igual pero **sin `bodega_id`** (vale la bodega donde está la unidad) | Las de §3 (`iris:consumo:<orden_id>`, `iris:comodato:<orden_id>:<serie>`) |
+| Un agente o el asistente registra una gestión de cobro con un cliente confirmado (0.13.0, A51, §3.12) | `POST /clientes/:id/gestiones-cobro` con `X-Iris-Actor` (y `X-Iris-Contacto` si habló un contacto) | `iris:gestion:<gestion_id>` |
+| Iris lee los servicios afectados de una falla general con más de 5000 (0.13.0, A50, §3.11) | `GET /incidentes-red/:incidente_id/servicios?empresa_id=&cursor=&limit=` (lectura, sin `X-Iris-Actor`, `limit` ≤ 1000) | — |
 | Cobro de la instalación registrado por un agente o por el formulario de la orden (0.9.0, A36) | `POST /facturas/cargo-unico` con el cuerpo real de Argos: `{ servicio_id, cliente_id?, vence_en?, lineas: [{ concepto_id, precio_unitario, descripcion?, cantidad?, descuentos? }], origen_tipo: "iris_orden", origen_id }`, con `X-Iris-Actor` (§7.1: quien lo registró). No hay `concepto_id`, `monto` ni `descripcion` en la raíz. `concepto_id` es de `GET /conceptos-cargo` (por defecto «Instalación», sembrado por empresa); los conceptos **no tienen precio**: `precio_unitario` (string decimal, bruto con IVA, **> 0**, obligatorio) lo pone Iris, de su plantilla o del formulario de la orden. **Iris nunca manda un cargo en Q0** (exigiría `motivo_sin_costo_id`, `motivo_sin_costo_texto` y `facturas.cargo_sin_costo`, que su token no tiene). Responde `201 CargoUnicoEmitido` sin cambios: Iris lee `factura.id`, `numero`, `estado`, `total` y `moneda` (`documento = bonificacion` es una respuesta posible de Argos, pero Iris nunca la pide). Sale en el momento (no espera al cierre), por la cola de pendientes si Argos falla. El precio que trae la plantilla o el formulario se manda tal cual; cambiarlo exige en Iris el permiso aparte `ordenes.cobro_editar_monto`, con motivo auditado | `iris:cargo:<orden_id>:<cargo_id>` |
 
 **`tecnico` (0.5.0):** ver §3.3.
@@ -815,8 +822,9 @@ Una persona de Argos (oficina, caja o soporte) registra en Iris a alguien intere
 
 - **Respuesta** `201 { prospecto_id, numero, estado, asignado, url_iris }` (`asignado`: bool, ya tiene vendedor). `url_iris` es un **enlace plano** al prospecto en Iris: el ticket de autologin se pide al hacer clic, con el flujo de §1.3, y nunca va dentro de la URL.
 - **Qué hace Iris:** crea el prospecto con origen `argos_panel`, le asigna vendedor por zona y revisa la factibilidad, igual que con las solicitudes del portal (§11.7).
-- **Errores:** `422 plan_no_permitido`, `422 telefonos_invalidos`, `422 cliente_no_valido`; `409 prospecto_duplicado { url_iris }` (sin `prospecto_id`, nombre, vendedor ni **cuál número** coincidió) si **cualquiera** de los números ya está en un prospecto abierto de la empresa: Iris suma el pedido como actividad de ese prospecto; `429` (con `Retry-After`) al pasar **30 números por minuto por actor** (cuenta números, no peticiones) o 300 por minuto por empresa.
+- **Errores:** `422 plan_no_permitido`, `422 telefonos_invalidos`, `422 cliente_no_valido`; `409 prospecto_duplicado { url_iris }` (sin el campo `prospecto_id`, nombre, vendedor ni **cuál número** coincidió; `url_iris` sí incluye el id del prospecto en la ruta, aceptado) si **cualquiera** de los números ya está en un prospecto abierto de la empresa: Iris suma el pedido como actividad de ese prospecto; `429` (con `Retry-After`) al pasar **30 números por minuto por actor** (cuenta números, no peticiones) o 300 por minuto por empresa.
 - **Al ganar con un cliente nuevo** (§3.2): el número `principal` pasa a ser el `telefono` del cliente; los números **con `nombre`** se crean como contactos (A42, `POST /clientes/:id/contactos`) con su `relacion`; los números **sin nombre** van como números adicionales del contacto titular **dentro del mismo alta** (`telefonos_adicionales[] { numero, whatsapp }` en el cuerpo de `POST /clientes`), nunca con un `PUT` posterior (Iris no hace `PUT` sobre el contacto titular, §3.5). Ni los números adicionales ni los de los contactos cuentan como «registrados» para §7.5 y §12.4.
+- **Contactos que nacen de un prospecto** (implementación de B23): `Idempotency-Key = iris:contacto:<cliente_id>:pt<id del teléfono>` (el id es el de la fila de `comercial.prospecto_telefonos`, único para cada prospecto); se crean con todos los permisos (decisión 7 del PM, §10.5) y solo sobre el servicio nuevo (`servicios: [<servicio_id>]`).
 - **Al ganar con `cliente_id`** (cliente existente): Iris **no crea ni edita** el cliente: el `principal` y los números sin nombre no se escriben en él. Los números con `nombre` se crean como contactos (A42); los demás quedan solo en el prospecto.
 - **En el chat** (P2): un número del prospecto que no es el principal lo ubica, pero no ve la cotización, la dirección ni el plan hasta confirmar con un código enviado al principal.
 - **Webhook a Argos (opcional para Argos):** `prospecto.estado_cambiado { prospecto_id, empresa_id, de, a, motivo_codigo }` (§6.6), solo de prospectos con origen `argos_panel` y sin datos personales.
@@ -959,10 +967,60 @@ Pedido del PM: «Iris con la misma consistencia de equipos que Argos» (§10.7).
 - La orden y la ficha del cliente muestran el estado de cada equipo y su historial, sin costos.
 - **Con Argos < 0.12.0**, «No se pudo recuperar» queda pendiente en Iris para una persona con `ordenes.declarar_perdida` (rol supervisor); nunca sale solo desde el cierre.
 
+### 3.11 Caídas repetidas y falla general (0.13.0, A49, A50)
+
+Decisiones del PM en §10.9.
+
+**Caídas repetidas por servicio (A49).**
+
+- Argos emite `servicio.caidas_repetidas` (§2.3, A6) con el conteo (`sesiones`) y la ventana (`desde`, `hasta`, `ventana_minutos`). Desde 0.13.0, con contrato ≥ 0.13.0, su umbral es **3 caídas en 60 min**, configurable por empresa en Argos (confirmado por Argos).
+- **Iris decide** si abre un ticket, con su propio umbral por empresa (de fábrica, 3 en 60 min). Abre como máximo **uno por servicio** mientras siga abierto el de esa categoría; si ya hay uno abierto, el aviso entra como nota en ese ticket.
+- **Si el servicio ya está en una falla general abierta**, no abre un ticket: agrega una nota en el ticket general.
+- **Posible falla general:** si en una empresa hay más de N tickets de caídas en 10 min (20 de fábrica, configurable), Iris deja de abrirlos, los agrupa en un ticket de «posible falla general» y avisa a supervisión. Cuando llega la falla general, los tickets ya abiertos de esos servicios pasan a ser sus hijos.
+
+**Falla general (A50).**
+
+- Eventos Argos → Iris `red.falla_general_abierta` y `red.falla_general_cerrada` (§2.3): `incidente_id`, `empresa_id`, `alcance` (`router`, `olt`, `pon`, `zona`), `alcance_id`, `servicios_afectados { cantidad, ids[] }` (hasta **5000** ids), `desde` y `hasta` (o null mientras sigue abierta). **Un evento por empresa afectada**, con el mismo `incidente_id` y distinto `empresa_id`.
+- Con más de 5000 afectados, Iris pide el resto con `GET /api/v1/incidentes-red/:incidente_id/servicios?empresa_id=&cursor=&limit=` **en Argos** (permiso `incidentes_red.leer` del usuario técnico Iris, §1.1; sin `X-Iris-Actor`; Argos la audita con actor `token`). Devuelve solo ids de las empresas del alcance: `{ data: [servicio_id…], nextCursor }`, con `limit` hasta 1000. Un incidente fuera del alcance responde `404`.
+- **Seguridad:** el evento nunca lleva nombres ni direcciones, solo ids; Iris solo lo acepta por el webhook firmado de Argos (§2.3). Si Iris no conoce un id, lo lee con `GET /servicios/:id` antes de vincularlo; si es de otra empresa o no existe, lo descarta (uno por uno; el resto del evento se procesa). Argos registra quién abrió a mano un incidente y con qué motivo.
+- **En Iris:**
+    - un solo ticket general por `incidente_id`, de forma idempotente, con los afectados vinculados; si el mismo `alcance_id` vuelve a abrir un incidente antes de 30 min, se reusa el ticket general;
+    - mientras siga abierto, absorbe solo los tickets **de conectividad** de servicios que estén en `servicios_afectados` y que se hayan creado **después de `desde`** (nacen hijos, como los maestros de Horus); la bandeja puede responder con el aviso de falla general;
+    - si Horus ya avisó `horus.router_estado_cambiado` del mismo router, el ticket general se vincula al maestro de Horus y no se crea otro;
+    - el aviso automático «hay una falla en tu zona» solo va a números asociados a un cliente, sin decir el servicio ni la dirección;
+    - al cerrarse, Iris cierra el ticket general; los tickets hijos **no se cierran solos**: pasan a «verificar con el cliente», o se resuelven solo si Horus o la sesión PPP confirman que el servicio está arriba;
+    - cada cliente recibe **un solo aviso de cierre por incidente**, y como máximo 1 cada 6 h, con las reglas de §6.5 (permiso, baja, ventana o plantilla).
+
+### 3.12 Gestiones de cobro (0.13.0, A51)
+
+`POST /api/v1/clientes/:id/gestiones-cobro` en Argos (`clientes.registrar_gestion_cobro`), con `X-Iris-Actor` obligatoria (§7.1) e `Idempotency-Key = iris:gestion:<gestion_id>`, donde `gestion_id` es un UUID v7 que Iris genera al registrar la gestión:
+
+```json
+{
+  "tipo": "llamada",
+  "resultado": "promete_pagar",
+  "ocurrido_en": "2026-11-21T16:02:00Z",
+  "origen_tipo": "conversacion",
+  "origen_id": "c-8812",
+  "servicio_id": 4410
+}
+```
+
+- `tipo`: `llamada`, `mensaje`, `visita` o `promesa`. `resultado` es una lista cerrada: `contesto`, `no_contesto`, `numero_equivocado`, `promete_pagar`, `rechaza`, `pago_informado`, `visita_sin_contacto`. `origen_tipo`: `conversacion`, `orden` o `llamada`. `servicio_id` opcional.
+- `ocurrido_en` entre ahora − 7 días y ahora + 5 min; si no, `422 validacion`.
+- **Sin texto libre, montos ni teléfonos.** Una gestión es **solo informativa**: nunca cambia estados, cortes ni promesas en Argos.
+- Con `asistente_ia`, `pago_informado` y `promete_pagar` solo valen si hay una promesa o un comprobante real en esa conversación (lo valida Iris antes de mandarla).
+- Si quien habló es un contacto (§3.5), va `X-Iris-Contacto` (§7.1).
+- Argos valida que el cliente sea de una empresa del alcance (`403 empresa_no_permitida`) y que el servicio sea suyo (`422 validacion`).
+- Idempotencia como §3.1: la misma clave con otro cuerpo responde `422 idempotency_key_reutilizada`.
+- Iris solo la manda cuando la conversación tiene el **cliente confirmado**, nunca para un número sin cliente.
+- `201 { gestion_id }` (el de Argos).
+
 ## 4. Versionado
 
-Semver. Esta versión 0.12.1 es un parche aditivo sobre la 0.12.0, que es una minor aditiva sobre la 0.11.0, que es una minor aditiva sobre la 0.10.1, que es aditiva sobre la 0.10.0, y esta sobre la 0.9.0 (ver «Gobierno»); todas están acordadas con Argos y decididas por el PM, y pendientes de implementar en los dos lados. La 0.8.1 está espejada (`iris#222` y `argos-isp#258`) y salió en Argos 1.21.0. Desde 1.0.0, solo cambios compatibles en versiones menores.
+Semver. Esta versión 0.13.0 es una minor aditiva sobre la 0.12.1, que es un parche aditivo sobre la 0.12.0, que es una minor aditiva sobre la 0.11.0, que es una minor aditiva sobre la 0.10.1, que es aditiva sobre la 0.10.0, y esta sobre la 0.9.0 (ver «Gobierno»); todas están acordadas con Argos y decididas por el PM, y pendientes de implementar en los dos lados. La 0.8.1 está espejada (`iris#222` y `argos-isp#258`) y salió en Argos 1.21.0. Desde 1.0.0, solo cambios compatibles en versiones menores.
 
+- **0.13.0** (21 nov 2026; decidida por el PM, §10.9; acordada con Argos): **A49:** `servicio.caidas_repetidas` con umbral de 3 caídas en 60 min, configurable por empresa; Iris decide y abre un ticket por servicio. **A50:** `red.falla_general_abierta` / `red.falla_general_cerrada` con ids de servicios afectados (hasta 5000) y `GET /api/v1/incidentes-red/:incidente_id/servicios` para el resto; Iris abre un ticket general por incidente. **A51:** `POST /clientes/:id/gestiones-cobro` sin texto libre, montos ni teléfonos. **A52:** Argos lee las plantillas de WhatsApp de Iris (§6.7). Permisos `incidentes_red.leer`, `clientes.registrar_gestion_cobro` (Argos) y `plantillas_whatsapp.leer_integracion` (Iris). Pedidos A49–A52 y B29–B32.
 - **0.12.1** (21 nov 2026; acordada con Argos, §10.8): §6.4, con `telefono` la `Idempotency-Key` del consentimiento es `argos:consentimiento:<empresa_id>:<cliente_id>:whatsapp:<h>:<ocurrido_en>` (`<h>` = 16 primeros hex del HMAC-SHA256 de `"consentimiento:" + número E.164` con el secreto del receptor de webhooks de Iris; el número en claro solo en el cuerpo). §11: `?servicio_id=` en `GET …/portal/tickets`, `X-Iris-Contacto` (`<contacto_id>` o `titular`) en toda ruta de §11 con `X-Iris-Contacto-Version`, `servicio_id` obligatorio, `403 servicio_fuera_del_contacto` con la caché de Iris (relectura y `503` si Argos no responde), los tickets ajenos del servicio solo con número, estado y fechas, y `creado_por_contacto`. Pedido B28.
 - **0.12.0** (21 nov 2026; pedida por el PM, §10.7; acordada con Argos): equipos del cliente (§3.10). **A48:** `POST /servicios/:id/equipos/cambiar` en una transacción (sale en comodato del servicio, entra con la regla de A47, destino de la que sale, `cobro_propuesto` sin monto para la cola de aprobación); estados de la unidad (`disponible`, `en_comodato`, `por_recuperar`, `revision`, `garantia`, `dada_de_baja`, `no_recuperada`); `GET /inventario/unidades/:id` sin costos, proveedor ni RMA; `POST /servicios/:id/equipos/:unidad_id/no-recuperado` (intento, sin declarar la pérdida); eventos `inventario.equipo_cambiado` e `inventario.unidad_estado_cambiado`; permisos `servicios.cambiar_equipo` e `inventario.ver_unidad`. Iris deja de llamar a `…/perdida` desde el cierre. **B27:** órdenes `cambio_equipo` y `retiro` con esos flujos y estado de los equipos en la orden y la ficha. Pedidos A48 y B27.
 - **0.11.0** (21 nov 2026; pedida por el PM, §10.6; acordada con Argos): bodega de cuadrilla (§3.9). **A47:** bodega `tipo = cuadrilla` con `cuadrilla_id_iris`, `jefe_id` y miembros sincronizados desde los webhooks `cuadrilla.creada` / `cuadrilla.actualizada` de Iris (`miembros[]`, `jefe_usuario_id`); `GET /inventario/mi-bodega` con `bodegas[]` (`cuadrilla: true`, `jefe`); consumos y comodatos primero de la cuadrilla, `409 sin_existencia { bodegas[] }`, `actor_tecnico` desde `X-Iris-Actor`; traslados a la cuadrilla los recibe solo el jefe vigente (`403 solo_jefe_recibe`); `403 no_es_miembro`; `cuadrilla_id` en `inventario.traslado_*`. **B26:** jefe de cuadrilla en Iris (`POST /cuadrillas/:id/asignar-jefe`), webhooks `cuadrilla.*` a Argos y bodega de cuadrilla en la app de campo. Pedidos A47 y B26.
@@ -1132,6 +1190,7 @@ La 0.10.0 es aditiva sobre la 0.9.0. Cada lado usa sus funciones **solo si el ot
 | Bodega de cuadrilla (A47 y B26, 0.11.0) | Con Argos < 0.11.0, `mi-bodega` trae solo la bodega personal y los consumos salen de ella como hoy; Iris no muestra la pestaña «Cuadrilla» ni manda `bodega_id` de cuadrilla | Con Iris < 0.11.0, no llegan `cuadrilla.*` con miembros: Argos no crea bodegas de cuadrilla para ese conector |
 | Equipos del cliente (A48 y B27, 0.12.0) | Con Argos < 0.12.0, el cambio sale como devolución más asignación; «No se pudo recuperar» queda pendiente en Iris para una persona con `ordenes.declarar_perdida` (supervisor) y nunca sale solo desde el cierre; Iris no muestra estados ni historial de la unidad | Con Iris < 0.12.0, Argos no envía `inventario.equipo_cambiado` ni `inventario.unidad_estado_cambiado`. Con contrato ≥ 0.12.0, Argos rechaza `…/perdida` con el token de Iris (`403`) |
 | Clave del consentimiento por número y tickets por contacto (0.12.1) | Con Argos < 0.12.1, la clave del consentimiento con `telefono` es la anterior (sin `<h>`) y no llega `X-Iris-Contacto` en el portal: Iris trata la sesión como del titular, como hoy. **Con Argos < 0.12.1, el portal nunca abre a un contacto los tickets de otro cliente** | Con Iris < 0.12.1, un `X-Iris-Contacto` en §11 se ignora y la sesión se ve como del titular: Argos no manda al portal sesiones de contactos con un Iris anterior |
+| Caídas, falla general, gestiones de cobro y plantillas (0.13.0) | Con Argos < 0.13.0: `servicio.caidas_repetidas` llega con el umbral anterior de Argos (5 en 120 min) e Iris aplica el suyo sobre lo que llega; no hay `red.falla_general_*` (Iris sigue con los maestros de Horus); Iris guarda las gestiones de cobro solo en su lado | Con Iris < 0.13.0: Argos no envía `red.falla_general_*`; nadie llama a `gestiones-cobro`; la ruta de plantillas no existe (404) y Argos usa los códigos de §6.3 como hoy |
 
 Errores nuevos: los de §3.4.7.
 
@@ -1183,6 +1242,10 @@ Errores nuevos: los de §3.4.7.
 | A46 | **Un cliente a cargo del servicio de otro** (0.10.1, §3.8): `contactos_cliente.persona_cliente_id` (misma empresa; desde Iris solo con el teléfono verificado de ese cliente); aviso a los dos titulares; vínculo roto al quitar el contacto; `a_cargo` en `GET /contactos/buscar`; validación de `X-Iris-Contacto` (§7.1); pestaña «Contactos» en la ficha y cuentas a cargo aparte en caja; `persona_cliente_id` en `cliente.contactos_cambiados`. | acordado; pendiente en Argos |
 | A47 | **Bodega de cuadrilla** (0.11.0, §3.9): bodega `tipo = cuadrilla` por cuadrilla y empresa, con `jefe_id` y miembros con historial, sincronizados desde `cuadrilla.*` de Iris por `version` (miembros solo activos, técnicos de esa empresa y dentro del alcance, los demás como `miembro_rechazado`; jefe solo si es miembro con I1); `bodega_id` validado antes de mirar existencias (`403 no_es_miembro`); `X-Iris-Actor` obligatoria y `403 actor_no_coincide`; `tecnico` solo por `id_externo`; comodatos y devoluciones sin `bodega_id`, con `409 unidad_en_otra_bodega`; membresía evaluada en `ocurrido_en` (`fuera_de_membresia`); `409 sin_existencia` solo con las bodegas accesibles; recepción solo del jefe en `recibido_en` y aún miembro (`403 solo_jefe_recibe`); `cuadrilla_id` en `inventario.traslado_*`. | acordado; pendiente en Argos |
 | A48 | **Equipos del cliente** (0.12.0, §3.10): `POST /servicios/:id/equipos/cambiar` en una transacción (`X-Iris-Actor` obligatoria y sin el asistente; servicio dentro de las empresas del token, con `origen_id` registrado y auditado; la que entra `disponible` y con la regla de A47; la que sale a la bodega de la que entra, sin baja inmediata; `destino_sale: funciona` no vale con `danado` o `garantia`; `cobro_propuesto` sin monto a la cola de «Equipo no devuelto»); estados de la unidad, nunca instalable fuera de `disponible`; `GET /inventario/unidades/:id` sin costos, proveedor ni RMA, con `servicio` solo del actual y el de la orden; `POST /servicios/:id/equipos/:unidad_id/no-recuperado` (motivo, foto por id opaco obligatoria si se negó o se perdió, ubicación, 1 por unidad al día, aviso al titular, mínimo configurable de intentos de técnicos distintos para declarar `no_recuperada`); ventana de `fecha` con `recibido_en_iris`; `…/perdida` rechazada al token de Iris y `inventario.declarar_perdida_comodato` retirado en la migración; eventos `inventario.equipo_cambiado` e `inventario.unidad_estado_cambiado`; permisos `servicios.cambiar_equipo` e `inventario.ver_unidad`. | acordado; pendiente en Argos |
+| A49 | **Caídas repetidas con umbral de 3 en 60 min** (0.13.0, §3.11): emitir `servicio.caidas_repetidas` a conectores con contrato ≥ 0.13.0 con umbral de 3 caídas en 60 min, configurable por empresa (confirmado por Argos). | acordado; pendiente en Argos |
+| A50 | **Falla general** (0.13.0, §3.11): webhooks `red.falla_general_abierta` / `red.falla_general_cerrada`, uno por empresa afectada, con ids de servicios afectados (hasta 5000) y sin datos personales; `GET /api/v1/incidentes-red/:incidente_id/servicios?empresa_id=&cursor=&limit=` (solo ids del alcance, `limit` ≤ 1000, `404` fuera del alcance, auditada con actor `token`, permiso `incidentes_red.leer`); registro de quién abrió a mano un incidente y por qué. | acordado; pendiente en Argos |
+| A51 | **Gestiones de cobro** (0.13.0, §3.12): `POST /api/v1/clientes/:id/gestiones-cobro` con `tipo`, `resultado` de lista cerrada, `ocurrido_en` (ahora − 7 días a ahora + 5 min), `origen_tipo`, `origen_id` y `servicio_id?`; `X-Iris-Actor` obligatoria y `X-Iris-Contacto` si habló un contacto; `Idempotency-Key = iris:gestion:<gestion_id>` con `422 idempotency_key_reutilizada`; solo informativa; sin texto libre, montos ni teléfonos; permiso `clientes.registrar_gestion_cobro`. | acordado; pendiente en Argos |
+| A52 | **Leer las plantillas de WhatsApp de Iris** (0.13.0, §6.7): usar `GET <iris>/api/v1/integraciones/argosisp/plantillas-whatsapp?empresa_id=` para mostrar qué avisos tienen plantilla aprobada, sin editarlas. | acordado; pendiente en Argos |
 
 ### 5.2 ArgosISP solicita a Iris
 
@@ -1216,6 +1279,10 @@ Errores nuevos: los de §3.4.7.
 | B26 | **Bodega de cuadrilla en Iris** (0.11.0, §3.9): `jefe_usuario_id` con `POST /cuadrillas/:id/asignar-jefe` (`cuadrillas.asignar_jefe`, solo admin y supervisor, `403 autoasignacion`, `422 jefe_no_miembro`); webhooks `cuadrilla.*` a Argos con `empresa_id`, `version`, `miembros[]` completo y `jefe_usuario_id`, también al cambiar `tecnico.cuadrilla_id`, `tecnico.activo`, el vínculo I1 o al desactivar el usuario; `GET /api/v1/integraciones/argosisp/cuadrillas/:id` para conciliar (permiso `cuadrillas.leer_integracion`, `404` fuera del alcance); un evento `cuadrilla.*` por empresa; corte inmediato de lotes de un miembro quitado; `bodega_id` validado en el servidor; en la app, «Mi bodega» con «Cuadrilla» y «Mía», material por defecto de la cuadrilla, `bodega_id` guardado en la cola, `409 sin_existencia` y `403 no_es_miembro` como conflicto sin cambiar de bodega, y «Recibir traslado» solo para el jefe, con `403` en el servidor a otros. | pendiente en Iris |
 | B27 | **Equipos del cliente en Iris** (0.12.0, §3.10): orden `cambio_equipo` con escaneo de la unidad que sale y la que entra, motivo, destino (por defecto «a revisión»), foto y cobro propuesto opcionales, encolada sin señal; orden `retiro` con «Recuperado» (funciona o a revisión) y «No se pudo recuperar» (motivo, foto obligatoria si se negó o se perdió, ubicación en sitio, reprogramar otro intento); `recibido_en_iris` en cada lote y `fecha` no anterior a la asignación; servicio de la orden y orden asignada al actor validados en el servidor; lectura de unidad limitada a `inventario.ver_unidad` y auditada; con Argos < 0.12.0, el no recuperado queda para una persona con `ordenes.declarar_perdida`; estado e historial de cada equipo, sin costos; `orden.cerrada` con `equipos[].accion` `cambio` y `no_recuperado`; conflictos sin reintento automático. | pendiente en Iris |
 | B28 | **Tickets del portal por contacto** (0.12.1, §11.10): `X-Iris-Contacto` (`<contacto_id>` o `titular`) en toda ruta de §11, `400` si falta; caché de contactos con relectura por `X-Iris-Contacto-Version` y `503 argos_no_disponible` si Argos no responde; `servicio_id` obligatorio (`422 validacion`) y `403 servicio_fuera_del_contacto`; sus propios tickets completos y los demás del servicio solo con número, estado, categoría, incidente y fechas; crear, responder y confirmar con `reportar` y solo los suyos (`403 permiso_de_contacto`); adjuntos solo en lo que ve completo; `403 solo_titular` en solicitudes; topes propios; `creado_por_contacto` y «Abierto por <nombre> (a cargo)»; al quitar el contacto deja de verlos. | pendiente en Iris |
+| B29 | **Caídas repetidas en Iris** (0.13.0, §3.11): umbral por empresa (3 en 60 min de fábrica); un ticket por servicio mientras siga abierto el de esa categoría, o una nota en el abierto; nota en el ticket general si el servicio está en una falla general; con más de N en 10 min (20 de fábrica), ticket de «posible falla general» y aviso a supervisión. | pendiente en Iris |
+| B30 | **Falla general en Iris** (0.13.0, §3.11): un ticket general idempotente por `incidente_id` (reusado si el mismo `alcance_id` reabre antes de 30 min); absorbe solo tickets de conectividad de servicios afectados creados después de `desde`; ids desconocidos leídos con `GET /servicios/:id` y descartados si son de otra empresa; aviso de falla solo a números con cliente y sin servicio ni dirección; vínculo con el maestro de Horus del mismo router; al cerrarse, hijos a «verificar con el cliente» (o resueltos si Horus o PPP confirman), un solo aviso de cierre por cliente e incidente, máximo 1 cada 6 h, con §6.5. | pendiente en Iris |
+| B31 | **Gestiones de cobro desde Iris** (0.13.0, §3.12): `gestion_id` UUID v7 como clave; solo con cliente confirmado; `X-Iris-Actor` y `X-Iris-Contacto` si habló un contacto; con el asistente, `pago_informado` y `promete_pagar` solo con promesa o comprobante real; sin texto libre, montos ni teléfonos. | pendiente en Iris |
+| B32 | **Plantillas de WhatsApp para Argos** (0.13.0, §6.7): `GET /api/v1/integraciones/argosisp/plantillas-whatsapp?empresa_id=` con `plantillas_whatsapp.leer_integracion`, solo las que esa empresa puede usar (no las de un canal prestado no autorizadas), sin id de WABA, id de Meta ni motivo de rechazo completo. | pendiente en Iris |
 
 ## 6. Servicio de mensajería de Iris (0.6.0, fase 1)
 
@@ -1346,6 +1413,15 @@ Un mensaje que el cliente escribió desde el portal de Argos (`ticket.mensaje_cl
 - `estado` = `en_cola` | `bloqueado` | `entregado` | `fallido`. `leido_en` es un dato, no un estado. `motivo` sale con `bloqueado` (los motivos de §6.2) y con `fallido` (los de esta tabla).
 - En Argos: `entregado` → `enviado`, `fallido` → `fallido`, `bloqueado` → `omitido`; `en_cola` sigue `encolado`.
 - Si Argos perdió el `202`, reenvía el `POST` de §6.2 con la misma `Idempotency-Key`: Iris devuelve el mismo `aviso_id` y el estado actual.
+
+### 6.7 Plantillas de WhatsApp: lectura de Argos (0.13.0, B32)
+
+Las plantillas de WhatsApp se editan y se aprueban **solo en Iris** (decisión del PM, §10.9). Argos las lee para saber qué avisos puede pedir:
+
+- `GET /api/v1/integraciones/argosisp/plantillas-whatsapp?empresa_id=`, con el token de §1.2 y el permiso `plantillas_whatsapp.leer_integracion`. Solo empresas del alcance del conector (fuera, `403 empresa_no_permitida`).
+- Responde `{ data: [{ nombre, idioma, categoria, estado, codigos_aviso[], vista_previa }] }`: `codigos_aviso[]` son los códigos de §6.3 que atiende, y `vista_previa` el texto con las variables como `{{nombre}}`.
+- **Nunca** devuelve el id de WABA, el id de Meta ni el motivo de rechazo completo (solo el `estado`).
+- Solo devuelve las plantillas que **esa empresa puede usar**: las de un canal prestado que no la autorizan no se ven.
 
 ## 7. Pagos y atención (0.6.0, fase 1)
 
@@ -1744,7 +1820,7 @@ Argos revisó la propuesta de Iris contra lo que ya tiene. Iris copia esta versi
 9. **Webhooks Iris → Argos:** van al receptor `/api/v1/integraciones/iris/webhook` que Argos ya entrega en el canje (activo desde PR #217).
 10. **Nuevo pedido B2** a Iris: destino de autologin `conversacion`, para el botón «Ver conversación en Iris» de la cola de caja.
 
-## 10. Decisiones y cierre de la 0.8.0 a la 0.12.1
+## 10. Decisiones y cierre de la 0.8.0 a la 0.13.0
 
 El líder de Argos respondió los 32 puntos del borrador contra su código (ver «Gobierno») y sus respuestas están en el cuerpo del contrato, cada una en su sección. El PM adoptó las propuestas el 18 nov 2026 (§10.2). Argos implementó todo lo suyo en `argos-isp#249`, publicada en la 1.18.0. Aquí queda solo lo que sigue abierto (§10.1), las decisiones del PM (§10.2) y la migración de Iris (§10.3).
 
@@ -1938,6 +2014,27 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 - **e. Topes del contacto (B2).** Propios, además de los del cliente. Aceptado por Argos.
 - **f. `servicio_id` que falta (B3).** `422 validacion` (`field: servicio_id`). Aceptado por Argos.
 - **g. Compatibilidad (B4).** Con Argos < 0.12.1, el portal nunca abre a un contacto los tickets de otro cliente. Aceptado por Argos.
+
+### 10.9 Decidido por el PM para la 0.13.0 (21 nov 2026)
+
+1. **Caídas repetidas por servicio:** Argos emite el conteo y la ventana; Iris decide si abre un ticket, uno por servicio mientras siga abierto el de esa categoría (si no, una nota). Umbral por empresa en Iris, 3 caídas en 60 min de fábrica.
+2. **Falla general:** Argos avisa la apertura y el cierre con solo ids de los servicios afectados; Iris abre un ticket general por incidente que absorbe los tickets por servicio, responde con el aviso de falla, se vincula al maestro de Horus del mismo router y, al cerrarse, avisa a los clientes que habían escrito.
+3. **Gestiones de cobro:** Iris registra en Argos las llamadas, mensajes, visitas y promesas con un resultado de lista cerrada, sin texto libre, montos ni teléfonos, solo con el cliente confirmado.
+4. **Plantillas de WhatsApp:** se editan y se aprueban solo en Iris; Argos solo las lee.
+
+**Notas de implementación (B23, aceptadas):** la clave de los contactos que nacen de un prospecto es `iris:contacto:<cliente_id>:pt<id del teléfono>`; se crean con todos los permisos (decisión 7, §10.5) y solo sobre el servicio nuevo; el `url_iris` del `409 prospecto_duplicado` incluye el id del prospecto.
+
+**Ajustes de la revisión de seguridad de la 0.13.0** (todos aceptados por Argos):
+
+- **a. Falla general acotada (M1).** Absorbe solo tickets de conectividad de servicios afectados creados después de `desde`; los hijos no se cierran solos (verificar con el cliente, o resueltos si Horus o PPP confirman); reabrir el mismo `alcance_id` antes de 30 min reusa el ticket general; un aviso de cierre por cliente e incidente, máximo 1 cada 6 h, con §6.5; Argos registra quién abrió a mano un incidente y por qué. Aceptado por Argos.
+- **b. Caídas durante una falla (M2).** Nota en el ticket general en vez de un ticket nuevo; más de N tickets de caídas en 10 min (20 de fábrica) agrupados en «posible falla general» con aviso a supervisión; al llegar la falla, los abiertos pasan a hijos. Aceptado por Argos.
+- **c. Clave y fecha de la gestión (M3).** `iris:gestion:<gestion_id>` (UUID v7 de Iris); `ocurrido_en` entre ahora − 7 días y ahora + 5 min. Aceptado por Argos.
+- **d. Empresas en la falla general (M4).** Un evento por empresa con el mismo `incidente_id`; `empresa_id` en el GET y solo ids del alcance; ids desconocidos leídos con `GET /servicios/:id` y descartados si son de otra empresa. Aceptado por Argos.
+- **e. Lectura de incidentes (B1).** `404` fuera del alcance, auditada con actor `token`, `limit` hasta 1000. Aceptado por Argos.
+- **f. Gestión informativa (B2).** Nunca cambia estados, cortes ni promesas; con el asistente, `pago_informado` y `promete_pagar` solo con promesa o comprobante real; `X-Iris-Contacto` si habló un contacto. Aceptado por Argos.
+- **g. Aviso de falla (B3).** Solo a números con cliente, sin servicio ni dirección. Aceptado por Argos.
+- **h. Plantillas por empresa (B4).** Solo las que la empresa puede usar. Aceptado por Argos.
+- **i. Clave `pt<id>` (B5).** Se queda: el id es el de `comercial.prospecto_telefonos`, único por prospecto. Aceptado por Argos.
 
 ## 11. Portal del cliente de Argos (0.9.0, bloque P)
 
