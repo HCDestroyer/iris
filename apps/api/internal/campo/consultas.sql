@@ -525,16 +525,39 @@ SELECT EXISTS (SELECT 1 FROM campo.orden_cambios WHERE tecnico_id = @tecnico_id 
 -- La bodega de Argos de la ficha de agenda del técnico (usuario).
 SELECT bodega_id FROM agenda.tecnicos WHERE usuario_id = @usuario_id AND activo;
 
--- name: BodegaDeSuCuadrilla :one
+-- name: BodegaDeSuCuadrilla :many
 -- La bodega es la de la cuadrilla actual del técnico en la empresa (contrato 0.11.0 §3.9): ficha
 -- activa en una cuadrilla activa y la bodega vista en Argos para esa cuadrilla y empresa. Al quitar
 -- al técnico de la cuadrilla deja de serlo en ese momento (corte de sus lotes con esa bodega).
-SELECT EXISTS (
-    SELECT 1 FROM agenda.tecnicos t
-    JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
-    JOIN integracion.argos_bodegas_cuadrilla bc ON bc.cuadrilla_id = t.cuadrilla_id
-    WHERE t.usuario_id = @usuario_id AND t.activo AND bc.bodega_id = @bodega_id AND bc.empresa_id = @empresa_id
-)::boolean;
+-- FOR SHARE de la ficha (B-268-3): quitarlo de la cuadrilla (UPDATE de la ficha) espera a esta
+-- transacción, y si ya lo estaban quitando, esta espera y relee la ficha nueva.
+SELECT t.id FROM agenda.tecnicos t
+JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
+JOIN integracion.argos_bodegas_cuadrilla bc ON bc.cuadrilla_id = t.cuadrilla_id
+WHERE t.usuario_id = @usuario_id AND t.activo AND bc.bodega_id = @bodega_id AND bc.empresa_id = @empresa_id
+FOR SHARE OF t;
+
+-- name: BodegaPersonalDelTecnico :one
+-- La bodega es la personal del técnico en la empresa de la orden (M-268-1): la vista en mi-bodega
+-- para ese usuario y empresa. Sin empresa (modo sin conector), la de su ficha.
+SELECT (EXISTS (
+    SELECT 1 FROM integracion.argos_bodegas_tecnico bt
+    WHERE bt.usuario_id = @usuario_id AND bt.bodega_id = @bodega_id AND bt.empresa_id = @empresa_id
+) OR (@empresa_id::bigint = 0 AND EXISTS (
+    SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = @usuario_id AND t.activo AND t.bodega_id = @bodega_id
+)))::boolean;
+
+-- name: BodegasPermitidas :many
+-- Las bodegas que el técnico puede elegir en la empresa (personal y de su cuadrilla actual): las
+-- únicas cuyas existencias se leen de Argos para el lote (B-268-2).
+SELECT bt.bodega_id FROM integracion.argos_bodegas_tecnico bt WHERE bt.usuario_id = @usuario_id AND bt.empresa_id = @empresa_id
+UNION
+SELECT bc.bodega_id FROM agenda.tecnicos t
+JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
+JOIN integracion.argos_bodegas_cuadrilla bc ON bc.cuadrilla_id = t.cuadrilla_id
+WHERE t.usuario_id = @usuario_id AND t.activo AND bc.empresa_id = @empresa_id
+UNION
+SELECT t.bodega_id FROM agenda.tecnicos t WHERE @empresa_id::bigint = 0 AND t.usuario_id = @usuario_id AND t.activo AND t.bodega_id IS NOT NULL;
 
 -- name: VinculoArgosDeTecnico :one
 -- El vínculo con Argos de la ficha del técnico (contrato 0.5.0 §3.3): va como tecnico en orden.cerrada.

@@ -205,6 +205,9 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 				s["recibido_en_iris"] = mt.RecibidoEn
 			}
 			s["excede_existencia"] = s["excede_existencia"].(bool) || mt.ExcedeExistencia
+			if mt.desdeApp && s["desde_app"] != true {
+				s["desde_app"], s["registrado_por"] = true, mt.registradoPor
+			}
 			if s["modalidad"] == (*string)(nil) && mt.Modalidad != nil {
 				s["modalidad"] = mt.Modalidad
 			}
@@ -215,7 +218,10 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		suma[k] = map[string]any{"producto_id": mt.ProductoID, "cantidad": mt.Cantidad, "bodega_id": mt.BodegaID,
 			"excede_existencia": mt.ExcedeExistencia, "modalidad": mt.Modalidad,
 			// 0.12.0 §3.3: la fecha del teléfono (la última del producto) y la del servidor al aceptarlo.
-			"fecha": mt.OcurridoEn, "recibido_en_iris": mt.RecibidoEn}
+			"fecha": mt.OcurridoEn, "recibido_en_iris": mt.RecibidoEn,
+			// desde_app: lo registró un técnico desde el lote (con registrado_por): sale con tecnico,
+			// bodega_id y X-Iris-Actor de quien lo usó (M-268-1). Si no, lo indicó despacho en el panel.
+			"desde_app": mt.desdeApp, "registrado_por": mt.registradoPor}
 	}
 	materiales := make([]map[string]any, 0, len(orden))
 	for _, k := range orden {

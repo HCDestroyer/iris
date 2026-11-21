@@ -175,6 +175,9 @@ type MaterialOrden struct {
 	Modalidad        *string    `json:"modalidad" nullable:"true" required:"false" enum:"comodato,consumible_gasto,consumible_cobro" doc:"Modalidad del producto en Argos al registrarlo (≥ 1.6.0); null = no se sabía. Un comodato no va en el consumo"`
 	OcurridoEn       time.Time  `json:"ocurridoEn"`
 	RecibidoEn       *time.Time `json:"recibidoEn,omitempty" doc:"Cuándo lo aceptó el servidor (recibido_en_iris, contrato 0.12.0)"`
+	// Para el cierre (no salen por la API): quién lo registró y si fue desde la app (el lote).
+	registradoPor *int64
+	desdeApp      bool
 }
 
 // EquipoOrden: equipo instalado o retirado.

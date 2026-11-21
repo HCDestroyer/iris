@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -93,6 +94,9 @@ type Material struct {
 	// Fecha (del teléfono) y RecibidoEnIris (del servidor): 0.12.0 §3.3, para la ventana de Argos.
 	Fecha          *time.Time `json:"fecha"`
 	RecibidoEnIris *time.Time `json:"recibido_en_iris"`
+	// DesdeApp: lo registró un técnico desde el lote (RegistradoPor); si no, despacho en el panel.
+	DesdeApp      bool   `json:"desde_app"`
+	RegistradoPor *int64 `json:"registrado_por"`
 }
 
 // TecnicoArgos es `tecnico` en orden.cerrada (contrato 0.5.0 §3.3): el vínculo de la ficha.
@@ -148,6 +152,9 @@ type notasEquipo struct{ nota, cobro *string }
 type opcionesPlan struct {
 	porTecnico bool
 	cuadrillas map[int64]bool
+	// bodegaApp: Argos con contrato ≥ 0.11.0 (§3.9): el material de la app sale con tecnico,
+	// bodega_id y X-Iris-Actor de quien lo registró.
+	bodegaApp bool
 	// equipos: Argos con contrato ≥ 0.12.0 (cambiar y no-recuperado, fecha y recibido_en_iris).
 	equipos bool
 	notas   map[string]notasEquipo
@@ -200,6 +207,8 @@ type plan struct {
 	conTecnico bool
 	// conActor: sin `tecnico` en el cuerpo, pero con X-Iris-Actor del técnico (0.12.0 §3.10).
 	conActor bool
+	// actor: quien va en X-Iris-Actor (tecnico_usuario_id) si no es el técnico de la orden.
+	actor *int64
 }
 
 // omision es algo de la orden que no se manda a Argos, con su motivo (integracion.pendiente_omitido).
@@ -519,18 +528,34 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	if len(materiales) > 0 {
 		p := plan{operacion: OpConsumo, clave: "iris:consumo:" + orden, ruta: "/inventario/consumos"}
 		porBodega := tecnico == nil
-		deCuadrilla := false
+		deCuadrilla, panel := false, false
+		var actores []int64
 		for _, mat := range materiales {
 			b := bodegaDe(mat.BodegaID)
 			switch {
+			case tecnico != nil && mat.DesdeApp && op.bodegaApp:
+				// Lo eligió el técnico en la app (su bodega o la de su cuadrilla, ya validada al
+				// recibir el lote): siempre tecnico + bodega_id + X-Iris-Actor (M-268-1).
+				deCuadrilla = true
 			case tecnico != nil && b != nil && cuadrillas[int64(*b)]:
 				deCuadrilla = true // la bodega de la cuadrilla: tecnico + bodega_id
 			case explicita(mat.BodegaID):
-				porBodega = true // despacho indicó otra bodega: manda bodega_id
+				porBodega, panel = true, true // despacho indicó otra bodega: manda bodega_id
+			}
+			if mat.DesdeApp && mat.RegistradoPor != nil && !slices.Contains(actores, *mat.RegistradoPor) {
+				actores = append(actores, *mat.RegistradoPor)
 			}
 		}
 		if deCuadrilla {
 			porBodega = true
+			switch {
+			case panel:
+				p.incompleto = "materiales de la app y de una bodega que indicó despacho en una orden (un consumo por orden)"
+			case len(actores) > 1:
+				p.incompleto = "materiales registrados por varios técnicos en una orden (un consumo por orden, un X-Iris-Actor)"
+			case len(actores) == 1:
+				p.actor = &actores[0]
+			}
 		}
 		var bodega *IDArgos
 		lineas := make([]map[string]any, 0, len(materiales))
@@ -706,9 +731,12 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			if err != nil {
 				return res, err
 			}
-			equipos := false
+			equipos, bodegaApp := false, false
 			if m.cfg.Argos != nil {
 				if equipos, err = m.cfg.Argos.EquiposDelCliente(ctx, t); err != nil {
+					return res, err
+				}
+				if bodegaApp, err = m.cfg.Argos.BodegaDeCuadrilla(ctx, t); err != nil {
 					return res, err
 				}
 			}
@@ -716,7 +744,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			if err != nil {
 				return res, err
 			}
-			planes, omisiones := planificar(o, opcionesPlan{porTecnico: porTecnico, cuadrillas: cuadrillas, equipos: equipos, notas: notas})
+			planes, omisiones := planificar(o, opcionesPlan{porTecnico: porTecnico, cuadrillas: cuadrillas, bodegaApp: bodegaApp, equipos: equipos, notas: notas})
 			if len(planes) == 0 && len(omisiones) == 0 {
 				return res, nil
 			}
@@ -782,7 +810,10 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					empresaID = &empresa
 				}
 				var tecnicoUsuario *int64
-				if p.conTecnico || p.conActor {
+				switch {
+				case (p.conTecnico || p.conActor) && p.actor != nil:
+					tecnicoUsuario = p.actor // quien lo registró (X-Iris-Actor)
+				case p.conTecnico:
 					tecnicoUsuario = o.TecnicoID
 				}
 				f, err := q.InsertarPendiente(ctx, pendientesbd.InsertarPendienteParams{

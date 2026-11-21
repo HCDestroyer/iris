@@ -91,6 +91,15 @@ func TestMiBodegaConCuadrilla(t *testing.T) {
 		Scan(&cuadrilla, &empresa); err != nil || cuadrilla != c || empresa != 1 {
 		t.Fatalf("bodega de cuadrilla guardada: %d %d %v", cuadrilla, empresa, err)
 	}
+	// La personal queda con su empresa y su dueño (M-268-1: el lote la valida en la empresa de la orden).
+	var dueno int64
+	if err := e.pool.QueryRow(context.Background(), `SELECT usuario_id, empresa_id FROM integracion.argos_bodegas_tecnico WHERE bodega_id = 71`).
+		Scan(&dueno, &empresa); err != nil || dueno != jefe || empresa != 1 {
+		t.Fatalf("bodega personal guardada: %d %d %v", dueno, empresa, err)
+	}
+	if n := contar(t, e, `SELECT count(*) FROM integracion.argos_bodegas_tecnico WHERE bodega_id = 81`); n != 0 {
+		t.Fatal("la de cuadrilla no es personal")
+	}
 	// Para un miembro que no es el jefe, el jefe no es él.
 	b, err = e.inv.MiBodega.Ejecutar(e.como(miembro))
 	if err != nil {

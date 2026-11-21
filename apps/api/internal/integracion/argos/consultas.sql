@@ -332,6 +332,13 @@ ON CONFLICT (bodega_id) DO UPDATE SET
     nombre = coalesce(excluded.nombre, integracion.argos_bodegas_cuadrilla.nombre),
     visto_en = excluded.visto_en, updated_at = now();
 
+-- name: GuardarBodegaTecnico :exec
+-- Una bodega personal del técnico (mi-bodega, M-268-1).
+INSERT INTO integracion.argos_bodegas_tecnico (bodega_id, empresa_id, usuario_id, visto_en)
+VALUES (@bodega_id, @empresa_id, @usuario_id, @visto_en)
+ON CONFLICT (bodega_id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, usuario_id = excluded.usuario_id, visto_en = excluded.visto_en, updated_at = now();
+
 -- name: CuadrillaDelUsuario :one
 -- La cuadrilla actual del técnico (ficha activa) y su jefe.
 SELECT t.cuadrilla_id::bigint AS cuadrilla_id, c.jefe_usuario_id

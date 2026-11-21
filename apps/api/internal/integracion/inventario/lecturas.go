@@ -291,8 +291,30 @@ type finalBodega struct {
 	Cache bool `json:"cache"`
 	r     MiBodegaRespuesta
 	err   error
-	// cuadrillas: las bodegas de cuadrilla que Argos mandó, para validar el bodega_id del lote.
+	// cuadrillas y personales: las bodegas que Argos mandó, para validar el bodega_id del lote.
 	cuadrillas []argosbd.GuardarBodegaCuadrillaParams
+	personales []argosbd.GuardarBodegaTecnicoParams
+}
+
+// bodegasPersonales: las bodegas personales del técnico en la respuesta (con un Argos anterior, la de
+// arriba), con su empresa (M-268-1).
+func (b miBodegaArgos) bodegasPersonales(usuario int64, ahora time.Time) []argosbd.GuardarBodegaTecnicoParams {
+	var salida []argosbd.GuardarBodegaTecnicoParams
+	agregar := func(c contenidoArgos) {
+		if c.Bodega != nil && !c.Cuadrilla && c.Bodega.ID > 0 && c.Bodega.EmpresaID > 0 {
+			salida = append(salida, argosbd.GuardarBodegaTecnicoParams{BodegaID: c.Bodega.ID, EmpresaID: c.Bodega.EmpresaID, UsuarioID: usuario, VistoEn: ahora})
+		}
+	}
+	for _, crudo := range b.Bodegas {
+		var c contenidoArgos
+		if conector.Decodificar(crudo, &c) == nil {
+			agregar(c)
+		}
+	}
+	if len(b.Bodegas) == 0 {
+		agregar(b.contenidoArgos)
+	}
+	return salida
 }
 
 // bodegasCuadrilla: las bodegas de cuadrilla de la respuesta, para guardarlas.
@@ -352,6 +374,11 @@ func nuevoMiBodega(m *Modulo) *MiBodega {
 					return MiBodegaRespuesta{}, err
 				}
 			}
+			for _, p := range in.personales {
+				if err := argosbd.New(t).GuardarBodegaTecnico(ctx, p); err != nil {
+					return MiBodegaRespuesta{}, err
+				}
+			}
 			return in.r, nil
 		},
 	})
@@ -402,6 +429,7 @@ func (b *MiBodega) Ejecutar(ctx context.Context) (MiBodegaRespuesta, error) {
 		f.r = crudo.aRespuesta(ahora)
 		f.r.Bodegas = crudo.bodegas(p.vinculo.IDExterno)
 		f.cuadrillas = crudo.bodegasCuadrilla(ahora)
+		f.personales = crudo.bodegasPersonales(p.usuario, ahora)
 		b.m.cacheMu.Lock()
 		b.m.cache[clave] = bodegaEnCache{r: f.r, expira: ahora.Add(b.m.cfg.CacheBodega)}
 		b.m.cacheMu.Unlock()
