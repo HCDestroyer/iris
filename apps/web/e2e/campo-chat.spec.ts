@@ -236,6 +236,35 @@ test("la orden se cierra mientras escribía: dice por qué no salió, sin «Rein
     expect(chat.servidor.llamadasA("enviarMensaje")).toHaveLength(1);
 });
 
+test("si «Descartar» no se puede guardar en el teléfono: error en llano con «Reintentar», que lo descarta", async ({ page }) => {
+    const { chat } = await montar(page, conOrden("en_sitio"));
+    await abrirConversacion(page, /^OT-000070/);
+    await compositor(page).fill("Ya quedó, −19 dBm.");
+    cerrarOrden(chat.servidor);
+    await page.getByRole("button", { name: "Enviar" }).click();
+    const fallido = burbujas(page).last();
+    await expect(fallido).toContainText("No se envió: la orden se cerró");
+    // El próximo borrado de la cola del chat en IndexedDB falla una vez (disco lleno, base bloqueada).
+    await page.evaluate(() => {
+        const ventana = window as unknown as { __fallasBorrado: number };
+        ventana.__fallasBorrado = 1;
+        const original = IDBObjectStore.prototype.delete;
+        IDBObjectStore.prototype.delete = function (this: IDBObjectStore, clave: IDBValidKey | IDBKeyRange) {
+            if (this.name === "chatSalida" && ventana.__fallasBorrado > 0) {
+                ventana.__fallasBorrado -= 1;
+                throw new DOMException("Falla de prueba", "UnknownError");
+            }
+            return original.call(this, clave);
+        };
+    });
+    await fallido.getByRole("button", { name: "Descartar" }).click();
+    await expect(page.getByText("No se pudo descartar el mensaje en el teléfono.")).toBeVisible();
+    await expect(burbujas(page).last()).toContainText("Ya quedó, −19 dBm.");
+    await page.getByRole("button", { name: "Reintentar" }).click();
+    await expect(burbujas(page).last()).toContainText("¿Cómo quedó la potencia?");
+    expect(await page.evaluate(() => (window as unknown as { __fallasBorrado: number }).__fallasBorrado)).toBe(0);
+});
+
 test("capturas del chat de una orden cerrada (390 px)", async ({ page }, info) => {
     test.skip(!info.project.name.startsWith("telefono"), "Capturas del teléfono.");
     const carpeta = process.env.IRIS_CAPTURAS_CHAT ?? path.join("test-results", "capturas-chat");

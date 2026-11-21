@@ -520,13 +520,17 @@ function MenuMensaje({ m, reintentable, alCerrar }: { m: MensajeVista | null; re
         return null;
     }
     const eliminable = puedeEliminar(m, ahora);
-    const correr = async (accion: () => Promise<void>, ok: string) => {
+    const correr = async (accion: () => Promise<void>, ok: string): Promise<void> => {
         alCerrar();
         try {
             await accion();
             notificar({ tono: "success", texto: ok });
         } catch (e) {
-            notificar({ tono: "error", texto: e instanceof ErrorChatLocal ? e.message : "No se pudo guardar en el teléfono." });
+            notificar({
+                tono: "error",
+                texto: e instanceof ErrorChatLocal ? e.message : "No se pudo guardar en el teléfono.",
+                accion: { texto: "Reintentar", alPresionar: () => void correr(accion, ok) },
+            });
         }
     };
     return (
@@ -696,8 +700,17 @@ export function ConversacionChat({ id }: { id: number }) {
         }
     };
     const descartar = async (m: MensajeVista) => {
-        await chat.descartar(m.id);
-        notificar({ tono: "success", texto: "Mensaje descartado" });
+        try {
+            await chat.descartar(m.id);
+            notificar({ tono: "success", texto: "Mensaje descartado" });
+        } catch (e) {
+            // Error visible y en llano, con «Reintentar» (nunca en silencio).
+            notificar({
+                tono: "error",
+                texto: e instanceof ErrorChatLocal ? e.message : "No se pudo descartar el mensaje en el teléfono.",
+                accion: { texto: "Reintentar", alPresionar: () => void descartar(m) },
+            });
+        }
     };
 
     let cuerpo: ReactNode;
