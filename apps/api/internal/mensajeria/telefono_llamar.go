@@ -375,6 +375,10 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 			if motivo != "" {
 				return SesionTelefono{}, problemaTelefono(motivo)
 			}
+			// Con varias contraseñas rechazadas seguidas no se abre (fail2ban bloquearía a Iris).
+			if err := m.limitarRechazos(ctx, q, x.CentralitaID); err != nil {
+				return SesionTelefono{}, err
+			}
 			ahora := m.ahora()
 			if err := q.BorrarTicketsTelefono(ctx, ahora.Add(-time.Hour)); err != nil {
 				return SesionTelefono{}, err

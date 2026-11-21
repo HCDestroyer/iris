@@ -806,7 +806,9 @@ func (p *Puente) respuestaCentralita(ctx context.Context, res *sip.Response) err
 			return p.reintentar(ctx, t, res, dz, res.StatusCode == sip.StatusProxyAuthRequired)
 		}
 	}
-	credenciales := false
+	// Un 403 de la Issabel a un REGISTER (sin desafío de por medio) también es la credencial rechazada,
+	// como en ProbarRegistro: se avisa y se corta igual (revisión de #252, B1).
+	credenciales := t.metodo == sip.REGISTER && res.StatusCode == sip.StatusForbidden
 	if desafio {
 		// Credenciales rechazadas: el navegador recibe 403, nunca el desafío, y el puente corta (si no,
 		// el navegador reintentaría y el fail2ban de la Issabel bloquearía la IP de Iris para todos).

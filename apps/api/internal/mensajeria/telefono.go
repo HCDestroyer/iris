@@ -554,7 +554,36 @@ const (
 	// esperaRechazo: con la contraseña que la Issabel ya rechazó no se vuelve a probar hasta escribir
 	// otra o hasta que pase este tiempo (fail2ban suele olvidar en 10 a 30 min).
 	esperaRechazo = 30 * time.Minute
+	// rechazosCentralita en ventanaRechazos: contraseñas que la Issabel rechazó en toda la centralita
+	// («Probar registro» y el puente). fail2ban suele bloquear con ~5 fallos en 10 min: pasado el tope
+	// no se prueba ni se abre el teléfono hasta que pase la ventana (429 `demasiados_rechazos`).
+	rechazosCentralita = 3
+	ventanaRechazos    = 10 * time.Minute
 )
+
+// limitarRechazos: 429 `demasiados_rechazos` si la centralita ya juntó el tope de contraseñas
+// rechazadas en la ventana. Vale para «Probar registro», /telefono/abrir y el puente.
+func (m *Modulo) limitarRechazos(ctx context.Context, q *mensajeriabd.Queries, centralitaID int64) error {
+	r, err := q.RechazosCentralita(ctx, centralitaID)
+	if err != nil {
+		return err
+	}
+	ahora := m.ahora()
+	if r.RechazosDesde == nil || r.Rechazos < rechazosCentralita || !ahora.Before(r.RechazosDesde.Add(ventanaRechazos)) {
+		return nil
+	}
+	espera := int(math.Ceil(r.RechazosDesde.Add(ventanaRechazos).Sub(ahora).Seconds()))
+	return nucleo.NuevoProblema(http.StatusTooManyRequests, "demasiados_rechazos", "La centralita rechazó varias contraseñas seguidas",
+		"Para que la Issabel no bloquee a Iris, el teléfono y las pruebas de registro esperan unos minutos. Revisa las contraseñas de las extensiones en Issabel.").
+		ConCabecera("Retry-After", strconv.Itoa(max(espera, 1)))
+}
+
+// anotarRechazo suma un rechazo de la Issabel a la centralita (en la misma transacción que lo marca).
+func (m *Modulo) anotarRechazo(ctx context.Context, q *mensajeriabd.Queries, centralitaID int64) error {
+	ahora := m.ahora()
+	_, err := q.ContarRechazoCentralita(ctx, mensajeriabd.ContarRechazoCentralitaParams{ID: centralitaID, Desde: ahora.Add(-ventanaRechazos), Ahora: ahora})
+	return err
+}
 
 // limitarPruebaRegistro (en la transacción, con la extensión bloqueada): 429 si la contraseña es la
 // que la Issabel ya rechazó o si se pasó el tope por minuto de la extensión o de la centralita.
@@ -566,6 +595,10 @@ func (m *Modulo) limitarPruebaRegistro(ctx context.Context, q *mensajeriabd.Quer
 			"Escribe otra vez la contraseña de la extensión con «Cambiar»: probar la misma solo haría que la Issabel bloquee a Iris.").
 			ConCabecera("Retry-After", strconv.Itoa(espera))
 	}
+	if err := m.limitarRechazos(ctx, q, centralitaID); err != nil {
+		return err
+	}
+	// El tope por minuto queda solo contra ráfagas (el de rechazos es el que cuida a fail2ban).
 	desde := ahora.Add(-time.Minute)
 	nx, err := q.ContarPruebaRegistroExtension(ctx, mensajeriabd.ContarPruebaRegistroExtensionParams{ID: x.ID, Desde: desde, Ahora: ahora})
 	if err != nil {
@@ -680,12 +713,15 @@ type destinoRegistro struct {
 	opciones sippuente.OpcionesWSS
 	cred     sippuente.Credencial
 	sin      bool
+	// guardadoEn: qué contraseña se prueba (sip_guardado_en); el resultado solo marca esa.
+	guardadoEn *time.Time
 }
 
 type entradaRegistroProbado struct {
-	CentralitaID int64  `json:"centralita_id"`
-	ExtensionID  int64  `json:"extension_id"`
-	Estado       string `json:"estado"`
+	CentralitaID int64      `json:"centralita_id"`
+	ExtensionID  int64      `json:"extension_id"`
+	Estado       string     `json:"estado"`
+	GuardadoEn   *time.Time `json:"guardado_en"`
 }
 
 func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
@@ -720,7 +756,7 @@ func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
 				return destinoRegistro{}, err
 			}
 			return destinoRegistro{opciones: m.opcionesWSS(c.Host, c.WssPuerto, c.WssRuta, *c.WssHuella),
-				cred: sippuente.Credencial{Usuario: *x.SipUsuario, Secreto: s, Dominio: dominioSIP(c)}}, nil
+				cred: sippuente.Credencial{Usuario: *x.SipUsuario, Secreto: s, Dominio: dominioSIP(c)}, guardadoEn: x.SipGuardadoEn}, nil
 		},
 	})
 	k.guardar = auditoria.Nuevo(auditoria.Caso[entradaRegistroProbado, Extension]{
@@ -739,24 +775,35 @@ func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
 				return Extension{}, err
 			}
 			t.FijarEntidad("centralita_extension", x.ID)
-			t.Anotar(map[string]any{"estado": in.Estado})
-			ahora := m.ahora()
-			switch in.Estado {
-			case sippuente.PruebaOK:
-				if err := q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: &ahora}); err != nil {
+			// La Issabel vio el rechazo aunque la contraseña ya haya cambiado: cuenta para fail2ban.
+			if in.Estado == sippuente.PruebaCredenciales {
+				if err := m.anotarRechazo(ctx, q, c.ID); err != nil {
 					return Extension{}, err
 				}
-				x.SipProbadoEn, x.SipRechazadoEn = &ahora, nil
-			case sippuente.PruebaCredenciales:
-				if err := q.MarcarRegistroRechazado(ctx, mensajeriabd.MarcarRegistroRechazadoParams{ID: x.ID, Ahora: ahora}); err != nil {
+			}
+			// Solo marca si la contraseña probada sigue siendo la guardada (si no, la nueva queda como estaba).
+			vigente := in.GuardadoEn != nil && x.SipGuardadoEn != nil && x.SipGuardadoEn.Equal(*in.GuardadoEn)
+			t.Anotar(map[string]any{"estado": in.Estado, "vigente": vigente})
+			if vigente {
+				ahora := m.ahora()
+				var n int64
+				switch in.Estado {
+				case sippuente.PruebaOK:
+					n, err = q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: &ahora, Guardado: *in.GuardadoEn})
+					x.SipProbadoEn, x.SipRechazadoEn = &ahora, nil
+				case sippuente.PruebaCredenciales:
+					n, err = q.MarcarRegistroRechazado(ctx, mensajeriabd.MarcarRegistroRechazadoParams{ID: x.ID, Ahora: ahora, Guardado: *in.GuardadoEn})
+					x.SipProbadoEn, x.SipRechazadoEn = nil, &ahora
+				default:
+					n, err = q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: nil, Guardado: *in.GuardadoEn})
+					x.SipProbadoEn = nil
+				}
+				if err != nil {
 					return Extension{}, err
 				}
-				x.SipProbadoEn, x.SipRechazadoEn = nil, &ahora
-			default:
-				if err := q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: nil}); err != nil {
-					return Extension{}, err
+				if n != 1 {
+					return Extension{}, errors.New("la extensión cambió durante la prueba")
 				}
-				x.SipProbadoEn = nil
 			}
 			if err := t.Emitir("extension.registro_probado", map[string]any{"centralita_id": c.ID, "empresa_id": c.EmpresaID, "extension_id": x.ID,
 				"usuario_id": x.UsuarioID, "estado": in.Estado}); err != nil {
@@ -775,13 +822,16 @@ func (k *ProbarRegistro) Ejecutar(ctx context.Context, in EntradaProbarRegistro)
 		return PruebaRegistro{}, err
 	}
 	estado := "sin_credencial"
+	if k.m.antesDeProbarRegistro != nil {
+		k.m.antesDeProbarRegistro()
+	}
 	if !d.sin {
 		estado = sippuente.ProbarRegistro(ctx, d.opciones, d.cred).Estado
 		if estado == sippuente.PruebaNoEsSIP {
 			estado = sippuente.PruebaNoConecta
 		}
 	}
-	x, err := k.guardar.Ejecutar(ctx, entradaRegistroProbado{CentralitaID: in.CentralitaID, ExtensionID: in.ExtensionID, Estado: estado})
+	x, err := k.guardar.Ejecutar(ctx, entradaRegistroProbado{CentralitaID: in.CentralitaID, ExtensionID: in.ExtensionID, Estado: estado, GuardadoEn: d.guardadoEn})
 	if err != nil {
 		return PruebaRegistro{}, err
 	}

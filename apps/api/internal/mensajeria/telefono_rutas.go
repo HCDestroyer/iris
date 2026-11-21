@@ -50,10 +50,12 @@ func (m *Modulo) registrarTelefono(api huma.API) {
 			return responder(k.Mio.Ejecutar(ctx, struct{}{}))
 		})
 	huma.Register(api, d(op("abrirTelefono", http.MethodPost, "/telefono/abrir", "Abrir el teléfono (ticket del WebSocket y TURN)", "",
-		http.StatusCreated, http.StatusServiceUnavailable),
+		http.StatusCreated, http.StatusTooManyRequests, http.StatusServiceUnavailable),
 		"Devuelve la ruta del WebSocket, un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin "+
 			"contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, "+
-			"`sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. `dispositivo: app` solo marca (no registra ni recibe)."),
+			"`sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. 429 `demasiados_intentos` (6 por minuto y persona) y "+
+			"`demasiados_rechazos` (la centralita rechazó 3 contraseñas en 10 min: fail2ban), con `Retry-After`. "+
+			"`dispositivo: app` solo marca (no registra ni recibe)."),
 		func(ctx context.Context, in *cuerpoHTTP[EntradaAbrirTelefono]) (*cuerpo[SesionTelefono], error) {
 			r, err := k.Abrir.Ejecutar(ctx, in.Body)
 			if err == nil {
@@ -175,8 +177,9 @@ func (m *Modulo) registrarTelefono(api huma.API) {
 		"REGISTER de consulta (sin Contact: no agrega ni quita registros) con la credencial guardada: `ok`, `credenciales`, `huella_distinta`, "+
 			"`no_conecta` o `sin_credencial`. Con `ok` deja `sipProbadoEn` (y borra `sipRechazadoEn`); con `credenciales`, `sipRechazadoEn`. "+
 			"Evento `extension.registro_probado`. Para no cebar fail2ban: 429 `credencial_rechazada` si la Issabel ya rechazó esta "+
-			"contraseña y no se escribió otra (30 min), y 429 `demasiados_intentos` pasadas 3 pruebas por minuto de la extensión o 10 de "+
-			"la centralita; los dos con `Retry-After`."),
+			"contraseña y no se escribió otra (30 min); 429 `demasiados_rechazos` si la centralita juntó 3 contraseñas rechazadas en 10 min "+
+			"(en pruebas o en el puente); y 429 `demasiados_intentos` pasadas 3 pruebas por minuto de la extensión o 10 de "+
+			"la centralita; todos con `Retry-After`. Solo marca la contraseña que se probó (si mientras tanto se guardó otra, esa queda igual)."),
 		func(ctx context.Context, in *extensionAccionHTTP[struct{}]) (*cuerpo[PruebaRegistro], error) {
 			r, err := k.ProbarReg.Ejecutar(ctx, EntradaProbarRegistro{CentralitaID: in.ID, ExtensionID: in.ExtensionID})
 			if err == nil {

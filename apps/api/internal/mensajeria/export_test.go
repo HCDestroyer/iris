@@ -42,6 +42,9 @@ func (m *Modulo) PurgarFeedChat(ctx context.Context, bd nucleo.BD) error {
 
 func (m *Modulo) FijarTrasLeerCabeza(f func()) { m.trasLeerCabeza = f }
 
+// FijarAntesDeProbarRegistro corre f entre la preparación de «Probar registro» y el REGISTER.
+func (m *Modulo) FijarAntesDeProbarRegistro(f func()) { m.antesDeProbarRegistro = f }
+
 // FijarAntesDeLeerFlujo: se llama antes de abrir los flujos SSE (no se cambia con ellos abiertos).
 func (m *Modulo) FijarAntesDeLeerFlujo(f func(usuario int64)) { m.antesDeLeerFlujo = f }
 

@@ -81,6 +81,8 @@ type entradaHechoPuente struct {
 
 type entradaCredenciales struct {
 	ExtensionID int64 `json:"extension_id"`
+	// GuardadoEn: la contraseña con la que se conectó el puente; solo esa se marca rechazada.
+	GuardadoEn time.Time `json:"guardado_en"`
 }
 
 func ticketNoValido() *nucleo.Problema {
@@ -118,6 +120,9 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 			}
 			if x.ID != tk.ExtensionID || x.SipGuardadoEn == nil {
 				return conexionTelefono{}, ticketNoValido()
+			}
+			if err := m.limitarRechazos(ctx, q, x.CentralitaID); err != nil {
+				return conexionTelefono{}, err
 			}
 			if err := m.validarHostCentralita(x.Host); err != nil {
 				return conexionTelefono{}, err
@@ -175,10 +180,16 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 			if err != nil {
 				return struct{}{}, err
 			}
-			if err := q.MarcarRegistroRechazado(ctx, mensajeriabd.MarcarRegistroRechazadoParams{ID: x.ID, Ahora: m.ahora()}); err != nil {
+			// Cuenta para fail2ban aunque la contraseña ya haya cambiado; solo marca la que se usó.
+			if err := m.anotarRechazo(ctx, q, x.CentralitaID); err != nil {
+				return struct{}{}, err
+			}
+			n, err := q.MarcarRegistroRechazado(ctx, mensajeriabd.MarcarRegistroRechazadoParams{ID: x.ID, Ahora: m.ahora(), Guardado: in.GuardadoEn})
+			if err != nil {
 				return struct{}{}, err
 			}
 			t.FijarEntidad("centralita_extension", x.ID)
+			t.Anotar(map[string]any{"vigente": n == 1})
 			return struct{}{}, t.Emitir("extension.registro_probado", map[string]any{"centralita_id": x.CentralitaID, "empresa_id": x.EmpresaID,
 				"extension_id": x.ID, "usuario_id": contexto.ActorDe(ctx).ID, "estado": "credenciales", "origen": "puente"})
 		},
@@ -395,7 +406,7 @@ func (p *politicaTelefono) Credenciales(ctx context.Context) {
 	hctx, cancelar := context.WithTimeout(context.WithoutCancel(p.actual()), 10*time.Second)
 	defer cancelar()
 	_ = ctx
-	if _, err := p.m.Centralita.Telefono.credenciales.Ejecutar(hctx, entradaCredenciales{ExtensionID: p.cx.extensionID}); err != nil {
+	if _, err := p.m.Centralita.Telefono.credenciales.Ejecutar(hctx, entradaCredenciales{ExtensionID: p.cx.extensionID, GuardadoEn: p.cx.guardadoEn}); err != nil {
 		slog.Default().WarnContext(hctx, "telefono: no se pudo anotar la credencial rechazada", "err", err)
 	}
 }

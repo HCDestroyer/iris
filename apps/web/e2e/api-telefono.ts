@@ -34,6 +34,8 @@ export type OpcionesTelefono = {
     prueba?: PruebaTelefono["estado"];
     /** Lo que responde «Probar registro». */
     registro?: PruebaRegistro["estado"];
+    /** «Probar registro» responde 429 `demasiados_rechazos` con este `Retry-After` (segundos). */
+    rechazosEsperan?: number;
     /** Teléfono de la empresa encendido al empezar (con la centralita conectada). */
     encendido?: boolean;
 };
@@ -191,6 +193,17 @@ export function apiTelefono(o: OpcionesTelefono, centralita: ApiCentralita) {
                 Object.assign(x, { tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null, sipRechazadoEn: null });
             }
             return (await json(route, x), true);
+        }
+        if (o.rechazosEsperan) {
+            return (
+                await route.fulfill({
+                    status: 429,
+                    contentType: "application/problem+json",
+                    headers: { "Retry-After": String(o.rechazosEsperan) },
+                    body: JSON.stringify(P("demasiados_rechazos", 429, "La centralita rechazó varias contraseñas seguidas")),
+                }),
+                true
+            );
         }
         // Como el servidor: la contraseña que la Issabel ya rechazó no se vuelve a probar (429).
         if (x.sipRechazadoEn && (!x.sipGuardadoEn || Date.parse(x.sipGuardadoEn) <= Date.parse(x.sipRechazadoEn))) {

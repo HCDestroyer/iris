@@ -1400,6 +1400,8 @@ type MensajeriaCentralita struct {
 	RestriccionesConfirmadasEn *time.Time
 	RegistroPruebas            int32
 	RegistroPruebasDesde       *time.Time
+	Rechazos                   int32
+	RechazosDesde              *time.Time
 }
 
 type MensajeriaCentralitaExtensione struct {

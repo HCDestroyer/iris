@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ErrorApi } from "@/lib/api/errores";
 import type { ExtensionCentralita } from "@/lib/centralita/tipos";
 import type { PruebaRegistro, PruebaTelefono, TelefonoCentralita } from "./tipos";
 
@@ -82,6 +83,25 @@ export function textoPruebaRegistro(p: Pick<PruebaRegistro, "estado">, extension
             return { tono: "error", titulo: "No conecta con la Issabel", detalle: "Revisa el 8089, el firewall y la VPN en «Teléfono en Iris»." };
         case "sin_credencial":
             return { tono: "warning", titulo: "Falta la contraseña", detalle: "Escribe la contraseña de la extensión y guarda." };
+    }
+}
+
+const enLlano = (seg: number) => (seg > 90 ? `${Math.ceil(seg / 60)} min` : `${Math.max(1, Math.round(seg))} s`);
+
+/**
+ * Por qué «Probar registro» no se pudo hacer ahora (429 del servidor, con `Retry-After`), en llano. Null
+ * si el error es otro.
+ */
+export function esperaPruebaRegistro(e: unknown): string | null {
+    if (!(e instanceof ErrorApi) || e.estado !== 429) return null;
+    const espera = enLlano(e.reintentarEn ?? 60);
+    switch (e.codigo) {
+        case "credencial_rechazada":
+            return "La centralita ya rechazó esta contraseña: escríbela otra vez con «Cambiar la contraseña».";
+        case "demasiados_rechazos":
+            return `La centralita rechazó varias contraseñas seguidas; para que no bloquee a Iris, espera ${espera}.`;
+        default:
+            return `Espera ${espera}.`;
     }
 }
 

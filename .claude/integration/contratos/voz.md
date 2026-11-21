@@ -1337,11 +1337,24 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   cambiar `sipUsuario` sin volver a escribirla: 422 `clave_requerida`. `escritorio` borra la
   credencial. Se guarda cifrada y **nunca se devuelve** (`sipGuardadoEn`). Cualquier cambio corta la
   conexión de esa persona (`4003`) y borra `sip_probado_en`. Evento `extension.telefono_cambiado`.
-  `Extension` suma `tipo`, `sipUsuario`, `sipGuardadoEn`, `sipProbadoEn`.
+  `Extension` suma `tipo`, `sipUsuario`, `sipGuardadoEn`, `sipProbadoEn` y `sipRechazadoEn` (la última
+  vez que la Issabel rechazó la contraseña guardada; se borra cuando una prueba pasa).
 - `POST /centralitas/{id}/extensiones/{extensionId}/probar-registro` (`centralita.asignar_extension`):
   Iris abre el WSS y manda un `REGISTER` **de consulta** (sin `Contact`: no agrega ni quita registros)
   y responde el desafío con la credencial guardada: `ok`, `credenciales` (rechazada), `huella_distinta`,
-  `no_conecta`, `sin_credencial`. Con `ok` deja `sip_probado_en`. Evento `extension.registro_probado`.
+  `no_conecta`, `sin_credencial`. Con `ok` deja `sip_probado_en` y borra `sip_rechazado_en`; con
+  `credenciales` borra `sip_probado_en` y marca `sip_rechazado_en`. Solo marca la contraseña que se
+  probó: si mientras tanto se guardó otra (`sip_guardado_en` distinto), esa queda como estaba. Evento
+  `extension.registro_probado`.
+  **Para no cebar el fail2ban de la Issabel** (todos con `Retry-After`, y ninguno llega a la Issabel):
+  - 429 `credencial_rechazada`: la Issabel ya rechazó la contraseña guardada y no se escribió otra
+    (hasta 30 min después del rechazo). El panel solo ofrece «Cambiar la contraseña».
+  - 429 `demasiados_rechazos`: la centralita juntó **3 contraseñas rechazadas en 10 min**, sumando
+    «Probar registro» y el puente (ventana desde el primer rechazo, contador atómico en
+    `mensajeria.centralitas.rechazos`). Mientras dure tampoco se abre el teléfono: `POST /telefono/abrir`
+    y la conexión del puente responden el mismo 429.
+  - 429 `demasiados_intentos`: más de 3 pruebas por minuto de la extensión o 10 de la centralita (solo
+    contra ráfagas).
 - `Extension` y `MiExtension` también se ven en `GET /centralitas/{id}/extensiones` (con los campos de
   arriba) y `GET /centralita/mi-extension` (suma `tipo`).
 
@@ -1489,14 +1502,17 @@ conexión; límites; adopción por el AMI; llamada directa.
 - **Relevo hacia la Issabel** (I2): coturn solo deja la IP de la Issabel; el puerto lo limita el
   firewall del servidor de Iris (runbook §9.5: solo el rango RTP de la Issabel) y el de la Issabel (§9.4:
   ningún UDP salvo el rango RTP, nunca 5060).
-- **Credencial rechazada** (I3): si la Issabel rechaza la contraseña en el puente, el navegador recibe 403,
-  el puente **corta** (4003 `credenciales`), la extensión queda con `sip_probado_en` vacío
-  (`extension.registro_probado` con `estado: credenciales`, `origen: puente`) y el teléfono no se abre
-  (422 `registro_sin_probar`) hasta un «Probar registro» que pase. Una credencial nueva también exige esa
-  prueba.
+- **Credencial rechazada** (I3): si la Issabel rechaza la contraseña en el puente (el desafío contestado
+  vuelve a fallar, o un 403 directo a un `REGISTER`), el navegador recibe 403, el puente **corta** (4003
+  `credenciales`), la extensión queda con `sip_probado_en` vacío y `sip_rechazado_en` marcado (si la
+  contraseña sigue siendo la misma con la que se conectó) (`extension.registro_probado` con `estado:
+  credenciales`, `origen: puente`), el rechazo cuenta para el tope de la centralita (429
+  `demasiados_rechazos`) y el teléfono no se abre (422 `registro_sin_probar`) hasta un «Probar registro»
+  que pase. Una credencial nueva también exige esa prueba.
 - **TURN agotable** (I4): el usuario TURN es el mismo para la persona en cada ventana de `IRIS_TURN_VIDA`
   (`<fin_de_ventana>:iris-<usuario>`, válido entre 1 y 2 ventanas), así vale el `user-quota=4` de coturn;
-  `POST /telefono/abrir` acepta 6 por persona y minuto (429 `demasiados_intentos`); el rango de relevo de
+  `POST /telefono/abrir` acepta 6 por persona y minuto (429 `demasiados_intentos`; 429 `demasiados_rechazos`
+  mientras la centralita esté en espera por contraseñas rechazadas); el rango de relevo de
   fábrica es 49160–49660.
 - **Menores:** el reemplazo por otra pestaña se nota en **2 s** (vistazo ligero) y lo demás cada 10 s; el
   límite del día y las simultáneas se cuentan con el candado tomado; un frame binario cierra el WebSocket;

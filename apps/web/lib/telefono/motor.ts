@@ -86,7 +86,10 @@ export function clasificarErrorAbrir(e: unknown, ahora: number): ResultadoAbrir 
         if (e.codigo === "registro_sin_probar") return { tipo: "error", error: { tipo: "clave" } };
         const m = MOTIVOS.find((x) => x === e.codigo);
         if (m) return { tipo: "no_disponible", motivo: m };
-        if (e.estado === 429) return { tipo: "error", error: { tipo: "espera", hasta: ahora + (e.reintentarEn ?? 60) * 1000 } };
+        if (e.estado === 429) {
+            const hasta = ahora + (e.reintentarEn ?? 60) * 1000;
+            return { tipo: "error", error: e.codigo === "demasiados_rechazos" ? { tipo: "espera", hasta, rechazos: true } : { tipo: "espera", hasta } };
+        }
         if (e.estado === 401 || e.estado === 403 || e.estado === 404) return { tipo: "no_disponible", motivo: "sin_extension" };
     }
     return { tipo: "reintentar" };

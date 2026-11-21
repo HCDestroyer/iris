@@ -16,15 +16,30 @@ UPDATE mensajeria.centralita_extensiones SET tipo = @tipo, sip_usuario = sqlc.na
 WHERE id = @id AND activa
 RETURNING *;
 
--- name: MarcarRegistroProbado :exec
--- Una prueba que pasa borra el rechazo anterior.
+-- name: MarcarRegistroProbado :execrows
+-- Una prueba que pasa borra el rechazo anterior. Solo si la contraseña probada sigue siendo la
+-- guardada (`sip_guardado_en`): una prueba de la vieja no marca la nueva.
 UPDATE mensajeria.centralita_extensiones SET sip_probado_en = sqlc.narg('sip_probado_en'),
     sip_rechazado_en = CASE WHEN sqlc.narg('sip_probado_en')::timestamptz IS NOT NULL THEN NULL ELSE sip_rechazado_en END, updated_at = now()
-WHERE id = @id AND activa;
+WHERE id = @id AND activa AND sip_guardado_en = @guardado::timestamptz;
 
--- name: MarcarRegistroRechazado :exec
--- La Issabel rechazó la contraseña guardada («Probar registro» o una conexión del puente).
-UPDATE mensajeria.centralita_extensiones SET sip_probado_en = NULL, sip_rechazado_en = @ahora::timestamptz, updated_at = now() WHERE id = @id AND activa;
+-- name: MarcarRegistroRechazado :execrows
+-- La Issabel rechazó la contraseña guardada («Probar registro» o una conexión del puente), si sigue
+-- siendo la misma que se probó.
+UPDATE mensajeria.centralita_extensiones SET sip_probado_en = NULL, sip_rechazado_en = @ahora::timestamptz, updated_at = now()
+WHERE id = @id AND activa AND sip_guardado_en = @guardado::timestamptz;
+
+-- name: ContarRechazoCentralita :one
+-- Una contraseña rechazada más en la centralita (ventana que empieza en el primer rechazo).
+UPDATE mensajeria.centralitas SET
+    rechazos = CASE WHEN rechazos_desde IS NULL OR rechazos_desde < @desde::timestamptz THEN 1 ELSE rechazos + 1 END,
+    rechazos_desde = CASE WHEN rechazos_desde IS NULL OR rechazos_desde < @desde::timestamptz THEN @ahora::timestamptz ELSE rechazos_desde END
+WHERE id = @id
+RETURNING rechazos, rechazos_desde;
+
+-- name: RechazosCentralita :one
+-- Las contraseñas rechazadas en la ventana actual de la centralita.
+SELECT rechazos, rechazos_desde FROM mensajeria.centralitas WHERE id = @id;
 
 -- name: ContarPruebaRegistroExtension :one
 -- «Probar registro» de esta extensión en el último minuto (con esta).

@@ -244,6 +244,8 @@ describe("conectar", () => {
         expect(clasificarErrorAbrir(e(422, "telefono_apagado"), ahora)).toEqual({ tipo: "no_disponible", motivo: "telefono_apagado" });
         expect(clasificarErrorAbrir(e(422, "registro_sin_probar"), ahora)).toEqual({ tipo: "error", error: { tipo: "clave" } });
         expect(clasificarErrorAbrir(e(429, "demasiados_intentos", 60), ahora)).toEqual({ tipo: "error", error: { tipo: "espera", hasta: 61_000 } });
+        // Re-verificación de #252, M1: con varias contraseñas rechazadas espera lo que diga el servidor.
+        expect(clasificarErrorAbrir(e(429, "demasiados_rechazos", 540), ahora)).toEqual({ tipo: "error", error: { tipo: "espera", hasta: 541_000, rechazos: true } });
         expect(clasificarErrorAbrir(new Error("red"), ahora)).toEqual({ tipo: "reintentar" });
         expect(clasificarCierre({ codigo: CIERRE_ABRIR, motivo: "abrir", error: e(429, "demasiados_intentos", 60) }, ahora).detener).toBe(true);
         expect(clasificarCierre({ codigo: CIERRE_ABRIR, motivo: "abrir", error: new Error("red") }, ahora)).toMatchObject({ detener: false, error: { tipo: "sin_conexion" } });

@@ -85,7 +85,9 @@ function puntoError(e: ErrorTelefono): PuntoTelefono {
         case "pestana":
             return { forma: "aviso", tono: "warning", texto: "El teléfono está en otra pestaña", corto: "En otra pestaña" };
         case "espera":
-            return { forma: "aviso", tono: "warning", texto: "El teléfono se vuelve a conectar en un minuto", corto: "En un minuto" };
+            return e.rechazos
+                ? { forma: "aviso", tono: "warning", texto: "El teléfono espera unos minutos", corto: "En unos minutos" }
+                : { forma: "aviso", tono: "warning", texto: "El teléfono se vuelve a conectar en un minuto", corto: "En un minuto" };
         case "cortado":
             return { forma: "aviso", tono: "danger", texto: "Teléfono desconectado", corto: "Desconectado" };
     }
@@ -153,6 +155,14 @@ export function avisoError(e: ErrorTelefono, extension: string | null): AvisoTel
                 accion: "usar_aqui",
             };
         case "espera":
+            if (e.rechazos) {
+                return {
+                    tono: "warning",
+                    titulo: "La centralita rechazó varias contraseñas seguidas",
+                    detalle: `Para que la centralita no bloquee a Iris, el teléfono espera. Iris lo vuelve a conectar sola a las ${hora(e.hasta)}.`,
+                    accion: null,
+                };
+            }
             return {
                 tono: "warning",
                 titulo: "El teléfono se abrió muchas veces seguidas",

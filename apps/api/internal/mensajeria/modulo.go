@@ -250,6 +250,8 @@ type Modulo struct {
 	resumenes *cacheResumen
 	// trasLeerCabeza: solo pruebas (entre la cabeza y los eventos de leerFeed).
 	trasLeerCabeza func()
+	// antesDeProbarRegistro: solo pruebas (entre la preparación de «Probar registro» y el REGISTER).
+	antesDeProbarRegistro func()
 	// antesDeLeerFlujo: solo pruebas (en los flujos SSE del chat y la bandeja, entre la autorización
 	// que da el alcance y la lectura del feed; recibe el usuario del flujo). Se fija antes de abrirlos.
 	antesDeLeerFlujo func(usuario int64)

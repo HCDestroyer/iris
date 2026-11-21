@@ -36,8 +36,11 @@ export type ErrorTelefono =
     | { tipo: "microfono"; estado: "denegado" | "sin_microfono" | "no_disponible" }
     /** Otra pestaña (u otro dispositivo) tiene el teléfono. */
     | { tipo: "pestana" }
-    /** Se abrió demasiadas veces seguidas: se espera un minuto. */
-    | { tipo: "espera"; hasta: number }
+    /**
+     * Se espera hasta `hasta` (lo dice `Retry-After`): se abrió demasiadas veces seguidas o, con
+     * `rechazos`, la centralita rechazó varias contraseñas seguidas (fail2ban).
+     */
+    | { tipo: "espera"; hasta: number; rechazos?: boolean }
     /** Iris cortó el teléfono (4003 sin motivo) y `GET /telefono` lo sigue dando por disponible. */
     | { tipo: "cortado" };
 

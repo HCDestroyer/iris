@@ -15,7 +15,7 @@ import type { Centralita, ExtensionCentralita } from "@/lib/centralita/tipos";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
-import { credencialRechazada, esquemaExtension, textoPruebaRegistro, type ValoresExtension } from "@/lib/telefono/administracion";
+import { credencialRechazada, esperaPruebaRegistro, esquemaExtension, textoPruebaRegistro, type ValoresExtension } from "@/lib/telefono/administracion";
 import { guardarTelefonoExtension, probarRegistro } from "@/lib/telefono/api";
 import type { PruebaRegistro } from "@/lib/telefono/tipos";
 
@@ -47,9 +47,11 @@ export function ExtensionTelefono({ extensionId }: { extensionId: number }) {
     return <Formulario centralita={lectura.datos.c} extension={lectura.datos.x} />;
 }
 
-function Formulario({ centralita: c, extension: x }: { centralita: Centralita; extension: ExtensionCentralita }) {
+function Formulario({ centralita: c, extension: leida }: { centralita: Centralita; extension: ExtensionCentralita }) {
     const router = useRouter();
     const clave = useClaveIdempotencia();
+    // La extensión como quedó al último guardar (la leída al entrar, hasta que se guarde).
+    const [x, setX] = useState(leida);
     const guardada = !!x.sipGuardadoEn;
     const form = useForm<ValoresExtension>({
         resolver: zodResolver(esquemaExtension),
@@ -76,7 +78,9 @@ function Formulario({ centralita: c, extension: x }: { centralita: Centralita; e
         try {
             setPrueba(await probarRegistro(c.id, x.id));
         } catch (e) {
-            setError(e);
+            const espera = esperaPruebaRegistro(e);
+            if (espera) avisar({ tono: "warning", titulo: "No se pudo probar todavía", descripcion: espera });
+            else setError(e);
         } finally {
             setProbando(false);
         }
@@ -101,12 +105,24 @@ function Formulario({ centralita: c, extension: x }: { centralita: Centralita; e
                     const nueva = await guardarTelefonoExtension(c.id, x.id, cuerpo, clave.actual());
                     clave.renovar();
                     if (nueva.tipo === "navegador") {
+                        setX({ ...nueva, usuarioNombre: x.usuarioNombre });
+                        setPrueba(null);
+                        const guardado = { tipo: "navegador" as const, sipUsuario: nueva.sipUsuario ?? d.sipUsuario, cambiarSecreto: false, sipSecreto: "" };
                         // Probar el registro con la guardada: sin «ok» la persona no puede abrir el teléfono.
-                        const p = await probarRegistro(c.id, x.id);
+                        let p: PruebaRegistro;
+                        try {
+                            p = await probarRegistro(c.id, x.id);
+                        } catch (e) {
+                            // Lo guardado ya quedó: no se muestra como «No se pudo guardar».
+                            form.reset(guardado);
+                            const espera = esperaPruebaRegistro(e);
+                            avisar({ tono: "warning", titulo: "Extensión guardada; no se pudo probar", descripcion: espera ?? mensajeDeError(e).titulo });
+                            return;
+                        }
                         const r = textoPruebaRegistro(p, x.extension);
                         if (p.estado !== "ok") {
                             setPrueba(p);
-                            form.reset({ tipo: "navegador", sipUsuario: nueva.sipUsuario ?? d.sipUsuario, cambiarSecreto: false, sipSecreto: "" });
+                            form.reset(guardado);
                             avisar({ tono: "warning", titulo: "Extensión guardada", descripcion: r.titulo });
                             return;
                         }

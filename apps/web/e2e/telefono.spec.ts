@@ -360,6 +360,22 @@ test.describe("Teléfono: administración", () => {
         expect(api.telefono.recibido.registros).toBe(1);
     });
 
+    test("guardar con la centralita en espera (429): queda guardada y dice cuánto esperar", async ({ page }) => {
+        // Re-verificación de #252, B3: el 429 de «Probar registro» no es «No se pudo guardar».
+        const { api } = await abrir(page, RUTA, { encendido: false, telefono: { rechazosEsperan: 540 } });
+        await slot(page, "extensiones-centralita").getByRole("link", { name: "Configurar la extensión de Rosa Pop" }).click();
+        await page.getByRole("radio", { name: /En Iris/ }).check({ force: true });
+        await page.getByLabel("Contraseña SIP", { exact: true }).fill("clave-de-la-205");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        await expect(page.getByText("Extensión guardada; no se pudo probar")).toBeVisible();
+        await expect(page.getByText(/espera 9 min/)).toBeVisible();
+        await expect(page.locator('[data-slot="error-guardar"]')).toHaveCount(0);
+        // Lo guardado: «•••• guardada» y sin cambios pendientes («Probar registro» a mano).
+        await expect(page.getByText("•••• guardada")).toBeVisible();
+        await expect(page.getByRole("button", { name: "Probar registro" })).toBeVisible();
+        expect(api.telefono.recibido.extensiones).toHaveLength(1);
+    });
+
     test("«Reintentar» se queda cuando la Issabel no conecta (no gasta la contraseña)", async ({ page }) => {
         const { api } = await abrir(page, RUTA, { encendido: false, telefono: { registro: "no_conecta" } });
         await slot(page, "extensiones-centralita").getByRole("link", { name: "Configurar la extensión de Rosa Pop" }).click();
