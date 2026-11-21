@@ -167,6 +167,9 @@ const (
 	// de un comodato que no se pudo recuperar (nunca sale sola desde el cierre).
 	PermOrdenesDeclararPerdida    Permiso = "ordenes.declarar_perdida"
 	PermCuadrillasLeerIntegracion Permiso = "cuadrillas.leer_integracion"
+	// PermAdjuntosVerificarIntegracion: Argos verifica de servidor a servidor un cambio o un intento
+	// de recuperación por su Idempotency-Key (0.14.0 §3.10; solo el rol integracion_argos).
+	PermAdjuntosVerificarIntegracion Permiso = "adjuntos.verificar_integracion"
 
 	// Rutas del día (I2): propuesta con OSRM, publicación y ruta propuesta frente a la real.
 	PermRutasVer      Permiso = "rutas.ver"
@@ -457,7 +460,7 @@ var PermisosSensibles = map[Permiso]bool{
 	// El jefe de cuadrilla firma lo que entra a la bodega compartida y responde por los faltantes.
 	PermCuadrillasAsignarJefe: true,
 	// Leer la membresía de todas las cuadrillas para conciliar con Argos: solo el token de Argos.
-	PermCuadrillasLeerIntegracion: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
+	PermCuadrillasLeerIntegracion: true, PermAdjuntosVerificarIntegracion: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesPedirReconexion: true,
 	PermConversacionesIniciar:         true, PermCampoConfigurar: true,
@@ -564,6 +567,7 @@ var Catalogo = []DefPermiso{
 	{PermCotizacionesCrear, "Crear cotizaciones (y versiones nuevas) de un prospecto con los planes de Argos"},
 	{PermCuadrillasAsignarJefe, "Asignar el jefe de una cuadrilla: recibe y firma los traslados a la bodega de la cuadrilla y responde por los faltantes (nunca a uno mismo)"},
 	{PermCuadrillasLeerIntegracion, "Leer una cuadrilla, sus miembros y su jefe para conciliar la bodega de cuadrilla (token de Argos)"},
+	{PermAdjuntosVerificarIntegracion, "Verificar que un cambio o un intento de recuperación lo mandó Iris, con su foto (token de Argos)"},
 	{PermDatosLegalesConfigurar, "Configurar los datos legales del titular (razón social, contacto de privacidad, dirección y país) que publican las páginas de privacidad, términos y eliminación de datos"},
 	{PermDatosLegalesVer, "Ver los datos legales del titular y si las páginas públicas que pide Meta están listas"},
 	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},
@@ -824,7 +828,9 @@ var RolesBase = []DefRol{
 			// Mensajería (contrato 0.6.0 §1.2 y §6): avisos, permisos de contacto y plantillas.
 			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer,
 			// Bodega de cuadrilla (0.11.0 §3.9): conciliar la cuadrilla.
-			PermCuadrillasLeerIntegracion}},
+			PermCuadrillasLeerIntegracion,
+			// Equipos del cliente (0.14.0 §3.10): verificar cambios e intentos.
+			PermAdjuntosVerificarIntegracion}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }

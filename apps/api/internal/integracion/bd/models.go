@@ -1100,6 +1100,14 @@ type IntegracionPendiente struct {
 	ResueltoMotivo   *string
 	ResueltoPor      *int64
 	ResueltoEn       *time.Time
+	EnviadoAConector *int64
+}
+
+type IntegracionVerificacionesIntento struct {
+	ID           int64
+	ConectorID   int64
+	Clave        string
+	ConsultadaEn time.Time
 }
 
 type MensajeriaAjustesBandeja struct {

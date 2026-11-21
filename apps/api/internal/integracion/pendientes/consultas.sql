@@ -51,6 +51,33 @@ SELECT EXISTS (
         = ((yo.payload->>'fecha')::timestamptz AT TIME ZONE 'America/Guatemala')::date
 )::boolean;
 
+-- name: ConectorDeToken :one
+-- El conector Argos al que Iris entregó este token (el que consulta la verificación).
+SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = @token_id;
+
+-- name: ContarVerificaciones :one
+-- Consultas de verificación del conector en el último minuto y de la clave desde @dia.
+SELECT
+    (SELECT count(*) FROM integracion.verificaciones_intento v WHERE v.conector_id = @conector_id AND v.consultada_en > @minuto)::int AS por_minuto,
+    (SELECT count(*) FROM integracion.verificaciones_intento v WHERE v.clave = @clave AND v.consultada_en >= @dia)::int AS por_clave;
+
+-- name: RegistrarVerificacion :exec
+INSERT INTO integracion.verificaciones_intento (conector_id, clave, consultada_en) VALUES (@conector_id, @clave, @en);
+
+-- name: PurgarVerificaciones :exec
+DELETE FROM integracion.verificaciones_intento WHERE consultada_en < @antes;
+
+-- name: LlegadaParaVerificar :one
+-- La llegada del autor a la orden (último orden.llegar suyo el mismo día de la fecha, sin pasarla).
+SELECT coalesce(max(ocurrido_en), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz FROM campo.orden_eventos
+WHERE orden_id::text = @orden_id::text AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
+  AND actor_id = @actor_id AND ocurrido_en <= @fecha
+  AND (ocurrido_en AT TIME ZONE 'America/Guatemala')::date = (@fecha::timestamptz AT TIME ZONE 'America/Guatemala')::date;
+
+-- name: UsosDeFoto :one
+-- Cuántos cambios o intentos usan esta foto.
+SELECT count(*)::int FROM campo.orden_equipos WHERE foto_adjunto_id = @foto;
+
 -- name: PendientePorClave :one
 SELECT * FROM integracion.pendientes WHERE idempotency_key = @idempotency_key;
 
@@ -88,6 +115,7 @@ SET estado          = @estado,
     respuesta       = coalesce(respuesta, sqlc.narg(respuesta)::jsonb),
     codigo_error    = sqlc.narg(codigo_error),
     tomado_en       = NULL,
+    enviado_a_conector = coalesce(sqlc.narg(enviado_a_conector)::bigint, enviado_a_conector),
     version         = version + 1,
     updated_at      = now()
 WHERE id = @id AND estado = 'en_curso'

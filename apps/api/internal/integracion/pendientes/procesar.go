@@ -94,6 +94,8 @@ type resultadoIntento struct {
 	// Espera: el Retry-After de Argos (429 o 503 que se reintentan), si pide más que la espera de
 	// la cola.
 	Espera time.Duration `json:"espera,omitempty"`
+	// Conector: el conector al que se mandó (enviado_a_conector, para la verificación de 0.14.0).
+	Conector *int64 `json:"conector,omitempty"`
 
 	// respuesta del 2xx, ya limpia (no va a la auditoría: queda en el pendiente).
 	respuesta []byte
@@ -113,6 +115,9 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		// se reintenta con la misma espera; al agotarse, alerta.
 		r.Error = "sin conector Argos activo: " + resumenProblema(err)
 		return r
+	}
+	if id, err := m.cfg.Argos.ConectorActivoID(ctx, nucleo.BDDe(ctx)); err == nil {
+		r.Conector = &id
 	}
 	var cuerpo any = json.RawMessage(f.Payload)
 	var crudo conector.Crudo
@@ -167,6 +172,12 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	}
 	r.Negocio = EsNegocioEn(f.Operacion, er)
 	r.Error = describir(er)
+	if (f.Operacion == OpCambio || f.Operacion == OpNoRecuperado) && r.Codigo == CodigoIdempotenciaReutilizada {
+		// 0.14.0 §3.10: lo que Argos tiene con esta clave no es lo que mandó Iris. La verificación
+		// responde no_coincide y es una alerta de seguridad para el admin.
+		slog.ErrorContext(ctx, "pendientes: ALERTA DE SEGURIDAD: Argos tiene otro cuerpo para la clave de un cambio o intento",
+			"pendiente", f.ID, "operacion", f.Operacion, "clave", f.IdempotencyKey)
+	}
 	if r.Negocio && f.Operacion == OpNoRecuperado && strings.TrimSpace(er.Tipo) == URNDemasiadosIntentos {
 		// 0.14.0 §3.10: sin otro intento de Iris de esa unidad ese día, el cupo lo ocupa otro.
 		if otro, err := pendientesbd.New(nucleo.BDDe(ctx)).OtroIntentoDelDia(ctx, f.ID); err == nil && !otro {
@@ -454,7 +465,7 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			intentos := antes.Intentos + 1
 			switch {
 			case in.Exito:
-				p.Estado, p.HechoEn, p.Respuesta = EstadoHecho, &in.ahora, in.respuesta
+				p.Estado, p.HechoEn, p.Respuesta, p.EnviadoAConector = EstadoHecho, &in.ahora, in.respuesta, in.Conector
 				evento, payload = EventoHecho, eventoDe(antes)
 				if in.Conciliado != "" {
 					// 409 que dice «ya hecho»: queda hecho y el motivo en ultimo_error, para revisarlo.

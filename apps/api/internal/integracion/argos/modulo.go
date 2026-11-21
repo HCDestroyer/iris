@@ -252,6 +252,12 @@ func (m *Modulo) ClienteActivo(ctx context.Context, q conector.DBTX) (*Cliente, 
 	return m.clienteDe(c), nil
 }
 
+// ConectorActivoID: el id del conector Argos activo (o 503 conector_apagado).
+func (m *Modulo) ConectorActivoID(ctx context.Context, q conector.DBTX) (int64, error) {
+	c, err := m.conectorActivo(ctx, q)
+	return c.ID, err
+}
+
 // HayConectorActivo indica si hay un conector Argos activo (sin descifrar su token).
 func (m *Modulo) HayConectorActivo(ctx context.Context, q conector.DBTX) (bool, error) {
 	_, err := conectorbd.New(q).ConectorActivo(ctx, Sistema)
