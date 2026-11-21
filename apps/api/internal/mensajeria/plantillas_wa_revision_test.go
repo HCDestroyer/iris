@@ -280,3 +280,28 @@ func TestPlantillasWASincronizarNoBorraUnEnvioDuranteLaLectura(t *testing.T) {
 		t.Fatalf("después de releer: %v", p["estado"])
 	}
 }
+
+// La relectura no le devuelve el estado viejo a una plantilla que alguien reanudó mientras se leía.
+func TestPlantillasWASincronizarNoPisaReanudarDuranteLaLectura(t *testing.T) {
+	c := nuevaCuentaWA(t, nil)
+	r := c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/sugeridas/aviso_corte/crear", "s-"+pruebas.Unico(), map[string]any{"wabaId": c.waba, "enviar": true})
+	c.exigir(r, http.StatusCreated)
+	id, metaID := idPW(r.cuerpo), r.cuerpo["metaId"].(string)
+	c.meta.fijar(c.waba, metaID, map[string]any{"status": "PAUSED"})
+	c.estadoWebhook(metaID, "aviso_corte", "PAUSED", `,"other_info":{"title":"FIRST_PAUSE","description":"calidad"}`)
+	p := c.plantilla(id)
+	if p["estado"] != "PAUSED" {
+		t.Fatalf("pausa: %v", p["estado"])
+	}
+	// La lista de Meta ya está armada (pausada) cuando alguien la reanuda en Iris.
+	c.meta.duranteLaLectura(func() {
+		c.exigir(c.apiClave(c.admin, http.MethodPost, fmt.Sprintf("/plantillas-whatsapp/%d/reanudar", id), "re-"+pruebas.Unico(), map[string]any{"version": p["version"]}),
+			http.StatusOK, "estado", "APPROVED")
+	})
+	if err := c.m.SincronizarCuentaSistema(c.ctx, c.bd, c.waba, "manual"); err != nil {
+		t.Fatal(err)
+	}
+	if p := c.plantilla(id); p["estado"] != "APPROVED" {
+		t.Fatalf("la relectura le devolvió el estado viejo a una reanudada durante la lectura: %v", p["estado"])
+	}
+}

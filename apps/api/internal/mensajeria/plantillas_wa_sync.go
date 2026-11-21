@@ -74,13 +74,9 @@ type fotoPW struct {
 	version      int32
 }
 
-// cambioDurante: la fila recibió un aviso de Meta después de la foto (una fila nueva cuenta desde 0).
-func (l lecturaPW) cambioDurante(f mensajeriabd.MensajeriaPlantillaWA) bool {
-	return l.eventos != nil && f.MetaEventoEn != l.eventos[f.ID].metaEventoEn
-}
-
-// igualQueEnLaFoto: la fila estaba antes de leer Meta y nadie la cambió mientras tanto (ni un aviso
-// ni un envío). Solo una así se puede dar por «Borrada en Meta» si Meta no la devolvió.
+// igualQueEnLaFoto: la fila estaba antes de leer Meta y nadie la cambió mientras tanto (ni un aviso,
+// ni un envío, ni una edición, ni reanudarla). Solo una así se pone al día con lo leído o se da por
+// «Borrada en Meta» si Meta no la devolvió.
 func (l lecturaPW) igualQueEnLaFoto(f mensajeriabd.MensajeriaPlantillaWA) bool {
 	foto, ok := l.eventos[f.ID]
 	return ok && foto.version == f.Version && foto.metaEventoEn == f.MetaEventoEn
@@ -271,8 +267,8 @@ func (m *Modulo) aplicarLectura(ctx context.Context, t *auditoria.Tx, q *mensaje
 		}
 		f := filas[i]
 		vistas[f.ID] = true
-		if in.cambioDurante(f) {
-			continue // un aviso de Meta llegó durante la lectura: ya está más al día
+		if !in.igualQueEnLaFoto(f) {
+			continue // cambió durante la lectura (un aviso de Meta, una edición, un envío o reanudarla): ya está más al día
 		}
 		g, cambio, err := m.aplicarMetaLeida(ctx, t, q, f, p, "sincronizacion", ahora)
 		if err != nil {
