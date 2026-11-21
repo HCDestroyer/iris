@@ -42,11 +42,13 @@ export {
     FORMATOS_CODIGO,
     lectorNativo,
     lectorZxing,
+    HojaEscaner,
     VisorEscaner,
     type CodigoLeido,
     type DependenciasEscaner,
     type GeometriaVisor,
     type Lector,
+    type PropsHojaEscaner,
     type PropsVisorEscaner,
 } from "./componentes/escaner";
 export { dibujarTrazos, hayFirma, MAX_SVG_FIRMA, simplificar, trazosAPng, trazosASvg, type Punto, type Trazo } from "./componentes/firma";

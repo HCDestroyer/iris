@@ -46,7 +46,7 @@ Sobre `apps/web` (sin pruebas) y `packages/ui/src/componentes`:
 | --- | --- | --- | --- |
 | `packages/ui/src/componentes/camara.tsx` | `<input type="file" capture>` oculto en un `<label>` con aspecto de botón | — | Conservar: HeroUI no abre la cámara del teléfono. El aspecto viene de `variantesBoton` (clases del `Button` de HeroUI) |
 | `packages/ui/src/componentes/selector-archivo.tsx`, `menu-archivos.tsx` | `<input type="file">` ocultos | — (el menú ya es `Dropdown`) | Conservar: HeroUI no trae selector de archivos; el disparador es `Boton`/`variantesBoton` |
-| `packages/ui/src/componentes/escaner.tsx` y `app/campo/_componentes/escaner-equipo.tsx` | Visor de cámara (`role="dialog"` propio) con `BarcodeDetector`/ZXing | — | Conservar: video en vivo con recuadro de lectura; por dentro usa `Boton`, `Aviso` y `Hoja` |
+| `packages/ui/src/componentes/escaner.tsx` (`VisorEscaner`, `HojaEscaner`) | Visor de cámara (`role="dialog"` propio) con `BarcodeDetector`/ZXing, y la hoja de códigos detectados sobre el video | — | Conservar: video en vivo con recuadro de lectura; la hoja es parte del visor (otro `Drawer` modal con su telón taparía el video). La hoja estaba en `app/campo/_componentes/escaner-equipo.tsx` y pasó a `packages/ui` como `HojaEscaner` |
 | `packages/ui/src/componentes/lienzo-firma.tsx`, `firma.ts` | Lienzo de firma con pointer events | — | Conservar: HeroUI no tiene firma |
 | `packages/ui/src/componentes/grafica-serie.tsx` | Gráfica SVG propia | — | Conservar: HeroUI no tiene gráficas (la tabla «Ver tabla» ya es `Tabla`) |
 | `packages/ui/src/componentes/marca.tsx` | Logo de Iris en SVG | — | Conservar: identidad, no un control |
@@ -73,8 +73,14 @@ Sobre `apps/web` (sin pruebas) y `packages/ui/src/componentes`:
 
 - `no-restricted-syntax` prohíbe `<button>`, `<input>`, `<select>`, `<textarea>`, **`<table>`** y
   **`<dialog>`** crudos, y el mensaje dice qué envoltorio usar.
-- `no-restricted-imports` prohíbe **`@heroui/*`** y **`react-aria-components`** fuera de
-  `packages/ui`.
+- También prohíbe `<details>`, `<summary>`, `<progress>` y `<meter>`; `createElement("button" | "input" |
+  "select" | "textarea" | "table" | "dialog" | "details")`; guardar una de esas etiquetas en una
+  variable para dibujarla después; `role` con `progressbar`, `meter`, `radiogroup`, `radio` o
+  `dialog`; y `import()` de HeroUI o React Aria. Cada mensaje nombra el envoltorio de `@iris/ui`.
+- `no-restricted-imports` prohíbe **`@heroui/*`**, **`react-aria`**, **`react-aria-components`**,
+  **`@react-aria/*`** y **`@react-stately/*`** fuera de `packages/ui`.
+- `reportUnusedDisableDirectives: "error"`: un `eslint-disable` que ya no tapa nada no se queda.
+- No hay excepciones: todo `apps/web` pasa sin ninguna.
 
 ## Pendiente
 

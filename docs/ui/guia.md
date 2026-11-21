@@ -29,8 +29,13 @@ siguen todos los frentes que tocan pantallas: panel (I3), app de campo (I4) y po
 3. Barras, giros, esqueletos, desplegables, tablas, radios, menús y globos hechos a mano no
    valen: `BarraProgreso`, `Medidor`, `Cargando`, `Esqueleto`, `Desplegable`, `Tabla`,
    `GrupoSegmentado`, `MenuDesplegable`, `Globo`.
-4. **ESLint lo cuida** (`apps/web/eslint.config.mjs`): prohíbe los elementos crudos de arriba e
-   importar `@heroui/*` o `react-aria-components` fuera de `packages/ui`.
+4. **ESLint lo cuida** (`apps/web/eslint.config.mjs`): prohíbe los elementos crudos de arriba y
+   `<details>`, `<progress>` y `<meter>` (también con `createElement` o guardando la etiqueta en una
+   variable), los `role` de barra, medidor, radio y diálogo hechos a mano, e importar (o `import()`)
+   `@heroui/*`, `react-aria`, `react-aria-components`, `@react-aria/*` o `@react-stately/*` fuera de
+   `packages/ui`. Un `eslint-disable` sin uso es error.
+5. **Avisos emergentes y barra de guardar:** en escritorio, con `BarraGuardar` en pantalla, los
+   avisos suben por encima de ella (`globals.css`): nunca tapan «Guardar» ni «Cancelar».
 
 ## Tema Horus
 
