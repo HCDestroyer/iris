@@ -1250,13 +1250,15 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   `recibir`), `limite` (`porDia`, `usadasHoy`). Lo usa el panel para pintar el teléfono y la app para
   decidir si ofrece «Llamar por la empresa».
 - `POST /telefono/abrir { dispositivo: panel | app }` → 201 `SesionTelefono`: `ws` (ruta relativa
-  `/api/v1/mensajeria/telefono/sip?ticket=…`), `ticketVence`, `sip` (`uri` = `sip:<sip_usuario>@<dominio>`,
+  `/api/v1/mensajeria/telefono/sip`), `ticket`, `protocolos` (`["sip", "iris-ticket.<ticket>"]`), `ticketVence`, `sip` (`uri` = `sip:<sip_usuario>@<dominio>`,
   `usuario`, `dominio`, `nombre` para mostrar), `ice` (`[{ urls[], username, credential }]`, TURN
   efímero), `politicaIce: "relay"`, `iceVence`. **Sin contraseña SIP.** CSRF como toda acción. 422
   `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503
   `turn_no_configurado`. El ticket: 32 bytes aleatorios, vale **30 s**, un solo uso, atado a la persona,
   a la sesión que lo pidió, a la empresa activa, a la extensión y al dispositivo.
-- `GET /telefono/sip?ticket=` → **WebSocket** con subprotocolo `sip` (RFC 7118). El panel de Next no
+- `GET /telefono/sip` → **WebSocket** con subprotocolo `sip` (RFC 7118); el ticket viaja como un
+  subprotocolo más (`Sec-WebSocket-Protocol: sip, iris-ticket.<ticket>`), nunca en la URL (no queda en los
+  logs de los proxies). El panel de Next no
   reenvía WebSockets: el proxy delante de Iris manda esa ruta exacta a la API (`IRIS_API_PUERTO`), que la
   pasa a la mensajería (runbook `centralita-issabel.md` §9.5 e `install.md`). Exige la misma sesión
   (cookie) que pidió el ticket; si el navegador manda `Origin`, tiene que ser el de `IRIS_BASE_URL`
@@ -1276,7 +1278,7 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   - El número externo **lo pone el servidor**: el de la ficha (instantánea de Argos, como E4b) o el del
     teclado normalizado. Solo Guatemala: `+502` y 8 dígitos que empiezan por 2–7 (fijos y móviles); ni
     otros países, ni números cortos, ni 1XXX, ni de tarificación especial (422 `destino_no_permitido`).
-    El teclado acepta también 2–8 dígitos si son una extensión activa o un grupo activo de la
+    El teclado acepta también 2–6 dígitos si son una extensión activa o un grupo activo de la
     centralita (llamada interna, sin fila ni límite); cualquier otro corto: 422 `destino_no_permitido`.
   - Cliente, ticket u orden que la persona no ve: 404. Sin teléfono de ese tipo: 422 `sin_contacto`.
   - Límite por persona y día (`llamadas_por_usuario_dia`, solo externas): 422 `limite_llamadas`.
@@ -1410,8 +1412,9 @@ reenvía mensajes, con estas reglas **escritas en el servidor**:
    `Authorization`, el nonce ni la contraseña; la auditoría guarda la acción, la extensión y el
    resultado.
 
-**TURN.** `IRIS_TURN_URLS` (lista: `turns:iris.kns.gt:5349?transport=tcp`,
-`turn:iris.kns.gt:3478?transport=udp`), `IRIS_TURN_SECRETO` (el `static-auth-secret` de coturn, en el
+**TURN.** `IRIS_TURN_URLS` (lista: `turn:iris.kns.gt:3478?transport=udp`,
+`turn:iris.kns.gt:3478?transport=tcp`; sin TLS en coturn: el audio ya va con DTLS-SRTP, y `turns:` solo si
+la instalación agrega un certificado aparte), `IRIS_TURN_SECRETO` (el `static-auth-secret` de coturn, en el
 `.env`, nunca en el repo) e `IRIS_TURN_VIDA` (10 min). Credencial efímera estándar (*TURN REST API*):
 `username = <vence_unix>:iris-<usuario_id>`, `credential = base64(HMAC-SHA1(secreto, username))`. El
 servicio `turn` (coturn, perfil `telefono` del compose) corre con `use-auth-secret`,
@@ -1423,7 +1426,8 @@ hacia la red interna), `no-multicast-peers`, `no-cli`, `relay-ip` = la IP de Iri
 `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`, `turn_no_configurado`
 (503 en `abrir`, 422 al encender), `ticket_no_valido` (403), `origen_no_permitido` (403),
 `centralita_no_responde` (503), `destino_no_permitido`, `sin_contacto`, `limite_llamadas` (422),
-`llamadas_simultaneas` (409), `sin_probar`, `clave_requerida`, `grupo_existente` (409).
+`llamadas_simultaneas` (409), `sin_probar`, `clave_requerida`, `grupo_existente` (409),
+`registro_sin_probar` (422), `restricciones_sin_confirmar` (422), `demasiados_intentos` (429).
 
 ##### Eventos nuevos (outbox)
 
@@ -1448,6 +1452,57 @@ un número libre, el `From` ajeno, el `MESSAGE` y el `Authorization` del navegad
 CSeq y *branch* (re-REGISTER, CANCEL, ACK, BYE después de un desafío); un solo uso del ticket y del
 destino; corte al quitar la extensión y al desactivar al usuario (BYE a la Issabel); reemplazo por otra
 conexión; límites; adopción por el AMI; llamada directa.
+
+##### Revisión de seguridad (21 nov 2026, #246): lo que manda sobre lo anterior
+
+- **Texto del navegador** (B1): antes de analizarlo, todo fin de línea tiene que ser CRLF (un LF o un CR
+  sueltos, en cabeceras o cuerpo, descartan el mensaje: sipgo corta solo en CR y PJSIP también en LF), sin
+  controles salvo TAB, sin cabeceras plegadas, nombres de cabecera que sean tokens y **un solo**
+  `Content-Length` igual al cuerpo (nada de un segundo mensaje en el mismo frame). Lo que sale a la Issabel
+  se rearma con una **lista blanca** de cabeceras por dirección (petición: Via, Max-Forwards, From, To,
+  Call-ID, CSeq, Contact, Content-Type, Content-Length, Expires, Allow, Supported, User-Agent, Refer-To solo
+  en REFER, Session-Expires, Min-SE, RAck, Reason, Accept, Allow-Events; respuesta: además Server, RSeq y
+  Require solo con `100rel`/`timer`). Se descartan P-Asserted-Identity, Remote-Party-ID, Diversion,
+  History-Info, Privacy, Replaces, Join, Referred-By, Route y cualquier otra.
+- **Desvíos** (B2): una respuesta 3xx, 380 o 485 del navegador llega a la Issabel como **480** sin
+  `Contact`. Todo `Contact` del navegador tiene como usuario **su `sip_usuario`** (además de host
+  `*.invalid` y `transport=ws|wss`): el panel y la app configuran el `contact_uri` así.
+- **DTMF y funciones de Asterisk** (B3): el DTMF por INFO solo pasa de a un dígito (0–9, `*`, `#`) y nunca
+  `##` ni `*2` seguidos (403); otro contenido, 415. El DTMF dentro del audio (RFC 4733) no lo ve Iris: es
+  **requisito de despliegue** la configuración de la Issabel del runbook §9.3.1 (contexto `from-iris` que
+  solo sale a Guatemala y a internos de 2 a 6 cifras, `TRANSFER_CONTEXT`, Dial sin `T`/`t` y con `i`, ruta
+  de salida sin internacionales). Iris pide que el administrador lo **confirme** al configurar el teléfono
+  (`confirmoRestricciones`, columna `restricciones_confirmadas_en`); sin eso no se enciende (422
+  `restricciones_sin_confirmar`) y quitar la confirmación lo apaga.
+- **Diálogos** (I5): toda petición del navegador (también ACK, CANCEL y las de dentro de un diálogo) tiene
+  `From` de su extensión; dentro de un diálogo, solo de una llamada que la conexión conoce y con sus
+  etiquetas (la del navegador siempre; la de la Issabel cuando se conoce): si no, 481. Un OPTIONS o un
+  REGISTER no abren «diálogos». Un tope de 64 diálogos guardados por conexión en todos los caminos.
+- **SDP** (I1): lista blanca de líneas (`v o s i c t b m a`) y de atributos de WebRTC; `a=rtcp` con dirección
+  solo si es la del relevo; `a=remote-candidates` y lo demás se quitan. El TURN solo cuenta como
+  configurado con `IRIS_TURN_RELAY_IP` (sin ella no se enciende ni se abre el teléfono).
+- **Relevo hacia la Issabel** (I2): coturn solo deja la IP de la Issabel; el puerto lo limita el
+  firewall del servidor de Iris (runbook §9.5: solo el rango RTP de la Issabel) y el de la Issabel (§9.4:
+  ningún UDP salvo el rango RTP, nunca 5060).
+- **Credencial rechazada** (I3): si la Issabel rechaza la contraseña en el puente, el navegador recibe 403,
+  el puente **corta** (4003 `credenciales`), la extensión queda con `sip_probado_en` vacío
+  (`extension.registro_probado` con `estado: credenciales`, `origen: puente`) y el teléfono no se abre
+  (422 `registro_sin_probar`) hasta un «Probar registro» que pase. Una credencial nueva también exige esa
+  prueba.
+- **TURN agotable** (I4): el usuario TURN es el mismo para la persona en cada ventana de `IRIS_TURN_VIDA`
+  (`<fin_de_ventana>:iris-<usuario>`, válido entre 1 y 2 ventanas), así vale el `user-quota=4` de coturn;
+  `POST /telefono/abrir` acepta 6 por persona y minuto (429 `demasiados_intentos`); el rango de relevo de
+  fábrica es 49160–49660.
+- **Menores:** el reemplazo por otra pestaña se nota en **2 s** (vistazo ligero) y lo demás cada 10 s; el
+  límite del día y las simultáneas se cuentan con el candado tomado; un frame binario cierra el WebSocket;
+  pánicos atrapados en las goroutines del puente; el AMI adopta la saliente solo con el **número completo**
+  (E.164), no por los últimos 8 dígitos; `llamada.transferida` sale cuando la Issabel acepta el REFER
+  (2xx), no al validarlo; extensiones y grupos que marca o transfiere el teléfono, de **2 a 6 cifras**
+  (grupos con CHECK); coturn sin capacidades, `no-new-privileges`, raíz de solo lectura, usuario 65534 y el
+  secreto en un archivo de configuración en tmpfs (no en la línea de comandos).
+- **Dependencias:** sipgo se queda en v1.7.2: v1.7.3/v1.7.4 agregan un tope de parámetros por cabecera
+  (`ParseMaxHeaderParams`), pero tienen menos de 2 semanas; el tope de 16 KB por mensaje acota ese caso
+  mientras tanto.
 
 ## 4. Interfaz mensajería ↔ `cmd/voz`
 

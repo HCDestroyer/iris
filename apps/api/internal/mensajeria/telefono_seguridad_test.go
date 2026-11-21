@@ -132,3 +132,52 @@ func TestTelefonoRestriccionesConfirmadas(t *testing.T) {
 	b.exigirProblema(b.api(b.admin, http.MethodPost, b.ruta("/telefono/activar"), map[string]any{"version": b.version}), http.StatusUnprocessableEntity,
 		"restricciones_sin_confirmar")
 }
+
+// Menores: el límite del día se cuenta con el candado tomado (llamar en paralelo no lo pasa).
+func TestTelefonoLimiteDiaEnParalelo(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	b.sql(`UPDATE mensajeria.centralitas SET llamadas_por_usuario_dia = 2 WHERE id = $1`, b.id)
+	const n = 8
+	codigos := make(chan int, n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			codigos <- b.api(b.agente, http.MethodPost, "/telefono/llamar", map[string]any{"numero": fmt.Sprintf("5555%04d", i)}).status
+		}(i)
+	}
+	hechas := 0
+	for i := 0; i < n; i++ {
+		if <-codigos == http.StatusCreated {
+			hechas++
+		}
+	}
+	if hechas != 2 {
+		t.Fatalf("pasaron %d llamadas con un límite de 2", hechas)
+	}
+}
+
+// Menores: el AMI adopta la saliente del puente solo con el número completo (no por los últimos 8
+// dígitos: un internacional que termina igual no se la lleva).
+func TestTelefonoAdopcionPorNumeroCompleto(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	b.arrancar()
+	r := b.api(b.agente, http.MethodPost, "/telefono/llamar", map[string]any{"numero": "55551234"})
+	b.exigir(r, http.StatusCreated)
+	id := r.cuerpo["llamada"].(map[string]any)["id"].(string)
+	externo := func() string {
+		var e string
+		if err := b.bd.QueryRow(b.ctx, `SELECT id_externo FROM mensajeria.llamadas WHERE id = $1`, id).Scan(&e); err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	b.ami.Emitir("Event", "DialBegin", "Channel", "PJSIP/201-1", "DestChannel", "PJSIP/troncal-2", "DestExten", "00155551234", "Linkedid", "1800.100")
+	time.Sleep(300 * time.Millisecond)
+	if e := externo(); e != "iris:"+id {
+		t.Fatalf("la adoptó otro número: %s", e)
+	}
+	b.ami.Emitir("Event", "DialBegin", "Channel", "PJSIP/201-3", "DestChannel", "PJSIP/troncal-4", "DestExten", "955551234", "Linkedid", "1800.101")
+	b.hasta(func() bool { return externo() == "1800.101" }, "el AMI no adoptó la saliente del puente")
+	if n := b.contar(`SELECT count(*) FROM mensajeria.llamadas WHERE origen = 'centralita'`); n != 1 {
+		t.Fatalf("filas: %d", n)
+	}
+}

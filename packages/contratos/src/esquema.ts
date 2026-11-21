@@ -5724,7 +5724,7 @@ export interface paths {
         put?: never;
         /**
          * Abrir el teléfono (ticket del WebSocket y TURN)
-         * @description Devuelve la ruta del WebSocket con un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. `dispositivo: app` solo marca (no registra ni recibe). Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         * @description Devuelve la ruta del WebSocket, un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. `dispositivo: app` solo marca (no registra ni recibe). Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
          */
         post: operations["abrirTelefono"];
         delete?: never;
@@ -5782,7 +5782,7 @@ export interface paths {
         };
         /**
          * WebSocket SIP del teléfono (subprotocolo sip, RFC 7118)
-         * @description Iris es el puente con la Issabel: responde los desafíos de autenticación en el servidor, deja marcar solo los destinos de `llamar` (o extensiones y grupos de la centralita) y transferir solo a `transferir/destinos`. 403 `ticket_no_valido` u `origen_no_permitido`; 503 `centralita_no_responde`. Cierres: 4001 `reemplazada`, 4003 `sin_acceso`, 4008 `limite`, 4502 `centralita_no_responde`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
+         * @description Se abre con los subprotocolos `sip` e `iris-ticket.<ticket>` (el ticket no va en la URL). Iris es el puente con la Issabel: responde los desafíos de autenticación en el servidor, deja marcar solo los destinos de `llamar` (o extensiones y grupos de la centralita) y transferir solo a `transferir/destinos`. 403 `ticket_no_valido` u `origen_no_permitido`; 503 `centralita_no_responde`. Cierres: 4001 `reemplazada`, 4003 `sin_acceso`, 4008 `limite`, 4502 `centralita_no_responde`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).
          */
         get: operations["telefonoSIP"];
         put?: never;
@@ -12777,7 +12777,7 @@ export interface components {
         };
         EntradaCrearGrupo: {
             nombre: string;
-            /** @description El número del grupo o la cola en Issabel */
+            /** @description El número del grupo o la cola en Issabel (2 a 6 dígitos) */
             numero: string;
         };
         EntradaCrearOrden: {
@@ -14367,6 +14367,8 @@ export interface components {
             version: number;
         };
         EntradaTelefonoCentralita: {
+            /** @description El administrador confirma la configuración de la Issabel del runbook §9.3: las extensiones del teléfono de Iris en un contexto que solo sale a Guatemala (prefijo + 8 dígitos) y a extensiones y grupos, TRANSFER_CONTEXT a ese contexto, sin las opciones T/t de Dial, desvíos ignorados y la ruta de salida sin internacionales. Sin esto no se puede encender */
+            confirmoRestricciones?: boolean;
             /** @description La huella que mostró «Probar» y que el administrador comparó con la de Issabel */
             huellaWss: string;
             /** Format: int32 */
@@ -19395,10 +19397,14 @@ export interface components {
              * @enum {string}
              */
             politicaIce: "relay";
+            /** @description Los subprotocolos con que se abre el WebSocket: sip y iris-ticket.<ticket> (el ticket no va en la URL) */
+            protocolos: string[] | null;
             sip: components["schemas"]["SIPTelefono"];
+            /** @description Ticket de un solo uso (30 s) */
+            ticket: string;
             /** Format: date-time */
             ticketVence: string;
-            /** @description Ruta del WebSocket (subprotocolo sip) con el ticket de un solo uso */
+            /** @description Ruta del WebSocket */
             ws: string;
         };
         SesionesCerradas: {
@@ -19704,6 +19710,11 @@ export interface components {
              * @description La última prueba del WSS que pasó con los datos actuales (encender la exige)
              */
             probadoEn: string | null;
+            /**
+             * Format: date-time
+             * @description Cuándo el administrador confirmó las restricciones de la Issabel (runbook §9.3); encender la exige
+             */
+            restriccionesConfirmadasEn: string | null;
             /** @description Dominio SIP de From/To (null = la dirección de la centralita) */
             sipDominio: string | null;
             /** Format: int32 */
@@ -19717,7 +19728,7 @@ export interface components {
             extension: string | null;
             limite: components["schemas"]["LimiteTelefono"];
             /** @enum {string|null} */
-            motivo: "sin_centralita" | "sin_extension" | "extension_escritorio" | "sin_credencial" | "telefono_apagado" | "turn_no_configurado" | null;
+            motivo: "sin_centralita" | "sin_extension" | "extension_escritorio" | "sin_credencial" | "registro_sin_probar" | "telefono_apagado" | "turn_no_configurado" | null;
             puede: components["schemas"]["PuedeTelefono"];
         };
         TextoConCuenta: {
@@ -43296,11 +43307,10 @@ export interface operations {
     };
     telefonoSIP: {
         parameters: {
-            query?: {
-                /** @description El ticket de un solo uso de POST /telefono/abrir */
-                ticket?: string;
-            };
+            query?: never;
             header?: {
+                /** @description sip, iris-ticket.<ticket> (el ticket de un solo uso de POST /telefono/abrir; no va en la URL) */
+                "Sec-WebSocket-Protocol"?: string;
                 /** @description Si viene, tiene que ser el de IRIS_BASE_URL */
                 Origin?: string;
             };

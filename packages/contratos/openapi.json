@@ -10783,8 +10783,8 @@
             "type": "string"
           },
           "numero": {
-            "description": "El número del grupo o la cola en Issabel",
-            "pattern": "^[0-9]{2,8}$",
+            "description": "El número del grupo o la cola en Issabel (2 a 6 dígitos)",
+            "pattern": "^[0-9]{2,6}$",
             "type": "string"
           }
         },
@@ -11725,7 +11725,7 @@
             "type": "string"
           },
           "numero": {
-            "pattern": "^[0-9]{2,8}$",
+            "pattern": "^[0-9]{2,6}$",
             "type": "string"
           },
           "version": {
@@ -14877,6 +14877,10 @@
       "EntradaTelefonoCentralita": {
         "additionalProperties": false,
         "properties": {
+          "confirmoRestricciones": {
+            "description": "El administrador confirma la configuración de la Issabel del runbook §9.3: las extensiones del teléfono de Iris en un contexto que solo sale a Guatemala (prefijo + 8 dígitos) y a extensiones y grupos, TRANSFER_CONTEXT a ese contexto, sin las opciones T/t de Dial, desvíos ignorados y la ruta de salida sin internacionales. Sin esto no se puede encender",
+            "type": "boolean"
+          },
           "huellaWss": {
             "description": "La huella que mostró «Probar» y que el administrador comparó con la de Issabel",
             "maxLength": 95,
@@ -30112,20 +30116,36 @@
             ],
             "type": "string"
           },
+          "protocolos": {
+            "description": "Los subprotocolos con que se abre el WebSocket: sip y iris-ticket.\u003cticket\u003e (el ticket no va en la URL)",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "sip": {
             "$ref": "#/components/schemas/SIPTelefono"
+          },
+          "ticket": {
+            "description": "Ticket de un solo uso (30 s)",
+            "type": "string"
           },
           "ticketVence": {
             "format": "date-time",
             "type": "string"
           },
           "ws": {
-            "description": "Ruta del WebSocket (subprotocolo sip) con el ticket de un solo uso",
+            "description": "Ruta del WebSocket",
             "type": "string"
           }
         },
         "required": [
           "ws",
+          "ticket",
+          "protocolos",
           "ticketVence",
           "sip",
           "ice",
@@ -31057,6 +31077,14 @@
               "null"
             ]
           },
+          "restriccionesConfirmadasEn": {
+            "description": "Cuándo el administrador confirmó las restricciones de la Issabel (runbook §9.3); encender la exige",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "sipDominio": {
             "description": "Dominio SIP de From/To (null = la dirección de la centralita)",
             "type": [
@@ -31081,7 +31109,8 @@
           "prefijoSalida",
           "llamadasPorUsuarioDia",
           "llamadasSimultaneas",
-          "probadoEn"
+          "probadoEn",
+          "restriccionesConfirmadasEn"
         ],
         "type": "object"
       },
@@ -31116,6 +31145,7 @@
               "sin_extension",
               "extension_escritorio",
               "sin_credencial",
+              "registro_sin_probar",
               "telefono_apagado",
               "turn_no_configurado"
             ],
@@ -66642,7 +66672,7 @@
     },
     "/api/v1/mensajeria/telefono/abrir": {
       "post": {
-        "description": " Devuelve la ruta del WebSocket con un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. `dispositivo: app` solo marca (no registra ni recibe). Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).",
+        "description": " Devuelve la ruta del WebSocket, un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. `dispositivo: app` solo marca (no registra ni recibe). Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).",
         "operationId": "abrirTelefono",
         "parameters": [
           {
@@ -66950,17 +66980,16 @@
     },
     "/api/v1/mensajeria/telefono/sip": {
       "get": {
-        "description": " Iris es el puente con la Issabel: responde los desafíos de autenticación en el servidor, deja marcar solo los destinos de `llamar` (o extensiones y grupos de la centralita) y transferir solo a `transferir/destinos`. 403 `ticket_no_valido` u `origen_no_permitido`; 503 `centralita_no_responde`. Cierres: 4001 `reemplazada`, 4003 `sin_acceso`, 4008 `limite`, 4502 `centralita_no_responde`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).",
+        "description": " Se abre con los subprotocolos `sip` e `iris-ticket.\u003cticket\u003e` (el ticket no va en la URL). Iris es el puente con la Issabel: responde los desafíos de autenticación en el servidor, deja marcar solo los destinos de `llamar` (o extensiones y grupos de la centralita) y transferir solo a `transferir/destinos`. 403 `ticket_no_valido` u `origen_no_permitido`; 503 `centralita_no_responde`. Cierres: 4001 `reemplazada`, 4003 `sin_acceso`, 4008 `limite`, 4502 `centralita_no_responde`. Solo personas con su sesión (panel o app); un token de API o una integración: 404. La contraseña SIP nunca se devuelve. Contrato: `.claude/integration/contratos/voz.md` §3.12 (E4c).",
         "operationId": "telefonoSIP",
         "parameters": [
           {
-            "description": "El ticket de un solo uso de POST /telefono/abrir",
-            "explode": false,
-            "in": "query",
-            "name": "ticket",
+            "description": "sip, iris-ticket.\u003cticket\u003e (el ticket de un solo uso de POST /telefono/abrir; no va en la URL)",
+            "in": "header",
+            "name": "Sec-WebSocket-Protocol",
             "schema": {
-              "description": "El ticket de un solo uso de POST /telefono/abrir",
-              "maxLength": 64,
+              "description": "sip, iris-ticket.\u003cticket\u003e (el ticket de un solo uso de POST /telefono/abrir; no va en la URL)",
+              "maxLength": 200,
               "type": "string"
             }
           },

@@ -282,13 +282,21 @@ services:
     restart: unless-stopped
     logging: *logging
     network_mode: host
+    # Hardened: no capabilities (only ports above 1024), no new privileges, read-only root with a small
+    # tmpfs for the generated config (the secret goes there, never on the command line seen by ps).
+    user: '65534:65534'
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    tmpfs:
+      - /run/turn:size=1m,mode=0700,uid=65534,gid=65534
     environment:
       TURN_SECRETO: ${IRIS_TURN_SECRETO:-}
       TURN_RELAY_IP: ${IRIS_TURN_RELAY_IP:-}
       TURN_ISSABEL_IP: ${IRIS_TURN_ISSABEL_IP:-}
       TURN_PUERTO: ${IRIS_TURN_PUERTO:-3478}
       TURN_PUERTO_MIN: ${IRIS_TURN_PUERTO_MIN:-49160}
-      TURN_PUERTO_MAX: ${IRIS_TURN_PUERTO_MAX:-49200}
+      TURN_PUERTO_MAX: ${IRIS_TURN_PUERTO_MAX:-49660}
       TURN_REALM: ${IRIS_TURN_REALM:-iris}
     entrypoint:
       - /bin/sh
@@ -298,13 +306,35 @@ services:
           echo "TURN needs IRIS_TURN_SECRETO (16+ chars), IRIS_TURN_RELAY_IP and IRIS_TURN_ISSABEL_IP in the .env." >&2
           exit 1
         fi
-        exec turnserver -n --log-file=stdout --no-cli --fingerprint --no-software-attribute \
-          --listening-port="$$TURN_PUERTO" --no-tls --no-dtls --no-tcp-relay \
-          --realm="$$TURN_REALM" --use-auth-secret --static-auth-secret="$$TURN_SECRETO" \
-          --relay-ip="$$TURN_RELAY_IP" --min-port="$$TURN_PUERTO_MIN" --max-port="$$TURN_PUERTO_MAX" \
-          --no-multicast-peers --denied-peer-ip=0.0.0.0-255.255.255.255 \
-          --denied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff \
-          --allowed-peer-ip="$$TURN_ISSABEL_IP" --user-quota=4 --total-quota=200 --stale-nonce=600
+        umask 077
+        conf=/run/turn/turnserver.conf
+        {
+          echo "listening-port=$$TURN_PUERTO"
+          echo "realm=$$TURN_REALM"
+          echo "use-auth-secret"
+          echo "static-auth-secret=$$TURN_SECRETO"
+          echo "relay-ip=$$TURN_RELAY_IP"
+          echo "min-port=$$TURN_PUERTO_MIN"
+          echo "max-port=$$TURN_PUERTO_MAX"
+          echo "no-tls"
+          echo "no-dtls"
+          echo "no-tcp-relay"
+          echo "no-cli"
+          echo "fingerprint"
+          echo "no-software-attribute"
+          echo "no-multicast-peers"
+          echo "denied-peer-ip=0.0.0.0-255.255.255.255"
+          echo "denied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"
+          echo "allowed-peer-ip=$$TURN_ISSABEL_IP"
+          echo "user-quota=4"
+          echo "total-quota=200"
+          echo "stale-nonce=600"
+          echo "log-file=stdout"
+          echo "pidfile=/run/turn/turnserver.pid"
+          echo "userdb=/run/turn/turndb"
+        } > "$$conf"
+        unset TURN_SECRETO
+        exec turnserver -c "$$conf"
 
 networks:
   default:

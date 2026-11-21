@@ -57,17 +57,15 @@ var errBinario = errors.New("sippuente: mensaje binario")
 
 // Leer un mensaje de texto (un binario es un error).
 func (l *LadoWS) Leer(ctx context.Context) ([]byte, error) {
-	for {
-		t, b, err := l.c.Read(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if t != websocket.MessageText {
-			// SIP sobre WebSocket va en texto (RFC 7118): un binario corta (y así no escapa al tope por minuto).
-			return nil, errBinario
-		}
-		return b, nil
+	t, b, err := l.c.Read(ctx)
+	if err != nil {
+		return nil, err
 	}
+	if t != websocket.MessageText {
+		// SIP sobre WebSocket va en texto (RFC 7118): un binario corta (y así no escapa al tope por minuto).
+		return nil, errBinario
+	}
+	return b, nil
 }
 
 // Escribir un mensaje de texto (las escrituras se ordenan).
