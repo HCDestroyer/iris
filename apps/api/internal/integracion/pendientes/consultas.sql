@@ -5,11 +5,12 @@
 INSERT INTO integracion.pendientes (
     empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload,
     depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar,
-    tecnico_usuario_id
+    tecnico_usuario_id, actor, transito_id
 ) VALUES (
     sqlc.narg(empresa_id), @sistema, @operacion, @idempotency_key, @entidad, @entidad_id, @metodo, @ruta, @payload,
     @depende_de, @datos_incompletos, @estado, sqlc.narg(ultimo_error), @proximo_intento, sqlc.narg(evento_id),
-    sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}'), sqlc.narg(tecnico_usuario_id)
+    sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}'), sqlc.narg(tecnico_usuario_id),
+    sqlc.narg(actor), sqlc.narg(transito_id)
 )
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING *;
@@ -247,3 +248,30 @@ SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = 
     tomado_en = NULL, version = version + 1, updated_at = now()
 WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
 RETURNING *;
+
+-- --- Depósito de tránsito (contrato 0.10.0 §3.4.8) --------------------------------------------
+
+-- name: GuardarTransito :exec
+INSERT INTO integracion.datos_transito (id, empresa_id, orden_id, cifrado, tomado_en)
+VALUES (@id, sqlc.narg(empresa_id), @orden_id, @cifrado, @tomado_en);
+
+-- name: LeerTransito :one
+SELECT * FROM integracion.datos_transito WHERE id = @id;
+
+-- name: BorrarTransito :exec
+UPDATE integracion.datos_transito SET cifrado = NULL, borrado_en = @ahora, motivo_borrado = @motivo
+WHERE id = @id AND cifrado IS NOT NULL;
+
+-- name: PurgarTransito :execrows
+-- A los 7 días de tomado se borra lo que no se entregó (rechazado, agotado o en espera).
+UPDATE integracion.datos_transito SET cifrado = NULL, borrado_en = @ahora, motivo_borrado = 'vencido'
+WHERE cifrado IS NOT NULL AND tomado_en < @antes;
+
+-- name: UltimoPendienteTitularDeOrden :one
+-- El último pendiente del paso «Confirmar titular y plan» de la orden: la activación y el cobro
+-- de la instalación dependen de él (§3.4, «Orden»).
+SELECT id FROM integracion.pendientes
+WHERE entidad = 'orden' AND entidad_id = @orden_id
+    AND operacion IN ('registrar_identidad', 'cambiar_titular', 'completar_datos', 'cambiar_plan')
+ORDER BY id DESC
+LIMIT 1;

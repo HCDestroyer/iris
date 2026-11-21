@@ -13,7 +13,9 @@ import (
 // personales, listas y objetos anidados) se descarta. Si hace falta otro campo, se agrega aquí.
 
 // CamposRespuesta: los únicos campos que se guardan de una respuesta (y sus formas camelCase).
-var CamposRespuesta = []string{"id", "codigo", "codigo_externo", "cliente_id", "servicio_id", "estado", "empresa_id", "factura_id"}
+var CamposRespuesta = []string{"id", "codigo", "codigo_externo", "cliente_id", "servicio_id", "estado", "empresa_id", "factura_id",
+	// Contrato 0.10.0 §3.4: la identidad registrada (A41, A39) la usa completar-datos (A43).
+	"identidad_id", "posible_duplicado", "de_cliente_id", "de_cliente_eliminado"}
 
 // Listas que también se guardan (contrato 0.5.0 §3.3): los cargos que Argos emitió al consumir
 // productos consumible_cobro, cada uno solo con sus campos escalares permitidos.

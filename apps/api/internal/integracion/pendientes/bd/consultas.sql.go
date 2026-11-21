@@ -9,6 +9,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -16,7 +17,7 @@ const bloquearDependientes = `-- name: BloquearDependientes :many
 UPDATE integracion.pendientes
 SET estado = 'bloqueado', ultimo_error = $1, version = version + 1, updated_at = now()
 WHERE estado = 'pendiente' AND $2::bigint = ANY (depende_de)
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type BloquearDependientesParams struct {
@@ -70,6 +71,8 @@ func (q *Queries) BloquearDependientes(ctx context.Context, arg BloquearDependie
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -93,11 +96,27 @@ func (q *Queries) BodegaDeOrden(ctx context.Context, id int64) (*int64, error) {
 	return bodega_id, err
 }
 
+const borrarTransito = `-- name: BorrarTransito :exec
+UPDATE integracion.datos_transito SET cifrado = NULL, borrado_en = $1, motivo_borrado = $2
+WHERE id = $3 AND cifrado IS NOT NULL
+`
+
+type BorrarTransitoParams struct {
+	Ahora  *time.Time
+	Motivo *string
+	ID     uuid.UUID
+}
+
+func (q *Queries) BorrarTransito(ctx context.Context, arg BorrarTransitoParams) error {
+	_, err := q.db.Exec(ctx, borrarTransito, arg.Ahora, arg.Motivo, arg.ID)
+	return err
+}
+
 const completarEsperando = `-- name: CompletarEsperando :one
 UPDATE integracion.pendientes
 SET payload = $1, estado = 'pendiente', ultimo_error = NULL, proximo_intento = $2, version = version + 1, updated_at = now()
 WHERE id = $3 AND estado = 'bloqueado' AND ultimo_error = $4::text AND version = $5
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type CompletarEsperandoParams struct {
@@ -156,6 +175,8 @@ func (q *Queries) CompletarEsperando(ctx context.Context, arg CompletarEsperando
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -166,7 +187,7 @@ SET payload = $1, ruta = $2, depende_de = $3, datos_incompletos = false,
     estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
     proximo_intento = $4, version = version + 1, updated_at = now()
 WHERE id = $5 AND estado = 'fallido_negocio' AND datos_incompletos
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type CorregirPendienteParams struct {
@@ -223,6 +244,8 @@ func (q *Queries) CorregirPendiente(ctx context.Context, arg CorregirPendientePa
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -232,7 +255,7 @@ UPDATE integracion.pendientes
 SET payload = $1, estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL, codigo_error = NULL,
     proximo_intento = $2, tomado_en = NULL, version = version + 1, updated_at = now()
 WHERE id = $3 AND version = $4 AND estado = 'fallido_negocio'
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type CorregirTecnicoParams struct {
@@ -289,12 +312,14 @@ func (q *Queries) CorregirTecnico(ctx context.Context, arg CorregirTecnicoParams
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
 
 const dependientesAbiertos = `-- name: DependientesAbiertos :many
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes
 WHERE $1::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
 ORDER BY id
 FOR UPDATE
@@ -347,6 +372,8 @@ func (q *Queries) DependientesAbiertos(ctx context.Context, id int64) ([]Integra
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -359,7 +386,7 @@ func (q *Queries) DependientesAbiertos(ctx context.Context, id int64) ([]Integra
 }
 
 const dependientesPorResolver = `-- name: DependientesPorResolver :many
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes
 WHERE por_resolver AND $1::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
 ORDER BY id
 FOR UPDATE
@@ -411,6 +438,8 @@ func (q *Queries) DependientesPorResolver(ctx context.Context, id int64) ([]Inte
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -428,7 +457,7 @@ SET estado = 'pendiente', proximo_intento = $1, ultimo_error = NULL, version = p
 WHERE p.estado = 'bloqueado' AND $2::bigint = ANY (p.depende_de)
   AND NOT EXISTS (
       SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado NOT IN ('hecho', 'resuelto_manual'))
-RETURNING p.id, p.empresa_id, p.sistema, p.operacion, p.idempotency_key, p.entidad, p.entidad_id, p.metodo, p.ruta, p.payload, p.depende_de, p.datos_incompletos, p.estado, p.intentos, p.proximo_intento, p.tomado_en, p.ultimo_error, p.ultimo_status, p.hecho_en, p.evento_id, p.version, p.created_at, p.updated_at, p.conflicto, p.conflicto_payload, p.conflicto_en, p.respuesta, p.plantilla, p.por_resolver, p.verificar, p.tecnico_usuario_id, p.codigo_error, p.resuelto_motivo, p.resuelto_por, p.resuelto_en
+RETURNING p.id, p.empresa_id, p.sistema, p.operacion, p.idempotency_key, p.entidad, p.entidad_id, p.metodo, p.ruta, p.payload, p.depende_de, p.datos_incompletos, p.estado, p.intentos, p.proximo_intento, p.tomado_en, p.ultimo_error, p.ultimo_status, p.hecho_en, p.evento_id, p.version, p.created_at, p.updated_at, p.conflicto, p.conflicto_payload, p.conflicto_en, p.respuesta, p.plantilla, p.por_resolver, p.verificar, p.tecnico_usuario_id, p.codigo_error, p.resuelto_motivo, p.resuelto_por, p.resuelto_en, p.actor, p.transito_id
 `
 
 type DesbloquearDependientesParams struct {
@@ -483,6 +512,8 @@ func (q *Queries) DesbloquearDependientes(ctx context.Context, arg DesbloquearDe
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -498,7 +529,7 @@ const fallarEsperando = `-- name: FallarEsperando :one
 UPDATE integracion.pendientes
 SET estado = 'fallido_negocio', ultimo_error = $1::text, codigo_error = $2::text, version = version + 1, updated_at = now()
 WHERE id = $3 AND estado = 'bloqueado' AND ultimo_error = $4::text AND version = $5
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type FallarEsperandoParams struct {
@@ -555,6 +586,8 @@ func (q *Queries) FallarEsperando(ctx context.Context, arg FallarEsperandoParams
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -564,7 +597,7 @@ UPDATE integracion.pendientes
 SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, ultimo_error = $1::text,
     codigo_error = 'dependencia_resuelta_a_mano', tomado_en = NULL, version = version + 1, updated_at = now()
 WHERE id = $2 AND estado IN ('pendiente', 'bloqueado')
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type FallarPorResolucionManualParams struct {
@@ -614,6 +647,8 @@ func (q *Queries) FallarPorResolucionManual(ctx context.Context, arg FallarPorRe
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -623,7 +658,7 @@ UPDATE integracion.pendientes
 SET estado = 'fallido_negocio', datos_incompletos = true, ultimo_error = $1,
     version = version + 1, updated_at = now()
 WHERE id = $2 AND por_resolver
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type FallarResolucionParams struct {
@@ -671,6 +706,8 @@ func (q *Queries) FallarResolucion(ctx context.Context, arg FallarResolucionPara
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -680,7 +717,7 @@ UPDATE integracion.pendientes
 SET payload = $1, por_resolver = false, proximo_intento = $2::timestamptz,
     version = version + 1, updated_at = now()
 WHERE id = $3 AND por_resolver
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type FijarCuerpoResueltoParams struct {
@@ -729,8 +766,36 @@ func (q *Queries) FijarCuerpoResuelto(ctx context.Context, arg FijarCuerpoResuel
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
+}
+
+const guardarTransito = `-- name: GuardarTransito :exec
+
+INSERT INTO integracion.datos_transito (id, empresa_id, orden_id, cifrado, tomado_en)
+VALUES ($1, $2, $3, $4, $5)
+`
+
+type GuardarTransitoParams struct {
+	ID        uuid.UUID
+	EmpresaID *int64
+	OrdenID   int64
+	Cifrado   []byte
+	TomadoEn  time.Time
+}
+
+// --- Depósito de tránsito (contrato 0.10.0 §3.4.8) --------------------------------------------
+func (q *Queries) GuardarTransito(ctx context.Context, arg GuardarTransitoParams) error {
+	_, err := q.db.Exec(ctx, guardarTransito,
+		arg.ID,
+		arg.EmpresaID,
+		arg.OrdenID,
+		arg.Cifrado,
+		arg.TomadoEn,
+	)
+	return err
 }
 
 const insertarPendiente = `-- name: InsertarPendiente :one
@@ -738,14 +803,15 @@ const insertarPendiente = `-- name: InsertarPendiente :one
 INSERT INTO integracion.pendientes (
     empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload,
     depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar,
-    tecnico_usuario_id
+    tecnico_usuario_id, actor, transito_id
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9,
     $10, $11, $12, $13, $14, $15,
-    $16, $17, coalesce($18::text[], '{}'), $19
+    $16, $17, coalesce($18::text[], '{}'), $19,
+    $20, $21
 )
 ON CONFLICT (idempotency_key) DO NOTHING
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type InsertarPendienteParams struct {
@@ -768,6 +834,8 @@ type InsertarPendienteParams struct {
 	PorResolver      bool
 	Verificar        []string
 	TecnicoUsuarioID *int64
+	Actor            *string
+	TransitoID       pgtype.UUID
 }
 
 // Cola de pendientes hacia Argos (internal/integracion/pendientes) ---------------------------
@@ -793,6 +861,8 @@ func (q *Queries) InsertarPendiente(ctx context.Context, arg InsertarPendientePa
 		arg.PorResolver,
 		arg.Verificar,
 		arg.TecnicoUsuarioID,
+		arg.Actor,
+		arg.TransitoID,
 	)
 	var i IntegracionPendiente
 	err := row.Scan(
@@ -831,12 +901,34 @@ func (q *Queries) InsertarPendiente(ctx context.Context, arg InsertarPendientePa
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
+	)
+	return i, err
+}
+
+const leerTransito = `-- name: LeerTransito :one
+SELECT id, empresa_id, orden_id, cifrado, tomado_en, borrado_en, motivo_borrado, created_at FROM integracion.datos_transito WHERE id = $1
+`
+
+func (q *Queries) LeerTransito(ctx context.Context, id uuid.UUID) (IntegracionDatosTransito, error) {
+	row := q.db.QueryRow(ctx, leerTransito, id)
+	var i IntegracionDatosTransito
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.OrdenID,
+		&i.Cifrado,
+		&i.TomadoEn,
+		&i.BorradoEn,
+		&i.MotivoBorrado,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const listarPendientes = `-- name: ListarPendientes :many
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes
 WHERE ($1::bigint = 0 OR id < $1)
   AND ($2::boolean OR empresa_id IS NOT DISTINCT FROM $3::bigint)
   AND ($4::text IS NULL OR entidad = $4)
@@ -917,6 +1009,8 @@ func (q *Queries) ListarPendientes(ctx context.Context, arg ListarPendientesPara
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -933,7 +1027,7 @@ UPDATE integracion.pendientes
 SET conflicto = $1, conflicto_payload = $2, conflicto_en = $3::timestamptz,
     version = version + 1, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type MarcarConflictoParams struct {
@@ -987,6 +1081,8 @@ func (q *Queries) MarcarConflicto(ctx context.Context, arg MarcarConflictoParams
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -1006,7 +1102,7 @@ func (q *Queries) MarcarEnCurso(ctx context.Context, arg MarcarEnCursoParams) er
 }
 
 const pendientePorClave = `-- name: PendientePorClave :one
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes WHERE idempotency_key = $1
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes WHERE idempotency_key = $1
 `
 
 func (q *Queries) PendientePorClave(ctx context.Context, idempotencyKey string) (IntegracionPendiente, error) {
@@ -1048,12 +1144,14 @@ func (q *Queries) PendientePorClave(ctx context.Context, idempotencyKey string) 
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
 
 const pendientePorID = `-- name: PendientePorID :one
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes WHERE id = $1
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes WHERE id = $1
 `
 
 func (q *Queries) PendientePorID(ctx context.Context, id int64) (IntegracionPendiente, error) {
@@ -1095,12 +1193,14 @@ func (q *Queries) PendientePorID(ctx context.Context, id int64) (IntegracionPend
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
 
 const pendientePorIDParaActualizar = `-- name: PendientePorIDParaActualizar :one
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) PendientePorIDParaActualizar(ctx context.Context, id int64) (IntegracionPendiente, error) {
@@ -1142,12 +1242,14 @@ func (q *Queries) PendientePorIDParaActualizar(ctx context.Context, id int64) (I
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
 
 const pendientesDeEntidad = `-- name: PendientesDeEntidad :many
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes WHERE entidad = $1 AND entidad_id = $2 ORDER BY id
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes WHERE entidad = $1 AND entidad_id = $2 ORDER BY id
 `
 
 type PendientesDeEntidadParams struct {
@@ -1200,6 +1302,8 @@ func (q *Queries) PendientesDeEntidad(ctx context.Context, arg PendientesDeEntid
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -1212,7 +1316,7 @@ func (q *Queries) PendientesDeEntidad(ctx context.Context, arg PendientesDeEntid
 }
 
 const pendientesDeTecnico = `-- name: PendientesDeTecnico :many
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes
 WHERE tecnico_usuario_id = $1 AND operacion = $2::text AND updated_at >= $3
 ORDER BY id DESC
 LIMIT $4
@@ -1276,6 +1380,8 @@ func (q *Queries) PendientesDeTecnico(ctx context.Context, arg PendientesDeTecni
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -1288,7 +1394,7 @@ func (q *Queries) PendientesDeTecnico(ctx context.Context, arg PendientesDeTecni
 }
 
 const pendientesEsperando = `-- name: PendientesEsperando :many
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes
 WHERE estado = 'bloqueado' AND ultimo_error = $1::text AND operacion = $2::text
 ORDER BY id
 LIMIT $3
@@ -1346,6 +1452,8 @@ func (q *Queries) PendientesEsperando(ctx context.Context, arg PendientesEsperan
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -1358,7 +1466,7 @@ func (q *Queries) PendientesEsperando(ctx context.Context, arg PendientesEsperan
 }
 
 const pendientesPorIDCompartido = `-- name: PendientesPorIDCompartido :many
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en FROM integracion.pendientes WHERE id = ANY ($1::bigint[]) ORDER BY id FOR SHARE
+SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id FROM integracion.pendientes WHERE id = ANY ($1::bigint[]) ORDER BY id FOR SHARE
 `
 
 // Las dependencias de un pendiente con candado compartido: si otra transacción está dejando una
@@ -1409,6 +1517,8 @@ func (q *Queries) PendientesPorIDCompartido(ctx context.Context, ids []int64) ([
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -1421,7 +1531,7 @@ func (q *Queries) PendientesPorIDCompartido(ctx context.Context, ids []int64) ([
 }
 
 const porResolverListos = `-- name: PorResolverListos :many
-SELECT p.id, p.empresa_id, p.sistema, p.operacion, p.idempotency_key, p.entidad, p.entidad_id, p.metodo, p.ruta, p.payload, p.depende_de, p.datos_incompletos, p.estado, p.intentos, p.proximo_intento, p.tomado_en, p.ultimo_error, p.ultimo_status, p.hecho_en, p.evento_id, p.version, p.created_at, p.updated_at, p.conflicto, p.conflicto_payload, p.conflicto_en, p.respuesta, p.plantilla, p.por_resolver, p.verificar, p.tecnico_usuario_id, p.codigo_error, p.resuelto_motivo, p.resuelto_por, p.resuelto_en FROM integracion.pendientes p
+SELECT p.id, p.empresa_id, p.sistema, p.operacion, p.idempotency_key, p.entidad, p.entidad_id, p.metodo, p.ruta, p.payload, p.depende_de, p.datos_incompletos, p.estado, p.intentos, p.proximo_intento, p.tomado_en, p.ultimo_error, p.ultimo_status, p.hecho_en, p.evento_id, p.version, p.created_at, p.updated_at, p.conflicto, p.conflicto_payload, p.conflicto_en, p.respuesta, p.plantilla, p.por_resolver, p.verificar, p.tecnico_usuario_id, p.codigo_error, p.resuelto_motivo, p.resuelto_por, p.resuelto_en, p.actor, p.transito_id FROM integracion.pendientes p
 WHERE p.por_resolver AND p.estado IN ('pendiente', 'bloqueado')
   AND NOT EXISTS (
       SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
@@ -1477,6 +1587,8 @@ func (q *Queries) PorResolverListos(ctx context.Context, limite int32) ([]Integr
 			&i.ResueltoMotivo,
 			&i.ResueltoPor,
 			&i.ResueltoEn,
+			&i.Actor,
+			&i.TransitoID,
 		); err != nil {
 			return nil, err
 		}
@@ -1488,13 +1600,32 @@ func (q *Queries) PorResolverListos(ctx context.Context, limite int32) ([]Integr
 	return items, nil
 }
 
+const purgarTransito = `-- name: PurgarTransito :execrows
+UPDATE integracion.datos_transito SET cifrado = NULL, borrado_en = $1, motivo_borrado = 'vencido'
+WHERE cifrado IS NOT NULL AND tomado_en < $2
+`
+
+type PurgarTransitoParams struct {
+	Ahora *time.Time
+	Antes time.Time
+}
+
+// A los 7 días de tomado se borra lo que no se entregó (rechazado, agotado o en espera).
+func (q *Queries) PurgarTransito(ctx context.Context, arg PurgarTransitoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, purgarTransito, arg.Ahora, arg.Antes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const rehacerEsperando = `-- name: RehacerEsperando :one
 UPDATE integracion.pendientes
 SET payload = $1, estado = 'bloqueado', ultimo_error = $2::text, codigo_error = NULL, ultimo_status = NULL,
     intentos = 0, tomado_en = NULL, tecnico_usuario_id = coalesce($3, tecnico_usuario_id),
     version = version + 1, updated_at = now()
 WHERE id = $4 AND estado = ANY ($5::text[])
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type RehacerEsperandoParams struct {
@@ -1554,6 +1685,8 @@ func (q *Queries) RehacerEsperando(ctx context.Context, arg RehacerEsperandoPara
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -1563,7 +1696,7 @@ UPDATE integracion.pendientes
 SET estado = 'pendiente', intentos = 0, proximo_intento = $1, tomado_en = NULL,
     version = version + 1, updated_at = now()
 WHERE id = $2 AND version = $3
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type ReintentarPendienteParams struct {
@@ -1611,6 +1744,8 @@ func (q *Queries) ReintentarPendiente(ctx context.Context, arg ReintentarPendien
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -1620,7 +1755,7 @@ UPDATE integracion.pendientes
 SET estado = 'resuelto_manual', resuelto_motivo = $1::text, resuelto_por = $2, resuelto_en = $3::timestamptz,
     tomado_en = NULL, version = version + 1, updated_at = now()
 WHERE id = $4 AND version = $5 AND estado = 'fallido_negocio'
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type ResolverManualParams struct {
@@ -1678,6 +1813,8 @@ func (q *Queries) ResolverManual(ctx context.Context, arg ResolverManualParams) 
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -1687,7 +1824,7 @@ UPDATE integracion.pendientes
 SET estado = 'resuelto_manual', resuelto_motivo = $1::text, resuelto_por = $2, resuelto_en = $3::timestamptz,
     tomado_en = NULL, version = version + 1, updated_at = now()
 WHERE id = $4 AND estado IN ('pendiente', 'bloqueado')
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type ResolverManualDependienteParams struct {
@@ -1742,6 +1879,8 @@ func (q *Queries) ResolverManualDependiente(ctx context.Context, arg ResolverMan
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
@@ -1760,7 +1899,7 @@ SET estado          = $1,
     version         = version + 1,
     updated_at      = now()
 WHERE id = $8 AND estado = 'en_curso'
-RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
+RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id
 `
 
 type ResolverPendienteParams struct {
@@ -1823,12 +1962,14 @@ func (q *Queries) ResolverPendiente(ctx context.Context, arg ResolverPendientePa
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
 }
 
 const tomarVencido = `-- name: TomarVencido :one
-SELECT p.id, p.empresa_id, p.sistema, p.operacion, p.idempotency_key, p.entidad, p.entidad_id, p.metodo, p.ruta, p.payload, p.depende_de, p.datos_incompletos, p.estado, p.intentos, p.proximo_intento, p.tomado_en, p.ultimo_error, p.ultimo_status, p.hecho_en, p.evento_id, p.version, p.created_at, p.updated_at, p.conflicto, p.conflicto_payload, p.conflicto_en, p.respuesta, p.plantilla, p.por_resolver, p.verificar, p.tecnico_usuario_id, p.codigo_error, p.resuelto_motivo, p.resuelto_por, p.resuelto_en FROM integracion.pendientes p
+SELECT p.id, p.empresa_id, p.sistema, p.operacion, p.idempotency_key, p.entidad, p.entidad_id, p.metodo, p.ruta, p.payload, p.depende_de, p.datos_incompletos, p.estado, p.intentos, p.proximo_intento, p.tomado_en, p.ultimo_error, p.ultimo_status, p.hecho_en, p.evento_id, p.version, p.created_at, p.updated_at, p.conflicto, p.conflicto_payload, p.conflicto_en, p.respuesta, p.plantilla, p.por_resolver, p.verificar, p.tecnico_usuario_id, p.codigo_error, p.resuelto_motivo, p.resuelto_por, p.resuelto_en, p.actor, p.transito_id FROM integracion.pendientes p
 WHERE ((p.estado = 'pendiente' AND p.proximo_intento <= $1)
     OR (p.estado = 'en_curso' AND p.tomado_en <= $2::timestamptz))
   AND NOT p.por_resolver
@@ -1885,8 +2026,27 @@ func (q *Queries) TomarVencido(ctx context.Context, arg TomarVencidoParams) (Int
 		&i.ResueltoMotivo,
 		&i.ResueltoPor,
 		&i.ResueltoEn,
+		&i.Actor,
+		&i.TransitoID,
 	)
 	return i, err
+}
+
+const ultimoPendienteTitularDeOrden = `-- name: UltimoPendienteTitularDeOrden :one
+SELECT id FROM integracion.pendientes
+WHERE entidad = 'orden' AND entidad_id = $1
+    AND operacion IN ('registrar_identidad', 'cambiar_titular', 'completar_datos', 'cambiar_plan')
+ORDER BY id DESC
+LIMIT 1
+`
+
+// El último pendiente del paso «Confirmar titular y plan» de la orden: la activación y el cobro
+// de la instalación dependen de él (§3.4, «Orden»).
+func (q *Queries) UltimoPendienteTitularDeOrden(ctx context.Context, ordenID string) (int64, error) {
+	row := q.db.QueryRow(ctx, ultimoPendienteTitularDeOrden, ordenID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const vinculoArgosDeTecnico = `-- name: VinculoArgosDeTecnico :one

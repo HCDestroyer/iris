@@ -39,6 +39,11 @@ type Accion struct {
 	Verificar []string
 	// TecnicoUsuarioID: el técnico cuyo vínculo con Argos va en el cuerpo (contrato 0.5.0 §3.3).
 	TecnicoUsuarioID *int64
+	// Actor: X-Iris-Actor de la llamada (usuario:<id>, contrato 0.10.0 §3.4 y §7.1); vacío = sin cabecera.
+	Actor string
+	// TransitoID: el depósito de tránsito con lo sensible de la llamada (documento, contacto, fotos;
+	// §3.4.8). El cuerpo nunca lo lleva: se agrega al enviar (GuardarTransito).
+	TransitoID *uuid.UUID
 	// Esperando: el cuerpo aún no está completo (p. ej. esperando_firma: falta que suba la firma).
 	// El pendiente nace bloqueado con ese motivo y no sale hacia Argos hasta CompletarEsperando.
 	Esperando string
@@ -156,6 +161,7 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 		Entidad: n.Entidad, EntidadID: n.EntidadID, Metodo: n.Metodo, Ruta: n.Ruta, Payload: n.Cuerpo,
 		DependeDe: n.DependeDe, Estado: estado, UltimoError: ultimo, ProximoIntento: proximo,
 		Plantilla: plantilla, PorResolver: porResolver, Verificar: n.Verificar, TecnicoUsuarioID: n.TecnicoUsuarioID,
+		Actor: textoONil(n.Actor), TransitoID: uuidPG(n.TransitoID),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		f, err = q.PendientePorClave(ctx, n.IdempotencyKey)
