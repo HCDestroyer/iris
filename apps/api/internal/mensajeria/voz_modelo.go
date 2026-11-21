@@ -462,7 +462,7 @@ type PuedeLlamada struct {
 type Llamada struct {
 	ID             uuid.UUID         `json:"id"`
 	EmpresaID      *int64            `json:"empresaId,omitempty"`
-	Origen         string            `json:"origen" enum:"whatsapp,centralita"`
+	Origen         string            `json:"origen" enum:"whatsapp,centralita,celular" doc:"celular: llamada directa desde el celular del técnico (E4c), sin duración ni audio"`
 	Direccion      string            `json:"direccion" enum:"entrante,saliente"`
 	ConversacionID *int64            `json:"conversacionId,omitempty"`
 	MensajeID      *uuid.UUID        `json:"mensajeId,omitempty"`
@@ -492,6 +492,8 @@ type Llamada struct {
 	Devolucion    *DevolucionLlamada `json:"devolucion,omitempty"`
 	// TicketID: el ticket al que se agregó la llamada (centralita, E4a; a elección de la persona).
 	TicketID *int64 `json:"ticketId,omitempty" doc:"El ticket al que se agregó la llamada (centralita)"`
+	// OrdenID: la orden desde la que se llamó (E4c: teléfono de Iris o celular).
+	OrdenID *int64 `json:"ordenId,omitempty" doc:"La orden desde la que se llamó (teléfono de Iris o llamada directa)"`
 	// Centralita: lo propio de una llamada de la centralita Issabel (origen centralita, E4a).
 	Centralita *CentralitaDeLlamada `json:"centralita,omitempty" doc:"Solo con origen centralita (contratos/voz.md §3.12)"`
 	Version    int32                `json:"version,omitempty" doc:"Para editar la nota de una llamada de la centralita (409 conflicto_version)"`

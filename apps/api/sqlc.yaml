@@ -194,6 +194,7 @@ sql:
       - internal/mensajeria/voz.sql
       - internal/mensajeria/servidor_ia.sql
       - internal/mensajeria/centralita.sql
+      - internal/mensajeria/telefono.sql
     gen:
       go:
         <<: *gen

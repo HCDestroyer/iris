@@ -162,6 +162,15 @@ type Config struct {
 	CentralitaPing time.Duration
 	// CentralitaEventosSeg: eventos por segundo que se procesan como mucho (200).
 	CentralitaEventosSeg int
+
+	// Teléfono de Iris (contratos/voz.md §3.12, E4c).
+	// TURN: el relevo de audio de la instalación (IRIS_TURN_URLS, IRIS_TURN_SECRETO, IRIS_TURN_VIDA).
+	// Sin URLs o sin secreto, el teléfono no se puede encender (turn_no_configurado).
+	TURN TURNEntorno
+	// TelefonoLatido: cada cuánto el puente revisa la sesión, los permisos y la extensión (10 s).
+	TelefonoLatido time.Duration
+	// TelefonoVidaMax: una conexión del teléfono no vive más que esto (12 h).
+	TelefonoVidaMax time.Duration
 }
 
 // Modulo reúne los casos de uso.
@@ -356,6 +365,15 @@ func Nuevo(cfg Config) *Modulo {
 	if cfg.CentralitaEventosSeg <= 0 {
 		cfg.CentralitaEventosSeg = centralitaEventosSeg
 	}
+	if cfg.TelefonoLatido <= 0 {
+		cfg.TelefonoLatido = 10 * time.Second
+	}
+	if cfg.TelefonoVidaMax <= 0 {
+		cfg.TelefonoVidaMax = 12 * time.Hour
+	}
+	if cfg.TURN.Vida <= 0 {
+		cfg.TURN.Vida = 10 * time.Minute
+	}
 	if cfg.EnlaceManual <= 0 {
 		cfg.EnlaceManual = 30 * 24 * time.Hour
 	}
@@ -456,6 +474,8 @@ type Entorno struct {
 	Meta MetaEntorno
 	// PermitirLoopbackIA: IRIS_ASISTENTE_PERMITIR_LOOPBACK (false).
 	PermitirLoopbackIA bool
+	// TURN del teléfono de Iris (IRIS_TURN_URLS, IRIS_TURN_SECRETO, IRIS_TURN_VIDA).
+	TURN TURNEntorno
 }
 
 // EntornoDesdeVariables lee IRIS_MENSAJERIA_*:
@@ -527,6 +547,11 @@ func EntornoDesdeVariables() (Entorno, error) {
 	default:
 		errs = append(errs, "IRIS_META_MODO inválido (vacío o saas): "+modo)
 	}
+	t, err := TURNDesdeVariables()
+	if err != nil {
+		errs = append(errs, err.Error())
+	}
+	e.TURN = t
 	if len(errs) > 0 {
 		return e, fmt.Errorf("configuración de mensajería: %s", strings.Join(errs, "; "))
 	}

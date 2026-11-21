@@ -16,7 +16,7 @@ import (
 const centralitaDeEmpresa = `-- name: CentralitaDeEmpresa :one
 
 
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at FROM mensajeria.centralitas WHERE coalesce(empresa_id, 0) = $1::bigint
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE coalesce(empresa_id, 0) = $1::bigint
 `
 
 // Centralita Issabel, etapa E4a (contratos/voz.md §2.10 y §3.12).
@@ -49,12 +49,21 @@ func (q *Queries) CentralitaDeEmpresa(ctx context.Context, empresa int64) (Mensa
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TelefonoActivo,
+		&i.WssPuerto,
+		&i.WssRuta,
+		&i.WssHuella,
+		&i.SipDominio,
+		&i.PrefijoSalida,
+		&i.LlamadasPorUsuarioDia,
+		&i.LlamadasSimultaneas,
+		&i.TelefonoProbadoEn,
 	)
 	return i, err
 }
 
 const centralitaDelMotor = `-- name: CentralitaDelMotor :one
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at FROM mensajeria.centralitas WHERE id = $1
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE id = $1
 `
 
 // La fila que usa la conexión (sin empresa: el motor es del proceso).
@@ -86,12 +95,21 @@ func (q *Queries) CentralitaDelMotor(ctx context.Context, id int64) (MensajeriaC
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TelefonoActivo,
+		&i.WssPuerto,
+		&i.WssRuta,
+		&i.WssHuella,
+		&i.SipDominio,
+		&i.PrefijoSalida,
+		&i.LlamadasPorUsuarioDia,
+		&i.LlamadasSimultaneas,
+		&i.TelefonoProbadoEn,
 	)
 	return i, err
 }
 
 const centralitaDelMotorParaActualizar = `-- name: CentralitaDelMotorParaActualizar :one
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at FROM mensajeria.centralitas WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CentralitaDelMotorParaActualizar(ctx context.Context, id int64) (MensajeriaCentralita, error) {
@@ -122,12 +140,21 @@ func (q *Queries) CentralitaDelMotorParaActualizar(ctx context.Context, id int64
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TelefonoActivo,
+		&i.WssPuerto,
+		&i.WssRuta,
+		&i.WssHuella,
+		&i.SipDominio,
+		&i.PrefijoSalida,
+		&i.LlamadasPorUsuarioDia,
+		&i.LlamadasSimultaneas,
+		&i.TelefonoProbadoEn,
 	)
 	return i, err
 }
 
 const centralitaParaActualizar = `-- name: CentralitaParaActualizar :one
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at FROM mensajeria.centralitas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
 `
 
 type CentralitaParaActualizarParams struct {
@@ -163,12 +190,21 @@ func (q *Queries) CentralitaParaActualizar(ctx context.Context, arg CentralitaPa
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TelefonoActivo,
+		&i.WssPuerto,
+		&i.WssRuta,
+		&i.WssHuella,
+		&i.SipDominio,
+		&i.PrefijoSalida,
+		&i.LlamadasPorUsuarioDia,
+		&i.LlamadasSimultaneas,
+		&i.TelefonoProbadoEn,
 	)
 	return i, err
 }
 
 const centralitaPorID = `-- name: CentralitaPorID :one
-SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at FROM mensajeria.centralitas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+SELECT id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en FROM mensajeria.centralitas WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint
 `
 
 type CentralitaPorIDParams struct {
@@ -204,6 +240,15 @@ func (q *Queries) CentralitaPorID(ctx context.Context, arg CentralitaPorIDParams
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TelefonoActivo,
+		&i.WssPuerto,
+		&i.WssRuta,
+		&i.WssHuella,
+		&i.SipDominio,
+		&i.PrefijoSalida,
+		&i.LlamadasPorUsuarioDia,
+		&i.LlamadasSimultaneas,
+		&i.TelefonoProbadoEn,
 	)
 	return i, err
 }
@@ -254,7 +299,7 @@ func (q *Queries) EsReceptorCentralita(ctx context.Context, arg EsReceptorCentra
 }
 
 const extensionActivaDeUsuario = `-- name: ExtensionActivaDeUsuario :one
-SELECT id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at FROM mensajeria.centralita_extensiones WHERE centralita_id = $1 AND usuario_id = $2 AND activa
+SELECT id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at, sip_guardado_en, sip_probado_en FROM mensajeria.centralita_extensiones WHERE centralita_id = $1 AND usuario_id = $2 AND activa
 `
 
 type ExtensionActivaDeUsuarioParams struct {
@@ -278,12 +323,14 @@ func (q *Queries) ExtensionActivaDeUsuario(ctx context.Context, arg ExtensionAct
 		&i.QuitadaEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SipGuardadoEn,
+		&i.SipProbadoEn,
 	)
 	return i, err
 }
 
 const extensionActivaPorNumero = `-- name: ExtensionActivaPorNumero :one
-SELECT id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at FROM mensajeria.centralita_extensiones WHERE centralita_id = $1 AND extension = $2 AND activa
+SELECT id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at, sip_guardado_en, sip_probado_en FROM mensajeria.centralita_extensiones WHERE centralita_id = $1 AND extension = $2 AND activa
 `
 
 type ExtensionActivaPorNumeroParams struct {
@@ -307,12 +354,14 @@ func (q *Queries) ExtensionActivaPorNumero(ctx context.Context, arg ExtensionAct
 		&i.QuitadaEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SipGuardadoEn,
+		&i.SipProbadoEn,
 	)
 	return i, err
 }
 
 const extensionPorID = `-- name: ExtensionPorID :one
-SELECT id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at FROM mensajeria.centralita_extensiones WHERE id = $1 AND centralita_id = $2 FOR UPDATE
+SELECT id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at, sip_guardado_en, sip_probado_en FROM mensajeria.centralita_extensiones WHERE id = $1 AND centralita_id = $2 FOR UPDATE
 `
 
 type ExtensionPorIDParams struct {
@@ -336,13 +385,15 @@ func (q *Queries) ExtensionPorID(ctx context.Context, arg ExtensionPorIDParams) 
 		&i.QuitadaEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SipGuardadoEn,
+		&i.SipProbadoEn,
 	)
 	return i, err
 }
 
 const extensionesDeCentralita = `-- name: ExtensionesDeCentralita :many
 
-SELECT x.id, x.empresa_id, x.centralita_id, x.extension, x.usuario_id, x.tipo, x.sip_usuario, x.sip_secreto_cifrado, x.activa, x.quitada_en, x.created_at, x.updated_at, u.nombre AS usuario_nombre FROM mensajeria.centralita_extensiones x
+SELECT x.id, x.empresa_id, x.centralita_id, x.extension, x.usuario_id, x.tipo, x.sip_usuario, x.sip_secreto_cifrado, x.activa, x.quitada_en, x.created_at, x.updated_at, x.sip_guardado_en, x.sip_probado_en, u.nombre AS usuario_nombre FROM mensajeria.centralita_extensiones x
 JOIN nucleo.usuarios u ON u.id = x.usuario_id
 WHERE x.centralita_id = $1 AND x.activa
 ORDER BY x.extension
@@ -361,6 +412,8 @@ type ExtensionesDeCentralitaRow struct {
 	QuitadaEn         *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	SipGuardadoEn     *time.Time
+	SipProbadoEn      *time.Time
 	UsuarioNombre     string
 }
 
@@ -387,6 +440,8 @@ func (q *Queries) ExtensionesDeCentralita(ctx context.Context, centralitaID int6
 			&i.QuitadaEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SipGuardadoEn,
+			&i.SipProbadoEn,
 			&i.UsuarioNombre,
 		); err != nil {
 			return nil, err
@@ -433,7 +488,7 @@ const fijarEstadoCentralita = `-- name: FijarEstadoCentralita :one
 UPDATE mensajeria.centralitas SET estado = $1, error_codigo = $2, huella_vista = $3,
     conectada_en = $4, desconectada_desde = $5, updated_at = now()
 WHERE id = $6 AND version = $7 AND activa
-RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en
 `
 
 type FijarEstadoCentralitaParams struct {
@@ -483,6 +538,15 @@ func (q *Queries) FijarEstadoCentralita(ctx context.Context, arg FijarEstadoCent
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TelefonoActivo,
+		&i.WssPuerto,
+		&i.WssRuta,
+		&i.WssHuella,
+		&i.SipDominio,
+		&i.PrefijoSalida,
+		&i.LlamadasPorUsuarioDia,
+		&i.LlamadasSimultaneas,
+		&i.TelefonoProbadoEn,
 	)
 	return i, err
 }
@@ -494,7 +558,7 @@ UPDATE mensajeria.centralitas SET nombre = $1, host = $2, puerto = $3, usuario =
     conectada_en = $12, desconectada_desde = $13, activa = $14,
     version = version + 1, updated_at = now()
 WHERE id = $15
-RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en
 `
 
 type GuardarCentralitaParams struct {
@@ -560,6 +624,15 @@ func (q *Queries) GuardarCentralita(ctx context.Context, arg GuardarCentralitaPa
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TelefonoActivo,
+		&i.WssPuerto,
+		&i.WssRuta,
+		&i.WssHuella,
+		&i.SipDominio,
+		&i.PrefijoSalida,
+		&i.LlamadasPorUsuarioDia,
+		&i.LlamadasSimultaneas,
+		&i.TelefonoProbadoEn,
 	)
 	return i, err
 }
@@ -571,7 +644,7 @@ UPDATE mensajeria.llamadas SET estado = $1, usuario_id = $2, extension = $3, ate
     nota = $12, resultado = $13, anotada_por = $14, ticket_id = $15,
     version = version + 1, updated_at = now()
 WHERE id = $16 AND origen = 'centralita'
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version, orden_id, puente, invite_en
 `
 
 type GuardarLlamadaCentralitaParams struct {
@@ -668,6 +741,9 @@ func (q *Queries) GuardarLlamadaCentralita(ctx context.Context, arg GuardarLlama
 		&i.Coincidencias,
 		&i.AnotadaPor,
 		&i.Version,
+		&i.OrdenID,
+		&i.Puente,
+		&i.InviteEn,
 	)
 	return i, err
 }
@@ -675,7 +751,7 @@ func (q *Queries) GuardarLlamadaCentralita(ctx context.Context, arg GuardarLlama
 const insertarCentralita = `-- name: InsertarCentralita :one
 INSERT INTO mensajeria.centralitas (empresa_id, nombre, host, puerto, usuario)
 VALUES ($1, $2, $3, $4, $5)
-RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at
+RETURNING id, empresa_id, nombre, tipo, host, puerto, usuario, secreto_cifrado, secreto_guardado_en, huella_tls, huella_vista, modo, estado, error_codigo, probada_en, conectada_en, desconectada_desde, ultimo_evento_en, activa, motor_dueno, motor_hasta, version, created_at, updated_at, telefono_activo, wss_puerto, wss_ruta, wss_huella, sip_dominio, prefijo_salida, llamadas_por_usuario_dia, llamadas_simultaneas, telefono_probado_en
 `
 
 type InsertarCentralitaParams struct {
@@ -720,6 +796,15 @@ func (q *Queries) InsertarCentralita(ctx context.Context, arg InsertarCentralita
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.TelefonoActivo,
+		&i.WssPuerto,
+		&i.WssRuta,
+		&i.WssHuella,
+		&i.SipDominio,
+		&i.PrefijoSalida,
+		&i.LlamadasPorUsuarioDia,
+		&i.LlamadasSimultaneas,
+		&i.TelefonoProbadoEn,
 	)
 	return i, err
 }
@@ -755,7 +840,7 @@ func (q *Queries) InsertarEventoCentralita(ctx context.Context, arg InsertarEven
 const insertarExtension = `-- name: InsertarExtension :one
 INSERT INTO mensajeria.centralita_extensiones (empresa_id, centralita_id, extension, usuario_id)
 VALUES ($1, $2, $3, $4)
-RETURNING id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at
+RETURNING id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at, sip_guardado_en, sip_probado_en
 `
 
 type InsertarExtensionParams struct {
@@ -786,6 +871,8 @@ func (q *Queries) InsertarExtension(ctx context.Context, arg InsertarExtensionPa
 		&i.QuitadaEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SipGuardadoEn,
+		&i.SipProbadoEn,
 	)
 	return i, err
 }
@@ -797,7 +884,7 @@ INSERT INTO mensajeria.llamadas (id, empresa_id, origen, centralita_id, id_exter
 VALUES ($1, $2, 'centralita', $3::bigint, $4, $5, $6, $7, $8,
     $9, $10, $11, $12, $13, $14, $15, $16)
 ON CONFLICT (centralita_id, id_externo) WHERE origen = 'centralita' DO NOTHING
-RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version
+RETURNING id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version, orden_id, puente, invite_en
 `
 
 type InsertarLlamadaCentralitaParams struct {
@@ -895,6 +982,9 @@ func (q *Queries) InsertarLlamadaCentralita(ctx context.Context, arg InsertarLla
 		&i.Coincidencias,
 		&i.AnotadaPor,
 		&i.Version,
+		&i.OrdenID,
+		&i.Puente,
+		&i.InviteEn,
 	)
 	return i, err
 }
@@ -928,26 +1018,28 @@ func (q *Queries) InsertarReceptorCentralita(ctx context.Context, arg InsertarRe
 }
 
 const listarLlamadasCliente = `-- name: ListarLlamadasCliente :many
-SELECT l.id, l.empresa_id, l.origen, l.canal_id, l.conversacion_id, l.mensaje_id, l.id_externo, l.direccion, l.numero, l.cliente_id, l.servicio_id, l.cola_id, l.estado, l.atendida_por, l.usuario_id, l.reclamada_por, l.reclamada_hasta, l.motivo_fin, l.sono_en, l.suena_hasta, l.contestada_en, l.terminada_en, l.duracion_seg, l.nota, l.resultado, l.grabada, l.sdp_oferta, l.accion_meta, l.accion_meta_estado, l.accion_meta_en, l.pre_aceptada_en, l.aviso_perdida, l.created_at, l.updated_at, l.accion_meta_por, l.reclamada_navegador, l.sdp_respuesta, l.devolucion_id, l.navegador, l.pestana, l.pestana_vista_en, l.externo_webhook, l.accion_meta_no_existe, l.rafaga_hasta, l.rafaga_intentos, l.rafaga_ultimo_call_id, l.rafaga_avisada_en, l.centralita_id, l.extension, l.ticket_id, l.asociacion, l.coincidencias, l.anotada_por, l.version FROM mensajeria.llamadas l
+SELECT l.id, l.empresa_id, l.origen, l.canal_id, l.conversacion_id, l.mensaje_id, l.id_externo, l.direccion, l.numero, l.cliente_id, l.servicio_id, l.cola_id, l.estado, l.atendida_por, l.usuario_id, l.reclamada_por, l.reclamada_hasta, l.motivo_fin, l.sono_en, l.suena_hasta, l.contestada_en, l.terminada_en, l.duracion_seg, l.nota, l.resultado, l.grabada, l.sdp_oferta, l.accion_meta, l.accion_meta_estado, l.accion_meta_en, l.pre_aceptada_en, l.aviso_perdida, l.created_at, l.updated_at, l.accion_meta_por, l.reclamada_navegador, l.sdp_respuesta, l.devolucion_id, l.navegador, l.pestana, l.pestana_vista_en, l.externo_webhook, l.accion_meta_no_existe, l.rafaga_hasta, l.rafaga_intentos, l.rafaga_ultimo_call_id, l.rafaga_avisada_en, l.centralita_id, l.extension, l.ticket_id, l.asociacion, l.coincidencias, l.anotada_por, l.version, l.orden_id, l.puente, l.invite_en FROM mensajeria.llamadas l
 WHERE coalesce(l.empresa_id, 0) = $1::bigint
   AND ($2::bigint IS NULL OR l.cliente_id = $2::bigint)
   AND ($3::bigint IS NULL OR l.ticket_id = $3::bigint)
-  AND ($4::bigint IS NULL OR (l.origen = 'centralita' AND (l.usuario_id = $4::bigint
-       OR EXISTS (SELECT 1 FROM mensajeria.centralita_receptores r WHERE r.llamada_id = l.id AND r.usuario_id = $4::bigint))))
+  AND ($4::bigint IS NULL OR l.orden_id = $4::bigint)
+  AND ($5::bigint IS NULL OR (l.origen IN ('centralita', 'celular') AND (l.usuario_id = $5::bigint
+       OR EXISTS (SELECT 1 FROM mensajeria.centralita_receptores r WHERE r.llamada_id = l.id AND r.usuario_id = $5::bigint))))
   -- Las de WhatsApp solo de las conversaciones que ve (con conversaciones.ver).
-  AND (l.origen = 'centralita' OR ($5::boolean AND EXISTS (
+  AND (l.origen IN ('centralita', 'celular') OR ($6::boolean AND EXISTS (
        SELECT 1 FROM mensajeria.conversaciones c WHERE c.id = l.conversacion_id AND coalesce(c.empresa_id, 0) = $1::bigint
-         AND mensajeria.conv_visible($6::bigint, $7::boolean, c.id, c.cola_id, c.asignado_a))))
-  AND ($8::timestamptz IS NULL OR l.sono_en >= $8::timestamptz)
-  AND ($9::timestamptz IS NULL OR (l.sono_en, l.id) < ($9::timestamptz, $10::uuid))
+         AND mensajeria.conv_visible($7::bigint, $8::boolean, c.id, c.cola_id, c.asignado_a))))
+  AND ($9::timestamptz IS NULL OR l.sono_en >= $9::timestamptz)
+  AND ($10::timestamptz IS NULL OR (l.sono_en, l.id) < ($10::timestamptz, $11::uuid))
 ORDER BY l.sono_en DESC, l.id DESC
-LIMIT $11
+LIMIT $12
 `
 
 type ListarLlamadasClienteParams struct {
 	Empresa        int64
 	ClienteID      *int64
 	TicketID       *int64
+	OrdenID        *int64
 	Receptor       *int64
 	Conversaciones bool
 	Usuario        int64
@@ -958,13 +1050,15 @@ type ListarLlamadasClienteParams struct {
 	Limite         int32
 }
 
-// Historial de llamadas (WhatsApp y centralita) con cursor (sono_en, id) descendente: por cliente,
-// por ticket o las de la centralita que le sonaron a un usuario o que marcó.
+// Historial de llamadas (WhatsApp, centralita y directas del celular) con cursor (sono_en, id)
+// descendente: por cliente, por ticket, por orden o las de la centralita que le sonaron a un usuario o
+// que marcó.
 func (q *Queries) ListarLlamadasCliente(ctx context.Context, arg ListarLlamadasClienteParams) ([]MensajeriaLlamada, error) {
 	rows, err := q.db.Query(ctx, listarLlamadasCliente,
 		arg.Empresa,
 		arg.ClienteID,
 		arg.TicketID,
+		arg.OrdenID,
 		arg.Receptor,
 		arg.Conversaciones,
 		arg.Usuario,
@@ -1036,6 +1130,9 @@ func (q *Queries) ListarLlamadasCliente(ctx context.Context, arg ListarLlamadasC
 			&i.Coincidencias,
 			&i.AnotadaPor,
 			&i.Version,
+			&i.OrdenID,
+			&i.Puente,
+			&i.InviteEn,
 		); err != nil {
 			return nil, err
 		}
@@ -1064,7 +1161,7 @@ func (q *Queries) LlamadaCentralitaExiste(ctx context.Context, arg LlamadaCentra
 }
 
 const llamadaCentralitaParaActualizar = `-- name: LlamadaCentralitaParaActualizar :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version FROM mensajeria.llamadas WHERE id = $1 AND origen = 'centralita' AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version, orden_id, puente, invite_en FROM mensajeria.llamadas WHERE id = $1 AND origen = 'centralita' AND coalesce(empresa_id, 0) = $2::bigint FOR UPDATE
 `
 
 type LlamadaCentralitaParaActualizarParams struct {
@@ -1130,12 +1227,15 @@ func (q *Queries) LlamadaCentralitaParaActualizar(ctx context.Context, arg Llama
 		&i.Coincidencias,
 		&i.AnotadaPor,
 		&i.Version,
+		&i.OrdenID,
+		&i.Puente,
+		&i.InviteEn,
 	)
 	return i, err
 }
 
 const llamadaCentralitaPorExterno = `-- name: LlamadaCentralitaPorExterno :one
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version FROM mensajeria.llamadas WHERE origen = 'centralita' AND centralita_id = $1::bigint AND id_externo = $2 FOR UPDATE
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version, orden_id, puente, invite_en FROM mensajeria.llamadas WHERE origen = 'centralita' AND centralita_id = $1::bigint AND id_externo = $2 FOR UPDATE
 `
 
 type LlamadaCentralitaPorExternoParams struct {
@@ -1201,12 +1301,15 @@ func (q *Queries) LlamadaCentralitaPorExterno(ctx context.Context, arg LlamadaCe
 		&i.Coincidencias,
 		&i.AnotadaPor,
 		&i.Version,
+		&i.OrdenID,
+		&i.Puente,
+		&i.InviteEn,
 	)
 	return i, err
 }
 
 const llamadasCentralitaPorIDs = `-- name: LlamadasCentralitaPorIDs :many
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version FROM mensajeria.llamadas WHERE id = ANY ($1::uuid[]) AND origen = 'centralita'
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version, orden_id, puente, invite_en FROM mensajeria.llamadas WHERE id = ANY ($1::uuid[]) AND origen = 'centralita'
 `
 
 func (q *Queries) LlamadasCentralitaPorIDs(ctx context.Context, ids []uuid.UUID) ([]MensajeriaLlamada, error) {
@@ -1273,6 +1376,9 @@ func (q *Queries) LlamadasCentralitaPorIDs(ctx context.Context, ids []uuid.UUID)
 			&i.Coincidencias,
 			&i.AnotadaPor,
 			&i.Version,
+			&i.OrdenID,
+			&i.Puente,
+			&i.InviteEn,
 		); err != nil {
 			return nil, err
 		}
@@ -1285,7 +1391,7 @@ func (q *Queries) LlamadasCentralitaPorIDs(ctx context.Context, ids []uuid.UUID)
 }
 
 const llamadasCentralitaVivas = `-- name: LlamadasCentralitaVivas :many
-SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version FROM mensajeria.llamadas
+SELECT id, empresa_id, origen, canal_id, conversacion_id, mensaje_id, id_externo, direccion, numero, cliente_id, servicio_id, cola_id, estado, atendida_por, usuario_id, reclamada_por, reclamada_hasta, motivo_fin, sono_en, suena_hasta, contestada_en, terminada_en, duracion_seg, nota, resultado, grabada, sdp_oferta, accion_meta, accion_meta_estado, accion_meta_en, pre_aceptada_en, aviso_perdida, created_at, updated_at, accion_meta_por, reclamada_navegador, sdp_respuesta, devolucion_id, navegador, pestana, pestana_vista_en, externo_webhook, accion_meta_no_existe, rafaga_hasta, rafaga_intentos, rafaga_ultimo_call_id, rafaga_avisada_en, centralita_id, extension, ticket_id, asociacion, coincidencias, anotada_por, version, orden_id, puente, invite_en FROM mensajeria.llamadas
 WHERE origen = 'centralita' AND centralita_id = $1::bigint AND estado IN ('sonando', 'marcando', 'en_curso') AND sono_en < $2::timestamptz
 ORDER BY sono_en
 LIMIT 200
@@ -1362,6 +1468,9 @@ func (q *Queries) LlamadasCentralitaVivas(ctx context.Context, arg LlamadasCentr
 			&i.Coincidencias,
 			&i.AnotadaPor,
 			&i.Version,
+			&i.OrdenID,
+			&i.Puente,
+			&i.InviteEn,
 		); err != nil {
 			return nil, err
 		}
@@ -1374,7 +1483,7 @@ func (q *Queries) LlamadasCentralitaVivas(ctx context.Context, arg LlamadasCentr
 }
 
 const miExtension = `-- name: MiExtension :one
-SELECT x.id, x.extension, c.id AS centralita_id, c.estado FROM mensajeria.centralita_extensiones x
+SELECT x.id, x.extension, x.tipo, c.id AS centralita_id, c.estado FROM mensajeria.centralita_extensiones x
 JOIN mensajeria.centralitas c ON c.id = x.centralita_id
 WHERE x.usuario_id = $1::bigint AND x.activa AND c.activa AND coalesce(c.empresa_id, 0) = $2::bigint
 LIMIT 1
@@ -1388,6 +1497,7 @@ type MiExtensionParams struct {
 type MiExtensionRow struct {
 	ID           int64
 	Extension    string
+	Tipo         string
 	CentralitaID int64
 	Estado       string
 }
@@ -1399,6 +1509,7 @@ func (q *Queries) MiExtension(ctx context.Context, arg MiExtensionParams) (MiExt
 	err := row.Scan(
 		&i.ID,
 		&i.Extension,
+		&i.Tipo,
 		&i.CentralitaID,
 		&i.Estado,
 	)
@@ -1417,7 +1528,7 @@ func (q *Queries) NotificarCentralitas(ctx context.Context, carga string) error 
 const quitarExtension = `-- name: QuitarExtension :one
 UPDATE mensajeria.centralita_extensiones SET activa = false, quitada_en = $1::timestamptz, updated_at = now()
 WHERE id = $2 AND activa
-RETURNING id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at
+RETURNING id, empresa_id, centralita_id, extension, usuario_id, tipo, sip_usuario, sip_secreto_cifrado, activa, quitada_en, created_at, updated_at, sip_guardado_en, sip_probado_en
 `
 
 type QuitarExtensionParams struct {
@@ -1441,6 +1552,8 @@ func (q *Queries) QuitarExtension(ctx context.Context, arg QuitarExtensionParams
 		&i.QuitadaEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SipGuardadoEn,
+		&i.SipProbadoEn,
 	)
 	return i, err
 }

@@ -131,20 +131,37 @@ func (m *Modulo) vistaLlamadas(ctx context.Context, q *mensajeriabd.Queries, fil
 			nombres[n.ID] = n.Nombre
 		}
 	}
+	// La extensión de quien mira: con una del teléfono de Iris (navegador), una entrante que le suena se
+	// contesta en el panel (E4c).
+	navegador := false
+	if vv.usuario != 0 {
+		if x, err := q.TelefonoDeUsuario(ctx, mensajeriabd.TelefonoDeUsuarioParams{Usuario: vv.usuario, Empresa: empresaDeCtx(ctx)}); err == nil {
+			navegador = x.Tipo == "navegador" && x.TelefonoActivo && x.SipSecretoCifrado != nil
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, err
+		}
+	}
 	out := make([]Llamada, 0, len(filas))
 	for _, f := range filas {
-		if f.Origen != "centralita" || f.CentralitaID == nil {
+		celular := f.Origen == "celular"
+		if !celular && (f.Origen != "centralita" || f.CentralitaID == nil) {
 			continue
 		}
-		c := &CentralitaDeLlamada{ID: *f.CentralitaID, Extension: f.Extension, Receptores: receptores[f.ID], Coincidencias: f.Coincidencias,
+		c := &CentralitaDeLlamada{Extension: f.Extension, Receptores: receptores[f.ID], Coincidencias: f.Coincidencias,
 			Candidatos: []CandidatoCentralita{}, Asociacion: f.Asociacion}
+		if f.CentralitaID != nil {
+			c.ID = *f.CentralitaID
+		}
 		if c.Receptores == nil {
 			c.Receptores = []PersonaCentralita{}
 		}
 		l := Llamada{ID: f.ID, EmpresaID: f.EmpresaID, Origen: f.Origen, Direccion: f.Direccion, Numero: f.Numero, Titulo: f.Numero,
 			Contacto: ContactoDeLlamada{Tipo: "desconocido"}, Estado: f.Estado, AtendidaPor: f.AtendidaPor, Tramos: []TramoLlamada{}, SonoEn: f.SonoEn,
 			ContestadaEn: f.ContestadaEn, TerminadaEn: f.TerminadaEn, DuracionSeg: f.DuracionSeg, MotivoFin: f.MotivoFin, Nota: f.Nota,
-			Resultado: f.Resultado, TicketID: f.TicketID, Centralita: c, Version: f.Version}
+			Resultado: f.Resultado, TicketID: f.TicketID, OrdenID: f.OrdenID, Centralita: c, Version: f.Version}
+		if celular {
+			l.Centralita = nil
+		}
 		if f.Numero == "" {
 			l.Titulo = "Número oculto"
 		}
@@ -167,8 +184,12 @@ func (m *Modulo) vistaLlamadas(ctx context.Context, q *mensajeriabd.Queries, fil
 		if !mia && !vv.supervisa {
 			l.Nota = nil
 		}
-		puedeActuar := vv.anota && (mia || vv.supervisa)
+		puedeActuar := vv.anota && (mia || vv.supervisa) && !celular
 		l.Puede = PuedeLlamada{Anotar: puedeActuar}
+		// E4c: la entrante que le suena a quien tiene el teléfono de Iris se contesta en el panel.
+		if navegador && f.Direccion == "entrante" && f.Estado == LlamadaSonando && c.TuExtension != nil {
+			l.Puede.Contestar, l.Puede.Rechazar = true, true
+		}
 		c.Asociar = puedeActuar && vv.verClientes
 		if f.ClienteID != nil {
 			l.Contacto = ContactoDeLlamada{Tipo: "cliente", ClienteID: f.ClienteID, ServicioID: f.ServicioID}
@@ -352,6 +373,20 @@ func (m *Modulo) centralitaMarca(ctx context.Context, t *auditoria.Tx, q *mensaj
 	if err != nil {
 		return false, err
 	}
+	// E4c: la saliente que marcó el puente de Iris desde esta extensión ya tiene su fila: el AMI la
+	// adopta (toma el Linkedid) en vez de crear otra. Una sola fila por llamada.
+	if h.numero != "" {
+		l, err := q.AdoptarLlamadaPuente(ctx, mensajeriabd.AdoptarLlamadaPuenteParams{Linkedid: h.linkedid, CentralitaID: c.ID, Extension: x.Extension,
+			Digitos: soloDigitos(h.numero), Desde: ahora.Add(-2 * time.Minute)})
+		if err == nil {
+			t.FijarEntidad("centralita_llamada", l.ID)
+			t.Anotar(map[string]any{"adoptada": true})
+			return true, nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return false, err
+		}
+	}
 	p, err := m.paramsLlamadaCentralita(ctx, q, c, h, "saliente", ahora)
 	if err != nil {
 		return false, err
@@ -527,6 +562,7 @@ func nuevoCerrarViejasCentralita(m *Modulo) *auditoria.Caso[int64, int] {
 type EntradaListarLlamadasCentralita struct {
 	ClienteID int64  `query:"clienteId" minimum:"0" doc:"Las del cliente (ficha del cliente)"`
 	TicketID  int64  `query:"ticketId" minimum:"0" doc:"Las vinculadas al ticket"`
+	OrdenID   int64  `query:"ordenId" minimum:"0" doc:"Las de la orden (teléfono de Iris y llamadas directas del celular)"`
 	Mias      bool   `query:"mias" doc:"Las que te sonaron o marcaste"`
 	Hoy       bool   `query:"hoy" doc:"Solo las de hoy (hora de Guatemala)"`
 	Cursor    string `query:"cursor" maxLength:"80"`
@@ -639,8 +675,14 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 	listar := auditoria.Nuevo(auditoria.Caso[EntradaListarLlamadasCentralita, ListaLlamadasCentralita]{
 		Accion: "centralita.llamadas", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[ListaLlamadasCentralita],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarLlamadasCentralita) (ListaLlamadasCentralita, error) {
-			if in.ClienteID == 0 && in.TicketID == 0 && !in.Mias {
-				return ListaLlamadasCentralita{}, campoCentralita("clienteId", "Pide las de un cliente, las de un ticket o las tuyas (mias=true)")
+			if in.ClienteID == 0 && in.TicketID == 0 && in.OrdenID == 0 && !in.Mias {
+				return ListaLlamadasCentralita{}, campoCentralita("clienteId", "Pide las de un cliente, las de un ticket, las de una orden o las tuyas (mias=true)")
+			}
+			// Las de una orden, si quien pide la ve (ordenes.ver, o ordenes.ver_propias si es suya).
+			if in.OrdenID > 0 {
+				if _, err := m.verOrden(ctx, in.OrdenID); err != nil {
+					return ListaLlamadasCentralita{}, err
+				}
 			}
 			// Filtrar por cliente o por ticket no salta sus permisos: el historial de un cliente exige
 			// clientes.ver, y el de un ticket que quien pide lo vea (tickets.ver, su alcance y la empresa
@@ -675,6 +717,9 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 			if in.TicketID > 0 {
 				p.TicketID = &in.TicketID
 			}
+			if in.OrdenID > 0 {
+				p.OrdenID = &in.OrdenID
+			}
 			if in.Mias {
 				p.Receptor = &usuario
 			}
@@ -695,7 +740,7 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 			// Las de WhatsApp con su vista de siempre; las de la centralita con la suya; en el mismo orden.
 			var wa, ce []mensajeriabd.MensajeriaLlamada
 			for _, f := range fs {
-				if f.Origen == "centralita" {
+				if f.Origen == "centralita" || f.Origen == "celular" {
 					ce = append(ce, f)
 				} else {
 					wa = append(wa, f)

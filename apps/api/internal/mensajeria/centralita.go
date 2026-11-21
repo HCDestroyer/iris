@@ -76,13 +76,15 @@ type Centralita struct {
 	DesconectadaDesde *time.Time `json:"desconectadaDesde" nullable:"true"`
 	UltimoEventoEn    *time.Time `json:"ultimoEventoEn" nullable:"true" doc:"Última señal del AMI (se actualiza como mucho cada minuto)"`
 	Activa            bool       `json:"activa"`
-	Version           int32      `json:"version"`
+	// Telefono: el teléfono de Iris (E4c).
+	Telefono TelefonoCentralita `json:"telefono"`
+	Version  int32              `json:"version"`
 }
 
 func aCentralita(f mensajeriabd.MensajeriaCentralita) Centralita {
 	c := Centralita{ID: f.ID, Nombre: f.Nombre, Tipo: f.Tipo, Host: f.Host, Puerto: f.Puerto, Usuario: f.Usuario, SecretoGuardadoEn: f.SecretoGuardadoEn,
 		HuellaTLS: f.HuellaTls, Modo: f.Modo, Estado: f.Estado, ErrorCodigo: f.ErrorCodigo, ProbadaEn: f.ProbadaEn, ConectadaEn: f.ConectadaEn,
-		DesconectadaDesde: f.DesconectadaDesde, UltimoEventoEn: f.UltimoEventoEn, Activa: f.Activa, Version: f.Version}
+		DesconectadaDesde: f.DesconectadaDesde, UltimoEventoEn: f.UltimoEventoEn, Activa: f.Activa, Telefono: telefonoCentralitaDe(f), Version: f.Version}
 	if f.ErrorCodigo != nil && *f.ErrorCodigo == "huella_cambiada" {
 		c.HuellaVista = f.HuellaVista
 	}
@@ -244,6 +246,7 @@ type casosCentralita struct {
 	Desactivar      *auditoria.Caso[EntradaCambioCentralita, Centralita]
 	ConfirmarHuella *auditoria.Caso[EntradaConfirmarHuella, Centralita]
 	Probar          *ProbarCentralita
+	Telefono        casosTelefono
 	Extensiones     *auditoria.Caso[EntradaVerCentralita, ListaExtensiones]
 	Asignar         *auditoria.Caso[EntradaAsignarExtension, Extension]
 	Quitar          *auditoria.Caso[EntradaQuitarExtension, Extension]
@@ -367,6 +370,7 @@ func nuevosCasosCentralita(m *Modulo) casosCentralita {
 	}
 	k.Extensiones, k.Asignar, k.Quitar = nuevosCasosExtensiones(m)
 	k.MiExtension = nuevoMiExtension(m)
+	k.Telefono = nuevosCasosTelefono(m)
 	k.Llamadas, k.VerLlamada, k.Anotar, k.Asociar, k.Vincular = nuevosCasosLlamadasCentralita(m)
 	k.procesar = nuevoProcesarHechoAMI(m)
 	k.fijarEstado = nuevoFijarEstadoCentralita(m)
