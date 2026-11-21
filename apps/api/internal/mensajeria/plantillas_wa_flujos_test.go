@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
@@ -476,6 +477,29 @@ func TestPlantillasWADatosDelClienteSinConfirmar(t *testing.T) {
 	e := c.api(c.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/mensajes", conv), map[string]any{"id": nuevoID(),
 		"plantilla": map[string]any{"codigo": "factura_por_vencer", "variables": map[string]string{"monto": "250.00", "moneda": "GTQ", "vence_en": "2026-11-28"}}})
 	c.exigir(e, http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
+
+	// Con el cliente confirmado se encola; si deja de estarlo antes de salir, no sale sin sus datos:
+	// falla con su motivo (nunca se mandan vacíos ni se quitan en silencio).
+	cliente := nuevoClienteWA(c.bandeja)
+	if _, err := c.bd.Exec(c.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $1, cliente_verificado = true WHERE id = $2`, cliente, conv); err != nil {
+		t.Fatal(err)
+	}
+	id := nuevoID()
+	c.exigir(c.api(c.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/mensajes", conv), map[string]any{"id": id,
+		"plantilla": map[string]any{"codigo": "factura_por_vencer", "variables": map[string]string{"monto": "250.00", "moneda": "GTQ", "vence_en": "2026-11-28"}}}), http.StatusCreated)
+	if _, err := c.bd.Exec(c.ctx, `UPDATE mensajeria.conversaciones SET cliente_verificado = false WHERE id = $1`, conv); err != nil {
+		t.Fatal(err)
+	}
+	envios := len(c.meta.registro().envios)
+	if _, err := c.m.ProcesarMensaje(c.ctx, uuid.MustParse(id), true); err != nil {
+		t.Fatal(err)
+	}
+	if n := c.contar(`SELECT count(*) FROM mensajeria.conversacion_mensajes WHERE id = $1 AND estado_entrega = 'fallido' AND motivo_falla = 'cliente_sin_confirmar'`, id); n != 1 {
+		t.Fatal("el mensaje no falló con cliente_sin_confirmar")
+	}
+	if len(c.meta.registro().envios) != envios {
+		t.Fatal("se mandó a Meta sin los datos del cliente")
+	}
 }
 
 // La migración copia canales.plantillas a la cuenta sin perder nada: solo números activos, la empresa

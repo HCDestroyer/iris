@@ -54,7 +54,7 @@ boletas, cualquiera con su código. Una plantilla con datos del cliente de Argos
 `cliente_codigo`, `plan`) solo se manda en una conversación con el cliente **confirmado**; si no,
 422 `cliente_sin_confirmar` (el agente confirma el cliente o elige otra plantilla). Lo mismo para lo
 automático: el aviso de boleta fuera de la ventana no sale (`sin_aviso`) y un mensaje en cola que
-llegaría sin esos datos falla con el motivo `cliente_sin_confirmar` (nunca sale con datos vacíos).
+llegaría sin esos datos falla con el motivo `cliente_sin_confirmar` en `conversacion.mensaje_fallido` (nunca sale con datos vacíos).
 
 ## 3. Endpoints (`/api/v1/mensajeria/plantillas-whatsapp`)
 

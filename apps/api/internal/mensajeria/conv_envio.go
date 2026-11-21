@@ -636,7 +636,7 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 						return mensajePreparado{}, err
 					}
 					if pm, ok := usables[p.Codigo]; ok && necesitaDatosCliente(pm) {
-						return mensajePreparado{Accion: accionNada}, m.fallarMensaje(ctx, t, f, c, MotivoRechazado, "cliente_sin_confirmar")
+						return mensajePreparado{Accion: accionNada}, m.fallarMensaje(ctx, t, f, c, MotivoClienteSinConfirmar, "la plantilla lleva datos del cliente y el cliente no está confirmado")
 					}
 					cliente, servicio = nil, nil
 				}
