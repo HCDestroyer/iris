@@ -152,7 +152,8 @@ jobs:
     needs: detectar
     if: needs.detectar.outputs.web == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    # Cada parte ya tarda ~36 min (1000 pruebas) y con 40 se cortaba al terminar.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
