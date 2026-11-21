@@ -24,7 +24,7 @@ const config: NextConfig = {
     output: "standalone",
     outputFileTracingRoot: raiz,
     // Los paquetes del monorepo exportan fuente TS.
-    transpilePackages: ["@iris/contratos", "@iris/ui", "@iris/sync"],
+    transpilePackages: ["@iris/contratos", "@iris/ui", "@iris/sync", "@iris/telefono"],
     reactStrictMode: true,
     poweredByHeader: false,
     // El lint corre aparte (`pnpm lint`), con su propia configuración plana.

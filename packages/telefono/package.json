@@ -1,0 +1,35 @@
+{
+    "name": "@iris/telefono",
+    "version": "0.0.0",
+    "private": true,
+    "description": "El teléfono de Iris (E4c): motor SIP sobre WebRTC con Iris como puente, socket con ticket, una sola pestaña y textos en llano; compartido por el panel y la app de campo",
+    "type": "module",
+    "sideEffects": false,
+    "exports": {
+        ".": {
+            "types": "./src/index.ts",
+            "default": "./src/index.ts"
+        },
+        "./jssip": {
+            "types": "./src/jssip.ts",
+            "default": "./src/jssip.ts"
+        }
+    },
+    "scripts": {
+        "lint": "eslint .",
+        "typecheck": "tsc --noEmit -p tsconfig.json",
+        "test": "vitest run"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.39.5",
+        "eslint": "^9.39.5",
+        "globals": "^17.13.0",
+        "typescript": "~5.9.3",
+        "typescript-eslint": "^8.72.1",
+        "vitest": "^5.0.5"
+    },
+    "dependencies": {
+        "@iris/contratos": "workspace:*",
+        "jssip": "3.13.9"
+    }
+}

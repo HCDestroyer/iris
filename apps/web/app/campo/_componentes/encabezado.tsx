@@ -11,6 +11,7 @@ import { useCampo } from "./contexto";
 import { HojaCampo } from "./hoja";
 import { useDemorado } from "./teclado";
 import { InsigniaOrden } from "./insignias";
+import { IndicadorTelefono } from "./telefono";
 
 /** Botón redondo de 48 px del encabezado (buscar, cuenta). */
 const REDONDO = "size-12 shrink-0 rounded-full p-0 md:size-12";
@@ -45,6 +46,7 @@ function BotonesCuenta({ pedirEmpresa, compacta = false }: { pedirEmpresa: () =>
     return (
         <div className="flex shrink-0 items-center gap-1.5">
             <IndicadoresEstado pedirEmpresa={pedirEmpresa} compacta={compacta} />
+            {compacta ? null : <IndicadorTelefono />}
             <Boton variante="secundario" aria-label="Buscar orden" title="Buscar orden" className={cn(REDONDO, "bg-[var(--campo-panel)] [&_svg]:size-5")} onClick={() => setBuscando(true)}>
                 <Search aria-hidden />
             </Boton>

@@ -22131,7 +22131,8 @@
               "traslado.recibir",
               "tarea.crear",
               "tarea.completar",
-              "tarea.anular"
+              "tarea.anular",
+              "llamada.directa"
             ],
             "type": "string"
           },
@@ -30241,6 +30242,10 @@
           "id": {
             "type": "string"
           },
+          "llamadaId": {
+            "description": "llamada.directa: la llamada anotada en la orden (el mismo id de la operación)",
+            "type": "string"
+          },
           "orden": {
             "$ref": "#/components/schemas/EstadoOrden",
             "description": "Versión y estado de la orden (también en los rechazos, si el técnico la ve o la tuvo)"
@@ -31413,6 +31418,7 @@
             "type": "integer"
           },
           "codigo": {
+            "description": "Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce)",
             "type": "string"
           },
           "contactoNombre": {
@@ -31465,6 +31471,10 @@
           },
           "moneda": {
             "description": "Moneda de precioMensual (GTQ); ausente si no hay precio",
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Nombre que eligió el cliente o el personal en Argos («Casa»; ausente si no tiene). Texto del cliente: se muestra escapado; nunca va a la IA",
             "type": "string"
           },
           "numero": {
@@ -31702,6 +31712,7 @@
             "type": "integer"
           },
           "codigo": {
+            "description": "Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce)",
             "type": "string"
           },
           "contactoNombre": {
@@ -31754,6 +31765,10 @@
           },
           "moneda": {
             "description": "Moneda de precioMensual (GTQ); ausente si no hay precio",
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Nombre que eligió el cliente o el personal en Argos («Casa»; ausente si no tiene). Texto del cliente: se muestra escapado; nunca va a la IA",
             "type": "string"
           },
           "numero": {

@@ -128,6 +128,9 @@ type Config struct {
 	// Soporte: los casos de uso de tickets con que la orden iguala su asignación con la del
 	// ticket (tickets.asignar, tickets.ver). Por defecto, uno con el mismo reloj.
 	Soporte *soporte.Modulo
+	// LlamadasDirectas anota llamada.directa del lote (mensajeria.LlamadasDirectas). nil = la
+	// operación se rechaza con 503 no_disponible.
+	LlamadasDirectas LlamadasDirectas
 }
 
 // Modulo reúne los casos de uso de campo.
@@ -198,6 +201,8 @@ type Modulo struct {
 	TareaCrearLote     *auditoria.Caso[entradaTareaLote, agenda.RespuestaTarea]
 	TareaCompletarLote *auditoria.Caso[entradaTareaLote, agenda.RespuestaTarea]
 	TareaAnularLote    *auditoria.Caso[entradaTareaLote, agenda.RespuestaTarea]
+	// LlamadaDirectaLote: llamada.directa del lote (llamada_directa.go; E4c).
+	LlamadaDirectaLote *auditoria.Caso[entradaLlamadaDirectaLote, ResultadoOperacion]
 	OrdenesLibres      *auditoria.Caso[EntradaOrdenesLibres, OrdenesLibres]
 	TomarOrden         *auditoria.Caso[EntradaTomarOrden, Orden]
 	VerAjustes         *auditoria.Caso[struct{}, AjustesCampo]
@@ -291,6 +296,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.TareaCrearLote = m.nuevoTareaLote("agenda.crear_tarea", nucleo.PermAgendaCrearTarea)
 	m.TareaCompletarLote = m.nuevoTareaLote("agenda.completar_tarea", nucleo.PermAgendaCompletarTarea)
 	m.TareaAnularLote = m.nuevoTareaLote("agenda.anular_tarea", nucleo.PermAgendaAnularTarea)
+	m.LlamadaDirectaLote = m.nuevoLlamadaDirectaLote()
 	m.OrdenesLibres = m.nuevoOrdenesLibres()
 	m.TomarOrden = m.nuevoTomarOrden()
 	m.VerAjustes = m.nuevoVerAjustes()

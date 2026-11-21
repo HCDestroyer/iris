@@ -19,6 +19,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/
 COPY packages/contratos/package.json packages/contratos/
 COPY packages/sync/package.json packages/sync/
+COPY packages/telefono/package.json packages/telefono/
 COPY packages/ui/package.json packages/ui/
 RUN --mount=type=cache,id=pnpm,target=/pnpm/store --mount=type=secret,id=ca_extra,required=false \
     if [ -s /run/secrets/ca_extra ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/ca_extra; fi; \
@@ -27,6 +28,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store --mount=type=secret,id=ca_extr
 FROM deps AS build
 COPY packages/contratos packages/contratos
 COPY packages/sync packages/sync
+COPY packages/telefono packages/telefono
 COPY packages/ui packages/ui
 COPY apps/web apps/web
 RUN pnpm --filter @iris/web build

@@ -19,6 +19,7 @@ export {
     ESTADOS_TERMINALES,
     TIPOS_BLOQUEADOS_EN_PAUSA,
     TIPOS_EVIDENCIA,
+    TIPOS_SUELTOS,
 } from "./aplicar";
 export { CODIGO_SESION_AJENA, codigoProblema, errorSesionAjena, ErrorSync, ErrorTransporte, PREFIJO_PROBLEMA, type CodigoErrorLocal } from "./errores";
 export {
