@@ -127,7 +127,7 @@ main() {
     cuerpo="$(jq -nc --arg r "${GITHUB_REPOSITORY#*/}" '{repositories: [$r], permissions: {contents: "write"}}')"
     token="$(api_con "$tmp/app" -X POST -d "$cuerpo" "$API/app/installations/$instalacion/access_tokens" | jq -r .token)" ||
         die "la GitHub App no pudo emitir un token (¿tiene Contents: Read and write?)"
-    [ -n "$token" ] && [ "$token" != null ] || die "la GitHub App no devolvió un token"
+    if [ -z "$token" ] || [ "$token" = null ]; then die "la GitHub App no devolvió un token"; fi
     echo "::add-mask::$token"
     printf 'Authorization: Bearer %s\n' "$token" > "$tmp/token"
     REVOCAR=1
