@@ -71,9 +71,21 @@ func registrarAccion[In, Out any](api huma.API, op huma.Operation, ejecutar func
 	})
 }
 
+// Resolve (huma.Resolver) anota los parámetros de consulta que la ruta no declara: el caso de
+// uso responde 422 en vez de ignorarlos (un filtro mal escrito no amplía la lista).
+func (in *EntradaListarTickets) Resolve(ctx huma.Context) []error {
+	u := ctx.URL()
+	in.desconocidos = nucleo.ParametrosDesconocidos(in, u.Query())
+	return nil
+}
+
 // Registrar publica las rutas de soporte.
 func (m *Modulo) Registrar(api huma.API) {
-	huma.Register(api, operacion("listarTickets", http.MethodGet, "/api/v1/tickets", "Listar tickets (bandeja)", nucleo.PermTicketsVer, http.StatusOK),
+	listar := operacion("listarTickets", http.MethodGet, "/api/v1/tickets", "Listar tickets (bandeja)", nucleo.PermTicketsVer, http.StatusOK)
+	listar.Description += " `cliente_id` y `servicio_id` son alias de `clienteId` y `servicioId` (contrato con Argos, A7); si llegan los dos con valores distintos, 422 `validacion`." +
+		" Con un token (de integración o de API) la lista exige `clienteId` (o `cliente_id`): sin él, 422 `filtro_cliente_requerido`, salvo que el token tenga `tickets.listar_todos`." +
+		" Un parámetro de consulta que la ruta no conoce responde 422 `validacion` (regla `desconocido`)."
+	huma.Register(api, listar,
 		func(ctx context.Context, in *EntradaListarTickets) (*cuerpo[nucleo.Pagina[Ticket]], error) {
 			return responder(m.ListarTickets.Ejecutar(ctx, *in))
 		})
