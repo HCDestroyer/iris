@@ -12,8 +12,10 @@ sed -e "s|^IRIS_DIR=.*|IRIS_DIR=$tmp|" -e 's|^IRIS_VERSION=.*|IRIS_VERSION=0.0.0
     -e 's|^IRIS_BASE_URL=.*|IRIS_BASE_URL=https://iris.example.com|' \
     -e 's|^IRIS_PG_CONTRASENA=.*|IRIS_PG_CONTRASENA=verificar|' \
     -e 's|^IRIS_S3_SECRET_KEY=.*|IRIS_S3_SECRET_KEY=verificar-s3|' "$aqui/.env.example" > "$tmp/.env"
-docker compose --env-file "$tmp/.env" -f "$aqui/docker-compose.yml" --profile osrm config --quiet
-docker compose --env-file "$tmp/.env" -f "$aqui/docker-compose.yml" -f "$aqui/docker-compose.admin-ports.yml" --profile osrm config --quiet
+# The turn service mounts <IRIS_DIR>/secrets/turn-secreto (written by install.sh).
+mkdir -p "$tmp/secrets" && printf 'verificar-turn-secreto' > "$tmp/secrets/turn-secreto"
+docker compose --env-file "$tmp/.env" -f "$aqui/docker-compose.yml" --profile osrm --profile telefono config --quiet
+docker compose --env-file "$tmp/.env" -f "$aqui/docker-compose.yml" -f "$aqui/docker-compose.admin-ports.yml" --profile osrm --profile telefono config --quiet
 echo "compose de producción: ok"
 
 # La mensajería borra del almacén la foto de un mensaje del chat eliminado: debe ver el mismo

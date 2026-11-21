@@ -312,6 +312,9 @@ jobs:
       - name: Compose y paquete de producción
         run: infra/produccion/verificar.sh
 
+      - name: TURN del teléfono (arranca, sigue vivo y rechaza puertos < 1024)
+        run: infra/produccion/probar-turn.sh
+
       - name: bash -n y shellcheck
         run: |
           for s in scripts/*.sh infra/*/*.sh; do bash -n "$s"; done

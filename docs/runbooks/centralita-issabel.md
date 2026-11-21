@@ -1,10 +1,10 @@
-# Centralita Issabel: preparar Issabel 5 para Iris (E4a, solo lectura)
+# Centralita Issabel: preparar Issabel 5 para Iris (E4a, solo lectura; E4c, el teléfono de Iris)
 
 Para quien administra la centralita. Centralita de referencia: **Issabel 5** (issabel-pbx 5.0.0-4,
 IssabelPBX 2.12.0-5) sobre Rocky Linux 8.10 con **Asterisk 18.19.0**. Contrato: `.claude/integration/
 contratos/voz.md` §2.10 y §3.12.
 
-Iris **solo escucha**: no marca, no graba, no cambia nada en Issabel. Se conecta al AMI (Asterisk
+En la parte de solo lectura (pasos 1–8) Iris **solo escucha**: no marca, no graba, no cambia nada en Issabel. Se conecta al AMI (Asterisk
 Manager Interface) **cifrado** en el puerto **5039**, con un usuario que solo puede leer los eventos
 de llamadas y el registro de llamadas (CDR). Cuando suena la extensión de alguien de tu equipo, a esa
 persona le sale en Iris una ventana con el cliente.
@@ -147,16 +147,213 @@ nc -zv <ip-publica-de-issabel> 5039   # esperado: falla
 | «El certificado de la centralita cambió» | Si renovaste el certificado, compara la huella nueva y confírmala; si no, avisa: puede haber alguien en medio |
 | «Sin conexión desde …» | Iris reintenta sola. Las llamadas de ese rato **no** quedan en Iris |
 
-## Para E4c (más adelante): contestar y llamar desde el navegador
+## 9. El teléfono de Iris (E4c): contestar y llamar desde el panel y la app
 
-E4c todavía no existe. Cuando llegue, Asterisk tendrá que ofrecer SIP sobre WebRTC:
+Contrato: `.claude/integration/contratos/voz.md` §3.12, «E4c». **Iris es el puente**: el navegador y la
+app hablan solo con Iris; Iris abre la conexión SIP con la Issabel por WSS (8089) y responde la contraseña
+SIP en el servidor (nunca llega al navegador). El audio va siempre por el relevo TURN de Iris: la Issabel
+solo habla con la IP de Iris, nunca con internet. Esta parte es aparte de la de solo lectura (1–8): el
+teléfono funciona con o sin el AMI encendido, pero con el AMI la ventana con el cliente sale también en
+las llamadas del teléfono y la duración de cada llamada sale del CDR.
 
-- `http.conf`: `tlsenable=yes`, `tlsbindaddr=0.0.0.0:8089`, el mismo certificado (de preferencia uno
-  válido para el nombre con el que entra el navegador).
-- `pjsip.conf`: un transporte `transport-wss` (`protocol=wss`) y, por cada persona que conteste en el
-  navegador, un endpoint con `webrtc=yes` (DTLS, ICE, `rtcp_mux`, opus/ulaw).
-- ICE: STUN, y TURN si el navegador no llega por la VPN.
-- Abrir 8089 (WSS) y el rango RTP solo a donde haga falta.
+### 9.1 WSS en la Issabel (8089)
 
-La credencial SIP de cada extensión del navegador la guardará Iris cifrada, solo en el servidor, y la
-entregará al navegador por sesión y con vida corta; nunca en un log.
+En `/etc/asterisk/http.conf` (o en `http_custom.conf` si tu instalación lo incluye):
+
+```ini
+[general]
+enabled = yes
+bindaddr = 127.0.0.1
+bindport = 8088
+tlsenable = yes
+tlsbindaddr = 0.0.0.0:8089
+tlscertfile = /etc/asterisk/keys/ami.crt
+tlsprivatekey = /etc/asterisk/keys/ami.key
+```
+
+Puede ser el mismo certificado del AMI (paso 2) u otro. Su huella (la compararás con la que muestra Iris):
+
+```sh
+openssl x509 -in /etc/asterisk/keys/ami.crt -noout -fingerprint -sha256
+asterisk -rx "module reload http"
+asterisk -rx "http show status"     # HTTPS Server Enabled and Bound to 0.0.0.0:8089
+```
+
+### 9.2 Transporte WSS de PJSIP
+
+En `/etc/asterisk/pjsip_custom.conf` (o en «Asterisk SIP Settings › PJSIP» si tu versión ofrece WSS):
+
+```ini
+[transport-wss]
+type = transport
+protocol = wss
+bind = 0.0.0.0
+```
+
+Y en `/etc/asterisk/rtp.conf`: `icesupport = yes` y el rango de audio (`rtpstart = 10000`, `rtpend = 20000`).
+No hace falta STUN: el navegador siempre llega por el TURN de Iris.
+
+### 9.3 Una extensión PJSIP por persona que usa el teléfono de Iris
+
+En **PBX › Extensiones**, una extensión **PJSIP** propia para el teléfono de Iris de cada persona (no la del
+teléfono de escritorio: así no se mezclan). **El número de la extensión es su usuario SIP** (en Iris,
+«usuario SIP» se deja vacío o igual a la extensión). Su contraseña (*secret*) es la que vas a escribir
+**una vez** en Iris. En «Avanzado» (o en `pjsip_custom_post.conf` con `[201](+)`):
+
+```ini
+[201](+)
+webrtc = yes                 ; DTLS-SRTP, ICE, AVPF y rtcp_mux
+dtls_auto_generate_cert = yes
+allow = !all,opus,ulaw
+max_contacts = 1
+remove_existing = yes
+direct_media = no
+context = from-iris          ; el contexto restringido de 9.3.1 (en la extensión: «Context» = from-iris)
+```
+
+`webrtc = yes` enciende `use_avpf`, `media_encryption = dtls`, `dtls_verify = fingerprint`,
+`dtls_setup = actpass`, `ice_support`, `media_use_received_transport` y `rtcp_mux`. Luego:
+
+```sh
+asterisk -rx "pjsip reload"
+asterisk -rx "pjsip show endpoint 201"     # webrtc: yes, con el transporte wss disponible
+```
+
+Para **salir a la calle**, la ruta de salida de la Issabel debe aceptar los 8 números de Guatemala con el
+prefijo que uses (por ejemplo `9` + 8 números): ese prefijo se escribe en Iris como «Prefijo de salida».
+Para **transferir a un grupo**, anota el número de cada grupo de timbrado o cola (PBX › Ring Groups /
+Queues); en Iris se dan de alta en «Grupos». Las extensiones y los grupos que marca o transfiere el
+teléfono de Iris son de **2 a 6 cifras**: ningún número interno debe coincidir con una ruta de salida.
+
+#### 9.3.1 Requisito: que el teléfono de Iris no pueda llamar a donde Iris no deja (obligatorio)
+
+Iris solo deja marcar números de Guatemala y transferir a la lista de la empresa, pero hay cosas que pasan
+**dentro del audio o de la Issabel** y que Iris no ve: las funciones de Asterisk por teclado (`##`
+transferir, `*2` transferir con consulta, que viajan como DTMF dentro del audio cifrado) y los desvíos.
+Por eso, **antes de encender el teléfono** la Issabel debe tener esto (Iris pide confirmarlo al guardar:
+«Confirmo que la Issabel está configurada como dice la guía»):
+
+1. **Contexto propio** para las extensiones del teléfono de Iris, que solo sale a Guatemala (prefijo + 8
+   números que empiezan por 2 a 7) y a números internos de 2 a 6 cifras. En
+   `/etc/asterisk/extensions_custom.conf` (con prefijo `9`; cámbialo si usas otro):
+
+   ```ini
+   [from-iris]
+   ; Sin transferencias por teclado (T/t) ni desvíos (i) en lo que marca el teléfono de Iris.
+   exten => _9[2-7]XXXXXXX,1,Set(__TRANSFER_CONTEXT=from-iris)
+    same => n,Set(__DIAL_OPTIONS=ri)
+    same => n,Set(__TRUNK_OPTIONS=i)
+    same => n,Goto(from-internal,${EXTEN},1)
+   exten => _XX,1,Goto(from-iris-interno,${EXTEN},1)
+   exten => _XXX,1,Goto(from-iris-interno,${EXTEN},1)
+   exten => _XXXX,1,Goto(from-iris-interno,${EXTEN},1)
+   exten => _XXXXX,1,Goto(from-iris-interno,${EXTEN},1)
+   exten => _XXXXXX,1,Goto(from-iris-interno,${EXTEN},1)
+
+   [from-iris-interno]
+   exten => _X.,1,Set(__TRANSFER_CONTEXT=from-iris)
+    same => n,Set(__DIAL_OPTIONS=ri)
+    same => n,Goto(from-internal,${EXTEN},1)
+   ```
+
+   Y en cada extensión del teléfono de Iris, **Context = from-iris** (9.3).
+2. **`TRANSFER_CONTEXT=from-iris`** (arriba): una transferencia (REFER) solo llega a lo que permite ese
+   contexto.
+3. **Sin transferencias por teclado:** en «Settings › Advanced Settings» (o «General Settings»),
+   **Asterisk Dial Options** sin `T` ni `t` (de fábrica `Ttr` → `r`) y **Asterisk Outbound Trunk Dial
+   Options** sin `T` ni `t`. Esto vale también para las llamadas que **entran** al teléfono de Iris (con
+   `t`, quien contesta podría transferir con `##`). Los teléfonos de escritorio siguen transfiriendo con su
+   botón (eso es SIP, no DTMF).
+4. **Sin desvíos:** la opción `i` de Dial (arriba) hace que Asterisk ignore un 302 del navegador. Iris ya
+   cambia cualquier desvío del navegador por un 480, así que esto es una segunda barrera.
+5. **Ruta de salida sin internacionales ni números especiales:** solo `9|[2-7]XXXXXXX` (y, si hace falta,
+   los cortos de emergencia). Nada de `00.`, `+.`, `1XXX` ni `_X.`.
+
+Compruébalo desde la consola de la Issabel con una extensión del teléfono de Iris:
+
+```sh
+asterisk -rx "dialplan show 0019005551234@from-iris"   # esperado: no hay coincidencia
+asterisk -rx "dialplan show 955551234@from-iris"       # esperado: sale por from-internal
+asterisk -rx "pjsip show endpoint 201" | grep context  # esperado: from-iris
+asterisk -rx "database show" | grep -i dial_options     # sin T ni t
+```
+
+Lo que queda **solo como configuración de la Issabel** (Iris no lo puede ver): el DTMF dentro del audio
+(RFC 4733), el contexto de la extensión, las opciones de Dial y las rutas de salida. Iris corta lo que pasa
+por SIP: REFER a números libres, desvíos (3xx), DTMF por INFO (`##` y `*2`), `Contact` ajenos y
+cabeceras de identidad.
+
+### 9.4 Firewall de la Issabel
+
+Solo la IP de Iris (o la red de la VPN) puede llegar a **TCP 8089** y al **rango UDP de audio**
+(10000–20000). **Ningún otro puerto UDP** de la Issabel (en especial **5060/5061**, SIP sin WSS) se abre a la
+IP de Iris: el relevo TURN de Iris solo debe poder mandar audio. Nada de eso se abre a internet:
+
+```sh
+nc -zv <ip-publica-de-issabel> 8089     # desde fuera de la VPN: esperado, falla
+```
+
+### 9.5 En el servidor de Iris
+
+En `/opt/iris/.env` (y `irisctl start` después):
+
+```sh
+IRIS_TELEFONO=true
+IRIS_TURN_SECRETO=<la salida de: openssl rand -hex 32>
+IRIS_TURN_URLS=turn:iris.kns.gt:3478?transport=udp,turn:iris.kns.gt:3478?transport=tcp
+IRIS_TURN_RELAY_IP=10.20.0.9          # la IP con que la Issabel ve a Iris (VPN o misma red)
+IRIS_TURN_ISSABEL_IP=10.20.0.5        # la única IP a la que el TURN deja pasar audio
+```
+
+- `irisctl start` copia `IRIS_TURN_SECRETO` a `/opt/iris/secrets/turn-secreto` (root:65534, 0640): coturn lo
+  lee como Docker secret, nunca de sus variables, y solo al arrancar. Si cambias el secreto en el `.env`,
+  corre `irisctl start`: nota el cambio, vuelve a crear el contenedor `turn` y reinicia los servicios de
+  Iris con el secreto nuevo. Las llamadas en curso pierden el audio en ese momento: hazlo fuera de horario.
+  Un `docker compose up -d` a mano **no** lo nota (la configuración del servicio no cambia) y coturn
+  seguiría con el secreto viejo. Los puertos del TURN tienen que ser de 1024 a 65535 (coturn corre sin privilegios): si no,
+  el contenedor no arranca y lo dice en `irisctl logs turn`.
+- Abre en el firewall **del servidor de Iris** (desde internet): **UDP y TCP 3478** y **UDP 49160–49660**
+  (`IRIS_TURN_PUERTO_MIN`–`MAX`). Desde la VPN, la Issabel tiene que llegar a esos mismos puertos UDP de
+  `IRIS_TURN_RELAY_IP`.
+- **El relevo solo hacia el audio de la Issabel.** coturn limita la IP (`IRIS_TURN_ISSABEL_IP`) pero no el
+  puerto: en el servidor de Iris, que lo que sale de los puertos del relevo hacia la Issabel solo vaya a su
+  rango de audio (10000–20000; cámbialo si tu `rtp.conf` usa otro):
+
+  ```sh
+  iptables -A OUTPUT -s 10.20.0.9 -d 10.20.0.5 -p udp --sport 49160:49660 --dport 10000:20000 -j ACCEPT
+  iptables -A OUTPUT -s 10.20.0.9 -d 10.20.0.5 -p udp --sport 49160:49660 -j DROP
+  iptables -A OUTPUT -s 10.20.0.9 -p udp --sport 49160:49660 ! -d 10.20.0.5 -j DROP
+  ```
+
+  (con la IP de Iris en la VPN y la de la Issabel; guárdalo con `netfilter-persistent save` o el
+  mecanismo de tu distribución). Junto con 9.4, el TURN no sirve para llegar a ningún otro servicio.
+- **Proxy delante de Iris:** el WebSocket del teléfono va directo a la API (el panel no reenvía
+  WebSockets). La ruta exacta `/api/v1/mensajeria/telefono/sip` se manda a `127.0.0.1:<IRIS_API_PUERTO>`
+  (8080) con *upgrade* (ver [install](install.md), «Reverse proxy»). En Nginx Proxy Manager, enciende
+  «Websockets Support» en el Proxy Host.
+
+### 9.6 En Iris
+
+1. **Administración › Integraciones › Centralita › Teléfono**: puerto `8089`, ruta `/ws`, **Probar**:
+   compara la huella con la del paso 9.1 (si no es la misma, no sigas). Guarda con la huella, el dominio SIP
+   (vacío = la IP de la Issabel), el prefijo de salida, los límites (llamadas por persona y día, de
+   fábrica 60; a la vez en la empresa, 10) y **marca «Confirmo que la Issabel está configurada como dice
+   la guía»** (9.3.1; sin eso no enciende). **Probar** otra vez (con los datos guardados) y **Encender**.
+2. **Extensiones**: a cada persona, su extensión con tipo **Navegador** y la contraseña SIP del paso 9.3
+   (se guarda cifrada y no se vuelve a mostrar). **Probar registro** debe decir «ok»: sin eso la persona no
+   puede abrir el teléfono. Si la Issabel rechaza la contraseña durante el uso, Iris corta, marca la
+   extensión como «sin probar» y no deja reabrir hasta otro «Probar registro» que pase (así el navegador no
+   reintenta hasta que fail2ban bloquee la IP de Iris para todos).
+3. En el panel, la persona abre su teléfono (permiso del micrófono la primera vez). Solo suena en una
+   pestaña; las otras muestran «Usar el teléfono aquí».
+
+### 9.7 Si algo falla
+
+| Lo que ves en Iris | Qué revisar |
+| --- | --- |
+| Probar: «No conecta» | 8089 y `tlsenable` en `http.conf`; firewall solo con la IP de Iris; VPN |
+| Probar: «No es SIP» | `transport-wss` en PJSIP y `pjsip reload`; la ruta `/ws` |
+| Probar: «El certificado cambió» | Si renovaste el certificado del 8089, compara la huella nueva; si no, avisa |
+| Probar registro: «Credenciales» | La contraseña de la extensión PJSIP y que sea la extensión del navegador |
+| No hay audio o se corta a los pocos segundos | Puertos UDP del TURN en el servidor de Iris; `IRIS_TURN_RELAY_IP` alcanzable desde la Issabel; `webrtc = yes` |
+| «La centralita no responde» al abrir el teléfono | Igual que «No conecta»; Iris reintenta al volver a abrir |

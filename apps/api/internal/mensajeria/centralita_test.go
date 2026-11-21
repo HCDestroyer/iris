@@ -55,16 +55,27 @@ func nuevoBancoCentralita(t *testing.T, ajustes ...func(*mensajeria.Config)) *ba
 	x.admin = b.persona([]int64{1}, rolBase("admin"))
 	x.admin.empresa = 1
 	// Una centralita por empresa: cada prueba empieza sin ninguna.
+	x.limpiar()
+	return x
+}
+
+// limpiar borra las centralitas y sus llamadas (al empezar; el teléfono también al terminar: sus
+// salientes son de la empresa 1 y las pruebas de WhatsApp cuentan las salientes del día).
+func (x *bancoCentralita) limpiar() {
+	x.t.Helper()
 	for _, s := range []string{
 		`DELETE FROM mensajeria.conv_eventos WHERE conversacion_id IS NULL`,
 		`DELETE FROM mensajeria.centralita_receptores`,
+		`DELETE FROM mensajeria.telefono_tickets`,
+		`DELETE FROM mensajeria.telefono_conexiones`,
+		`DELETE FROM mensajeria.centralita_grupos`,
+		`DELETE FROM mensajeria.llamadas WHERE origen = 'celular'`,
 		`DELETE FROM mensajeria.llamadas WHERE origen = 'centralita'`,
 		`DELETE FROM mensajeria.centralita_extensiones`,
 		`DELETE FROM mensajeria.centralitas`,
 	} {
 		x.sql(s)
 	}
-	return x
 }
 
 func (x *bancoCentralita) sql(s string, args ...any) {

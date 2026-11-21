@@ -6,7 +6,8 @@ import type { Centralita } from "./tipos";
 const centralita: Centralita = {
     id: 1, nombre: "Oficina", tipo: "issabel", host: "10.20.0.5", puerto: 5039, usuario: "iris_lectura", secretoGuardadoEn: "2026-11-19T10:00:00Z",
     huellaTls: "4f9a", huellaVista: null, modo: "lectura", estado: "conectada", errorCodigo: null, probadaEn: null, conectadaEn: null,
-    desconectadaDesde: null, ultimoEventoEn: null, activa: true, version: 3,
+    desconectadaDesde: null, ultimoEventoEn: null, activa: true,
+    telefono: { activo: false, wssPuerto: 8089, wssRuta: "/ws", huellaWss: null, sipDominio: null, prefijoSalida: "", llamadasPorUsuarioDia: 60, llamadasSimultaneas: 10, probadoEn: null, restriccionesConfirmadasEn: null }, version: 3,
 };
 
 const llamada = (extra: Partial<Llamada>): Llamada =>

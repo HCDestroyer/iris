@@ -1020,7 +1020,7 @@ export async function simularApi(page: Page, opciones: OpcionesApi = {}): Promis
         }
         // Sin la opción, nadie tiene extensión (el panel lo pregunta siempre).
         if (metodo === "GET" && ruta === "/api/v1/mensajeria/centralita/mi-extension" && !opciones.centralita) {
-            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ extension: null, centralitaId: null, estado: null }) });
+            await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ extension: null, centralitaId: null, estado: null, tipo: null }) });
             return;
         }
         if (opciones.centralita && (await centralita.manejar({ route, metodo, ruta, query: url.searchParams, cuerpo, actor: actual.id, puede }))) {

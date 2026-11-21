@@ -76,13 +76,15 @@ type Centralita struct {
 	DesconectadaDesde *time.Time `json:"desconectadaDesde" nullable:"true"`
 	UltimoEventoEn    *time.Time `json:"ultimoEventoEn" nullable:"true" doc:"Última señal del AMI (se actualiza como mucho cada minuto)"`
 	Activa            bool       `json:"activa"`
-	Version           int32      `json:"version"`
+	// Telefono: el teléfono de Iris (E4c).
+	Telefono TelefonoCentralita `json:"telefono"`
+	Version  int32              `json:"version"`
 }
 
 func aCentralita(f mensajeriabd.MensajeriaCentralita) Centralita {
 	c := Centralita{ID: f.ID, Nombre: f.Nombre, Tipo: f.Tipo, Host: f.Host, Puerto: f.Puerto, Usuario: f.Usuario, SecretoGuardadoEn: f.SecretoGuardadoEn,
 		HuellaTLS: f.HuellaTls, Modo: f.Modo, Estado: f.Estado, ErrorCodigo: f.ErrorCodigo, ProbadaEn: f.ProbadaEn, ConectadaEn: f.ConectadaEn,
-		DesconectadaDesde: f.DesconectadaDesde, UltimoEventoEn: f.UltimoEventoEn, Activa: f.Activa, Version: f.Version}
+		DesconectadaDesde: f.DesconectadaDesde, UltimoEventoEn: f.UltimoEventoEn, Activa: f.Activa, Telefono: telefonoCentralitaDe(f), Version: f.Version}
 	if f.ErrorCodigo != nil && *f.ErrorCodigo == "huella_cambiada" {
 		c.HuellaVista = f.HuellaVista
 	}
@@ -244,6 +246,7 @@ type casosCentralita struct {
 	Desactivar      *auditoria.Caso[EntradaCambioCentralita, Centralita]
 	ConfirmarHuella *auditoria.Caso[EntradaConfirmarHuella, Centralita]
 	Probar          *ProbarCentralita
+	Telefono        casosTelefono
 	Extensiones     *auditoria.Caso[EntradaVerCentralita, ListaExtensiones]
 	Asignar         *auditoria.Caso[EntradaAsignarExtension, Extension]
 	Quitar          *auditoria.Caso[EntradaQuitarExtension, Extension]
@@ -347,10 +350,22 @@ func nuevosCasosCentralita(m *Modulo) casosCentralita {
 					// Otros datos de conexión: hay que volver a probar y encender.
 					f.Activa, f.Estado, f.ErrorCodigo, f.HuellaVista, f.ProbadaEn, f.ConectadaEn, f.DesconectadaDesde = false, CentralitaDesactivada, nil, nil, nil, nil, nil
 				}
+				// El teléfono se conecta al mismo host: con otro, se apaga y hay que volver a probar el WSS y
+				// confirmar las restricciones de esa Issabel (runbook §9.3).
+				apagaTelefono := host != antes.Host && (f.TelefonoActivo || f.TelefonoProbadoEn != nil || f.RestriccionesConfirmadasEn != nil)
 				if f, err = guardarCentralita(ctx, q, f); err != nil {
 					return Centralita{}, err
 				}
+				if apagaTelefono {
+					f.TelefonoActivo, f.TelefonoProbadoEn, f.RestriccionesConfirmadasEn = false, nil, nil
+					if f, err = m.guardarTelefono(ctx, q, f); err != nil {
+						return Centralita{}, err
+					}
+				}
 				campos := t.RegistrarCambios("centralita", f.ID, centralitaAuditable(antes), centralitaAuditable(f))
+				if apagaTelefono {
+					campos = append(campos, t.RegistrarCambios("centralita", f.ID, telefonoAuditable(antes), telefonoAuditable(f))...)
+				}
 				if in.Secreto != nil {
 					campos = append(campos, "secreto")
 				}
@@ -367,6 +382,7 @@ func nuevosCasosCentralita(m *Modulo) casosCentralita {
 	}
 	k.Extensiones, k.Asignar, k.Quitar = nuevosCasosExtensiones(m)
 	k.MiExtension = nuevoMiExtension(m)
+	k.Telefono = nuevosCasosTelefono(m)
 	k.Llamadas, k.VerLlamada, k.Anotar, k.Asociar, k.Vincular = nuevosCasosLlamadasCentralita(m)
 	k.procesar = nuevoProcesarHechoAMI(m)
 	k.fijarEstado = nuevoFijarEstadoCentralita(m)

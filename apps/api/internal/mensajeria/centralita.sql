@@ -144,16 +144,18 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.centralita_receptores WHERE llamada_id =
 SELECT * FROM mensajeria.llamadas WHERE id = ANY (@ids::uuid[]) AND origen = 'centralita';
 
 -- name: ListarLlamadasCliente :many
--- Historial de llamadas (WhatsApp y centralita) con cursor (sono_en, id) descendente: por cliente,
--- por ticket o las de la centralita que le sonaron a un usuario o que marcó.
+-- Historial de llamadas (WhatsApp, centralita y directas del celular) con cursor (sono_en, id)
+-- descendente: por cliente, por ticket, por orden o las de la centralita que le sonaron a un usuario o
+-- que marcó.
 SELECT l.* FROM mensajeria.llamadas l
 WHERE coalesce(l.empresa_id, 0) = @empresa::bigint
   AND (sqlc.narg('cliente_id')::bigint IS NULL OR l.cliente_id = sqlc.narg('cliente_id')::bigint)
   AND (sqlc.narg('ticket_id')::bigint IS NULL OR l.ticket_id = sqlc.narg('ticket_id')::bigint)
-  AND (sqlc.narg('receptor')::bigint IS NULL OR (l.origen = 'centralita' AND (l.usuario_id = sqlc.narg('receptor')::bigint
+  AND (sqlc.narg('orden_id')::bigint IS NULL OR l.orden_id = sqlc.narg('orden_id')::bigint)
+  AND (sqlc.narg('receptor')::bigint IS NULL OR (l.origen IN ('centralita', 'celular') AND (l.usuario_id = sqlc.narg('receptor')::bigint
        OR EXISTS (SELECT 1 FROM mensajeria.centralita_receptores r WHERE r.llamada_id = l.id AND r.usuario_id = sqlc.narg('receptor')::bigint))))
   -- Las de WhatsApp solo de las conversaciones que ve (con conversaciones.ver).
-  AND (l.origen = 'centralita' OR (@conversaciones::boolean AND EXISTS (
+  AND (l.origen IN ('centralita', 'celular') OR (@conversaciones::boolean AND EXISTS (
        SELECT 1 FROM mensajeria.conversaciones c WHERE c.id = l.conversacion_id AND coalesce(c.empresa_id, 0) = @empresa::bigint
          AND mensajeria.conv_visible(@usuario::bigint, @supervisa::boolean, c.id, c.cola_id, c.asignado_a))))
   AND (sqlc.narg('desde')::timestamptz IS NULL OR l.sono_en >= sqlc.narg('desde')::timestamptz)
@@ -193,7 +195,7 @@ UPDATE mensajeria.centralitas SET motor_dueno = NULL, motor_hasta = NULL WHERE i
 
 -- name: MiExtension :one
 -- La extensión activa del usuario en la centralita activa de la empresa (para montar la ventana).
-SELECT x.id, x.extension, c.id AS centralita_id, c.estado FROM mensajeria.centralita_extensiones x
+SELECT x.id, x.extension, x.tipo, c.id AS centralita_id, c.estado FROM mensajeria.centralita_extensiones x
 JOIN mensajeria.centralitas c ON c.id = x.centralita_id
 WHERE x.usuario_id = @usuario::bigint AND x.activa AND c.activa AND coalesce(c.empresa_id, 0) = @empresa::bigint
 LIMIT 1;

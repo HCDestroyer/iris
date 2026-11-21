@@ -1364,30 +1364,40 @@ type MensajeriaCanale struct {
 }
 
 type MensajeriaCentralita struct {
-	ID                int64
-	EmpresaID         *int64
-	Nombre            string
-	Tipo              string
-	Host              string
-	Puerto            int32
-	Usuario           string
-	SecretoCifrado    []byte
-	SecretoGuardadoEn *time.Time
-	HuellaTls         *string
-	HuellaVista       *string
-	Modo              string
-	Estado            string
-	ErrorCodigo       *string
-	ProbadaEn         *time.Time
-	ConectadaEn       *time.Time
-	DesconectadaDesde *time.Time
-	UltimoEventoEn    *time.Time
-	Activa            bool
-	MotorDueno        *string
-	MotorHasta        *time.Time
-	Version           int32
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                         int64
+	EmpresaID                  *int64
+	Nombre                     string
+	Tipo                       string
+	Host                       string
+	Puerto                     int32
+	Usuario                    string
+	SecretoCifrado             []byte
+	SecretoGuardadoEn          *time.Time
+	HuellaTls                  *string
+	HuellaVista                *string
+	Modo                       string
+	Estado                     string
+	ErrorCodigo                *string
+	ProbadaEn                  *time.Time
+	ConectadaEn                *time.Time
+	DesconectadaDesde          *time.Time
+	UltimoEventoEn             *time.Time
+	Activa                     bool
+	MotorDueno                 *string
+	MotorHasta                 *time.Time
+	Version                    int32
+	CreatedAt                  time.Time
+	UpdatedAt                  time.Time
+	TelefonoActivo             bool
+	WssPuerto                  int32
+	WssRuta                    string
+	WssHuella                  *string
+	SipDominio                 *string
+	PrefijoSalida              string
+	LlamadasPorUsuarioDia      int32
+	LlamadasSimultaneas        int32
+	TelefonoProbadoEn          *time.Time
+	RestriccionesConfirmadasEn *time.Time
 }
 
 type MensajeriaCentralitaExtensione struct {
@@ -1403,6 +1413,20 @@ type MensajeriaCentralitaExtensione struct {
 	QuitadaEn         *time.Time
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+	SipGuardadoEn     *time.Time
+	SipProbadoEn      *time.Time
+}
+
+type MensajeriaCentralitaGrupo struct {
+	ID           int64
+	EmpresaID    *int64
+	CentralitaID int64
+	Nombre       string
+	Numero       string
+	Activo       bool
+	Version      int32
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 type MensajeriaCentralitaReceptore struct {
@@ -1856,6 +1880,9 @@ type MensajeriaLlamada struct {
 	Coincidencias      int32
 	AnotadaPor         *int64
 	Version            int32
+	OrdenID            *int64
+	Puente             bool
+	InviteEn           *time.Time
 }
 
 type MensajeriaLlamadaCandidato struct {
@@ -2141,6 +2168,29 @@ type MensajeriaSugerencia struct {
 	GeneradaEn       *time.Time
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+}
+
+type MensajeriaTelefonoConexione struct {
+	ID          uuid.UUID
+	UsuarioID   int64
+	EmpresaID   *int64
+	ExtensionID int64
+	Dispositivo string
+	Replica     string
+	AbiertaEn   time.Time
+	LatidoEn    time.Time
+}
+
+type MensajeriaTelefonoTicket struct {
+	Hash        []byte
+	UsuarioID   int64
+	EmpresaID   *int64
+	ExtensionID int64
+	Dispositivo string
+	SesionID    int64
+	ExpiraEn    time.Time
+	UsadoEn     *time.Time
+	CreatedAt   time.Time
 }
 
 type MensajeriaVozAjuste struct {

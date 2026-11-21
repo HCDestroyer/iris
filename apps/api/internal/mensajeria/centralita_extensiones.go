@@ -3,6 +3,7 @@ package mensajeria
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -20,6 +21,11 @@ type Extension struct {
 	Extension     string `json:"extension"`
 	UsuarioID     int64  `json:"usuarioId"`
 	UsuarioNombre string `json:"usuarioNombre"`
+	// E4c: navegador contesta y llama en el teléfono de Iris.
+	Tipo          string     `json:"tipo" enum:"escritorio,navegador"`
+	SipUsuario    *string    `json:"sipUsuario" nullable:"true" doc:"Usuario SIP del endpoint (navegador)"`
+	SipGuardadoEn *time.Time `json:"sipGuardadoEn" nullable:"true" doc:"Cuándo se guardó la contraseña SIP (nunca se devuelve)"`
+	SipProbadoEn  *time.Time `json:"sipProbadoEn" nullable:"true" doc:"La última vez que «Probar registro» pasó"`
 }
 
 // ListaExtensiones es GET /centralitas/{id}/extensiones.
@@ -63,7 +69,8 @@ func nuevosCasosExtensiones(m *Modulo) (*auditoria.Caso[EntradaVerCentralita, Li
 			}
 			out := ListaExtensiones{Data: make([]Extension, 0, len(fs))}
 			for _, f := range fs {
-				out.Data = append(out.Data, Extension{ID: f.ID, Extension: f.Extension, UsuarioID: f.UsuarioID, UsuarioNombre: f.UsuarioNombre})
+				out.Data = append(out.Data, Extension{ID: f.ID, Extension: f.Extension, UsuarioID: f.UsuarioID, UsuarioNombre: f.UsuarioNombre, Tipo: f.Tipo,
+					SipUsuario: f.SipUsuario, SipGuardadoEn: f.SipGuardadoEn, SipProbadoEn: f.SipProbadoEn})
 			}
 			return out, nil
 		},
@@ -92,7 +99,7 @@ func nuevosCasosExtensiones(m *Modulo) (*auditoria.Caso[EntradaVerCentralita, Li
 			}
 			if x, err := q.ExtensionActivaPorNumero(ctx, mensajeriabd.ExtensionActivaPorNumeroParams{CentralitaID: c.ID, Extension: in.Extension}); err == nil {
 				if x.UsuarioID == in.UsuarioID {
-					return Extension{ID: x.ID, Extension: x.Extension, UsuarioID: x.UsuarioID, UsuarioNombre: u.Nombre}, nil
+					return aExtension(x, u.Nombre), nil
 				}
 				return Extension{}, nucleo.Conflicto("extension_ocupada", "Esa extensión ya es de otra persona: quítasela primero")
 			} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -115,7 +122,7 @@ func nuevosCasosExtensiones(m *Modulo) (*auditoria.Caso[EntradaVerCentralita, Li
 			if err := notificarMotor(ctx, q, c.ID); err != nil {
 				return Extension{}, err
 			}
-			return Extension{ID: x.ID, Extension: x.Extension, UsuarioID: x.UsuarioID, UsuarioNombre: u.Nombre},
+			return aExtension(x, u.Nombre),
 				t.Emitir("extension.asignada", map[string]any{"centralita_id": c.ID, "empresa_id": c.EmpresaID, "extension_id": x.ID, "usuario_id": x.UsuarioID})
 		},
 	})
@@ -137,12 +144,16 @@ func nuevosCasosExtensiones(m *Modulo) (*auditoria.Caso[EntradaVerCentralita, Li
 			if _, err := q.QuitarExtension(ctx, mensajeriabd.QuitarExtensionParams{ID: x.ID, Ahora: m.ahora()}); err != nil {
 				return Extension{}, err
 			}
+			// La credencial SIP del navegador se borra con la extensión (el puente corta en su latido).
+			if err := q.BorrarCredencialExtension(ctx, x.ID); err != nil {
+				return Extension{}, err
+			}
 			t.FijarEntidad("centralita_extension", x.ID)
 			t.RegistrarCambios("centralita_extension", x.ID, map[string]any{"activa": true}, map[string]any{"activa": false})
 			if err := notificarMotor(ctx, q, c.ID); err != nil {
 				return Extension{}, err
 			}
-			return Extension{ID: x.ID, Extension: x.Extension, UsuarioID: x.UsuarioID},
+			return Extension{ID: x.ID, Extension: x.Extension, UsuarioID: x.UsuarioID, Tipo: "escritorio"},
 				t.Emitir("extension.quitada", map[string]any{"centralita_id": c.ID, "empresa_id": c.EmpresaID, "extension_id": x.ID, "usuario_id": x.UsuarioID})
 		},
 	})
@@ -154,6 +165,7 @@ type MiExtension struct {
 	Extension    *string `json:"extension" nullable:"true" doc:"Null si no tiene una extensión activa en la centralita activa de la empresa"`
 	CentralitaID *int64  `json:"centralitaId" nullable:"true"`
 	Estado       *string `json:"estado" nullable:"true" enum:"conectada,desconectada,error,desactivada" doc:"Estado de la conexión con la centralita"`
+	Tipo         *string `json:"tipo" nullable:"true" enum:"escritorio,navegador" doc:"navegador: contesta y llama en el teléfono de Iris (E4c)"`
 }
 
 func nuevoMiExtension(*Modulo) *auditoria.Caso[struct{}, MiExtension] {
@@ -171,7 +183,7 @@ func nuevoMiExtension(*Modulo) *auditoria.Caso[struct{}, MiExtension] {
 			if err != nil {
 				return MiExtension{}, err
 			}
-			return MiExtension{Extension: &f.Extension, CentralitaID: &f.CentralitaID, Estado: &f.Estado}, nil
+			return MiExtension{Extension: &f.Extension, CentralitaID: &f.CentralitaID, Estado: &f.Estado, Tipo: &f.Tipo}, nil
 		},
 	})
 }

@@ -293,8 +293,14 @@ const (
 	// PermCentralitaConfigurar: la conexión con el AMI de la centralita (dirección, usuario,
 	// contraseña, huella del certificado), probarla, encenderla y apagarla. Sensible.
 	PermCentralitaConfigurar Permiso = "centralita.configurar"
-	// PermCentralitaAsignarExtension: qué extensión de la centralita es de cada usuario.
+	// PermCentralitaAsignarExtension: qué extensión de la centralita es de cada usuario (E4c: también
+	// su credencial SIP, solo escritura, y «Probar registro»).
 	PermCentralitaAsignarExtension Permiso = "centralita.asignar_extension"
+	// PermCentralitaLlamar: llamar con su extensión desde el teléfono de Iris (E4c: desde una ficha o
+	// el teclado, solo Guatemala y extensiones del equipo) y anotar la llamada directa de una orden.
+	PermCentralitaLlamar Permiso = "centralita.llamar"
+	// PermCentralitaTransferir: pasar una llamada en curso a una persona o grupo de su empresa (E4c).
+	PermCentralitaTransferir Permiso = "centralita.transferir"
 )
 
 // Servidor de IA («Iris Voz», contratos/voz.md §4.8 y §8.2): es de la instalación, así que ver y
@@ -488,8 +494,10 @@ var Catalogo = []DefPermiso{
 	{PermCampoVerBodega, "Ver tu bodega en Argos (existencias, unidades, kardex) y tus órdenes de traslado por recibir (por tu vínculo con Argos)"},
 	{PermCampoVerPosiciones, "Ver la última ubicación de los técnicos (según el alcance)"},
 	{PermCanalesConfigurar, "Configurar las colas de conversaciones y el uso, la cola y el horario de cada número de WhatsApp (no sus credenciales)"},
-	{PermCentralitaAsignarExtension, "Asignar y quitar la extensión de la centralita de cada usuario (a quién le sale la ventana cuando suena)"},
-	{PermCentralitaConfigurar, "Conectar la centralita Issabel (solo lectura): dirección, usuario y contraseña del AMI, huella del certificado, probar, encender y apagar"},
+	{PermCentralitaAsignarExtension, "Asignar y quitar la extensión de la centralita de cada usuario (a quién le sale la ventana cuando suena), su credencial SIP y «Probar registro»"},
+	{PermCentralitaConfigurar, "Conectar la centralita Issabel: dirección, usuario y contraseña del AMI, huella del certificado, probar, encender y apagar; y el teléfono de Iris (WSS, límites y grupos)"},
+	{PermCentralitaLlamar, "Llamar con tu extensión desde el teléfono de Iris (desde una ficha o el teclado) y anotar la llamada directa de una orden"},
+	{PermCentralitaTransferir, "Pasar una llamada en curso a una persona o grupo de tu empresa"},
 	{PermChatEnviar, "Abrir conversaciones del chat interno, enviar mensajes, eliminar los propios en 15 minutos y unirse al hilo de una orden que puedes ver"},
 	{PermChatSupervisar, "Ser miembro de los chats de cuadrilla y de orden de tu alcance (zona o cuadrilla; sin alcance, todos los de la empresa). No da acceso a los mensajes directos"},
 	{PermChatVer, "Ver tus conversaciones del chat interno del equipo y sus mensajes"},
@@ -710,7 +718,7 @@ var RolesBase = []DefRol{
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar, PermLlamadasDesbloquearNumero,
-			PermCentralitaAsignarExtension,
+			PermCentralitaAsignarExtension, PermCentralitaLlamar, PermCentralitaTransferir,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar},
@@ -722,7 +730,7 @@ var RolesBase = []DefRol{
 			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas,
 			PermAgendaVer, PermAgendaFijarTurnos, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
 			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea,
-			PermCampoVerPosiciones, PermCampoVerActividad, PermChatVer, PermChatEnviar},
+			PermCampoVerPosiciones, PermCampoVerActividad, PermChatVer, PermChatEnviar, PermCentralitaLlamar, PermCentralitaTransferir},
 			slices.Concat(permisosOrdenes, permisosRutas, permisosAtencion)...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
 		// servicios.ver_red y servicios.ver_ubicacion: solo en los servicios de sus órdenes (alcance de
@@ -732,15 +740,19 @@ var RolesBase = []DefRol{
 			PermOrdenesCerrar, PermOrdenesFallar, PermCampoSincronizar, PermCampoRegistrarPosiciones,
 			PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer, PermFactibilidadRegistrarManual,
 			PermCampoVerBodega, PermCampoRecibirTraslado, PermChatVer, PermChatEnviar,
-			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea, PermOrdenesTomar}},
+			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea, PermOrdenesTomar,
+			// El técnico llama por la empresa o desde su celular (E4c); no transfiere.
+			PermCentralitaLlamar}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
 			PermChatVer, PermChatEnviar, PermConversacionesTransferir, PermConversacionesAsociar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso,
-			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesIniciar}, slices.Concat(permisosTickets, permisosAtencion)...)},
+			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesIniciar, PermCentralitaLlamar, PermCentralitaTransferir},
+			slices.Concat(permisosTickets, permisosAtencion)...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
 		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerUbicacion, PermAdjuntosVer, PermAdjuntosSubir, PermAgendaVer,
-			PermConversacionesTransferir, PermConversacionesAsociar, PermConversacionesIniciar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso},
+			PermConversacionesTransferir, PermConversacionesAsociar, PermConversacionesIniciar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso,
+			PermCentralitaLlamar, PermCentralitaTransferir},
 			slices.Concat(permisosComercial, permisosAtencion)...)},
 	{Codigo: "lectura", Nombre: "Lectura", Descripcion: "Solo consulta",
 		Permisos: []Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer,

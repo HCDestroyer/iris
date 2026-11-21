@@ -78,7 +78,7 @@ func (m *Modulo) registrarCentralita(api huma.API) {
 	huma.Register(api, d(op("actualizarCentralita", http.MethodPost, "/centralitas/{id}/actualizar", "Editar la conexión con la centralita", conf,
 		http.StatusOK, http.StatusConflict, http.StatusNotFound),
 		"Con `version` (409 `conflicto_version`). Cambiar host, puerto, usuario, contraseña o huella la apaga y borra la última prueba: hay que probar y "+
-			"encender otra vez. 422 `clave_requerida` si cambian host, puerto o usuario sin volver a escribir la contraseña. Evento `centralita.actualizada`."),
+			"encender otra vez. Cambiar el host también apaga el teléfono y borra su prueba y la confirmación de restricciones. 422 `clave_requerida` si cambian host, puerto o usuario sin volver a escribir la contraseña. Evento `centralita.actualizada`."),
 		func(ctx context.Context, in *centralitaAccionHTTP[EntradaActualizarCentralita]) (*cuerpo[Centralita], error) {
 			in.Body.ID = in.ID
 			return responder(k.Actualizar.Ejecutar(ctx, in.Body))
@@ -132,9 +132,11 @@ func (m *Modulo) registrarCentralita(api huma.API) {
 			return responder(k.Quitar.Ejecutar(ctx, EntradaQuitarExtension{CentralitaID: in.ID, ExtensionID: in.ExtensionID}))
 		})
 	// Llamadas.
-	huma.Register(api, d(op("listarLlamadasCentralita", http.MethodGet, "/centralitas/llamadas", "Llamadas de la centralita", nucleo.PermLlamadasVer, http.StatusOK,
-		http.StatusNotFound),
-		"Por cliente (`clienteId`, ficha del cliente; exige `clientes.ver`), por ticket (`ticketId`; el ticket tiene que ser visible para ti: si no, 404) "+
+	huma.Register(api, d(op("listarLlamadasCentralita", http.MethodGet, "/centralitas/llamadas", "Llamadas de la centralita", "", http.StatusOK,
+		http.StatusForbidden, http.StatusNotFound),
+		"Exige `llamadas.ver`, salvo con solo `ordenId` (E4c: las de una orden que ves con `ordenes.ver` u `ordenes.ver_propias`, también las directas "+
+			"del celular; si no la ves, 404). "+
+			"Por cliente (`clienteId`, ficha del cliente; exige `clientes.ver`), por ticket (`ticketId`; el ticket tiene que ser visible para ti: si no, 404) "+
 			"o las tuyas (`mias=true`, con `hoy=true` las de hoy). `{ data, nextCursor }`, de la más nueva a la más vieja. Nombres de clientes solo con "+
 			"`clientes.ver`. La `nota` solo viene en las llamadas que te sonaron, contestaste o marcaste, o si supervisas las extensiones; si no, null."),
 		func(ctx context.Context, in *EntradaListarLlamadasCentralita) (*cuerpo[ListaLlamadasCentralita], error) {
