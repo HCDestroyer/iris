@@ -142,8 +142,9 @@ detect_os() {
             ;;
         rhel | rocky | almalinux)
             FAMILY=rpm
-            [[ "${OS_VERSION%%.*}" =~ ^[0-9]+$ ]] && [ "${OS_VERSION%%.*}" -ge 8 ] ||
+            if ! [[ "${OS_VERSION%%.*}" =~ ^[0-9]+$ ]] || [ "${OS_VERSION%%.*}" -lt 8 ]; then
                 die "$OS_NAME es demasiado viejo: hace falta la versión 8 o más nueva"
+            fi
             ;;
         *) die "este servidor es «${OS_NAME:-desconocido}». Solo se admite Ubuntu, Debian, RHEL, Rocky Linux o AlmaLinux" ;;
     esac
@@ -305,7 +306,9 @@ ensure_docker() {
         log "Arrancando Docker"
         systemctl enable --now docker < /dev/null || die "Docker no arranca (mira: systemctl status docker)"
     fi
-    { command -v docker > /dev/null && compose_ok; } || die "Docker o docker compose $COMPOSE_MIN no quedaron instalados"
+    if ! command -v docker > /dev/null || ! compose_ok; then
+        die "Docker o docker compose $COMPOSE_MIN no quedaron instalados"
+    fi
     ok "Docker $(docker version --format '{{.Server.Version}}' 2> /dev/null < /dev/null || echo '?') con compose $(docker compose version --short 2> /dev/null < /dev/null)"
 }
 
@@ -443,7 +446,11 @@ main() {
     done
     VERSION="${VERSION#voz-v}"
     [ -z "$VERSION" ] || is_semver "$VERSION" || die "versión inválida: «$VERSION». Usa el formato X.Y.Z, por ejemplo --version 0.1.1"
-    [ -z "$PORT" ] || { [[ "$PORT" =~ ^[0-9]{1,5}$ ]] && [ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ]; } || die "puerto inválido: $PORT"
+    if [ -n "$PORT" ]; then
+        if ! [[ "$PORT" =~ ^[0-9]{1,5}$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+            die "puerto inválido: $PORT"
+        fi
+    fi
 
     printf '\033[1mInstalación del Servidor de IA de Iris (Iris Voz)\033[0m\n' >&2
 

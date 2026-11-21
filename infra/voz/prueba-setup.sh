@@ -206,6 +206,9 @@ caso "sin root" 1 "como administrador" FALSO_UID=1000 --
 afirmar "sin root no hace nada" no_instalo
 caso "distribución no soportada" 1 "Solo se admite Ubuntu, Debian, RHEL" "IRIS_VOZ_OS_RELEASE=$arch" --
 caso "arquitectura no soportada" 1 "no está soportada" FALSO_ARCH=riscv64 --
+printf 'ID="rhel"\nVERSION_ID="7.9"\nPRETTY_NAME="RHEL 7.9"\n' > "$raiz/os-rhel7"
+caso "RHEL demasiado viejo" 1 "demasiado viejo" "IRIS_VOZ_OS_RELEASE=$raiz/os-rhel7" --
+caso "puerto inválido" 1 "puerto inválido" -- --port 70000
 caso "puerto ocupado por otro programa" 1 "ya lo usa otro programa" 'FALSO_SS=LISTEN 0 4096 0.0.0.0:8443 0.0.0.0:*' --
 afirmar "con el puerto ocupado no ejecuta nada" no_instalo
 caso "reloj sin sincronizar y dice que no" 1 "sin el reloj sincronizado" FALSO_NTP=no --
