@@ -3,6 +3,20 @@
 Migración: `apps/api/migraciones/20261121065851_mensajeria_plantillas_whatsapp.sql`.
 Contrato: `.claude/integration/contratos/plantillas-whatsapp.md`.
 
+## Antes de probar en dev y en el lab
+
+Esta migración cambió mientras su PR estaba en revisión (`codigos[]`, dueña de la cuenta,
+`meta_evento_en`, `borrada_por = 'sistema'`, `_avisos_meta`). En una base de dev o del lab que ya
+corrió una versión anterior, goose no la vuelve a correr sola: hay que bajarla y subirla de nuevo
+antes de probar (borra lo hecho en la pantalla de plantillas; ver «Qué borra el `Down`»):
+
+```bash
+goose -dir apps/api/migraciones postgres "$IRIS_DB_URL" down-to 20261121033239
+goose -dir apps/api/migraciones postgres "$IRIS_DB_URL" up-to 20261121065851
+```
+
+Si después hay migraciones más nuevas, sigue con `goose ... up`.
+
 ## Qué hace el `Up`
 
 1. Crea `mensajeria.plantillas_whatsapp` (plantillas por cuenta), su `_historial`, `_cuentas` (dueña y
@@ -27,12 +41,17 @@ cuenta a una sola (la del número de avisos o, si no, la del número más antigu
   plantillas de la cuenta, y editarlos sin cambiar de cuenta (nombre, cola, plantillas) funciona.
   Moverlos a otra cuenta que ya es de otra empresa responde 409 `waba_de_otra_empresa`.
 - Para ordenarlo: o la otra empresa usa una WABA propia, o la dueña le **presta** su número.
-- Los números inactivos o desconectados no se copiaron. Al **reactivar** uno, si la cuenta no tiene
-  dueña (o la dueña ya no tiene números en ella) pasa a su empresa, y su mapa se copia a la cuenta
-  en revisión (`PENDING`) solo en los códigos que ninguna otra plantilla atiende; luego Iris relee la
-  cuenta en Meta para saber su estado real.
+- Los números inactivos o desconectados no se copiaron. Al **reactivar** uno: si la cuenta aún no
+  tiene dueña, pasa a su empresa y su mapa se copia a la cuenta en revisión (`PENDING`), solo en los
+  códigos que ninguna otra plantilla atiende; luego Iris relee la cuenta en Meta. Si la cuenta ya
+  tiene dueña, reactivar **nunca** la cambia (no se comprueba nada en Meta): el número sigue con su
+  mapa propio si es de otra empresa.
+- Un número desconectado por Meta sigue siendo de su empresa. La cuenta solo puede pasar a otra
+  empresa cuando todos los números de la dueña están dados de baja (inactivos), y solo al crear o
+  actualizar un número con la cuenta comprobada en Meta.
 - Si una cuenta pasa a otra empresa (la anterior ya no tiene números en ella), las plantillas de la
-  anterior quedan archivadas: «Borrada» con `borradaPor = sistema`. No se eliminan y la nueva dueña
+  anterior quedan archivadas: «Borrada» con `borradaPor = sistema`. Sus códigos y usos quedan en el
+  historial de cada plantilla y en el evento `plantilla_whatsapp.borrada`, para poder deshacerlo. No se eliminan y la nueva dueña
   no las ve; la nueva dueña trae las suyas con «Sincronizar con Meta».
 
 ## Qué borra el `Down`

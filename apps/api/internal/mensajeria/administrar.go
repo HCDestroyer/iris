@@ -599,11 +599,12 @@ func nuevoCambioCanal(m *Modulo, accion string, activo bool) *auditoria.Caso[Ent
 			if err != nil {
 				return Canal{}, conflictoCanal(err)
 			}
-			// Un número con cuenta que vuelve: si la cuenta no tiene dueña (o la anterior ya no tiene
-			// números) pasa a su empresa, y su mapa se refleja en los códigos libres de la cuenta. Si la
-			// cuenta es de otra empresa, sigue con su mapa propio.
+			// Un número con cuenta que vuelve: solo reclama una cuenta sin dueña (activar no comprueba
+			// nada en Meta, así que nunca cambia la dueña; eso solo pasa al crear o actualizar un número
+			// con la cuenta comprobada). Si la cuenta es suya, su mapa se refleja en los códigos libres;
+			// si es de otra empresa, sigue con su mapa propio.
 			if activo && f.WabaID != "" && f.Tipo == TipoWhatsAppCloud {
-				if err := m.reclamarWaba(ctx, t, q, f.WabaID, f.EmpresaID); err != nil && !esProblemaConv(err, "waba_de_otra_empresa") {
+				if _, err := q.ReclamarCuentaWA(ctx, mensajeriabd.ReclamarCuentaWAParams{WabaID: f.WabaID, Empresa: derefEmpresa(f.EmpresaID)}); err != nil {
 					return Canal{}, err
 				}
 				if err := m.reflejarPlantillasCanal(ctx, t, q, f, nil, true); err != nil {

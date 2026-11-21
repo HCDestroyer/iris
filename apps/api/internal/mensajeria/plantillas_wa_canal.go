@@ -62,11 +62,14 @@ func (m *Modulo) reclamarWaba(ctx context.Context, t *auditoria.Tx, q *mensajeri
 	}
 	borrada := EstadoPWBorrada
 	for _, f := range archivadas {
-		if err := historialPW(ctx, q, f.ID, "borrada", nil, &borrada, map[string]any{"motivo": "cuenta_de_otra_empresa"}, "sistema", nil, ahora); err != nil {
+		// Lo que tenía (códigos y usos) queda en el historial y en el evento, para poder deshacerlo.
+		antes := map[string]any{"motivo": "cuenta_de_otra_empresa", "codigos": lista(f.CodigosAntes), "usos": lista(f.UsosAntes), "nueva_duena": emp}
+		if err := historialPW(ctx, q, f.ID, "borrada", &f.Estado, &borrada, antes, "sistema", nil, ahora); err != nil {
 			return err
 		}
-		if err := t.Emitir("plantilla_whatsapp.borrada", conPW(basePW(f), map[string]any{"nombre": f.Nombre, "idioma": f.Idioma,
-			"origen": "sistema", "motivo": "cuenta_de_otra_empresa", "estaba_en_uso": false, "codigos": []string{}, "nombre_libre_en": nil})); err != nil {
+		if err := t.Emitir("plantilla_whatsapp.borrada", map[string]any{"plantilla_id": f.ID, "empresa_id": f.EmpresaID, "waba_id": f.WabaID,
+			"nombre": f.Nombre, "idioma": f.Idioma, "origen": "sistema", "motivo": "cuenta_de_otra_empresa", "estaba_en_uso": len(f.CodigosAntes) > 0 || len(f.UsosAntes) > 0,
+			"codigos": lista(f.CodigosAntes), "usos": lista(f.UsosAntes), "nombre_libre_en": nil}); err != nil {
 			return err
 		}
 	}
@@ -244,11 +247,6 @@ func (m *Modulo) reflejarPlantillasCanal(ctx context.Context, t *auditoria.Tx, q
 		return m.encolar(ctx, t.Tx, ArgsSincronizarPlantillas{WabaID: c.WabaID, Origen: SyncCanal})
 	}
 	return nil
-}
-
-func esProblemaConv(err error, codigo string) bool {
-	var p *nucleo.Problema
-	return errors.As(err, &p) && p.Codigo() == codigo
 }
 
 // requiereComprobarWaba: al actualizar un número de la API, la cuenta se comprueba en Meta si cambia

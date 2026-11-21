@@ -56,6 +56,9 @@ type ResultadoSincronizacionPWA struct {
 }
 
 type lecturaPW struct {
+	// inicio: cuándo empezó la lectura en Meta (segundos Unix): una fila con un aviso de Meta posterior
+	// (meta_evento_en) ya está más al día que lo leído y no se pisa.
+	inicio  int64
 	waba    string
 	empresa int64
 	origen  string
@@ -185,6 +188,7 @@ func (m *Modulo) SincronizarCuentaSistema(ctx context.Context, bd nucleo.BD, wab
 	if err != nil {
 		return err
 	}
+	l.inicio = m.ahora().Unix()
 	l.leidas, l.err = m.leerCuentaMeta(ctx, l.cuenta)
 	_, err = m.PlantillasWA.Sincronizar.aplicar.Ejecutar(ctxSistema(ctx, bd), l)
 	if errors.As(err, &p) {
@@ -242,6 +246,9 @@ func (m *Modulo) aplicarLectura(ctx context.Context, t *auditoria.Tx, q *mensaje
 		}
 		f := filas[i]
 		vistas[f.ID] = true
+		if in.inicio > 0 && f.MetaEventoEn > in.inicio {
+			continue // un aviso de Meta posterior al inicio de la lectura ya la dejó más al día
+		}
 		g, cambio, err := m.aplicarMetaLeida(ctx, t, q, f, p, "sincronizacion", ahora)
 		if err != nil {
 			return r, err
@@ -252,7 +259,7 @@ func (m *Modulo) aplicarLectura(ctx context.Context, t *auditoria.Tx, q *mensaje
 		}
 	}
 	for _, f := range filas {
-		if vistas[f.ID] || f.Estado == EstadoPWBorrada || f.Estado == EstadoPWBorrador {
+		if vistas[f.ID] || f.Estado == EstadoPWBorrada || f.Estado == EstadoPWBorrador || (in.inicio > 0 && f.MetaEventoEn > in.inicio) {
 			continue
 		}
 		// Meta ya no la tiene: «Borrada en Meta», con su historial y, si se usaba, sus usos.
@@ -477,6 +484,10 @@ func (m *Modulo) webhookPlantilla(ctx context.Context, t *auditoria.Tx, q *mensa
 		return nil
 	}
 	if err != nil {
+		return err
+	}
+	// El mismo candado que la relectura y los cambios de la cuenta (orden: cuenta y después la fila).
+	if err := q.BloquearCuentaPlantillas(ctx, waba); err != nil {
 		return err
 	}
 	var v valorPlantillaMeta

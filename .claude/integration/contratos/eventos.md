@@ -234,7 +234,7 @@ vivo) o `sincronizacion` (botón o noche). Nunca el token ni el texto de un mens
 | `plantilla_whatsapp.estado_cambiado` | + `de`, `a`, `motivo` (o null: reason de Meta, `editada`, `reanudada`), `origen`, `pausada_hasta` (o null) | Cambio de estado en Meta (aprobada, rechazada, pausada…) o en Iris (editar, reanudar). |
 | `plantilla_whatsapp.categoria_cambiada` | + `de`, `a`, `origen`, `pendiente` (true = Meta avisó que la reclasificará), `en_uso` | Meta la reclasificó (o avisó que lo hará); el panel lo avisa. |
 | `plantilla_whatsapp.calidad_cambiada` | + `de`, `a` (`GREEN`, `YELLOW`, `RED`, `UNKNOWN`), `origen` | Cambio de calidad. |
-| `plantilla_whatsapp.borrada` | + `nombre`, `idioma`, `origen` (`iris`, `meta`, `sistema`), `estaba_en_uso`, `codigos[]`, `nombre_libre_en` (o null); `motivo` (`cuenta_de_otra_empresa`, solo con `sistema`) | Borrada desde Iris, Meta ya no la tiene o el sistema la archivó porque la cuenta pasó a otra empresa. La fila nunca se elimina. |
+| `plantilla_whatsapp.borrada` | + `nombre`, `idioma`, `origen` (`iris`, `meta`, `sistema`), `estaba_en_uso`, `codigos[]`, `nombre_libre_en` (o null); `motivo` (`cuenta_de_otra_empresa`) y `usos[]` solo con `sistema` (con `codigos[]`: lo que tenía, para deshacerlo) | Borrada desde Iris, Meta ya no la tiene o el sistema la archivó porque la cuenta pasó a otra empresa. La fila nunca se elimina. |
 | `plantilla_whatsapp.sincronizada` | `waba_id`, `empresa_id`, `origen` (`manual`, `nocturna`, `webhook`), `total`, `nuevas`, `cambiadas`, `borradas` | Terminó una lectura completa de la cuenta. |
 | `plantillas_whatsapp.ajustes_cambiados` | `empresa_id`, `campos[]`, `marketing_permitido` | Ajustes de la empresa. |
 
