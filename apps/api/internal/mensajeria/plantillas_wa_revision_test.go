@@ -229,22 +229,23 @@ func TestPlantillasWAReactivarNoQuitaLaCuenta(t *testing.T) {
 	}
 }
 
-// La relectura no pisa una plantilla que un aviso de Meta posterior al inicio de la lectura ya dejó al día.
+// La relectura no pisa una plantilla que recibió un aviso de Meta mientras se leía (se compara el
+// meta_evento_en de antes y de después de leer, los dos del reloj de Meta; nunca con el reloj de Iris).
 func TestPlantillasWASincronizarNoPisaAvisoPosterior(t *testing.T) {
 	c := nuevaCuentaWA(t, nil)
 	r := c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/sugeridas/aviso_corte/crear", "s-"+pruebas.Unico(), map[string]any{"wabaId": c.waba, "enviar": true})
 	c.exigir(r, http.StatusCreated)
 	id, metaID := idPW(r.cuerpo), r.cuerpo["metaId"].(string)
-	// Meta todavía la lista en revisión, pero un aviso de «aprobada» llegó después de empezar a leer.
-	c.estadoWebhookEn(c.reloj.Unix()+600, metaID, "aviso_corte", "APPROVED", "")
+	// Meta todavía la lista en revisión, pero mientras Iris lee llega «aprobada», con el reloj de Meta
+	// 100 s atrás del de Iris.
+	c.meta.duranteLaLectura(func() { c.estadoWebhookEn(c.reloj.Unix()-100, metaID, "aviso_corte", "APPROVED", "") })
 	if err := c.m.SincronizarCuentaSistema(c.ctx, c.bd, c.waba, "manual"); err != nil {
 		t.Fatal(err)
 	}
 	if p := c.plantilla(id); p["estado"] != "APPROVED" {
-		t.Fatalf("la relectura pisó un aviso posterior: %v", p["estado"])
+		t.Fatalf("la relectura pisó un aviso que llegó durante la lectura: %v", p["estado"])
 	}
-	// Leída después de ese aviso, se pone al día con lo que dice Meta.
-	*c.reloj = c.reloj.Add(time.Hour)
+	// Sin avisos durante la lectura, se pone al día con lo que dice Meta.
 	if err := c.m.SincronizarCuentaSistema(c.ctx, c.bd, c.waba, "manual"); err != nil {
 		t.Fatal(err)
 	}

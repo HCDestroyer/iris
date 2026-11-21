@@ -365,6 +365,41 @@ func (q *Queries) EstadoCuentaWA(ctx context.Context, arg EstadoCuentaWAParams) 
 	return err
 }
 
+const eventosMetaDeCuentaPW = `-- name: EventosMetaDeCuentaPW :many
+SELECT id, meta_evento_en FROM mensajeria.plantillas_whatsapp WHERE waba_id = $1 AND coalesce(empresa_id, 0) = $2::bigint
+`
+
+type EventosMetaDeCuentaPWParams struct {
+	WabaID  string
+	Empresa int64
+}
+
+type EventosMetaDeCuentaPWRow struct {
+	ID           int64
+	MetaEventoEn int64
+}
+
+// Foto del último aviso de Meta aplicado en cada plantilla de la cuenta, antes de leer Meta.
+func (q *Queries) EventosMetaDeCuentaPW(ctx context.Context, arg EventosMetaDeCuentaPWParams) ([]EventosMetaDeCuentaPWRow, error) {
+	rows, err := q.db.Query(ctx, eventosMetaDeCuentaPW, arg.WabaID, arg.Empresa)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EventosMetaDeCuentaPWRow
+	for rows.Next() {
+		var i EventosMetaDeCuentaPWRow
+		if err := rows.Scan(&i.ID, &i.MetaEventoEn); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const guardarAjustesPlantillasWA = `-- name: GuardarAjustesPlantillasWA :one
 INSERT INTO mensajeria.plantillas_whatsapp_ajustes (empresa_id, marketing_permitido)
 VALUES ($1, $2)

@@ -56,15 +56,21 @@ type ResultadoSincronizacionPWA struct {
 }
 
 type lecturaPW struct {
-	// inicio: cuándo empezó la lectura en Meta (segundos Unix): una fila con un aviso de Meta posterior
-	// (meta_evento_en) ya está más al día que lo leído y no se pisa.
-	inicio  int64
+	// eventos: el meta_evento_en de cada fila antes de leer Meta. Si al escribir cambió, un aviso de Meta
+	// llegó durante la lectura: esa fila ya está más al día que lo leído y no se pisa (se compara
+	// el reloj de Meta con el de Meta, nunca con el de Iris).
+	eventos map[int64]int64
 	waba    string
 	empresa int64
 	origen  string
 	leidas  []PlantillaMetaLeida
 	err     error
 	cuenta  CuentaGraph
+}
+
+// cambioDurante: la fila recibió un aviso de Meta después de la foto (una fila nueva cuenta desde 0).
+func (l lecturaPW) cambioDurante(f mensajeriabd.MensajeriaPlantillaWA) bool {
+	return l.eventos != nil && f.MetaEventoEn != l.eventos[f.ID]
 }
 
 func (l lecturaPW) MarshalJSON() ([]byte, error) {
@@ -174,7 +180,14 @@ func (m *Modulo) SincronizarCuentaSistema(ctx context.Context, bd nucleo.BD, wab
 		if err != nil {
 			return err
 		}
-		l = lecturaPW{waba: waba, empresa: k.EmpresaID, origen: origen, cuenta: c}
+		l = lecturaPW{waba: waba, empresa: k.EmpresaID, origen: origen, cuenta: c, eventos: map[int64]int64{}}
+		fotos, err := q.EventosMetaDeCuentaPW(ctx, mensajeriabd.EventosMetaDeCuentaPWParams{WabaID: waba, Empresa: k.EmpresaID})
+		if err != nil {
+			return err
+		}
+		for _, f := range fotos {
+			l.eventos[f.ID] = f.MetaEventoEn
+		}
 		return nil
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -188,7 +201,6 @@ func (m *Modulo) SincronizarCuentaSistema(ctx context.Context, bd nucleo.BD, wab
 	if err != nil {
 		return err
 	}
-	l.inicio = m.ahora().Unix()
 	l.leidas, l.err = m.leerCuentaMeta(ctx, l.cuenta)
 	_, err = m.PlantillasWA.Sincronizar.aplicar.Ejecutar(ctxSistema(ctx, bd), l)
 	if errors.As(err, &p) {
@@ -246,8 +258,8 @@ func (m *Modulo) aplicarLectura(ctx context.Context, t *auditoria.Tx, q *mensaje
 		}
 		f := filas[i]
 		vistas[f.ID] = true
-		if in.inicio > 0 && f.MetaEventoEn > in.inicio {
-			continue // un aviso de Meta posterior al inicio de la lectura ya la dejó más al día
+		if in.cambioDurante(f) {
+			continue // un aviso de Meta llegó durante la lectura: ya está más al día
 		}
 		g, cambio, err := m.aplicarMetaLeida(ctx, t, q, f, p, "sincronizacion", ahora)
 		if err != nil {
@@ -259,7 +271,7 @@ func (m *Modulo) aplicarLectura(ctx context.Context, t *auditoria.Tx, q *mensaje
 		}
 	}
 	for _, f := range filas {
-		if vistas[f.ID] || f.Estado == EstadoPWBorrada || f.Estado == EstadoPWBorrador || (in.inicio > 0 && f.MetaEventoEn > in.inicio) {
+		if vistas[f.ID] || f.Estado == EstadoPWBorrada || f.Estado == EstadoPWBorrador || in.cambioDurante(f) {
 			continue
 		}
 		// Meta ya no la tiene: «Borrada en Meta», con su historial y, si se usaba, sus usos.

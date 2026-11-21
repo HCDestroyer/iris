@@ -222,3 +222,7 @@ RETURNING *;
 -- name: PurgarAvisosMetaPW :execrows
 -- Los avisos de Meta ya aplicados se guardan 30 días (para descartar repetidos).
 DELETE FROM mensajeria.plantillas_whatsapp_avisos_meta WHERE recibido_en < @antes;
+
+-- name: EventosMetaDeCuentaPW :many
+-- Foto del último aviso de Meta aplicado en cada plantilla de la cuenta, antes de leer Meta.
+SELECT id, meta_evento_en FROM mensajeria.plantillas_whatsapp WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint;

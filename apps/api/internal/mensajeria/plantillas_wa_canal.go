@@ -37,6 +37,10 @@ func (m *Modulo) reclamarWaba(ctx context.Context, t *auditoria.Tx, q *mensajeri
 		return nil
 	}
 	emp := derefEmpresa(empresa)
+	// Mismo orden que la relectura y los casos de plantillas: el candado de la cuenta antes que su fila.
+	if err := q.BloquearCuentaPlantillas(ctx, waba); err != nil {
+		return err
+	}
 	duena, err := q.ReclamarCuentaWA(ctx, mensajeriabd.ReclamarCuentaWAParams{WabaID: waba, Empresa: emp})
 	if err != nil {
 		return err
