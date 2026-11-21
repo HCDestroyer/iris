@@ -1,4 +1,4 @@
-Versión: 0.13.0 (21 nov 2026) · Iris ↔ ArgosISP
+Versión: 0.13.1 (21 nov 2026) · Iris ↔ ArgosISP
 
 # Contrato de integración Iris ↔ ArgosISP (copia de ArgosISP)
 
@@ -17,6 +17,7 @@ Versión: 0.13.0 (21 nov 2026) · Iris ↔ ArgosISP
 - **0.12.0 (21 nov 2026): minor y aditiva sobre la 0.11.0, pedida por el PM y acordada con Argos; pendiente de implementar en los dos lados.** Equipos del cliente con la consistencia de Argos: cambio de equipo en una transacción, estados de la unidad, revisión, garantía y equipos no recuperados (A48 y B27, §3.10; decisiones del PM en §10.7).
 - **0.12.1 (21 nov 2026): parche aditivo sobre la 0.12.0, acordado con Argos; pendiente de implementar en los dos lados.** Clave del consentimiento por número (§6.4) y tickets del portal pedidos por un contacto de un servicio a cargo (§11, B28; §10.8).
 - **0.13.0 (21 nov 2026): minor y aditiva sobre la 0.12.1, decidida por el PM y acordada con Argos; pendiente de implementar en los dos lados.** Caídas repetidas con umbral de Iris y falla general (§3.11), gestiones de cobro (§3.12) y lectura de plantillas de WhatsApp desde Argos (§6.7). Decisiones del PM en §10.9.
+- **0.13.1 (21 nov 2026): parche sobre la 0.13.0, acordado con Argos; pendiente de implementar en los dos lados.** Sale de la revisión de seguridad de B26 y B27 en Iris: qué errores de bodega y equipos no se reintentan solos, quién va en `X-Iris-Actor` en el material y en los equipos, y la validación de ubicación y foto que hace Iris en los intentos de recuperación (§3.9, §3.10; §10.10).
 
 ## 0. Principios
 
@@ -890,6 +891,8 @@ Decisiones del PM en §10.6: la cuadrilla tiene una bodega compartida (lo que va
 - Al quitar a un miembro, Iris corta en su servidor, en ese momento, los lotes nuevos de esa persona para esa bodega.
 - En la app de campo, «Mi bodega» tiene dos pestañas, «Cuadrilla» y «Mía». Al cerrar la orden, el material sale por defecto de la cuadrilla y se puede cambiar; la cola local guarda el `bodega_id` elegido para que el reintento sea determinista. Iris valida en su servidor, al recibir el lote, que el `bodega_id` sea la personal del técnico o una de sus cuadrillas.
 - Un `409 sin_existencia` o un `403 no_es_miembro` al sincronizar se muestran como conflicto (regla en `contratos/sync.md`); Iris **nunca** cambia de bodega por su cuenta.
+- **Desde 0.13.1 (§10.10).** Con Argos ≥ 0.11.0, el material que registra un técnico desde la app de campo sale **siempre** con `tecnico` + `bodega_id` + `X-Iris-Actor` de quien lo registró, también cuando es de su bodega personal; solo lo que indica despacho desde el panel sale con `bodega_id` sin `tecnico`. Argos acepta `X-Iris-Actor` con la bodega personal y lo guarda en el kardex (`actor_tecnico`); solo lo exige en las bodegas de cuadrilla. Iris valida en su servidor que la bodega personal sea de la empresa de la orden.
+- **Errores de negocio sin reintento (0.13.1).** Un `403` con `type` `no_es_miembro`, `actor_no_coincide`, `solo_jefe_recibe`, `empresa_no_permitida` o `actor_ia_no_permitido` es definitivo en Argos: Iris no lo reintenta solo y lo muestra como conflicto a una persona.
 - «Recibir traslado» solo aparece al jefe; los demás miembros ven el traslado «en camino». Iris rechaza en su servidor, con `403`, una recepción de alguien que no es el jefe, antes de encolarla; un `403 solo_jefe_recibe` de Argos se muestra como conflicto para el supervisor.
 
 ### 3.10 Equipos del cliente: cambio, revisión, garantía y no recuperados (0.12.0, A48)
@@ -900,7 +903,7 @@ Pedido del PM: «Iris con la misma consistencia de equipos que Argos» (§10.7).
 
 **Reglas comunes a las rutas de esta sección.**
 
-- `X-Iris-Actor: usuario:<id>` obligatoria (§7.1; `400 cabecera_iris_requerida`); con `asistente_ia`, `403 actor_ia_no_permitido`.
+- `X-Iris-Actor: usuario:<id>` obligatoria (§7.1; `400 cabecera_iris_requerida`); con `asistente_ia`, `403 actor_ia_no_permitido`. Desde 0.13.1, en `…/cambiar` y `…/no-recuperado` es **quien registró la acción** en Iris (el técnico asignado en ese momento), no el técnico que tenga la orden al enviarse: una orden reasignada no cambia el autor. Argos compara `X-Iris-Actor` con `tecnico` solo en bodegas de cuadrilla y no conoce la asignación de la orden.
 - **Alcance:** el servicio debe estar dentro de las empresas del alcance del token (`403 empresa_no_permitida`); también vale para servicios antiguos creados en Argos. Argos registra y audita `origen_id`: la orden queda registrada para ese servicio en la primera llamada aceptada. Iris valida en su servidor que el servicio sea el de la orden y que la orden esté asignada al actor.
 - **Fecha.** `fecha` es la del teléfono; Iris manda también `recibido_en_iris`, la hora de su servidor al aceptar el lote. Argos exige `recibido_en_iris − 72 h ≤ fecha ≤ recibido_en_iris + 5 min` (si no, `422 validacion`) y evalúa la membresía de §3.9 con `fecha`. Iris rechaza en su servidor una `fecha` anterior a la asignación de la orden.
 - **Conflictos.** Un conflicto (por ejemplo, la unidad ya cambió de estado: `409 estado_unidad_cambiado`) se muestra en la cola de Iris y **no se reintenta solo**. Si una petición tuvo éxito y se quedó sin respuesta, la corrección se concilia leyendo `GET /servicios/:id/equipo`, no reenviando.
@@ -939,7 +942,8 @@ Pedido del PM: «Iris con la misma consistencia de equipos que Argos» (§10.7).
 - Registra un **intento** de recuperación; `intento_n` lo calcula Argos. La unidad sigue (o pasa a) `por_recuperar`.
 - `foto_ref` es **obligatoria** con `se_nego` y `equipo_perdido` (`422 validacion`). Es el **id opaco** del adjunto de la orden en Iris: Argos la abre por autologin (§1.3) con el permiso del usuario de Argos, nunca con una URL pública o firmada guardada. La foto se borra con la retención de la orden en Iris.
 - `ubicacion` es obligatoria: la del intento, que Iris exige tomada en sitio.
-- Como máximo **1 intento por unidad al día** desde Iris: `429 demasiados_intentos`.
+- Como máximo **1 intento por unidad al día** desde Iris: `429 demasiados_intentos`. Desde 0.13.1 es de negocio: Iris no lo reintenta solo y lo muestra como conflicto. Iris aplica el mismo límite en su servidor, por la hora del teléfono y por la de su servidor, serializado por unidad.
+- **Validación en Iris (0.13.1).** Antes de encolar un intento, Iris exige: ubicación con `precision_m` ≤ 200, a 500 m o menos de las coordenadas del servicio y de la última posición del técnico de los 30 min anteriores (si no, `422 ubicacion_fuera_de_sitio` en Iris); y una foto (cuando aplica) registrada por el mismo técnico, tomada después de llegar a sitio, no rechazada y no usada en otro intento o cambio. **Argos no revalida distancia ni frescura de la foto:** confía en Iris y mantiene su validación mínima (foto y ubicación presentes, un intento por unidad al día).
 - Argos avisa al titular de cada intento con la serie enmascarada: «Intentamos recuperar el equipo …1A2B; si ya lo entregaste, comunícate».
 - **Declarar la unidad `no_recuperada` y el cobro «Equipo no devuelto» los decide una persona en Argos** con permiso de admin, nunca el técnico. Su pantalla muestra todos los intentos con su actor, foto y ubicación, y exige un **mínimo de intentos de técnicos distintos** (configurable por empresa; 2 de fábrica) o un contacto con el cliente registrado.
 - Desde 0.12.0, Iris **ya no llama** a `POST /servicios/:id/equipos/:unidad_id/perdida`, y Argos lo rechaza con el token de Iris (`403`); la migración de tokens retira `inventario.declarar_perdida_comodato`.
@@ -1018,8 +1022,9 @@ Decisiones del PM en §10.9.
 
 ## 4. Versionado
 
-Semver. Esta versión 0.13.0 es una minor aditiva sobre la 0.12.1, que es un parche aditivo sobre la 0.12.0, que es una minor aditiva sobre la 0.11.0, que es una minor aditiva sobre la 0.10.1, que es aditiva sobre la 0.10.0, y esta sobre la 0.9.0 (ver «Gobierno»); todas están acordadas con Argos y decididas por el PM, y pendientes de implementar en los dos lados. La 0.8.1 está espejada (`iris#222` y `argos-isp#258`) y salió en Argos 1.21.0. Desde 1.0.0, solo cambios compatibles en versiones menores.
+Semver. Esta versión 0.13.1 es un parche sobre la 0.13.0, que es una minor aditiva sobre la 0.12.1, que es un parche aditivo sobre la 0.12.0, que es una minor aditiva sobre la 0.11.0, que es una minor aditiva sobre la 0.10.1, que es aditiva sobre la 0.10.0, y esta sobre la 0.9.0 (ver «Gobierno»); todas están acordadas con Argos y decididas por el PM, y pendientes de implementar en los dos lados. La 0.8.1 está espejada (`iris#222` y `argos-isp#258`) y salió en Argos 1.21.0. Desde 1.0.0, solo cambios compatibles en versiones menores.
 
+- **0.13.1** (21 nov 2026; acordada con Argos, §10.10): §3.9, el material registrado desde la app de campo sale siempre con `tecnico` + `bodega_id` + `X-Iris-Actor` (también de la bodega personal) y los `403` `no_es_miembro`, `actor_no_coincide`, `solo_jefe_recibe`, `empresa_no_permitida` y `actor_ia_no_permitido` no se reintentan solos. §3.10, `X-Iris-Actor` es quien registró el cambio o el intento; `429 demasiados_intentos` no se reintenta solo; Iris valida ubicación (precisión ≤ 200 m, ≤ 500 m del servicio y de la última posición de 30 min) y foto, y Argos no revalida distancia ni frescura de la foto. Sin rutas, campos ni permisos nuevos.
 - **0.13.0** (21 nov 2026; decidida por el PM, §10.9; acordada con Argos): **A49:** `servicio.caidas_repetidas` con umbral de 3 caídas en 60 min, configurable por empresa; Iris decide y abre un ticket por servicio. **A50:** `red.falla_general_abierta` / `red.falla_general_cerrada` con ids de servicios afectados (hasta 5000) y `GET /api/v1/incidentes-red/:incidente_id/servicios` para el resto; Iris abre un ticket general por incidente. **A51:** `POST /clientes/:id/gestiones-cobro` sin texto libre, montos ni teléfonos. **A52:** Argos lee las plantillas de WhatsApp de Iris (§6.7). Permisos `incidentes_red.leer`, `clientes.registrar_gestion_cobro` (Argos) y `plantillas_whatsapp.leer_integracion` (Iris). Pedidos A49–A52 y B29–B32.
 - **0.12.1** (21 nov 2026; acordada con Argos, §10.8): §6.4, con `telefono` la `Idempotency-Key` del consentimiento es `argos:consentimiento:<empresa_id>:<cliente_id>:whatsapp:<h>:<ocurrido_en>` (`<h>` = 16 primeros hex del HMAC-SHA256 de `"consentimiento:" + número E.164` con el secreto del receptor de webhooks de Iris; el número en claro solo en el cuerpo). §11: `?servicio_id=` en `GET …/portal/tickets`, `X-Iris-Contacto` (`<contacto_id>` o `titular`) en toda ruta de §11 con `X-Iris-Contacto-Version`, `servicio_id` obligatorio, `403 servicio_fuera_del_contacto` con la caché de Iris (relectura y `503` si Argos no responde), los tickets ajenos del servicio solo con número, estado y fechas, y `creado_por_contacto`. Pedido B28.
 - **0.12.0** (21 nov 2026; pedida por el PM, §10.7; acordada con Argos): equipos del cliente (§3.10). **A48:** `POST /servicios/:id/equipos/cambiar` en una transacción (sale en comodato del servicio, entra con la regla de A47, destino de la que sale, `cobro_propuesto` sin monto para la cola de aprobación); estados de la unidad (`disponible`, `en_comodato`, `por_recuperar`, `revision`, `garantia`, `dada_de_baja`, `no_recuperada`); `GET /inventario/unidades/:id` sin costos, proveedor ni RMA; `POST /servicios/:id/equipos/:unidad_id/no-recuperado` (intento, sin declarar la pérdida); eventos `inventario.equipo_cambiado` e `inventario.unidad_estado_cambiado`; permisos `servicios.cambiar_equipo` e `inventario.ver_unidad`. Iris deja de llamar a `…/perdida` desde el cierre. **B27:** órdenes `cambio_equipo` y `retiro` con esos flujos y estado de los equipos en la orden y la ficha. Pedidos A48 y B27.
@@ -1820,7 +1825,7 @@ Argos revisó la propuesta de Iris contra lo que ya tiene. Iris copia esta versi
 9. **Webhooks Iris → Argos:** van al receptor `/api/v1/integraciones/iris/webhook` que Argos ya entrega en el canje (activo desde PR #217).
 10. **Nuevo pedido B2** a Iris: destino de autologin `conversacion`, para el botón «Ver conversación en Iris» de la cola de caja.
 
-## 10. Decisiones y cierre de la 0.8.0 a la 0.13.0
+## 10. Decisiones y cierre de la 0.8.0 a la 0.13.1
 
 El líder de Argos respondió los 32 puntos del borrador contra su código (ver «Gobierno») y sus respuestas están en el cuerpo del contrato, cada una en su sección. El PM adoptó las propuestas el 18 nov 2026 (§10.2). Argos implementó todo lo suyo en `argos-isp#249`, publicada en la 1.18.0. Aquí queda solo lo que sigue abierto (§10.1), las decisiones del PM (§10.2) y la migración de Iris (§10.3).
 
@@ -2035,6 +2040,15 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 - **g. Aviso de falla (B3).** Solo a números con cliente, sin servicio ni dirección. Aceptado por Argos.
 - **h. Plantillas por empresa (B4).** Solo las que la empresa puede usar. Aceptado por Argos.
 - **i. Clave `pt<id>` (B5).** Se queda: el id es el de `comercial.prospecto_telefonos`, único por prospecto. Aceptado por Argos.
+
+### 10.10 Acordado con Argos para la 0.13.1 (21 nov 2026)
+
+Sale de la revisión de seguridad de B26 y B27 en Iris. Todo aceptado por Argos, sin choque con A47/A48.
+
+1. **Sin reintento automático.** `429 demasiados_intentos` de `…/no-recuperado` y los `403` con `type` `no_es_miembro`, `actor_no_coincide`, `solo_jefe_recibe`, `empresa_no_permitida` o `actor_ia_no_permitido` son definitivos en Argos; Iris los muestra como conflicto a una persona. Los `409`/`422` de §3.10 ya lo eran.
+2. **Material desde la app.** Con Argos ≥ 0.11.0 sale siempre con `tecnico` + `bodega_id` + `X-Iris-Actor` de quien lo registró, también de la bodega personal; Argos lo guarda en el kardex (`actor_tecnico`) y solo lo exige en bodegas de cuadrilla. Lo indicado por despacho desde el panel sale solo con `bodega_id`.
+3. **Autor de cambios e intentos.** En `…/cambiar` y `…/no-recuperado`, `X-Iris-Actor` es quien registró la acción, no el técnico actual de la orden. Solo el técnico asignado a la orden puede registrarlos en Iris.
+4. **Validación de ubicación y foto en Iris.** Precisión ≤ 200 m; a 500 m o menos del servicio y de la última posición de los 30 min anteriores; foto del mismo técnico, posterior a la llegada, no rechazada ni reutilizada. **Argos no revalida distancia ni frescura de la foto**; mantiene foto y ubicación obligatorias y un intento por unidad al día.
 
 ## 11. Portal del cliente de Argos (0.9.0, bloque P)
 
