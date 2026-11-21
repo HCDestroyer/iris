@@ -111,11 +111,12 @@ function PanelSinTelon({ abierto, alCerrar, etiqueta, className, children, onKey
             tabIndex={-1}
             data-slot="panel-lateral"
             className={cn(
-                // Teléfono: a pantalla completa.
-                "fixed inset-0 z-40",
+                // Teléfono: a pantalla completa bajo el encabezado del panel (3.75rem).
+                "fixed inset-x-0 top-[3.75rem] bottom-0 z-40",
                 ISLA_PANEL,
-                // Desde `sm`: isla flotante de 470 px, a 16 px de los bordes.
-                "sm:top-4 sm:right-4 sm:bottom-4 sm:left-auto sm:w-[min(29.375rem,calc(100vw-2rem))]",
+                // Desde `sm`: isla flotante de 470 px, a 16 px de los bordes (bajo el encabezado hasta
+                // `lg`, donde los avisos emergentes van arriba).
+                "sm:top-[3.75rem] sm:right-4 sm:bottom-4 sm:left-auto sm:w-[min(29.375rem,calc(100vw-2rem))] lg:top-4",
                 className,
             )}
             onKeyDown={alTeclear}

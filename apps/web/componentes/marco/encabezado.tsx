@@ -9,7 +9,10 @@ import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { CREABLES } from "../barra-superior";
 
-/** Los dos accesos rápidos del encabezado: crear ticket y crear orden (según permisos). */
+/**
+ * Los dos accesos rápidos del encabezado: crear ticket y crear orden (según permisos). Se llaman
+ * como dicen («Ticket», «Orden»); «Nuevo ticket» va en su globo y en la pantalla de la lista.
+ */
 const ACCESOS = [
     { href: "/tickets/nuevo", texto: "Ticket", nombre: "Nuevo ticket", icono: LifeBuoy, permiso: "tickets.crear", acento: true },
     { href: "/ordenes/nueva", texto: "Orden", nombre: "Nueva orden", icono: ClipboardPlus, permiso: "ordenes.crear", acento: false },
@@ -32,7 +35,7 @@ export function AccesosRapidos() {
                 const Icono = a.icono;
                 return (
                     <BotonFlotante key={a.href} asChild acento={a.acento} className="max-xl:size-11 max-xl:justify-center max-xl:px-0">
-                        <Link href={a.href} aria-label={a.nombre} title={a.nombre}>
+                        <Link href={a.href} aria-label={a.texto} title={a.nombre} data-acceso={a.texto.toLowerCase()}>
                             <Icono aria-hidden />
                             <span className="hidden xl:inline">{a.texto}</span>
                         </Link>

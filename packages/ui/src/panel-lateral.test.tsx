@@ -29,8 +29,9 @@ describe("PanelLateral", () => {
         // Sólido (la capa flotante del tema): a pantalla completa en el teléfono y, desde `sm`, isla
         // flotante de 470 px a 16 px de los bordes, con radio de isla (20 px) y la sombra de lo modal.
         expect(html).toContain("bg-[var(--overlay)]");
-        expect(html).toMatch(/fixed inset-0 z-40/);
-        expect(html).toContain("sm:top-4");
+        expect(html).toMatch(/fixed inset-x-0 top-\[3\.75rem\] bottom-0 z-40/);
+        expect(html).toContain("sm:top-[3.75rem]");
+        expect(html).toContain("lg:top-4");
         expect(html).toContain("sm:right-4");
         expect(html).toContain("sm:bottom-4");
         expect(html).toContain("sm:w-[min(29.375rem,calc(100vw-2rem))]");

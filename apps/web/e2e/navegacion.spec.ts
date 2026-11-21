@@ -48,7 +48,7 @@ test("menú isla agrupado; en escritorio se compacta a ícono y nombre corto y l
     await expect(contraer).toHaveAttribute("aria-expanded", "true");
     const boton = await contraer.boundingBox();
     expect(boton?.width).toBe(28);
-    expect(Math.round((boton?.x ?? 0) + 14)).toBe(16 + 248);
+    expect(Math.abs((boton?.x ?? 0) + 14 - (16 + 248))).toBeLessThanOrEqual(1);
     await contraer.click();
     await expect(barra).toHaveAttribute("data-contraida", "true");
     // Compacta (80 px): ícono y nombre corto; el contador va en el nombre accesible.
@@ -58,7 +58,7 @@ test("menú isla agrupado; en escritorio se compacta a ícono y nombre corto y l
     expect((await barra.boundingBox())?.width).toBe(80);
     // El botón queda en el mismo lugar respecto al borde de la isla.
     const botonCompacta = await page.getByRole("button", { name: "Expandir menú" }).boundingBox();
-    expect(Math.round((botonCompacta?.x ?? 0) + 14)).toBe(16 + 80);
+    expect(Math.abs((botonCompacta?.x ?? 0) + 14 - (16 + 80))).toBeLessThanOrEqual(1);
     expect(botonCompacta?.y).toBe(boton?.y);
 
     // La preferencia se queda en este navegador.

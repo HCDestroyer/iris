@@ -415,12 +415,9 @@ test.describe("formularios en pantalla propia", () => {
         const aviso = avisos(page).getByRole("alertdialog").filter({ hasText: /Ticket .+ creado/ });
         await expect(aviso).toBeVisible();
         if (info.project.name.startsWith("telefono")) {
-            // En el teléfono va dentro de la barra superior: termina antes que ella y no tapa el buscador.
+            // En el teléfono va sobre la fila del encabezado (rediseño: 8 + 44 px): no baja al contenido.
             const caja = await aviso.boundingBox();
-            const barra = await page.getByRole("banner").boundingBox();
-            const buscador = await page.getByRole("button", { name: "Buscador global" }).filter({ visible: true }).boundingBox();
-            expect(caja && barra && caja.y + caja.height <= barra.y + barra.height).toBe(true);
-            expect(caja && buscador && caja.x + caja.width <= buscador.x).toBe(true);
+            expect(caja && caja.y + caja.height <= 60).toBe(true);
         }
         // Con el aviso a la vista, la miga se pulsa (Playwright falla si algo la tapa).
         await migas(page).getByRole("link", { name: "Tickets" }).click();

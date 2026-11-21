@@ -53,16 +53,19 @@ test.describe("marco del panel", () => {
         // «?» junto al título: abre el manual de esta pantalla.
         await expect(page.getByRole("link", { name: "Manual de esta pantalla" })).toHaveAttribute("href", "/manual/inicio/tablero");
 
-        // La página no se desplaza: el área de trabajo, sí (por dentro).
-        const contenido = page.locator("#contenido");
-        expect(await contenido.evaluate((e) => getComputedStyle(e).overflowY)).toBe("auto");
-        expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 1)).toBe(true);
+        // Escritorio: la página no se desplaza; el área de trabajo, sí (por dentro). En el teléfono la
+        // pantalla completa es el contenedor.
+        if (!esTelefono(page)) {
+            const contenido = page.locator("#contenido");
+            expect(await contenido.evaluate((e) => getComputedStyle(e).overflowY)).toBe("auto");
+            expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight + 1)).toBe(true);
+        }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
 
-        // Encabezado sin barra: botones sueltos de 44 px a 16 px del borde de arriba.
+        // Encabezado sin barra: botones sueltos de 44 px a 16 px del borde de arriba (8 px en el teléfono).
         const buscar = page.getByRole("button", { name: "Buscador global" });
         const caja = await buscar.boundingBox();
-        expect(caja?.y).toBe(16);
+        expect(caja?.y).toBe(esTelefono(page) ? 8 : 16);
         expect(caja?.height).toBe(44);
         expect(await page.locator('[data-slot="encabezado-panel"]').evaluate((e) => getComputedStyle(e).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
 
@@ -75,8 +78,8 @@ test.describe("marco del panel", () => {
             await expect(page.getByRole("button", { name: "Crear" })).toBeVisible();
         } else {
             await expect(page.getByRole("complementary", { name: "Barra lateral" })).toBeVisible();
-            await expect(page.getByRole("link", { name: "Nuevo ticket" })).toHaveAttribute("href", "/tickets/nuevo");
-            await expect(page.getByRole("link", { name: "Nueva orden" })).toHaveAttribute("href", "/ordenes/nueva");
+            await expect(page.getByRole("link", { name: "Ticket", exact: true })).toHaveAttribute("href", "/tickets/nuevo");
+            await expect(page.getByRole("link", { name: "Orden", exact: true })).toHaveAttribute("href", "/ordenes/nueva");
             // La cuenta: nombre, rol y empresa; dentro, el tema, el manual y «Cerrar sesión» al final.
             await page.getByRole("button", { name: /^Tu cuenta/ }).click();
             const panel = page.getByRole("dialog", { name: /^Tu cuenta/ });

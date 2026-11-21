@@ -100,7 +100,7 @@ test("sin conversaciones: estado vacío con «Nuevo mensaje»", async ({ page })
     await expect(page.getByRole("button", { name: "Nuevo mensaje" })).toBeVisible();
 });
 
-test("conversación: de otros con autor, propios en teal, separador de día, leído y «visto»", async ({ page }) => {
+test("conversación: de otros con autor, propios en índigo, separador de día, leído y «visto»", async ({ page }) => {
     const { chat } = await montar(page);
     await abrirConversacion(page, /^Cuadrilla Norte/);
     await expect(hilo(page).locator('[data-slot="separador-dia"]').first()).toHaveText("Hoy");

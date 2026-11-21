@@ -24,31 +24,35 @@ body:has([data-slot="formulario-pagina"]) #contenido {
 
 /*
  * Marco del panel (rediseño): el área de trabajo (`#contenido`) empieza bajo el encabezado sin
- * barra (16 px + 44 px + 16 px = 4.75rem) y se desplaza por dentro; en escritorio termina a 16 px
- * del borde de abajo y en el teléfono deja lugar a la isla del menú (16 px + 62 px + aire).
+ * barra (escritorio: 16 + 44 + 16 px = 4.75rem; teléfono: 8 + 44 + 8 px = 3.75rem) y se desplaza por
+ * dentro; en escritorio termina a 16 px del borde de abajo y en el teléfono deja lugar a la isla del
+ * menú (16 px + 62 px + aire).
  *
- * Bandeja de conversaciones y «Equipo» (ancho completo): toman todo el alto del área de trabajo.
+ * Bandeja de conversaciones y «Equipo» (ancho completo): toman todo el alto del área de trabajo
+ * (en escritorio, menos la fila de las migas, 1.75rem).
  * Con una conversación abierta en el teléfono la isla se oculta (se vuelve con «Atrás») y la
  * bandeja toma ese alto.
  */
 [data-slot="bandeja"],
 [data-slot="equipo"] {
-    height: calc(100dvh - 4.75rem - 5.75rem - env(safe-area-inset-bottom) - var(--alto-llamada, 0px));
+    height: calc(100dvh - 3.75rem - 5.75rem - env(safe-area-inset-bottom) - var(--alto-llamada, 0px));
 }
 @media (min-width: 1024px) {
     [data-slot="bandeja"],
     [data-slot="equipo"] {
-        height: calc(100dvh - 4.75rem - 1rem - var(--alto-llamada, 0px));
+        height: calc(100dvh - 4.75rem - 1rem - 1.75rem - var(--alto-llamada, 0px));
     }
 }
 @media (max-width: 1023.98px) {
     body:has([data-slot="bandeja"][data-vista="conversacion"]) [data-slot="barra-inferior"],
-    body:has([data-slot="equipo"][data-vista="conversacion"]) [data-slot="barra-inferior"] {
+    body:has([data-slot="equipo"][data-vista="conversacion"]) [data-slot="barra-inferior"],
+    body:has([data-slot="bandeja"][data-vista="conversacion"]) [data-slot="barra-inferior"] + div,
+    body:has([data-slot="equipo"][data-vista="conversacion"]) [data-slot="barra-inferior"] + div {
         display: none;
     }
     [data-slot="bandeja"][data-vista="conversacion"],
     [data-slot="equipo"][data-vista="conversacion"] {
-        height: calc(100dvh - 4.75rem - var(--alto-llamada, 0px));
+        height: calc(100dvh - 3.75rem - var(--alto-llamada, 0px));
     }
 }
 

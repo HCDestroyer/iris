@@ -183,7 +183,7 @@ function PanelLlamada({ t, llamada }: { t: ContextoTelefono; llamada: LlamadaTel
             aria-label="Llamada"
             data-slot="panel-llamada"
             data-fase={llamada.fase}
-            className="fixed inset-x-0 top-[calc(4.75rem+3.25rem)] bottom-0 z-40 grid content-start gap-4 overflow-y-auto border-t border-border bg-[var(--overlay)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-lg sm:inset-x-auto sm:top-[calc(4.75rem+3.25rem+0.75rem)] sm:right-4 sm:bottom-auto sm:max-h-[calc(100dvh-9.75rem)] sm:w-[22rem] sm:rounded-xl sm:border"
+            className="fixed inset-x-0 top-[calc(3.75rem+3.25rem)] bottom-0 z-40 grid content-start gap-4 overflow-y-auto border-t border-border bg-[var(--overlay)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-lg sm:inset-x-auto sm:top-[calc(4.75rem+3.25rem+0.75rem)] sm:right-4 sm:bottom-auto sm:max-h-[calc(100dvh-9.75rem)] sm:w-[22rem] sm:rounded-xl sm:border"
         >
             <div className="flex min-w-0 items-center gap-3">
                 <span aria-hidden className={cn("flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary", llamando && "motion-safe:animate-pulse")}>

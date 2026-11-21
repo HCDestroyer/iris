@@ -78,7 +78,8 @@ async function revisarIsla(page: Page, activa: string) {
             expect(colores.fondo).not.toBe(colores.texto);
         } else {
             await expect(enlace).not.toHaveAttribute("aria-current", "page");
-            expect(await enlace.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+            // Sin relleno (tras la transición de 200 ms al cambiar de sección).
+            await expect.poll(() => enlace.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
         }
     }
     // «+»: círculo índigo de 52 px con el ícono sobre el primario.

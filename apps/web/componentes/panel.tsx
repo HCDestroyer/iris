@@ -151,11 +151,11 @@ function EsqueletoPanel() {
                     ))}
                 </div>
             </aside>
-            <div className="fixed top-4 right-4 left-4 flex h-11 items-center gap-2.5 lg:left-[18.5rem]">
+            <div className="fixed top-2 right-4 left-4 flex h-11 items-center gap-2.5 lg:top-4 lg:left-[18.5rem]">
                 <LogoIris className="size-10 lg:hidden" />
                 <Esqueleto className="h-11 w-60 rounded-full" />
             </div>
-            <main className="fixed inset-x-0 top-[4.75rem] bottom-0 px-4 lg:right-4 lg:left-[18.5rem]">
+            <main className="fixed inset-x-0 top-[3.75rem] bottom-0 px-4 lg:top-[4.75rem] lg:right-4 lg:left-[18.5rem]">
                 <Esqueleto className="mb-5 h-8 w-48" />
                 <Esqueleto className="h-40" />
             </main>
@@ -259,12 +259,13 @@ const RUTAS_ANCHO_COMPLETO = ["/conversaciones", "/equipo"];
 export const esAnchoCompleto = (ruta: string) => RUTAS_ANCHO_COMPLETO.includes(ruta);
 
 /**
- * Región de avisos en el teléfono: a la altura del encabezado (44 px), entre el logo
- * y los botones de la derecha (buscador, avisos y cuenta); el texto en letra pequeña y hasta dos líneas.
+ * Región de avisos en el teléfono (rediseño): sobre la fila del encabezado (44 px, a lo ancho), unos
+ * segundos: nunca tapa las migas, la isla del menú, «Guardar» ni el panel lateral (que empieza bajo
+ * el encabezado). El texto en letra pequeña y hasta dos líneas.
  */
 const CLASES_AVISOS_TELEFONO = [
-    "top-[calc(env(safe-area-inset-top)+1rem)] left-16 right-[9.5rem] w-auto translate-x-0 sm:w-auto",
-    "[&_[data-slot=toast]]:min-h-0 [&_[data-slot=toast]]:max-h-12 [&_[data-slot=toast]]:py-1.5",
+    "top-[calc(env(safe-area-inset-top)+0.5rem)] inset-x-2 w-auto translate-x-0 sm:w-auto",
+    "[&_[data-slot=toast]]:min-h-0 [&_[data-slot=toast]]:max-h-11 [&_[data-slot=toast]]:py-1.5",
     "[&_.toast__title]:text-xs [&_.toast__title]:leading-4 [&_.toast__title]:line-clamp-2",
 ].join(" ");
 
@@ -275,9 +276,9 @@ function suscribirAncho(avisar: () => void) {
 }
 
 /**
- * Avisos emergentes: abajo a la derecha en escritorio. En el teléfono, sobre la propia barra
- * superior (a la altura del logo, dejando libre el botón del buscador): así no tapan la miga
- * «‹ …» de la pantalla, ni la barra inferior, ni «Guardar», ni las hojas que suben desde abajo.
+ * Avisos emergentes: abajo a la derecha en escritorio. En el teléfono, sobre la fila del
+ * encabezado: así no tapan la miga «‹ …» de la pantalla, ni la isla del menú, ni «Guardar», ni las
+ * hojas que suben desde abajo.
  */
 function AvisosDelPanel() {
     const escritorio = useSyncExternalStore(
@@ -386,7 +387,7 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
 
     return (
         <ProveedorManual clave={claveManual}>
-            <div data-slot="marco-panel" data-contraida={contraida || undefined} className="h-dvh overflow-hidden bg-background-secondary text-[0.875rem]">
+            <div data-slot="marco-panel" data-contraida={contraida || undefined} className="relative min-h-dvh bg-background-secondary text-[0.875rem] lg:h-dvh lg:overflow-hidden">
                 <MenuIsla
                     id={idBarra}
                     grupos={gruposIsla}
@@ -405,7 +406,7 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                 />
 
                 {/* Encabezado sin barra: botones sueltos, cada uno una isla. */}
-                <div className={cn("fixed top-4 right-4 left-4 z-20", contraida ? "lg:left-[7rem]" : "lg:left-[18.5rem]")}>
+                <div className={cn("absolute top-2 right-4 left-4 z-20 lg:fixed lg:top-4", contraida ? "lg:left-[7rem]" : "lg:left-[18.5rem]")}>
                     <EncabezadoPanel
                         izquierda={
                             <>
@@ -437,12 +438,18 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                     </>
                 ) : null}
 
-                {/* El área de trabajo: la página no se desplaza, el contenido sí (por dentro). */}
+                {/*
+                  * El área de trabajo. Escritorio: la página no se desplaza, el contenido sí (por dentro).
+                  * Teléfono: cada pantalla a pantalla completa y se desplaza la página (las listas de
+                  * React Aria se cierran si se desplaza un contenedor que no sea la página).
+                  */}
                 <main
                     id="contenido"
                     data-ancho-completo={anchoCompleto || undefined}
                     className={cn(
-                        "fixed inset-x-0 top-[4.75rem] bottom-0 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin]",
+                        // Teléfono: la página es el contenedor (pantalla completa) y se desplaza bajo el
+                        // encabezado; escritorio: el área de trabajo se desplaza por dentro.
+                        "pt-[3.75rem] lg:fixed lg:inset-x-0 lg:top-[4.75rem] lg:bottom-0 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-contain lg:pt-0 lg:[scrollbar-width:thin]",
                         contraida ? "lg:left-[7rem]" : "lg:left-[18.5rem]",
                         "lg:right-4 lg:bottom-4",
                         anchoCompleto ? "min-w-0" : "px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] lg:pr-1 lg:pb-4 lg:pl-1",
@@ -455,7 +462,14 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                     ) : null}
                     <BarraTelefono />
                     <div className={cn(anchoCompleto ? "min-w-0" : "mx-auto max-w-[96rem] pt-1")}>
-                        {anchoCompleto ? null : <MigasPanel className="mb-1.5" />}
+                        {/* En la bandeja y en «Equipo» las migas van solo en escritorio, en una fila de 28 px. */}
+                        {anchoCompleto ? (
+                            <div className="hidden h-7 items-start overflow-hidden px-1 lg:flex">
+                                <MigasPanel className="mb-0" />
+                            </div>
+                        ) : (
+                            <MigasPanel className="mb-1.5" />
+                        )}
                         {errorCerrar ? (
                             <Aviso
                                 tono="error"

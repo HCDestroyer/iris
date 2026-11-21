@@ -1,7 +1,7 @@
 import { cn } from "@iris/ui";
 import { Check } from "lucide-react";
 
-/** Título de un paso numerado («1 En Meta»); hecho, el número pasa a una marca teal. Va dentro del `<h2>` de la sección. */
+/** Título de un paso numerado («1 En Meta»); hecho, el número pasa a una marca índigo. Va dentro del `<h2>` de la sección. */
 export function TituloPaso({ numero, titulo, listo = false }: { numero: number; titulo: string; listo?: boolean }) {
     return (
         <span className="flex items-center gap-2.5">
