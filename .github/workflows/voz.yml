@@ -1,7 +1,8 @@
 # «Iris Voz» (Servidor de IA, contrato voz.md §4): pruebas del paquete que se instala aparte.
 #
 # - archivos: infra/voz/verificar.sh (raíz de confianza embebida, manifiesto, endurecimiento del
-#   compose, contenido del paquete) y shellcheck.
+#   compose, contenido del paquete), shellcheck y la instalación de un paso (setup-voz.sh) con
+#   comandos falsos (infra/voz/prueba-setup.sh).
 # - paquete-falso: levanta el paquete con Docker Compose y un Ollama falso (sin GPU), empareja con
 #   `iris-voz pair`, usa el modelo por el canal autenticado y desenlaza.
 # - paquete-real: lo mismo con un Ollama de verdad en CPU y un modelo diminuto, descargado por el
@@ -61,6 +62,8 @@ jobs:
         run: shellcheck infra/voz/*.sh
       - name: verificar.sh
         run: infra/voz/verificar.sh
+      - name: setup-voz.sh (con comandos falsos)
+        run: infra/voz/prueba-setup.sh
 
   paquete-falso:
     name: Paquete con Ollama falso

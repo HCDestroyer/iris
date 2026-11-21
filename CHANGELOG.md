@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.34.1](https://github.com/HCDestroyer/iris/compare/v0.34.0...v0.34.1) (2026-11-21)
+
+
+### Correcciones
+
+* **campo:** botón de firma fijo abajo, siempre a la vista ([#247](https://github.com/HCDestroyer/iris/issues/247)) ([72d8572](https://github.com/HCDestroyer/iris/commit/72d8572a117f47ca241dec8574efb4100e73f774))
+* **campo:** chat de una orden cerrada en solo lectura en la app ([#242](https://github.com/HCDestroyer/iris/issues/242)) ([e7f5f42](https://github.com/HCDestroyer/iris/commit/e7f5f42a6a80b299d61ac4266f3d5ac3276d1bd1))
+* **mensajeria:** el asistente vuelve a atender al devolverle la conversación después de max_turnos ([#244](https://github.com/HCDestroyer/iris/issues/244)) ([b2ee0c8](https://github.com/HCDestroyer/iris/commit/b2ee0c896419d897c26cba020fe646e4d1a92580))
+
 ## [0.34.0](https://github.com/HCDestroyer/iris/compare/v0.33.0...v0.34.0) (2026-11-20)
 
 
