@@ -67,6 +67,35 @@ Consume: `aviso.entregado`, `aviso.fallido` (solo los de origen `argos`) y `cont
 el secreto que Argos entregó en el canje, reintentos a 1 min, 5 min, 30 min, 2 h y 12 h, y solo al
 conector Argos activo con contrato ≥ 0.6.0 (si no, `omitido`). Cada aviso emite un solo webhook final.
 
+## Plantillas de WhatsApp por cuenta (`plantillas_wa_*.go`, `plantillas_whatsapp.sql`)
+
+Contrato: `.claude/integration/contratos/plantillas-whatsapp.md`. Las plantillas viven por cuenta
+(WABA) en `mensajeria.plantillas_whatsapp` (con historial, estado de la cuenta y ajustes por empresa);
+la empresa dueña decide los usos (`avisos`, `conversaciones`, `asistente`) y qué códigos del catálogo
+atiende cada una (`codigos[]`). Una WABA es de una sola empresa (`plantillas_whatsapp_cuentas`,
+`plantillas_wa_canal.go`): otra empresa no puede registrar números en ella (409
+`waba_de_otra_empresa`) y la WABA de un número manual se comprueba en Meta con su token. Argos sigue pidiendo por código: `plantillasDeCanal` resuelve número → cuenta →
+plantilla aprobada con ese código (un número sin WABA usa todavía `canales.plantillas`). Al enviar,
+cada variable recibe su dato (`parametros`): las variables del aviso, los derivados (`monto_con_moneda`,
+`fecha_corte`) y la instantánea de Argos (`cliente_nombre`, `cliente_codigo`, `plan`, `empresa_nombre`).
+
+- Casos sin Meta (`plantillas_wa_casos.go`): listar, ver, datos, cuentas, validar (reglas de Meta de
+  `plantillas_wa_validar.go`), crear y editar borradores, usos, ajustes (marketing apagado de fábrica)
+  y sugeridas (7 de fábrica).
+- Con Meta (`plantillas_wa_acciones.go`, `plantillas_wa_meta.go`): enviar, editar en Meta (1 cada 24 h
+  y 10 en 30 días si está aprobada), borrar (por `hsm_id`; el nombre de una aprobada queda bloqueado 30
+  días) y reanudar. Dos casos con la llamada a Meta en medio; antes de crear o leer se comprueba
+  `whatsapp_business_management` en `GET /me/permissions`. El error de la cuenta (sin permiso, token,
+  Meta caída) queda en `plantillas_whatsapp_cuentas`.
+- Sincronización (`plantillas_wa_sync.go`): botón (encola y responde 202; 429 antes de 2 minutos), job `mensajeria.sincronizar_plantillas` (único por
+  cuenta; el mantenimiento lo encola entre las 2:00 y las 5:00 de Guatemala) y webhook
+  (`message_template_status_update`, `template_category_update`, `message_template_quality_update`,
+  procesados en el job de entrantes; solo de la empresa dueña, descartando lo más viejo que
+  `estado_en` y cada aviso una vez). Lo que Meta borra queda «Borrada en Meta», nunca se elimina.
+- Emite `plantilla_whatsapp.creada`, `.actualizada`, `.enviada`, `.estado_cambiado`,
+  `.categoria_cambiada`, `.calidad_cambiada`, `.borrada`, `.sincronizada` y
+  `plantillas_whatsapp.ajustes_cambiados`. No consume eventos.
+
 ## Chat interno del equipo (fase 1)
 
 Contrato completo (endpoints, payloads, SSE, reglas de la cola sin conexión):

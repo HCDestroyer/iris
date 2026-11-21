@@ -18,7 +18,9 @@ func TestPermisosSensiblesCubrenLaAdministracion(t *testing.T) {
 		// Pedir para uno mismo el enlace a Argos no administra nada: lo tienen los roles de atención.
 		nucleo.PermIntegracionesAbrirArgos: true,
 		// Llamar y transferir con su propia extensión (teléfono de Iris, E4c) es trabajo de atención.
-		nucleo.PermCentralitaLlamar: true, nucleo.PermCentralitaTransferir: true}
+		nucleo.PermCentralitaLlamar: true, nucleo.PermCentralitaTransferir: true,
+		// Releer de Meta las plantillas de WhatsApp no cambia ninguna (decisión del PM: supervisión y soporte).
+		nucleo.PermPlantillasWhatsAppSincronizar: true}
 	for _, d := range nucleo.Catalogo {
 		c := string(d.Codigo)
 		_, accion, _ := strings.Cut(c, ".")

@@ -21,6 +21,26 @@ func (m *Modulo) ProcesarEnvio(ctx context.Context, id uuid.UUID, ultimo bool) (
 	return m.procesarEnvio(ctx, id, ultimo)
 }
 
+// PlantillasDeCanal: con qué plantilla sale cada código por el número (uso "" = cualquiera).
+func (m *Modulo) PlantillasDeCanal(ctx context.Context, bd nucleo.BD, canal int64, uso string) (map[string]string, error) {
+	q := mensajeriabd.New(bd)
+	c, err := q.CanalPorID(ctx, canal)
+	if err != nil {
+		return nil, err
+	}
+	p, err := m.plantillasDeCanal(ctx, q, c, uso)
+	out := map[string]string{}
+	for k, v := range p {
+		out[k] = v.Nombre
+	}
+	return out, err
+}
+
+// ProgramarSincronizaciones es lo que hace el mantenimiento cada minuto con las plantillas.
+func (m *Modulo) ProgramarSincronizaciones(ctx context.Context, bd nucleo.BD) error {
+	return m.programarSincronizaciones(ctx, bd)
+}
+
 func (m *Modulo) DespacharWebhooks(ctx context.Context, bd nucleo.BD) error {
 	return m.despacharWebhooks(ctx, bd)
 }

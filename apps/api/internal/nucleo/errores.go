@@ -39,6 +39,12 @@ type Problema struct {
 	// MontoActual (extensión): en monto_cambio, el monto que tiene ahora la boleta o su comprobante
 	// en Argos, para que el panel lo muestre y pida confirmar de nuevo.
 	MontoActual *string `json:"montoActual,omitempty" doc:"monto_cambio: el monto actual (decimal con dos decimales)"`
+	// Sugerencia (extensión): en nombre_en_uso y nombre_bloqueado de las plantillas de WhatsApp, un
+	// nombre libre para ofrecer («Usar recordatorio_pago_2»).
+	Sugerencia *string `json:"sugerencia,omitempty" doc:"nombre_en_uso, nombre_bloqueado: un nombre libre para ofrecer"`
+	// DisponibleEn (extensión): desde cuándo se puede (nombre_bloqueado: el nombre se libera;
+	// limite_ediciones: se puede editar de nuevo).
+	DisponibleEn *time.Time `json:"disponibleEn,omitempty" doc:"nombre_bloqueado, limite_ediciones, sincronizada_hace_poco: desde cuándo se puede"`
 
 	cabeceras http.Header
 }

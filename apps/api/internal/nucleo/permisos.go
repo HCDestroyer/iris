@@ -280,6 +280,17 @@ const (
 	PermMensajeriaAsistenteConfigurar Permiso = "mensajeria.asistente_configurar"
 )
 
+// Plantillas de WhatsApp por cuenta (contratos/plantillas-whatsapp.md). Distintas de plantillas.*,
+// que son los formularios de campo. Crear, editar, borrar y enviar a Meta: solo administración;
+// ver y sincronizar: también supervisión y soporte (decisión del PM).
+const (
+	PermPlantillasWhatsAppVer         Permiso = "plantillas_whatsapp.ver"
+	PermPlantillasWhatsAppSincronizar Permiso = "plantillas_whatsapp.sincronizar"
+	PermPlantillasWhatsAppCrear       Permiso = "plantillas_whatsapp.crear"
+	PermPlantillasWhatsAppEditar      Permiso = "plantillas_whatsapp.editar"
+	PermPlantillasWhatsAppBorrar      Permiso = "plantillas_whatsapp.borrar"
+)
+
 // Voz, etapa E1 (contratos/voz.md §8.2): llamadas entrantes de WhatsApp contestadas en el panel.
 const (
 	PermLlamadasVer                 Permiso = "llamadas.ver"
@@ -433,6 +444,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
+	PermPlantillasWhatsAppCrear: true, PermPlantillasWhatsAppEditar: true, PermPlantillasWhatsAppBorrar: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesPedirReconexion: true,
@@ -607,6 +619,11 @@ var Catalogo = []DefPermiso{
 	{PermPlantillasDesactivar, "Desactivar una plantilla de formulario (deja de ofrecerse; los formularios ya agregados siguen)"},
 	{PermPlantillasEditar, "Editar plantillas de formulario (con uso, crea una versión nueva)"},
 	{PermPlantillasVer, "Ver las plantillas de formulario y sus versiones"},
+	{PermPlantillasWhatsAppBorrar, "Borrar plantillas de WhatsApp (también en Meta)"},
+	{PermPlantillasWhatsAppCrear, "Crear plantillas de WhatsApp y enviarlas a Meta"},
+	{PermPlantillasWhatsAppEditar, "Editar plantillas de WhatsApp, decidir dónde se usan y cambiar sus ajustes"},
+	{PermPlantillasWhatsAppSincronizar, "Sincronizar con Meta las plantillas de WhatsApp de una cuenta"},
+	{PermPlantillasWhatsAppVer, "Ver las plantillas de WhatsApp de las cuentas de la empresa, su estado en Meta y su historial"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
 	{PermProspectosAsignar, "Asignar un prospecto a un vendedor"},
 	{PermProspectosContactar, "Marcar un prospecto como contactado"},
@@ -734,7 +751,7 @@ var RolesBase = []DefRol{
 			PermCentralitaAsignarExtension, PermCentralitaLlamar, PermCentralitaTransferir,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
-			PermConversacionesIniciar},
+			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
@@ -760,7 +777,8 @@ var RolesBase = []DefRol{
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
 			PermChatVer, PermChatEnviar, PermConversacionesTransferir, PermConversacionesAsociar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso,
-			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesIniciar, PermCentralitaLlamar, PermCentralitaTransferir},
+			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesIniciar, PermCentralitaLlamar, PermCentralitaTransferir,
+			PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
 			slices.Concat(permisosTickets, permisosAtencion)...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
 		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerUbicacion, PermAdjuntosVer, PermAdjuntosSubir, PermAgendaVer,
@@ -862,8 +880,8 @@ var modulosPermiso = map[string][2]string{
 	"usuarios":    {"usuarios", "Usuarios y accesos"}, "accesos": {"usuarios", "Usuarios y accesos"},
 	"tokens": {"usuarios", "Usuarios y accesos"},
 	"roles":  {"roles", "Roles y permisos"}, "permisos": {"roles", "Roles y permisos"},
-	"empresas":       {"empresas", "Empresas"},
-	"mensajeria":     {"mensajeria", "Mensajería"},
+	"empresas":   {"empresas", "Empresas"},
+	"mensajeria": {"mensajeria", "Mensajería"}, "plantillas_whatsapp": {"mensajeria", "Mensajería"},
 	"conversaciones": {"conversaciones", "Conversaciones con clientes"}, "canales": {"conversaciones", "Conversaciones con clientes"},
 	"manuales": {"conversaciones", "Conversaciones con clientes"},
 }
