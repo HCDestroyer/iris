@@ -17,6 +17,7 @@ import { useLectura } from "@/lib/lectura";
 import { enlaceMapa, textoCoordenadas } from "@/lib/ordenes/adjuntos";
 import { useSesion } from "@/lib/sesion";
 import { LineaServicio, type ServicioLinea } from "./linea-servicio";
+import { BotonLlamarTelefono, opcionesCliente } from "../telefono/marcar";
 import { ListaTelefonos } from "./telefonos";
 
 export { ListaTelefonos };
@@ -83,10 +84,12 @@ export type PropsDatosClienteServicio = {
     verArgos?: EnlaceVer | null;
     /** Mostrar el estado de cuenta (ticket y comercial; en la orden no hace falta). */
     conEstadoCuenta?: boolean;
+    /** «Llamar» con el teléfono de Iris (E4c): la llamada queda en este ticket. */
+    ticketId?: number;
 };
 
 /** Ficha de Argos (`GET /clientes/{id}`) con el formato único de «Datos del cliente / servicio». */
-export function DatosClienteServicio({ clienteId, servicioId, copia, contacto, origen, verArgos = null, conEstadoCuenta = true }: PropsDatosClienteServicio) {
+export function DatosClienteServicio({ clienteId, servicioId, copia, contacto, origen, verArgos = null, conEstadoCuenta = true, ticketId }: PropsDatosClienteServicio) {
     const ficha = useLectura((signal) => resolver(api().GET("/api/v1/clientes/{id}", { params: { path: { id: clienteId } }, signal })));
     const [refresco, setRefresco] = useState<{ cargando: boolean; error: string | null }>({ cargando: false, error: null });
     const ahora = useAhora(60_000);
@@ -144,6 +147,7 @@ export function DatosClienteServicio({ clienteId, servicioId, copia, contacto, o
                         <p className="text-muted-foreground">Argos eliminó a este cliente: la copia guardada al crear {del.el} ya no tiene sus datos.</p>
                     ) : copia ? (
                         <VistaDatos
+                            ticketId={ticketId}
                             cliente={clienteDeCopia(copia)}
                             servicios={copia.servicio ? [copia.servicio] : []}
                             tituloServicio={del.servicio}
@@ -185,6 +189,7 @@ export function DatosClienteServicio({ clienteId, servicioId, copia, contacto, o
                     </Aviso>
                 ) : null}
                 <VistaDatos
+                    ticketId={ticketId}
                     cliente={cliente}
                     servicios={mostrados}
                     tituloServicio={delServicio || copiaEliminado ? del.servicio : "Servicios"}
@@ -251,7 +256,7 @@ function PieCopia({ copia, el }: { copia: CopiaArgos; el: string }) {
 }
 
 /** Lo que se muestra de un cliente y sus servicios, venga de la ficha o de una copia: siempre igual. */
-export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { cliente: ClienteVista; servicios: readonly ServicioVista[]; tituloServicio: string; pie?: ReactNode }) {
+export function VistaDatos({ cliente, servicios, tituloServicio, pie, ticketId }: { cliente: ClienteVista; servicios: readonly ServicioVista[]; tituloServicio: string; pie?: ReactNode; ticketId?: number | undefined }) {
     const estado = presentacionEstado(cliente.estado);
     const tipo = cliente.tipo ? TIPOS_CLIENTE[cliente.tipo] : undefined;
     const tels = cliente.telefonos ?? [];
@@ -261,6 +266,9 @@ export function VistaDatos({ cliente, servicios, tituloServicio, pie }: { client
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="text-base font-medium break-words">{cliente.nombre}</span>
                     {estado ? <InsigniaEstado tono={estado.tono} icono={estado.icono} texto={estado.texto} title="Resumen del estado de sus servicios" /> : null}
+                    <span className="ml-auto">
+                        <BotonLlamarTelefono opciones={opcionesCliente(cliente, tels, ticketId ? { ticketId } : {})} />
+                    </span>
                 </div>
                 <span className="text-muted-foreground">
                     {cliente.codigo ? <span className="font-mono">{cliente.codigo}</span> : `Cliente #${cliente.id}`}

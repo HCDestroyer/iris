@@ -43,6 +43,9 @@ const config: NextConfig = {
                     // A otro sitio (Argos, Horus, mapas) solo le llega el origen de Iris, nunca la ruta
                     // ni la consulta (ids de clientes, conversaciones, filtros).
                     { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+                    // Micrófono (teléfono, notas de voz), cámara y ubicación solo para Iris, nunca para un
+                    // iframe ajeno (revisión de #252).
+                    { key: "Permissions-Policy", value: "microphone=(self), camera=(self), geolocation=(self)" },
                 ],
             },
             // El service worker nunca se cachea en HTTP: el navegador debe ver cada versión nueva.

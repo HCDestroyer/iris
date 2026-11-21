@@ -43,6 +43,16 @@ type Servidor struct {
 	cseq      uint32
 	// SinSIP: abre el WebSocket con el subprotocolo pero no contesta nada.
 	SinSIP bool
+	// registroProhibido: contesta 403 a todo REGISTER, sin desafío (una Issabel que ya no acepta la
+	// extensión). Se cambia con ProhibirRegistro.
+	registroProhibido bool
+}
+
+// ProhibirRegistro hace que la Issabel falsa conteste 403 a todo REGISTER, sin desafío.
+func (s *Servidor) ProhibirRegistro(si bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.registroProhibido = si
 }
 
 type contestada struct {
@@ -175,6 +185,13 @@ func (s *Servidor) peticion(ctx context.Context, c *websocket.Conn, req *sip.Req
 	case sip.OPTIONS:
 		s.responder(ctx, c, req, 200, "OK")
 	case sip.REGISTER:
+		s.mu.Lock()
+		prohibido := s.registroProhibido
+		s.mu.Unlock()
+		if prohibido {
+			s.responder(ctx, c, req, 403, "Forbidden")
+			return
+		}
 		if !s.autenticado(req) {
 			s.desafio(ctx, c, req)
 			return
