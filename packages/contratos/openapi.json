@@ -26305,9 +26305,11 @@
             ]
           },
           "borradaPor": {
+            "description": "sistema: la cuenta pasó a otra empresa y se archivó",
             "enum": [
               "iris",
-              "meta"
+              "meta",
+              "sistema"
             ],
             "type": [
               "string",
@@ -26953,9 +26955,11 @@
             ]
           },
           "borradaPor": {
+            "description": "sistema: la cuenta pasó a otra empresa y se archivó",
             "enum": [
               "iris",
-              "meta"
+              "meta",
+              "sistema"
             ],
             "type": [
               "string",
@@ -27227,9 +27231,11 @@
             ]
           },
           "borradaPor": {
+            "description": "sistema: la cuenta pasó a otra empresa y se archivó",
             "enum": [
               "iris",
-              "meta"
+              "meta",
+              "sistema"
             ],
             "type": [
               "string",
@@ -27871,7 +27877,7 @@
             "type": "string"
           },
           "disponibleEn": {
-            "description": "nombre_bloqueado, limite_ediciones: desde cuándo se puede",
+            "description": "nombre_bloqueado, limite_ediciones, sincronizada_hace_poco: desde cuándo se puede",
             "format": "date-time",
             "type": "string"
           },
