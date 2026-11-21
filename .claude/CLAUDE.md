@@ -176,7 +176,7 @@ Una tarea está terminada solo si:
 | `campo.ajustes_cambiados` | campo | empresa_id (o null), campos[], tecnicos_toman_libres |
 | `plantilla.creada` / `plantilla.actualizada` / `plantilla.activada` / `plantilla.desactivada` | campo | plantilla_id; codigo, empresa_id (creada); version_id, numero_version, version_nueva (actualizada) |
 | `zona.creada` / `zona.actualizada` | agenda | zona_id; origen, nombre (creada); campos[], activa (actualizada) |
-| `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id; nombre, zonas[] (creada); campos[], activa (actualizada) |
+| `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id, miembros[] (usuario_id, id_externo o null), jefe_usuario_id (o null); nombre, zonas[] (creada); campos[], activa (actualizada); van también a Argos |
 | `tecnico.creado` / `tecnico.actualizado` | agenda | tecnico_id (ficha), usuario_id; cuadrilla_id (creado); campos[], activo (actualizado) |
 | `tecnico.ausencia_registrada` / `tecnico.ausencia_anulada` | agenda | tecnico_id, usuario_id, ausencia_id; inicio, fin, motivo, citas_en_conflicto (registrada); motivo (anulada) |
 | `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, id_externo; anterior_id_externo (vinculado); motivo (desvinculado) |

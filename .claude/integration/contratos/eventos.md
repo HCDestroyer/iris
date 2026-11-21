@@ -144,8 +144,8 @@ sistema). Fechas en UTC. `orden.programada` también es de agenda (arriba, en Ca
 | --- | --- | --- |
 | `zona.creada` | `zona_id`, `origen` (`local`), `nombre` | `agenda.crear_zona`. Las de Argos llegan por el espejo (sin evento). |
 | `zona.actualizada` | `zona_id`, `campos[]` (`nombre`, `poligono`, `activa`), `activa` | `agenda.editar_zona`, `agenda.activar_zona`, `agenda.desactivar_zona`. También `catalogo.cambiado` de Argos (0.5.0, I1) sobre una zona espejo (`nombre`, `activa`). |
-| `cuadrilla.creada` | `cuadrilla_id`, `nombre`, `zonas[]` | `agenda.crear_cuadrilla`. |
-| `cuadrilla.actualizada` | `cuadrilla_id`, `campos[]` (`nombre`, `zonas`, `activa`, `capacidad`), `activa` | Editar, activar, desactivar o fijar la capacidad. |
+| `cuadrilla.creada` | `cuadrilla_id`, `nombre`, `zonas[]`, `miembros[]` (`{ usuario_id, id_externo }`, `id_externo` null sin vínculo I1), `jefe_usuario_id` (o null) | `agenda.crear_cuadrilla`. Va también a Argos (contrato 0.11.0 §6.6). |
+| `cuadrilla.actualizada` | `cuadrilla_id`, `campos[]` (`nombre`, `zonas`, `activa`, `capacidad`, `miembros`, `jefe`), `activa`, `miembros[]` (`{ usuario_id, id_externo }`), `jefe_usuario_id` (o null) | Editar, activar, desactivar, fijar la capacidad, cambiar los miembros o `cuadrillas.asignar_jefe` (`POST /cuadrillas/{id}/asignar-jefe`). Va también a Argos (contrato 0.11.0 §6.6). |
 | `tecnico.creado` | `tecnico_id` (ficha), `usuario_id`, `cuadrilla_id` (o null) | `agenda.crear_tecnico`. |
 | `tecnico.actualizado` | `tecnico_id`, `usuario_id`, `campos[]` (`cuadrilla_id`, `bodega_id`, `habilidades`, `base`, `activo`, `turnos`, `capacidad`), `activo` | Editar, activar, desactivar, fijar turnos o capacidad. |
 | `tecnico.ausencia_registrada` | `tecnico_id`, `usuario_id`, `ausencia_id`, `inicio`, `fin`, `motivo`, `citas_en_conflicto` (cuántas citas vivas caen dentro) | `agenda.registrar_ausencia`. Las citas no se mueven solas. |
