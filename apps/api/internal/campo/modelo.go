@@ -174,6 +174,9 @@ type MaterialOrden struct {
 	ExcedeExistencia bool      `json:"excedeExistencia" doc:"Se usó más de lo que había en la bodega según Argos"`
 	Modalidad        *string   `json:"modalidad" nullable:"true" required:"false" enum:"comodato,consumible_gasto,consumible_cobro" doc:"Modalidad del producto en Argos al registrarlo (≥ 1.6.0); null = no se sabía. Un comodato no va en el consumo"`
 	OcurridoEn       time.Time `json:"ocurridoEn"`
+	// Para el cierre (no salen por la API): quién lo registró y si fue desde la app (el lote).
+	registradoPor *int64
+	desdeApp      bool
 }
 
 // EquipoOrden: equipo instalado o retirado.

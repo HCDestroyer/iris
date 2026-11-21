@@ -565,6 +565,26 @@ func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, or
 	}
 	leidas := map[[2]int64]map[int64]float64{}
 	modalidadDe := map[[2]int64]map[int64]string{}
+	// Solo se leen de Argos las bodegas que el técnico puede usar en esa empresa (B-268-2): la de la
+	// orden, la suya y la de su cuadrilla. Otro bodegaId se rechaza al aplicar, sin consultar Argos.
+	permitidas := map[int64]map[int64]bool{}
+	permitida := func(empresa, bodega int64) bool {
+		ps, ok := permitidas[empresa]
+		if !ok {
+			ps = map[int64]bool{}
+			if a := contexto.ActorDe(ctx); a.EsUsuario() {
+				if bd := nucleo.BDDe(ctx); bd != nil {
+					if ids, err := campobd.New(bd).BodegasPermitidas(ctx, campobd.BodegasPermitidasParams{UsuarioID: a.ID, EmpresaID: empresa}); err == nil {
+						for _, id := range ids {
+							ps[id] = true
+						}
+					}
+				}
+			}
+			permitidas[empresa] = ps
+		}
+		return ps[bodega]
+	}
 	for i, op := range ops {
 		if op.Tipo != OpMaterialUsar {
 			continue
@@ -575,9 +595,16 @@ func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, or
 		}
 		info, ok := ordenes[op.OrdenID]
 		if !ok || info.bodega == nil {
-			continue // la orden no es visible o no tiene bodega (siempre la de la orden)
+			continue // la orden no es visible o no tiene bodega
 		}
 		eb := [2]int64{info.empresa, *info.bodega}
+		if e.BodegaID != nil && *e.BodegaID != *info.bodega {
+			// La que eligió el técnico (su cuadrilla o la suya, §3.9); se valida al aplicar.
+			if !permitida(info.empresa, *e.BodegaID) {
+				continue
+			}
+			eb[1] = *e.BodegaID
+		}
 		lineas, ok := leidas[eb]
 		if !ok {
 			lista, err := m.cfg.Inventario.Existencias(ctx, eb[0], eb[1])

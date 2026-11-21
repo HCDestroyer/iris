@@ -79,6 +79,9 @@ type inventarioFalso struct {
 	existencias map[int64][]campo.Existencia
 	comodato    map[int64][]campo.EquipoComodato
 	caido       bool
+	// lecturas: cuántas veces se pidieron las existencias de cada bodega.
+	mu       sync.Mutex
+	lecturas map[int64]int
 }
 
 func (i *inventarioFalso) EquiposEnComodato(_ context.Context, _, servicio int64) ([]campo.EquipoComodato, error) {
@@ -97,6 +100,12 @@ func (i *inventarioFalso) BodegaDeEmpresa(_ context.Context, _, bodega int64) (b
 }
 
 func (i *inventarioFalso) Existencias(_ context.Context, _, bodega int64) ([]campo.Existencia, error) {
+	i.mu.Lock()
+	if i.lecturas == nil {
+		i.lecturas = map[int64]int{}
+	}
+	i.lecturas[bodega]++
+	i.mu.Unlock()
 	if i.caido {
 		return nil, errors.New("argos caído")
 	}

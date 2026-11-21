@@ -85,6 +85,22 @@ func SoportaSinPersonal(contrato *string) bool {
 	return conector.VersionAlMenos(contrato, ContratoSinPersonal)
 }
 
+// ContratoBodegaCuadrilla es el primer contrato con la bodega de cuadrilla (0.11.0 §3.9, A47).
+const ContratoBodegaCuadrilla = "0.11.0"
+
+// BodegaDeCuadrilla indica si el conector Argos registrado más reciente (activo o, si no hay, el
+// último) informa contrato ≥ 0.11.0: el material de la app sale con tecnico, bodega_id y
+// X-Iris-Actor. Falla cerrado: false sin conector o sin contrato informado.
+func (m *Modulo) BodegaDeCuadrilla(ctx context.Context, q conector.DBTX) (bool, error) {
+	var contrato *string
+	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1
+		ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1`, Sistema).Scan(&contrato)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return conector.VersionAlMenos(contrato, ContratoBodegaCuadrilla), err
+}
+
 // ReconexionSinPersonal indica si el conector Argos activo informa contrato ≥ 0.8.0 (false sin
 // conector activo: falla cerrado). q puede ser una transacción o el pool.
 func (m *Modulo) ReconexionSinPersonal(ctx context.Context, q conector.DBTX) (bool, error) {

@@ -14,6 +14,21 @@ INSERT INTO integracion.pendientes (
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING *;
 
+-- name: BodegasDeCuadrilla :many
+-- Cuáles de estas bodegas de Argos son de una cuadrilla (contrato 0.11.0 §3.9): el consumo desde una
+-- de ellas lleva `tecnico` y `bodega_id` a la vez, con X-Iris-Actor.
+SELECT bodega_id FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = ANY(@bodegas::bigint[]) ORDER BY bodega_id;
+
+-- name: BodegasPersonales :many
+-- Cuáles de estas bodegas de Argos son la personal de un técnico (0.13.1 §3.9): desde el panel no se
+-- usan.
+SELECT bodega_id FROM integracion.argos_bodegas_tecnico WHERE bodega_id = ANY(@bodegas::bigint[]) ORDER BY bodega_id;
+
+-- name: VinculosArgosDeTecnicos :many
+-- El vínculo I1 (id_externo) de cada usuario: el `tecnico` del cuerpo es el del actor (0.13.1).
+SELECT usuario_id, argos_id_externo::text AS id_externo FROM agenda.tecnicos
+WHERE usuario_id = ANY(@usuarios::bigint[]) AND argos_id_externo IS NOT NULL AND argos_id_externo <> '';
+
 -- name: PendientePorClave :one
 SELECT * FROM integracion.pendientes WHERE idempotency_key = @idempotency_key;
 

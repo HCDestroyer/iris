@@ -125,8 +125,8 @@ describe("Hoy", () => {
     it("mosaico «Por recibir»: sin leer no hay total", () => {
         const linea = { productoId: 1, cantidad: 2 } as unknown as NonNullable<Traslado["lineas"]>[number];
         const traslados: Traslado[] = [
-            { id: 1, estado: "enviado", lineas: [linea, linea] },
-            { id: 2, estado: "recibido", lineas: [linea] },
+            { id: 1, estado: "enviado", lineas: [linea, linea], puedeRecibir: true },
+            { id: 2, estado: "recibido", lineas: [linea], puedeRecibir: true },
         ];
         expect(mosaicoPorRecibir(null, [])).toBeNull();
         expect(mosaicoPorRecibir(traslados, [])).toEqual({ cantidad: 1, valor: "1 traslado", detalle: "2 productos de bodega" });

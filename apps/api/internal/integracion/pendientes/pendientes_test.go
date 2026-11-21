@@ -40,6 +40,7 @@ type llamada struct {
 	Ruta   string
 	Clave  string
 	Token  string
+	Actor  string
 	Cuerpo map[string]any
 	Crudo  []byte
 }
@@ -72,7 +73,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		var c map[string]any
 		_ = json.Unmarshal(crudo, &c)
 		ruta := strings.TrimPrefix(r.URL.Path, "/api/v1")
-		a.llamadas = append(a.llamadas, llamada{Ruta: ruta, Clave: r.Header.Get("Idempotency-Key"), Token: r.Header.Get("Authorization"), Cuerpo: c, Crudo: crudo})
+		a.llamadas = append(a.llamadas, llamada{Ruta: ruta, Clave: r.Header.Get("Idempotency-Key"), Token: r.Header.Get("Authorization"), Actor: r.Header.Get("X-Iris-Actor"), Cuerpo: c, Crudo: crudo})
 		status := 201
 		if lista := a.respuestas[ruta]; len(lista) > 0 {
 			status = lista[0]

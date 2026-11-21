@@ -183,16 +183,19 @@ func requisitosDeCierre(d OrdenDetalle, tipo campobd.CampoTiposOrden) []nucleo.E
 }
 
 // payloadCerrada arma orden.cerrada: lo que el núcleo (I1) necesita para los pendientes en
-// Argos (contratos/argosisp.md §3). Materiales sumados por producto y bodega.
+// Argos (contratos/argosisp.md §3). Materiales sumados por producto, bodega y quién los registró
+// (desde la app o el panel): nunca se juntan líneas de varios actores bajo uno (M-268-1).
 func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[string]any {
 	type clave struct {
 		producto int64
 		bodega   int64
+		desdeApp bool
+		actor    int64
 	}
 	orden := []clave{}
 	suma := map[clave]map[string]any{}
 	for _, mt := range d.Materiales {
-		k := clave{mt.ProductoID, deref(mt.BodegaID)}
+		k := clave{mt.ProductoID, deref(mt.BodegaID), mt.desdeApp, deref(mt.registradoPor)}
 		if s, ok := suma[k]; ok {
 			s["cantidad"] = s["cantidad"].(float64) + mt.Cantidad
 			s["excede_existencia"] = s["excede_existencia"].(bool) || mt.ExcedeExistencia
@@ -204,7 +207,10 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		orden = append(orden, k)
 		// modalidad (Argos ≥ 1.6.0, o null): un comodato no va en el consumo (contrato 0.5.0 §3.3).
 		suma[k] = map[string]any{"producto_id": mt.ProductoID, "cantidad": mt.Cantidad, "bodega_id": mt.BodegaID,
-			"excede_existencia": mt.ExcedeExistencia, "modalidad": mt.Modalidad}
+			"excede_existencia": mt.ExcedeExistencia, "modalidad": mt.Modalidad,
+			// desde_app: lo registró un técnico desde el lote (con registrado_por): sale con tecnico,
+			// bodega_id y X-Iris-Actor de quien lo usó (M-268-1). Si no, lo indicó despacho en el panel.
+			"desde_app": mt.desdeApp, "registrado_por": mt.registradoPor}
 	}
 	materiales := make([]map[string]any, 0, len(orden))
 	for _, k := range orden {

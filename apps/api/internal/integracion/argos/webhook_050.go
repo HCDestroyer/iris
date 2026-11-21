@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,6 +66,8 @@ type payload050 struct {
 	TrasladoID      *int64          `json:"traslado_id"`
 	BodegaDestinoID *int64          `json:"bodega_destino_id"`
 	Tecnico         *RefTecnicoArgo `json:"tecnico"`
+	// CuadrillaID: la cuadrilla de Iris de la bodega destino (0.11.0 §3.9), como texto.
+	CuadrillaID     IDExterno       `json:"cuadrilla_id"`
 	Estado          string          `json:"estado"`
 	Lineas          json.RawMessage `json:"lineas"`
 	EnviadoEn       *time.Time      `json:"enviado_en"`
@@ -284,6 +287,13 @@ func trasladoDeDatos(d payload050, estado string, entrante *int64, con conectorb
 		p.TecnicoIDExterno = recortarPtr(string(d.Tecnico.IDExterno), 100)
 		p.TecnicoCorreo = recortarPtr(d.Tecnico.Correo, 320)
 	}
+	if c := strings.TrimSpace(string(d.CuadrillaID)); c != "" {
+		id, err := strconv.ParseInt(c, 10, 64)
+		if err != nil || id <= 0 {
+			return nil, "traslado_cuadrilla_invalida"
+		}
+		p.CuadrillaID = &id
+	}
 	return p, ""
 }
 
@@ -420,6 +430,14 @@ func aplicarTraslado(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, p
 	}
 	if f.EmpresaID != nil {
 		t.FijarEmpresa(*f.EmpresaID)
+	}
+	if p.CuadrillaID != nil && f.BodegaDestinoID != nil && f.EmpresaID != nil {
+		// La bodega destino es de esa cuadrilla (la confirma y la lee el jefe; 0.11.0 §3.9).
+		if err := q.GuardarBodegaCuadrilla(ctx, argosbd.GuardarBodegaCuadrillaParams{
+			BodegaID: *f.BodegaDestinoID, EmpresaID: *f.EmpresaID, CuadrillaID: *p.CuadrillaID, VistoEn: time.Now().UTC(),
+		}); err != nil {
+			return err
+		}
 	}
 	t.Anotar(map[string]any{"traslado_id": f.ID, "estado": f.Estado})
 	return t.Emitir(EventoTrasladoCambiado, map[string]any{
