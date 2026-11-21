@@ -213,7 +213,7 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
 
             <Tarjeta className="min-w-0 overflow-hidden p-0">
                 <div className="flex flex-wrap items-end gap-2 border-b border-border p-3">
-                    <CampoBusqueda etiqueta="Buscar por nombre" etiquetaVisible={false} placeholder="Buscar por nombre" valor={buscar} alCambiar={setBuscar} maxLength={100} className="w-full sm:w-60" />
+                    <CampoBusqueda etiqueta="Buscar por nombre" etiquetaVisible={false} placeholder="Buscar por nombre" valor={buscar} alCambiar={setBuscar} maxLength={100} className="w-full sm:w-80" />
                     <CampoSelector etiqueta="Categoría" tamano="sm" className="w-40" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                         <option value="">Todas</option>
                         {CATEGORIAS.map((c) => (
