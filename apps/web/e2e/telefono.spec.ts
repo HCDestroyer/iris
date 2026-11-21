@@ -332,8 +332,8 @@ test.describe("Teléfono: administración", () => {
         expect(api.telefono.recibido.registros).toBe(1);
     });
 
-    test("la centralita no acepta la contraseña: lo dice y deja reintentar", async ({ page }) => {
-        await abrir(page, RUTA, { encendido: false, telefono: { registro: "credenciales" } });
+    test("la centralita no acepta la contraseña: lo dice y solo deja cambiarla (fail2ban)", async ({ page }) => {
+        const { api } = await abrir(page, RUTA, { encendido: false, telefono: { registro: "credenciales" } });
         await slot(page, "extensiones-centralita").getByRole("link", { name: "Configurar la extensión de Rosa Pop" }).click();
         await page.getByRole("radio", { name: /En Iris/ }).check({ force: true });
         await page.getByLabel("Contraseña SIP", { exact: true }).fill("clave-mala-205");
@@ -341,10 +341,36 @@ test.describe("Teléfono: administración", () => {
         const r = slot(page, "resultado-registro");
         await expect(r).toHaveAttribute("data-estado", "credenciales");
         await expect(r).toContainText("La centralita no aceptó la contraseña de la extensión 205");
-        await expect(r.getByRole("button", { name: "Reintentar" })).toBeVisible();
+        // Revisión de #252, punto 1: con la misma contraseña ni «Reintentar» ni «Probar registro»; solo cambiarla.
+        await expect(r.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Probar registro" })).toHaveCount(0);
+        await expect(r.getByRole("button", { name: "Cambiar la contraseña" })).toBeVisible();
         await expect(page.getByText("•••• guardada")).toBeVisible();
         await esperarSinDesbordes(page);
         await page.screenshot({ path: path.join(carpeta, `17-admin-extension-guardada-error-${test.info().project.name}.png`), fullPage: true });
+        expect(api.telefono.recibido.registros).toBe(1);
+        // Al volver a la pantalla sigue igual (lo dice `sipRechazadoEn`).
+        await page.reload();
+        await expect(slot(page, "resultado-registro")).toHaveAttribute("data-estado", "credenciales");
+        await expect(page.getByRole("button", { name: "Reintentar" })).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "Probar registro" })).toHaveCount(0);
+        await slot(page, "resultado-registro").getByRole("button", { name: "Cambiar la contraseña" }).click();
+        await expect(page.getByLabel("Contraseña SIP", { exact: true })).toBeFocused();
+        await expect(slot(page, "resultado-registro").getByRole("button", { name: "Cambiar la contraseña" })).toHaveCount(0);
+        expect(api.telefono.recibido.registros).toBe(1);
+    });
+
+    test("«Reintentar» se queda cuando la Issabel no conecta (no gasta la contraseña)", async ({ page }) => {
+        const { api } = await abrir(page, RUTA, { encendido: false, telefono: { registro: "no_conecta" } });
+        await slot(page, "extensiones-centralita").getByRole("link", { name: "Configurar la extensión de Rosa Pop" }).click();
+        await page.getByRole("radio", { name: /En Iris/ }).check({ force: true });
+        await page.getByLabel("Contraseña SIP", { exact: true }).fill("clave-de-la-205");
+        await page.getByRole("button", { name: "Guardar" }).click();
+        const r = slot(page, "resultado-registro");
+        await expect(r).toHaveAttribute("data-estado", "no_conecta");
+        await expect(r.getByRole("button", { name: "Cambiar la contraseña" })).toHaveCount(0);
+        await r.getByRole("button", { name: "Reintentar" }).click();
+        await expect.poll(() => api.telefono.recibido.registros).toBe(2);
     });
 
     test("configurar el teléfono: probar, comparar la huella, confirmar la guía y encender", async ({ page }) => {

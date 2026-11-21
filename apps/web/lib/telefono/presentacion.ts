@@ -86,6 +86,8 @@ function puntoError(e: ErrorTelefono): PuntoTelefono {
             return { forma: "aviso", tono: "warning", texto: "El teléfono está en otra pestaña", corto: "En otra pestaña" };
         case "espera":
             return { forma: "aviso", tono: "warning", texto: "El teléfono se vuelve a conectar en un minuto", corto: "En un minuto" };
+        case "cortado":
+            return { forma: "aviso", tono: "danger", texto: "Teléfono desconectado", corto: "Desconectado" };
     }
 }
 
@@ -156,6 +158,13 @@ export function avisoError(e: ErrorTelefono, extension: string | null): AvisoTel
                 titulo: "El teléfono se abrió muchas veces seguidas",
                 detalle: `Iris lo vuelve a conectar sola a las ${hora(e.hasta)}.`,
                 accion: null,
+            };
+        case "cortado":
+            return {
+                tono: "danger",
+                titulo: "Iris desconectó el teléfono",
+                detalle: `Las llamadas de ${tuExt} no suenan en Iris. Puede que hayan cambiado la centralita o tus permisos. Toca «Reintentar»; si vuelve a pasar, avisa a quien administra la centralita.`,
+                accion: "reintentar",
             };
     }
 }

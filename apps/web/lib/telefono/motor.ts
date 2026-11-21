@@ -244,8 +244,13 @@ export class MotorTelefono {
         ua.on("registrationFailed", (e) => {
             if (gen !== this.generacion) return;
             this.registrado = false;
-            // Un 403 del puente: la Issabel rechazó la credencial (el puente corta con 4003 `credenciales`).
-            if (e.response?.status_code === 403) this.conexion({ fase: "error", error: { tipo: "clave" } });
+            // Un 403 del puente: la Issabel rechazó la credencial. Igual que 4003 `credenciales`: se
+            // detiene (si no, JsSIP volvería a registrarse con la misma contraseña y fail2ban bloquearía la
+            // IP de Iris) y se relee `GET /telefono`.
+            if (e.response?.status_code === 403) {
+                this.credencialRechazada(this.estado.extension);
+                this.d.revisar();
+            }
         });
         ua.on("newRTCSession", (e) => {
             if (gen !== this.generacion || !e.session) return;
@@ -265,7 +270,9 @@ export class MotorTelefono {
             const mismo = antes.fase === "error" && antes.error.tipo === "sin_conexion" && r.error.tipo === "sin_conexion";
             if (!mismo) this.conexion({ fase: "error", error: r.error });
         } else if (r.revisar) {
-            this.conexion({ fase: "conectando" });
+            // Si `GET /telefono` dice que ya no está disponible, el proveedor lo cambia a «no disponible»;
+            // si sigue disponible, queda este aviso con «Reintentar» (nunca «Conectando…» para siempre).
+            this.conexion({ fase: "error", error: { tipo: "cortado" } });
         }
         // También con la contraseña rechazada: el servidor ya la marcó «sin probar» y lo dice `GET /telefono`.
         if (r.revisar || r.error?.tipo === "clave") this.d.revisar();
@@ -317,7 +324,11 @@ export class MotorTelefono {
     private async pcConfig(): Promise<RTCConfiguration> {
         let s = this.sesionTel;
         if (s && Date.parse(s.iceVence) - this.ahora() < MARGEN_ICE_MS) {
-            // Solo para el TURN: el ticket nuevo no se usa y vence solo.
+            // Solo para el TURN (decisión de la revisión de #252, punto 4): no hay un endpoint aparte
+            // porque /abrir ya da el TURN con su tope y su auditoría. El ticket nuevo no se usa: vale 30 s
+            // y un solo uso, y vence solo. Pasa solo al contestar o llamar con el TURN a menos de 90 s de
+            // vencer (dura de 10 a 20 min), así que a lo más una vez cada ~10 min: 1 de las 6 por minuto
+            // de /abrir (contratos/voz.md §3.12, `POST /telefono/abrir`).
             try {
                 s = await this.d.abrir();
                 this.sesionTel = s;

@@ -71,7 +71,11 @@ export function textoPruebaRegistro(p: Pick<PruebaRegistro, "estado">, extension
         case "ok":
             return { tono: "success", titulo: `La centralita aceptó la extensión ${extension}`, detalle: "Ya le puede sonar en Iris." };
         case "credenciales":
-            return { tono: "error", titulo: `La centralita no aceptó la contraseña de la extensión ${extension}`, detalle: `Revisa en Issabel la contraseña (Secret) de la ${extension} y escríbela otra vez aquí con «Cambiar».` };
+            return {
+                tono: "error",
+                titulo: `La centralita no aceptó la contraseña de la extensión ${extension}`,
+                detalle: `Revisa en Issabel la contraseña (Secret) de la ${extension} y escríbela otra vez aquí con «Cambiar la contraseña». Iris no vuelve a probar la misma: la Issabel bloquearía a Iris después de varios intentos fallidos.`,
+            };
         case "huella_distinta":
             return { tono: "error", titulo: "El certificado de la Issabel cambió", detalle: "Prueba el teléfono en «Teléfono en Iris» y compara la huella nueva." };
         case "no_conecta":
@@ -91,10 +95,20 @@ export function estadoTelefonoCentralita(t: TelefonoCentralita | undefined | nul
     return { tono: "neutral", texto: "Apagado", falta: null };
 }
 
+/**
+ * La Issabel rechazó la contraseña guardada y no se escribió otra desde entonces: no se ofrece «Probar
+ * registro» ni «Reintentar», solo «Cambiar la contraseña» (el servidor responde 429 `credencial_rechazada`).
+ */
+export function credencialRechazada(x: Pick<ExtensionCentralita, "sipGuardadoEn" | "sipRechazadoEn">): boolean {
+    if (!x.sipRechazadoEn) return false;
+    return !x.sipGuardadoEn || Date.parse(x.sipGuardadoEn) <= Date.parse(x.sipRechazadoEn);
+}
+
 /** Dónde contesta cada persona y si su credencial está probada. */
-export function estadoExtension(x: Pick<ExtensionCentralita, "tipo" | "sipGuardadoEn" | "sipProbadoEn">): { donde: string; tono: Tono; texto: string } {
+export function estadoExtension(x: Pick<ExtensionCentralita, "tipo" | "sipGuardadoEn" | "sipProbadoEn" | "sipRechazadoEn">): { donde: string; tono: Tono; texto: string } {
     if (x.tipo === "escritorio") return { donde: "Teléfono de escritorio", tono: "neutral", texto: "Solo ve quién llama (sin audio en Iris)" };
     if (!x.sipGuardadoEn) return { donde: "En Iris", tono: "warning", texto: "Falta la contraseña de la extensión" };
+    if (credencialRechazada(x)) return { donde: "En Iris", tono: "error", texto: "La centralita no aceptó la contraseña: hay que escribirla otra vez" };
     if (!x.sipProbadoEn) return { donde: "En Iris", tono: "error", texto: "La centralita no aceptó la contraseña o falta probar el registro" };
     return { donde: "En Iris", tono: "success", texto: "Registro probado" };
 }

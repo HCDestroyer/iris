@@ -188,13 +188,18 @@ export function apiTelefono(o: OpcionesTelefono, centralita: ApiCentralita) {
                 if (typeof c.sipSecreto !== "string" && (!x.sipGuardadoEn || usuario !== x.sipUsuario)) return (await problema(route, P("clave_requerida", 422, "Escribe la contraseña de la extensión")), true);
                 Object.assign(x, { tipo: "navegador", sipUsuario: usuario, sipGuardadoEn: typeof c.sipSecreto === "string" ? new Date().toISOString() : x.sipGuardadoEn, sipProbadoEn: null });
             } else {
-                Object.assign(x, { tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null });
+                Object.assign(x, { tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null, sipRechazadoEn: null });
             }
             return (await json(route, x), true);
         }
+        // Como el servidor: la contraseña que la Issabel ya rechazó no se vuelve a probar (429).
+        if (x.sipRechazadoEn && (!x.sipGuardadoEn || Date.parse(x.sipGuardadoEn) <= Date.parse(x.sipRechazadoEn))) {
+            return (await problema(route, P("credencial_rechazada", 429, "La centralita ya rechazó esta contraseña")), true);
+        }
         recibido.registros += 1;
         const estado = !x.sipGuardadoEn ? "sin_credencial" : (o.registro ?? "ok");
-        if (estado === "ok") x.sipProbadoEn = new Date().toISOString();
+        if (estado === "ok") Object.assign(x, { sipProbadoEn: new Date().toISOString(), sipRechazadoEn: null });
+        if (estado === "credenciales") Object.assign(x, { sipProbadoEn: null, sipRechazadoEn: new Date().toISOString() });
         return (await json(route, { estado, extension: x } satisfies PruebaRegistro), true);
     }
 

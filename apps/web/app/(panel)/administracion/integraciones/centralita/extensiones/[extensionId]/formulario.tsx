@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { avisar, Aviso, Boton, Campo, CampoSecreto, Esqueleto, FormularioPagina, GrupoOpciones, liberarProteccion, SeccionFormulario } from "@iris/ui";
-import { PlugZap, RotateCw } from "lucide-react";
+import { KeyRound, PlugZap, RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -15,7 +15,7 @@ import type { Centralita, ExtensionCentralita } from "@/lib/centralita/tipos";
 import { erroresACampos } from "@/lib/formularios";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
-import { esquemaExtension, textoPruebaRegistro, type ValoresExtension } from "@/lib/telefono/administracion";
+import { credencialRechazada, esquemaExtension, textoPruebaRegistro, type ValoresExtension } from "@/lib/telefono/administracion";
 import { guardarTelefonoExtension, probarRegistro } from "@/lib/telefono/api";
 import type { PruebaRegistro } from "@/lib/telefono/tipos";
 
@@ -62,6 +62,13 @@ function Formulario({ centralita: c, extension: x }: { centralita: Centralita; e
     const errores = form.formState.errors;
     const navegador = v.tipo === "navegador";
     const usuarioCambiado = guardada && (v.sipUsuario ?? "").trim() !== (x.sipUsuario ?? "");
+    // Con la contraseña rechazada no se vuelve a probar la misma (fail2ban): solo «Cambiar la contraseña».
+    const rechazada = credencialRechazada(prueba?.extension ?? x);
+
+    function cambiarContrasena() {
+        form.setValue("cambiarSecreto", true);
+        window.requestAnimationFrame(() => form.setFocus("sipSecreto"));
+    }
 
     async function probar() {
         setProbando(true);
@@ -174,7 +181,7 @@ function Formulario({ centralita: c, extension: x }: { centralita: Centralita; e
                             />
                         }
                     />
-                    {guardada && !form.formState.isDirty ? (
+                    {guardada && !form.formState.isDirty && !rechazada ? (
                         <div>
                             <Boton variante="secundario" onClick={() => void probar()} disabled={probando}>
                                 <PlugZap />
@@ -182,7 +189,11 @@ function Formulario({ centralita: c, extension: x }: { centralita: Centralita; e
                             </Boton>
                         </div>
                     ) : null}
-                    {prueba ? <ResultadoRegistro prueba={prueba} extension={x.extension} alReintentar={() => void probar()} /> : x.sipGuardadoEn && !x.sipProbadoEn ? (
+                    {prueba ? (
+                        <ResultadoRegistro prueba={prueba} extension={x.extension} alReintentar={() => void probar()} alCambiar={cambiarContrasena} cambiando={!!v.cambiarSecreto} />
+                    ) : rechazada ? (
+                        <ResultadoRegistro prueba={{ estado: "credenciales" }} extension={x.extension} alReintentar={() => void probar()} alCambiar={cambiarContrasena} cambiando={!!v.cambiarSecreto} />
+                    ) : x.sipGuardadoEn && !x.sipProbadoEn ? (
                         <Aviso tono="warning" titulo="Falta probar el registro">
                             Sin una prueba que pase, {x.usuarioNombre} no puede abrir el teléfono.
                         </Aviso>
@@ -193,7 +204,13 @@ function Formulario({ centralita: c, extension: x }: { centralita: Centralita; e
     );
 }
 
-function ResultadoRegistro({ prueba, extension, alReintentar }: { prueba: PruebaRegistro; extension: string; alReintentar: () => void }) {
+type PropsResultado = { prueba: Pick<PruebaRegistro, "estado">; extension: string; alReintentar: () => void; alCambiar: () => void; cambiando: boolean };
+
+/**
+ * Lo que dijo «Probar registro». «Reintentar» solo cuando puede cambiar algo sin tocar la contraseña
+ * (no conecta, el certificado); con `credenciales`, «Cambiar la contraseña».
+ */
+function ResultadoRegistro({ prueba, extension, alReintentar, alCambiar, cambiando }: PropsResultado) {
     const r = textoPruebaRegistro(prueba, extension);
     return (
         <Aviso
@@ -202,7 +219,14 @@ function ResultadoRegistro({ prueba, extension, alReintentar }: { prueba: Prueba
             data-slot="resultado-registro"
             data-estado={prueba.estado}
             accion={
-                prueba.estado !== "ok" ? (
+                prueba.estado === "credenciales" ? (
+                    cambiando ? undefined : (
+                        <Boton variante="secundario" tamano="sm" onClick={alCambiar}>
+                            <KeyRound />
+                            Cambiar la contraseña
+                        </Boton>
+                    )
+                ) : prueba.estado === "no_conecta" || prueba.estado === "huella_distinta" ? (
                     <Boton variante="secundario" tamano="sm" onClick={alReintentar}>
                         <RotateCw />
                         Reintentar

@@ -46,7 +46,7 @@ export type ContextoTelefono = {
     encender: () => Promise<boolean>;
     /** «Ahora no» / apagar en este navegador. */
     apagar: () => void;
-    reintentar: () => void;
+    reintentar: () => Promise<void>;
     usarAqui: () => Promise<void>;
     contestar: (id: string) => Promise<void>;
     rechazar: (id: string) => void;
@@ -317,10 +317,20 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
         await arrancar();
     }
 
-    function reintentar() {
-        if (conexion.fase === "error" && conexion.error.tipo === "clave") {
-            setReleer((n) => n + 1);
-            if (mio?.disponible) void arrancar();
+    async function reintentar() {
+        if (conexion.fase === "error" && (conexion.error.tipo === "clave" || conexion.error.tipo === "cortado")) {
+            // Primero un `GET /telefono` nuevo: con la contraseña rechazada el servidor la marca «sin
+            // probar», y arrancar con lo de antes mandaría otro REGISTER con la misma (fail2ban).
+            let nuevo: TelefonoMio;
+            try {
+                nuevo = await leerTelefono();
+            } catch {
+                avisar({ tono: "error", titulo: "No se pudo revisar el teléfono", descripcion: "Revisa tu conexión e intenta otra vez." });
+                return;
+            }
+            setMio(nuevo);
+            // Si sigue sin estar disponible, el efecto de arriba lo muestra; si está, se conecta.
+            if (nuevo.disponible && (nuevo.dispositivos ?? []).includes("panel")) await arrancar();
             return;
         }
         if (conexion.fase === "error" && conexion.error.tipo === "microfono" && !motor.encendido) {

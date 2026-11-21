@@ -1,7 +1,7 @@
 "use client";
 
 import { Aviso, Boton, cn, Dialogo, DialogoContenido, DialogoPie, PanelEmergente } from "@iris/ui";
-import { AppWindow, Grid3x3, KeyRound, Lock, Mic, MicOff, Phone, PhoneCall, PhoneOff, RotateCw, Volume2, WifiOff } from "lucide-react";
+import { AppWindow, Grid3x3, KeyRound, Lock, Mic, MicOff, Phone, PhoneCall, PhoneOff, RotateCw, Unplug, Volume2, WifiOff } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { avisoError, puntoTelefono, textoMotivo } from "@/lib/telefono/presentacion";
@@ -16,7 +16,7 @@ import { useTelefono, type ContextoTelefono } from "./proveedor";
  * encenderlo y el diálogo que explica el permiso del micrófono.
  */
 
-const ICONO_ERROR: Record<ErrorTelefono["tipo"], typeof Phone> = { sin_conexion: WifiOff, clave: KeyRound, microfono: MicOff, pestana: AppWindow, espera: RotateCw };
+const ICONO_ERROR: Record<ErrorTelefono["tipo"], typeof Phone> = { sin_conexion: WifiOff, clave: KeyRound, microfono: MicOff, pestana: AppWindow, espera: RotateCw, cortado: Unplug };
 
 /** Botón del teléfono en la barra superior. */
 export function BotonTelefono() {
@@ -183,7 +183,7 @@ function AvisoDeError({ t, error, className }: { t: ContextoTelefono; error: Err
             data-error={error.tipo}
             accion={
                 a.accion === "reintentar" ? (
-                    <Boton variante="secundario" tamano="sm" onClick={t.reintentar}>
+                    <Boton variante="secundario" tamano="sm" onClick={() => void t.reintentar()}>
                         <RotateCw />
                         Reintentar
                     </Boton>

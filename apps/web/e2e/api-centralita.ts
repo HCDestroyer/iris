@@ -63,8 +63,8 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
     const extensiones: Extension[] = Object.entries(o.extensiones ?? {}).map(([u, ext]) => ({
         id: siguienteExt++, extension: ext, usuarioId: Number(u), usuarioNombre: PERSONAS_CENTRALITA.find((p) => p.id === Number(u))?.nombre ?? "Persona",
         ...(o.navegador?.includes(Number(u))
-            ? { tipo: "navegador" as const, sipUsuario: ext, sipGuardadoEn: "2026-11-18T15:00:00Z", sipProbadoEn: "2026-11-18T15:01:00Z" }
-            : { tipo: "escritorio" as const, sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null }),
+            ? { tipo: "navegador" as const, sipUsuario: ext, sipGuardadoEn: "2026-11-18T15:00:00Z", sipProbadoEn: "2026-11-18T15:01:00Z", sipRechazadoEn: null }
+            : { tipo: "escritorio" as const, sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null, sipRechazadoEn: null }),
     }));
     const llamadas: Llamada[] = structuredClone(o.llamadas ?? []);
     const recibido = { pruebas: [] as unknown[], creadas: [] as unknown[], actualizadas: [] as unknown[], activaciones: 0, asignaciones: [] as unknown[], quitadas: 0,
@@ -157,7 +157,7 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
             const usuarioId = Number(c?.usuarioId);
             if (extensiones.some((e) => e.extension === c?.extension)) return (await problema(route, P("extension_ocupada", 409, "Esa extensión ya es de otra persona: quítasela primero")), true);
             const x: Extension = { id: siguienteExt++, extension: String(c?.extension), usuarioId, usuarioNombre: PERSONAS_CENTRALITA.find((p) => p.id === usuarioId)?.nombre ?? "Persona",
-                tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null };
+                tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null, sipRechazadoEn: null };
             extensiones.push(x);
             return (await json(route, x), true);
         }

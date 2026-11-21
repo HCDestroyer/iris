@@ -37,7 +37,9 @@ export type ErrorTelefono =
     /** Otra pestaña (u otro dispositivo) tiene el teléfono. */
     | { tipo: "pestana" }
     /** Se abrió demasiadas veces seguidas: se espera un minuto. */
-    | { tipo: "espera"; hasta: number };
+    | { tipo: "espera"; hasta: number }
+    /** Iris cortó el teléfono (4003 sin motivo) y `GET /telefono` lo sigue dando por disponible. */
+    | { tipo: "cortado" };
 
 /** El teléfono en esta pestaña. */
 export type ConexionTelefono =

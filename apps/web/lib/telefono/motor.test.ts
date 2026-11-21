@@ -216,6 +216,26 @@ describe("conectar", () => {
         c.sockets[0]?.cerrar(4003, "sin_acceso");
         expect(c.uas[0]?.detenido).toBe(true);
         expect(c.revisar).toHaveBeenCalledOnce();
+        // Revisión de #252, punto 3: nunca «Conectando…» para siempre; si `GET /telefono` lo sigue dando
+        // por disponible, queda el aviso con «Reintentar».
+        expect(c.motor.leer().conexion).toEqual({ fase: "error", error: { tipo: "cortado" } });
+    });
+
+    it("registrationFailed 403: igual que 4003 credenciales (detiene el agente y relee GET /telefono)", async () => {
+        // Revisión de #252, punto 2: sin detener, JsSIP volvería a registrarse con la misma contraseña.
+        const a = await listo();
+        a.uas[0]?.emitir("registrationFailed", { response: { status_code: 403 } });
+        expect(a.motor.leer().conexion).toEqual({ fase: "error", error: { tipo: "clave" } });
+        expect(a.uas[0]?.detenido).toBe(true);
+        expect(a.revisar).toHaveBeenCalledOnce();
+        // El cierre 4003 que llega después no hace nada más.
+        a.sockets[0]?.cerrar(4003, "credenciales");
+        expect(a.revisar).toHaveBeenCalledOnce();
+        // Otro rechazo (408, 503) no detiene: JsSIP reintenta solo.
+        const b = await listo();
+        b.uas[0]?.emitir("registrationFailed", { response: { status_code: 503 } });
+        expect(b.uas[0]?.detenido).toBe(false);
+        expect(b.revisar).not.toHaveBeenCalled();
     });
 
     it("abrir: motivos del servidor, 429 y la red", () => {

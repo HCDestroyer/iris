@@ -1255,7 +1255,10 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   efímero), `politicaIce: "relay"`, `iceVence`. **Sin contraseña SIP.** CSRF como toda acción. 422
   `sin_centralita`, `sin_extension`, `extension_escritorio`, `sin_credencial`, `telefono_apagado`; 503
   `turn_no_configurado`. El ticket: 32 bytes aleatorios, vale **30 s**, un solo uso, atado a la persona,
-  a la sesión que lo pidió, a la empresa activa, a la extensión y al dispositivo.
+  a la sesión que lo pidió, a la empresa activa, a la extensión y al dispositivo. El TURN dura de 10 a
+  20 min: si al contestar o llamar le quedan menos de 90 s, el panel vuelve a llamar a `/abrir` solo
+  para renovarlo y deja vencer ese ticket sin usarlo (a lo más una vez cada ~10 min por persona, dentro
+  del tope de 6 por minuto; no hay endpoint aparte para no duplicar el tope y la auditoría).
 - `GET /telefono/sip` → **WebSocket** con subprotocolo `sip` (RFC 7118); el ticket viaja como un
   subprotocolo más (`Sec-WebSocket-Protocol: sip, iris-ticket.<ticket>`), nunca en la URL (no queda en los
   logs de los proxies). El panel de Next no
