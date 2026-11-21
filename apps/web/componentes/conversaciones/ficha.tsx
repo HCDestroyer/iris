@@ -48,7 +48,7 @@ import type { EstadoAsistente } from "@/lib/asistente/tipos";
 import { useAhora } from "./reloj";
 import { BotonLlamarTelefono } from "../telefono/marcar";
 import type { OpcionLlamar } from "../telefono/proveedor";
-import { clasificarMarcado } from "@/lib/telefono/presentacion";
+import { clasificarMarcado } from "@iris/telefono";
 
 export type PestanaFicha = "resumen" | "historial" | "ayuda";
 

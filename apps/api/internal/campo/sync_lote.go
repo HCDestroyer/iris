@@ -32,7 +32,7 @@ import (
 // OperacionLote es una operación del teléfono.
 type OperacionLote struct {
 	ID          string         `json:"id" format:"uuid" doc:"uuid v7 generado en el teléfono; idempotencia"`
-	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,nota.editar,nota.eliminar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario,traslado.recibir,tarea.crear,tarea.completar,tarea.anular"`
+	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,nota.editar,nota.eliminar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario,traslado.recibir,tarea.crear,tarea.completar,tarea.anular,llamada.directa"`
 	OrdenID     int64          `json:"ordenId,omitempty" minimum:"1" doc:"Obligatorio salvo en traslado.recibir y tarea.* (no son de una orden)"`
 	VersionBase *int32         `json:"versionBase,omitempty" doc:"Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)"`
 	OcurridoEn  *time.Time     `json:"ocurridoEn,omitempty" doc:"Hora del teléfono, con el mismo reloj que enviadoEn; el servidor la corrige con el desfase"`
@@ -65,6 +65,8 @@ type ResultadoOperacion struct {
 	Recepcion *inventario.EstadoRecepcion `json:"recepcion,omitempty" doc:"traslado.recibir: la recepción encolada hacia Argos (su estado sigue en GET /campo/cambios, recepciones[])"`
 	// Tarea: tarea.crear, tarea.completar o tarea.anular aplicada (agenda).
 	Tarea *agenda.RespuestaTarea `json:"tarea,omitempty" doc:"tarea.*: la tarea como quedó y las citas con que se cruza (aviso solapa_con: se guardó igual)"`
+	// LlamadaID: llamada.directa aplicada (E4c): la llamada anotada en la orden (su id es el de la operación).
+	LlamadaID *uuid.UUID `json:"llamadaId,omitempty" doc:"llamada.directa: la llamada anotada en la orden (el mismo id de la operación)"`
 }
 
 // RespuestaLote es la respuesta de POST /sync/lote.
@@ -296,6 +298,8 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 			res = m.aplicarTarea(ctx, s, op)
 		} else if op.OrdenID <= 0 {
 			res = m.rechazar(ctx, s, 0, nucleo.Validacion(nucleo.ErrorCampo{Field: "ordenId", Message: "Obligatorio en " + op.Tipo, Rule: "required"}))
+		} else if op.Tipo == OpLlamadaDirecta {
+			res = m.aplicarLlamadaDirecta(ctx, s, op, inicio.DesfaseMs)
 		} else {
 			s.Existencia, s.Modalidad, s.pre = existencias[i], modalidades[i], comodatos[i]
 			res = m.aplicar(ctx, s, op)
@@ -388,7 +392,7 @@ func esquemaDatos(t reflect.Type) (huma.Registry, *huma.Schema) {
 		for _, v := range []any{EntradaPosicion{}, EntradaMarcarChecklist{}, EntradaAgregarNota{}, EntradaEditarNotaCampo{}, EntradaEliminarNotaCampo{}, EntradaUsarMaterial{},
 			EntradaEquipo{}, EntradaCapturarFirma{}, EntradaRegistrarAdjunto{}, EntradaCerrarOrden{}, EntradaFallarOrden{},
 			EntradaPausar{}, EntradaReanudar{}, EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{},
-			inventario.EntradaRecibirTraslado{}, agenda.DatosTarea{}, DatosTareaLote{}, DatosAnularTareaLote{}} {
+			inventario.EntradaRecibirTraslado{}, agenda.DatosTarea{}, DatosTareaLote{}, DatosAnularTareaLote{}, DatosLlamadaDirectaLote{}} {
 			tt := reflect.TypeOf(v)
 			esquemasDatos[tt] = registroDatos.Schema(tt, true, "")
 		}
