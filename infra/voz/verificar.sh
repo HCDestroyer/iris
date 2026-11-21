@@ -43,8 +43,16 @@ for trabajo in firmar publicar; do
     sed -n "/^  $trabajo:/,/^  [a-z]*:\$/p" "$flujo" | grep -q '^    environment: voz-release$' ||
         { echo "voz-release.yml: the job $trabajo must run in the voz-release environment" >&2; exit 1; }
 done
+# The App key that creates voz-v* tags is only read in the voz-etiqueta environment (main only).
+etiqueta="$aqui/../../.github/workflows/voz-etiqueta.yml"
+grep -q '^    environment: voz-etiqueta$' "$etiqueta" ||
+    { echo "voz-etiqueta.yml: the job must run in the voz-etiqueta environment" >&2; exit 1; }
+if grep -n 'secrets\.VOZ_APP' "$aqui/../../.github/workflows/"*.yml | grep -v '/voz-etiqueta.yml:' | grep -q .; then
+    echo "only voz-etiqueta.yml may read the VOZ_APP_* secrets" >&2
+    exit 1
+fi
 # Every action of the voz workflows is pinned by commit SHA.
-if grep -hE '^\s*-?\s*uses:' "$aqui/../../.github/workflows/voz.yml" "$flujo" | grep -qvE '@[0-9a-f]{40}( |$)'; then
+if grep -hE '^\s*-?\s*uses:' "$aqui/../../.github/workflows/voz.yml" "$flujo" "$etiqueta" | grep -qvE '@[0-9a-f]{40}( |$)'; then
     echo "a GitHub action of the voz workflows is not pinned by SHA" >&2
     exit 1
 fi

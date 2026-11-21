@@ -132,22 +132,52 @@ Anota los resultados de la primera instalación en `voz.md` §4.9.
 
 1. Sube `version` en `infra/voz/manifiesto.json` (y `irisMin`/`irisMax` si cambia la compatibilidad)
    y mergea a `main`.
-2. Crea la etiqueta `voz-vX.Y.Z` sobre ese commit. El workflow `voz-release.yml` publica la imagen,
-   arma el paquete, lo firma con cosign sin clave y lo verifica sin red antes de crear la release.
-3. Los jobs `firmar` y `publicar` esperan una aprobación en el entorno `voz-release`: nada se firma
-   (ni queda en el registro de transparencia) sin ella. Si el entorno no existe o no tiene revisores
-   obligatorios, el workflow falla antes de construir.
+2. **La etiqueta y la construcción salen solas.** El workflow `voz-etiqueta.yml` crea la etiqueta
+   `voz-vX.Y.Z` sobre ese commit y eso dispara `voz-release.yml`, que publica la imagen y arma el
+   paquete. Si la etiqueta ya existe con el mismo manifiesto no hace nada; si existe con otro
+   manifiesto, o la versión no es mayor que la última, falla (hay que subir `version`).
+3. **El PM aprueba firmar y publicar.** Los jobs `firmar` y `publicar` esperan una aprobación en el
+   entorno `voz-release`: nada se firma (ni queda en el registro de transparencia) sin ella. Con la
+   aprobación, firma con cosign sin clave, verifica sin red y crea la release. Si el entorno no
+   existe o no tiene revisores obligatorios, o el commit de la etiqueta no está en `main`, el
+   workflow falla antes de construir.
 
-**Antes de la primera versión hay que preparar el repositorio** (lo gestiona el líder con el dueño;
-no lo hace ningún agente):
+Si `voz-etiqueta.yml` falló (por ejemplo, antes de configurar la App), se relanza desde Actions →
+«Etiqueta de Iris Voz» → *Run workflow* sobre `main`. La etiqueta también se puede crear a mano.
 
-- Una **regla de etiquetas** que proteja `voz-v*`: solo quien publica puede crearlas, sin borrado ni
-  reescritura. La identidad que acepta el instalador es ese workflow en esa etiqueta.
-- El **entorno `voz-release`** (Settings → Environments) con revisores obligatorios, con «impedir
-  autoaprobación» activado, sin permitir que los administradores se salten la regla y limitado a
-  las etiquetas `voz-v*`.
+**Antes de la primera versión hay que preparar el repositorio** (lo hace el dueño, una sola vez; no
+lo hace ningún agente):
 
-El workflow comprueba primero el entorno y después corre tres jobs con permisos mínimos:
+1. **Una GitHub App que crea las etiquetas** (GitHub → tu foto → Settings → Developer settings →
+   GitHub Apps → *New GitHub App*):
+   - Nombre, por ejemplo «Iris Voz etiquetas»; *Homepage URL*: la del repositorio.
+   - *Webhook*: desmarcar *Active*.
+   - *Repository permissions* → *Contents*: **Read and write**. Nada más.
+   - *Where can this GitHub App be installed?*: **Only on this account**. Crear.
+   - Anotar el **App ID** (arriba en la página de la App) y, abajo, *Generate a private key*: baja
+     un archivo `.pem`.
+   - *Install App* (menú izquierdo) → instalar en tu cuenta → **Only select repositories** → `iris`.
+2. **El entorno `voz-etiqueta`** (repositorio → Settings → Environments → *New environment*):
+   - *Deployment branches and tags* → *Selected branches and tags* → agregar la regla de rama
+     `main` (solo `main`). Sin revisores: corre solo.
+   - *Environment secrets*: `VOZ_APP_ID` = el App ID, y `VOZ_APP_KEY` = el contenido completo del
+     `.pem` (abrirlo con un editor de texto y pegar todo, con las líneas `BEGIN`/`END`). Después,
+     borrar el `.pem` del equipo.
+3. **La regla de etiquetas `voz-v*`** (Settings → Rules → Rulesets, la de «Iris Voz»): restringe
+   crear, actualizar y borrar. En *Bypass list* → *Add bypass* → la App «Iris Voz etiquetas»
+   (además de quien ya publica). **No** agregar la app «GitHub Actions»: eso dejaría etiquetar a
+   cualquier workflow de cualquier rama.
+4. **El entorno `voz-release`** con revisores obligatorios, con «impedir autoaprobación» activado,
+   sin permitir que los administradores se salten la regla y limitado a las etiquetas `voz-v*`.
+
+Por qué así: la identidad que acepta el instalador es `voz-release.yml` en la etiqueta `voz-vX.Y.Z`,
+y esa identidad no depende del contenido del workflow. Por eso quien pueda crear una etiqueta
+`voz-v*` en un commit cualquiera podría firmar sin aprobación con un `voz-release.yml` modificado. La
+llave de la App solo llega a un job del entorno `voz-etiqueta`, que solo corre en `main`: quien empuja
+una rama no puede crear la etiqueta; solo lo que ya entró a `main` (con revisión y CI) llega a
+etiquetarse, y firmarlo sigue necesitando la aprobación del PM.
+
+El workflow comprueba primero el commit y el entorno y después corre tres jobs con permisos mínimos:
 `construir` (publica la imagen y exporta las sumas), `firmar` (solo `id-token: write`; no hace
 checkout ni ejecuta nada del repositorio, y comprueba las sumas antes de firmar) y `publicar`
 (verifica sin red y crea la release). Todas las acciones van fijadas por SHA.
