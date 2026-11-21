@@ -220,6 +220,26 @@ payload lleva solo los campos del contrato: `aviso.entregado` (aviso_id, idempot
 canal, entregado_en, leido_en o null), `aviso.fallido` (aviso_id, idempotency_key, empresa_id, canal
 o null, motivo, detalle o null) y `contacto.baja` (cliente_id, empresa_id, canal, ocurrido_en, origen).
 
+## Plantillas de WhatsApp (servicio de mensajería, `contratos/plantillas-whatsapp.md`)
+
+Todos llevan `plantilla_id`, `empresa_id` (la dueña de la cuenta; null sin conector) y `waba_id`, salvo
+`plantillas_whatsapp.ajustes_cambiados`. `origen` del cambio: `iris` (una persona), `webhook` (Meta en
+vivo) o `sincronizacion` (botón o noche). Nunca el token ni el texto de un mensaje a un cliente.
+
+| Evento | Payload | Cuándo |
+| --- | --- | --- |
+| `plantilla_whatsapp.creada` | + `nombre`, `idioma`, `categoria`, `origen` (`iris`, `sugerida`, `meta`, `migrada`, `canal`) | Borrador nuevo, una sugerida, una que trajo la sincronización (creada en Meta) o una que reflejó el formulario del número. |
+| `plantilla_whatsapp.actualizada` | + `campos[]` (`definicion`, `nombre`, `usos`, `codigos`, `variables`…) | Borrador editado, usos o códigos cambiados (también la que soltó un código). |
+| `plantilla_whatsapp.enviada` | + `meta_id`, `tipo` (`creacion`, `edicion`), `estado` | Meta aceptó la plantilla (o su edición) para revisar. |
+| `plantilla_whatsapp.estado_cambiado` | + `de`, `a`, `motivo` (o null: reason de Meta, `editada`, `reanudada`), `origen`, `pausada_hasta` (o null) | Cambio de estado en Meta (aprobada, rechazada, pausada…) o en Iris (editar, reanudar). |
+| `plantilla_whatsapp.categoria_cambiada` | + `de`, `a`, `origen`, `pendiente` (true = Meta avisó que la reclasificará), `en_uso` | Meta la reclasificó (o avisó que lo hará); el panel lo avisa. |
+| `plantilla_whatsapp.calidad_cambiada` | + `de`, `a` (`GREEN`, `YELLOW`, `RED`, `UNKNOWN`), `origen` | Cambio de calidad. |
+| `plantilla_whatsapp.borrada` | + `nombre`, `idioma`, `origen` (`iris`, `meta`, `sistema`), `estaba_en_uso`, `codigos[]`, `nombre_libre_en` (o null); `motivo` (`cuenta_de_otra_empresa`) y `usos[]` solo con `sistema` (con `codigos[]`: lo que tenía, para deshacerlo) | Borrada desde Iris, Meta ya no la tiene o el sistema la archivó porque la cuenta pasó a otra empresa. La fila nunca se elimina. |
+| `plantilla_whatsapp.sincronizada` | `waba_id`, `empresa_id`, `origen` (`manual`, `nocturna`, `webhook`), `total`, `nuevas`, `cambiadas`, `borradas` | Terminó una lectura completa de la cuenta. |
+| `plantillas_whatsapp.ajustes_cambiados` | `empresa_id`, `campos[]`, `marketing_permitido` | Ajustes de la empresa. |
+
+Nadie los consume todavía (el panel lee por la API); quedan para la campana de avisos.
+
 ## Chat interno del equipo (I1, servicio de mensajería)
 
 Contrato de la API en `contratos/chat.md`. Ninguno lleva el texto de un mensaje: quien lo necesite
@@ -287,7 +307,7 @@ El tiempo real del panel va por el feed propio (`mensajeria.conv_eventos`, SSE y
 | `conversacion.creada` | `conversacion_id`, `empresa_id` (o null), `canal_id`, `cola_id` (o null), `cliente_id` (o null), `asociacion` (`automatica` o null) | Primer mensaje de un número a un número de la empresa. |
 | `conversacion.mensaje_recibido` | `conversacion_id`, `mensaje_id`, `empresa_id`, `canal_id`, `tipo`, `cliente_id`, `asignado_a`, `cola_id` | Cada mensaje nuevo del cliente (el mismo wamid dos veces no emite). |
 | `conversacion.mensaje_enviado` | `conversacion_id`, `mensaje_id`, `empresa_id`, `autor_id`, `tipo`, `plantilla` (o null), `respuesta_rapida_id` (o null) | Un agente respondió (queda en cola hacia WhatsApp). Un reenvío del mismo id no emite. |
-| `conversacion.mensaje_fallido` | `conversacion_id`, `mensaje_id`, `empresa_id`, `motivo` (`numero_invalido`, `rechazado_por_canal`, `fuera_de_ventana`, `agotado`, `token_invalido`, `sin_permiso_meta`), `autor_id` | WhatsApp no lo entregó. Nunca el código ni el texto de Meta. |
+| `conversacion.mensaje_fallido` | `conversacion_id`, `mensaje_id`, `empresa_id`, `motivo` (`numero_invalido`, `rechazado_por_canal`, `fuera_de_ventana`, `agotado`, `token_invalido`, `sin_permiso_meta`, `cliente_sin_confirmar`), `autor_id` | WhatsApp no lo entregó, o Iris no lo mandó (`cliente_sin_confirmar`: la plantilla lleva datos del cliente y el cliente no está confirmado). Nunca el código ni el texto de Meta. |
 | `conversacion.nota_agregada` | `conversacion_id`, `mensaje_id`, `empresa_id`, `autor_id`, `menciones[]` | Nota interna. |
 | `conversacion.mencion` | `conversacion_id`, `mensaje_id`, `empresa_id`, `usuario_id`, `autor_id` | Uno por mencionado (para el futuro push). |
 | `conversacion.asignada` | `conversacion_id`, `empresa_id`, `usuario_id` (o null), `anterior_id` (o null), `origen` (`tomar`, `asignar`, `responder`), `actor_id` | Tomar, asignar o responder una sin asignar. |

@@ -5449,6 +5449,314 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/plantillas-whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plantillas de WhatsApp de las cuentas de la empresa
+         * @description Permiso: `plantillas_whatsapp.ver`. Por cuenta (WABA), con su estado en Meta, calidad, dónde se usan y por qué hay que atenderlas. `conteos` alimenta los filtros. Las borradas en Meta que se usaban salen siempre (para elegir otra).
+         */
+        get: operations["listarPlantillasWhatsApp"];
+        put?: never;
+        /**
+         * Crear una plantilla (borrador)
+         * @description Permiso: `plantillas_whatsapp.crear`. Queda como borrador en Iris. Con `enviar`, además se manda a Meta (si no la acepta, `errorEnvio`). 409 `nombre_en_uso` / `nombre_bloqueado` con `sugerencia`; 422 `marketing_no_permitido`.
+         */
+        post: operations["crearPlantillaWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/ajustes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ajustes de plantillas de la empresa
+         * @description Permiso: `plantillas_whatsapp.ver`.
+         */
+        get: operations["ajustesPlantillasWhatsApp"];
+        put?: never;
+        /**
+         * Guardar los ajustes de plantillas
+         * @description Permiso: `plantillas_whatsapp.editar`.
+         */
+        post: operations["guardarAjustesPlantillasWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/cuentas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cuentas de WhatsApp de la empresa y su última sincronización
+         * @description Permiso: `plantillas_whatsapp.ver`.
+         */
+        get: operations["cuentasPlantillasWhatsApp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/cuentas/{waba}/sincronizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sincronizar con Meta
+         * @description Permiso: `plantillas_whatsapp.sincronizar`. Encola la relectura de la cuenta (un job único por cuenta) y responde 202. El resultado sale en `GET /cuentas`: `sincronizadaEn` cambia y `resumen` dice qué entró (nuevas en Meta), qué cambió y qué quedó «Borrada en Meta» (nunca se elimina en Iris); si Meta no respondió o el token no tiene `whatsapp_business_management`, `error` lo dice y nada cambia. Una cuenta sincronizada hace menos de 2 minutos responde 429 `sincronizada_hace_poco` con `Retry-After`.
+         */
+        post: operations["sincronizarPlantillasWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/datos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Datos que se pueden poner en una plantilla
+         * @description Permiso: `plantillas_whatsapp.ver`.
+         */
+        get: operations["datosPlantillasWhatsApp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/sugeridas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plantillas sugeridas para un ISP
+         * @description Permiso: `plantillas_whatsapp.ver`.
+         */
+        get: operations["sugeridasPlantillasWhatsApp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/sugeridas/{clave}/crear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Crear una plantilla sugerida
+         * @description Permiso: `plantillas_whatsapp.crear`. Ya conectada con los datos de Iris y Argos. Con `enviar`, además se manda a Meta; si Meta no la acepta, queda como borrador y `errorEnvio` dice por qué.
+         */
+        post: operations["crearSugeridaWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/validar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revisar las reglas de Meta antes de enviar
+         * @description Permiso: `plantillas_whatsapp.ver`. No guarda nada: devuelve la lista «Antes de enviar a Meta» (cada regla ok o qué corregir y dónde).
+         */
+        post: operations["validarPlantillaWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Una plantilla con su historial
+         * @description Permiso: `plantillas_whatsapp.ver`.
+         */
+        get: operations["verPlantillaWhatsApp"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/actualizar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Editar un borrador
+         * @description Permiso: `plantillas_whatsapp.editar`.
+         */
+        post: operations["actualizarPlantillaWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/borrar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Borrar una plantilla
+         * @description Permiso: `plantillas_whatsapp.borrar`. La borra en Meta (solo ese idioma, por su id) y en Iris queda «Borrada» con su historial. Una aprobada deja el nombre bloqueado 30 días (`nombreLibreEn`). Meta no deja borrar una deshabilitada (422 `deshabilitada_no_se_borra`).
+         */
+        post: operations["borrarPlantillaWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/editar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Corregir y volver a enviar
+         * @description Permiso: `plantillas_whatsapp.editar`. Para una plantilla aprobada, rechazada o pausada. Una aprobada: 1 edición cada 24 h y 10 en 30 días (422 `limite_ediciones` con `disponibleEn`) y sin cambiar la categoría.
+         */
+        post: operations["editarPlantillaWhatsAppEnMeta"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/enviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enviar un borrador a Meta
+         * @description Permiso: `plantillas_whatsapp.crear`. Revisa las reglas de Meta (422 `reglas_meta` con cada problema en `errors[]`) y el permiso `whatsapp_business_management` del token. Meta la revisa en hasta 24 horas: el resultado llega por el webhook.
+         */
+        post: operations["enviarPlantillaWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/reanudar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reanudar una plantilla pausada
+         * @description Permiso: `plantillas_whatsapp.editar`.
+         */
+        post: operations["reanudarPlantillaWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/usos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decidir dónde la usa Iris
+         * @description Permiso: `plantillas_whatsapp.editar`. Usos (avisos, conversaciones, asistente) y el código del catálogo que atiende (Argos pide avisos por código): si otra plantilla de la cuenta lo tenía, lo suelta. 422 `datos_no_disponibles` si el aviso no trae algún dato de la plantilla. No pasa por Meta.
+         */
+        post: operations["usosPlantillaWhatsApp"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/publico/manuales/{token}": {
         parameters: {
             query?: never;
@@ -9414,6 +9722,15 @@ export interface components {
              */
             version: number;
         };
+        AjustesPWA: {
+            /** @description Se pueden crear y usar plantillas de marketing (Meta cobra más). Apagado de fábrica */
+            marketingPermitido: boolean;
+            /**
+             * Format: int32
+             * @description 0 = sin guardar (los de fábrica)
+             */
+            version: number;
+        };
         AjustesPrueba: {
             categorias?: components["schemas"]["CategoriaPrueba"][] | null;
             /** @enum {string} */
@@ -9632,6 +9949,15 @@ export interface components {
              */
             tecnicoId: number;
         };
+        AutenticacionPWA: {
+            /** @description Agrega «Por tu seguridad, no lo compartas.» */
+            avisoSeguridad: boolean;
+            /**
+             * Format: int64
+             * @description El código caduca en estos minutos (texto de Meta)
+             */
+            caducaMinutos?: number;
+        };
         AutorizacionCompletada: {
             /** @description El conector nuevo, apagado */
             conector: components["schemas"]["Conector"];
@@ -9824,6 +10150,18 @@ export interface components {
             /** @description Texto plano del saludo del bot */
             saludo: string;
         };
+        BotonPWA: {
+            /** @description url con dato: el valor de ejemplo del final; copiar_codigo: el código de ejemplo */
+            ejemplo?: string;
+            /** @description telefono: número en formato internacional (+502…) */
+            telefono?: string;
+            /** @description Lo que dice el botón (hasta 25 caracteres) */
+            texto: string;
+            /** @enum {string} */
+            tipo: "respuesta" | "url" | "telefono" | "copiar_codigo";
+            /** @description url: dirección https; puede terminar con un dato ({{cliente_codigo}}) */
+            url?: string;
+        };
         Buzon: {
             activo: boolean;
             /** Format: date-time */
@@ -9883,6 +10221,15 @@ export interface components {
             hasta: string;
             /** @description Hay más citas (o técnicos) de los que caben en la respuesta: no calcules totales; acota con cuadrilla, zona o técnico */
             truncado: boolean;
+        };
+        CambioCuentaPWA: {
+            codigos: string[];
+            estado: string;
+            etiqueta: string;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
+            usos: string[];
         };
         CambioOrden: {
             /** @description Ausente si ya no es del técnico (reasignada): quitarla del teléfono */
@@ -10902,6 +11249,16 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        ConteosPWA: {
+            /** Format: int64 */
+            activas: number;
+            /** Format: int64 */
+            atender: number;
+            /** Format: int64 */
+            revision: number;
+            /** Format: int64 */
+            todas: number;
+        };
         ContrasenaRestablecida: {
             activo: boolean;
             /** Format: date-time */
@@ -11384,6 +11741,17 @@ export interface components {
             /** @description A nombre de quién está la cuenta; null si Argos no lo tiene */
             titular: string | null;
         };
+        CuentaPWA: {
+            /** @description Último error al hablar con Meta (null si la última vez salió bien) */
+            error: components["schemas"]["ErrorCuentaPWA"];
+            /** @description Nombre de cada número en Iris */
+            nombres: string[];
+            numeros: string[];
+            resumen: components["schemas"]["ResumenSincronizacionPWA"];
+            /** Format: date-time */
+            sincronizadaEn: string | null;
+            wabaId: string;
+        };
         CuerpoAgregarMiembro: {
             /**
              * Format: int64
@@ -11536,6 +11904,19 @@ export interface components {
             /** @description Datos del evento; lleva empresa_id cuando aplica */
             payload: unknown;
         };
+        DatoPWA: {
+            clave: string;
+            /** @description Códigos del catálogo que lo traen (vacío = todavía ningún envío de Iris lo llena) */
+            codigos: string[];
+            /** @description Ejemplo para Meta (nunca un dato real) */
+            ejemplo: string;
+            /** @description Cómo lo ve quien escribe la plantilla («Nombre del cliente») */
+            etiqueta: string;
+            /** @enum {string} */
+            grupo: "cliente" | "cobro" | "orden" | "aviso" | "verificacion" | "empresa";
+            /** @description De dónde lo toma Iris («Cliente en Argos · nombre») */
+            origen: string;
+        };
         DatosAdoptados: {
             /** Format: int64 */
             empresaId: number;
@@ -11597,6 +11978,17 @@ export interface components {
             pais: string;
             razonSocial: string;
             telefono: string;
+        };
+        DefinicionPWA: {
+            autenticacion?: components["schemas"]["AutenticacionPWA"];
+            botones: components["schemas"]["BotonPWA"][];
+            /** @description Mensaje con {{dato}}; hasta 1024 caracteres (verificación: lo pone Meta) */
+            cuerpo: string;
+            encabezado?: components["schemas"]["EncabezadoPWA"];
+            /** @description Texto gris bajo el mensaje, hasta 60 caracteres y sin datos */
+            pie?: string;
+            /** @description Cada dato del texto con su ejemplo */
+            variables: components["schemas"]["VariablePWA"][];
         };
         Destinatario: {
             /** @description Código del cliente en Argos (null en un contacto de Iris) */
@@ -11754,6 +12146,17 @@ export interface components {
             /** @description GET (adjuntos.ver) */
             urlDescarga: string;
         };
+        EdicionesPWA: {
+            /**
+             * Format: date-time
+             * @description Si ya no puede editarse: desde cuándo (null = puede)
+             */
+            puedeEditarEn: string | null;
+            /** Format: int64 */
+            ultimas24h: number;
+            /** Format: int64 */
+            ultimos30d: number;
+        };
         EfectoAsistente: {
             mes: string;
             porCategoria: components["schemas"]["EfectoCategoria"][] | null;
@@ -11837,6 +12240,14 @@ export interface components {
             /** Format: int64 */
             id: number;
             nombre: string;
+        };
+        EncabezadoPWA: {
+            /** @description Archivo de ejemplo (imagen, video o documento), subido antes como adjunto */
+            adjuntoId?: string;
+            /** @description Solo con tipo texto: hasta 60 caracteres y un dato */
+            texto?: string;
+            /** @enum {string} */
+            tipo: "texto" | "imagen" | "video" | "documento" | "ubicacion";
         };
         Encuesta: {
             /** @description Calificación 1 o 2: resaltar */
@@ -12168,6 +12579,14 @@ export interface components {
             /** Format: int32 */
             minutosInactividad: number;
             /** Format: int32 */
+            version: number;
+        };
+        EntradaAjustesPWA: {
+            marketingPermitido: boolean;
+            /**
+             * Format: int32
+             * @description La leída (0 si nunca se guardaron)
+             */
             version: number;
         };
         EntradaAjustesReconexion: {
@@ -12883,6 +13302,24 @@ export interface components {
              */
             ventanaInicio?: string;
         };
+        EntradaCrearPWA: {
+            /** @enum {string} */
+            categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+            /** @description Códigos del catálogo de Iris que atenderá */
+            codigos?: string[] | null;
+            definicion: components["schemas"]["DefinicionPWA"];
+            /** @description Además, enviarla a Meta (si las reglas se cumplen) */
+            enviar?: boolean;
+            /** @description Nombre para personas */
+            etiqueta: string;
+            /** @description es, es_MX… */
+            idioma: string;
+            /** @description Nombre en Meta (vacío = se propone desde la etiqueta) */
+            nombre?: string;
+            /** @description avisos, conversaciones, asistente */
+            usos?: string[] | null;
+            wabaId: string;
+        };
         EntradaCrearPlantilla: {
             /** @description Nace desactivada: mientras nunca se haya activado, editarla reescribe la versión 1 (sin versiones nuevas). Activa (por defecto) o activada alguna vez, toda edición crea una versión */
             borrador?: boolean;
@@ -12948,6 +13385,15 @@ export interface components {
             descripcion?: string;
             nombre: string;
             permisos: components["schemas"]["Permiso"][] | null;
+        };
+        EntradaCrearSugeridaPWA: {
+            /** @description Además, enviarla a Meta */
+            enviar?: boolean;
+            /** @description es por defecto */
+            idioma?: string;
+            /** @description Pie (por defecto, el nombre de la empresa); vacío = sin pie */
+            pie?: string;
+            wabaId: string;
         };
         EntradaCrearTarea: {
             /**
@@ -13192,6 +13638,16 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        EntradaEditarMetaPWA: {
+            /**
+             * @description Solo si no está aprobada (Meta no deja cambiarla)
+             * @enum {string}
+             */
+            categoria?: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+            definicion: components["schemas"]["DefinicionPWA"];
+            /** Format: int32 */
+            version: number;
+        };
         EntradaEditarNota: {
             texto: string;
             /**
@@ -13209,6 +13665,16 @@ export interface components {
              * @description Versión de la nota que vio el teléfono; si cambió, rechazada con conflicto_version
              */
             versionNota: number;
+        };
+        EntradaEditarPWA: {
+            /** @enum {string} */
+            categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+            definicion: components["schemas"]["DefinicionPWA"];
+            etiqueta: string;
+            idioma: string;
+            nombre: string;
+            /** Format: int32 */
+            version: number;
         };
         EntradaEditarPlantilla: {
             descripcion?: string;
@@ -14511,6 +14977,28 @@ export interface components {
              */
             version?: number;
         };
+        EntradaUsosPWA: {
+            /** @description Códigos del catálogo que atiende ([] = ninguno). Si otra plantilla de la cuenta tenía alguno, lo suelta */
+            codigos: string[] | null;
+            /** @description avisos, conversaciones, asistente (vacío = no se usa) */
+            usos: string[] | null;
+            variables?: components["schemas"]["VariableDatoPWA"][] | null;
+            /** Format: int32 */
+            version: number;
+        };
+        EntradaValidarPWA: {
+            /** @enum {string} */
+            categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+            definicion: components["schemas"]["DefinicionPWA"];
+            /**
+             * Format: int64
+             * @description La plantilla que se edita (para no chocar con su propio nombre)
+             */
+            id?: number;
+            idioma: string;
+            nombre: string;
+            wabaId: string;
+        };
         EntradaVerificarMFA: {
             /** @description Código TOTP de 6 dígitos */
             codigo: string;
@@ -14521,6 +15009,10 @@ export interface components {
              * Format: int32
              * @description Versión leída; si cambió, 409
              */
+            version: number;
+        };
+        EntradaVersionPWA: {
+            /** Format: int32 */
             version: number;
         };
         EntradaVersionPlantilla: {
@@ -14590,6 +15082,12 @@ export interface components {
             message: string;
             /** @description Regla que falló */
             rule?: string;
+        };
+        ErrorCuentaPWA: {
+            /** @description meta_sin_permiso, meta_token_invalido, meta_no_responde, meta_limite, meta_rechazo */
+            codigo: string;
+            /** Format: date-time */
+            en: string;
         };
         ErrorRecienteIA: {
             /** Format: int64 */
@@ -15500,6 +15998,20 @@ export interface components {
              */
             usuarioId?: number | null;
         };
+        HistorialPWA: {
+            a: string | null;
+            /** Format: int64 */
+            actorId: number | null;
+            actorNombre: string | null;
+            de: string | null;
+            detalle: unknown;
+            /** Format: date-time */
+            ocurridoEn: string;
+            /** @enum {string} */
+            origen: "usuario" | "webhook" | "sincronizacion" | "sistema";
+            /** @enum {string} */
+            tipo: "creada" | "editada" | "enviada" | "estado" | "categoria" | "calidad" | "usos" | "borrada" | "reanudada";
+        };
         Horario: {
             activo: boolean;
             /** Format: int64 */
@@ -15724,6 +16236,12 @@ export interface components {
              */
             sincronizadoEn: string | null;
         };
+        ListaCuentasPWA: {
+            data: components["schemas"]["CuentaPWA"][];
+        };
+        ListaDatosPWA: {
+            data: components["schemas"]["DatoPWA"][];
+        };
         ListaDestinatarios: {
             data: components["schemas"]["Destinatario"][];
             nextCursor: string | null;
@@ -15775,6 +16293,11 @@ export interface components {
             data: components["schemas"]["PlantillaDisponible"][];
             nextCursor: string | null;
         };
+        ListaPlantillasWA: {
+            conteos: components["schemas"]["ConteosPWA"];
+            data: components["schemas"]["PlantillaWA"][];
+            nextCursor: string | null;
+        };
         ListaPrestamos: {
             data: components["schemas"]["Prestamo"][];
             nextCursor: string | null;
@@ -15782,6 +16305,13 @@ export interface components {
         ListaRespuestasRapidas: {
             data: components["schemas"]["RespuestaRapida"][];
             nextCursor: string | null;
+        };
+        ListaSugeridasPWA: {
+            data: components["schemas"]["SugeridaEnCuentaPWA"][];
+            /** @description Nombre de la empresa (pie de fábrica) */
+            empresa: string;
+            /** Format: int64 */
+            faltan: number;
         };
         ListaSugeridos: {
             data: components["schemas"]["ManualSugerido"][];
@@ -17424,6 +17954,19 @@ export interface components {
             /** @description La orden sigue en este técnico y día; false = se movió después de proponer */
             vigente: boolean;
         };
+        ParametroPWA: {
+            /**
+             * Format: int64
+             * @description Índice del botón (componente boton)
+             */
+            boton?: number;
+            /** @enum {string} */
+            componente: "encabezado" | "cuerpo" | "boton";
+            /** @description Clave del dato de Iris */
+            dato: string;
+            /** @description Nombre de la variable en Meta (o su posición) */
+            nombre: string;
+        };
         ParteSincronizacion: {
             /**
              * Format: int64
@@ -17663,7 +18206,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -17766,6 +18309,81 @@ export interface components {
             items: components["schemas"]["ItemPlantilla"][] | null;
             nombre: string;
             requiereFirma: boolean;
+        };
+        PlantillaCreadaPWA: {
+            /** @enum {string|null} */
+            atender: "rechazada" | "pausada" | "deshabilitada" | "bloqueada" | "borrada_en_uso" | "reclasificada" | "reclasificacion_proxima" | null;
+            /** Format: date-time */
+            borradaEn: string | null;
+            /**
+             * @description sistema: la cuenta pasó a otra empresa y se archivó
+             * @enum {string|null}
+             */
+            borradaPor: "iris" | "meta" | "sistema" | null;
+            /** @enum {string} */
+            calidad: "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
+            /** @enum {string} */
+            categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+            /** @description Meta la reclasificó: la que tenía (hasta que alguien la revise) */
+            categoriaAnterior: string | null;
+            /** Format: date-time */
+            categoriaCambiadaEn: string | null;
+            /** @description Meta avisó que la reclasificará a esta */
+            categoriaProxima: string | null;
+            /** Format: date-time */
+            categoriaProximaEn: string | null;
+            /** @description Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta */
+            codigos: string[];
+            /** Format: date-time */
+            createdAt: string;
+            definicion: components["schemas"]["DefinicionPWA"];
+            ediciones: components["schemas"]["EdicionesPWA"];
+            /** Format: int64 */
+            empresaId: number | null;
+            /** Format: date-time */
+            enviadaEn: string | null;
+            /** @description Se pidió enviarla y no se pudo: queda como borrador */
+            errorEnvio: components["schemas"]["Problema"];
+            /** @enum {string} */
+            estado: "BORRADOR" | "PENDING" | "APPROVED" | "REJECTED" | "PAUSED" | "DISABLED" | "FLAGGED" | "IN_APPEAL" | "LIMIT_EXCEEDED" | "LOCKED" | "ARCHIVED" | "PENDING_DELETION" | "DELETED";
+            /** Format: date-time */
+            estadoEn: string;
+            /** @description Nombre para personas */
+            etiqueta: string;
+            /**
+             * @description Variables con nombre o por posición
+             * @enum {string}
+             */
+            formato: "NAMED" | "POSITIONAL";
+            /** Format: int64 */
+            id: number;
+            idioma: string;
+            metaId: string | null;
+            /** @description reason de Meta (INVALID_FORMAT, PROMOTIONAL…) */
+            motivo: string | null;
+            /** @description Nombre en Meta */
+            nombre: string;
+            /**
+             * Format: date-time
+             * @description Meta no deja reusar el nombre hasta esta fecha
+             */
+            nombreLibreEn: string | null;
+            /** @enum {string} */
+            origen: "iris" | "sugerida" | "meta" | "migrada" | "canal";
+            parametros: components["schemas"]["ParametroPWA"][];
+            /** Format: date-time */
+            pausadaHasta: string | null;
+            rechazo: components["schemas"]["RechazoPWA"];
+            /** Format: date-time */
+            sincronizadaEn: string | null;
+            sugerida: string | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description avisos, conversaciones, asistente */
+            usos: string[];
+            /** Format: int32 */
+            version: number;
+            wabaId: string;
         };
         PlantillaDisponible: {
             /**
@@ -17909,6 +18527,155 @@ export interface components {
             texto: string;
             variables: components["schemas"]["Variable"][] | null;
         };
+        PlantillaWA: {
+            /** @enum {string|null} */
+            atender: "rechazada" | "pausada" | "deshabilitada" | "bloqueada" | "borrada_en_uso" | "reclasificada" | "reclasificacion_proxima" | null;
+            /** Format: date-time */
+            borradaEn: string | null;
+            /**
+             * @description sistema: la cuenta pasó a otra empresa y se archivó
+             * @enum {string|null}
+             */
+            borradaPor: "iris" | "meta" | "sistema" | null;
+            /** @enum {string} */
+            calidad: "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
+            /** @enum {string} */
+            categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+            /** @description Meta la reclasificó: la que tenía (hasta que alguien la revise) */
+            categoriaAnterior: string | null;
+            /** Format: date-time */
+            categoriaCambiadaEn: string | null;
+            /** @description Meta avisó que la reclasificará a esta */
+            categoriaProxima: string | null;
+            /** Format: date-time */
+            categoriaProximaEn: string | null;
+            /** @description Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta */
+            codigos: string[];
+            /** Format: date-time */
+            createdAt: string;
+            definicion: components["schemas"]["DefinicionPWA"];
+            ediciones: components["schemas"]["EdicionesPWA"];
+            /** Format: int64 */
+            empresaId: number | null;
+            /** Format: date-time */
+            enviadaEn: string | null;
+            /** @enum {string} */
+            estado: "BORRADOR" | "PENDING" | "APPROVED" | "REJECTED" | "PAUSED" | "DISABLED" | "FLAGGED" | "IN_APPEAL" | "LIMIT_EXCEEDED" | "LOCKED" | "ARCHIVED" | "PENDING_DELETION" | "DELETED";
+            /** Format: date-time */
+            estadoEn: string;
+            /** @description Nombre para personas */
+            etiqueta: string;
+            /**
+             * @description Variables con nombre o por posición
+             * @enum {string}
+             */
+            formato: "NAMED" | "POSITIONAL";
+            /** Format: int64 */
+            id: number;
+            idioma: string;
+            metaId: string | null;
+            /** @description reason de Meta (INVALID_FORMAT, PROMOTIONAL…) */
+            motivo: string | null;
+            /** @description Nombre en Meta */
+            nombre: string;
+            /**
+             * Format: date-time
+             * @description Meta no deja reusar el nombre hasta esta fecha
+             */
+            nombreLibreEn: string | null;
+            /** @enum {string} */
+            origen: "iris" | "sugerida" | "meta" | "migrada" | "canal";
+            parametros: components["schemas"]["ParametroPWA"][];
+            /** Format: date-time */
+            pausadaHasta: string | null;
+            rechazo: components["schemas"]["RechazoPWA"];
+            /** Format: date-time */
+            sincronizadaEn: string | null;
+            sugerida: string | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description avisos, conversaciones, asistente */
+            usos: string[];
+            /** Format: int32 */
+            version: number;
+            wabaId: string;
+        };
+        PlantillaWADetalle: {
+            /** @enum {string|null} */
+            atender: "rechazada" | "pausada" | "deshabilitada" | "bloqueada" | "borrada_en_uso" | "reclasificada" | "reclasificacion_proxima" | null;
+            /** Format: date-time */
+            borradaEn: string | null;
+            /**
+             * @description sistema: la cuenta pasó a otra empresa y se archivó
+             * @enum {string|null}
+             */
+            borradaPor: "iris" | "meta" | "sistema" | null;
+            /** @enum {string} */
+            calidad: "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
+            /** @enum {string} */
+            categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+            /** @description Meta la reclasificó: la que tenía (hasta que alguien la revise) */
+            categoriaAnterior: string | null;
+            /** Format: date-time */
+            categoriaCambiadaEn: string | null;
+            /** @description Meta avisó que la reclasificará a esta */
+            categoriaProxima: string | null;
+            /** Format: date-time */
+            categoriaProximaEn: string | null;
+            /** @description Códigos del catálogo de Iris que atiende (Argos pide avisos por código); cada código, a una sola plantilla de la cuenta */
+            codigos: string[];
+            /** Format: date-time */
+            createdAt: string;
+            definicion: components["schemas"]["DefinicionPWA"];
+            ediciones: components["schemas"]["EdicionesPWA"];
+            /** Format: int64 */
+            empresaId: number | null;
+            /** Format: date-time */
+            enviadaEn: string | null;
+            /** @enum {string} */
+            estado: "BORRADOR" | "PENDING" | "APPROVED" | "REJECTED" | "PAUSED" | "DISABLED" | "FLAGGED" | "IN_APPEAL" | "LIMIT_EXCEEDED" | "LOCKED" | "ARCHIVED" | "PENDING_DELETION" | "DELETED";
+            /** Format: date-time */
+            estadoEn: string;
+            /** @description Nombre para personas */
+            etiqueta: string;
+            /**
+             * @description Variables con nombre o por posición
+             * @enum {string}
+             */
+            formato: "NAMED" | "POSITIONAL";
+            historial: components["schemas"]["HistorialPWA"][];
+            /** Format: int64 */
+            id: number;
+            idioma: string;
+            metaId: string | null;
+            /** @description reason de Meta (INVALID_FORMAT, PROMOTIONAL…) */
+            motivo: string | null;
+            /** @description Nombre en Meta */
+            nombre: string;
+            /**
+             * Format: date-time
+             * @description Meta no deja reusar el nombre hasta esta fecha
+             */
+            nombreLibreEn: string | null;
+            /** @enum {string} */
+            origen: "iris" | "sugerida" | "meta" | "migrada" | "canal";
+            parametros: components["schemas"]["ParametroPWA"][];
+            /** Format: date-time */
+            pausadaHasta: string | null;
+            /** @description Empresas a las que prestas un número de esta cuenta: mandan con estas mismas plantillas */
+            prestatarias: components["schemas"]["PrestatariaPWA"][];
+            rechazo: components["schemas"]["RechazoPWA"];
+            /** Format: date-time */
+            sincronizadaEn: string | null;
+            sugerida: string | null;
+            /** Format: date-time */
+            updatedAt: string;
+            /** @description avisos, conversaciones, asistente */
+            usos: string[];
+            /** Format: int32 */
+            version: number;
+            wabaId: string;
+        };
         PorTipoChat: {
             cuadrilla: components["schemas"]["ContadoresChat"];
             directa: components["schemas"]["ContadoresChat"];
@@ -18021,6 +18788,12 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        PrestatariaPWA: {
+            /** Format: int64 */
+            empresaId: number;
+            nombre: string;
+            usos: string[];
+        };
         Previsualizacion: {
             /** @description El conector activo de este sistema tiene ese origen */
             conectorExistente: boolean;
@@ -18035,6 +18808,11 @@ export interface components {
         Problema: {
             /** @description Explicación de este caso */
             detail?: string;
+            /**
+             * Format: date-time
+             * @description nombre_bloqueado, limite_ediciones, sincronizada_hace_poco: desde cuándo se puede
+             */
+            disponibleEn?: string;
             /** @description Errores por campo */
             errors?: components["schemas"]["ErrorCampo"][] | null;
             /** @description monto_cambio: el monto actual (decimal con dos decimales) */
@@ -18044,6 +18822,8 @@ export interface components {
              * @description Código HTTP
              */
             status: number;
+            /** @description nombre_en_uso, nombre_bloqueado: un nombre libre para ofrecer */
+            sugerencia?: string;
             /** @description Resumen legible del tipo de problema */
             title: string;
             /** @description orden_ya_tomada: quién tomó la orden primero */
@@ -18386,6 +19166,10 @@ export interface components {
              */
             ultimaEn: string;
         };
+        RechazoPWA: {
+            motivo: string;
+            recomendacion: string;
+        };
         RecibirLlamadas: {
             /**
              * @description Por qué el servidor apagó «Recibir llamadas» en este navegador: tope (pasaste de 10 navegadores) o inactivo (30 días sin abrirlo)
@@ -18435,6 +19219,15 @@ export interface components {
             motivo: "sin_configurar" | "servicio_central_no_disponible" | null;
             /** @description extras.sessionInfoVersion de FB.login */
             sessionInfoVersion: string;
+        };
+        ReglaPWA: {
+            /** @description Dónde corregir (definicion.cuerpo, nombre…) */
+            campo: string | null;
+            /** @description En llano: qué pide la regla o qué corregir */
+            mensaje: string;
+            ok: boolean;
+            /** @enum {string} */
+            regla: "nombre" | "nombre_libre" | "idioma" | "categoria" | "marketing" | "cuerpo" | "encabezado" | "pie" | "variables_formato" | "variables_bordes" | "variables_seguidas" | "ejemplos" | "datos" | "botones" | "largos" | "autenticacion";
         };
         Reincidencia: {
             asunto: string;
@@ -18698,6 +19491,13 @@ export interface components {
             /** @enum {string} */
             estado: "ok" | "error";
         };
+        ResultadoReglasPWA: {
+            /** @enum {string} */
+            formato: "NAMED" | "POSITIONAL";
+            /** @description Todas las reglas se cumplen: se puede enviar */
+            ok: boolean;
+            reglas: components["schemas"]["ReglaPWA"][];
+        };
         ResumenAvisos: {
             /** Format: int32 */
             noLeidos: number;
@@ -18752,6 +19552,20 @@ export interface components {
             id: string;
             /** Format: int64 */
             mensajesNuevos: number;
+        };
+        ResumenSincronizacionPWA: {
+            /** @description Ya no están en Meta */
+            borradas: components["schemas"]["CambioCuentaPWA"][];
+            cambiadas: components["schemas"]["CambioCuentaPWA"][];
+            /** @description Creadas fuera de Iris (en Meta) */
+            nuevas: components["schemas"]["CambioCuentaPWA"][];
+            /** @enum {string} */
+            origen: "manual" | "nocturna" | "webhook" | "canal";
+            /**
+             * Format: int64
+             * @description Plantillas que devolvió Meta
+             */
+            total: number;
         };
         ResumenTickets: {
             /**
@@ -19481,6 +20295,14 @@ export interface components {
              */
             plazo: string;
         };
+        SincronizacionPedida: {
+            /**
+             * Format: date-time
+             * @description La sincronización anterior (cambia al terminar la pedida)
+             */
+            sincronizadaEn: string | null;
+            wabaId: string;
+        };
         Sugerencia: {
             /** @description Ausente si no propone nada */
             accion?: components["schemas"]["AccionSugerencia"];
@@ -19503,6 +20325,26 @@ export interface components {
             /** @description El mensaje del cliente al que responde */
             paraMensajeId: string | null;
             texto: string | null;
+        };
+        SugeridaEnCuentaPWA: {
+            /** @enum {string} */
+            categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+            clave: string;
+            /** @description Código del catálogo que atiende (null = para usos futuros: órdenes, verificación) */
+            codigo: string | null;
+            definicion: components["schemas"]["DefinicionPWA"];
+            etiqueta: string;
+            /** @description Dónde la usa Iris, en llano */
+            para: string;
+            /** @description La que ya tienes (null = falta crearla) */
+            plantilla: components["schemas"]["SugeridaExistentePWA"];
+            usos: string[];
+        };
+        SugeridaExistentePWA: {
+            estado: string;
+            /** Format: int64 */
+            id: number;
+            nombre: string;
         };
         TableroIA: {
             avisos: components["schemas"]["AvisoServidorIA"][] | null;
@@ -20312,6 +21154,18 @@ export interface components {
             nombre: string;
             /** @description Hay que mandarla (hoy todas las del catálogo) */
             obligatoria: boolean;
+        };
+        VariableDatoPWA: {
+            dato: string;
+            nombre: string;
+        };
+        VariablePWA: {
+            /** @description Qué dato de Iris va aquí (GET /plantillas-whatsapp/datos); null = sin definir (no sirve para avisos) */
+            dato?: string;
+            /** @description Ejemplo para Meta (obligatorio; nunca datos reales) */
+            ejemplo: string;
+            /** @description Como va en el texto entre llaves: cliente_nombre o 1, 2… (por posición) */
+            nombre: string;
         };
         VentanaConversacion: {
             /** @description Se puede mandar texto y adjuntos; si no, solo plantillas aprobadas */
@@ -42128,6 +42982,1451 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarPlantillasWhatsApp: {
+        parameters: {
+            query?: {
+                /** @description Solo esta cuenta */
+                wabaId?: string;
+                /** @description activas (aprobadas), revision (borrador o en revisión), atender (rechazadas, pausadas, borradas en uso, reclasificadas) */
+                grupo?: "activas" | "revision" | "atender";
+                categoria?: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+                idioma?: string;
+                /** @description Por nombre o etiqueta */
+                buscar?: string;
+                /** @description Incluir todas las borradas (por defecto solo las que Meta borró y se usaban) */
+                borradas?: boolean;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaPlantillasWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearPlantillaWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearPWA"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaCreadaPWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Failed Dependency */
+            424: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    ajustesPlantillasWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesPWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    guardarAjustesPlantillasWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaAjustesPWA"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesPWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cuentasPlantillasWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaCuentasPWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    sincronizarPlantillasWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                waba: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SincronizacionPedida"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Failed Dependency */
+            424: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    datosPlantillasWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaDatosPWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    sugeridasPlantillasWhatsApp: {
+        parameters: {
+            query: {
+                wabaId: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaSugeridasPWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    crearSugeridaWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                clave: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCrearSugeridaPWA"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaCreadaPWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Failed Dependency */
+            424: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    validarPlantillaWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaValidarPWA"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultadoReglasPWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verPlantillaWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaWADetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    actualizarPlantillaWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarPWA"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    borrarPlantillaWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersionPWA"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Failed Dependency */
+            424: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    editarPlantillaWhatsAppEnMeta: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaEditarMetaPWA"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Failed Dependency */
+            424: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    enviarPlantillaWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersionPWA"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Failed Dependency */
+            424: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reanudarPlantillaWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaVersionPWA"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Failed Dependency */
+            424: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    usosPlantillaWhatsApp: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaUsosPWA"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlantillaWA"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
