@@ -20,7 +20,27 @@ func contactoPropio(c *sip.ContactHeader) bool {
 	if c == nil || (c.Address.Scheme != "sip" && c.Address.Scheme != "sips") || !strings.HasSuffix(strings.ToLower(c.Address.Host), ".invalid") {
 		return false
 	}
-	t, _ := c.Address.UriParams.Get("transport")
+	// Sin contraseña ni ?cabeceras en la URI, y solo los parámetros transport y ob: maddr, lr y los
+	// demás cambiarían a dónde manda la Issabel.
+	if c.Address.Password != "" || c.Address.Headers.Length() > 0 || c.Address.Wildcard {
+		return false
+	}
+	t := ""
+	for _, k := range c.Address.UriParams.Keys() {
+		switch strings.ToLower(k) {
+		case "transport":
+			if t != "" {
+				return false // dos transport: cada lado podría leer otro
+			}
+			t, _ = c.Address.UriParams.Get(k)
+			if t == "" {
+				return false
+			}
+		case "ob":
+		default:
+			return false
+		}
+	}
 	t = strings.ToLower(t)
 	return t == "ws" || t == "wss"
 }

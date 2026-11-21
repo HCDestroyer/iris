@@ -94,6 +94,15 @@ var (
 	cabecerasRespuesta = map[string]bool{"via": true, "from": true, "to": true, "call-id": true, "cseq": true, "contact": true, "content-type": true,
 		"content-length": true, "allow": true, "supported": true, "server": true, "user-agent": true, "rseq": true, "require": true,
 		"session-expires": true, "accept": true, "allow-events": true}
+	// cabecerasHaciaNavegador: lo único de la Issabel que llega al navegador (peticiones y respuestas).
+	// Fuera quedan Server/User-Agent (versión de la Issabel), P-Asserted-Identity/Remote-Party-ID
+	// (identidad interna), Call-Info y Alert-Info (contestar solo, timbre de una URL), Diversion, los
+	// desafíos y cualquier X-*. Via, Record-Route y Contact se quedan: el navegador los necesita para
+	// responder y seguir el diálogo (llevan la dirección de la Issabel, que Iris no reescribe).
+	cabecerasHaciaNavegador = map[string]bool{"via": true, "max-forwards": true, "from": true, "to": true, "call-id": true, "cseq": true,
+		"contact": true, "record-route": true, "content-type": true, "content-length": true, "allow": true, "supported": true, "require": true,
+		"unsupported": true, "rseq": true, "rack": true, "expires": true, "min-expires": true, "session-expires": true, "min-se": true,
+		"event": true, "subscription-state": true, "accept": true, "allow-events": true, "reason": true, "retry-after": true}
 )
 
 // soloPermitidas deja en el mensaje solo las cabeceras de la lista (por nombre completo).

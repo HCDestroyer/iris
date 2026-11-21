@@ -111,6 +111,11 @@ const (
 	maxExpiraciones     = 600
 	vidaTransaccion     = 64 * time.Second
 	maxDialogosGuardado = 64
+	// maxOtrosGuardados: REGISTER y OPTIONS fuera de un diálogo (mapa aparte: nunca quitan lugar a una llamada).
+	maxOtrosGuardados = 16
+	// maxDeCentralita: transacciones de la Issabel que esperan respuesta del navegador.
+	maxDeCentralita = 256
+	vidaOtro        = 15 * time.Minute
 )
 
 // ErrCortado: el puente terminó por Cortar.
@@ -140,6 +145,8 @@ type transaccion struct {
 	final        bool
 	// destino: el número del REFER (para el hecho «transferida» con el 2xx).
 	destino string
+	// otro: REGISTER u OPTIONS fuera de un diálogo (su estado vive en Puente.otros).
+	otro bool
 }
 
 type dialogo struct {
@@ -171,12 +178,17 @@ type Puente struct {
 
 	mu       sync.Mutex
 	dialogos map[string]*dialogo
-	txs      map[claveTx]*transaccion
-	invites  map[string]*transaccion // branch original del INVITE → último intento
-	locales  map[string]bool         // branch de INVITE rechazado aquí (su ACK no sale)
-	minuto   time.Time
-	cuenta   int
-	cortado  bool
+	// otros: REGISTER y OPTIONS fuera de un diálogo, con su propio tope (no cuentan en dialogos).
+	otros map[string]*dialogo
+	// pendientesCen: branch y método de cada petición de la Issabel que se pasó al navegador; solo
+	// sus respuestas vuelven a la Issabel.
+	pendientesCen map[claveTx]time.Time
+	txs           map[claveTx]*transaccion
+	invites       map[string]*transaccion // branch original del INVITE → último intento
+	locales       map[string]bool         // branch de INVITE rechazado aquí (su ACK no sale)
+	minuto        time.Time
+	cuenta        int
+	cortado       bool
 
 	hechos chan HechoLlamada
 	fin    chan struct{}
@@ -198,7 +210,8 @@ func Nuevo(o Opciones, navegador, centralita Lado) *Puente {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
-	return &Puente{o: o, nav: navegador, cen: centralita, dialogos: map[string]*dialogo{}, txs: map[claveTx]*transaccion{},
+	return &Puente{o: o, nav: navegador, cen: centralita, dialogos: map[string]*dialogo{}, otros: map[string]*dialogo{},
+		pendientesCen: map[claveTx]time.Time{}, txs: map[claveTx]*transaccion{},
 		invites: map[string]*transaccion{}, locales: map[string]bool{}, hechos: make(chan HechoLlamada, 64), fin: make(chan struct{})}
 }
 
@@ -454,6 +467,10 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 				return p.responderNavegador(ctx, req, sip.StatusForbidden, "Forbidden")
 			}
 			req.Recipient = sip.Uri{Scheme: "sip", User: dest.Usuario, Host: p.o.Credencial.Dominio}
+			// To es la misma URI que se marca y From va sin nombre visible: el navegador no elige
+			// qué ve la Issabel (ni lo que mostraría o guardaría en su CDR).
+			req.To().DisplayName, req.To().Address = "", sip.Uri{Scheme: "sip", User: dest.Usuario, Host: p.o.Credencial.Dominio}
+			req.From().DisplayName = ""
 			p.mu.Lock()
 			if d == nil {
 				if d = p.nuevoDialogo(callID); d == nil {
@@ -538,6 +555,34 @@ func (p *Puente) nuevoDialogo(callID string) *dialogo {
 	return d
 }
 
+// otroDialogo (con p.mu tomado): el estado de un REGISTER u OPTIONS fuera de un diálogo. Si el mapa
+// está lleno se olvida el más viejo (solo pierde su desfase de CSeq; nunca bloquea una llamada).
+func (p *Puente) otroDialogo(callID string) *dialogo {
+	if d := p.otros[callID]; d != nil {
+		return d
+	}
+	if len(p.otros) >= maxOtrosGuardados {
+		viejo, cuando := "", time.Time{}
+		for k, d := range p.otros {
+			if viejo == "" || d.actividad.Before(cuando) {
+				viejo, cuando = k, d.actividad
+			}
+		}
+		delete(p.otros, viejo)
+	}
+	d := &dialogo{avisado: map[string]bool{}, actividad: time.Now()}
+	p.otros[callID] = d
+	return d
+}
+
+// dialogoDe (con p.mu tomado): el estado al que pertenece la transacción.
+func (p *Puente) dialogoDe(t *transaccion) *dialogo {
+	if t.otro {
+		return p.otros[t.callID]
+	}
+	return p.dialogos[t.callID]
+}
+
 // contactosValidos: todos los Contact son del navegador y con su usuario SIP ("*" solo en un REGISTER).
 func (p *Puente) contactosValidos(m sip.Message, registro bool) bool {
 	for _, h := range m.GetHeaders("Contact") {
@@ -571,11 +616,15 @@ func (p *Puente) dialogosVivos() int {
 func (p *Puente) enviarPeticion(ctx context.Context, req *sip.Request, callID, rama, destino string) error {
 	p.mu.Lock()
 	d := p.dialogos[callID]
+	otro := false
 	if d == nil {
-		if d = p.nuevoDialogo(callID); d == nil {
+		// Solo REGISTER y OPTIONS llegan aquí sin diálogo (el INVITE lo creó antes): van al mapa
+		// aparte, que nunca deja sin lugar a una llamada.
+		if req.Method != sip.REGISTER && req.Method != sip.OPTIONS {
 			p.mu.Unlock()
-			return p.responderNavegador(ctx, req, sip.StatusServiceUnavailable, "Service Unavailable")
+			return p.responderNavegador(ctx, req, sip.StatusCallTransactionDoesNotExists, "Call/Transaction Does Not Exist")
 		}
+		d, otro = p.otroDialogo(callID), true
 	}
 	cs := req.CSeq()
 	orig := cs.SeqNo
@@ -586,7 +635,7 @@ func (p *Puente) enviarPeticion(ctx context.Context, req *sip.Request, callID, r
 	d.actividad = time.Now()
 	texto := req.String()
 	t := &transaccion{ramaOriginal: rama, ramaEnviada: rama, metodo: req.Method, delta: d.offset, seqOriginal: orig, texto: texto, callID: callID, creada: time.Now(),
-		destino: destino}
+		destino: destino, otro: otro}
 	p.txs[claveTx{rama, req.Method}] = t
 	if req.IsInvite() {
 		p.invites[rama] = t
@@ -659,6 +708,16 @@ func (p *Puente) respuestaNavegador(ctx context.Context, res *sip.Response) erro
 	if res.StatusCode < 100 || res.StatusCode > 699 {
 		return nil
 	}
+	// Solo la respuesta a una petición que la Issabel mandó por esta conexión (misma branch y método).
+	p.mu.Lock()
+	_, conocida := p.pendientesCen[claveTx{res.Via().Params.GetOr("branch", ""), res.CSeq().MethodName}]
+	if conocida && res.StatusCode >= 200 && res.CSeq().MethodName != sip.INVITE {
+		delete(p.pendientesCen, claveTx{res.Via().Params.GetOr("branch", ""), res.CSeq().MethodName})
+	}
+	p.mu.Unlock()
+	if !conocida {
+		return nil
+	}
 	if !requireValido(res) {
 		quitar(res, "Require")
 	}
@@ -683,6 +742,9 @@ func (p *Puente) respuestaNavegador(ctx context.Context, res *sip.Response) erro
 			d.tagLocal, _ = res.To().Params.Get("tag")
 		case res.StatusCode >= 300:
 			d.terminado = true
+		case res.StatusCode > 100 && d.tagLocal == "":
+			// La etiqueta del navegador sale en su primera provisional con To (o en la 2xx).
+			d.tagLocal, _ = res.To().Params.Get("tag")
 		}
 	}
 	if d != nil && res.CSeq().MethodName == sip.BYE && res.IsSuccess() {
@@ -722,23 +784,24 @@ func (p *Puente) respuestaCentralita(ctx context.Context, res *sip.Response) err
 		return nil
 	}
 	desafio := res.StatusCode == sip.StatusUnauthorized || res.StatusCode == sip.StatusProxyAuthRequired
-	if desafio && t.intentos < 2 {
-		cab := "WWW-Authenticate"
-		if res.StatusCode == sip.StatusProxyAuthRequired {
-			cab = "Proxy-Authenticate"
-		}
-		if h := res.GetHeader(cab); h != nil {
-			if dz, err := LeerDesafio(h.Value()); err == nil && (t.intentos == 0 || dz.Stale) {
-				p.mu.Unlock()
-				return p.reintentar(ctx, t, res, dz, res.StatusCode == sip.StatusProxyAuthRequired)
-			}
+	sinDesafioUtil := false
+	if desafio {
+		dz, ok := elegirDesafio(res)
+		switch {
+		case !ok:
+			// Ningún desafío que Iris sepa contestar (p. ej. solo SHA-512 o auth-int): no es la
+			// credencial de la extensión, es la configuración de la Issabel.
+			sinDesafioUtil = true
+		case t.intentos < 2 && (t.intentos == 0 || dz.Stale):
+			p.mu.Unlock()
+			return p.reintentar(ctx, t, res, dz, res.StatusCode == sip.StatusProxyAuthRequired)
 		}
 	}
 	credenciales := false
 	if desafio {
 		// Credenciales rechazadas: el navegador recibe 403, nunca el desafío, y el puente corta (si no,
 		// el navegador reintentaría y el fail2ban de la Issabel bloquearía la IP de Iris para todos).
-		credenciales = true
+		credenciales = !sinDesafioUtil
 		res.StatusCode, res.Reason = sip.StatusForbidden, "Forbidden"
 		if t.metodo == sip.INVITE {
 			if ack := ackNo2xx(t, res); ack != "" {
@@ -752,13 +815,23 @@ func (p *Puente) respuestaCentralita(ctx context.Context, res *sip.Response) err
 		}
 	}
 	quitar(res, cabecerasAutenticacion...)
+	soloPermitidas(res, cabecerasHaciaNavegador)
 	res.CSeq().SeqNo -= t.delta
 	res.Via().Params.Add("branch", t.ramaOriginal)
 	final := res.StatusCode >= 200
 	if final {
 		t.final = true
 	}
-	d := p.dialogos[t.callID]
+	if t.otro && final && t.metodo == sip.OPTIONS {
+		delete(p.otros, t.callID) // un OPTIONS no deja estado
+	}
+	d := p.dialogoDe(t)
+	if t.otro {
+		if d != nil {
+			d.actividad = time.Now()
+		}
+		d = nil // un REGISTER u OPTIONS no es una llamada
+	}
 	var hecho *HechoLlamada
 	if d != nil {
 		d.actividad = time.Now()
@@ -803,7 +876,38 @@ func (p *Puente) respuestaCentralita(ctx context.Context, res *sip.Response) err
 		}()
 		p.Cortar(CierreSinAcceso, "credenciales")
 	}
+	if desafio && sinDesafioUtil {
+		p.o.Log.WarnContext(ctx, "telefono: la centralita pidió una autenticación que Iris no sabe contestar")
+		p.Cortar(CierreSinAcceso, "desafio_no_soportado")
+	}
 	return err
+}
+
+// elegirDesafio revisa todos los desafíos de la respuesta (puede haber uno por algoritmo) y se queda
+// con MD5 si está; si no, con el primero que Iris sepa contestar.
+func elegirDesafio(res *sip.Response) (Desafio, bool) {
+	cab := "www-authenticate"
+	if res.StatusCode == sip.StatusProxyAuthRequired {
+		cab = "proxy-authenticate"
+	}
+	var elegido Desafio
+	hay := false
+	for _, h := range res.Headers() {
+		if strings.ToLower(h.Name()) != cab {
+			continue
+		}
+		dz, err := LeerDesafio(h.Value())
+		if err != nil {
+			continue
+		}
+		if dz.Algoritmo == "MD5" {
+			return dz, true
+		}
+		if !hay {
+			elegido, hay = dz, true
+		}
+	}
+	return elegido, hay
 }
 
 // reintentar manda otra vez la petición con la credencial (CSeq + 1, otra branch). Con un INVITE,
@@ -815,7 +919,7 @@ func (p *Puente) reintentar(ctx context.Context, t *transaccion, res *sip.Respon
 		return nil
 	}
 	p.mu.Lock()
-	d := p.dialogos[t.callID]
+	d := p.dialogoDe(t)
 	if d == nil {
 		p.mu.Unlock()
 		return nil
@@ -845,7 +949,7 @@ func (p *Puente) reintentar(ctx context.Context, t *transaccion, res *sip.Respon
 	req.AppendHeader(sip.NewHeader(nombre, valor))
 	texto := req.String()
 	t2 := &transaccion{ramaOriginal: t.ramaOriginal, ramaEnviada: nueva, metodo: t.metodo, delta: d.offset, seqOriginal: t.seqOriginal, texto: texto,
-		intentos: t.intentos + 1, callID: t.callID, creada: time.Now()}
+		intentos: t.intentos + 1, callID: t.callID, creada: time.Now(), otro: t.otro}
 	p.txs[claveTx{nueva, t.metodo}] = t2
 	if t.metodo == sip.INVITE {
 		p.invites[t.ramaOriginal] = t2
@@ -885,8 +989,8 @@ func ackNo2xx(t *transaccion, res *sip.Response) string {
 }
 
 func (p *Puente) peticionCentralita(ctx context.Context, req *sip.Request) error {
-	quitar(req, cabecerasAutenticacion...)
-	quitarIris(req)
+	soloPermitidas(req, cabecerasHaciaNavegador)
+
 	callID := string(*req.CallID())
 	etiquetaTo, _ := req.To().Params.Get("tag")
 	p.mu.Lock()
@@ -912,9 +1016,13 @@ func (p *Puente) peticionCentralita(ctx context.Context, req *sip.Request) error
 		}
 		d.inviteEntrante, d.actividad = req.String(), time.Now()
 		d.tagRemoto, _ = req.From().Params.Get("tag")
-		// La etiqueta del navegador la elige él en su respuesta: hasta entonces se acepta la suya.
-		d.tagLocal = "*"
+		// La etiqueta del navegador la fija su primera respuesta con To (provisional o 2xx): hasta
+		// entonces no vale ninguna petición suya dentro de este diálogo.
+		d.tagLocal = ""
 		p.mu.Unlock()
+		if !p.anotarDeCentralita(req) {
+			return p.responderCentralita(ctx, req, sip.StatusServiceUnavailable, "Service Unavailable")
+		}
 		if id := p.o.Politica.Entrante(ctx, req.From().Address.User); id != nil {
 			req.AppendHeader(sip.NewHeader("X-Iris-Llamada", id.String()))
 		}
@@ -939,7 +1047,28 @@ func (p *Puente) peticionCentralita(ctx context.Context, req *sip.Request) error
 	if hecho != nil {
 		p.avisar(*hecho)
 	}
+	if !req.IsAck() && !p.anotarDeCentralita(req) {
+		return p.responderCentralita(ctx, req, sip.StatusServiceUnavailable, "Service Unavailable")
+	}
 	return p.nav.Escribir(ctx, []byte(req.String()))
+}
+
+// anotarDeCentralita guarda la branch de una petición de la Issabel: solo sus respuestas vuelven.
+func (p *Puente) anotarDeCentralita(req *sip.Request) bool {
+	rama := req.Via().Params.GetOr("branch", "")
+	if rama == "" || len(rama) > 128 {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.pendientesCen) >= maxDeCentralita {
+		p.limpiar()
+		if len(p.pendientesCen) >= maxDeCentralita {
+			return false
+		}
+	}
+	p.pendientesCen[claveTx{rama, req.Method}] = time.Now()
+	return true
 }
 
 func (p *Puente) responderCentralita(ctx context.Context, req *sip.Request, codigo int, razon string) error {
@@ -1018,6 +1147,16 @@ func (p *Puente) limpiar() {
 	}
 	if len(p.locales) > 256 {
 		p.locales = map[string]bool{}
+	}
+	for k, c := range p.pendientesCen {
+		if ahora.Sub(c) > vidaTransaccion {
+			delete(p.pendientesCen, k)
+		}
+	}
+	for k, d := range p.otros {
+		if ahora.Sub(d.actividad) > vidaOtro {
+			delete(p.otros, k)
+		}
 	}
 	for k, d := range p.dialogos {
 		if (d.terminado || !d.confirmado) && ahora.Sub(d.actividad) > 5*time.Minute {
