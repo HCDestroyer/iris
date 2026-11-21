@@ -37,7 +37,7 @@ func TestTelefonoProbarRegistroNoRepiteLaRechazada(t *testing.T) {
 	}
 	antes := len(b.sip.Recibidos())
 	// La misma contraseña no se vuelve a probar: 429 sin tocar la Issabel.
-	*b.reloj = b.reloj.Add(5 * time.Minute)
+	b.avanzarReloj(5 * time.Minute)
 	r = b.probarRegistro()
 	b.exigirProblema(r, http.StatusTooManyRequests, "credencial_rechazada")
 	exigirReintentarDespues(t, r, 25*60)
@@ -57,14 +57,14 @@ func TestTelefonoProbarRegistroNoRepiteLaRechazada(t *testing.T) {
 		t.Fatalf("lista sin sipRechazadoEn: %v", vista)
 	}
 	// Pasado el plazo se puede probar otra vez (fail2ban ya olvidó).
-	*b.reloj = b.reloj.Add(26 * time.Minute)
+	b.avanzarReloj(26 * time.Minute)
 	r = b.probarRegistro()
 	b.exigir(r, http.StatusOK)
 	if r.cuerpo["estado"] != "credenciales" {
 		t.Fatalf("tras el plazo: %v", r.cuerpo)
 	}
 	// Escribir otra contraseña la deja probar enseguida, y una prueba que pasa borra el rechazo.
-	*b.reloj = b.reloj.Add(time.Second)
+	b.avanzarReloj(time.Second)
 	b.exigir(b.api(b.admin, http.MethodPost, b.rutaExt("/telefono"), map[string]any{"tipo": "navegador", "sipSecreto": secretoSIP}), http.StatusOK)
 	r = b.probarRegistro()
 	b.exigir(r, http.StatusOK)
@@ -75,7 +75,7 @@ func TestTelefonoProbarRegistroNoRepiteLaRechazada(t *testing.T) {
 
 func TestTelefonoProbarRegistroTopePorMinuto(t *testing.T) {
 	b := nuevoBancoTelefono(t)
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	for i := range 3 {
 		r := b.probarRegistro()
 		b.exigir(r, http.StatusOK)
@@ -91,10 +91,10 @@ func TestTelefonoProbarRegistroTopePorMinuto(t *testing.T) {
 		t.Fatalf("REGISTER pasado el tope: %d", n)
 	}
 	// Un 429 no alarga la ventana: al minuto se puede otra vez.
-	*b.reloj = b.reloj.Add(61 * time.Second)
+	b.avanzarReloj(61 * time.Second)
 	b.exigir(b.probarRegistro(), http.StatusOK)
 	// El tope de la centralita junta todas sus extensiones.
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	b.sql(`UPDATE mensajeria.centralitas SET registro_pruebas = 10, registro_pruebas_desde = $2 WHERE id = $1`, b.id, *b.reloj)
 	b.exigirProblema(b.probarRegistro(), http.StatusTooManyRequests, "demasiados_intentos")
 }
@@ -152,7 +152,7 @@ func TestTelefonoTopeDeRechazosPorCentralita(t *testing.T) {
 	b.hasta(func() bool { return b.rechazosCentralita() == 1 }, "el puente no contó el rechazo")
 	// … y dos en «Probar registro», cada uno con otra contraseña (el tope por minuto no los frena).
 	for i := range 2 {
-		*b.reloj = b.reloj.Add(25 * time.Second)
+		b.avanzarReloj(25 * time.Second)
 		b.guardarSecreto("clave-mala-" + strconv.Itoa(i))
 		r := b.probarRegistro()
 		b.exigir(r, http.StatusOK)
@@ -161,7 +161,7 @@ func TestTelefonoTopeDeRechazosPorCentralita(t *testing.T) {
 		}
 	}
 	// Con la cuarta contraseña ya no se prueba: 429 sin tocar la Issabel.
-	*b.reloj = b.reloj.Add(25 * time.Second)
+	b.avanzarReloj(25 * time.Second)
 	b.guardarSecreto(secretoSIP)
 	antes := len(b.sip.Recibidos())
 	r := b.probarRegistro()
@@ -176,7 +176,7 @@ func TestTelefonoTopeDeRechazosPorCentralita(t *testing.T) {
 	b.exigirProblema(r, http.StatusTooManyRequests, "demasiados_rechazos")
 	exigirReintentarDespues(t, r, 10*60)
 	// Pasada la ventana, todo vuelve.
-	*b.reloj = b.reloj.Add(10 * time.Minute)
+	b.avanzarReloj(10 * time.Minute)
 	r = b.probarRegistro()
 	b.exigir(r, http.StatusOK)
 	if r.cuerpo["estado"] != "ok" {
@@ -192,7 +192,7 @@ func TestTelefonoPruebaDeLaViejaNoMarcaLaNueva(t *testing.T) {
 	b.guardarSecreto("otra-clave-mala")
 	cambiar := func(secreto string) func() {
 		return func() {
-			*b.reloj = b.reloj.Add(time.Second)
+			b.avanzarReloj(time.Second)
 			b.guardarSecreto(secreto)
 		}
 	}
@@ -225,7 +225,7 @@ func TestTelefonoRechazoDelPuenteConLaVieja(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	*b.reloj = b.reloj.Add(time.Second)
+	b.avanzarReloj(time.Second)
 	b.guardarSecreto(secretoSIP)
 	b.registrar(w)
 	w.respuesta(403)
@@ -268,12 +268,12 @@ func TestTelefonoUnaPruebaDeRegistroALaVez(t *testing.T) {
 		}
 		return otra
 	}
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	otra := enMedio()
 	b.exigirProblema(otra, http.StatusTooManyRequests, "prueba_en_curso")
 	exigirReintentarDespues(t, otra, 10)
 	// Con rechazos en la ventana (aunque sean menos que el tope), lo mismo como `demasiados_rechazos`.
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	b.sql(`UPDATE mensajeria.centralitas SET rechazos = 2, rechazos_desde = $2 WHERE id = $1`, b.id, *b.reloj)
 	antes := len(b.sip.Recibidos())
 	otra = enMedio()
@@ -284,7 +284,7 @@ func TestTelefonoUnaPruebaDeRegistroALaVez(t *testing.T) {
 		t.Fatalf("REGISTER en la centralita: %d", n)
 	}
 	// Al terminar la primera, el turno queda libre.
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	r := b.probarRegistro()
 	b.exigir(r, http.StatusOK)
 	if r.cuerpo["estado"] != "ok" {
@@ -335,7 +335,7 @@ func TestTelefonoRechazoCuentaAunqueCortenLaPrueba(t *testing.T) {
 		t.Fatalf("el turno quedó tomado: %v", h)
 	}
 	// Quitan la extensión a mitad de la prueba: también cuenta.
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	b.guardarSecreto("otra-clave-mala-2")
 	b.m.FijarTrasProbarRegistro(func(context.Context) {
 		b.sql(`UPDATE mensajeria.centralita_extensiones SET activa = false WHERE id = $1`, int64(b.extID))
@@ -350,7 +350,7 @@ func TestTelefonoRechazoCuentaAunqueCortenLaPrueba(t *testing.T) {
 func TestTelefonoPruebaSoloSueltaSuTurno(t *testing.T) {
 	b := nuevoBancoTelefono(t)
 	t.Cleanup(func() { b.m.FijarTrasProbarRegistro(nil) })
-	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.avanzarReloj(2 * time.Minute)
 	otro := b.reloj.Add(time.Minute)
 	b.m.FijarTrasProbarRegistro(func(context.Context) {
 		// La reserva de esta prueba venció y otra prueba tomó el turno.
@@ -381,7 +381,7 @@ func TestTelefonoAbrirYConectarTomanElTurno(t *testing.T) {
 		t.Fatalf("conectar con el turno del ticket: %v", err)
 	}
 	// Un ticket sin turno (de antes de los rechazos) no conecta si otro lo tiene.
-	*b.reloj = b.reloj.Add(31 * time.Second)
+	b.avanzarReloj(31 * time.Second)
 	b.sql(`UPDATE mensajeria.centralitas SET rechazos = 0, rechazos_desde = NULL WHERE id = $1`, b.id)
 	sinTurno := b.abrir(b.agente, "panel")
 	b.sql(`UPDATE mensajeria.centralitas SET rechazos = 1, rechazos_desde = $2, registro_en_curso_hasta = $3 WHERE id = $1`,
@@ -390,6 +390,6 @@ func TestTelefonoAbrirYConectarTomanElTurno(t *testing.T) {
 		t.Fatalf("conectar sin turno: %d %v", status, err)
 	}
 	// Al vencer el turno ajeno, /abrir vuelve.
-	*b.reloj = b.reloj.Add(21 * time.Second)
+	b.avanzarReloj(21 * time.Second)
 	b.abrir(b.agente, "panel")
 }
