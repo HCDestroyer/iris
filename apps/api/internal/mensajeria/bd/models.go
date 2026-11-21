@@ -1658,6 +1658,8 @@ type MensajeriaConversacion struct {
 	AsistentePausadoPor     *int64
 	AsistentePausaMotivo    *string
 	AsistenteReanudadoEn    *time.Time
+	AsistenteAtencionDesde  *time.Time
+	AsistentePausaPrevio    *string
 }
 
 type MensajeriaConversacionEtiqueta struct {

@@ -78,15 +78,22 @@ WHERE id = @id AND asistente_estado IN ('atendiendo', 'espera_persona');
 -- persona), queda detenido: el turno en curso ya no envía nada.
 UPDATE mensajeria.conversaciones
 SET asistente_pausado_en = @ahora, asistente_pausado_por = @usuario, asistente_pausa_motivo = @motivo,
+    -- El estado de antes de la pausa (en SET se lee la fila de antes): al reanudar dice si venía de
+    -- una persona (espera_persona o detenido) o si el asistente atendía.
+    asistente_pausa_previo = asistente_estado,
     asistente_estado = CASE WHEN asistente_estado IN ('atendiendo', 'espera_persona') THEN 'detenido' ELSE asistente_estado END,
     updated_at = now()
 WHERE id = @id;
 
 -- name: ReanudarAsistenteConv :exec
 -- §17.11: quita la pausa y le devuelve la conversación al asistente: deja de estar detenido (conserva
--- sus turnos y su presentación) y lo que una persona escribió antes ya no lo frena.
+-- sus turnos y su presentación) y lo que una persona escribió antes ya no lo frena. nueva_atencion:
+-- venía de una persona (la pasó a una persona, o una persona la tomó o escribió): maxTurnos cuenta
+-- desde ahora. Al quitar solo una pausa no cambia.
 UPDATE mensajeria.conversaciones
-SET asistente_pausado_en = NULL, asistente_pausado_por = NULL, asistente_pausa_motivo = NULL, asistente_reanudado_en = @ahora,
+SET asistente_pausado_en = NULL, asistente_pausado_por = NULL, asistente_pausa_motivo = NULL, asistente_pausa_previo = NULL,
+    asistente_reanudado_en = @ahora,
+    asistente_atencion_desde = CASE WHEN @nueva_atencion::boolean THEN @ahora ELSE asistente_atencion_desde END,
     asistente_estado = CASE WHEN asistente_estado IN ('detenido', 'espera_persona') THEN NULL ELSE asistente_estado END,
     updated_at = now()
 WHERE id = @id;
