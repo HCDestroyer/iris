@@ -176,8 +176,11 @@ const (
 	PermProspectosPerder             Permiso = "prospectos.perder"
 	PermProspectosReabrir            Permiso = "prospectos.reabrir"
 	PermProspectosGanar              Permiso = "prospectos.ganar"
-	PermFactibilidadEvaluar          Permiso = "factibilidad.evaluar"
-	PermFactibilidadConfigurar       Permiso = "factibilidad.configurar"
+	// PermProspectosRegistrarIntegracion: registrar un prospecto desde Argos (contrato 0.10.0 §3.6,
+	// A44). Solo del rol integracion_argos: no lee, no lista ni edita prospectos.
+	PermProspectosRegistrarIntegracion Permiso = "prospectos.registrar_integracion"
+	PermFactibilidadEvaluar            Permiso = "factibilidad.evaluar"
+	PermFactibilidadConfigurar         Permiso = "factibilidad.configurar"
 	// factibilidad.registrar_manual: el resultado de una visita técnica (supervisor, técnico).
 	PermFactibilidadRegistrarManual Permiso = "factibilidad.registrar_manual"
 	PermCotizacionesCrear           Permiso = "cotizaciones.crear"
@@ -633,6 +636,7 @@ var Catalogo = []DefPermiso{
 	{PermProspectosPerder, "Marcar un prospecto como perdido, con motivo"},
 	{PermProspectosReabrir, "Reabrir un prospecto perdido"},
 	{PermProspectosRegistrarActividad, "Registrar llamadas, visitas y notas de un prospecto"},
+	{PermProspectosRegistrarIntegracion, "Registrar prospectos desde Argos (lo usa Argos con su token de integración; no lee ni edita prospectos)"},
 	{PermProspectosVer, "Ver prospectos, su embudo, actividades, cotizaciones y contratos (según el alcance)"},
 	{PermReportesVer, "Ver los reportes de SLA, resolución, órdenes por técnico, primera visita y reincidencias (según el alcance; también en CSV)"},
 	{PermRolesActivar, "Volver a activar un rol propio desactivado"},
@@ -806,7 +810,9 @@ var RolesBase = []DefRol{
 	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2 y pedido A9 propuesto)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermOrdenesVer, PermPortalEmitir, PermSSOEmitir,
 			// Mensajería (contrato 0.6.0 §1.2 y §6): avisos, permisos de contacto y plantillas.
-			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer}},
+			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer,
+			// Prospectos registrados desde Argos (contrato 0.10.0 §3.6, A44): solo registrar.
+			PermProspectosRegistrarIntegracion}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }
