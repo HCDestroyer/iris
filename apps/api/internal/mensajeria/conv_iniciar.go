@@ -22,21 +22,29 @@ import (
 // Iniciar una conversación, buscar a quién escribir y «Pasar a…» (contratos/conversaciones.md
 // §14.3 y §14.4).
 
-// categoriaPlantilla: la categoría de Meta. Todo el catálogo de Iris son avisos de servicio
-// (utility); marketing y autenticación quedan para plantillas futuras.
-func categoriaPlantilla(Plantilla) string { return "servicio" }
+// categoriaPlantilla: la categoría de Meta de la plantilla con que sale el código (servicio = utility;
+// las del mapa de un número sin cuenta son de servicio).
+func categoriaPlantilla(pm PlantillaMeta) string {
+	switch pm.Categoria {
+	case CategoriaMarketing:
+		return "marketing"
+	case CategoriaAutenticacion:
+		return "autenticacion"
+	}
+	return "servicio"
+}
 
 // plantillasDisponibles: las plantillas del catálogo aprobadas en el número.
-func plantillasDisponibles(canal mensajeriabd.MensajeriaCanal) ListaPlantillasConv {
-	aprobadas := plantillasDeCanal(canal)
+func (m *Modulo) plantillasDisponibles(ctx context.Context, q *mensajeriabd.Queries, canal mensajeriabd.MensajeriaCanal) (ListaPlantillasConv, error) {
+	aprobadas, err := m.plantillasDeCanal(ctx, q, canal, UsoPWConversaciones)
 	out := ListaPlantillasConv{Data: []PlantillaDisponible{}}
 	for _, p := range Catalogo {
 		if pm, ok := aprobadas[p.Codigo]; ok {
-			out.Data = append(out.Data, PlantillaDisponible{Codigo: p.Codigo, Nombre: pm.Nombre, Categoria: categoriaPlantilla(p), Variables: p.Variables,
+			out.Data = append(out.Data, PlantillaDisponible{Codigo: p.Codigo, Nombre: pm.Nombre, Categoria: categoriaPlantilla(pm), Variables: p.Variables,
 				VistaPrevia: p.Texto})
 		}
 	}
-	return out
+	return out, err
 }
 
 // puedeIniciarDesde: el número es activo, de la empresa y de una de las colas del usuario (miembro
@@ -78,7 +86,7 @@ type EntradaCanalConv struct {
 	ID int64 `path:"id" minimum:"1"`
 }
 
-func nuevoPlantillasCanal(*Modulo) *auditoria.Caso[EntradaCanalConv, ListaPlantillasConv] {
+func nuevoPlantillasCanal(m *Modulo) *auditoria.Caso[EntradaCanalConv, ListaPlantillasConv] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCanalConv, ListaPlantillasConv]{
 		Accion: "conversaciones.plantillas_numero", Permiso: nucleo.PermConversacionesIniciar, AuditarExito: sinAuditar[ListaPlantillasConv],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCanalConv) (ListaPlantillasConv, error) {
@@ -101,7 +109,7 @@ func nuevoPlantillasCanal(*Modulo) *auditoria.Caso[EntradaCanalConv, ListaPlanti
 			if !ok {
 				return ListaPlantillasConv{}, nucleo.NoEncontrado("El número no existe o no es de tus colas")
 			}
-			return plantillasDisponibles(canal), nil
+			return m.plantillasDisponibles(ctx, q, canal)
 		},
 	})
 }
@@ -546,7 +554,11 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 	if !ok {
 		return ConversacionIniciada{}, campoConv("plantilla.codigo", "No es una plantilla de Iris", "plantilla")
 	}
-	if _, ok := plantillasDeCanal(canal)[p.Codigo]; !ok {
+	usables, err := m.plantillasDeCanal(ctx, q, canal, UsoPWConversaciones)
+	if err != nil {
+		return ConversacionIniciada{}, err
+	}
+	if _, ok := usables[p.Codigo]; !ok {
 		return ConversacionIniciada{}, reglaConv("plantilla_no_aprobada", "La plantilla no está aprobada en ese número")
 	}
 	if in.Plantilla.Variables == nil {

@@ -60,15 +60,17 @@ func nuevoListarPlantillas(m *Modulo) *auditoria.Caso[EntradaPlantillas, ListaPl
 				}
 				todas, empresas = false, []int64{in.EmpresaID}
 			}
-			canales, err := mensajeriabd.New(t).CanalesActivosDeEmpresas(ctx, mensajeriabd.CanalesActivosDeEmpresasParams{Todas: todas, Empresas: empresas})
+			q := mensajeriabd.New(t)
+			canales, err := q.CanalesActivosDeEmpresas(ctx, mensajeriabd.CanalesActivosDeEmpresasParams{Todas: todas, Empresas: empresas})
 			if err != nil {
 				return ListaPlantillas{}, err
 			}
 			aprobadas := map[string]map[string]bool{}
 			for _, c := range canales {
-				var p map[string]PlantillaMeta
-				if json.Unmarshal(c.Plantillas, &p) != nil {
-					continue
+				// Las de su cuenta de WhatsApp marcadas para avisos (o su mapa propio, sin cuenta).
+				p, err := m.plantillasDeCanal(ctx, q, c, UsoPWAvisos)
+				if err != nil {
+					return ListaPlantillas{}, err
 				}
 				for codigo := range p {
 					if aprobadas[codigo] == nil {
@@ -271,6 +273,9 @@ type EntradaCrearCanal struct {
 	Usos          []string                 `json:"usos,omitempty" maxItems:"4" uniqueItems:"true" doc:"avisos, soporte, cobros, ventas (por defecto avisos y soporte)"`
 	AvisosEmpresa *bool                    `json:"avisosEmpresa,omitempty" doc:"Número de avisos de la empresa. Por defecto, sí cuando la empresa no tiene otro y usos incluye avisos"`
 	ColaID        *int64                   `json:"colaId,omitempty" minimum:"1" nullable:"true" doc:"Cola de las conversaciones nuevas"`
+	// wabaComprobada: huella de la cuenta, el número y el token que se comprobaron en Meta antes de la
+	// transacción (CasoCanal).
+	wabaComprobada string
 }
 
 // EntradaActualizarCanal es POST /mensajeria/canales/{id}/actualizar (las credenciales vacías no cambian).
@@ -287,6 +292,7 @@ type EntradaActualizarCanal struct {
 	// GenerarVerifyToken: «Generar otro» (no junto con verifyToken).
 	GenerarVerifyToken bool                     `json:"generarVerifyToken,omitempty" doc:"Iris genera un verify token nuevo y lo devuelve una vez en verifyTokenGenerado (no junto con verifyToken). Meta debe verificar el webhook otra vez"`
 	Plantillas         map[string]PlantillaMeta `json:"plantillas"`
+	wabaComprobada     string
 }
 
 // generarVerifyToken: vt_ + 32 caracteres aleatorios (base64 url, 192 bits).
@@ -369,6 +375,16 @@ func nuevoCrearCanal(m *Modulo) *auditoria.Caso[EntradaCrearCanal, Canal] {
 			case len(in.VerifyToken) < 16:
 				return Canal{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "verifyToken", Message: "Demasiado corto (mínimo 16)", Rule: "minLength"})
 			}
+			// La cuenta de WhatsApp (WABA): comprobada en Meta con el token del número (antes de la
+			// transacción, en CasoCanal) y de una sola empresa.
+			if in.WabaID != "" {
+				if in.wabaComprobada != huellaWaba(in.WabaID, in.PhoneNumberID, in.Token) {
+					return Canal{}, wabaSinComprobar()
+				}
+				if err := m.reclamarWaba(ctx, t, q, in.WabaID, in.EmpresaID); err != nil {
+					return Canal{}, err
+				}
+			}
 			id, err := q.SiguienteIDCanal(ctx)
 			if err != nil {
 				return Canal{}, err
@@ -397,6 +413,9 @@ func nuevoCrearCanal(m *Modulo) *auditoria.Caso[EntradaCrearCanal, Canal] {
 				return Canal{}, conflictoCanal(err)
 			}
 			c := m.aCanal(f)
+			if err := m.reflejarPlantillasCanal(ctx, t, q, f, nil, false); err != nil {
+				return Canal{}, err
+			}
 			t.RegistrarCambios("canal_mensajeria", f.ID, nil, auditableCanal(c, "***"))
 			c.VerifyTokenGenerado = generado
 			return c, t.Emitir("canal_mensajeria.creado", map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID, "tipo": f.Tipo, "canal": f.Canal})
@@ -474,9 +493,14 @@ func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Can
 				return Canal{}, nucleo.ConflictoVersion("canal", in.ID)
 			}
 			// Un número QR: el token es el del registro y el app secret el de la conexión (§15.2).
+			// Tampoco su cuenta (WABA): la da Meta en el registro y no se comprueba con otro token. Sin
+			// wabaId, se queda la del registro.
+			if antes.TipoConexion == ConexionQR && in.WabaID == "" {
+				in.WabaID = antes.WabaID
+			}
 			if antes.TipoConexion == ConexionQR && (in.Token != "" || in.AppSecret != "" || in.VerifyToken != "" || in.GenerarVerifyToken ||
-				in.PhoneNumberID != antes.PhoneNumberID || in.Numero != antes.Numero) {
-				return Canal{}, reglaConv("numero_qr", "Un número conectado con QR no cambia su token, app secret, verify token, phone number ID ni número: reconéctalo con QR")
+				in.PhoneNumberID != antes.PhoneNumberID || in.Numero != antes.Numero || in.WabaID != antes.WabaID) {
+				return Canal{}, reglaConv("numero_qr", "Un número conectado con QR no cambia su token, app secret, verify token, phone number ID, número ni cuenta de WhatsApp (WABA): reconéctalo con QR")
 			}
 			cr, err := m.credencialesDe(antes)
 			if err != nil {
@@ -507,6 +531,20 @@ func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Can
 				}
 				*par.destino, cambioCred = par.nuevo, "***"
 			}
+			// La cuenta de WhatsApp (WABA): si cambia (o el número o el token), comprobada en Meta antes de
+			// la transacción (CasoCanal); si es nueva o cambia, de una sola empresa. Un número que sigue en
+			// la misma cuenta (p. ej. solo cambia el nombre) no se rechaza aunque la cuenta sea de otra
+			// empresa: sigue con su mapa propio (WABA compartida de antes, runbook plantillas-whatsapp).
+			if in.WabaID != "" {
+				if requiereComprobarWaba(antes, in) && in.wabaComprobada != huellaWaba(in.WabaID, in.PhoneNumberID, cr.Token) {
+					return Canal{}, wabaSinComprobar()
+				}
+				if in.WabaID != antes.WabaID {
+					if err := m.reclamarWaba(ctx, t, mensajeriabd.New(t), in.WabaID, antes.EmpresaID); err != nil {
+						return Canal{}, err
+					}
+				}
+			}
 			cifradas, err := m.cifrarCredenciales(in.ID, cr)
 			if err != nil {
 				return Canal{}, err
@@ -527,6 +565,9 @@ func nuevoActualizarCanal(m *Modulo) *auditoria.Caso[EntradaActualizarCanal, Can
 			}
 			c := m.aCanal(f)
 			fijarEmpresaCanal(t, f.EmpresaID)
+			if err := m.reflejarPlantillasCanal(ctx, t, mensajeriabd.New(t), f, antes.Plantillas, false); err != nil {
+				return Canal{}, err
+			}
 			campos := t.RegistrarCambios("canal_mensajeria", f.ID, auditableCanal(m.aCanal(antes), "sin_cambio"), auditableCanal(c, cambioCred))
 			if campos == nil {
 				campos = []string{}
@@ -553,9 +594,26 @@ func nuevoCambioCanal(m *Modulo, accion string, activo bool) *auditoria.Caso[Ent
 			if antes.Activo == activo {
 				return m.aCanal(antes), nil
 			}
-			f, err := mensajeriabd.New(t).FijarCanalActivo(ctx, mensajeriabd.FijarCanalActivoParams{ID: in.ID, Activo: activo})
+			q := mensajeriabd.New(t)
+			f, err := q.FijarCanalActivo(ctx, mensajeriabd.FijarCanalActivoParams{ID: in.ID, Activo: activo})
 			if err != nil {
 				return Canal{}, conflictoCanal(err)
+			}
+			// Un número con cuenta que vuelve: solo reclama una cuenta sin dueña (activar no comprueba
+			// nada en Meta, así que nunca cambia la dueña; eso solo pasa al crear o actualizar un número
+			// con la cuenta comprobada). Si la cuenta es suya, su mapa se refleja en los códigos libres;
+			// si es de otra empresa, sigue con su mapa propio.
+			if activo && f.WabaID != "" && f.Tipo == TipoWhatsAppCloud {
+				// El candado de la cuenta antes que su fila (mismo orden que la relectura).
+				if err := q.BloquearCuentaPlantillas(ctx, f.WabaID); err != nil {
+					return Canal{}, err
+				}
+				if _, err := q.ReclamarCuentaWA(ctx, mensajeriabd.ReclamarCuentaWAParams{WabaID: f.WabaID, Empresa: derefEmpresa(f.EmpresaID)}); err != nil {
+					return Canal{}, err
+				}
+				if err := m.reflejarPlantillasCanal(ctx, t, q, f, nil, true); err != nil {
+					return Canal{}, err
+				}
 			}
 			t.RegistrarCambios("canal_mensajeria", f.ID, map[string]any{"activo": antes.Activo}, map[string]any{"activo": f.Activo})
 			return m.aCanal(f), t.Emitir(evento, map[string]any{"canal_id": f.ID, "empresa_id": f.EmpresaID})

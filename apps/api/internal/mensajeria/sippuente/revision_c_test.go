@@ -4,7 +4,38 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/emiago/sipgo/sip"
 )
+
+// Revisión de #252, punto 5: con dos `Expires` se quitan todos y queda uno solo, acotado (la Issabel
+// podría leer el segundo y dejar el registro un día entero).
+func TestAcotarExpiraConVarias(t *testing.T) {
+	casos := map[string]string{
+		"Expires: 300\r\nExpires: 86400\r\n":  "300",
+		"Expires: 86400\r\nExpires: 300\r\n":  "300",
+		"Expires: 86400\r\nExpires: 9999\r\n": "600",
+		"Expires: x\r\nExpires: -5\r\n":       "600",
+		"Expires: 120\r\n":                    "120",
+	}
+	for cab, quiere := range casos {
+		m, err := sip.ParseMessage([]byte("REGISTER sip:pbx SIP/2.0\r\nVia: SIP/2.0/WSS a.invalid;branch=z9hG4bKx\r\nFrom: <sip:201@pbx>;tag=a\r\n" +
+			"To: <sip:201@pbx>\r\nCall-ID: c\r\nCSeq: 1 REGISTER\r\n" + cab + "Content-Length: 0\r\n\r\n"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := m.(*sip.Request)
+		acotarExpira(req)
+		hs := req.GetHeaders("Expires")
+		if len(hs) != 1 || hs[0].Value() != quiere {
+			var vs []string
+			for _, h := range hs {
+				vs = append(vs, h.Value())
+			}
+			t.Errorf("%q: Expires %v, quería solo %s", cab, vs, quiere)
+		}
+	}
+}
 
 // Tercera revisión de #246: llamadas de la Issabel de punta a punta (sin regresiones por la lista de
 // transacciones) y los casos 2 a 4.
@@ -163,5 +194,43 @@ func TestSinLugarParaLaTransaccionNoDejaDialogo(t *testing.T) {
 	b.p.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("quedaron %d diálogos", n)
+	}
+}
+
+// Fase 2: las formas compactas de la Issabel (k:, o:, u:, x:) valen lo mismo que su nombre largo en
+// la lista blanca hacia el navegador; las que no están en la lista (s:, e:, a:) se quitan igual.
+func TestFormasCompactasHaciaElNavegador(t *testing.T) {
+	b := arrancarPrueba(t)
+	b.cen.entrada <- []byte("INVITE sip:201@x.invalid;transport=ws SIP/2.0\r\nv: SIP/2.0/WSS 192.168.50.10:8089;branch=z9hG4bKk1\r\n" +
+		"f: <sip:+50255551234@pbx>;tag=pbxtag\r\nt: <sip:201@pbx>\r\ni: k1\r\nCSeq: 1 INVITE\r\nm: <sip:asterisk@192.168.50.10:8089;transport=ws>\r\n" +
+		"k: 100rel, timer\r\no: talk\r\nu: talk, hold\r\nx: 1800;refresher=uac\r\ns: urgente\r\ne: gzip\r\na: *;audio\r\nl: 0\r\n\r\n")
+	s := b.de(b.nav)
+	for _, n := range []string{"k", "o", "u", "x"} {
+		if !tieneCabecera(s, n) {
+			t.Fatalf("se perdió %s:\n%s", n, s)
+		}
+	}
+	for _, n := range []string{"s", "e", "a"} {
+		if tieneCabecera(s, n) {
+			t.Fatalf("pasó %s:\n%s", n, s)
+		}
+	}
+	r := peticion(t, s)
+	if r.CallID() == nil || string(*r.CallID()) != "k1" || r.From() == nil || r.Contact() == nil {
+		t.Fatalf("cabeceras básicas:\n%s", s)
+	}
+}
+
+// Y del navegador: «r:» (Refer-To) fuera de un REFER no llega a la Issabel.
+func TestReferToCompactoFueraDeRefer(t *testing.T) {
+	b := arrancarPrueba(t)
+	b.nav.entrada <- lineas("OPTIONS sip:pbx SIP/2.0", "Via: SIP/2.0/WSS a.invalid;branch=z9hG4bKor", "From: <sip:201@pbx>;tag=a",
+		"To: <sip:pbx>", "Call-ID: or1", "CSeq: 1 OPTIONS", "r: <sip:0019005551234@pbx>", "k: replaces", "Content-Length: 0", "", "")
+	s := b.de(b.cen)
+	if tieneCabecera(s, "r") || tieneCabecera(s, "Refer-To") || strings.Contains(s, "0019005551234") {
+		t.Fatalf("pasó Refer-To:\n%s", s)
+	}
+	if !tieneCabecera(s, "k") {
+		t.Fatalf("se perdió Supported compacto:\n%s", s)
 	}
 }

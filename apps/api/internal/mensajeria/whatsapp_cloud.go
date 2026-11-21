@@ -33,13 +33,15 @@ type whatsappCloud struct {
 	phoneNumberID string
 	token         string
 	plantillas    map[string]PlantillaMeta
+	// avisos: las que la empresa marcó para avisos (Aprobada); plantillas: todas las aprobadas.
+	avisos map[string]PlantillaMeta
 }
 
 func (w *whatsappCloud) Tipo() string        { return TipoWhatsAppCloud }
 func (w *whatsappCloud) Canal() string       { return CanalWhatsApp }
 func (w *whatsappCloud) PermiteAvisos() bool { return true }
 func (w *whatsappCloud) Aprobada(codigo string) bool {
-	_, ok := w.plantillas[codigo]
+	_, ok := w.avisos[codigo]
 	return ok
 }
 
@@ -89,16 +91,36 @@ func (w *whatsappCloud) EnviarPlantilla(ctx context.Context, msg Mensaje) (Resul
 	if !ok {
 		return Resultado{}, &ErrorCanal{Motivo: MotivoRechazado, Detalle: "plantilla no aprobada en el canal"}
 	}
-	cuerpo := metaEnvio{MessagingProduct: "whatsapp", RecipientType: "individual", To: strings.TrimPrefix(msg.Destino, "+"), Type: "template"}
-	cuerpo.Template.Name, cuerpo.Template.Language.Code = pm.Nombre, pm.Idioma
-	if params := msg.Plantilla.Parametros(msg.Variables); len(params) > 0 {
-		c := metaComponente{Type: "body"}
-		for _, p := range params {
-			c.Parameters = append(c.Parameters, metaParametro{Type: "text", Text: p})
+	var crudo []byte
+	var err error
+	if len(pm.Parametros) > 0 {
+		// Plantilla de la cuenta con su mapa de datos (contratos/plantillas-whatsapp.md §6).
+		datos := msg.Datos
+		if datos == nil {
+			datos = datosDerivados(msg.Plantilla, msg.Variables)
 		}
-		cuerpo.Template.Components = []metaComponente{c}
+		comps, faltante := componentesEnvio(pm, datos)
+		if faltante != "" {
+			return Resultado{}, &ErrorCanal{Motivo: MotivoRechazado, Detalle: "falta el dato " + faltante + " para la plantilla " + pm.Nombre}
+		}
+		t := map[string]any{"name": pm.Nombre, "language": map[string]any{"code": pm.Idioma}}
+		if len(comps) > 0 {
+			t["components"] = comps
+		}
+		crudo, err = json.Marshal(map[string]any{"messaging_product": "whatsapp", "recipient_type": "individual",
+			"to": strings.TrimPrefix(msg.Destino, "+"), "type": "template", "template": t})
+	} else {
+		cuerpo := metaEnvio{MessagingProduct: "whatsapp", RecipientType: "individual", To: strings.TrimPrefix(msg.Destino, "+"), Type: "template"}
+		cuerpo.Template.Name, cuerpo.Template.Language.Code = pm.Nombre, pm.Idioma
+		if params := msg.Plantilla.Parametros(msg.Variables); len(params) > 0 {
+			c := metaComponente{Type: "body"}
+			for _, p := range params {
+				c.Parameters = append(c.Parameters, metaParametro{Type: "text", Text: p})
+			}
+			cuerpo.Template.Components = []metaComponente{c}
+		}
+		crudo, err = json.Marshal(cuerpo)
 	}
-	crudo, err := json.Marshal(cuerpo)
 	if err != nil {
 		return Resultado{}, err
 	}
@@ -130,7 +152,7 @@ func (w *whatsappCloud) EnviarPlantilla(ctx context.Context, msg Mensaje) (Resul
 // /{phone_number_id}/media) o una plantilla.
 func (w *whatsappCloud) EnviarConversacion(ctx context.Context, msg MensajeSaliente) (Resultado, error) {
 	if msg.Plantilla != nil {
-		return w.EnviarPlantilla(ctx, Mensaje{AvisoID: msg.ID, Destino: msg.Destino, Plantilla: *msg.Plantilla, Variables: msg.Variables})
+		return w.EnviarPlantilla(ctx, Mensaje{AvisoID: msg.ID, Destino: msg.Destino, Plantilla: *msg.Plantilla, Variables: msg.Variables, Datos: msg.Datos})
 	}
 	cuerpo := map[string]any{"messaging_product": "whatsapp", "recipient_type": "individual", "to": strings.TrimPrefix(msg.Destino, "+")}
 	switch {

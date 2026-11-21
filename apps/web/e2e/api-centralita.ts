@@ -32,6 +32,8 @@ export type OpcionesCentralita = {
     prueba?: Prueba["estado"];
     /** Usuarios con extensión al empezar: id → extensión. */
     extensiones?: Record<number, string>;
+    /** De esos, los que contestan en Iris (E4c) con la contraseña guardada y probada. */
+    navegador?: number[];
     /** Llamadas guardadas al empezar (ficha del cliente, ticket). */
     llamadas?: Llamada[];
 };
@@ -60,7 +62,9 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
     let siguienteExt = 100;
     const extensiones: Extension[] = Object.entries(o.extensiones ?? {}).map(([u, ext]) => ({
         id: siguienteExt++, extension: ext, usuarioId: Number(u), usuarioNombre: PERSONAS_CENTRALITA.find((p) => p.id === Number(u))?.nombre ?? "Persona",
-        tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null,
+        ...(o.navegador?.includes(Number(u))
+            ? { tipo: "navegador" as const, sipUsuario: ext, sipGuardadoEn: "2026-11-18T15:00:00Z", sipProbadoEn: "2026-11-18T15:01:00Z", sipRechazadoEn: null }
+            : { tipo: "escritorio" as const, sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null, sipRechazadoEn: null }),
     }));
     const llamadas: Llamada[] = structuredClone(o.llamadas ?? []);
     const recibido = { pruebas: [] as unknown[], creadas: [] as unknown[], actualizadas: [] as unknown[], activaciones: 0, asignaciones: [] as unknown[], quitadas: 0,
@@ -153,7 +157,7 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
             const usuarioId = Number(c?.usuarioId);
             if (extensiones.some((e) => e.extension === c?.extension)) return (await problema(route, P("extension_ocupada", 409, "Esa extensión ya es de otra persona: quítasela primero")), true);
             const x: Extension = { id: siguienteExt++, extension: String(c?.extension), usuarioId, usuarioNombre: PERSONAS_CENTRALITA.find((p) => p.id === usuarioId)?.nombre ?? "Persona",
-                tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null };
+                tipo: "escritorio", sipUsuario: null, sipGuardadoEn: null, sipProbadoEn: null, sipRechazadoEn: null };
             extensiones.push(x);
             return (await json(route, x), true);
         }
@@ -193,7 +197,13 @@ export function apiCentralita(o: OpcionesCentralita, emitir: (e: Omit<Evento, "i
         return false;
     }
 
-    return { manejar, sonar, actualizar, recibido, llamadas, centralita: () => centralita };
+    /** El teléfono de Iris de la centralita (E4c, e2e/api-telefono.ts). */
+    function telefono(cambio: Partial<NonNullable<Centralita["telefono"]>>) {
+        if (!centralita?.telefono) return;
+        centralita = { ...centralita, telefono: { ...centralita.telefono, ...cambio }, version: centralita.version + 1 };
+    }
+
+    return { manejar, sonar, actualizar, recibido, llamadas, extensiones, telefono, centralita: () => centralita };
 }
 
 export type ApiCentralita = ReturnType<typeof apiCentralita>;

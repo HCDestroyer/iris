@@ -79,8 +79,14 @@ type entradaHechoPuente struct {
 	Destino   string    `json:"destino,omitempty"`
 }
 
+type entradaRechazoPuente struct {
+	CentralitaID int64 `json:"centralita_id"`
+}
+
 type entradaCredenciales struct {
 	ExtensionID int64 `json:"extension_id"`
+	// GuardadoEn: la contraseña con la que se conectó el puente; solo esa se marca rechazada.
+	GuardadoEn time.Time `json:"guardado_en"`
 }
 
 func ticketNoValido() *nucleo.Problema {
@@ -118,6 +124,14 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 			}
 			if x.ID != tk.ExtensionID || x.SipGuardadoEn == nil {
 				return conexionTelefono{}, ticketNoValido()
+			}
+			if err := m.limitarRechazos(ctx, q, x.CentralitaID); err != nil {
+				return conexionTelefono{}, err
+			}
+			// B8: con rechazos en la ventana, el turno de REGISTER de la centralita (el del ticket, si
+			// sigue vigente; si no, otro).
+			if _, err := m.turnoTelefono(ctx, q, x.CentralitaID, tk.TurnoHasta); err != nil {
+				return conexionTelefono{}, err
 			}
 			if err := m.validarHostCentralita(x.Host); err != nil {
 				return conexionTelefono{}, err
@@ -175,12 +189,24 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 			if err != nil {
 				return struct{}{}, err
 			}
-			if err := q.MarcarRegistroProbado(ctx, mensajeriabd.MarcarRegistroProbadoParams{ID: x.ID, SipProbadoEn: nil}); err != nil {
+			// El rechazo ya lo contó rechazoPuente; aquí solo se marca la contraseña que se usó.
+			n, err := q.MarcarRegistroRechazado(ctx, mensajeriabd.MarcarRegistroRechazadoParams{ID: x.ID, Ahora: m.ahora(), Guardado: in.GuardadoEn})
+			if err != nil {
 				return struct{}{}, err
 			}
 			t.FijarEntidad("centralita_extension", x.ID)
+			t.Anotar(map[string]any{"vigente": n == 1})
 			return struct{}{}, t.Emitir("extension.registro_probado", map[string]any{"centralita_id": x.CentralitaID, "empresa_id": x.EmpresaID,
 				"extension_id": x.ID, "usuario_id": contexto.ActorDe(ctx).ID, "estado": "credenciales", "origen": "puente"})
+		},
+	})
+	// rechazoPuente: la Issabel rechazó una contraseña en el puente; cuenta para el tope de la centralita
+	// (fail2ban) aunque la extensión ya no exista o la sesión se haya cerrado. Corre como sistema.
+	k.rechazoPuente = auditoria.Nuevo(auditoria.Caso[entradaRechazoPuente, struct{}]{
+		Accion: "telefono.rechazo_centralita", Acceso: auditoria.Autenticado,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaRechazoPuente) (struct{}, error) {
+			t.FijarEntidad("centralita", in.CentralitaID)
+			return struct{}{}, m.anotarRechazo(ctx, mensajeriabd.New(t), in.CentralitaID)
 		},
 	})
 	k.cerrarConexio = auditoria.Nuevo(auditoria.Caso[entradaCerrarConexion, struct{}]{
@@ -395,7 +421,12 @@ func (p *politicaTelefono) Credenciales(ctx context.Context) {
 	hctx, cancelar := context.WithTimeout(context.WithoutCancel(p.actual()), 10*time.Second)
 	defer cancelar()
 	_ = ctx
-	if _, err := p.m.Centralita.Telefono.credenciales.Ejecutar(hctx, entradaCredenciales{ExtensionID: p.cx.extensionID}); err != nil {
+	// Primero el tope de la centralita, como sistema: tiene que contar pase lo que pase con la sesión.
+	sctx := contexto.Sistema(hctx, contexto.CanalWorker)
+	if _, err := p.m.Centralita.Telefono.rechazoPuente.Ejecutar(sctx, entradaRechazoPuente{CentralitaID: p.cx.centralita}); err != nil {
+		slog.Default().WarnContext(hctx, "telefono: no se pudo contar el rechazo de la centralita", "err", err)
+	}
+	if _, err := p.m.Centralita.Telefono.credenciales.Ejecutar(hctx, entradaCredenciales{ExtensionID: p.cx.extensionID, GuardadoEn: p.cx.guardadoEn}); err != nil {
 		slog.Default().WarnContext(hctx, "telefono: no se pudo anotar la credencial rechazada", "err", err)
 	}
 }

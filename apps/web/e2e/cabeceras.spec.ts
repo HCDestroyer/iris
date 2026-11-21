@@ -9,6 +9,7 @@ import { ADMIN, conSesion, simularApi } from "./api-falsa";
 const sinIframe = (h: Record<string, string>) => {
     expect(h["x-frame-options"]).toBe("DENY");
     expect(h["content-security-policy"]).toContain("frame-ancestors 'none'");
+    expect(h["permissions-policy"]).toBe("microphone=(self), camera=(self), geolocation=(self)");
 };
 
 test("X-Frame-Options y frame-ancestors en /, /encuesta, /entrar y /api", async ({ page, context, baseURL, request }) => {

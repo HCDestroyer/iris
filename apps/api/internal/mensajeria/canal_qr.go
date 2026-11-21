@@ -212,6 +212,18 @@ func nuevoCrearCanalQR(m *Modulo) *CrearCanalQR {
 				e := contexto.EmpresaDe(ctx)
 				empresa = &e
 			}
+			// La WABA es de una sola empresa: si ya la usan números de otra, ni se llama a Meta.
+			if k, err := q.CuentaWA(ctx, in.WabaID); err == nil && k.EmpresaID != derefEmpresa(empresa) {
+				otra, err := q.OtraEmpresaUsaWaba(ctx, mensajeriabd.OtraEmpresaUsaWabaParams{WabaID: in.WabaID, Empresa: derefEmpresa(empresa)})
+				if err != nil {
+					return qrPreparado{}, err
+				}
+				if otra {
+					return qrPreparado{}, wabaDeOtraEmpresa()
+				}
+			} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return qrPreparado{}, err
+			}
 			if err := exigirEmpresaCanal(ctx, t, empresa); err != nil {
 				return qrPreparado{}, err
 			}
@@ -282,6 +294,9 @@ func nuevoCrearCanalQR(m *Modulo) *CrearCanalQR {
 			fijarEmpresaCanal(t, p.empresa)
 			cifradas, err := m.cifrarCredenciales(p.id, credenciales{Token: in.token, VerifyToken: p.verifyToken})
 			if err != nil {
+				return CanalQRConectado{}, err
+			}
+			if err := m.reclamarWaba(ctx, t, q, in.in.WabaID, p.empresa); err != nil {
 				return CanalQRConectado{}, err
 			}
 			ahora := m.ahora()

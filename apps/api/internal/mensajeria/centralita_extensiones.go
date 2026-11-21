@@ -26,6 +26,8 @@ type Extension struct {
 	SipUsuario    *string    `json:"sipUsuario" nullable:"true" doc:"Usuario SIP del endpoint (navegador)"`
 	SipGuardadoEn *time.Time `json:"sipGuardadoEn" nullable:"true" doc:"Cuándo se guardó la contraseña SIP (nunca se devuelve)"`
 	SipProbadoEn  *time.Time `json:"sipProbadoEn" nullable:"true" doc:"La última vez que «Probar registro» pasó"`
+	// SipRechazadoEn: la Issabel rechazó la contraseña guardada (se borra cuando una prueba pasa).
+	SipRechazadoEn *time.Time `json:"sipRechazadoEn" nullable:"true" doc:"La última vez que la Issabel rechazó la contraseña guardada; con ella no se vuelve a probar hasta escribir otra"`
 }
 
 // ListaExtensiones es GET /centralitas/{id}/extensiones.
@@ -70,7 +72,7 @@ func nuevosCasosExtensiones(m *Modulo) (*auditoria.Caso[EntradaVerCentralita, Li
 			out := ListaExtensiones{Data: make([]Extension, 0, len(fs))}
 			for _, f := range fs {
 				out.Data = append(out.Data, Extension{ID: f.ID, Extension: f.Extension, UsuarioID: f.UsuarioID, UsuarioNombre: f.UsuarioNombre, Tipo: f.Tipo,
-					SipUsuario: f.SipUsuario, SipGuardadoEn: f.SipGuardadoEn, SipProbadoEn: f.SipProbadoEn})
+					SipUsuario: f.SipUsuario, SipGuardadoEn: f.SipGuardadoEn, SipProbadoEn: f.SipProbadoEn, SipRechazadoEn: f.SipRechazadoEn})
 			}
 			return out, nil
 		},

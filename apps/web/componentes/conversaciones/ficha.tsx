@@ -46,6 +46,9 @@ import { IndicadorVerificacion } from "./verificacion";
 import { nivelVerificacion } from "@/lib/asistente/fase3b";
 import type { EstadoAsistente } from "@/lib/asistente/tipos";
 import { useAhora } from "./reloj";
+import { BotonLlamarTelefono } from "../telefono/marcar";
+import type { OpcionLlamar } from "../telefono/proveedor";
+import { clasificarMarcado } from "@/lib/telefono/presentacion";
 
 export type PestanaFicha = "resumen" | "historial" | "ayuda";
 
@@ -142,6 +145,7 @@ function CabeceraCliente({ conv, alActualizar }: { conv: ConversacionDetalle; al
                     <span className="truncate text-[0.9375rem] font-semibold">{nombre}</span>
                     <span className="truncate text-[0.78125rem] text-muted-foreground">Cliente de Argos{r?.codigo ? ` · ${r.codigo}` : ""}</span>
                 </div>
+                <BotonLlamarTelefono opciones={opcionesConversacion(conv, nombre)} />
                 {conv.contacto.clienteId ? (
                     <Boton asChild variante="contorno" tamano="icono-sm">
                         <Link href={`/tickets?clienteId=${conv.contacto.clienteId}`} aria-label="Tickets del cliente" title="Tickets del cliente">
@@ -609,12 +613,13 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
                     <span aria-hidden className="flex size-9 shrink-0 items-center justify-center rounded-full bg-elevated text-[0.8125rem] font-semibold">
                         {iniciales(conv.titulo)}
                     </span>
-                    <div className="flex min-w-0 flex-col">
+                    <div className="flex min-w-0 flex-1 flex-col">
                         <span className="truncate text-[0.9375rem] font-semibold">{conv.titulo}</span>
                         <span className="truncate text-[0.78125rem] text-muted-foreground">
                             {titulo} · {formatearNumero(conv.numero)}
                         </span>
                     </div>
+                    <BotonLlamarTelefono opciones={opcionesConversacion(conv, conv.titulo)} />
                 </div>
             ) : (
                 <div className="flex items-start gap-2 rounded-[0.625rem] bg-warning/10 p-2.5 text-[0.8125rem]">
@@ -968,4 +973,20 @@ function DialogoPromesa({ conv, cerrar }: { conv: ConversacionDetalle; cerrar: (
             </DialogoContenido>
         </DialogoProtegido>
     );
+}
+
+/**
+ * «Llamar» con el teléfono de Iris (E4c) desde una conversación: el número de WhatsApp (si es de
+ * Guatemala) y el principal del cliente en Argos. El servidor pone el número y aplica el límite.
+ */
+function opcionesConversacion(conv: ConversacionDetalle, nombre: string): OpcionLlamar[] {
+    const out: OpcionLlamar[] = [];
+    const m = clasificarMarcado(conv.numero);
+    if (m.tipo === "externo") {
+        out.push({ clave: "numero", etiqueta: "Este número", detalle: formatearNumero(conv.numero), entrada: { numero: m.nacional }, nombre, numero: conv.numero });
+    }
+    if (conv.contacto.clienteId) {
+        out.push({ clave: "principal", etiqueta: "Principal del cliente (Argos)", entrada: { clienteId: conv.contacto.clienteId, telefono: "principal" }, nombre, numero: "" });
+    }
+    return out;
 }
