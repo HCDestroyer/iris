@@ -14124,7 +14124,7 @@
             "type": "string"
           },
           "lat": {
-            "description": "Ubicación del intento, tomada en sitio",
+            "description": "Ubicación del intento, tomada en sitio: a 500 m o menos del servicio y de tu última posición (422 ubicacion_fuera_de_sitio)",
             "format": "double",
             "maximum": 90,
             "minimum": -90,
@@ -14156,10 +14156,14 @@
             "type": "string"
           },
           "precisionM": {
+            "description": "Precisión del GPS, obligatoria: 200 m o mejor",
             "format": "double",
-            "maximum": 100000,
+            "maximum": 200,
             "minimum": 0,
-            "type": "number"
+            "type": [
+              "number",
+              "null"
+            ]
           },
           "unidadId": {
             "description": "La unidad en comodato del servicio que no se pudo recuperar",
@@ -14177,7 +14181,8 @@
           "unidadId",
           "motivo",
           "lat",
-          "lon"
+          "lon",
+          "precisionM"
         ],
         "type": "object"
       },

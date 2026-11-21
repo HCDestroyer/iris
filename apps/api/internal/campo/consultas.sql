@@ -410,10 +410,24 @@ INSERT INTO campo.orden_equipos (
 )
 RETURNING *;
 
+-- name: BloquearIntentosDeUnidad :exec
+-- Serializa los intentos de recuperación de una unidad (A-271-2): dos lotes a la vez no pasan los dos.
+SELECT pg_advisory_xact_lock(hashtextextended('campo.no_recuperado:' || @unidad_id::bigint::text, 0));
+
 -- name: IntentosNoRecuperado :one
--- Intentos de recuperación de la unidad registrados en Iris entre desde y hasta (un día local).
+-- Intentos de recuperación de la unidad en el día local, por la fecha del teléfono o por la hora en
+-- que los recibió el servidor (A-271-2: una fecha de otro día no evade el límite).
 SELECT count(*)::int FROM campo.orden_equipos
-WHERE accion = 'no_recuperado' AND unidad_id = @unidad_id AND ocurrido_en >= @desde AND ocurrido_en < @hasta;
+WHERE accion = 'no_recuperado' AND unidad_id = @unidad_id
+  AND ((ocurrido_en >= @desde AND ocurrido_en < @hasta) OR (recibido_en >= @recibido_desde AND recibido_en < @recibido_hasta));
+
+-- name: FotoUsadaEnEquipo :one
+-- La foto ya respalda otro cambio o intento (M-271-3).
+SELECT EXISTS (SELECT 1 FROM campo.orden_equipos WHERE foto_adjunto_id = @foto_adjunto_id)::boolean;
+
+-- name: UltimaPosicionDe :one
+-- La última posición del técnico (campo.posiciones_ultimas), para la ubicación en sitio (M-271-4).
+SELECT lat, lon, registrada_en FROM campo.posiciones_ultimas WHERE tecnico_id = @tecnico_id ORDER BY registrada_en DESC LIMIT 1;
 
 -- name: EquiposDeOrdenes :many
 SELECT * FROM campo.orden_equipos WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, ocurrido_en, created_at;

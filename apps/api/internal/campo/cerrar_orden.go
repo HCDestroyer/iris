@@ -14,6 +14,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
 
@@ -89,6 +90,15 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			faltan, err := m.cfg.Adjuntos.Faltantes(ctx, antes.ID, requisitosAdjuntos(d))
 			if err != nil {
 				return antes, "", err
+			}
+			// La foto de cada cambio o intento también (M-271-3): Argos la abre por su id.
+			for _, e := range d.Equipos {
+				if (e.Accion == AccionCambio || e.Accion == AccionNoRecuperado) && e.FotoAdjuntoID != nil {
+					a, err := adjuntos.DeEntidad(ctx, t, *e.FotoAdjuntoID, "orden", strconv.FormatInt(antes.ID, 10))
+					if err != nil || a.Estado != "completo" {
+						faltan = append(faltan, "equipos."+e.ID.String()+".foto")
+					}
+				}
 			}
 			if len(faltan) > 0 {
 				return antes, "", faltanAdjuntos(faltan)
@@ -247,6 +257,8 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 			if !e.Validado {
 				validados = false
 			}
+			// Quien lo registró va en X-Iris-Actor (A-271-1), aunque la orden se reasigne después.
+			eq["registrado_por"] = e.registradoPor
 			eq["motivo"], eq["foto_ref"] = e.Motivo, e.FotoAdjuntoID
 			eq["fecha"], eq["recibido_en_iris"] = e.OcurridoEn, e.RecibidoEn
 		}

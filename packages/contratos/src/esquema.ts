@@ -14414,7 +14414,7 @@ export interface components {
             fotoAdjuntoId?: string;
             /**
              * Format: double
-             * @description Ubicación del intento, tomada en sitio
+             * @description Ubicación del intento, tomada en sitio: a 500 m o menos del servicio y de tu última posición (422 ubicacion_fuera_de_sitio)
              */
             lat: number | null;
             /** Format: double */
@@ -14422,8 +14422,11 @@ export interface components {
             /** @enum {string} */
             motivo: "cliente_ausente" | "se_nego" | "equipo_perdido" | "otro";
             nota?: string;
-            /** Format: double */
-            precisionM?: number;
+            /**
+             * Format: double
+             * @description Precisión del GPS, obligatoria: 200 m o mejor
+             */
+            precisionM: number | null;
             /**
              * Format: int64
              * @description La unidad en comodato del servicio que no se pudo recuperar

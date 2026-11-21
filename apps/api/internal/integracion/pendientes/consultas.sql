@@ -94,7 +94,7 @@ SELECT * FROM integracion.pendientes WHERE entidad = @entidad AND entidad_id = @
 -- Cierre repetido con los datos que faltaban: el pendiente incompleto vuelve a la cola.
 UPDATE integracion.pendientes
 SET payload = @payload, ruta = @ruta, depende_de = @depende_de, datos_incompletos = false,
-    estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
+    tecnico_usuario_id = sqlc.narg(tecnico_usuario_id)::bigint, estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
     proximo_intento = @ahora, version = version + 1, updated_at = now()
 WHERE id = @id AND estado = 'fallido_negocio' AND datos_incompletos
 RETURNING *;

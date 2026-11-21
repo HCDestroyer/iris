@@ -190,18 +190,19 @@ func (q *Queries) CompletarEsperando(ctx context.Context, arg CompletarEsperando
 const corregirPendiente = `-- name: CorregirPendiente :one
 UPDATE integracion.pendientes
 SET payload = $1, ruta = $2, depende_de = $3, datos_incompletos = false,
-    estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
-    proximo_intento = $4, version = version + 1, updated_at = now()
-WHERE id = $5 AND estado = 'fallido_negocio' AND datos_incompletos
+    tecnico_usuario_id = $4::bigint, estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
+    proximo_intento = $5, version = version + 1, updated_at = now()
+WHERE id = $6 AND estado = 'fallido_negocio' AND datos_incompletos
 RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en
 `
 
 type CorregirPendienteParams struct {
-	Payload   []byte
-	Ruta      string
-	DependeDe []int64
-	Ahora     time.Time
-	ID        int64
+	Payload          []byte
+	Ruta             string
+	DependeDe        []int64
+	TecnicoUsuarioID *int64
+	Ahora            time.Time
+	ID               int64
 }
 
 // Cierre repetido con los datos que faltaban: el pendiente incompleto vuelve a la cola.
@@ -210,6 +211,7 @@ func (q *Queries) CorregirPendiente(ctx context.Context, arg CorregirPendientePa
 		arg.Payload,
 		arg.Ruta,
 		arg.DependeDe,
+		arg.TecnicoUsuarioID,
 		arg.Ahora,
 		arg.ID,
 	)

@@ -332,7 +332,7 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 					MAC: e.Mac, Modelo: e.Modelo, Condicion: e.Condicion, Validado: e.Validado, OcurridoEn: e.OcurridoEn,
 					SaleUnidadID: e.SaleUnidadID, Motivo: e.Motivo, DestinoSale: e.DestinoSale, CobroPropuesto: e.CobroMotivo,
 					CobroNota: e.CobroNota, Nota: e.Nota, FotoAdjuntoID: e.FotoAdjuntoID, Lat: e.Lat, Lon: e.Lon, PrecisionM: e.PrecisionM,
-					RecibidoEn: e.RecibidoEn})
+					RecibidoEn: e.RecibidoEn, registradoPor: e.RegistradoPor})
 			}
 		}
 		for _, fi := range firmas {

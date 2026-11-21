@@ -203,6 +203,8 @@ type EquipoOrden struct {
 	Lon            *float64   `json:"lon,omitempty"`
 	PrecisionM     *float32   `json:"precisionM,omitempty"`
 	RecibidoEn     *time.Time `json:"recibidoEn,omitempty" doc:"Cuándo lo aceptó el servidor (recibido_en_iris)"`
+	// registradoPor: quién lo registró (para el cierre; no sale por la API).
+	registradoPor *int64
 }
 
 // FirmaOrden: firma del cliente (sin el SVG: es dato sensible; se baja como adjunto).

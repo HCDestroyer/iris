@@ -128,6 +128,9 @@ type Equipo struct {
 	} `json:"ubicacion"`
 	Fecha          *time.Time `json:"fecha"`
 	RecibidoEnIris *time.Time `json:"recibido_en_iris"`
+	// RegistradoPor: el técnico que registró el cambio o el intento; va en X-Iris-Actor (A-271-1),
+	// aunque la orden se reasigne después.
+	RegistradoPor *int64 `json:"registrado_por"`
 }
 
 // Acciones de equipo de 0.12.0 (§3.10).
@@ -324,7 +327,10 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 			})), true
 		}
 		p := plan{operacion: OpNoRecuperado, clave: "iris:no_recuperado:" + orden + ":" + uid,
-			ruta: "/servicios/" + sid + "/equipos/" + uid + "/no-recuperado", payload: origen(orden), conActor: true}
+			ruta: "/servicios/" + sid + "/equipos/" + uid + "/no-recuperado", payload: origen(orden), conActor: true, actor: e.RegistradoPor}
+		if e.RegistradoPor == nil {
+			p.incompleto = "intento de recuperación sin quien lo registró"
+		}
 		p.payload["motivo"] = e.Motivo
 		if e.FotoRef != "" {
 			p.payload["foto_ref"] = e.FotoRef
@@ -382,7 +388,10 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				continue
 			}
 			p := plan{operacion: OpCambio, clave: "iris:cambio:" + orden + ":" + sale, ruta: "/servicios/" + sid + "/equipos/cambiar",
-				payload: origen(orden), conActor: true}
+				payload: origen(orden), conActor: true, actor: e.RegistradoPor}
+			if e.RegistradoPor == nil {
+				p.incompleto = "cambio de equipo sin quien lo registró"
+			}
 			p.payload["sale"] = map[string]any{"unidad_id": int64(*e.SaleUnidadID)}
 			p.payload["entra"] = entra
 			p.payload["motivo"], p.payload["destino_sale"] = e.Motivo, e.DestinoSale
@@ -830,7 +839,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					}
 					ids[i] = previo.ID
 					res.Pendientes = append(res.Pendientes, previo.ID)
-					corregido, err := m.cierreRepetido(ctx, t, previo, p, cuerpo, depende, ahora)
+					corregido, err := m.cierreRepetido(ctx, t, previo, p, cuerpo, depende, ahora, tecnicoUsuario)
 					if err != nil {
 						return res, err
 					}
@@ -901,24 +910,28 @@ func (m *Modulo) Suscribir(bus *integracion.Bus) {
 //
 // Devuelve true si el pendiente volvió a la cola.
 func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pendientesbd.IntegracionPendiente, p plan,
-	cuerpo []byte, depende []int64, ahora time.Time) (bool, error) {
+	cuerpo []byte, depende []int64, ahora time.Time, actor *int64) (bool, error) {
+	// El actor es parte de la huella (A-271-1): el mismo cuerpo con otro X-Iris-Actor no es el mismo.
+	mismoActor := (previo.TecnicoUsuarioID == nil && actor == nil) ||
+		(previo.TecnicoUsuarioID != nil && actor != nil && *previo.TecnicoUsuarioID == *actor) || !p.conActor
 	q := pendientesbd.New(t)
 	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && p.incompleto == "" {
-		f, err := q.CorregirPendiente(ctx, pendientesbd.CorregirPendienteParams{Payload: cuerpo, Ruta: p.ruta, DependeDe: depende, Ahora: ahora, ID: previo.ID})
+		f, err := q.CorregirPendiente(ctx, pendientesbd.CorregirPendienteParams{Payload: cuerpo, Ruta: p.ruta, DependeDe: depende, Ahora: ahora, ID: previo.ID,
+			TecnicoUsuarioID: actor})
 		if err != nil {
 			return false, err
 		}
 		t.RegistrarCambios("pendiente", f.ID,
-			map[string]any{"estado": previo.Estado, "ruta": previo.Ruta, "payload": string(previo.Payload), "datos_incompletos": true},
-			map[string]any{"estado": f.Estado, "ruta": f.Ruta, "payload": string(f.Payload), "datos_incompletos": false})
+			map[string]any{"estado": previo.Estado, "ruta": previo.Ruta, "payload": string(sinNotas(previo.Payload)), "datos_incompletos": true},
+			map[string]any{"estado": f.Estado, "ruta": f.Ruta, "payload": string(sinNotas(f.Payload)), "datos_incompletos": false})
 		return true, t.Emitir(EventoCorregido, eventoDe(f))
 	}
-	if previo.Ruta == p.ruta && mismoJSON(previo.Payload, cuerpo) {
+	if previo.Ruta == p.ruta && mismoJSON(previo.Payload, cuerpo) && mismoActor {
 		return false, nil
 	}
 	// Mismos datos con otra forma de decir la bodega (bodega_id ↔ tecnico, al vincular al técnico o
 	// actualizar Argos a 1.6.0): lo ya encolado se queda como está (su huella de idempotencia).
-	if previo.Ruta == p.ruta && mismoJSON(sinBodega(previo.Payload), sinBodega(cuerpo)) {
+	if previo.Ruta == p.ruta && mismoJSON(sinBodega(previo.Payload), sinBodega(cuerpo)) && mismoActor {
 		return false, nil
 	}
 	if previo.Conflicto != nil && mismoJSON(previo.ConflictoPayload, cuerpo) {
@@ -932,9 +945,10 @@ func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pen
 	t.RegistrarCambios("pendiente", f.ID, map[string]any{"conflicto": previo.Conflicto}, map[string]any{"conflicto": motivo})
 	slog.WarnContext(ctx, "pendientes: la orden se cerró de nuevo con otros datos; corregir a mano en Argos",
 		"pendiente", f.ID, "operacion", f.Operacion, "estado", f.Estado)
+	// Las notas del técnico nunca van en eventos ni en la auditoría (B-271-5).
 	var nuevo, anterior map[string]any
-	_ = json.Unmarshal(cuerpo, &nuevo)
-	_ = json.Unmarshal(previo.Payload, &anterior)
+	_ = json.Unmarshal(sinNotas(cuerpo), &nuevo)
+	_ = json.Unmarshal(sinNotas(previo.Payload), &anterior)
 	return false, t.Emitir(EventoConflicto, eventoConflicto{eventoPendiente: eventoDe(f), Estado: f.Estado, Motivo: motivo,
 		PayloadAnterior: anterior, PayloadNuevo: nuevo})
 }
@@ -957,6 +971,30 @@ func mismoJSON(a, b []byte) bool {
 		return false
 	}
 	return reflect.DeepEqual(x, y)
+}
+
+// sinNotas: el cuerpo sin la nota del técnico ni la del cobro propuesto (§10.7 i: nunca en eventos
+// ni en la auditoría). Si no es un objeto JSON, se devuelve tal cual.
+func sinNotas(cuerpo []byte) []byte {
+	var m map[string]any
+	if json.Unmarshal(cuerpo, &m) != nil {
+		return cuerpo
+	}
+	_, hay := m["nota"]
+	cobro, _ := m["cobro_propuesto"].(map[string]any)
+	_, hayCobro := cobro["nota"]
+	if !hay && !hayCobro {
+		return cuerpo
+	}
+	delete(m, "nota")
+	if hayCobro {
+		delete(cobro, "nota")
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return cuerpo
+	}
+	return b
 }
 
 // sinBodega: el cuerpo sin bodega_id ni tecnico (para comparar un cierre repetido).

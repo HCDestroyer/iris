@@ -246,6 +246,16 @@ func (q *Queries) AsegurarParticionPosiciones(ctx context.Context, fecha time.Ti
 	return err
 }
 
+const bloquearIntentosDeUnidad = `-- name: BloquearIntentosDeUnidad :exec
+SELECT pg_advisory_xact_lock(hashtextextended('campo.no_recuperado:' || $1, 0))
+`
+
+// Serializa los intentos de recuperación de una unidad (A-271-2): dos lotes a la vez no pasan los dos.
+func (q *Queries) BloquearIntentosDeUnidad(ctx context.Context, unidadIdpgCatalogint8 string) error {
+	_, err := q.db.Exec(ctx, bloquearIntentosDeUnidad, unidadIdpgCatalogint8)
+	return err
+}
+
 const bodegaDeSuCuadrilla = `-- name: BodegaDeSuCuadrilla :many
 SELECT t.id FROM agenda.tecnicos t
 JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
@@ -1923,6 +1933,18 @@ func (q *Queries) FormulariosDeOrdenes(ctx context.Context, ordenes []int64) ([]
 	return items, nil
 }
 
+const fotoUsadaEnEquipo = `-- name: FotoUsadaEnEquipo :one
+SELECT EXISTS (SELECT 1 FROM campo.orden_equipos WHERE foto_adjunto_id = $1)::boolean
+`
+
+// La foto ya respalda otro cambio o intento (M-271-3).
+func (q *Queries) FotoUsadaEnEquipo(ctx context.Context, fotoAdjuntoID *uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, fotoUsadaEnEquipo, fotoAdjuntoID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const guardarAjustes = `-- name: GuardarAjustes :one
 UPDATE campo.ajustes SET tecnicos_toman_libres = $1, version = version + 1, updated_at = now()
 WHERE id = $2 AND version = $3
@@ -2398,18 +2420,28 @@ func (q *Queries) InsertarPosiciones(ctx context.Context, arg InsertarPosiciones
 
 const intentosNoRecuperado = `-- name: IntentosNoRecuperado :one
 SELECT count(*)::int FROM campo.orden_equipos
-WHERE accion = 'no_recuperado' AND unidad_id = $1 AND ocurrido_en >= $2 AND ocurrido_en < $3
+WHERE accion = 'no_recuperado' AND unidad_id = $1
+  AND ((ocurrido_en >= $2 AND ocurrido_en < $3) OR (recibido_en >= $4 AND recibido_en < $5))
 `
 
 type IntentosNoRecuperadoParams struct {
-	UnidadID *int64
-	Desde    time.Time
-	Hasta    time.Time
+	UnidadID      *int64
+	Desde         time.Time
+	Hasta         time.Time
+	RecibidoDesde *time.Time
+	RecibidoHasta *time.Time
 }
 
-// Intentos de recuperación de la unidad registrados en Iris entre desde y hasta (un día local).
+// Intentos de recuperación de la unidad en el día local, por la fecha del teléfono o por la hora en
+// que los recibió el servidor (A-271-2: una fecha de otro día no evade el límite).
 func (q *Queries) IntentosNoRecuperado(ctx context.Context, arg IntentosNoRecuperadoParams) (int32, error) {
-	row := q.db.QueryRow(ctx, intentosNoRecuperado, arg.UnidadID, arg.Desde, arg.Hasta)
+	row := q.db.QueryRow(ctx, intentosNoRecuperado,
+		arg.UnidadID,
+		arg.Desde,
+		arg.Hasta,
+		arg.RecibidoDesde,
+		arg.RecibidoHasta,
+	)
 	var column_1 int32
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -4358,6 +4390,24 @@ func (q *Queries) TuvoOrden(ctx context.Context, arg TuvoOrdenParams) (bool, err
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
+}
+
+const ultimaPosicionDe = `-- name: UltimaPosicionDe :one
+SELECT lat, lon, registrada_en FROM campo.posiciones_ultimas WHERE tecnico_id = $1 ORDER BY registrada_en DESC LIMIT 1
+`
+
+type UltimaPosicionDeRow struct {
+	Lat          float64
+	Lon          float64
+	RegistradaEn time.Time
+}
+
+// La última posición del técnico (campo.posiciones_ultimas), para la ubicación en sitio (M-271-4).
+func (q *Queries) UltimaPosicionDe(ctx context.Context, tecnicoID int64) (UltimaPosicionDeRow, error) {
+	row := q.db.QueryRow(ctx, ultimaPosicionDe, tecnicoID)
+	var i UltimaPosicionDeRow
+	err := row.Scan(&i.Lat, &i.Lon, &i.RegistradaEn)
+	return i, err
 }
 
 const ultimaPosicionDeTecnico = `-- name: UltimaPosicionDeTecnico :one

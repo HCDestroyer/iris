@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -50,6 +51,28 @@ const CodigoDemasiadosIntentos = "demasiados_intentos"
 // NotaMaxima es el largo máximo de nota y cobroPropuesto.nota.
 const NotaMaxima = 500
 
+// Ubicación del intento en sitio (M-271-4; contratos/sync.md).
+const (
+	// PrecisionMaximaM: la precisión del GPS debe ser de 200 m o mejor.
+	PrecisionMaximaM = 200
+	// RadioSitioM: la ubicación debe estar a 500 m o menos de las coordenadas de la orden (el
+	// servicio) y de la última posición reciente del técnico.
+	RadioSitioM = 500
+	// PosicionReciente: la última posición del técnico cuenta si es de los últimos 30 minutos.
+	PosicionReciente = 30 * time.Minute
+	// CodigoUbicacionFueraDeSitio: la ubicación del intento no está en el sitio.
+	CodigoUbicacionFueraDeSitio = "ubicacion_fuera_de_sitio"
+)
+
+// soloElTecnico: el cambio y el intento los registra el técnico de la orden (A-271-1): nadie lo
+// hace a su nombre (ni despacho ni supervisión con ordenes.registrar).
+func soloElTecnico(ctx context.Context, f campobd.CampoOrden) error {
+	if !propia(ctx, f) {
+		return nucleo.Prohibido("Solo el técnico de la orden registra cambios de equipo e intentos de recuperación")
+	}
+	return nil
+}
+
 // EquipoQueEntra identifica la unidad que entra (serie, MAC o unidad de Argos).
 type EquipoQueEntra struct {
 	UnidadID *int64  `json:"unidadId,omitempty" minimum:"1"`
@@ -86,9 +109,9 @@ type EntradaNoRecuperado struct {
 	UnidadID      int64      `json:"unidadId" minimum:"1" doc:"La unidad en comodato del servicio que no se pudo recuperar"`
 	Motivo        string     `json:"motivo" enum:"cliente_ausente,se_nego,equipo_perdido,otro"`
 	FotoAdjuntoID *uuid.UUID `json:"fotoAdjuntoId,omitempty" doc:"Obligatoria con se_nego y equipo_perdido (adjunto de la orden)"`
-	Lat           *float64   `json:"lat" minimum:"-90" maximum:"90" doc:"Ubicación del intento, tomada en sitio"`
+	Lat           *float64   `json:"lat" minimum:"-90" maximum:"90" doc:"Ubicación del intento, tomada en sitio: a 500 m o menos del servicio y de tu última posición (422 ubicacion_fuera_de_sitio)"`
 	Lon           *float64   `json:"lon" minimum:"-180" maximum:"180"`
-	PrecisionM    *float64   `json:"precisionM,omitempty" minimum:"0" maximum:"100000"`
+	PrecisionM    *float64   `json:"precisionM" minimum:"0" maximum:"200" doc:"Precisión del GPS, obligatoria: 200 m o mejor"`
 	Nota          string     `json:"nota,omitempty" maxLength:"500" auditoria:"sensible"`
 	Sync          *OpSync    `json:"-"`
 
@@ -155,11 +178,60 @@ func enComodato(pre *prelectura, f campobd.CampoOrden, unidad int64) (validado b
 	return false, nucleo.ReglaNegocio("equipo_no_en_comodato", "El equipo no está en comodato en el servicio de la orden según Argos")
 }
 
-// fotoDeLaOrden: la foto es un adjunto de esta orden (puede no haber terminado de subir).
-func fotoDeLaOrden(ctx context.Context, t *auditoria.Tx, foto uuid.UUID, orden int64) error {
-	a, err := adjuntos.DeEntidad(ctx, t, foto, "orden", strconv.FormatInt(orden, 10))
+// fotoDeLaOrden (M-271-3): la foto es un adjunto tipo foto de esta orden (puede no haber terminado de
+// subir), del mismo técnico, registrado después de llegar al sitio, no rechazado ni abandonado y no
+// usado en otro cambio o intento.
+func fotoDeLaOrden(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, foto uuid.UUID, f campobd.CampoOrden) error {
+	invalida := func(motivo string) error { return campoInvalido("fotoAdjuntoId", motivo, "foto") }
+	a, err := adjuntos.DeEntidad(ctx, t, foto, "orden", strconv.FormatInt(f.ID, 10))
 	if err != nil || a.Tipo != "foto" {
-		return campoInvalido("fotoAdjuntoId", "La foto debe ser un adjunto tipo foto de esta orden (POST /adjuntos)", "foto")
+		return invalida("La foto debe ser un adjunto tipo foto de esta orden (POST /adjuntos)")
+	}
+	if actor := t.Actor(); !actor.EsUsuario() || a.SubidoPor == nil || *a.SubidoPor != actor.ID {
+		return invalida("La foto debe ser tuya")
+	}
+	if a.Estado == "rechazado" {
+		return invalida("La foto se rechazó al subir: tómala de nuevo")
+	}
+	if f.EnSitioEn != nil && a.CreadoEn.Before(*f.EnSitioEn) {
+		return invalida("La foto debe tomarse en el sitio, después de llegar")
+	}
+	usada, err := q.FotoUsadaEnEquipo(ctx, &foto)
+	if err != nil {
+		return err
+	}
+	if usada {
+		return invalida("Esa foto ya respalda otro cambio o intento")
+	}
+	return nil
+}
+
+// ubicacionEnSitio (M-271-4): precisión de 200 m o mejor, a 500 m o menos de la orden (si tiene
+// coordenadas) y de la última posición del técnico de los últimos 30 minutos (si la hay).
+func (m *Modulo) ubicacionEnSitio(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, lat, lon float64, precision *float64) error {
+	if precision == nil {
+		return campoInvalido("precisionM", "La precisión del GPS es obligatoria", "required")
+	}
+	if *precision > PrecisionMaximaM {
+		return campoInvalido("precisionM", "La precisión del GPS debe ser de 200 m o mejor: espera a tener mejor señal", "maximum")
+	}
+	fuera := func(detalle string) error {
+		p := nucleo.NuevoProblema(http.StatusUnprocessableEntity, CodigoUbicacionFueraDeSitio, "Ubicación fuera del sitio", detalle)
+		p.Errors = []nucleo.ErrorCampo{{Field: "lat", Message: detalle, Rule: CodigoUbicacionFueraDeSitio}}
+		return p
+	}
+	if f.Lat != nil && f.Lon != nil && metros(lat, lon, *f.Lat, *f.Lon) > RadioSitioM {
+		return fuera("La ubicación del intento está a más de 500 m del servicio")
+	}
+	if f.TecnicoID != nil {
+		pos, err := q.UltimaPosicionDe(ctx, *f.TecnicoID)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+		case err != nil:
+			return err
+		case m.ahora().Sub(pos.RegistradaEn) <= PosicionReciente && metros(lat, lon, pos.Lat, pos.Lon) > RadioSitioM:
+			return fuera("La ubicación del intento está a más de 500 m de tu última posición")
+		}
 	}
 	return nil
 }
@@ -181,6 +253,9 @@ func (m *Modulo) nuevoCambiarEquipo() *auditoria.Caso[EntradaCambiarEquipo, Orde
 		func(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaCambiarEquipo) (campobd.CampoOrden, string, error) {
 			f, err := tomar(ctx, t, q, in.ID, nucleo.PermOrdenesRegistrar, in.Version, in.Sync)
 			if err != nil {
+				return f, "", err
+			}
+			if err := soloElTecnico(ctx, f); err != nil {
 				return f, "", err
 			}
 			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "cambiar equipos"); err != nil {
@@ -256,7 +331,7 @@ func (m *Modulo) nuevoCambiarEquipo() *auditoria.Caso[EntradaCambiarEquipo, Orde
 				}
 			}
 			if in.FotoAdjuntoID != nil {
-				if err := fotoDeLaOrden(ctx, t, *in.FotoAdjuntoID, f.ID); err != nil {
+				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f); err != nil {
 					return f, "", err
 				}
 			}
@@ -295,6 +370,9 @@ func (m *Modulo) nuevoNoRecuperado() *auditoria.Caso[EntradaNoRecuperado, Orden]
 			if err != nil {
 				return f, "", err
 			}
+			if err := soloElTecnico(ctx, f); err != nil {
+				return f, "", err
+			}
 			if err := sinTrabajoEnPausa(ctx, f, in.Sync, "registrar un intento de recuperación"); err != nil {
 				return f, "", err
 			}
@@ -330,8 +408,11 @@ func (m *Modulo) nuevoNoRecuperado() *auditoria.Caso[EntradaNoRecuperado, Orden]
 			if (in.Motivo == "se_nego" || in.Motivo == "equipo_perdido") && in.FotoAdjuntoID == nil {
 				return f, "", campoInvalido("fotoAdjuntoId", "La foto es obligatoria si el cliente se negó o el equipo se perdió", "required")
 			}
+			if err := m.ubicacionEnSitio(ctx, q, f, *in.Lat, *in.Lon, in.PrecisionM); err != nil {
+				return f, "", err
+			}
 			if in.FotoAdjuntoID != nil {
-				if err := fotoDeLaOrden(ctx, t, *in.FotoAdjuntoID, f.ID); err != nil {
+				if err := fotoDeLaOrden(ctx, t, q, *in.FotoAdjuntoID, f); err != nil {
 					return f, "", err
 				}
 			}
@@ -340,9 +421,17 @@ func (m *Modulo) nuevoNoRecuperado() *auditoria.Caso[EntradaNoRecuperado, Orden]
 				return f, "", err
 			}
 			// Un intento por unidad al día (hora local), en cualquier orden (Argos responde lo mismo).
-			l := cuando.In(m.cfg.ZonaHoraria)
-			dia := time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, m.cfg.ZonaHoraria)
-			n, err := q.IntentosNoRecuperado(ctx, campobd.IntentosNoRecuperadoParams{UnidadID: &in.UnidadID, Desde: dia, Hasta: dia.AddDate(0, 0, 1)})
+			// Por la fecha del teléfono y por la del servidor, con la unidad bloqueada (A-271-2).
+			if err := q.BloquearIntentosDeUnidad(ctx, strconv.FormatInt(in.UnidadID, 10)); err != nil {
+				return f, "", err
+			}
+			diaDe := func(x time.Time) time.Time {
+				l := x.In(m.cfg.ZonaHoraria)
+				return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, m.cfg.ZonaHoraria)
+			}
+			dia, hoy := diaDe(cuando), diaDe(m.ahora())
+			n, err := q.IntentosNoRecuperado(ctx, campobd.IntentosNoRecuperadoParams{UnidadID: &in.UnidadID, Desde: dia, Hasta: dia.AddDate(0, 0, 1),
+				RecibidoDesde: &hoy, RecibidoHasta: ptr(hoy.AddDate(0, 0, 1))})
 			if err != nil {
 				return f, "", err
 			}
