@@ -234,7 +234,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// La orden acepta adjuntos (campo decide quién ve y sube); el cierre cuenta los completos.
 	campo.RegistrarAdjuntos()
 	adj := adjuntos.Nuevo(configAdjuntos(cfg, almacen))
-	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
+	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola), Cifrador: acfg.Cifrador})
 	// Inventario del técnico (contrato 0.5.0 §3.3): mi bodega, traslados y traslado.recibir del lote.
 	// La firma es un adjunto de la entidad «traslado».
 	inv := inventario.Nuevo(inventario.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
@@ -251,7 +251,10 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
 	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop, Recepciones: inv,
-		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
+		// Paso «Confirmar titular y plan» (contrato 0.10.0 §3.4): lo sensible va cifrado al depósito
+		// de tránsito y sale a Argos por la cola de pendientes.
+		Titular: campo.ConfigTitular{Cifrador: acfg.Cifrador, Conector: campo.ConectorDeArgos(conectorArgos), Encolar: integracion.Encolar(cola)},
+		Agenda:  agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
 	// (pendientes hacia Argos y orden de instalación en campo).
 	comercial.RegistrarAdjuntos()

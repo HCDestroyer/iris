@@ -39,6 +39,10 @@ func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 	if _, err := m.resolverListos.Ejecutar(ctx, ahora); err != nil {
 		return 0, fmt.Errorf("pendientes: resolver dependientes listos: %w", err)
 	}
+	// Depósitos de tránsito con más de 7 días (§3.4.8): se borran aunque no se hayan entregado.
+	if _, err := PurgarTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), ahora); err != nil {
+		return 0, fmt.Errorf("pendientes: purgar el depósito de tránsito: %w", err)
+	}
 	n := 0
 	for n < maxPorCorrida {
 		f, ok, err := m.tomar(ctx, ahora)
@@ -114,10 +118,40 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		cli = cli.ConCabecera(argos.CabeceraEmpresaArgos, strconv.FormatInt(*f.EmpresaID, 10))
 	}
 	if f.Actor != nil {
-		// La persona que actúa (contrato §3.5 y §7.1): Argos audita con ella.
+		// La persona que actúa (contrato §3.4, §3.5 y §7.1): Argos audita con ella.
 		cli = cli.ConCabecera(CabeceraActorIris, *f.Actor)
 	}
-	err = cli.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, &crudo)
+	var partes []conector.Parte
+	if f.TransitoID.Valid {
+		d, err := m.leerTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f.TransitoID)
+		if errors.Is(err, errVencido) {
+			// Se borró a los 7 días (o al resolverse): no se manda nada; hay que tomarlo otra vez.
+			r.Negocio, r.Codigo, r.Error = true, CodigoFotoVencida, "los datos del titular se borraron (7 días): hay que tomarlos otra vez"
+			return r
+		}
+		if err != nil {
+			r.Error = err.Error()
+			return r
+		}
+		if esMultipart(f.Operacion) {
+			if partes, err = partesMultipart(f.Operacion, f.Payload, d); err != nil {
+				r.Error = "no se pudo armar el multipart: " + err.Error()
+				return r
+			}
+		} else {
+			mezcla, err := cuerpoConTransito(f.Payload, d)
+			if err != nil {
+				r.Error = "no se pudo armar el cuerpo: " + err.Error()
+				return r
+			}
+			cuerpo = mezcla
+		}
+	}
+	if partes != nil {
+		err = cli.EscribirPartes(ctx, f.Ruta, partes, f.IdempotencyKey, &crudo)
+	} else {
+		err = cli.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, &crudo)
+	}
 	if err == nil {
 		r.Exito, r.respuesta = true, limpiarRespuesta(crudo)
 		if len(crudo) > 0 && r.respuesta == nil {
@@ -417,6 +451,10 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			}
 			switch f.Estado {
 			case EstadoHecho:
+				// Lo sensible del paso del titular se borra al recibir el 2xx (§3.4.8).
+				if err := borrarTransito(ctx, t, f, "entregado", in.ahora); err != nil {
+					return Pendiente{}, err
+				}
 				// Primero los cuerpos con marcadores (con la respuesta recién guardada), una vez.
 				if err := resolverDependientes(ctx, t, f.ID, in.ahora); err != nil {
 					return Pendiente{}, err

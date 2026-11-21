@@ -2049,6 +2049,87 @@ func (q *Queries) GuardarRechazo(ctx context.Context, arg GuardarRechazoParams) 
 	return err
 }
 
+const guardarTitular = `-- name: GuardarTitular :one
+INSERT INTO campo.orden_titular (
+    orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id,
+    tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en
+) VALUES (
+    $1, $2, $3, $4, $5,
+    $6, $7, $8, $9, $10, $11,
+    $12, $13, $14, $15
+)
+ON CONFLICT (orden_id) DO UPDATE SET
+    quien_firma = EXCLUDED.quien_firma, documento_tipo = EXCLUDED.documento_tipo, nombre = EXCLUDED.nombre,
+    identidad_pendiente_id = EXCLUDED.identidad_pendiente_id, ultimo_pendiente_id = EXCLUDED.ultimo_pendiente_id,
+    tomas = EXCLUDED.tomas, cambios_titular = EXCLUDED.cambios_titular, datos_n = EXCLUDED.datos_n,
+    cambios_plan = EXCLUDED.cambios_plan, plan_id = EXCLUDED.plan_id, validada_por = EXCLUDED.validada_por,
+    validada_motivo = EXCLUDED.validada_motivo, validada_en = EXCLUDED.validada_en,
+    version = campo.orden_titular.version + 1, updated_at = now()
+RETURNING orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id, tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en, version, created_at, updated_at
+`
+
+type GuardarTitularParams struct {
+	OrdenID              int64
+	EmpresaID            *int64
+	QuienFirma           *string
+	DocumentoTipo        *string
+	Nombre               *string
+	IdentidadPendienteID *int64
+	UltimoPendienteID    *int64
+	Tomas                int32
+	CambiosTitular       int32
+	DatosN               int32
+	CambiosPlan          int32
+	PlanID               *int64
+	ValidadaPor          *int64
+	ValidadaMotivo       *string
+	ValidadaEn           *time.Time
+}
+
+// Lo que ya se registró del paso (sin el documento ni los datos de contacto). La orden está tomada
+// con candado: no hay dos escrituras a la vez.
+func (q *Queries) GuardarTitular(ctx context.Context, arg GuardarTitularParams) (CampoOrdenTitular, error) {
+	row := q.db.QueryRow(ctx, guardarTitular,
+		arg.OrdenID,
+		arg.EmpresaID,
+		arg.QuienFirma,
+		arg.DocumentoTipo,
+		arg.Nombre,
+		arg.IdentidadPendienteID,
+		arg.UltimoPendienteID,
+		arg.Tomas,
+		arg.CambiosTitular,
+		arg.DatosN,
+		arg.CambiosPlan,
+		arg.PlanID,
+		arg.ValidadaPor,
+		arg.ValidadaMotivo,
+		arg.ValidadaEn,
+	)
+	var i CampoOrdenTitular
+	err := row.Scan(
+		&i.OrdenID,
+		&i.EmpresaID,
+		&i.QuienFirma,
+		&i.DocumentoTipo,
+		&i.Nombre,
+		&i.IdentidadPendienteID,
+		&i.UltimoPendienteID,
+		&i.Tomas,
+		&i.CambiosTitular,
+		&i.DatosN,
+		&i.CambiosPlan,
+		&i.PlanID,
+		&i.ValidadaPor,
+		&i.ValidadaMotivo,
+		&i.ValidadaEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const guardarUltimaPosicion = `-- name: GuardarUltimaPosicion :exec
 INSERT INTO campo.posiciones_ultimas (tecnico_id, empresa_id, lat, lon, precision_m, velocidad, rumbo, dispositivo_id, registrada_en, recibida_en)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -4091,6 +4172,38 @@ func (q *Queries) TipoPorID(ctx context.Context, id int64) (CampoTiposOrden, err
 		&i.CargoProductoID,
 		&i.CargoMonto,
 		&i.CargoDescripcion,
+	)
+	return i, err
+}
+
+const titularDeOrden = `-- name: TitularDeOrden :one
+
+SELECT orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id, tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en, version, created_at, updated_at FROM campo.orden_titular WHERE orden_id = $1
+`
+
+// --- Paso «Confirmar titular y plan» (contrato argosisp.md 0.10.0 §3.4, B18) -------------------
+func (q *Queries) TitularDeOrden(ctx context.Context, ordenID int64) (CampoOrdenTitular, error) {
+	row := q.db.QueryRow(ctx, titularDeOrden, ordenID)
+	var i CampoOrdenTitular
+	err := row.Scan(
+		&i.OrdenID,
+		&i.EmpresaID,
+		&i.QuienFirma,
+		&i.DocumentoTipo,
+		&i.Nombre,
+		&i.IdentidadPendienteID,
+		&i.UltimoPendienteID,
+		&i.Tomas,
+		&i.CambiosTitular,
+		&i.DatosN,
+		&i.CambiosPlan,
+		&i.PlanID,
+		&i.ValidadaPor,
+		&i.ValidadaMotivo,
+		&i.ValidadaEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }

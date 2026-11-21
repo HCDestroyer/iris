@@ -717,3 +717,28 @@ ORDER BY o.id;
 SELECT count(*)::bigint FROM campo.ordenes o
 WHERE o.origen = 'asistente' AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint
   AND o.created_at >= now() - interval '24 hours';
+
+-- --- Paso «Confirmar titular y plan» (contrato argosisp.md 0.10.0 §3.4, B18) -------------------
+
+-- name: TitularDeOrden :one
+SELECT * FROM campo.orden_titular WHERE orden_id = @orden_id;
+
+-- name: GuardarTitular :one
+-- Lo que ya se registró del paso (sin el documento ni los datos de contacto). La orden está tomada
+-- con candado: no hay dos escrituras a la vez.
+INSERT INTO campo.orden_titular (
+    orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id,
+    tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en
+) VALUES (
+    @orden_id, sqlc.narg(empresa_id), sqlc.narg(quien_firma), sqlc.narg(documento_tipo), sqlc.narg(nombre),
+    sqlc.narg(identidad_pendiente_id), sqlc.narg(ultimo_pendiente_id), @tomas, @cambios_titular, @datos_n, @cambios_plan,
+    sqlc.narg(plan_id), sqlc.narg(validada_por), sqlc.narg(validada_motivo), sqlc.narg(validada_en)
+)
+ON CONFLICT (orden_id) DO UPDATE SET
+    quien_firma = EXCLUDED.quien_firma, documento_tipo = EXCLUDED.documento_tipo, nombre = EXCLUDED.nombre,
+    identidad_pendiente_id = EXCLUDED.identidad_pendiente_id, ultimo_pendiente_id = EXCLUDED.ultimo_pendiente_id,
+    tomas = EXCLUDED.tomas, cambios_titular = EXCLUDED.cambios_titular, datos_n = EXCLUDED.datos_n,
+    cambios_plan = EXCLUDED.cambios_plan, plan_id = EXCLUDED.plan_id, validada_por = EXCLUDED.validada_por,
+    validada_motivo = EXCLUDED.validada_motivo, validada_en = EXCLUDED.validada_en,
+    version = campo.orden_titular.version + 1, updated_at = now()
+RETURNING *;

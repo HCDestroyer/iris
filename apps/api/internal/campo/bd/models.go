@@ -470,6 +470,27 @@ type CampoOrdenPausa struct {
 	UpdatedAt       time.Time
 }
 
+type CampoOrdenTitular struct {
+	OrdenID              int64
+	EmpresaID            *int64
+	QuienFirma           *string
+	DocumentoTipo        *string
+	Nombre               *string
+	IdentidadPendienteID *int64
+	UltimoPendienteID    *int64
+	Tomas                int32
+	CambiosTitular       int32
+	DatosN               int32
+	CambiosPlan          int32
+	PlanID               *int64
+	ValidadaPor          *int64
+	ValidadaMotivo       *string
+	ValidadaEn           *time.Time
+	Version              int32
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+}
+
 type CampoPlantillaItem struct {
 	ID          int64
 	PlantillaID int64
@@ -1023,6 +1044,17 @@ type IntegracionConectore struct {
 	EliminadoPor                *int64
 }
 
+type IntegracionDatosTransito struct {
+	ID            uuid.UUID
+	EmpresaID     *int64
+	OrdenID       int64
+	Cifrado       []byte
+	TomadoEn      time.Time
+	BorradoEn     *time.Time
+	MotivoBorrado *string
+	CreatedAt     time.Time
+}
+
 type IntegracionEntrante struct {
 	ID          int64
 	ConectorID  int64
@@ -1094,6 +1126,7 @@ type IntegracionPendiente struct {
 	ResueltoPor      *int64
 	ResueltoEn       *time.Time
 	Actor            *string
+	TransitoID       *uuid.UUID
 }
 
 type MensajeriaAjustesBandeja struct {

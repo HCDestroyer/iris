@@ -86,6 +86,10 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			if errores := requisitosDeCierre(d, tipo); len(errores) > 0 {
 				return antes, "", cierreIncompleto(errores)
 			}
+			// Instalación de una venta: la identidad del titular registrada o validada (§3.4.8).
+			if err := m.exigirIdentidad(ctx, t, q, antes, tipo.Codigo, resultado); err != nil {
+				return antes, "", err
+			}
 			faltan, err := m.cfg.Adjuntos.Faltantes(ctx, antes.ID, requisitosAdjuntos(d))
 			if err != nil {
 				return antes, "", err

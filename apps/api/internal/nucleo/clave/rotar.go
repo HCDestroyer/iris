@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
@@ -52,12 +54,15 @@ const (
 	ColumnaExtensionSIP = "mensajeria.centralita_extensiones.sip_secreto_cifrado"
 	// ColumnaCorreoSistema: contraseña del SMTP del correo del sistema (contratos/correo-sistema.md).
 	ColumnaCorreoSistema = "notificaciones.correo_ajustes.contrasena_cifrada"
+	// ColumnaTransito: depósito de tránsito del paso del titular (documento, contacto y fotos del
+	// documento hasta entregarlos a Argos; contrato argosisp.md 0.10.0 §3.4.8).
+	ColumnaTransito = "integracion.datos_transito.cifrado"
 )
 
 // Columnas en el orden en que se rotan y se informan.
 var Columnas = []string{ColumnaTOTP, ColumnaTokenConector, ColumnaSecretoWebhook, ColumnaIMAP, ColumnaSMTP, ColumnaVerificador,
 	ColumnaWebhookSalida, ColumnaCanalMensajeria, ColumnaConexionMeta, ColumnaAsistente, ColumnaMotorToken, ColumnaMotorTokenSiguiente, ColumnaMotorClaveCert,
-	ColumnaMotorCodigoEnlace, ColumnaMotorClaveCertSig, ColumnaCorreoSistema, ColumnaCentralita, ColumnaExtensionSIP}
+	ColumnaMotorCodigoEnlace, ColumnaMotorClaveCertSig, ColumnaCorreoSistema, ColumnaCentralita, ColumnaExtensionSIP, ColumnaTransito}
 
 // datoAsociadoBuzon es el de internal/soporte (buzones.go, de I2): "soporte.buzon:<id>:imap|smtp".
 // La prueba de la rotación lo verifica leyendo el buzón con el módulo de soporte.
@@ -87,6 +92,8 @@ type Conteo struct {
 type Ilegible struct {
 	Columna string `json:"columna"`
 	ID      int64  `json:"id"`
+	// UUID: el id de las filas con id uuid (depósito de tránsito); ID queda en 0.
+	UUID string `json:"uuid,omitempty"`
 }
 
 // Resultado de la rotación.
@@ -167,6 +174,9 @@ func nuevoRotar(c *nucleo.Cifrador) *auditoria.Caso[EntradaRotar, Resultado] {
 				return Resultado{}, err
 			}
 			if err := r.centralitas(ctx, q, in.Simular); err != nil {
+				return Resultado{}, err
+			}
+			if err := r.transito(ctx, q, in.Simular); err != nil {
 				return Resultado{}, err
 			}
 			for _, col := range Columnas {
@@ -388,6 +398,32 @@ func (r *rotador) correosSistema(ctx context.Context, q *clavebd.Queries, simula
 		}
 		if cambio && !simular {
 			if err := q.RecifrarCorreoSistema(ctx, clavebd.RecifrarCorreoSistemaParams{ID: f.ID, ContrasenaCifrada: nuevo}); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// datoAsociadoTransito es el de internal/integracion/pendientes (transito.go, I1): "transito:<id>".
+func datoAsociadoTransito(id uuid.UUID) []byte { return []byte("transito:" + id.String()) }
+
+func (r *rotador) transito(ctx context.Context, q *clavebd.Queries, simular bool) error {
+	filas, err := q.TransitoCifrado(ctx)
+	if err != nil {
+		return err
+	}
+	for _, f := range filas {
+		antes := len(r.res.Ilegibles)
+		nuevo, cambio, err := r.valor(ColumnaTransito, 0, f.Cifrado, datoAsociadoTransito(f.ID))
+		if err != nil {
+			return err
+		}
+		if len(r.res.Ilegibles) > antes {
+			r.res.Ilegibles[antes].UUID = f.ID.String()
+		}
+		if cambio && !simular {
+			if err := q.RecifrarTransito(ctx, clavebd.RecifrarTransitoParams{ID: f.ID, Cifrado: nuevo}); err != nil {
 				return err
 			}
 		}

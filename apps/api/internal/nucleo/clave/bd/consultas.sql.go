@@ -7,6 +7,8 @@ package clavebd
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const asistentesCifrados = `-- name: AsistentesCifrados :many
@@ -517,6 +519,20 @@ func (q *Queries) RecifrarTOTP(ctx context.Context, arg RecifrarTOTPParams) erro
 	return err
 }
 
+const recifrarTransito = `-- name: RecifrarTransito :exec
+UPDATE integracion.datos_transito SET cifrado = $1 WHERE id = $2 AND cifrado IS NOT NULL
+`
+
+type RecifrarTransitoParams struct {
+	Cifrado []byte
+	ID      uuid.UUID
+}
+
+func (q *Queries) RecifrarTransito(ctx context.Context, arg RecifrarTransitoParams) error {
+	_, err := q.db.Exec(ctx, recifrarTransito, arg.Cifrado, arg.ID)
+	return err
+}
+
 const recifrarWebhookSalida = `-- name: RecifrarWebhookSalida :exec
 UPDATE integracion.conectores SET webhook_salida_secreto_cifrado = $1 WHERE id = $2
 `
@@ -557,6 +573,40 @@ func (q *Queries) TOTPCifrados(ctx context.Context) ([]TOTPCifradosRow, error) {
 	for rows.Next() {
 		var i TOTPCifradosRow
 		if err := rows.Scan(&i.ID, &i.TotpSecreto); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const transitoCifrado = `-- name: TransitoCifrado :many
+SELECT id, cifrado FROM integracion.datos_transito
+WHERE cifrado IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type TransitoCifradoRow struct {
+	ID      uuid.UUID
+	Cifrado []byte
+}
+
+// Depósito de tránsito del paso del titular (contrato argosisp.md 0.10.0 §3.4.8): lo que aún no se
+// entregó a Argos ni venció.
+func (q *Queries) TransitoCifrado(ctx context.Context) ([]TransitoCifradoRow, error) {
+	rows, err := q.db.Query(ctx, transitoCifrado)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TransitoCifradoRow
+	for rows.Next() {
+		var i TransitoCifradoRow
+		if err := rows.Scan(&i.ID, &i.Cifrado); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

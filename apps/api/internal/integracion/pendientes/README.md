@@ -125,3 +125,22 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   cuerpo y emite `integracion.pendiente_corregido`; sin vínculo, 422 `tecnico_sin_vincular`).
   `producto_es_comodato`, `cobro_sin_cliente` y `existencia_insuficiente` son de negocio (no se
   reintentan solos; a mano, sí).
+
+## Paso «Confirmar titular y plan» (contrato 0.10.0 §3.4, B18 y B19; `titular.go`, `transito.go`)
+
+- Operaciones `registrar_identidad` (A41, multipart), `cambiar_titular` (A39, multipart con la parte
+  `datos`), `completar_datos` (A43) y `cambiar_plan` (A40), con `X-Iris-Actor: usuario:<id>` y las
+  claves `iris:identidad:<orden>:<toma>`, `iris:titular:<orden>:<cambio>`, `iris:datos:<orden>:<n>` e
+  `iris:plan:<orden>:<cambio>`. Campo las encola con `EncolarPaso`; nacen bloqueadas si un paso
+  anterior ya falló.
+- Lo sensible va en `integracion.datos_transito` (AES-GCM, datos asociados `transito:<id>`), nunca en
+  `payload`; se mezcla con el cuerpo solo al enviar. Se borra al 2xx (`entregado`), al resolverse a mano
+  (`resuelto_manual`) o a los 7 días de tomado (`vencido`, en cada pasada de la cola); un paso sin su
+  depósito queda `fallido_negocio` con `foto_vencida`. El panel ve `documento_numero`, `telefono`,
+  `email` y `nit_cui` como `***` si llegaran al payload.
+- La activación y el cargo de una orden cerrada dependen de todos los pasos vivos del titular; el cargo
+  va a `titular.cliente_id` de la respuesta del último cambio de titular (`objetosRespuesta`).
+- `ReemplazarPaso`: otra toma de la identidad reemplaza a la rechazada (lo que la esperaba pasa a
+  esperar a la nueva; la vieja queda `resuelto_manual`). `DarPorValidado`: la validación desde el panel
+  sin la foto deja el paso resuelto y libera la activación.
+
