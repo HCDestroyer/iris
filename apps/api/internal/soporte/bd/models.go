@@ -2199,6 +2199,7 @@ type MensajeriaTelefonoTicket struct {
 	ExpiraEn    time.Time
 	UsadoEn     *time.Time
 	CreatedAt   time.Time
+	TurnoHasta  *time.Time
 }
 
 type MensajeriaVozAjuste struct {

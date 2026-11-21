@@ -1357,8 +1357,14 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
     contra ráfagas).
   - Un solo REGISTER de prueba a la vez por centralita (el REGISTER corre fuera de la transacción: el
     turno se reserva con un `UPDATE` condicional en `registro_en_curso_hasta`, vence a los 30 s y se
-    suelta al guardar el resultado). La otra recibe 429 `prueba_en_curso`, o `demasiados_rechazos` si la
-    centralita ya tiene rechazos en la ventana, con `Retry-After: 10`.
+    suelta al terminar, solo si sigue siendo la reserva propia). La otra recibe 429 `prueba_en_curso`, o
+    `demasiados_rechazos` si la centralita ya tiene rechazos en la ventana, con `Retry-After: 10`.
+  - Salido el REGISTER, el resultado no depende de la petición: si el cliente corta, quitan la extensión
+    o el permiso, el turno se suelta y el rechazo (`credenciales`) se cuenta igual, como sistema.
+  - **Con rechazos en la ventana, el teléfono toma el mismo turno:** `POST /telefono/abrir` lo reserva y
+    el ticket lo lleva (`telefono_tickets.turno_hasta`); la conexión del puente con ese ticket ya lo
+    tiene, y una con un ticket sin turno vigente lo reserva. Si otro lo tiene: 429 `demasiados_rechazos`
+    con `Retry-After: 10` (en la conexión, antes del upgrade). Sin rechazos en la ventana no se reserva.
 - `Extension` y `MiExtension` también se ven en `GET /centralitas/{id}/extensiones` (con los campos de
   arriba) y `GET /centralita/mi-extension` (suma `tipo`).
 

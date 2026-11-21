@@ -54,7 +54,8 @@ func (m *Modulo) registrarTelefono(api huma.API) {
 		"Devuelve la ruta del WebSocket, un ticket de un solo uso (30 s, atado a esta sesión, la empresa y la extensión), la identidad SIP (sin "+
 			"contraseña) y el TURN con credencial efímera (`politicaIce: relay`). 422 `sin_centralita`, `sin_extension`, `extension_escritorio`, "+
 			"`sin_credencial`, `telefono_apagado`; 503 `turn_no_configurado`. 429 `demasiados_intentos` (6 por minuto y persona) y "+
-			"`demasiados_rechazos` (la centralita rechazó 3 contraseñas en 10 min: fail2ban), con `Retry-After`. "+
+			"`demasiados_rechazos` (la centralita rechazó 3 contraseñas en 10 min: fail2ban; o, con algún rechazo reciente, "+
+			"el turno de REGISTER de la centralita lo tiene otro), con `Retry-After`. "+
 			"`dispositivo: app` solo marca (no registra ni recibe)."),
 		func(ctx context.Context, in *cuerpoHTTP[EntradaAbrirTelefono]) (*cuerpo[SesionTelefono], error) {
 			r, err := k.Abrir.Ejecutar(ctx, in.Body)

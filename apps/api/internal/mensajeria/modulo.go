@@ -252,6 +252,8 @@ type Modulo struct {
 	trasLeerCabeza func()
 	// antesDeProbarRegistro: solo pruebas (entre la preparación de «Probar registro» y el REGISTER).
 	antesDeProbarRegistro func()
+	// trasProbarRegistro: solo pruebas (después del REGISTER, con el contexto de la petición).
+	trasProbarRegistro func(ctx context.Context)
 	// antesDeLeerFlujo: solo pruebas (en los flujos SSE del chat y la bandeja, entre la autorización
 	// que da el alcance y la lectura del feed; recibe el usuario del flujo). Se fija antes de abrirlos.
 	antesDeLeerFlujo func(usuario int64)

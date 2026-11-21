@@ -43,7 +43,11 @@ UPDATE mensajeria.centralitas SET registro_en_curso_hasta = @hasta::timestamptz
 WHERE id = @id AND (registro_en_curso_hasta IS NULL OR registro_en_curso_hasta <= @ahora::timestamptz);
 
 -- name: SoltarPruebaRegistro :exec
-UPDATE mensajeria.centralitas SET registro_en_curso_hasta = NULL WHERE id = @id;
+-- Solo la reserva propia (la de `hasta`): si ya venció y la tomó otro, no se toca.
+UPDATE mensajeria.centralitas SET registro_en_curso_hasta = NULL WHERE id = @id AND registro_en_curso_hasta = @hasta::timestamptz;
+
+-- name: TurnoRegistroCentralita :one
+SELECT registro_en_curso_hasta FROM mensajeria.centralitas WHERE id = @id;
 
 -- name: RechazosCentralita :one
 -- Las contraseñas rechazadas en la ventana actual de la centralita.
@@ -104,8 +108,8 @@ SELECT * FROM mensajeria.centralita_grupos WHERE centralita_id = @centralita_id 
 -- Tickets y conexiones -------------------------------------------------------------------------------
 
 -- name: InsertarTicketTelefono :exec
-INSERT INTO mensajeria.telefono_tickets (hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en)
-VALUES (@hash, @usuario_id, sqlc.narg('empresa_id'), @extension_id, @dispositivo, @sesion_id, @expira_en);
+INSERT INTO mensajeria.telefono_tickets (hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en, turno_hasta)
+VALUES (@hash, @usuario_id, sqlc.narg('empresa_id'), @extension_id, @dispositivo, @sesion_id, @expira_en, sqlc.narg('turno_hasta'));
 
 -- name: UsarTicketTelefono :one
 -- Un solo uso y sin vencer.

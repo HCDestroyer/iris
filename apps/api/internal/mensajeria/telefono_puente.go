@@ -128,6 +128,11 @@ func (m *Modulo) nuevosCasosPuente(k *casosTelefono) {
 			if err := m.limitarRechazos(ctx, q, x.CentralitaID); err != nil {
 				return conexionTelefono{}, err
 			}
+			// B8: con rechazos en la ventana, el turno de REGISTER de la centralita (el del ticket, si
+			// sigue vigente; si no, otro).
+			if _, err := m.turnoTelefono(ctx, q, x.CentralitaID, tk.TurnoHasta); err != nil {
+				return conexionTelefono{}, err
+			}
 			if err := m.validarHostCentralita(x.Host); err != nil {
 				return conexionTelefono{}, err
 			}

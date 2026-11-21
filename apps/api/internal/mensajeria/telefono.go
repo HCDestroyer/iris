@@ -18,6 +18,7 @@ import (
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria/sippuente"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // El teléfono de Iris, etapa E4c (contratos/voz.md §3.12, «E4c: el teléfono dentro de Iris»): la
@@ -590,22 +591,72 @@ const turnoPruebaRegistro = 30 * time.Second
 // igual y pasarían todas. La reserva es un UPDATE condicional (atómico); la suelta `guardar`. Si otra
 // prueba la tiene: 429 con un Retry-After corto (`demasiados_rechazos` si la centralita ya tiene
 // rechazos en la ventana, `prueba_en_curso` si no).
-func (m *Modulo) reservarPruebaRegistro(ctx context.Context, q *mensajeriabd.Queries, centralitaID int64) error {
-	ahora := m.ahora()
-	n, err := q.ReservarPruebaRegistro(ctx, mensajeriabd.ReservarPruebaRegistroParams{ID: centralitaID, Hasta: ahora.Add(turnoPruebaRegistro), Ahora: ahora})
-	if err != nil || n == 1 {
-		return err
+//
+// Devuelve el `hasta` de la reserva: solo con él se suelta (B7), y nunca la de otro.
+func (m *Modulo) reservarPruebaRegistro(ctx context.Context, q *mensajeriabd.Queries, centralitaID int64) (time.Time, error) {
+	hasta, ok, err := m.reservarTurno(ctx, q, centralitaID)
+	if err != nil || ok {
+		return hasta, err
 	}
+	con, err := m.conRechazos(ctx, q, centralitaID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if con {
+		return time.Time{}, turnoOcupadoConRechazos()
+	}
+	return time.Time{}, nucleo.NuevoProblema(http.StatusTooManyRequests, "prueba_en_curso", "Otra prueba de registro en curso",
+		"Hay otra prueba de registro en curso en esta centralita: espera unos segundos.").ConCabecera("Retry-After", "10")
+}
+
+// reservarTurno: el UPDATE condicional del turno de REGISTER de la centralita (en microsegundos, como
+// lo guarda Postgres, para poder soltarlo por igualdad).
+func (m *Modulo) reservarTurno(ctx context.Context, q *mensajeriabd.Queries, centralitaID int64) (time.Time, bool, error) {
+	ahora := m.ahora()
+	hasta := ahora.Add(turnoPruebaRegistro).Truncate(time.Microsecond)
+	n, err := q.ReservarPruebaRegistro(ctx, mensajeriabd.ReservarPruebaRegistroParams{ID: centralitaID, Hasta: hasta, Ahora: ahora})
+	return hasta, n == 1, err
+}
+
+// conRechazos: la centralita tiene contraseñas rechazadas en la ventana actual.
+func (m *Modulo) conRechazos(ctx context.Context, q *mensajeriabd.Queries, centralitaID int64) (bool, error) {
 	r, err := q.RechazosCentralita(ctx, centralitaID)
 	if err != nil {
-		return err
+		return false, err
 	}
-	if r.RechazosDesde != nil && r.Rechazos > 0 && ahora.Before(r.RechazosDesde.Add(ventanaRechazos)) {
-		return nucleo.NuevoProblema(http.StatusTooManyRequests, "demasiados_rechazos", "La centralita rechazó contraseñas hace poco",
-			"Hay otra prueba de registro en curso en esta centralita: espera unos segundos.").ConCabecera("Retry-After", "10")
+	return r.RechazosDesde != nil && r.Rechazos > 0 && m.ahora().Before(r.RechazosDesde.Add(ventanaRechazos)), nil
+}
+
+func turnoOcupadoConRechazos() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusTooManyRequests, "demasiados_rechazos", "La centralita rechazó contraseñas hace poco",
+		"Mientras tanto, la centralita recibe un registro a la vez: espera unos segundos.").ConCabecera("Retry-After", "10")
+}
+
+// turnoTelefono (B8): con rechazos en la ventana, el teléfono también toma el turno de REGISTER de la
+// centralita, como «Probar registro». `propio` es el turno que ya tiene (el del ticket, en conectar): si
+// sigue siendo el vigente, no hace falta otro. Sin rechazos no reserva nada (nil).
+func (m *Modulo) turnoTelefono(ctx context.Context, q *mensajeriabd.Queries, centralitaID int64, propio *time.Time) (*time.Time, error) {
+	con, err := m.conRechazos(ctx, q, centralitaID)
+	if err != nil || !con {
+		return nil, err
 	}
-	return nucleo.NuevoProblema(http.StatusTooManyRequests, "prueba_en_curso", "Otra prueba de registro en curso",
-		"Hay otra prueba de registro en curso en esta centralita: espera unos segundos.").ConCabecera("Retry-After", "10")
+	if propio != nil {
+		actual, err := q.TurnoRegistroCentralita(ctx, centralitaID)
+		if err != nil {
+			return nil, err
+		}
+		if actual != nil && actual.Equal(*propio) && m.ahora().Before(*actual) {
+			return propio, nil
+		}
+	}
+	hasta, ok, err := m.reservarTurno(ctx, q, centralitaID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, turnoOcupadoConRechazos()
+	}
+	return &hasta, nil
 }
 
 // anotarRechazo suma un rechazo de la Issabel a la centralita (en la misma transacción que lo marca).
@@ -736,6 +787,7 @@ type PruebaRegistro struct {
 type ProbarRegistro struct {
 	m       *Modulo
 	previo  *auditoria.Caso[EntradaProbarRegistro, destinoRegistro]
+	cierre  *auditoria.Caso[entradaCierreRegistro, struct{}]
 	guardar *auditoria.Caso[entradaRegistroProbado, Extension]
 }
 
@@ -745,6 +797,8 @@ type destinoRegistro struct {
 	sin      bool
 	// guardadoEn: qué contraseña se prueba (sip_guardado_en); el resultado solo marca esa.
 	guardadoEn *time.Time
+	// turno: el `hasta` de la reserva de la centralita (solo esa se suelta).
+	turno time.Time
 }
 
 type entradaRegistroProbado struct {
@@ -752,8 +806,14 @@ type entradaRegistroProbado struct {
 	ExtensionID  int64      `json:"extension_id"`
 	Estado       string     `json:"estado"`
 	GuardadoEn   *time.Time `json:"guardado_en"`
-	// Reservado: esta prueba tiene el turno de la centralita (salió el REGISTER) y lo suelta.
-	Reservado bool `json:"reservado"`
+}
+
+// entradaCierreRegistro: lo que «Probar registro» deja como sistema, pase lo que pase con la petición,
+// la extensión o el permiso: suelta su turno y, con `credenciales`, cuenta el rechazo (fail2ban).
+type entradaCierreRegistro struct {
+	CentralitaID int64      `json:"centralita_id"`
+	Turno        *time.Time `json:"turno"`
+	Credenciales bool       `json:"credenciales"`
 }
 
 func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
@@ -787,12 +847,29 @@ func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
 			if err := m.validarHostCentralita(c.Host); err != nil {
 				return destinoRegistro{}, err
 			}
-			// Lo último: solo se reserva si va a salir el REGISTER (la suelta `guardar`).
-			if err := m.reservarPruebaRegistro(ctx, q, c.ID); err != nil {
+			// Lo último: solo se reserva si va a salir el REGISTER (la suelta `cierre`).
+			turno, err := m.reservarPruebaRegistro(ctx, q, c.ID)
+			if err != nil {
 				return destinoRegistro{}, err
 			}
 			return destinoRegistro{opciones: m.opcionesWSS(c.Host, c.WssPuerto, c.WssRuta, *c.WssHuella),
-				cred: sippuente.Credencial{Usuario: *x.SipUsuario, Secreto: s, Dominio: dominioSIP(c)}, guardadoEn: x.SipGuardadoEn}, nil
+				cred: sippuente.Credencial{Usuario: *x.SipUsuario, Secreto: s, Dominio: dominioSIP(c)}, guardadoEn: x.SipGuardadoEn, turno: turno}, nil
+		},
+	})
+	k.cierre = auditoria.Nuevo(auditoria.Caso[entradaCierreRegistro, struct{}]{
+		Accion: "telefono.cierre_prueba_registro", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[struct{}],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaCierreRegistro) (struct{}, error) {
+			q := mensajeriabd.New(t)
+			if in.Turno != nil {
+				if err := q.SoltarPruebaRegistro(ctx, mensajeriabd.SoltarPruebaRegistroParams{ID: in.CentralitaID, Hasta: *in.Turno}); err != nil {
+					return struct{}{}, err
+				}
+			}
+			// La Issabel vio el rechazo aunque la contraseña ya haya cambiado: cuenta para fail2ban.
+			if in.Credenciales {
+				return struct{}{}, m.anotarRechazo(ctx, q, in.CentralitaID)
+			}
+			return struct{}{}, nil
 		},
 	})
 	k.guardar = auditoria.Nuevo(auditoria.Caso[entradaRegistroProbado, Extension]{
@@ -811,18 +888,7 @@ func nuevoProbarRegistro(m *Modulo) *ProbarRegistro {
 				return Extension{}, err
 			}
 			t.FijarEntidad("centralita_extension", x.ID)
-			// El turno de la centralita queda libre para la siguiente prueba.
-			if in.Reservado {
-				if err := q.SoltarPruebaRegistro(ctx, c.ID); err != nil {
-					return Extension{}, err
-				}
-			}
-			// La Issabel vio el rechazo aunque la contraseña ya haya cambiado: cuenta para fail2ban.
-			if in.Estado == sippuente.PruebaCredenciales {
-				if err := m.anotarRechazo(ctx, q, c.ID); err != nil {
-					return Extension{}, err
-				}
-			}
+			// El turno y el rechazo ya los dejó `cierre` (como sistema).
 			// Solo marca si la contraseña probada sigue siendo la guardada (si no, la nueva queda como estaba).
 			vigente := in.GuardadoEn != nil && x.SipGuardadoEn != nil && x.SipGuardadoEn.Equal(*in.GuardadoEn)
 			t.Anotar(map[string]any{"estado": in.Estado, "vigente": vigente})
@@ -872,9 +938,21 @@ func (k *ProbarRegistro) Ejecutar(ctx context.Context, in EntradaProbarRegistro)
 		if estado == sippuente.PruebaNoEsSIP {
 			estado = sippuente.PruebaNoConecta
 		}
+		if k.m.trasProbarRegistro != nil {
+			k.m.trasProbarRegistro(ctx)
+		}
 	}
-	x, err := k.guardar.Ejecutar(ctx, entradaRegistroProbado{CentralitaID: in.CentralitaID, ExtensionID: in.ExtensionID, Estado: estado, GuardadoEn: d.guardadoEn,
-		Reservado: !d.sin})
+	// Salió el REGISTER: lo que sigue no se cancela con la petición (M2). Primero, como sistema, el
+	// turno y el rechazo: cuentan aunque el cliente corte, quiten la extensión o el permiso.
+	fin := context.WithoutCancel(ctx)
+	if !d.sin {
+		turno := d.turno
+		if _, err := k.cierre.Ejecutar(contexto.Sistema(fin, contexto.CanalWorker),
+			entradaCierreRegistro{CentralitaID: in.CentralitaID, Turno: &turno, Credenciales: estado == sippuente.PruebaCredenciales}); err != nil {
+			return PruebaRegistro{}, err
+		}
+	}
+	x, err := k.guardar.Ejecutar(fin, entradaRegistroProbado{CentralitaID: in.CentralitaID, ExtensionID: in.ExtensionID, Estado: estado, GuardadoEn: d.guardadoEn})
 	if err != nil {
 		return PruebaRegistro{}, err
 	}

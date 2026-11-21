@@ -816,8 +816,8 @@ func (q *Queries) InsertarLlamadaPuente(ctx context.Context, arg InsertarLlamada
 
 const insertarTicketTelefono = `-- name: InsertarTicketTelefono :exec
 
-INSERT INTO mensajeria.telefono_tickets (hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO mensajeria.telefono_tickets (hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en, turno_hasta)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 `
 
 type InsertarTicketTelefonoParams struct {
@@ -828,6 +828,7 @@ type InsertarTicketTelefonoParams struct {
 	Dispositivo string
 	SesionID    int64
 	ExpiraEn    time.Time
+	TurnoHasta  *time.Time
 }
 
 // Tickets y conexiones -------------------------------------------------------------------------------
@@ -840,6 +841,7 @@ func (q *Queries) InsertarTicketTelefono(ctx context.Context, arg InsertarTicket
 		arg.Dispositivo,
 		arg.SesionID,
 		arg.ExpiraEn,
+		arg.TurnoHasta,
 	)
 	return err
 }
@@ -1226,11 +1228,17 @@ func (q *Queries) SoltarConexionTelefono(ctx context.Context, id uuid.UUID) erro
 }
 
 const soltarPruebaRegistro = `-- name: SoltarPruebaRegistro :exec
-UPDATE mensajeria.centralitas SET registro_en_curso_hasta = NULL WHERE id = $1
+UPDATE mensajeria.centralitas SET registro_en_curso_hasta = NULL WHERE id = $1 AND registro_en_curso_hasta = $2::timestamptz
 `
 
-func (q *Queries) SoltarPruebaRegistro(ctx context.Context, id int64) error {
-	_, err := q.db.Exec(ctx, soltarPruebaRegistro, id)
+type SoltarPruebaRegistroParams struct {
+	ID    int64
+	Hasta time.Time
+}
+
+// Solo la reserva propia (la de `hasta`): si ya venció y la tomó otro, no se toca.
+func (q *Queries) SoltarPruebaRegistro(ctx context.Context, arg SoltarPruebaRegistroParams) error {
+	_, err := q.db.Exec(ctx, soltarPruebaRegistro, arg.ID, arg.Hasta)
 	return err
 }
 
@@ -1362,10 +1370,21 @@ func (q *Queries) TomarConexionTelefono(ctx context.Context, arg TomarConexionTe
 	return err
 }
 
+const turnoRegistroCentralita = `-- name: TurnoRegistroCentralita :one
+SELECT registro_en_curso_hasta FROM mensajeria.centralitas WHERE id = $1
+`
+
+func (q *Queries) TurnoRegistroCentralita(ctx context.Context, id int64) (*time.Time, error) {
+	row := q.db.QueryRow(ctx, turnoRegistroCentralita, id)
+	var registro_en_curso_hasta *time.Time
+	err := row.Scan(&registro_en_curso_hasta)
+	return registro_en_curso_hasta, err
+}
+
 const usarTicketTelefono = `-- name: UsarTicketTelefono :one
 UPDATE mensajeria.telefono_tickets SET usado_en = $1::timestamptz
 WHERE hash = $2 AND usado_en IS NULL AND expira_en > $1::timestamptz
-RETURNING hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en, usado_en, created_at
+RETURNING hash, usuario_id, empresa_id, extension_id, dispositivo, sesion_id, expira_en, usado_en, created_at, turno_hasta
 `
 
 type UsarTicketTelefonoParams struct {
@@ -1387,6 +1406,7 @@ func (q *Queries) UsarTicketTelefono(ctx context.Context, arg UsarTicketTelefono
 		&i.ExpiraEn,
 		&i.UsadoEn,
 		&i.CreatedAt,
+		&i.TurnoHasta,
 	)
 	return i, err
 }

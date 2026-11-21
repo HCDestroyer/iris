@@ -1,6 +1,7 @@
 package mensajeria_test
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"sync/atomic"
@@ -309,4 +310,86 @@ func TestTelefonoRechazoDelPuenteCuentaSinExtension(t *testing.T) {
 		t.Fatalf("cierre: %d", c)
 	}
 	b.hasta(func() bool { return b.rechazosCentralita() == 1 }, "el rechazo no contó para la centralita")
+}
+
+func (b *bancoTelefono) turnoCentralita() *time.Time {
+	var hasta *time.Time
+	_ = b.bd.QueryRow(b.ctx, `SELECT registro_en_curso_hasta FROM mensajeria.centralitas WHERE id = $1`, b.id).Scan(&hasta)
+	return hasta
+}
+
+// #252 M2: si la petición se cancela (o quitan la extensión) después del REGISTER, el rechazo cuenta
+// igual y el turno se suelta: se dejan como sistema y sin el contexto de la petición.
+func TestTelefonoRechazoCuentaAunqueCortenLaPrueba(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	t.Cleanup(func() { b.m.FijarTrasProbarRegistro(nil) })
+	b.guardarSecreto("otra-clave-mala")
+	// El cliente corta en cuanto salió el REGISTER.
+	ctx, cancelar := context.WithCancel(context.Background())
+	b.m.FijarTrasProbarRegistro(func(context.Context) { cancelar() })
+	_ = b.apiCtx(ctx, b.admin, http.MethodPost, b.rutaExt("/probar-registro"), "", map[string]any{})
+	if n := b.rechazosCentralita(); n != 1 {
+		t.Fatalf("rechazos tras cancelar: %d", n)
+	}
+	if h := b.turnoCentralita(); h != nil {
+		t.Fatalf("el turno quedó tomado: %v", h)
+	}
+	// Quitan la extensión a mitad de la prueba: también cuenta.
+	*b.reloj = b.reloj.Add(2 * time.Minute)
+	b.guardarSecreto("otra-clave-mala-2")
+	b.m.FijarTrasProbarRegistro(func(context.Context) {
+		b.sql(`UPDATE mensajeria.centralita_extensiones SET activa = false WHERE id = $1`, int64(b.extID))
+	})
+	b.exigirProblema(b.probarRegistro(), http.StatusNotFound, "no_encontrado")
+	if n := b.rechazosCentralita(); n != 2 {
+		t.Fatalf("rechazos con la extensión quitada: %d", n)
+	}
+}
+
+// #252 B7: una prueba solo suelta su propia reserva. Si la suya venció y otro tomó el turno, no lo toca.
+func TestTelefonoPruebaSoloSueltaSuTurno(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	t.Cleanup(func() { b.m.FijarTrasProbarRegistro(nil) })
+	*b.reloj = b.reloj.Add(2 * time.Minute)
+	otro := b.reloj.Add(time.Minute)
+	b.m.FijarTrasProbarRegistro(func(context.Context) {
+		// La reserva de esta prueba venció y otra prueba tomó el turno.
+		b.sql(`UPDATE mensajeria.centralitas SET registro_en_curso_hasta = $2 WHERE id = $1`, b.id, otro)
+	})
+	b.exigir(b.probarRegistro(), http.StatusOK)
+	if h := b.turnoCentralita(); h == nil || !h.Equal(otro) {
+		t.Fatalf("soltó el turno de otro: %v", h)
+	}
+}
+
+// #252 B8: con rechazos en la ventana, /telefono/abrir y la conexión del puente toman el mismo turno
+// de REGISTER que «Probar registro». El ticket lleva su turno: con él se conecta; sin turno, 429.
+func TestTelefonoAbrirYConectarTomanElTurno(t *testing.T) {
+	b := nuevoBancoTelefono(t)
+	b.sql(`UPDATE mensajeria.centralitas SET rechazos = 1, rechazos_desde = $2 WHERE id = $1`, b.id, *b.reloj)
+	ticket := b.abrir(b.agente, "panel")
+	if b.turnoCentralita() == nil {
+		t.Fatal("/abrir no tomó el turno")
+	}
+	// Mientras lo tiene, ni otro /abrir ni «Probar registro».
+	r := b.api(b.agente, http.MethodPost, "/telefono/abrir", map[string]any{"dispositivo": "panel"})
+	b.exigirProblema(r, http.StatusTooManyRequests, "demasiados_rechazos")
+	exigirReintentarDespues(t, r, 10)
+	b.exigirProblema(b.probarRegistro(), http.StatusTooManyRequests, "demasiados_rechazos")
+	// Con su ticket se conecta (ya tiene el turno).
+	if _, _, err := b.dial(b.agente, ticket, baseIris); err != nil {
+		t.Fatalf("conectar con el turno del ticket: %v", err)
+	}
+	// Un ticket sin turno (de antes de los rechazos) no conecta si otro lo tiene.
+	*b.reloj = b.reloj.Add(31 * time.Second)
+	b.sql(`UPDATE mensajeria.centralitas SET rechazos = 0, rechazos_desde = NULL WHERE id = $1`, b.id)
+	sinTurno := b.abrir(b.agente, "panel")
+	b.sql(`UPDATE mensajeria.centralitas SET rechazos = 1, rechazos_desde = $2, registro_en_curso_hasta = $3 WHERE id = $1`,
+		b.id, *b.reloj, b.reloj.Add(20*time.Second))
+	if _, status, err := b.dial(b.agente, sinTurno, baseIris); err == nil || status != http.StatusTooManyRequests {
+		t.Fatalf("conectar sin turno: %d %v", status, err)
+	}
+	// Al vencer el turno ajeno, /abrir vuelve.
+	*b.reloj = b.reloj.Add(21 * time.Second)
+	b.abrir(b.agente, "panel")
 }
