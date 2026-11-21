@@ -30,6 +30,9 @@ import { AvisoDatosSinEmpresa, ElegirEmpresa, SelectorEmpresa } from "./selector
 import { SelectorTema } from "./selector-tema";
 import { DialogoReautenticar } from "@/componentes/cuenta/dialogo-reautenticar";
 import { AvisoLlamada, BarraLlamada, NotaLlamada } from "./voz/llamada";
+import { AvisoTelefono, BotonTelefono } from "./telefono/indicador";
+import { BarraTelefono, CapaTelefono } from "./telefono/llamada";
+import { ProveedorTelefono } from "./telefono/proveedor";
 import { ProveedorCentralita } from "./voz/centralita";
 import { ProveedorVoz, useVoz } from "./voz/proveedor";
 import { BotonRecibir, ControlRecibir } from "./voz/recibir";
@@ -228,12 +231,17 @@ function VozSiAplica({ children }: { children: ReactNode }) {
 
 /**
  * Centralita Issabel (E4a): para cualquier persona con la empresa activa resuelta. El proveedor
- * pregunta si tiene una extensión y solo entonces escucha (con o sin `conversaciones.ver`).
+ * pregunta si tiene una extensión y solo entonces escucha (con o sin `conversaciones.ver`). El
+ * teléfono de Iris (E4c) va por fuera: la ventana de E4a le pregunta si la llamada es suya.
  */
 function CentralitaSiAplica({ children }: { children: ReactNode }) {
     const { yo } = useSesion();
     if (yo.modoEmpresa !== "sin_conector" && yo.empresaActiva === undefined) return children;
-    return <ProveedorCentralita key={yo.empresaActiva?.id ?? 0}>{children}</ProveedorCentralita>;
+    return (
+        <ProveedorTelefono key={yo.empresaActiva?.id ?? 0}>
+            <ProveedorCentralita>{children}</ProveedorCentralita>
+        </ProveedorTelefono>
+    );
 }
 
 const CONSULTA_ESCRITORIO = "(min-width: 1024px)";
@@ -399,12 +407,15 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                 <div className="ml-auto flex min-w-0 items-center justify-end gap-2 lg:ml-0 lg:flex-[0_1_21.25rem]">
                     <BuscadorGlobal />
                 </div>
+                <BotonTelefono />
                 <BotonRecibir />
                 <BotonChatEquipo />
                 <BotonAvisos />
                 <BotonCrear />
             </header>
             {ruta !== "/equipo" ? <PanelChatEquipo /> : null}
+            <BarraTelefono />
+            <CapaTelefono />
             {voz ? (
                 <>
                     <Suspense>
@@ -444,6 +455,7 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
                         {mensajeDeError(errorCerrar).detalle}
                     </Aviso>
                 ) : null}
+                <AvisoTelefono />
                 {avisoAdopcion ? <AvisoDatosSinEmpresa /> : null}
                 {children}
             </main>

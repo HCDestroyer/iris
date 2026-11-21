@@ -375,6 +375,15 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 			if motivo != "" {
 				return SesionTelefono{}, problemaTelefono(motivo)
 			}
+			// Con varias contraseñas rechazadas seguidas no se abre (fail2ban bloquearía a Iris); con alguna,
+			// el teléfono toma el turno de REGISTER de la centralita y el ticket lo lleva (B8).
+			if err := m.limitarRechazos(ctx, q, x.CentralitaID); err != nil {
+				return SesionTelefono{}, err
+			}
+			turno, err := m.turnoTelefono(ctx, q, x.CentralitaID, nil)
+			if err != nil {
+				return SesionTelefono{}, err
+			}
 			ahora := m.ahora()
 			if err := q.BorrarTicketsTelefono(ctx, ahora.Add(-time.Hour)); err != nil {
 				return SesionTelefono{}, err
@@ -410,7 +419,7 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 			actor := contexto.ActorDe(ctx)
 			vence := ahora.Add(vidaTicketTelefono)
 			if err := q.InsertarTicketTelefono(ctx, mensajeriabd.InsertarTicketTelefonoParams{Hash: h[:], UsuarioID: actor.ID, EmpresaID: ptrEmpresa(empresaDeCtx(ctx)),
-				ExtensionID: x.ID, Dispositivo: in.Dispositivo, SesionID: contexto.SesionDe(ctx).ID, ExpiraEn: vence}); err != nil {
+				ExtensionID: x.ID, Dispositivo: in.Dispositivo, SesionID: contexto.SesionDe(ctx).ID, ExpiraEn: vence, TurnoHasta: turno}); err != nil {
 				return SesionTelefono{}, err
 			}
 			t.FijarEntidad("centralita_extension", x.ID)

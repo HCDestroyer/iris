@@ -105,12 +105,29 @@ var (
 		"event": true, "subscription-state": true, "accept": true, "allow-events": true, "reason": true, "retry-after": true}
 )
 
-// soloPermitidas deja en el mensaje solo las cabeceras de la lista (por nombre completo).
+// formasCortas: el nombre largo de cada forma compacta de RFC 3261 §7.3.3 y sus extensiones
+// (RFC 3265, 3515, 3841, 3892, 4028, 4474). La Issabel puede mandar «k:» en vez de «Supported:».
+var formasCortas = map[string]string{"a": "accept-contact", "b": "referred-by", "c": "content-type", "d": "request-disposition",
+	"e": "content-encoding", "f": "from", "i": "call-id", "j": "reject-contact", "k": "supported", "l": "content-length", "m": "contact",
+	"n": "identity-info", "o": "event", "r": "refer-to", "s": "subject", "t": "to", "u": "allow-events", "v": "via", "x": "session-expires",
+	"y": "identity"}
+
+// nombreLargo: el nombre de la cabecera en minúsculas, con la forma compacta ya traducida.
+func nombreLargo(nombre string) string {
+	n := strings.ToLower(nombre)
+	if largo, ok := formasCortas[n]; ok {
+		return largo
+	}
+	return n
+}
+
+// soloPermitidas deja en el mensaje solo las cabeceras de la lista (por nombre completo; la forma
+// compacta vale lo mismo que su nombre largo).
 func soloPermitidas(m conCabeceras, permitidas map[string]bool) {
 	for {
 		borro := false
 		for _, h := range m.Headers() {
-			if !permitidas[strings.ToLower(h.Name())] {
+			if !permitidas[nombreLargo(h.Name())] {
 				m.RemoveHeader(h.Name())
 				borro = true
 				break

@@ -40,7 +40,7 @@ type bancoTelefono struct {
 	extID   float64
 }
 
-func nuevoBancoTelefono(t *testing.T) *bancoTelefono {
+func nuevoBancoTelefono(t *testing.T, ajustes ...func(*mensajeria.Config)) *bancoTelefono {
 	t.Helper()
 	falso := sipfalso.Nuevo("201", secretoSIP)
 	t.Cleanup(falso.Cerrar)
@@ -51,6 +51,9 @@ func nuevoBancoTelefono(t *testing.T) *bancoTelefono {
 		c.TelefonoLatido = 150 * time.Millisecond
 		c.BaseURL = baseIris
 		c.Campo = campo.Nuevo(campo.Config{Reloj: c.Ahora, Soporte: c.Soporte, Adjuntos: campo.SinAdjuntosObligatorios{}})
+		for _, a := range ajustes {
+			a(c)
+		}
 	})
 	b := &bancoTelefono{bancoCentralita: x, sip: falso}
 	t.Cleanup(func() {

@@ -415,7 +415,7 @@ func (p *Puente) peticionNavegador(ctx context.Context, req *sip.Request) error 
 	}
 	soloPermitidas(req, cabecerasPeticion)
 	if req.Method != sip.REFER {
-		quitar(req, "Refer-To")
+		quitar(req, "Refer-To", "r")
 	}
 	rama := req.Via().Params.GetOr("branch", "")
 	if !strings.HasPrefix(rama, sip.RFC3261BranchMagicCookie) || len(rama) > 128 {
@@ -806,7 +806,9 @@ func (p *Puente) respuestaCentralita(ctx context.Context, res *sip.Response) err
 			return p.reintentar(ctx, t, res, dz, res.StatusCode == sip.StatusProxyAuthRequired)
 		}
 	}
-	credenciales := false
+	// Un 403 de la Issabel a un REGISTER (sin desafío de por medio) también es la credencial rechazada,
+	// como en ProbarRegistro: se avisa y se corta igual (revisión de #252, B1).
+	credenciales := t.metodo == sip.REGISTER && res.StatusCode == sip.StatusForbidden
 	if desafio {
 		// Credenciales rechazadas: el navegador recibe 403, nunca el desafío, y el puente corta (si no,
 		// el navegador reintentaría y el fail2ban de la Issabel bloquearía la IP de Iris para todos).
@@ -1099,11 +1101,17 @@ func (p *Puente) avisar(h HechoLlamada) {
 }
 
 func acotarExpira(req *sip.Request) {
-	if h := req.GetHeader("Expires"); h != nil {
-		if n, err := strconv.Atoi(strings.TrimSpace(h.Value())); err != nil || n > maxExpiraciones || n < 0 {
-			quitar(req, "Expires")
-			req.AppendHeader(sip.NewHeader("Expires", strconv.Itoa(maxExpiraciones)))
+	// Con varias `Expires` cada servidor lee una distinta: se quitan todas y queda una sola, la menor
+	// válida, acotada a maxExpiraciones.
+	if hs := req.GetHeaders("Expires"); len(hs) > 0 {
+		valor := maxExpiraciones
+		for _, h := range hs {
+			if n, err := strconv.Atoi(strings.TrimSpace(h.Value())); err == nil && n >= 0 && n < valor {
+				valor = n
+			}
 		}
+		quitar(req, "Expires")
+		req.AppendHeader(sip.NewHeader("Expires", strconv.Itoa(valor)))
 	}
 	for _, c := range req.GetHeaders("Contact") {
 		if ch, ok := c.(*sip.ContactHeader); ok {
