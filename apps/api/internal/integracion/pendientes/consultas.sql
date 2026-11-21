@@ -19,6 +19,11 @@ RETURNING *;
 -- de ellas lleva `tecnico` y `bodega_id` a la vez, con X-Iris-Actor.
 SELECT bodega_id FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = ANY(@bodegas::bigint[]) ORDER BY bodega_id;
 
+-- name: NotasDeEquipos :many
+-- Las notas de los cambios e intentos de recuperación de la orden (0.12.0 §3.10): van a Argos en el
+-- cuerpo, nunca en el evento ni en los logs.
+SELECT id, nota, cobro_nota FROM campo.orden_equipos WHERE id = ANY(@ids::uuid[]);
+
 -- name: BodegasPersonales :many
 -- Cuáles de estas bodegas de Argos son la personal de un técnico (0.13.1 §3.9): desde el panel no se
 -- usan.
@@ -99,7 +104,7 @@ SELECT * FROM integracion.pendientes WHERE entidad = @entidad AND entidad_id = @
 -- Cierre repetido con los datos que faltaban: el pendiente incompleto vuelve a la cola.
 UPDATE integracion.pendientes
 SET payload = @payload, ruta = @ruta, depende_de = @depende_de, datos_incompletos = false,
-    estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
+    tecnico_usuario_id = sqlc.narg(tecnico_usuario_id)::bigint, estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
     proximo_intento = @ahora, version = version + 1, updated_at = now()
 WHERE id = @id AND estado = 'fallido_negocio' AND datos_incompletos
 RETURNING *;

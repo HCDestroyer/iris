@@ -46,14 +46,20 @@ func TestConsumoDesdeLaBodegaDeLaCuadrilla(t *testing.T) {
 	otro := e.tecnico("u-26b")
 	reasignada := nuevaOrden()
 	e.cerrar(map[string]any{
-		"orden_id": reasignada, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
+		"orden_id": reasignada, "tipo": "instalacion", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": otro, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26b"},
 		"materiales": []any{desdeApp(5, 3, tec)},
+		"equipos":    []any{map[string]any{"accion": "instalar", "serie": "ONT-27", "desde_app": true, "registrado_por": tec}},
 	})
 	e.procesar()
 	c = e.llamadaA("iris:consumo:" + reasignada)
 	if c.Cuerpo["bodega_id"] != 3.0 || c.Cuerpo["tecnico"].(map[string]any)["id_externo"] != "u-26" || c.Actor != actor {
 		t.Fatalf("consumo de una orden reasignada: %s actor=%q", c.Crudo, c.Actor)
+	}
+	// El comodato que registró en la app también sale con su I1 y su X-Iris-Actor (0.13.1 §3.9).
+	if com := e.llamadaA("iris:comodato:" + reasignada + ":ONT-27"); com.Cuerpo["tecnico"].(map[string]any)["id_externo"] != "u-26" ||
+		com.Actor != actor || com.Cuerpo["bodega_id"] != nil {
+		t.Fatalf("comodato de una orden reasignada: %s actor=%q", com.Crudo, com.Actor)
 	}
 
 	// Desde el panel: solo bodega_id de una bodega tipo bodega, sin tecnico ni X-Iris-Actor.

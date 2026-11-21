@@ -151,6 +151,8 @@ type Modulo struct {
 	UsarMaterial        *auditoria.Caso[EntradaUsarMaterial, Orden]
 	InstalarEquipo      *auditoria.Caso[EntradaEquipo, Orden]
 	RetirarEquipo       *auditoria.Caso[EntradaEquipo, Orden]
+	CambiarEquipo       *auditoria.Caso[EntradaCambiarEquipo, Orden]
+	NoRecuperado        *auditoria.Caso[EntradaNoRecuperado, Orden]
 	CapturarFirma       *auditoria.Caso[EntradaCapturarFirma, Orden]
 	RegistrarAdjunto    *auditoria.Caso[EntradaRegistrarAdjunto, Orden]
 	VerOrden            *auditoria.Caso[EntradaVerOrden, OrdenDetalle]
@@ -253,6 +255,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.UsarMaterial = m.nuevoUsarMaterial()
 	m.InstalarEquipo = m.nuevoEquipo(AccionInstalar)
 	m.RetirarEquipo = m.nuevoEquipo(AccionRetirar)
+	m.CambiarEquipo = m.nuevoCambiarEquipo()
+	m.NoRecuperado = m.nuevoNoRecuperado()
 	m.CapturarFirma = m.nuevoCapturarFirma()
 	m.RegistrarAdjunto = m.nuevoRegistrarAdjunto()
 	m.VerOrden = m.nuevoVerOrden(nucleo.PermOrdenesVer)

@@ -91,10 +91,68 @@ type Material struct {
 	BodegaID   *IDArgos    `json:"bodega_id"`
 	// Modalidad del producto en Argos (0.5.0) al registrarlo; vacía si no se sabía.
 	Modalidad string `json:"modalidad"`
+	// Fecha (del teléfono) y RecibidoEnIris (del servidor): 0.12.0 §3.3, para la ventana de Argos.
+	Fecha          *time.Time `json:"fecha"`
+	RecibidoEnIris *time.Time `json:"recibido_en_iris"`
 	// DesdeApp: lo registró un técnico desde el lote (RegistradoPor); si no, despacho en el panel.
 	DesdeApp      bool   `json:"desde_app"`
 	RegistradoPor *int64 `json:"registrado_por"`
 }
+
+// TecnicoArgos es `tecnico` en orden.cerrada (contrato 0.5.0 §3.3): el vínculo de la ficha.
+type TecnicoArgos struct {
+	IDExterno string `json:"id_externo"`
+}
+
+// Equipo instalado o retirado en la orden.
+type Equipo struct {
+	ID        string   `json:"id"`
+	Accion    string   `json:"accion"` // instalar | retirar | cambio | no_recuperado
+	UnidadID  *IDArgos `json:"unidad_id"`
+	Serie     string   `json:"serie"`
+	MAC       string   `json:"mac"`
+	Condicion string   `json:"condicion"` // al retirar: bueno, danado… o perdido (no se recuperó)
+	BodegaID  *IDArgos `json:"bodega_id"` // bodega a la que se devuelve (si no, la de la orden)
+	// Cambio y no recuperado (0.12.0 §3.10). La nota no viaja en el evento: se lee de la orden.
+	SaleUnidadID   *IDArgos `json:"sale_unidad_id"`
+	Motivo         string   `json:"motivo"`
+	DestinoSale    string   `json:"destino_sale"`
+	CobroPropuesto *struct {
+		Motivo string `json:"motivo"`
+	} `json:"cobro_propuesto"`
+	FotoRef   string `json:"foto_ref"`
+	Ubicacion *struct {
+		Lat        *float64 `json:"lat"`
+		Lng        *float64 `json:"lng"`
+		PrecisionM *float64 `json:"precision_m"`
+	} `json:"ubicacion"`
+	Fecha          *time.Time `json:"fecha"`
+	RecibidoEnIris *time.Time `json:"recibido_en_iris"`
+	// RegistradoPor: el técnico que registró el cambio o el intento; va en X-Iris-Actor (A-271-1),
+	// aunque la orden se reasigne después.
+	RegistradoPor *int64 `json:"registrado_por"`
+	// DesdeApp: lo registró un técnico desde el lote; en comodatos y devoluciones, con Argos ≥ 0.11.0,
+	// sale con su I1 y su X-Iris-Actor (0.13.1 §3.9).
+	DesdeApp bool `json:"desde_app"`
+}
+
+// Acciones de equipo de 0.12.0 (§3.10).
+const (
+	AccionCambio       = "cambio"
+	AccionNoRecuperado = "no_recuperado"
+	OpCambio           = "cambio"
+	OpNoRecuperado     = "no_recuperado"
+	// MotivoPerdidaSinIntento: un retiro «perdido» de una app anterior, sin foto ni ubicación, con
+	// Argos ≥ 0.12.0: no se manda (la pérdida la declara una persona en Argos).
+	MotivoPerdidaSinIntento = "perdida_sin_intento"
+	// EsperaPersonaPerdida: con Argos < 0.12.0, la pérdida espera a una persona con
+	// ordenes.declarar_perdida; nunca sale sola desde el cierre.
+	EsperaPersonaPerdida = "requiere una persona con ordenes.declarar_perdida: revisa el intento y reintenta a mano (Argos < 0.12.0)"
+)
+
+// notasEquipo: las notas de los equipos de la orden (la nota y la del cobro propuesto), que no viajan
+// en el evento (§10.7 i). Por id del equipo.
+type notasEquipo struct{ nota, cobro *string }
 
 // opcionesPlan es lo que planificar necesita saber de Argos y de Iris (sin E/S en planificar).
 type opcionesPlan struct {
@@ -108,21 +166,9 @@ type opcionesPlan struct {
 	// vinculos: el vínculo I1 (id_externo) de cada usuario que registró algo de la orden: el
 	// `tecnico` del cuerpo es el del actor, no el del técnico actual de la orden (0.13.1).
 	vinculos map[int64]string
-}
-
-// TecnicoArgos es `tecnico` en orden.cerrada (contrato 0.5.0 §3.3): el vínculo de la ficha.
-type TecnicoArgos struct {
-	IDExterno string `json:"id_externo"`
-}
-
-// Equipo instalado o retirado en la orden.
-type Equipo struct {
-	Accion    string   `json:"accion"` // instalar | retirar
-	UnidadID  *IDArgos `json:"unidad_id"`
-	Serie     string   `json:"serie"`
-	MAC       string   `json:"mac"`
-	Condicion string   `json:"condicion"` // al retirar: bueno, danado… o perdido (no se recuperó)
-	BodegaID  *IDArgos `json:"bodega_id"` // bodega a la que se devuelve (si no, la de la orden)
+	// equipos: Argos con contrato ≥ 0.12.0 (cambiar y no-recuperado, fecha y recibido_en_iris).
+	equipos bool
+	notas   map[string]notasEquipo
 }
 
 // Cargo único que la orden indica cobrar.
@@ -166,6 +212,8 @@ type plan struct {
 	payload                map[string]any
 	depende                []int  // índices de otros planes de la misma orden
 	incompleto             string // dato faltante: nace fallido_negocio
+	// esperaPersona: nace fallido_negocio (sin ser dato faltante) hasta que una persona lo decida.
+	esperaPersona string
 	// conTecnico: el cuerpo lleva `tecnico` (se corrige al reintentar a mano tras vincular).
 	conTecnico bool
 	// conActor: X-Iris-Actor es `actor` (quien lo registró), nunca el técnico actual de la orden;
@@ -265,10 +313,140 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 		return o.BodegaID
 	}
 
+	// fechas: fecha y recibido_en_iris (0.12.0 §3.10).
+	fechas := func(p map[string]any, fecha, recibido *time.Time) {
+		if fecha != nil {
+			p["fecha"] = fecha.UTC().Format(time.RFC3339)
+		}
+		if recibido != nil {
+			p["recibido_en_iris"] = recibido.UTC().Format(time.RFC3339)
+		}
+	}
+	// noRecuperado: un intento de recuperación (0.12.0) o, con Argos anterior, la pérdida que espera
+	// a una persona. Nunca sale como pérdida desde el cierre.
+	noRecuperado := func(e Equipo) (int, bool) {
+		if e.UnidadID == nil {
+			return 0, false
+		}
+		uid := idRuta(e.UnidadID)
+		if !op.equipos {
+			return agregar(faltaServicio(plan{
+				operacion: OpPerdida, clave: "iris:perdida:" + orden + ":" + uid,
+				ruta: "/servicios/" + sid + "/equipos/" + uid + "/perdida", payload: origen(orden), esperaPersona: EsperaPersonaPerdida,
+			})), true
+		}
+		p := plan{operacion: OpNoRecuperado, clave: "iris:no_recuperado:" + orden + ":" + uid,
+			ruta: "/servicios/" + sid + "/equipos/" + uid + "/no-recuperado", payload: origen(orden), conActor: true, actor: e.RegistradoPor}
+		if e.RegistradoPor == nil {
+			p.incompleto = "intento de recuperación sin quien lo registró"
+		}
+		p.payload["motivo"] = e.Motivo
+		if e.FotoRef != "" {
+			p.payload["foto_ref"] = e.FotoRef
+		}
+		if e.Ubicacion != nil {
+			p.payload["ubicacion"] = map[string]any{"lat": e.Ubicacion.Lat, "lng": e.Ubicacion.Lng, "precision_m": e.Ubicacion.PrecisionM}
+		} else {
+			p.incompleto = "intento de recuperación sin ubicación"
+		}
+		if n := op.notas[e.ID]; n.nota != nil {
+			p.payload["nota"] = *n.nota
+		}
+		fechas(p.payload, e.Fecha, e.RecibidoEnIris)
+		return agregar(faltaServicio(p)), true
+	}
+	// cambios: 0.12.0, una sola llamada por unidad que sale; con Argos anterior, una devolución y una
+	// asignación (devuelve si la que sale funciona o no).
+	cambios := func() {
+		for _, e := range o.Equipos {
+			if e.Accion != AccionCambio || e.SaleUnidadID == nil {
+				continue
+			}
+			sale := idRuta(e.SaleUnidadID)
+			entra := map[string]any{}
+			switch {
+			case e.UnidadID != nil:
+				entra["unidad_id"] = int64(*e.UnidadID)
+			case strings.TrimSpace(e.Serie) != "":
+				entra["serie"] = strings.TrimSpace(e.Serie)
+			case strings.TrimSpace(e.MAC) != "":
+				entra["mac"] = strings.TrimSpace(e.MAC)
+			}
+			if !op.equipos {
+				condicion := "danada"
+				if e.DestinoSale == "funciona" {
+					condicion = "buena"
+				}
+				dev := plan{operacion: OpDevolucion, clave: "iris:devolucion:" + orden + ":" + sale,
+					ruta:    "/servicios/" + sid + "/equipos/" + sale + "/devolver",
+					payload: con(origen(orden), map[string]any{"bodega_id": o.BodegaID, "condicion": condicion})}
+				if tecnico != nil {
+					delete(dev.payload, "bodega_id")
+					dev.payload["tecnico"], dev.conTecnico = tecnico, true
+				}
+				d := agregar(faltaServicio(dev))
+				asig := plan{operacion: OpAsignarComodato, clave: "iris:comodato:" + orden + ":" + claveEquipo(e),
+					ruta: "/servicios/" + sid + "/equipos", payload: con(origen(orden), entra), depende: []int{d}}
+				if tecnico != nil {
+					asig.payload["tecnico"], asig.conTecnico = tecnico, true
+				}
+				if len(entra) == 0 {
+					asig.incompleto = "cambio sin la unidad que entra"
+				}
+				agregar(faltaServicio(asig))
+				continue
+			}
+			p := plan{operacion: OpCambio, clave: "iris:cambio:" + orden + ":" + sale, ruta: "/servicios/" + sid + "/equipos/cambiar",
+				payload: origen(orden), conActor: true, actor: e.RegistradoPor}
+			if e.RegistradoPor == nil {
+				p.incompleto = "cambio de equipo sin quien lo registró"
+			}
+			p.payload["sale"] = map[string]any{"unidad_id": int64(*e.SaleUnidadID)}
+			p.payload["entra"] = entra
+			p.payload["motivo"], p.payload["destino_sale"] = e.Motivo, e.DestinoSale
+			n := op.notas[e.ID]
+			if e.CobroPropuesto != nil {
+				cobro := map[string]any{"motivo": e.CobroPropuesto.Motivo}
+				if n.cobro != nil {
+					cobro["nota"] = *n.cobro
+				}
+				p.payload["cobro_propuesto"] = cobro
+			}
+			p.payload["nota"] = n.nota
+			fechas(p.payload, e.Fecha, e.RecibidoEnIris)
+			if len(entra) == 0 {
+				p.incompleto = "cambio sin la unidad que entra"
+			}
+			agregar(faltaServicio(p))
+		}
+	}
+
+	// delActor: comodato o devolución que el técnico registró en la app (0.13.1 §3.9): `tecnico` es
+	// el I1 de quien lo registró y sale con su X-Iris-Actor; sin él o sin vínculo, incompleto.
+	delActor := func(p *plan, e Equipo) {
+		p.conTecnico, p.conActor, p.actor = true, true, e.RegistradoPor
+		var v string
+		if e.RegistradoPor != nil {
+			v = strings.TrimSpace(op.vinculos[*e.RegistradoPor])
+		}
+		if v == "" {
+			p.payload["tecnico"] = nil
+			p.incompleto = "quien registró el equipo no está vinculado a Argos (I1)"
+			return
+		}
+		p.payload["tecnico"] = map[string]any{"id_externo": v}
+	}
+
 	// Equipos retirados (devolución o pérdida): retiro y primer paso del cambio de equipo.
 	retirados := func() []int {
 		var idx []int
 		for _, e := range o.Equipos {
+			if e.Accion == AccionNoRecuperado {
+				if i, ok := noRecuperado(e); ok {
+					idx = append(idx, i)
+				}
+				continue
+			}
 			if e.Accion != AccionRetirar {
 				continue
 			}
@@ -282,9 +460,14 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 			}
 			uid := idRuta(e.UnidadID)
 			if strings.EqualFold(e.Condicion, CondicionPerdido) {
+				// Desde 0.12.0 Iris nunca declara la pérdida desde el cierre (§3.10, §10.7 d).
+				if op.equipos {
+					omisiones = append(omisiones, omision{motivo: MotivoPerdidaSinIntento, operaciones: []string{"unidad:" + uid}})
+					continue
+				}
 				idx = append(idx, agregar(faltaServicio(plan{
 					operacion: OpPerdida, clave: "iris:perdida:" + orden + ":" + uid,
-					ruta: "/servicios/" + sid + "/equipos/" + uid + "/perdida", payload: origen(orden),
+					ruta: "/servicios/" + sid + "/equipos/" + uid + "/perdida", payload: origen(orden), esperaPersona: EsperaPersonaPerdida,
 				})))
 				continue
 			}
@@ -293,12 +476,18 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				ruta:    "/servicios/" + sid + "/equipos/" + uid + "/devolver",
 				payload: con(origen(orden), map[string]any{"bodega_id": bodegaDe(e.BodegaID), "condicion": e.Condicion}),
 			}
-			if tecnico != nil && !explicita(e.BodegaID) {
+			switch {
+			case op.bodegaApp && e.DesdeApp:
+				// 0.13.1 §3.9: la registró el técnico en la app: tecnico (su I1) + su X-Iris-Actor.
+				delete(p.payload, "bodega_id")
+				delActor(&p, e)
+			case tecnico != nil && !explicita(e.BodegaID):
 				// 0.5.0: a la bodega activa del técnico en la empresa del servicio.
 				delete(p.payload, "bodega_id")
 				p.payload["tecnico"], p.conTecnico = tecnico, true
 			}
 			switch {
+			case p.incompleto != "":
 			case !p.conTecnico && bodegaDe(e.BodegaID) == nil:
 				p.incompleto = "devolución sin bodega_id (ni en el equipo ni en la orden)"
 			case e.Condicion == "":
@@ -318,7 +507,10 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				operacion: OpAsignarComodato, clave: "iris:comodato:" + orden + ":" + claveEquipo(e),
 				ruta: "/servicios/" + sid + "/equipos", payload: origen(orden), depende: depende,
 			}
-			if tecnico != nil {
+			switch {
+			case op.bodegaApp && e.DesdeApp:
+				delActor(&p, e) // 0.13.1 §3.9: su I1 y su X-Iris-Actor, sin bodega_id
+			case tecnico != nil:
 				// 0.5.0: la unidad sale de la bodega del técnico (409 unidad_en_otra_bodega si no).
 				p.payload["tecnico"], p.conTecnico = tecnico, true
 			}
@@ -352,8 +544,9 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 			}
 		case TipoCambioEquipo:
 			// Una devolución y una asignación, en ese orden: cada asignación espera a todas las
-			// devoluciones o pérdidas de la orden.
+			// devoluciones o pérdidas de la orden. Los cambios de 0.12.0 van en una sola llamada.
 			instalados(retirados())
+			cambios()
 		}
 	}
 
@@ -452,6 +645,19 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 			lineas = append(lineas, linea)
 		}
 		p.payload = con(origen(orden), map[string]any{"lineas": lineas, "servicio_id": o.ServicioID})
+		if op.equipos {
+			// 0.12.0 §3.3: la fecha más reciente de los materiales y cuándo los aceptó Iris.
+			var fecha, recibido *time.Time
+			for _, mat := range materiales {
+				if mat.Fecha != nil && (fecha == nil || mat.Fecha.After(*fecha)) {
+					fecha = mat.Fecha
+				}
+				if mat.RecibidoEnIris != nil && (recibido == nil || mat.RecibidoEnIris.After(*recibido)) {
+					recibido = mat.RecibidoEnIris
+				}
+			}
+			fechas(p.payload, fecha, recibido)
+		}
 		switch {
 		case conApp:
 			p.payload["bodega_id"] = bodega
@@ -499,6 +705,31 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	return planes, omisiones
 }
 
+// notasDeEquipos lee de la orden las notas de sus cambios e intentos (no viajan en el evento).
+func notasDeEquipos(ctx context.Context, q *pendientesbd.Queries, o OrdenCerrada) (map[string]notasEquipo, error) {
+	salida := map[string]notasEquipo{}
+	ids := []uuid.UUID{}
+	for _, e := range o.Equipos {
+		if e.Accion != AccionCambio && e.Accion != AccionNoRecuperado {
+			continue
+		}
+		if id, err := uuid.Parse(e.ID); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return salida, nil
+	}
+	filas, err := q.NotasDeEquipos(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range filas {
+		salida[f.ID.String()] = notasEquipo{nota: f.Nota, cobro: f.CobroNota}
+	}
+	return salida, nil
+}
+
 // bodegasDeCuadrilla: las bodegas de los materiales de la orden que son de una cuadrilla, y las que
 // son la personal de un técnico.
 func bodegasDeCuadrilla(ctx context.Context, q *pendientesbd.Queries, o OrdenCerrada) (map[int64]bool, map[int64]bool, error) {
@@ -538,6 +769,11 @@ func vinculosDeActores(ctx context.Context, q *pendientesbd.Queries, o OrdenCerr
 	for _, mat := range o.Materiales {
 		if mat.RegistradoPor != nil && !slices.Contains(usuarios, *mat.RegistradoPor) {
 			usuarios = append(usuarios, *mat.RegistradoPor)
+		}
+	}
+	for _, e := range o.Equipos {
+		if e.RegistradoPor != nil && !slices.Contains(usuarios, *e.RegistradoPor) {
+			usuarios = append(usuarios, *e.RegistradoPor)
 		}
 	}
 	salida := map[int64]string{}
@@ -595,14 +831,21 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			if err != nil {
 				return res, err
 			}
-			bodegaApp := false
+			equipos, bodegaApp := false, false
 			if m.cfg.Argos != nil {
+				if equipos, err = m.cfg.Argos.EquiposDelCliente(ctx, t); err != nil {
+					return res, err
+				}
 				if bodegaApp, err = m.cfg.Argos.BodegaDeCuadrilla(ctx, t); err != nil {
 					return res, err
 				}
 			}
+			notas, err := notasDeEquipos(ctx, pendientesbd.New(t), o)
+			if err != nil {
+				return res, err
+			}
 			planes, omisiones := planificar(o, opcionesPlan{porTecnico: porTecnico, cuadrillas: cuadrillas, personales: personales,
-				bodegaApp: bodegaApp, vinculos: vinculos})
+				bodegaApp: bodegaApp, vinculos: vinculos, equipos: equipos, notas: notas})
 			if len(planes) == 0 && len(omisiones) == 0 {
 				return res, nil
 			}
@@ -657,8 +900,11 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				}
 				estado := EstadoPendiente
 				var ultimo *string
-				if p.incompleto != "" {
+				switch {
+				case p.incompleto != "":
 					estado, ultimo = EstadoFallidoNegocio, errorf("datos incompletos: %s", p.incompleto)
+				case p.esperaPersona != "":
+					estado, ultimo = EstadoFallidoNegocio, &p.esperaPersona
 				}
 				var empresaID *int64
 				if empresa != 0 {
@@ -685,7 +931,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					}
 					ids[i] = previo.ID
 					res.Pendientes = append(res.Pendientes, previo.ID)
-					corregido, err := m.cierreRepetido(ctx, t, previo, p, cuerpo, depende, ahora)
+					corregido, err := m.cierreRepetido(ctx, t, previo, p, cuerpo, depende, ahora, tecnicoUsuario)
 					if err != nil {
 						return res, err
 					}
@@ -756,24 +1002,28 @@ func (m *Modulo) Suscribir(bus *integracion.Bus) {
 //
 // Devuelve true si el pendiente volvió a la cola.
 func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pendientesbd.IntegracionPendiente, p plan,
-	cuerpo []byte, depende []int64, ahora time.Time) (bool, error) {
+	cuerpo []byte, depende []int64, ahora time.Time, actor *int64) (bool, error) {
+	// El actor es parte de la huella (A-271-1): el mismo cuerpo con otro X-Iris-Actor no es el mismo.
+	mismoActor := (previo.TecnicoUsuarioID == nil && actor == nil) ||
+		(previo.TecnicoUsuarioID != nil && actor != nil && *previo.TecnicoUsuarioID == *actor) || !p.conActor
 	q := pendientesbd.New(t)
 	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && p.incompleto == "" {
-		f, err := q.CorregirPendiente(ctx, pendientesbd.CorregirPendienteParams{Payload: cuerpo, Ruta: p.ruta, DependeDe: depende, Ahora: ahora, ID: previo.ID})
+		f, err := q.CorregirPendiente(ctx, pendientesbd.CorregirPendienteParams{Payload: cuerpo, Ruta: p.ruta, DependeDe: depende, Ahora: ahora, ID: previo.ID,
+			TecnicoUsuarioID: actor})
 		if err != nil {
 			return false, err
 		}
 		t.RegistrarCambios("pendiente", f.ID,
-			map[string]any{"estado": previo.Estado, "ruta": previo.Ruta, "payload": string(previo.Payload), "datos_incompletos": true},
-			map[string]any{"estado": f.Estado, "ruta": f.Ruta, "payload": string(f.Payload), "datos_incompletos": false})
+			map[string]any{"estado": previo.Estado, "ruta": previo.Ruta, "payload": string(sinNotas(previo.Payload)), "datos_incompletos": true},
+			map[string]any{"estado": f.Estado, "ruta": f.Ruta, "payload": string(sinNotas(f.Payload)), "datos_incompletos": false})
 		return true, t.Emitir(EventoCorregido, eventoDe(f))
 	}
-	if previo.Ruta == p.ruta && mismoJSON(previo.Payload, cuerpo) {
+	if previo.Ruta == p.ruta && mismoJSON(previo.Payload, cuerpo) && mismoActor {
 		return false, nil
 	}
 	// Mismos datos con otra forma de decir la bodega (bodega_id ↔ tecnico, al vincular al técnico o
 	// actualizar Argos a 1.6.0): lo ya encolado se queda como está (su huella de idempotencia).
-	if previo.Ruta == p.ruta && mismoJSON(sinBodega(previo.Payload), sinBodega(cuerpo)) {
+	if previo.Ruta == p.ruta && mismoJSON(sinBodega(previo.Payload), sinBodega(cuerpo)) && mismoActor {
 		return false, nil
 	}
 	if previo.Conflicto != nil && mismoJSON(previo.ConflictoPayload, cuerpo) {
@@ -787,9 +1037,10 @@ func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pen
 	t.RegistrarCambios("pendiente", f.ID, map[string]any{"conflicto": previo.Conflicto}, map[string]any{"conflicto": motivo})
 	slog.WarnContext(ctx, "pendientes: la orden se cerró de nuevo con otros datos; corregir a mano en Argos",
 		"pendiente", f.ID, "operacion", f.Operacion, "estado", f.Estado)
+	// Las notas del técnico nunca van en eventos ni en la auditoría (B-271-5).
 	var nuevo, anterior map[string]any
-	_ = json.Unmarshal(cuerpo, &nuevo)
-	_ = json.Unmarshal(previo.Payload, &anterior)
+	_ = json.Unmarshal(sinNotas(cuerpo), &nuevo)
+	_ = json.Unmarshal(sinNotas(previo.Payload), &anterior)
 	return false, t.Emitir(EventoConflicto, eventoConflicto{eventoPendiente: eventoDe(f), Estado: f.Estado, Motivo: motivo,
 		PayloadAnterior: anterior, PayloadNuevo: nuevo})
 }
@@ -812,6 +1063,30 @@ func mismoJSON(a, b []byte) bool {
 		return false
 	}
 	return reflect.DeepEqual(x, y)
+}
+
+// sinNotas: el cuerpo sin la nota del técnico ni la del cobro propuesto (§10.7 i: nunca en eventos
+// ni en la auditoría). Si no es un objeto JSON, se devuelve tal cual.
+func sinNotas(cuerpo []byte) []byte {
+	var m map[string]any
+	if json.Unmarshal(cuerpo, &m) != nil {
+		return cuerpo
+	}
+	_, hay := m["nota"]
+	cobro, _ := m["cobro_propuesto"].(map[string]any)
+	_, hayCobro := cobro["nota"]
+	if !hay && !hayCobro {
+		return cuerpo
+	}
+	delete(m, "nota")
+	if hayCobro {
+		delete(cobro, "nota")
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return cuerpo
+	}
+	return b
 }
 
 // sinBodega: el cuerpo sin bodega_id ni tecnico (para comparar un cierre repetido).

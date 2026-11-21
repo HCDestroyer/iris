@@ -92,13 +92,29 @@ const ContratoBodegaCuadrilla = "0.11.0"
 // último) informa contrato ≥ 0.11.0: el material de la app sale con tecnico, bodega_id y
 // X-Iris-Actor. Falla cerrado: false sin conector o sin contrato informado.
 func (m *Modulo) BodegaDeCuadrilla(ctx context.Context, q conector.DBTX) (bool, error) {
+	return m.contratoAlMenos(ctx, q, ContratoBodegaCuadrilla)
+}
+
+// ContratoEquipos es el primer contrato con los equipos del cliente (0.12.0 §3.10, A48):
+// POST /servicios/:id/equipos/cambiar, …/no-recuperado y fecha + recibido_en_iris en el cuerpo.
+const ContratoEquipos = "0.12.0"
+
+// EquiposDelCliente indica si el conector Argos registrado más reciente (activo o, si no hay, el
+// último) informa contrato ≥ 0.12.0. Falla cerrado: false sin conector o sin contrato informado.
+func (m *Modulo) EquiposDelCliente(ctx context.Context, q conector.DBTX) (bool, error) {
+	return m.contratoAlMenos(ctx, q, ContratoEquipos)
+}
+
+// contratoAlMenos: el conector Argos registrado más reciente (activo o, si no hay, el último)
+// informa un contrato ≥ minimo. Falla cerrado.
+func (m *Modulo) contratoAlMenos(ctx context.Context, q conector.DBTX, minimo string) (bool, error) {
 	var contrato *string
 	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1
 		ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1`, Sistema).Scan(&contrato)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
-	return conector.VersionAlMenos(contrato, ContratoBodegaCuadrilla), err
+	return conector.VersionAlMenos(contrato, minimo), err
 }
 
 // ReconexionSinPersonal indica si el conector Argos activo informa contrato ≥ 0.8.0 (false sin

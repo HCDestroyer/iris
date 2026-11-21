@@ -6565,6 +6565,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/equipos-cambiados": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar un cambio de equipo
+         * @description Permiso: `ordenes.registrar`. Contrato con Argos 0.12.0 §3.10 (B27). Solo en una orden cambio_equipo en curso: la unidad que sale (en comodato del servicio) y la que entra, motivo, destino (por defecto revision; funciona no vale con danado o garantia), foto y cobro propuesto sin monto. Al cerrar la orden, Argos lo hace en una sola operación. Las notas no van en eventos ni en la auditoría. Desde la app: operación equipo.cambiar del lote.
+         */
+        post: operations["cambiarEquipoOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/equipos-instalados": {
         parameters: {
             query?: never;
@@ -6579,6 +6599,26 @@ export interface paths {
          * @description Permiso: `ordenes.registrar`. Serie o unidad de Argos; MAC normalizada. 422 `equipo_duplicado`.
          */
         post: operations["instalarEquipoOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/equipos-no-recuperados": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar un equipo que no se pudo recuperar
+         * @description Permiso: `ordenes.registrar`. Contrato con Argos 0.12.0 §3.10 (B27). Solo en una orden retiro en sitio: motivo, foto de la orden (obligatoria si se negó o se perdió), ubicación y nota; un intento por unidad al día (429 demasiados_intentos). Declarar la pérdida o cobrarla lo decide una persona en Argos. Desde la app: operación equipo.no_recuperado del lote.
+         */
+        post: operations["noRecuperadoOrden"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10920,6 +10960,12 @@ export interface components {
             routers: components["schemas"]["RouterCobertura"][] | null;
             umbrales: components["schemas"]["Umbrales"];
         };
+        CobroPropuesto: {
+            /** @enum {string} */
+            motivo: "golpe" | "humedad" | "manipulado" | "otro";
+            /** @description Se muestra escapada; nunca va en eventos ni en logs */
+            nota?: string;
+        };
         CodigoFalla: {
             /**
              * Format: int32
@@ -12905,6 +12951,28 @@ export interface components {
             /** @description Nueva contraseña: mínimo 12 caracteres y distinta de la actual */
             nueva: string;
         };
+        EntradaCambiarEquipo: {
+            cobroPropuesto?: components["schemas"]["CobroPropuesto"];
+            /**
+             * @description Por defecto revision; funciona no vale con danado o garantia
+             * @enum {string}
+             */
+            destinoSale?: "funciona" | "revision" | "garantia" | "danado" | "";
+            /** @description La que entra: de la bodega del técnico o de su cuadrilla, disponible (lo comprueba Argos) */
+            entra: components["schemas"]["EquipoQueEntra"];
+            /** @description Foto opcional (adjunto de la orden) */
+            fotoAdjuntoId?: string;
+            /** @enum {string} */
+            motivo: "danado" | "actualizacion" | "garantia" | "otro";
+            nota?: string;
+            /**
+             * Format: int64
+             * @description La unidad en comodato del servicio que sale
+             */
+            saleUnidadId: number;
+            /** Format: int32 */
+            version?: number;
+        };
         EntradaCambioCentralita: {
             /** Format: int32 */
             version: number;
@@ -14341,6 +14409,32 @@ export interface components {
              */
             version: number;
         };
+        EntradaNoRecuperado: {
+            /** @description Obligatoria con cualquier motivo (0.13.1): adjunto foto de la orden, tuyo, tomado después de tu llegada, no rechazado ni usado en otro cambio o intento */
+            fotoAdjuntoId: string;
+            /**
+             * Format: double
+             * @description Ubicación del intento, tomada en sitio: a 500 m o menos del servicio y de tu posición de los 30 min anteriores (422 ubicacion_fuera_de_sitio; sin coordenadas del servicio o sin esa posición, 422 ubicacion_sin_referencia)
+             */
+            lat: number | null;
+            /** Format: double */
+            lon: number | null;
+            /** @enum {string} */
+            motivo: "cliente_ausente" | "se_nego" | "equipo_perdido" | "otro";
+            nota?: string;
+            /**
+             * Format: double
+             * @description Precisión del GPS, obligatoria: 200 m o mejor
+             */
+            precisionM: number | null;
+            /**
+             * Format: int64
+             * @description La unidad en comodato del servicio que no se pudo recuperar
+             */
+            unidadId: number;
+            /** Format: int32 */
+            version?: number;
+        };
         EntradaNota: {
             /** @description uuid v7 generado en el cliente */
             id: string;
@@ -15141,20 +15235,45 @@ export interface components {
             unidadId: number;
         };
         EquipoOrden: {
-            /** @enum {string} */
-            accion: "instalar" | "retirar";
+            /**
+             * @description cambio: sale saleUnidadId y entra esta; no_recuperado: intento de recuperación de esta unidad (contrato 0.12.0 §3.10)
+             * @enum {string}
+             */
+            accion: "instalar" | "retirar" | "cambio" | "no_recuperado";
+            cobroNota?: string;
+            /** @description Motivo del cobro propuesto (sin monto; lo decide una persona en Argos) */
+            cobroPropuesto?: string;
             /**
              * @description Solo retirar
              * @enum {string|null}
              */
             condicion: "buena" | "danada" | "perdido" | null;
+            /** @enum {string} */
+            destinoSale?: "funciona" | "revision" | "garantia" | "danado";
+            fotoAdjuntoId?: string;
             /** @description Id de la operación del lote que lo registró (o uno v7 del servidor) */
             id: string;
+            /** Format: double */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
             /** @description AA:BB:CC:DD:EE:FF */
             mac: string | null;
             modelo: string;
+            /** @description cambio: danado, actualizacion, garantia, otro; no_recuperado: cliente_ausente, se_nego, equipo_perdido, otro */
+            motivo?: string;
+            nota?: string;
             /** Format: date-time */
             ocurridoEn: string;
+            /** Format: float */
+            precisionM?: number;
+            /**
+             * Format: date-time
+             * @description Cuándo lo aceptó el servidor (recibido_en_iris)
+             */
+            recibidoEn?: string;
+            /** Format: int64 */
+            saleUnidadId?: number;
             serie: string | null;
             /**
              * Format: int64
@@ -15163,6 +15282,13 @@ export interface components {
             unidadId: number | null;
             /** @description Retirado y verificado contra el comodato del servicio en Argos (false: sin conector o Argos no respondió) */
             validado: boolean;
+        };
+        EquipoQueEntra: {
+            /** @description Se normaliza a AA:BB:CC:DD:EE:FF */
+            mac?: string;
+            serie?: string;
+            /** Format: int64 */
+            unidadId?: number;
         };
         ErrorCampo: {
             /** @description Campo con el error (p. ej. correo, roles[0].rol) */
@@ -16689,6 +16815,11 @@ export interface components {
             ocurridoEn: string;
             /** Format: int64 */
             productoId: number;
+            /**
+             * Format: date-time
+             * @description Cuándo lo aceptó el servidor (recibido_en_iris, contrato 0.12.0)
+             */
+            recibidoEn?: string;
         };
         Mensaje: {
             /** @description Ids de adjuntos (la subida llega con POST /adjuntos) */
@@ -17117,7 +17248,7 @@ export interface components {
              */
             ordenId?: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular" | "equipo.cambiar" | "equipo.no_recuperado";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -18308,7 +18439,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "cuadrillas.asignar_jefe" | "cuadrillas.leer_integracion" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "cuadrillas.asignar_jefe" | "cuadrillas.leer_integracion" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.declarar_perdida" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -47662,6 +47793,89 @@ export interface operations {
             };
         };
     };
+    cambiarEquipoOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambiarEquipo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     instalarEquipoOrden: {
         parameters: {
             query?: never;
@@ -47677,6 +47891,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaEquipo"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    noRecuperadoOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaNoRecuperado"];
             };
         };
         responses: {

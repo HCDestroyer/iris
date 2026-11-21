@@ -98,6 +98,8 @@ export const TIPOS_OPERACION = [
     "orden.reanudar",
     "orden.agregar_formulario",
     "orden.quitar_formulario",
+    "equipo.cambiar",
+    "equipo.no_recuperado",
 ] as const satisfies readonly TipoOperacion[];
 
 export const MOTIVOS_PAUSA = ["esperando_material", "cliente_ausente", "clima", "acceso", "otro"] as const satisfies readonly MotivoPausa[];
@@ -139,6 +141,10 @@ export interface DatosPorTipo {
     "orden.reanudar": SinVersion<Schema<"EntradaReanudar">>;
     "orden.agregar_formulario": Schema<"EntradaAgregarFormularioCampo">;
     "orden.quitar_formulario": Schema<"EntradaQuitarFormularioCampo">;
+    /** Cambio de equipo (contrato con Argos 0.12.0 §3.10, B27): sale una unidad y entra otra. */
+    "equipo.cambiar": SinVersion<Schema<"EntradaCambiarEquipo">>;
+    /** Intento de recuperación en un retiro (0.12.0 §3.10): foto si se negó o se perdió, ubicación en sitio. */
+    "equipo.no_recuperado": SinVersion<Schema<"EntradaNoRecuperado">>;
 }
 
 /** Una operación tal como viaja en `POST /sync/lote` (`OperacionLote` con `datos` tipados). */
