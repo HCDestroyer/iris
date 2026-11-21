@@ -1,6 +1,6 @@
 "use client";
 
-import { Aviso, Boton, cn, Dialogo, DialogoContenido, DialogoPie, PanelEmergente } from "@iris/ui";
+import { Aviso, Boton, cn, Dialogo, DialogoContenido, DialogoPie, PanelEmergente, Desplegable } from "@iris/ui";
 import { AppWindow, Grid3x3, KeyRound, Lock, Mic, MicOff, Phone, PhoneCall, PhoneOff, RotateCw, Unplug, Volume2, WifiOff } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -132,8 +132,7 @@ function EstadoTelefono({ t, alCerrar }: { t: ContextoTelefono; alCerrar: () => 
             ) : (
                 <p className="text-sm text-muted-foreground">{textoMotivo(c.motivo)}</p>
             )}
-            <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer font-medium">¿Qué significa el punto del teléfono?</summary>
+            <Desplegable titulo="¿Qué significa el punto del teléfono?" className="text-xs text-muted-foreground" claseTitulo="text-xs font-medium">
                 <ul className="mt-2 grid gap-1.5">
                     <li className="flex items-center gap-2">
                         <span aria-hidden className="size-2 shrink-0 rounded-full bg-success" />
@@ -148,7 +147,7 @@ function EstadoTelefono({ t, alCerrar }: { t: ContextoTelefono; alCerrar: () => 
                         Si hay un problema, el punto se vuelve un aviso con lo que tienes que hacer
                     </li>
                 </ul>
-            </details>
+            </Desplegable>
             {c.fase === "listo" || c.fase === "conectando" || (c.fase === "error" && c.error.tipo !== "pestana") ? (
                 <Boton
                     tamano="sm"

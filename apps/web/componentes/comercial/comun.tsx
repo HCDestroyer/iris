@@ -1,8 +1,8 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, InsigniaEstado } from "@iris/ui";
-import { FileDown, LoaderCircle, RotateCw } from "lucide-react";
+import { Aviso, Boton, InsigniaEstado, Cargando } from "@iris/ui";
+import { FileDown, RotateCw } from "lucide-react";
 import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import type { FieldValues, Path, UseFormSetError } from "react-hook-form";
 import { api, claveTrasError, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
@@ -222,10 +222,7 @@ export function DescargarPdf({ documento, nombre, etiqueta = "Descargar PDF", re
     }
     if (documento.estado !== "completo") {
         return (
-            <p className="flex items-center gap-1.5 text-sm text-muted-foreground" role="status">
-                <LoaderCircle aria-hidden className="size-4 animate-spin" />
-                Preparando el PDF…
-            </p>
+            <Cargando visible texto="Preparando el PDF…" className="gap-1.5" />
         );
     }
     if (!puede(["adjuntos.ver"])) {
