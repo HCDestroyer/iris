@@ -45,3 +45,12 @@ Este archivo es la memoria del líder entre sesiones. La conversación se compri
 ## Maquetas
 
 Las maquetas viven en el scratchpad de la sesión y se pierden con ella. Las pantallas reales y sus reglas quedan en `docs/ui/guia.md`.
+
+## Rediseño de Iris (pedido del PM, 2026-11-21)
+
+- Iris adopta el rediseño de Argos con sus mismas reglas. **El teal ya no es el color**: se usa la paleta del rediseño de Argos (índigo #4F46E5, falta que Argos confirme cuáles son los tokens vigentes).
+- **Regla principal del PM:** «sistema visual» = HeroUI v3 envuelto en `@iris/ui`. Todo se arma con componentes de HeroUI; lo que hoy no lo use se audita y se migra (agente `agente/ui-heroui`). Un control propio solo si HeroUI no lo trae, con su motivo escrito.
+- Se puede personalizar con CSS propio cuando haga falta, dentro de los envoltorios de `packages/ui`.
+- Los modales se usan según haga falta (Argos los mejoró). Se agregan menús contextuales e íconos de Lucide donde ayuden.
+- Campos de formulario: los componentes que trae HeroUI v3, envueltos en `@iris/ui` (DatePicker y DateRangePicker para fechas, NumberField con moneda para precios, TextField, TextArea, Select, ComboBox, Switch, etc.). Nunca campos hechos a mano.
+- Flujo: maqueta y capturas al PM → aprobación → actualizar §10 de CLAUDE.md, `docs/ui/guia.md` y la regla de ESLint → implementar.
