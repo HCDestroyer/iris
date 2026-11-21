@@ -2544,23 +2544,6 @@ func (q *Queries) ResolverPendiente(ctx context.Context, arg ResolverPendientePa
 	return i, err
 }
 
-const servicioArgosInstantanea = `-- name: ServicioArgosInstantanea :one
-SELECT cliente_id, empresa_id FROM integracion.argos_servicios WHERE id = $1
-`
-
-type ServicioArgosInstantaneaRow struct {
-	ClienteID int64
-	EmpresaID int64
-}
-
-// El titular y la empresa del servicio según la instantánea de Argos.
-func (q *Queries) ServicioArgosInstantanea(ctx context.Context, id int64) (ServicioArgosInstantaneaRow, error) {
-	row := q.db.QueryRow(ctx, servicioArgosInstantanea, id)
-	var i ServicioArgosInstantaneaRow
-	err := row.Scan(&i.ClienteID, &i.EmpresaID)
-	return i, err
-}
-
 const tomarVencido = `-- name: TomarVencido :one
 SELECT p.id, p.empresa_id, p.sistema, p.operacion, p.idempotency_key, p.entidad, p.entidad_id, p.metodo, p.ruta, p.payload, p.depende_de, p.datos_incompletos, p.estado, p.intentos, p.proximo_intento, p.tomado_en, p.ultimo_error, p.ultimo_status, p.hecho_en, p.evento_id, p.version, p.created_at, p.updated_at, p.conflicto, p.conflicto_payload, p.conflicto_en, p.respuesta, p.plantilla, p.por_resolver, p.verificar, p.tecnico_usuario_id, p.codigo_error, p.resuelto_motivo, p.resuelto_por, p.resuelto_en, p.actor, p.transito_id, p.resuelto_como, p.resuelto_cliente_id FROM integracion.pendientes p
 WHERE ((p.estado = 'pendiente' AND p.proximo_intento <= $1)

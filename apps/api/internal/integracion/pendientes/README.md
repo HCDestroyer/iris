@@ -157,5 +157,5 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   antes de enviar y al guardar el resultado: lo que no salió bien queda `resuelto_manual` con
   `orden_cancelada` u `orden_fallida` y se borra su depósito); resolver a mano un `cambiar_titular`
   deja su consumo y su cobro incompletos o, con `clienteId`, reescribe el cobro; `clienteId` debe ser
-  el titular actual del servicio según Argos (o la instantánea) en la empresa del pendiente
-  (`422 cliente_no_es_titular`).
+  el titular actual del servicio leído en vivo de Argos en la empresa del pendiente
+  (`422 cliente_no_es_titular`; Argos sin responder: `503 no_disponible`, sin guardar nada).

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	pendientesbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
@@ -340,11 +342,14 @@ func DetenerPasos(ctx context.Context, t *auditoria.Tx, orden int64, como string
 // actual del servicio según Argos (o su instantánea), en la empresa del pendiente.
 const CodigoClienteNoEsTitular = "cliente_no_es_titular"
 
-// clienteEsTitular comprueba que cliente sea el titular actual del servicio del cambio de titular f:
-// lo lee de Argos (GET /servicios/:id) y, si Argos no responde, de la instantánea; siempre en la
-// empresa del pendiente. Si no coincide (o no se sabe), 422 cliente_no_es_titular.
+// clienteEsTitular comprueba que cliente sea el titular actual del servicio del cambio de titular f,
+// leído en vivo de Argos (GET /servicios/:id; nunca de la instantánea, que puede tener el titular
+// anterior), en la empresa del pendiente. Si no coincide o Argos no tiene el servicio (404), 422
+// cliente_no_es_titular; si Argos no responde (403, 5xx, timeout), 503 no_disponible y no se guarda
+// nada.
 func (m *Modulo) clienteEsTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, cliente int64) error {
 	noEs := nucleo.ReglaNegocio(CodigoClienteNoEsTitular, "Ese cliente no es el titular actual del servicio en Argos (en la empresa del pendiente)")
+	noDisponible := nucleo.NoDisponible("No se pudo confirmar el titular con Argos: reintenta cuando Argos responda")
 	partes := strings.Split(strings.Trim(f.Ruta, "/"), "/")
 	if len(partes) < 2 || partes[0] != "servicios" || f.EmpresaID == nil {
 		return noEs
@@ -353,26 +358,21 @@ func (m *Modulo) clienteEsTitular(ctx context.Context, t *auditoria.Tx, f pendie
 	if err != nil {
 		return noEs
 	}
-	var actual, empresa int64
-	leido := false
-	if m.cfg.Argos != nil {
-		if c, err := m.cfg.Argos.ClienteActivo(ctx, t); err == nil {
-			if s, err := c.ObtenerServicio(ctx, sid); err == nil {
-				actual, empresa, leido = s.ClienteID, s.EmpresaID, true
-			}
-		}
+	if m.cfg.Argos == nil {
+		return noDisponible
 	}
-	if !leido {
-		s, err := pendientesbd.New(t).ServicioArgosInstantanea(ctx, sid)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return noEs
-		}
-		if err != nil {
-			return err
-		}
-		actual, empresa = s.ClienteID, s.EmpresaID
+	c, err := m.cfg.Argos.ClienteActivo(ctx, t)
+	if err != nil {
+		return noDisponible
 	}
-	if actual != cliente || empresa != *f.EmpresaID {
+	s, err := c.ObtenerServicio(ctx, sid)
+	var er *conector.ErrorRemoto
+	switch {
+	case errors.As(err, &er) && er.Status == http.StatusNotFound:
+		return noEs
+	case err != nil:
+		return noDisponible
+	case s.ClienteID != cliente || s.EmpresaID != *f.EmpresaID:
 		return noEs
 	}
 	return nil

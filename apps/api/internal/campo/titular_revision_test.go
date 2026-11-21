@@ -464,8 +464,36 @@ func TestTitularResueltoAManoTrasElCierre(t *testing.T) {
 			Motivo: "Lo corregí en Argos a mano", ClienteID: &cliente})
 		return err
 	}
-	// Argos no lo conoce y la instantánea tampoco: no se acepta.
+	// Argos no tiene el servicio (404): no se acepta.
 	problema(t, resolver(888), 422, pendientes.CodigoClienteNoEsTitular)
+	// Argos caído: 503 aunque la instantánea diga ese titular (puede ser el anterior); el cobro no cambia.
+	pool := pruebas.Pool(t)
+	for _, sql := range []string{
+		"INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en) VALUES (888, 1, 'Titular anterior', now()) ON CONFLICT (id) DO NOTHING",
+		"INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, estado, sincronizado_en) VALUES (99088, 1, 888, 'pendiente_instalacion', now()) ON CONFLICT (id) DO NOTHING",
+		"UPDATE integracion.pendientes SET ruta = '/servicios/99088/cambiar-titular' WHERE idempotency_key = '" + clave2 + "'",
+	} {
+		if _, err := pool.Exec(context.Background(), sql); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.falso.fijarServicio("99088", "503")
+	var antes []byte
+	_ = pool.QueryRow(context.Background(), "SELECT payload FROM integracion.pendientes WHERE idempotency_key = $1", "iris:cargo:"+orden2).Scan(&antes)
+	problema(t, resolver(888), 503, "no_disponible")
+	var despues []byte
+	_ = pool.QueryRow(context.Background(), "SELECT payload FROM integracion.pendientes WHERE idempotency_key = $1", "iris:cargo:"+orden2).Scan(&despues)
+	if string(antes) != string(despues) || e.pendiente(clave2).Estado != pendientes.EstadoFallidoNegocio {
+		t.Fatalf("con Argos caído no se guarda nada: %s → %s", antes, despues)
+	}
+	for _, sql := range []string{
+		"UPDATE integracion.pendientes SET ruta = '/servicios/9901/cambiar-titular' WHERE idempotency_key = '" + clave2 + "'",
+		"DELETE FROM integracion.argos_clientes WHERE id = 888",
+	} {
+		if _, err := pool.Exec(context.Background(), sql); err != nil {
+			t.Fatal(err)
+		}
+	}
 	// Otro cliente (titular de otro servicio) u otra empresa: 422.
 	e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
 	problema(t, resolver(777), 422, pendientes.CodigoClienteNoEsTitular)

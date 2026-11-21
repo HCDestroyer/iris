@@ -85,6 +85,10 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 			http.NotFound(w, r)
 			return
 		}
+		if cuerpo == "503" {
+			http.Error(w, "no disponible", http.StatusServiceUnavailable)
+			return
+		}
 		json200(w, 200, cuerpo)
 	})
 	mux.HandleFunc("POST /api/v1/", func(w http.ResponseWriter, r *http.Request) {

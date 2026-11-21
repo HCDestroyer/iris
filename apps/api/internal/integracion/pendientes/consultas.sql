@@ -318,10 +318,6 @@ SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_como =
 WHERE id = @id AND estado = 'en_curso'
 RETURNING *;
 
--- name: ServicioArgosInstantanea :one
--- El titular y la empresa del servicio según la instantánea de Argos.
-SELECT cliente_id, empresa_id FROM integracion.argos_servicios WHERE id = @id;
-
 -- name: FallarPorTitularAMano :one
 -- El cambio de titular se resolvió a mano sin decir el cliente final: el consumo y el cobro no
 -- salen solos (incompletos, para resolverlos también a mano o confirmar el cliente).
