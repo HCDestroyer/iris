@@ -56,8 +56,9 @@ const (
 	PermTicketsVerNotas      Permiso = "tickets.ver_notas"
 	// PermTicketsListarTodos: un token (de integración o de API) lista tickets sin filtro de
 	// cliente. Sin él, GET /tickets por token exige clienteId (422 filtro_cliente_requerido).
-	// No cambia nada para las personas del panel. Ningún rol base lo trae salvo admin (todos);
-	// se da al crear el token, de forma explícita.
+	// No cambia nada para las personas del panel. Un token nunca supera los permisos de su
+	// dueño: solo puede llevarlo el token de un admin (todos) o de un usuario con un rol a
+	// medida que lo incluya; ningún otro rol base lo trae.
 	PermTicketsListarTodos Permiso = "tickets.listar_todos"
 
 	// Buzones de correo (I2): entrada de tickets por IMAP y respuesta por SMTP.
@@ -94,7 +95,8 @@ const (
 	PermOrdenesVerPropias  Permiso = "ordenes.ver_propias"
 	// PermOrdenesListarTodos: un token (de integración o de API) con ordenes.ver lista órdenes
 	// sin filtro de cliente. Sin él, GET /ordenes por token exige clienteId (422
-	// filtro_cliente_requerido). Como tickets.listar_todos: solo admin (todos) lo trae.
+	// filtro_cliente_requerido). Como tickets.listar_todos: solo lo puede llevar el token de un
+	// admin (todos) o de un usuario con un rol a medida que lo incluya.
 	PermOrdenesListarTodos Permiso = "ordenes.listar_todos"
 
 	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
