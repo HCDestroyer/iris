@@ -1,7 +1,7 @@
 "use client";
 
 import { avisar } from "@iris/ui";
-import { createContext, use, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { createContext, use, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
 import { abrirTelefono, leerTelefono, llamarTelefono } from "@/lib/telefono/api";
@@ -114,6 +114,16 @@ function reproducir(stream: MediaStream): () => void {
 
 const digitos = (s: string) => s.replace(/\D/g, "");
 
+// El agente SIP (JsSIP) se carga una vez, al encender (import dinámico).
+let fabricaUa: ((c: ConfigUa) => UaSip) | null = null;
+async function cargarAgente() {
+    fabricaUa ??= await cargarJssip();
+}
+function crearUa(c: ConfigUa): UaSip {
+    if (!fabricaUa) throw new Error("JsSIP sin cargar");
+    return fabricaUa(c);
+}
+
 export function ProveedorTelefono({ children }: { children: ReactNode }) {
     const { yo } = useSesion();
     const usuarioId = yo.usuario.id;
@@ -123,23 +133,16 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
     const [dialogo, abrir] = useState<DialogoTelefono>(null);
     const [panelAbierto, setPanelAbierto] = useState(true);
     const clave = useClaveIdempotencia();
-
-    // El agente SIP se carga al encender (import dinámico).
-    const fabrica = useRef<((c: ConfigUa) => UaSip) | null>(null);
-    const motor = useMemo(
+    const [motor] = useState(
         () =>
             new MotorTelefono({
                 abrir: () => abrirTelefono(),
-                crearUa: (c) => {
-                    if (!fabrica.current) throw new Error("JsSIP sin cargar");
-                    return fabrica.current(c);
-                },
+                crearUa,
                 pedirMicrofono,
                 reproducir,
                 timbre: sonarTimbre,
                 revisar: () => setReleer((n) => n + 1),
             }),
-        [],
     );
     const estado = useSyncExternalStore(motor.suscribir, motor.leer, motor.leer);
 
@@ -155,7 +158,7 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
         };
     }, [motor, usuarioId]);
 
-    // ¿Tengo teléfono? (también cuando el servidor cortó con 4003 y al volver a la pestaña).
+    // ¿Tengo teléfono? (también cuando el servidor cortó con 4003).
     useEffect(() => {
         const control = new AbortController();
         const leer = () =>
@@ -172,7 +175,8 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
     }, [releer, yo.empresaActiva?.id]);
 
     const arrancando = useRef(false);
-    const arrancar = useCallback(async () => {
+    const extension = mio?.extension ?? null;
+    async function arrancar() {
         if (arrancando.current) return;
         arrancando.current = true;
         try {
@@ -182,26 +186,27 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
                 return;
             }
             try {
-                fabrica.current ??= await cargarJssip();
+                await cargarAgente();
             } catch {
                 motor.noDisponible(null);
                 return;
             }
-            await motor.encender(mio?.extension ?? null);
+            await motor.encender(extension);
         } finally {
             arrancando.current = false;
         }
-    }, [motor, mio?.extension]);
+    }
 
     // Conectar o no según lo que dice el servidor y lo que eligió la persona en este navegador.
+    const conexion = estado.conexion;
     useEffect(() => {
         if (!mio) return;
         const panel = (mio.dispositivos ?? []).includes("panel");
-        const fase = estado.conexion.fase;
+        const fase = conexion.fase;
+        const esClave = conexion.fase === "error" && conexion.error.tipo === "clave";
         if (!mio.disponible || !panel) {
             if (mio.motivo === "registro_sin_probar" && preferencia === "encendido") {
-                motor.detenerUa();
-                if (!(fase === "error" && estado.conexion.error.tipo === "clave")) motor.credencialRechazada(mio.extension ?? null);
+                if (!esClave) motor.credencialRechazada(mio.extension ?? null);
             } else if (fase !== "no_disponible") {
                 motor.noDisponible(mio.motivo ?? null);
             }
@@ -211,9 +216,8 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
             if (fase !== "apagado") motor.apagado(mio.extension ?? null);
             return;
         }
-        const volver = fase === "apagado" || fase === "no_disponible" || (fase === "error" && estado.conexion.error.tipo === "clave" && !motor.encendido);
-        if (!volver) return;
-        if (arrancando.current) return;
+        const volver = fase === "apagado" || fase === "no_disponible" || (esClave && !motor.encendido);
+        if (!volver || arrancando.current) return;
         void (async () => {
             if ((await permisoMicrofono()) === "denied") {
                 motor.microfonoBloqueado("denegado");
@@ -221,19 +225,20 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
             }
             await arrancar();
         })();
-    }, [mio, preferencia, estado.conexion, motor, arrancar]);
+        // `arrancar` lee lo mismo que este efecto (mio, motor): no hace falta como dependencia.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mio, preferencia, conexion, motor]);
 
     // «Se abrió muchas veces»: vuelve a intentar sola a la hora que dijo el servidor.
     useEffect(() => {
-        const c = estado.conexion;
-        if (c.fase !== "error" || c.error.tipo !== "espera") return;
-        const t = window.setTimeout(() => void arrancar(), Math.max(1000, c.error.hasta - Date.now()));
+        if (conexion.fase !== "error" || conexion.error.tipo !== "espera") return;
+        const t = window.setTimeout(() => void arrancar(), Math.max(1000, conexion.error.hasta - Date.now()));
         return () => window.clearTimeout(t);
-    }, [estado.conexion, arrancar]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [conexion]);
 
     // Las llamadas de la centralita que llegan por el feed (E4a): cliente, señales, versión para la nota.
     const [iris, setIris] = useState<ReadonlyMap<string, Llamada>>(() => new Map());
-    const manejadas = useRef(new Set<string>());
     useEffect(
         () =>
             escucharEventos((evento) => {
@@ -243,50 +248,38 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
             }),
         [],
     );
-    const actualizarLlamadaIris = useCallback((l: Llamada) => setIris((antes) => new Map(antes).set(l.id, l)), []);
+    const actualizarLlamadaIris = (l: Llamada) => setIris((antes) => new Map(antes).set(l.id, l));
 
-    const llamadaIris = useCallback(
-        (t: LlamadaTelefono): Llamada | null => {
-            if (t.llamadaId) return iris.get(t.llamadaId) ?? null;
-            if (t.direccion !== "entrante" || t.interna) return null;
-            // Sin `X-Iris-Llamada`: la que suena por el AMI con el mismo número (últimos 8 dígitos).
-            const fin = digitos(t.numero).slice(-8);
-            if (fin.length < 8) return null;
-            let mejor: Llamada | null = null;
-            for (const l of iris.values()) {
-                if (digitos(l.numero).slice(-8) === fin && (l.estado === "sonando" || l.estado === "en_curso") && (!mejor || (l.sonoEn ?? "") > (mejor.sonoEn ?? ""))) mejor = l;
-            }
-            return mejor;
-        },
-        [iris],
-    );
-
-    // Recordar qué llamadas de Iris mostró el teléfono (para que E4a no saque su ventana ni su nota).
-    useEffect(() => {
-        for (const t of estado.llamadas) {
-            const l = llamadaIris(t);
-            if (l) manejadas.current.add(l.id);
+    function llamadaIris(t: LlamadaTelefono): Llamada | null {
+        if (t.llamadaId) return iris.get(t.llamadaId) ?? null;
+        if (t.direccion !== "entrante" || t.interna) return null;
+        // Sin `X-Iris-Llamada`: la que suena por el AMI con el mismo número (últimos 8 dígitos).
+        const fin = digitos(t.numero).slice(-8);
+        if (fin.length < 8) return null;
+        let mejor: Llamada | null = null;
+        for (const l of iris.values()) {
+            if (digitos(l.numero).slice(-8) === fin && (l.estado === "sonando" || l.estado === "en_curso") && (!mejor || (l.sonoEn ?? "") > (mejor.sonoEn ?? ""))) mejor = l;
         }
-    }, [estado.llamadas, llamadaIris]);
+        return mejor;
+    }
 
-    const cubre = useCallback(
-        (l: Llamada) => {
-            if (manejadas.current.has(l.id)) return true;
-            return estado.llamadas.some((t) => llamadaIris(t)?.id === l.id);
-        },
-        [estado.llamadas, llamadaIris],
-    );
+    // Qué llamadas de Iris mostró el teléfono (para que E4a no saque su ventana ni su nota).
+    const [manejadas, setManejadas] = useState<ReadonlySet<string>>(() => new Set());
+    const vistas = estado.llamadas.map((t) => llamadaIris(t)?.id).filter((id): id is string => !!id);
+    const nuevas = vistas.filter((id) => !manejadas.has(id));
+    if (nuevas.length > 0) setManejadas(new Set([...manejadas, ...nuevas]));
+    const cubre = (l: Llamada) => manejadas.has(l.id) || vistas.includes(l.id);
 
     // «Teléfono listo» una vez, cuando la persona lo encendió (no en cada reconexión).
     const avisarAlListo = useRef(false);
     useEffect(() => {
-        if (estado.conexion.fase !== "listo" || !avisarAlListo.current) return;
+        if (conexion.fase !== "listo" || !avisarAlListo.current) return;
         avisarAlListo.current = false;
-        const ext = estado.extension ?? mio?.extension;
+        const ext = estado.extension ?? extension;
         avisar({ titulo: ext ? `Teléfono listo: tu extensión ${ext} suena aquí` : "Teléfono listo" });
-    }, [estado.conexion.fase, estado.extension, mio?.extension]);
+    }, [conexion.fase, estado.extension, extension]);
 
-    const encender = useCallback(async () => {
+    async function encender() {
         try {
             soltarMicrofono(await pedirMicrofono());
         } catch (e) {
@@ -301,16 +294,16 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
         avisarAlListo.current = true;
         await arrancar();
         return true;
-    }, [motor, usuarioId, arrancar]);
+    }
 
-    const apagar = useCallback(() => {
+    function apagar() {
         guardarPreferencia(usuarioId, "apagado");
         setPreferencia("apagado");
         pestanas.current?.soltar();
-        motor.apagado(mio?.extension ?? null);
-    }, [motor, usuarioId, mio?.extension]);
+        motor.apagado(extension);
+    }
 
-    const usarAqui = useCallback(async () => {
+    async function usarAqui() {
         const p = pestanas.current;
         if (p && !(await p.quitar())) {
             avisar({ tono: "error", titulo: "La otra pestaña no soltó el teléfono", descripcion: "Ciérrala e intenta otra vez." });
@@ -320,84 +313,74 @@ export function ProveedorTelefono({ children }: { children: ReactNode }) {
         setPreferencia("encendido");
         avisarAlListo.current = true;
         await arrancar();
-    }, [usuarioId, arrancar]);
+    }
 
-    const reintentar = useCallback(() => {
-        const c = estado.conexion;
-        if (c.fase === "error" && c.error.tipo === "clave") {
+    function reintentar() {
+        if (conexion.fase === "error" && conexion.error.tipo === "clave") {
             setReleer((n) => n + 1);
             if (mio?.disponible) void arrancar();
             return;
         }
-        if (c.fase === "error" && c.error.tipo === "microfono" && !motor.encendido) {
+        if (conexion.fase === "error" && conexion.error.tipo === "microfono" && !motor.encendido) {
             void encender();
             return;
         }
         if (motor.encendido) void motor.reintentar();
         else void arrancar();
-    }, [estado.conexion, motor, mio?.disponible, arrancar, encender]);
+    }
 
-    const contestar = useCallback(
-        async (id: string) => {
-            setPanelAbierto(true);
-            await motor.contestar(id);
-        },
-        [motor],
-    );
+    async function contestar(id: string) {
+        setPanelAbierto(true);
+        await motor.contestar(id);
+    }
 
-    const llamar = useCallback(
-        async (o: OpcionLlamar) => {
-            if (estado.conexion.fase !== "listo") {
-                avisar({ tono: "error", titulo: "Enciende el teléfono para llamar", descripcion: "Toca el teléfono, arriba, y elige «Encender»." });
-                if (estado.conexion.fase === "apagado") abrir("encender");
-                return;
-            }
-            let marcacion;
-            try {
-                marcacion = await llamarTelefono(o.entrada, clave.actual());
-                clave.renovar();
-            } catch (e) {
-                clave.trasError(e);
-                const t = textoErrorLlamar(e);
-                avisar({ tono: "error", titulo: t.titulo, descripcion: t.detalle });
-                return;
-            }
-            const l = marcacion.llamada;
-            if (l) actualizarLlamadaIris(l);
-            setPanelAbierto(true);
-            const id = await motor.llamar(marcacion.destino, { numero: o.numero, nombre: o.nombre, llamadaId: l?.id ?? null, interna: !l });
-            if (!id) avisar({ tono: "error", titulo: "No se pudo llamar", descripcion: "Revisa el micrófono y la conexión, e intenta otra vez." });
-        },
-        [estado.conexion.fase, clave, motor, actualizarLlamadaIris],
-    );
+    async function llamar(o: OpcionLlamar) {
+        if (conexion.fase !== "listo") {
+            avisar({ tono: "error", titulo: "Enciende el teléfono para llamar", descripcion: "Toca el teléfono, arriba, y elige «Encender»." });
+            if (conexion.fase === "apagado") abrir("encender");
+            return;
+        }
+        let marcacion;
+        try {
+            marcacion = await llamarTelefono(o.entrada, clave.actual());
+            clave.renovar();
+        } catch (e) {
+            clave.trasError(e);
+            const t = textoErrorLlamar(e);
+            avisar({ tono: "error", titulo: t.titulo, descripcion: t.detalle });
+            return;
+        }
+        const l = marcacion.llamada;
+        if (l) actualizarLlamadaIris(l);
+        setPanelAbierto(true);
+        const id = await motor.llamar(marcacion.destino, { numero: o.numero, nombre: o.nombre, llamadaId: l?.id ?? null, interna: !l });
+        if (!id) avisar({ tono: "error", titulo: "No se pudo llamar", descripcion: "Revisa el micrófono y la conexión, e intenta otra vez." });
+    }
 
-    const valor = useMemo<ContextoTelefono>(
-        () => ({
-            estado,
-            mio,
-            preferencia,
-            encender,
-            apagar,
-            reintentar,
-            usarAqui,
-            contestar,
-            rechazar: (id) => motor.rechazar(id),
-            colgar: (id) => motor.colgar(id),
-            silenciar: (id, si) => motor.silenciar(id, si),
-            espera: (id, si) => motor.espera(id, si),
-            tono: (id, d) => motor.tono(id, d),
-            transferir: (id, n) => motor.transferir(id, n),
-            llamar,
-            llamadaIris,
-            actualizarLlamadaIris,
-            cubre,
-            dialogo,
-            abrir,
-            panelAbierto,
-            setPanelAbierto,
-        }),
-        [estado, mio, preferencia, encender, apagar, reintentar, usarAqui, contestar, motor, llamar, llamadaIris, actualizarLlamadaIris, cubre, dialogo, panelAbierto],
-    );
+    const valor: ContextoTelefono = {
+        estado,
+        mio,
+        preferencia,
+        encender,
+        apagar,
+        reintentar,
+        usarAqui,
+        contestar,
+        rechazar: (id) => motor.rechazar(id),
+        colgar: (id) => motor.colgar(id),
+        silenciar: (id, si) => motor.silenciar(id, si),
+        espera: (id, si) => motor.espera(id, si),
+        tono: (id, d) => motor.tono(id, d),
+        transferir: (id, n) => motor.transferir(id, n),
+        llamar,
+        llamadaIris,
+        actualizarLlamadaIris,
+        cubre,
+        dialogo,
+        abrir,
+        panelAbierto,
+        setPanelAbierto,
+    };
 
     return <Contexto value={valor}>{children}</Contexto>;
 }

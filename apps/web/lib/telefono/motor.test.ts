@@ -175,7 +175,7 @@ async function listo() {
 }
 
 beforeEach(() => {
-    vi.stubGlobal("MediaStream", class {});
+    vi.stubGlobal("MediaStream", function MediaStreamFalso() {});
 });
 afterEach(() => vi.unstubAllGlobals());
 

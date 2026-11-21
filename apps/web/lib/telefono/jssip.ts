@@ -1,3 +1,4 @@
+import type { Socket } from "jssip";
 import type { ConfigUa, UaSip } from "./motor";
 
 /*
@@ -14,7 +15,7 @@ export async function cargarJssip(): Promise<(c: ConfigUa) => UaSip> {
     JsSIP.debug.disable();
     return (c) => {
         const ua = new JsSIP.UA({
-            sockets: c.socket as unknown as import("jssip").Socket,
+            sockets: c.socket as unknown as Socket,
             uri: c.uri,
             contact_uri: c.contacto,
             display_name: c.nombre || undefined,

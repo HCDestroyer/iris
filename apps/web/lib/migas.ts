@@ -39,6 +39,7 @@ const ETIQUETAS: Readonly<Record<string, string>> = {
     "/administracion/integraciones/argos/vuelta": "Conectar con Argos",
     "/administracion/integraciones/centralita": "Centralita",
     "/administracion/integraciones/centralita/conexion": "Conexión con Issabel",
+    "/administracion/integraciones/centralita/telefono": "Teléfono en Iris",
     "/administracion/plantillas": "Plantillas de formulario",
     "/administracion/plantillas/nueva": "Nueva plantilla",
     "/administracion/roles": "Roles y permisos",
@@ -109,6 +110,7 @@ const SUBPANTALLAS: readonly (readonly [RegExp, string])[] = [
 /** Fichas: la etiqueta mientras no se conoce el nombre del registro. */
 const FICHAS: readonly (readonly [RegExp, string])[] = [
     [/^\/tickets\/[^/]+$/, "Ticket"],
+    [/^\/administracion\/integraciones\/centralita\/extensiones\/[^/]+$/, "Extensión"],
     [/^\/ordenes\/[^/]+$/, "Orden"],
     [/^\/tecnicos\/[^/]+$/, "Técnico"],
     [/^\/usuarios\/[^/]+$/, "Usuario"],
