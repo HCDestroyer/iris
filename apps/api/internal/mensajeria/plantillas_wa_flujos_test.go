@@ -29,7 +29,7 @@ func TestPlantillasWASincronizarYBorradaEnMeta(t *testing.T) {
 	bienvenida := c.meta.agregar(c.waba, map[string]any{"name": "bienvenida_v1", "language": "es", "status": "APPROVED", "category": "UTILITY",
 		"quality_score": map[string]any{"score": "GREEN"}, "components": []map[string]any{{"type": "BODY", "text": "¡Bienvenido! Tu servicio {{1}} ya está activo.",
 			"example": map[string]any{"body_text": [][]string{{"Fibra 100"}}}}}})
-	c.meta.agregar(c.waba, map[string]any{"name": "promo_fibra_300", "language": "es", "status": "APPROVED", "category": "MARKETING",
+	promoMeta := c.meta.agregar(c.waba, map[string]any{"name": "promo_fibra_300", "language": "es", "status": "APPROVED", "category": "MARKETING",
 		"parameter_format": "NAMED", "components": []map[string]any{{"type": "BODY", "text": "Hola {{cliente_nombre}}, sube a 300 Mbps.",
 			"example": map[string]any{"body_text_named_params": []map[string]any{{"param_name": "cliente_nombre", "example": "Ana"}}}},
 			{"type": "BUTTONS", "buttons": []map[string]any{{"type": "QUICK_REPLY", "text": "Me interesa"}}}}})
@@ -70,10 +70,14 @@ func TestPlantillasWASincronizarYBorradaEnMeta(t *testing.T) {
 
 	// Meta borra la bienvenida: en Iris queda «Borrada en Meta» con su código, y pide elegir otra.
 	c.meta.quitar(c.waba, bienvenida)
+	c.meta.fijar(c.waba, promoMeta, map[string]any{"status": "PAUSED"})
 	r = c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/cuentas/"+c.waba+"/sincronizar", "sinc2-"+pruebas.Unico(), nil)
 	c.exigir(r, http.StatusOK)
 	if b := r.cuerpo["resumen"].(map[string]any)["borradas"].([]any); len(b) != 1 || b[0].(map[string]any)["codigo"] != "bienvenida" {
 		t.Fatalf("borradas: %v", b)
+	}
+	if cm := r.cuerpo["resumen"].(map[string]any)["cambiadas"].([]any); len(cm) != 1 || cm[0].(map[string]any)["estado"] != "PAUSED" {
+		t.Fatalf("cambiadas: %v", cm)
 	}
 	p = c.plantilla(id)
 	if p["estado"] != "DELETED" || p["borradaPor"] != "meta" || p["codigo"] != "bienvenida" || p["atender"] != "borrada_en_uso" || p["nombreLibreEn"] == nil {
@@ -99,10 +103,10 @@ func TestPlantillasWASincronizarYBorradaEnMeta(t *testing.T) {
 	if !hallada {
 		t.Fatalf("cuenta: %v", cu.cuerpo)
 	}
-	// La lista la cuenta en «Atender».
+	// La lista las cuenta en «Atender» (la borrada en uso y la pausada).
 	l := c.api(c.admin, http.MethodGet, "/plantillas-whatsapp?wabaId="+c.waba+"&grupo=atender", nil)
 	c.exigir(l, http.StatusOK)
-	if l.cuerpo["conteos"].(map[string]any)["atender"].(float64) != 1 || len(l.cuerpo["data"].([]any)) != 1 {
+	if l.cuerpo["conteos"].(map[string]any)["atender"].(float64) != 2 || len(l.cuerpo["data"].([]any)) != 2 {
 		t.Fatalf("atender: %v", l.cuerpo)
 	}
 }
