@@ -836,7 +836,7 @@ Una persona de Argos (oficina, caja o soporte) registra en Iris a alguien intere
     - Las acciones sobre el servicio de la mamá llevan `X-Iris-Contacto` con el contacto de José en el cliente de la mamá (§7.1), y se aplica `403 servicio_fuera_del_contacto`.
 - **En Argos:**
     - La ficha del cliente tiene una pestaña «Contactos» con dos listas: «A cargo de sus servicios» y «Está a cargo de».
-    - En caja, antes de mostrar las cuentas a cargo, caja identifica a José con su documento. Luego, si su contacto tiene `pagar`, se muestran aparte las cuentas de los servicios que tiene a cargo, con el código y el nombre del servicio. Si tiene `pagar` pero no `consultar`, caja solo cobra el monto que José indica, sin mostrar el saldo ni las facturas. Nunca se muestran el documento, los otros servicios ni los contactos del dueño.
+    - En caja, si su contacto tiene `pagar`, las cuentas de los servicios que José tiene a cargo aparecen **plegadas** bajo «Cuentas a su cargo · verificar documento», con el código y el nombre del servicio. El cajero las abre marcando «Verifiqué el DPI de José»: la marca queda auditada y vale solo para esa visita a la caja. Si tiene `pagar` pero no `consultar`, el cajero escribe el monto que José indica y no ve saldo ni facturas. Nunca se muestran el documento, los otros servicios ni los contactos del dueño.
 - **Evento:** `cliente.contactos_cambiados` suma `persona_cliente_id` (o null), sin números (§2.3).
 
 ## 4. Versionado
@@ -1740,12 +1740,12 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 - **ah. Código en el chat.** Se compara solo contra los clientes que comparten el número.
 - **ai. `nit_cui` de `POST /clientes`.** No vale como `documento` de §7.5 hasta que coincida con una identidad A41; Argos guarda su origen.
 - **aj. Reporte de titulares existentes.** Argos lista los servicios con `existente: true` que llegan por Iris para que caja o supervisión los revise.
-- **ak. `X-Iris-Contacto` obligatoria (0.10.1, M1).** En las rutas de §7 con `X-Iris-Conversacion`, `<contacto_id>` o `titular` (`400 cabecera_iris_requerida` si falta); con `titular`, verificación de §7.5 registrada o auditada como tal.
-- **al. Permiso del contacto en Argos (0.10.1, M2).** `403 permiso_de_contacto` sin `pagar` o `consultar`; `X-Iris-Contacto` en la auditoría y en la huella de idempotencia de promesas y comprobantes.
-- **am. Revalidar el vínculo (0.10.1, B1).** Al cambiar los números del contacto o del cliente vinculado; si ya no coinciden, se rompe y se avisa a los dos titulares.
-- **an. «Verificado» (0.10.1, B2).** Confirmado con un código en los últimos 12 meses.
-- **ao. Caja con servicios a cargo (0.10.1, B3).** Identifica a José con su documento; con `pagar` sin `consultar`, solo cobra el monto que indica.
-- **ap. Aviso a José (0.10.1, B4).** Solo el `codigo` del servicio, nunca su `nombre`.
+- **ak. `X-Iris-Contacto` obligatoria (0.10.1, M1).** En las rutas de §7 con `X-Iris-Conversacion`, `<contacto_id>` o `titular` (`400 cabecera_iris_requerida` si falta); con `titular`, verificación de §7.5 registrada o auditada como tal. Aceptado por Argos.
+- **al. Permiso del contacto en Argos (0.10.1, M2).** `403 permiso_de_contacto` sin `pagar` o `consultar`; `X-Iris-Contacto` en la auditoría y en la huella de idempotencia de promesas y comprobantes. Aceptado por Argos.
+- **am. Revalidar el vínculo (0.10.1, B1).** Al cambiar los números del contacto o del cliente vinculado; si ya no coinciden, se rompe y se avisa a los dos titulares. Aceptado por Argos.
+- **an. «Verificado» (0.10.1, B2).** Confirmado con un código en los últimos 12 meses. Aceptado por Argos.
+- **ao. Caja con servicios a cargo (0.10.1, B3).** Cuentas a cargo plegadas bajo «Cuentas a su cargo · verificar documento»; se abren con «Verifiqué el DPI de José», auditado y solo para esa visita; con `pagar` sin `consultar`, el cajero escribe el monto sin ver saldo ni facturas. Aceptado por Argos.
+- **ap. Aviso a José (0.10.1, B4).** Solo el `codigo` del servicio, nunca su `nombre`. Aceptado por Argos.
 
 **Valor inicial del líder de Iris** (cambiable sin tocar el contrato): un cambio de plan que sube el precio también pide la firma del titular sobre la cotización nueva, apagado de fábrica (lo enciende la empresa).
 
