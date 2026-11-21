@@ -376,6 +376,8 @@ function ConMotor({
             if (conservarPendientes) {
                 // Solo la cola, los adjuntos y las ubicaciones pendientes; nada que se pueda ver sin entrar.
                 await motor.olvidarDatosDelServidor();
+                // Los datos del titular (documento, contacto y fotos) nunca quedan sin sesión (§3.4.8).
+                await almacen.olvidarSensibles();
                 // La caché del chat se borra; lo que quedó por enviar sale al volver a entrar.
                 await chat.olvidarCache();
             } else {

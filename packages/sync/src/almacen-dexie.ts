@@ -21,8 +21,37 @@ interface FilaBytes {
     datos: Uint8Array;
 }
 
+/**
+ * Operaciones cuyos `datos` llevan datos personales del titular (número de documento, teléfono,
+ * correo, NIT/CUI y las fotos del documento; contrato argosisp.md 0.10.0 §3.4.8): en IndexedDB solo
+ * se guardan cifrados con AES-GCM y una llave WebCrypto no exportable (`llaves`). Se borran al quedar
+ * la operación aplicada o duplicada (el motor la quita de la cola) y con `olvidarSensibles` al
+ * cerrar la sesión.
+ */
+export const TIPOS_CIFRADOS: readonly string[] = [
+    "orden.registrar_identidad",
+    "orden.cambiar_titular",
+    "orden.completar_datos",
+    "orden.cambiar_plan",
+];
+
+interface DatosCifrados {
+    iv: Uint8Array<ArrayBuffer>;
+    datos: ArrayBuffer;
+}
+
+/** Fila de `operaciones`: la operación tal cual o, si es sensible, sin `datos` y con `datosCifrados`. */
+type FilaOperacion = OperacionLocal | (Omit<OperacionLocal, "datos"> & { datos?: undefined; datosCifrados: DatosCifrados });
+
+interface FilaLlave {
+    id: string;
+    llave: CryptoKey;
+}
+
+const LLAVE_OPERACIONES = "operaciones";
+
 class BaseSync extends Dexie {
-    operaciones!: Table<OperacionLocal, string>;
+    operaciones!: Table<FilaOperacion, string>;
     ordenes!: Table<OrdenLocal, number>;
     adjuntos!: Table<AdjuntoLocal, string>;
     bytes!: Table<FilaBytes, string>;
@@ -33,6 +62,7 @@ class BaseSync extends Dexie {
     chatMensajes!: Table<MensajeChat, string>;
     chatBytes!: Table<FilaBytes, string>;
     chatMeta!: Table<FilaMetaChat, string>;
+    llaves!: Table<FilaLlave, string>;
 
     constructor(nombre: string, opciones?: DexieOptions) {
         super(nombre, opciones);
@@ -81,8 +111,30 @@ class BaseSync extends Dexie {
             chatBytes: "id",
             chatMeta: "clave",
         });
+        // Versión 5: llave no exportable de los datos sensibles de la cola (`TIPOS_CIFRADOS`).
+        this.version(5).stores({
+            operaciones: "id, secuencia, ordenId",
+            ordenes: "id",
+            adjuntos: "id, ordenId",
+            bytes: "id",
+            meta: "clave",
+            posiciones: "ms",
+            chatSalida: "id, secuencia",
+            chatConversaciones: "id",
+            chatMensajes: "id, conversacion_id",
+            chatBytes: "id",
+            chatMeta: "clave",
+            llaves: "id",
+        });
     }
 }
+
+function esCifrada(fila: FilaOperacion): fila is Omit<OperacionLocal, "datos"> & { datos?: undefined; datosCifrados: DatosCifrados } {
+    return "datosCifrados" in fila && fila.datosCifrados !== undefined;
+}
+
+const codificador = new TextEncoder();
+const decodificador = new TextDecoder();
 
 async function aplicar<T, K extends string | number>(tabla: Table<T, K>, cambios: CambiosTabla<T, K> | undefined): Promise<void> {
     if (cambios?.borrar?.length) {
@@ -102,6 +154,7 @@ export interface OpcionesAlmacenDexie {
 
 export class AlmacenDexie implements Almacen, AlmacenPosiciones, AlmacenChat {
     private readonly db: BaseSync;
+    private llave: Promise<CryptoKey> | null = null;
 
     constructor(opciones: OpcionesAlmacenDexie) {
         this.db = new BaseSync(opciones.nombre, opciones.dexie);
@@ -112,8 +165,85 @@ export class AlmacenDexie implements Almacen, AlmacenPosiciones, AlmacenChat {
         return Dexie.exists(nombre);
     }
 
+    /** La llave de la cola (no exportable); la crea la primera vez. */
+    private obtenerLlave(): Promise<CryptoKey> {
+        this.llave ??= (async () => {
+            const fila = await this.db.llaves.get(LLAVE_OPERACIONES);
+            if (fila) {
+                return fila.llave;
+            }
+            const llave = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+            await this.db.llaves.put({ id: LLAVE_OPERACIONES, llave });
+            return llave;
+        })();
+        return this.llave;
+    }
+
+    /** Cifra los `datos` de las operaciones sensibles (antes de abrir la transacción de Dexie). */
+    private async cifrar(ops: OperacionLocal[]): Promise<FilaOperacion[]> {
+        if (!ops.some((op) => TIPOS_CIFRADOS.includes(op.tipo))) {
+            return ops;
+        }
+        const llave = await this.obtenerLlave();
+        return Promise.all(
+            ops.map(async (op): Promise<FilaOperacion> => {
+                if (!TIPOS_CIFRADOS.includes(op.tipo)) {
+                    return op;
+                }
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const datos = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: codificador.encode(op.id) }, llave,
+                    codificador.encode(JSON.stringify(op.datos)));
+                const fila: Omit<OperacionLocal, "datos"> & { datos?: unknown } = { ...op };
+                delete fila.datos;
+                return { ...(fila as Omit<OperacionLocal, "datos">), datosCifrados: { iv, datos } };
+            }),
+        );
+    }
+
+    /** Descifra lo cifrado; lo que ya no se puede abrir (llave olvidada) se descarta. */
+    private async descifrar(filas: FilaOperacion[]): Promise<{ operaciones: OperacionLocal[]; ilegibles: string[] }> {
+        if (!filas.some(esCifrada)) {
+            return { operaciones: filas as OperacionLocal[], ilegibles: [] };
+        }
+        const llave = await this.obtenerLlave();
+        const operaciones: OperacionLocal[] = [];
+        const ilegibles: string[] = [];
+        for (const fila of filas) {
+            if (!esCifrada(fila)) {
+                operaciones.push(fila);
+                continue;
+            }
+            try {
+                const plano = await crypto.subtle.decrypt(
+                    { name: "AES-GCM", iv: fila.datosCifrados.iv, additionalData: codificador.encode(fila.id) },
+                    llave,
+                    fila.datosCifrados.datos,
+                );
+                const resto: Partial<typeof fila> = { ...fila };
+                delete resto.datosCifrados;
+                operaciones.push({ ...resto, datos: JSON.parse(decodificador.decode(plano)) } as OperacionLocal);
+            } catch {
+                ilegibles.push(fila.id);
+            }
+        }
+        return { operaciones, ilegibles };
+    }
+
+    /**
+     * Al cerrar la sesión conservando la cola: borra las operaciones sensibles y su llave (los datos
+     * del titular no se quedan en el teléfono sin una sesión abierta).
+     */
+    async olvidarSensibles(): Promise<void> {
+        await this.db.transaction("rw", [this.db.operaciones, this.db.llaves], async () => {
+            const ids = (await this.db.operaciones.toArray()).filter((f) => TIPOS_CIFRADOS.includes(f.tipo)).map((f) => f.id);
+            await this.db.operaciones.bulkDelete(ids);
+            await this.db.llaves.delete(LLAVE_OPERACIONES);
+        });
+        this.llave = null;
+    }
+
     async cargar(): Promise<ContenidoAlmacen> {
-        return this.db.transaction("r", [this.db.operaciones, this.db.ordenes, this.db.adjuntos, this.db.meta], async () => {
+        const contenido = await this.db.transaction("r", [this.db.operaciones, this.db.ordenes, this.db.adjuntos, this.db.meta], async () => {
             const [operaciones, ordenes, adjuntos, filas] = await Promise.all([
                 this.db.operaciones.orderBy("secuencia").toArray(),
                 this.db.ordenes.toArray(),
@@ -126,12 +256,22 @@ export class AlmacenDexie implements Almacen, AlmacenPosiciones, AlmacenChat {
             }
             return { operaciones, ordenes, adjuntos, meta: meta as unknown as MetaSync };
         });
+        const { operaciones, ilegibles } = await this.descifrar(contenido.operaciones);
+        if (ilegibles.length > 0) {
+            await this.db.operaciones.bulkDelete(ilegibles);
+        }
+        return { ...contenido, operaciones };
     }
 
     async escribir(lote: LoteEscritura): Promise<void> {
+        // WebCrypto fuera de la transacción (una promesa ajena a IndexedDB la cerraría).
+        const operaciones: CambiosTabla<FilaOperacion> | undefined = lote.operaciones && {
+            ...lote.operaciones,
+            ...(lote.operaciones.poner ? { poner: await this.cifrar(lote.operaciones.poner) } : {}),
+        };
         const tablas = [this.db.operaciones, this.db.ordenes, this.db.adjuntos, this.db.bytes, this.db.meta];
         await this.db.transaction("rw", tablas, async () => {
-            await aplicar(this.db.operaciones, lote.operaciones);
+            await aplicar(this.db.operaciones, operaciones);
             await aplicar(this.db.ordenes, lote.ordenes);
             await aplicar(this.db.adjuntos, lote.adjuntos);
             await aplicar(this.db.bytes, lote.bytes);
