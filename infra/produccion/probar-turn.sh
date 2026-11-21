@@ -47,6 +47,11 @@ sleep 8
 id="$(dc ps -q turn)"
 [ -n "$id" ] || falla "the turn container does not exist"
 [ "$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' "$id")" = "true 0" ] || falla "turn did not stay up"
+# PID 1 is turnserver itself (exec), as 65534 and without any capability.
+estado="$(docker exec "$id" cat /proc/1/status)" || falla "cannot read the process status"
+printf '%s\n' "$estado" | grep -qE '^Name:[[:space:]]+turnserver$' || falla "PID 1 is not turnserver: $estado"
+printf '%s\n' "$estado" | grep -qE '^Uid:[[:space:]]+65534[[:space:]]+65534[[:space:]]+65534[[:space:]]+65534$' || falla "turnserver is not uid 65534: $estado"
+printf '%s\n' "$estado" | grep -qE '^CapEff:[[:space:]]+0+$' || falla "turnserver has capabilities: $estado"
 if docker inspect -f '{{json .Config.Env}} {{json .Config.Cmd}} {{json .Config.Entrypoint}}' "$id" | grep -qF -- "$secreto"; then
     falla "the secret is in the container's environment or command"
 fi

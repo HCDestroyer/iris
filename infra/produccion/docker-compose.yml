@@ -286,12 +286,15 @@ services:
     network_mode: host
     # Hardened: no capabilities (only ports above 1024), no new privileges, read-only root with a small
     # tmpfs for the generated config (the secret goes there, never on the command line seen by ps).
+    # The image's turnserver carries a file capability (cap_net_bind_service): with no-new-privileges
+    # the kernel refuses to exec it (EPERM), so the entrypoint runs a copy without it from the tmpfs
+    # (cat copies the bytes, not the extended attribute); ports below 1024 are refused anyway.
     user: '65534:65534'
     read_only: true
     cap_drop: [ALL]
     security_opt: ['no-new-privileges:true']
     tmpfs:
-      - /run/turn:size=1m,mode=0700,uid=65534,gid=65534
+      - /run/turn:size=16m,mode=0700,uid=65534,gid=65534,exec
     secrets:
       - turn_secreto
     environment:
@@ -355,7 +358,9 @@ services:
           echo "userdb=/run/turn/turndb"
         } > "$$conf"
         unset TURN_SECRETO
-        exec turnserver -c "$$conf"
+        binario=/run/turn/turnserver
+        cat "$$(command -v turnserver)" > "$$binario" && chmod 0500 "$$binario" || exit 1
+        exec "$$binario" -c "$$conf"
 
 networks:
   default:
