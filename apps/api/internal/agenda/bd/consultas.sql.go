@@ -806,6 +806,18 @@ func (q *Queries) CompletarTarea(ctx context.Context, arg CompletarTareaParams) 
 	return i, err
 }
 
+const conectorDeTokenArgos = `-- name: ConectorDeTokenArgos :one
+SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = $1
+`
+
+// El conector Argos al que Iris entregó este token (el que concilia).
+func (q *Queries) ConectorDeTokenArgos(ctx context.Context, tokenID *int64) (int64, error) {
+	row := q.db.QueryRow(ctx, conectorDeTokenArgos, tokenID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const crearAusencia = `-- name: CrearAusencia :one
 
 INSERT INTO agenda.ausencias (tecnico_id, inicio, fin, motivo, detalle, creada_por)
@@ -1077,7 +1089,7 @@ func (q *Queries) CrearTarea(ctx context.Context, arg CrearTareaParams) (AgendaT
 const crearTecnico = `-- name: CrearTecnico :one
 INSERT INTO agenda.tecnicos (usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, telefono)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por
+RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id
 `
 
 type CrearTecnicoParams struct {
@@ -1119,6 +1131,8 @@ func (q *Queries) CrearTecnico(ctx context.Context, arg CrearTecnicoParams) (Age
 		&i.ArgosNombre,
 		&i.ArgosVinculadoEn,
 		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
 	)
 	return i, err
 }
@@ -1264,7 +1278,7 @@ UPDATE agenda.tecnicos
 SET argos_id_externo = NULL, argos_correo = NULL, argos_nombre = NULL, argos_vinculado_en = NULL, argos_vinculado_por = NULL,
     version = version + 1, updated_at = now()
 WHERE id = $1 AND version = $2
-RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por
+RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id
 `
 
 type DesvincularArgosTecnicoParams struct {
@@ -1293,8 +1307,34 @@ func (q *Queries) DesvincularArgosTecnico(ctx context.Context, arg DesvincularAr
 		&i.ArgosNombre,
 		&i.ArgosVinculadoEn,
 		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
 	)
 	return i, err
+}
+
+const empresasDelUsuario = `-- name: EmpresasDelUsuario :many
+SELECT empresa_id FROM nucleo.usuarios_empresas WHERE usuario_id = $1 ORDER BY empresa_id
+`
+
+func (q *Queries) EmpresasDelUsuario(ctx context.Context, usuarioID int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, empresasDelUsuario, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var empresa_id int64
+		if err := rows.Scan(&empresa_id); err != nil {
+			return nil, err
+		}
+		items = append(items, empresa_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const empresasRegistradas = `-- name: EmpresasRegistradas :many
@@ -1340,6 +1380,20 @@ func (q *Queries) EspejarZonasArgos(ctx context.Context) (int64, error) {
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const fijarConectorVinculo = `-- name: FijarConectorVinculo :one
+UPDATE agenda.tecnicos t SET argos_conector_id = (
+    SELECT c.id FROM integracion.conectores c WHERE c.sistema = 'argosisp' AND c.estado = 'activo' ORDER BY c.id DESC LIMIT 1)
+WHERE t.id = $1 RETURNING t.argos_conector_id
+`
+
+// El conector del que salió el id_externo: el Argos activo al vincular.
+func (q *Queries) FijarConectorVinculo(ctx context.Context, tecnicoID int64) (*int64, error) {
+	row := q.db.QueryRow(ctx, fijarConectorVinculo, tecnicoID)
+	var argos_conector_id *int64
+	err := row.Scan(&argos_conector_id)
+	return argos_conector_id, err
 }
 
 const fijarJefeCuadrilla = `-- name: FijarJefeCuadrilla :one
@@ -1463,7 +1517,7 @@ const guardarTecnico = `-- name: GuardarTecnico :one
 UPDATE agenda.tecnicos SET cuadrilla_id = $1, bodega_id = $2, habilidades = $3,
     base_lat = $4, base_lon = $5, telefono = $6, activo = $7, version = version + 1, updated_at = now()
 WHERE id = $8 AND version = $9
-RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por
+RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id
 `
 
 type GuardarTecnicoParams struct {
@@ -1509,6 +1563,8 @@ func (q *Queries) GuardarTecnico(ctx context.Context, arg GuardarTecnicoParams) 
 		&i.ArgosNombre,
 		&i.ArgosVinculadoEn,
 		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
 	)
 	return i, err
 }
@@ -1867,7 +1923,7 @@ func (q *Queries) ListarTareas(ctx context.Context, arg ListarTareasParams) ([]A
 }
 
 const listarTecnicos = `-- name: ListarTecnicos :many
-SELECT t.id, t.usuario_id, t.cuadrilla_id, t.bodega_id, t.habilidades, t.base_lat, t.base_lon, t.activo, t.version, t.created_at, t.updated_at, t.telefono, t.argos_id_externo, t.argos_correo, t.argos_nombre, t.argos_vinculado_en, t.argos_vinculado_por, u.nombre, u.correo, u.activo AS usuario_activo
+SELECT t.id, t.usuario_id, t.cuadrilla_id, t.bodega_id, t.habilidades, t.base_lat, t.base_lon, t.activo, t.version, t.created_at, t.updated_at, t.telefono, t.argos_id_externo, t.argos_correo, t.argos_nombre, t.argos_vinculado_en, t.argos_vinculado_por, t.version_vinculo, t.argos_conector_id, u.nombre, u.correo, u.activo AS usuario_activo
 FROM agenda.tecnicos t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
 WHERE ($1::bigint IS NULL OR t.id > $1)
@@ -1932,6 +1988,8 @@ type ListarTecnicosRow struct {
 	ArgosNombre       *string
 	ArgosVinculadoEn  *time.Time
 	ArgosVinculadoPor *int64
+	VersionVinculo    int32
+	ArgosConectorID   *int64
 	Nombre            string
 	Correo            string
 	UsuarioActivo     bool
@@ -1983,6 +2041,8 @@ func (q *Queries) ListarTecnicos(ctx context.Context, arg ListarTecnicosParams) 
 			&i.ArgosNombre,
 			&i.ArgosVinculadoEn,
 			&i.ArgosVinculadoPor,
+			&i.VersionVinculo,
+			&i.ArgosConectorID,
 			&i.Nombre,
 			&i.Correo,
 			&i.UsuarioActivo,
@@ -2931,6 +2991,20 @@ func (q *Queries) Solapes(ctx context.Context, arg SolapesParams) ([]SolapesRow,
 	return items, nil
 }
 
+const subirVersionVinculo = `-- name: SubirVersionVinculo :one
+
+UPDATE agenda.tecnicos SET version_vinculo = version_vinculo + 1 WHERE id = $1 RETURNING version_vinculo
+`
+
+// Vínculo con Argos de cada técnico (contrato 0.14.0 §6.6) ---------------------------------
+// Cada tecnico.argos_* sube la versión del vínculo (entera y creciente por técnico).
+func (q *Queries) SubirVersionVinculo(ctx context.Context, id int64) (int32, error) {
+	row := q.db.QueryRow(ctx, subirVersionVinculo, id)
+	var version_vinculo int32
+	err := row.Scan(&version_vinculo)
+	return version_vinculo, err
+}
+
 const tareaPorID = `-- name: TareaPorID :one
 SELECT id, empresa_id, tecnico_id, creada_por, que, inicio, duracion_min, fin, orden_id, cliente_id, origen, estado, completada_en, completada_por, anulada_en, anulada_por, motivo, version, created_at, updated_at FROM agenda.tareas WHERE id = $1
 `
@@ -3102,7 +3176,7 @@ func (q *Queries) TareasDelTecnico(ctx context.Context, arg TareasDelTecnicoPara
 }
 
 const tecnicoPorArgos = `-- name: TecnicoPorArgos :one
-SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por FROM agenda.tecnicos WHERE argos_id_externo = $1
+SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id FROM agenda.tecnicos WHERE argos_id_externo = $1
 `
 
 func (q *Queries) TecnicoPorArgos(ctx context.Context, idExterno *string) (AgendaTecnico, error) {
@@ -3126,13 +3200,15 @@ func (q *Queries) TecnicoPorArgos(ctx context.Context, idExterno *string) (Agend
 		&i.ArgosNombre,
 		&i.ArgosVinculadoEn,
 		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
 	)
 	return i, err
 }
 
 const tecnicoPorID = `-- name: TecnicoPorID :one
 
-SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por FROM agenda.tecnicos WHERE id = $1
+SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id FROM agenda.tecnicos WHERE id = $1
 `
 
 // Técnicos ------------------------------------------------------------------------
@@ -3157,12 +3233,14 @@ func (q *Queries) TecnicoPorID(ctx context.Context, id int64) (AgendaTecnico, er
 		&i.ArgosNombre,
 		&i.ArgosVinculadoEn,
 		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
 	)
 	return i, err
 }
 
 const tecnicoPorIDParaActualizar = `-- name: TecnicoPorIDParaActualizar :one
-SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por FROM agenda.tecnicos WHERE id = $1 FOR UPDATE
+SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id FROM agenda.tecnicos WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) TecnicoPorIDParaActualizar(ctx context.Context, id int64) (AgendaTecnico, error) {
@@ -3186,12 +3264,14 @@ func (q *Queries) TecnicoPorIDParaActualizar(ctx context.Context, id int64) (Age
 		&i.ArgosNombre,
 		&i.ArgosVinculadoEn,
 		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
 	)
 	return i, err
 }
 
 const tecnicoPorUsuario = `-- name: TecnicoPorUsuario :one
-SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por FROM agenda.tecnicos WHERE usuario_id = $1
+SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id FROM agenda.tecnicos WHERE usuario_id = $1
 `
 
 func (q *Queries) TecnicoPorUsuario(ctx context.Context, usuarioID int64) (AgendaTecnico, error) {
@@ -3215,12 +3295,14 @@ func (q *Queries) TecnicoPorUsuario(ctx context.Context, usuarioID int64) (Agend
 		&i.ArgosNombre,
 		&i.ArgosVinculadoEn,
 		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
 	)
 	return i, err
 }
 
 const tecnicosPorUsuarios = `-- name: TecnicosPorUsuarios :many
-SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por FROM agenda.tecnicos WHERE usuario_id = ANY($1::bigint[])
+SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id FROM agenda.tecnicos WHERE usuario_id = ANY($1::bigint[])
 `
 
 func (q *Queries) TecnicosPorUsuarios(ctx context.Context, usuarios []int64) ([]AgendaTecnico, error) {
@@ -3250,6 +3332,8 @@ func (q *Queries) TecnicosPorUsuarios(ctx context.Context, usuarios []int64) ([]
 			&i.ArgosNombre,
 			&i.ArgosVinculadoEn,
 			&i.ArgosVinculadoPor,
+			&i.VersionVinculo,
+			&i.ArgosConectorID,
 		); err != nil {
 			return nil, err
 		}
@@ -3328,7 +3412,7 @@ func (q *Queries) TocarCuadrilla(ctx context.Context, arg TocarCuadrillaParams) 
 const tocarTecnico = `-- name: TocarTecnico :one
 UPDATE agenda.tecnicos SET version = version + 1, updated_at = now()
 WHERE id = $1 AND version = $2
-RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por
+RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id
 `
 
 type TocarTecnicoParams struct {
@@ -3358,6 +3442,8 @@ func (q *Queries) TocarTecnico(ctx context.Context, arg TocarTecnicoParams) (Age
 		&i.ArgosNombre,
 		&i.ArgosVinculadoEn,
 		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
 	)
 	return i, err
 }
@@ -3415,6 +3501,17 @@ func (q *Queries) UltimaPosicionEnEmpresa(ctx context.Context, arg UltimaPosicio
 	var i UltimaPosicionEnEmpresaRow
 	err := row.Scan(&i.Lat, &i.Lon, &i.RegistradaEn)
 	return i, err
+}
+
+const usuarioActivo = `-- name: UsuarioActivo :one
+SELECT activo FROM nucleo.usuarios WHERE id = $1
+`
+
+func (q *Queries) UsuarioActivo(ctx context.Context, id int64) (bool, error) {
+	row := q.db.QueryRow(ctx, usuarioActivo, id)
+	var activo bool
+	err := row.Scan(&activo)
+	return activo, err
 }
 
 const usuarioParaTecnico = `-- name: UsuarioParaTecnico :one
@@ -3505,7 +3602,7 @@ UPDATE agenda.tecnicos
 SET argos_id_externo = $1, argos_correo = $2, argos_nombre = $3,
     bodega_id = $4, argos_vinculado_en = $5, argos_vinculado_por = $6, version = version + 1, updated_at = now()
 WHERE id = $7 AND version = $8
-RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por
+RETURNING id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id
 `
 
 type VincularArgosTecnicoParams struct {
@@ -3550,8 +3647,57 @@ func (q *Queries) VincularArgosTecnico(ctx context.Context, arg VincularArgosTec
 		&i.ArgosNombre,
 		&i.ArgosVinculadoEn,
 		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
 	)
 	return i, err
+}
+
+const vinculosVigentesDeConector = `-- name: VinculosVigentesDeConector :many
+SELECT t.id, t.usuario_id, t.cuadrilla_id, t.bodega_id, t.habilidades, t.base_lat, t.base_lon, t.activo, t.version, t.created_at, t.updated_at, t.telefono, t.argos_id_externo, t.argos_correo, t.argos_nombre, t.argos_vinculado_en, t.argos_vinculado_por, t.version_vinculo, t.argos_conector_id FROM agenda.tecnicos t JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.argos_id_externo IS NOT NULL AND t.activo AND u.activo AND t.argos_conector_id = $1
+ORDER BY t.id
+`
+
+// Los vínculos vigentes que salieron de un conector (carga inicial al informar 0.14.0).
+func (q *Queries) VinculosVigentesDeConector(ctx context.Context, conectorID *int64) ([]AgendaTecnico, error) {
+	rows, err := q.db.Query(ctx, vinculosVigentesDeConector, conectorID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AgendaTecnico
+	for rows.Next() {
+		var i AgendaTecnico
+		if err := rows.Scan(
+			&i.ID,
+			&i.UsuarioID,
+			&i.CuadrillaID,
+			&i.BodegaID,
+			&i.Habilidades,
+			&i.BaseLat,
+			&i.BaseLon,
+			&i.Activo,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Telefono,
+			&i.ArgosIDExterno,
+			&i.ArgosCorreo,
+			&i.ArgosNombre,
+			&i.ArgosVinculadoEn,
+			&i.ArgosVinculadoPor,
+			&i.VersionVinculo,
+			&i.ArgosConectorID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const zonaArgos = `-- name: ZonaArgos :one

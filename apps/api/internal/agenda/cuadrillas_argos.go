@@ -288,6 +288,8 @@ func (m *Modulo) nuevoCuadrillaArgos() *auditoria.Caso[EntradaCuadrillaArgos, Cu
 // empresa): sus cuadrillas avisan a Argos.
 type EntradaRevisarUsuario struct {
 	UsuarioID int64 `json:"usuario_id"`
+	// Evento: el que lo disparó (usuario.desactivado avisa a Argos del vínculo, 0.14.0 §6.6).
+	Evento string `json:"-"`
 }
 
 // ResultadoRevisarUsuario son las cuadrillas que se revisaron.
@@ -313,6 +315,18 @@ func (m *Modulo) nuevoRevisarUsuario() *auditoria.Caso[EntradaRevisarUsuario, Re
 				return ResultadoRevisarUsuario{}, err
 			default:
 				ids = append(ids, f.CuadrillaID)
+				// 0.14.0 §6.6: usuario desactivado → desvinculado (desactivado); empresa nueva → el
+				// vínculo también para ella.
+				switch {
+				case in.Evento == "usuario.desactivado" && f.Activo:
+					if err := vinculoPorActivo(ctx, t, q, f, false); err != nil {
+						return ResultadoRevisarUsuario{}, err
+					}
+				case in.Evento == "usuario.empresa_asignada" && f.Activo:
+					if err := vinculoPorActivo(ctx, t, q, f, true); err != nil {
+						return ResultadoRevisarUsuario{}, err
+					}
+				}
 			}
 			jefe, err := q.CuadrillasConJefe(ctx, &in.UsuarioID)
 			if err != nil {
@@ -341,6 +355,7 @@ func (m *Modulo) SuscribirCuadrillas(bus *integracion.Bus, bd nucleo.BD, log *sl
 	for _, ev := range EventosUsuarioCuadrilla {
 		bus.Suscribir("agenda.cuadrillas_usuario", ev, func(ctx context.Context, e integracion.Evento) error {
 			var in EntradaRevisarUsuario
+			in.Evento = e.Evento
 			if err := json.Unmarshal(e.Payload, &in); err != nil || in.UsuarioID == 0 {
 				log.ErrorContext(ctx, "agenda: evento de usuario ilegible", "evento", e.ID, "nombre", e.Evento)
 				return nil

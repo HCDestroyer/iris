@@ -220,8 +220,8 @@ SELECT id FROM mensajeria.entrantes WHERE procesado_en IS NULL AND created_at < 
 -- name: InsertarWebhookSalida :exec
 -- proximo_intento con el reloj del módulo (no el now() de la base): el despacho compara contra ese
 -- mismo reloj, y en las pruebas es fijo.
-INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento)
-VALUES (@id, @evento, @empresa_id, @payload, @ocurrido_en, @proximo_intento)
+INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento, conector_origen)
+VALUES (@id, @evento, @empresa_id, @payload, @ocurrido_en, @proximo_intento, sqlc.narg(conector_origen))
 ON CONFLICT (id) DO NOTHING;
 
 -- name: WebhooksPorEnviar :many
@@ -257,5 +257,18 @@ SELECT * FROM mensajeria.webhooks_salida WHERE id = $1;
 
 -- name: ConectorArgosParaWebhooks :one
 -- El conector Argos activo con su receptor (§6.6).
-SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado
+SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo';
+
+-- name: DesvinculadoAnteriorSinEntregar :one
+-- 0.14.0 §6.6: el vinculado de un técnico no sale hasta el 2xx del desvinculado anterior del mismo
+-- id_externo (el que lo liberó), aunque haya agotado sus reintentos.
+SELECT EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.payload->>'id_externo' = @id_externo::text
+      AND d.estado IN ('pendiente', 'agotado') AND d.created_at < @antes
+)::boolean;
+
+-- name: PostergarWebhook :exec
+-- Espera sin gastar un intento (otro webhook del que depende aún no tuvo su 2xx).
+UPDATE mensajeria.webhooks_salida SET proximo_intento = @proximo_intento, ultimo_error = @ultimo_error, updated_at = now() WHERE id = @id;

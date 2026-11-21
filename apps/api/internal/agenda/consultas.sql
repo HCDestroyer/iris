@@ -594,3 +594,31 @@ SELECT EXISTS (SELECT 1 FROM integracion.argos_clientes
 SELECT tecnico_id, inicio, fin FROM agenda.tareas
 WHERE tecnico_id = ANY(@tecnicos::bigint[]) AND estado = 'pendiente' AND inicio < @hasta AND fin > @desde
 ORDER BY tecnico_id, inicio;
+
+-- Vínculo con Argos de cada técnico (contrato 0.14.0 §6.6) ---------------------------------
+
+-- name: SubirVersionVinculo :one
+-- Cada tecnico.argos_* sube la versión del vínculo (entera y creciente por técnico).
+UPDATE agenda.tecnicos SET version_vinculo = version_vinculo + 1 WHERE id = @id RETURNING version_vinculo;
+
+-- name: FijarConectorVinculo :one
+-- El conector del que salió el id_externo: el Argos activo al vincular.
+UPDATE agenda.tecnicos t SET argos_conector_id = (
+    SELECT c.id FROM integracion.conectores c WHERE c.sistema = 'argosisp' AND c.estado = 'activo' ORDER BY c.id DESC LIMIT 1)
+WHERE t.id = @tecnico_id RETURNING t.argos_conector_id;
+
+-- name: EmpresasDelUsuario :many
+SELECT empresa_id FROM nucleo.usuarios_empresas WHERE usuario_id = @usuario_id ORDER BY empresa_id;
+
+-- name: VinculosVigentesDeConector :many
+-- Los vínculos vigentes que salieron de un conector (carga inicial al informar 0.14.0).
+SELECT t.* FROM agenda.tecnicos t JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.argos_id_externo IS NOT NULL AND t.activo AND u.activo AND t.argos_conector_id = @conector_id
+ORDER BY t.id;
+
+-- name: ConectorDeTokenArgos :one
+-- El conector Argos al que Iris entregó este token (el que concilia).
+SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = @token_id;
+
+-- name: UsuarioActivo :one
+SELECT activo FROM nucleo.usuarios WHERE id = @id;

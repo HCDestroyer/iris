@@ -174,9 +174,12 @@ func (m *Modulo) nuevoVincularArgos() *VincularArgos {
 				return TecnicoDetalle{}, nucleo.VerificarVersion(err, "tecnico", antes.ID)
 			}
 			t.RegistrarCambios("tecnico", f.ID, vinculoAuditable(antes), vinculoAuditable(f))
-			if err := t.Emitir("tecnico.argos_vinculado", map[string]any{
-				"tecnico_id": f.ID, "usuario_id": f.UsuarioID, "id_externo": in.IDExterno, "anterior_id_externo": antes.ArgosIDExterno,
-			}); err != nil {
+			// 0.14.0 §6.6: el vínculo sale del conector Argos activo; solo a él va el webhook.
+			if f.ArgosConectorID, err = q.FijarConectorVinculo(ctx, f.ID); err != nil {
+				return TecnicoDetalle{}, err
+			}
+			if err := emitirVinculo(ctx, t, q, f, EventoVinculado, in.IDExterno,
+				map[string]any{"anterior_id_externo": antes.ArgosIDExterno}, nil); err != nil {
 				return TecnicoDetalle{}, err
 			}
 			// El id_externo del miembro cambió: cuadrilla.actualizada para Argos (§3.9).
@@ -256,9 +259,7 @@ func (m *Modulo) nuevoDesvincularArgos() *auditoria.Caso[EntradaDesvincularArgos
 			if s := strings.TrimSpace(in.Motivo); s != "" {
 				motivo = &s
 			}
-			if err := t.Emitir("tecnico.argos_desvinculado", map[string]any{
-				"tecnico_id": f.ID, "usuario_id": f.UsuarioID, "id_externo": *antes.ArgosIDExterno, "motivo": motivo,
-			}); err != nil {
+			if err := emitirVinculo(ctx, t, q, f, EventoDesvinculado, *antes.ArgosIDExterno, map[string]any{"motivo": motivo}, nil); err != nil {
 				return TecnicoDetalle{}, err
 			}
 			// Sin vínculo I1 no consume de la bodega de la cuadrilla ni puede ser su jefe (§3.9).

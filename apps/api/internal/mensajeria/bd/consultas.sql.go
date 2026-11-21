@@ -563,7 +563,7 @@ func (q *Queries) ClientesAvisadosEn(ctx context.Context, arg ClientesAvisadosEn
 
 const conectorArgosParaWebhooks = `-- name: ConectorArgosParaWebhooks :one
 
-SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado
+SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo'
 `
 
@@ -572,6 +572,8 @@ type ConectorArgosParaWebhooksRow struct {
 	ContratoRemoto              *string
 	WebhookSalidaUrl            *string
 	WebhookSalidaSecretoCifrado []byte
+	Empresas                    []int64
+	AlcanceGlobal               bool
 }
 
 // Datos de otros módulos (solo lectura) --------------------------------------------------------
@@ -584,6 +586,8 @@ func (q *Queries) ConectorArgosParaWebhooks(ctx context.Context) (ConectorArgosP
 		&i.ContratoRemoto,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
+		&i.Empresas,
+		&i.AlcanceGlobal,
 	)
 	return i, err
 }
@@ -722,6 +726,28 @@ UPDATE mensajeria.avisos SET intentos = intentos + 1, enviado_en = NULL, updated
 func (q *Queries) ContarIntento(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, contarIntento, id)
 	return err
+}
+
+const desvinculadoAnteriorSinEntregar = `-- name: DesvinculadoAnteriorSinEntregar :one
+SELECT EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.payload->>'id_externo' = $1::text
+      AND d.estado IN ('pendiente', 'agotado') AND d.created_at < $2
+)::boolean
+`
+
+type DesvinculadoAnteriorSinEntregarParams struct {
+	IDExterno string
+	Antes     time.Time
+}
+
+// 0.14.0 §6.6: el vinculado de un técnico no sale hasta el 2xx del desvinculado anterior del mismo
+// id_externo (el que lo liberó), aunque haya agotado sus reintentos.
+func (q *Queries) DesvinculadoAnteriorSinEntregar(ctx context.Context, arg DesvinculadoAnteriorSinEntregarParams) (bool, error) {
+	row := q.db.QueryRow(ctx, desvinculadoAnteriorSinEntregar, arg.IDExterno, arg.Antes)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const entranteParaProcesar = `-- name: EntranteParaProcesar :one
@@ -1124,8 +1150,8 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 
 const insertarWebhookSalida = `-- name: InsertarWebhookSalida :exec
 
-INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento, conector_origen)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (id) DO NOTHING
 `
 
@@ -1136,6 +1162,7 @@ type InsertarWebhookSalidaParams struct {
 	Payload        []byte
 	OcurridoEn     time.Time
 	ProximoIntento time.Time
+	ConectorOrigen *int64
 }
 
 // Webhooks hacia Argos -------------------------------------------------------------------------
@@ -1149,6 +1176,7 @@ func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhook
 		arg.Payload,
 		arg.OcurridoEn,
 		arg.ProximoIntento,
+		arg.ConectorOrigen,
 	)
 	return err
 }
@@ -1535,6 +1563,22 @@ func (q *Queries) PausarCanal(ctx context.Context, arg PausarCanalParams) error 
 	return err
 }
 
+const postergarWebhook = `-- name: PostergarWebhook :exec
+UPDATE mensajeria.webhooks_salida SET proximo_intento = $1, ultimo_error = $2, updated_at = now() WHERE id = $3
+`
+
+type PostergarWebhookParams struct {
+	ProximoIntento time.Time
+	UltimoError    *string
+	ID             uuid.UUID
+}
+
+// Espera sin gastar un intento (otro webhook del que depende aún no tuvo su 2xx).
+func (q *Queries) PostergarWebhook(ctx context.Context, arg PostergarWebhookParams) error {
+	_, err := q.db.Exec(ctx, postergarWebhook, arg.ProximoIntento, arg.UltimoError, arg.ID)
+	return err
+}
+
 const registrarPruebaCanal = `-- name: RegistrarPruebaCanal :one
 UPDATE mensajeria.canales
 SET ultima_prueba_en = $1, ultimo_estado = $2, ultimo_detalle = $3, rechazado_por_envio = false
@@ -1671,7 +1715,7 @@ func (q *Queries) SiguienteIDCanal(ctx context.Context) (int64, error) {
 }
 
 const webhookParaEnviar = `-- name: WebhookParaEnviar :one
-SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at FROM mensajeria.webhooks_salida WHERE id = $1 AND estado = 'pendiente' FOR UPDATE SKIP LOCKED
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen FROM mensajeria.webhooks_salida WHERE id = $1 AND estado = 'pendiente' FOR UPDATE SKIP LOCKED
 `
 
 func (q *Queries) WebhookParaEnviar(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
@@ -1691,12 +1735,13 @@ func (q *Queries) WebhookParaEnviar(ctx context.Context, id uuid.UUID) (Mensajer
 		&i.EntregadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConectorOrigen,
 	)
 	return i, err
 }
 
 const webhookPorID = `-- name: WebhookPorID :one
-SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at FROM mensajeria.webhooks_salida WHERE id = $1
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen FROM mensajeria.webhooks_salida WHERE id = $1
 `
 
 func (q *Queries) WebhookPorID(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
@@ -1716,12 +1761,13 @@ func (q *Queries) WebhookPorID(ctx context.Context, id uuid.UUID) (MensajeriaWeb
 		&i.EntregadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConectorOrigen,
 	)
 	return i, err
 }
 
 const webhooksPorEnviar = `-- name: WebhooksPorEnviar :many
-SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at FROM mensajeria.webhooks_salida
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen FROM mensajeria.webhooks_salida
 WHERE estado = 'pendiente' AND proximo_intento <= $1
 ORDER BY proximo_intento
 LIMIT $2
@@ -1756,6 +1802,7 @@ func (q *Queries) WebhooksPorEnviar(ctx context.Context, arg WebhooksPorEnviarPa
 			&i.EntregadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ConectorOrigen,
 		); err != nil {
 			return nil, err
 		}

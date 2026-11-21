@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -41,11 +42,17 @@ const ContratoWebhooks = "0.6.0"
 // cuadrilla.actualizada (0.11.0 §3.9 y §6.6, bodega de cuadrilla).
 const ContratoCuadrillas = "0.11.0"
 
+// ContratoVinculos es la primera versión del contrato con tecnico.argos_vinculado y
+// tecnico.argos_desvinculado (0.14.0 §6.6).
+const ContratoVinculos = "0.14.0"
+
 // contratoMinimo: la versión del contrato de Argos desde la que se le manda el evento.
 func contratoMinimo(evento string) string {
 	switch evento {
 	case "cuadrilla.creada", "cuadrilla.actualizada":
 		return ContratoCuadrillas
+	case eventoVinculado, eventoDesvinculado:
+		return ContratoVinculos
 	}
 	return ContratoWebhooks
 }
@@ -54,7 +61,13 @@ func contratoMinimo(evento string) string {
 var EsperasWebhook = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 12 * time.Hour}
 
 // EventosWebhook son los eventos del outbox que van a Argos.
-var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "cuadrilla.creada", "cuadrilla.actualizada"}
+var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "cuadrilla.creada", "cuadrilla.actualizada",
+	eventoVinculado, eventoDesvinculado}
+
+const (
+	eventoVinculado    = "tecnico.argos_vinculado"
+	eventoDesvinculado = "tecnico.argos_desvinculado"
+)
 
 // payloadArgos arma el payload del contrato (solo sus campos) desde el del outbox. ok = false si no
 // va a Argos.
@@ -70,6 +83,9 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		// 0.11.0 §6.6: uno por empresa, con los miembros completos (id_externo null sin vínculo I1).
 		"cuadrilla.creada":      {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
 		"cuadrilla.actualizada": {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
+		// 0.14.0 §6.6: el conector de origen y la carga no viajan (van en su columna y en el outbox).
+		eventoVinculado:    {"tecnico_id", "usuario_id", "empresa_id", "version", "id_externo", "anterior_id_externo"},
+		eventoDesvinculado: {"tecnico_id", "usuario_id", "empresa_id", "version", "id_externo", "motivo"},
 	}[evento]
 	if campos == nil {
 		return nil, false
@@ -79,8 +95,8 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		if p["origen"] != "argos" {
 			return nil, false
 		}
-	case "cuadrilla.creada", "cuadrilla.actualizada":
-		// Sin empresa (modo sin conector) no hay bodega de cuadrilla en Argos.
+	case "cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado:
+		// Sin empresa (modo sin conector) no hay bodega ni vínculo en Argos.
 		if p["empresa_id"] == nil {
 			return nil, false
 		}
@@ -115,7 +131,8 @@ func (m *Modulo) SuscribirWebhooks(bus *integracion.Bus, bd nucleo.BD) {
 				return struct{}{}, err
 			}
 			return struct{}{}, mensajeriabd.New(t).InsertarWebhookSalida(ctx, mensajeriabd.InsertarWebhookSalidaParams{
-				ID: e.ID, Evento: e.Evento, EmpresaID: e.EmpresaID, Payload: crudo, OcurridoEn: e.OcurridoEn, ProximoIntento: m.ahora()})
+				ID: e.ID, Evento: e.Evento, EmpresaID: e.EmpresaID, Payload: crudo, OcurridoEn: e.OcurridoEn, ProximoIntento: m.ahora(),
+				ConectorOrigen: conectorOrigen(e.Evento, e.Payload)})
 		},
 	})
 	for _, ev := range EventosWebhook {
@@ -124,6 +141,20 @@ func (m *Modulo) SuscribirWebhooks(bus *integracion.Bus, bd nucleo.BD) {
 			return err
 		})
 	}
+}
+
+// conectorOrigen: el conector del que salió el vínculo de un tecnico.argos_* (solo a él se manda).
+func conectorOrigen(evento string, crudo json.RawMessage) *int64 {
+	if evento != eventoVinculado && evento != eventoDesvinculado {
+		return nil
+	}
+	var p struct {
+		ConectorID *int64 `json:"conector_id"`
+	}
+	if json.Unmarshal(crudo, &p) != nil {
+		return nil
+	}
+	return p.ConectorID
 }
 
 // CuerpoWebhookArgos es el cuerpo que recibe Argos.
@@ -218,6 +249,35 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 	case !conector.VersionAlMenos(c.ContratoRemoto, contratoMinimo(w.Evento)) || c.WebhookSalidaUrl == nil:
 		in.Estado, in.ConectorID = "omitido", &c.ID
 		in.Error = texto("el conector Argos no habla el contrato " + contratoMinimo(w.Evento) + " o no informó su receptor de webhooks")
+	case (w.Evento == eventoVinculado || w.Evento == eventoDesvinculado) && (w.ConectorOrigen == nil || *w.ConectorOrigen != c.ID):
+		// 0.14.0 §6.6: solo al conector del que salió el id_externo.
+		in.Estado, in.ConectorID = "omitido", &c.ID
+		in.Error = texto("el vínculo del técnico no salió de este conector Argos")
+	case (w.Evento == eventoVinculado || w.Evento == eventoDesvinculado) && !c.AlcanceGlobal &&
+		(w.EmpresaID == nil || !slices.Contains(c.Empresas, *w.EmpresaID)):
+		in.Estado, in.ConectorID = "omitido", &c.ID
+		in.Error = texto("la empresa no está en el alcance del conector Argos")
+	case w.Evento == eventoVinculado:
+		// El vinculado espera el 2xx del desvinculado anterior del mismo id_externo (§6.6).
+		var p struct {
+			IDExterno string `json:"id_externo"`
+		}
+		_ = json.Unmarshal(w.Payload, &p)
+		espera, err := mensajeriabd.New(bd).DesvinculadoAnteriorSinEntregar(ctx, mensajeriabd.DesvinculadoAnteriorSinEntregarParams{
+			IDExterno: p.IDExterno, Antes: w.CreatedAt})
+		if err != nil {
+			return err
+		}
+		if espera {
+			return mensajeriabd.New(bd).PostergarWebhook(ctx, mensajeriabd.PostergarWebhookParams{ID: w.ID,
+				ProximoIntento: m.ahora().Add(time.Minute), UltimoError: texto("espera el 2xx del desvinculado anterior de este usuario de Argos")})
+		}
+		in.ConectorID = &c.ID
+		if err := m.enviarWebhook(ctx, c, w); err != nil {
+			in.Estado, in.Error = "pendiente", texto(recortar(err.Error(), 300))
+		} else {
+			in.Estado = "entregado"
+		}
 	default:
 		in.ConectorID = &c.ID
 		if err := m.enviarWebhook(ctx, c, w); err != nil {

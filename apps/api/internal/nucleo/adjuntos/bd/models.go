@@ -64,6 +64,14 @@ type AgendaCuadrilla struct {
 	VersionArgos  int32
 }
 
+type AgendaCuadrillaMiembro struct {
+	ID          int64
+	UsuarioID   int64
+	CuadrillaID int64
+	Desde       time.Time
+	Hasta       *time.Time
+}
+
 type AgendaCuadrillaZona struct {
 	CuadrillaID int64
 	ZonaID      int64
@@ -166,6 +174,8 @@ type AgendaTecnico struct {
 	ArgosNombre       *string
 	ArgosVinculadoEn  *time.Time
 	ArgosVinculadoPor *int64
+	VersionVinculo    int32
+	ArgosConectorID   *int64
 }
 
 type AgendaTurno struct {
@@ -1028,6 +1038,9 @@ type IntegracionConectore struct {
 	VersionDetalle              *string
 	EliminadoEn                 *time.Time
 	EliminadoPor                *int64
+	VinculosCargaID             pgtype.UUID
+	VinculosCargaN              *int32
+	VinculosCargadosEn          *time.Time
 }
 
 type IntegracionEntrante struct {
@@ -2442,6 +2455,7 @@ type MensajeriaWebhooksSalida struct {
 	EntregadoEn    *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	ConectorOrigen *int64
 }
 
 type NotificacionesAviso struct {
