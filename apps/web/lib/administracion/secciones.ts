@@ -1,10 +1,11 @@
-import { Cloud, ClipboardList, Cpu, DatabaseZap, History, KeyRound, Mail, MailCheck, Map as IconoMapa, Plug, Scale, ShieldCheck, Smartphone, Users, Zap, Phone, PhoneCall, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
+import { Cloud, ClipboardList, MessageSquareText, Cpu, DatabaseZap, History, KeyRound, Mail, MailCheck, Map as IconoMapa, Plug, Scale, ShieldCheck, Smartphone, Users, Zap, Phone, PhoneCall, CalendarClock, BookOpen, Inbox, Settings2, Sparkles, type LucideIcon } from "lucide-react";
 import { PERMISO_CONFIGURAR_ASISTENTE } from "@/lib/asistente/permisos";
 import { PERMISOS_CUADRILLAS, PERMISOS_ZONAS } from "@/lib/agenda/permisos";
 import { PERMISO_CONFIGURAR_CORREO, PERMISO_VER_CORREO } from "@/lib/correo/tipos";
 import { PERMISO_CONFIGURAR_LEGAL, PERMISO_VER_LEGAL } from "@/lib/legal/datos";
 import { PERMISO_CONEXION_META } from "@/lib/meta/tipos";
 import type { Permiso } from "@/lib/menu";
+import { PERMISO_VER as PERMISO_VER_PLANTILLAS_WA } from "@/lib/plantillas-whatsapp/tipos";
 import { PERMISO_VER, PERMISO_VER_USO } from "@/lib/servidor-ia/tipos";
 
 /** Secciones de Administración (índice y buscador global). Sin `href`: aún sin pantalla. */
@@ -31,6 +32,13 @@ export const SECCIONES: readonly Seccion[] = [
         descripcion: "Agregar números, credenciales de Meta, conexión, uso, cola, horario y llamadas.",
         icono: Phone,
         permisos: ["canales.configurar", "mensajeria.configurar"],
+    },
+    {
+        href: "/administracion/plantillas-whatsapp",
+        titulo: "Plantillas de WhatsApp",
+        descripcion: "Los mensajes que Meta aprueba para avisos y para escribirle primero a un cliente: crear, revisar y sincronizar.",
+        icono: MessageSquareText,
+        permisos: [PERMISO_VER_PLANTILLAS_WA],
     },
     {
         href: "/administracion/conexion-meta",

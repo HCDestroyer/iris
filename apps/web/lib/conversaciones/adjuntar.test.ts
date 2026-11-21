@@ -1,7 +1,16 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { claseDeArchivo, MAX_ADJUNTO, motivoArchivoInvalido, nuevaSubida, offsetValido, PARTE, SubidaCortada, subirAdjunto, tipoLegible } from "./adjuntar";
+import { claseDeArchivo, MAX_ADJUNTO, motivoArchivoInvalido, nuevaSubida, offsetValido, PARTE, SubidaCortada, subirAdjunto, tipoAdjunto, tipoLegible } from "./adjuntar";
 
 const archivo = (nombre: string, tipo: string, tamano: number) => new File([new Uint8Array(tamano)], nombre, { type: tipo });
+
+describe("tipo del adjunto", () => {
+    it("registra el tipo real del archivo: una imagen es foto; un PDF o un video, documento", () => {
+        expect(tipoAdjunto("image/png")).toBe("foto");
+        expect(tipoAdjunto("image/jpeg")).toBe("foto");
+        expect(tipoAdjunto("application/pdf")).toBe("documento");
+        expect(tipoAdjunto("video/mp4")).toBe("documento");
+    });
+});
 
 describe("validación de adjuntos antes de subir", () => {
     it("solo fotos (JPG, PNG, WebP) y PDF: lo demás se dice por qué", () => {

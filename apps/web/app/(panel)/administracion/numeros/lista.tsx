@@ -2,7 +2,7 @@
 
 import type { Schema } from "@iris/contratos";
 import { avisar, Aviso, Boton, cn, Esqueleto, EstadoVacio, Tarjeta } from "@iris/ui";
-import { BookOpen, Building2, CalendarClock, Cloud, Code, Eye, History, KeyRound, MessageCircle, Phone, Plus, Power, QrCode, Share2, SlidersHorizontal, Smartphone } from "lucide-react";
+import { BookOpen, Building2, CalendarClock, Cloud, Code, Eye, History, KeyRound, MessageCircle, MessageSquareText, Phone, Plus, Power, QrCode, Share2, SlidersHorizontal, Smartphone } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
@@ -22,6 +22,7 @@ import { presentarConexion } from "@/lib/numeros/conexion";
 import { enlaceGuia } from "@/lib/numeros/guia";
 import { deLaEmpresa, listaUsos, textoCompartido } from "@/lib/numeros/lista";
 import type { Canal } from "@/lib/numeros/tipos";
+import { PERMISO_VER as PERMISO_VER_PLANTILLAS_WA } from "@/lib/plantillas-whatsapp/tipos";
 import { useSesion } from "@/lib/sesion";
 
 /**
@@ -60,6 +61,7 @@ export function ListaNumeros() {
     const configurar = puede(["canales.configurar"]);
     // Voz E1: llamadas de WhatsApp por número (solo los conectados por la API).
     const llamadas = puede(["llamadas.configurar"]);
+    const verPlantillas = puede([PERMISO_VER_PLANTILLAS_WA]);
     const conexionMeta = puede([PERMISO_CONEXION_META]);
     // Colas y horarios se leen con `conversaciones.ver`; sin él, esas columnas dicen «—».
     const verBandeja = puede(["conversaciones.ver"]);
@@ -246,6 +248,14 @@ export function ListaNumeros() {
                                 <Link href="/administracion/horarios">
                                     <CalendarClock aria-hidden />
                                     Horarios
+                                </Link>
+                            </Boton>
+                        ) : null}
+                        {verPlantillas ? (
+                            <Boton asChild variante="contorno">
+                                <Link href="/administracion/plantillas-whatsapp">
+                                    <MessageSquareText aria-hidden />
+                                    Plantillas
                                 </Link>
                             </Boton>
                         ) : null}

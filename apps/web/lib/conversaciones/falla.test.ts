@@ -22,6 +22,8 @@ describe("por qué no se envió un mensaje", () => {
 
     it("rechazado por WhatsApp por otra causa: no manda a revisar el número; el código, solo si vino", () => {
         expect(explicarFalla(fallido("rechazado_por_canal"), true)).toEqual({ texto: "WhatsApp no aceptó el mensaje.", revisarNumero: false, codigo: null });
+        // Iris no la mandó: la plantilla lleva datos del cliente y el cliente no está confirmado (no es cosa de WhatsApp).
+        expect(explicarFalla(fallido("cliente_sin_confirmar"), false)?.texto).toMatch(/cliente de esta conversación no está confirmado/);
         expect(explicarFalla(fallido("rechazado_por_canal", { status: 403, codigo: 131031, subcodigo: null }), true)?.codigo).toBe("Código de WhatsApp: 131031 (HTTP 403)");
     });
 

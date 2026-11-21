@@ -58,6 +58,9 @@ export function explicarFalla(m: MensajeFallido, administra: boolean): Explicaci
         case "rechazado_por_canal":
             // Depende del destinatario o de la cuenta, no del token: no hay nada que revisar en el número.
             return { texto: "WhatsApp no aceptó el mensaje.", revisarNumero: false, codigo };
+        case "cliente_sin_confirmar":
+            // Iris no lo mandó: la plantilla lleva datos del cliente de Argos y el cliente dejó de estar confirmado.
+            return { texto: "No se envió: la plantilla lleva datos del cliente y el cliente de esta conversación no está confirmado. Confírmalo y vuelve a enviarla.", revisarNumero: false, codigo: null };
         default:
             // Otro motivo: el pie ya lo dice; solo se añade el código si vino.
             return codigo ? { texto: "", revisarNumero: false, codigo } : null;

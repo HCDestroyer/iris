@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -303,5 +305,27 @@ func TestPlantillasWASincronizarNoPisaReanudarDuranteLaLectura(t *testing.T) {
 	}
 	if p := c.plantilla(id); p["estado"] != "APPROVED" {
 		t.Fatalf("la relectura le devolvió el estado viejo a una reanudada durante la lectura: %v", p["estado"])
+	}
+}
+
+// El archivo de ejemplo del encabezado tiene que ser del tipo y tamaño que Meta pide para ese
+// encabezado: una imagen con un PDF responde 422 antes de ir a Meta.
+func TestPlantillasWAArchivoEjemploDelTipoDelEncabezado(t *testing.T) {
+	c := nuevaCuentaWA(t, nil)
+	pdf := uuid.Must(uuid.NewV7())
+	if _, err := c.bd.Exec(c.ctx, `INSERT INTO nucleo.adjuntos (id, entidad, entidad_id, tipo, mime, tamano, recibido, sha256, estado, completado_en,
+		empresa_id, almacenamiento, clave) VALUES ($1, 'plantilla_whatsapp', $2, 'documento', 'application/pdf', 1024, 1024, repeat('a', 64), 'completo', now(),
+		1, 'local', $3)`, pdf, c.waba, "pw/"+pdf.String()); err != nil {
+		t.Fatal(err)
+	}
+	b := c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp", "cr-"+pruebas.Unico(), map[string]any{"wabaId": c.waba, "etiqueta": "Factura del mes",
+		"idioma": "es", "categoria": "UTILITY", "definicion": map[string]any{"encabezado": map[string]any{"tipo": "imagen", "adjuntoId": pdf.String()},
+			"cuerpo": "Te mandamos tu factura del mes. ¡Gracias!", "variables": []any{}, "botones": []any{}}})
+	c.exigir(b, http.StatusCreated, "estado", "BORRADOR")
+	envios := len(c.meta.registro().creadas)
+	r := c.apiClave(c.admin, http.MethodPost, fmt.Sprintf("/plantillas-whatsapp/%d/enviar", idPW(b.cuerpo)), "env-"+pruebas.Unico(), map[string]any{"version": b.cuerpo["version"]})
+	c.exigir(r, http.StatusUnprocessableEntity, "type", "urn:iris:problema:archivo_no_coincide")
+	if len(c.meta.registro().creadas) != envios {
+		t.Fatal("se mandó a Meta con un archivo que no corresponde")
 	}
 }

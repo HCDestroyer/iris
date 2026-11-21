@@ -27,8 +27,19 @@ import (
 // EntidadAdjuntosPlantillaWA: el archivo de ejemplo del encabezado (entidad_id = la WABA).
 const EntidadAdjuntosPlantillaWA = "plantilla_whatsapp"
 
-// MaxArchivoEjemploPW: tope del archivo de ejemplo (Meta admite hasta 16 MB de video).
+// MaxArchivoEjemploPW: tope del archivo de ejemplo en Iris (Meta admite hasta 16 MB de video; un
+// documento de ejemplo de más de 16 MB tampoco se lee).
 const MaxArchivoEjemploPW = 16 << 20
+
+// ArchivosEjemploPW: lo que Meta acepta como ejemplo de cada encabezado (tipo y tope en bytes).
+var ArchivosEjemploPW = map[string]struct {
+	Mimes []string
+	Max   int64
+}{
+	"imagen":    {Mimes: []string{"image/jpeg", "image/png"}, Max: 5 << 20},
+	"video":     {Mimes: []string{"video/mp4", "video/3gpp"}, Max: 16 << 20},
+	"documento": {Mimes: []string{"application/pdf"}, Max: MaxArchivoEjemploPW},
+}
 
 // EntradaVersionPWA es una acción sobre una plantilla con su versión.
 type EntradaVersionPWA struct {
@@ -284,6 +295,16 @@ func (m *Modulo) llamarMetaPW(ctx context.Context, l llamadaPW) (RespuestaCrearM
 func (m *Modulo) archivoEjemplo(ctx context.Context, t *auditoria.Tx, waba string, d DefinicionPWA, cuenta CuentaGraph) (*archivoPW, error) {
 	if d.Encabezado == nil || d.Encabezado.AdjuntoID == nil || !slices.Contains([]string{"imagen", "video", "documento"}, d.Encabezado.Tipo) {
 		return nil, nil
+	}
+	// El tipo y el tamaño del archivo tienen que corresponder al encabezado (antes de leerlo y de ir a Meta).
+	meta, err := adjuntos.DeEntidad(ctx, t, *d.Encabezado.AdjuntoID, EntidadAdjuntosPlantillaWA, waba)
+	if err != nil {
+		return nil, campoConv("definicion.encabezado.adjuntoId", "El archivo de ejemplo no está disponible: súbelo de nuevo", "adjunto")
+	}
+	if regla := ArchivosEjemploPW[d.Encabezado.Tipo]; !slices.Contains(regla.Mimes, meta.Mime) || meta.Tamano > regla.Max {
+		return nil, nucleo.NuevoProblema(http.StatusUnprocessableEntity, "archivo_no_coincide", "El archivo no sirve para este encabezado",
+			fmt.Sprintf("Para un encabezado de %s, Meta pide %s de hasta %d MB.", d.Encabezado.Tipo, strings.Join(regla.Mimes, " o "), regla.Max>>20),
+			nucleo.ErrorCampo{Field: "definicion.encabezado.adjuntoId", Message: "El tipo o el tamaño del archivo no corresponde al encabezado", Rule: "archivo_no_coincide"})
 	}
 	if !reDigitos.MatchString(cuenta.AppID) {
 		return nil, reglaPW("sin_app_meta", "Para un encabezado con archivo, Iris necesita el app ID de tu app de Meta: complétalo en «Conexión con Meta»")

@@ -108,6 +108,12 @@ const ERRORES_QR: Record<string, ErrorQr> = {
         ofrecerApi: false,
         ofrecerConexion: false,
     },
+    waba_de_otra_empresa: {
+        titulo: "Esa cuenta de WhatsApp es de otra empresa",
+        texto: "La cuenta (WABA) que elegiste en Meta ya la usan números de otra empresa en Iris. Cada cuenta es de una sola empresa: si la otra empresa quiere compartir un número, que te lo preste.",
+        ofrecerApi: false,
+        ofrecerConexion: false,
+    },
     canal_existente: {
         titulo: "Ese número ya está en Iris",
         texto: "Ya hay un número activo con ese Phone number ID. Búscalo en la lista.",

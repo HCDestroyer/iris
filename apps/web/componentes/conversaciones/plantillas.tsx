@@ -148,7 +148,8 @@ function FormPlantilla({ conv, identidad, plantilla, volver, alEnviado }: { conv
             case "sin_permiso":
                 return "No hay permiso de contacto vigente por WhatsApp para este número.";
             case "cliente_sin_confirmar":
-                return "Falta que un supervisor confirme el cliente de esta conversación.";
+                // Dos casos: el número no es del cliente en Argos, o la plantilla lleva sus datos (nombre, código o plan).
+                return e.detalle ?? "Falta que un supervisor confirme el cliente de esta conversación.";
             case "plantilla_no_aprobada":
                 return "Esta plantilla ya no está aprobada en este número.";
             default:
