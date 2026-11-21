@@ -230,26 +230,63 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 				if antes.Telefono, err = telefonoArgos(antes.Telefono); err != nil {
 					return Prospecto{}, err
 				}
-				c, err := m.encolar(ctx, t, pendientes.Accion{
-					EmpresaID: antes.EmpresaID, Operacion: OpCrearCliente, IdempotencyKey: ClaveCliente(antes.ID),
-					Ruta: "/clientes", Cuerpo: payloadCliente(antes),
-					// Si Argos responde otro codigo_externo, el cliente no queda hecho y el
-					// servicio no sale (queda bloqueado).
-					Verificar: []string{"codigo_externo"},
-				})
+				// Prospecto registrado desde Argos (§3.6): sus números. Con Argos ≥ 0.10.0, los sin nombre van
+				// como telefonos_adicionales del alta y los que tienen nombre, como contactos (A42).
+				tels, err := q.TelefonosDeProspecto(ctx, antes.ID)
 				if err != nil {
 					return Prospecto{}, err
 				}
-				// El servicio, junto: su cliente_id sale de la respuesta del cliente (Ref).
-				srv, err := m.encolar(ctx, t, pendientes.Accion{
-					EmpresaID: antes.EmpresaID, Operacion: OpCrearServicio, IdempotencyKey: ClaveServicio(antes.ID),
-					Ruta: "/servicios", Cuerpo: payloadServicio(d, r, pendientes.Ref(0, "id")), DependeDe: []int64{c.ID},
-				})
+				con010, err := contratoArgosAlMenos(ctx, q, ContratoContactos)
 				if err != nil {
 					return Prospecto{}, err
 				}
-				d.AltaModo, d.AltaEstado = ptr(AltaArgos), ptr(AltaEsperandoCliente)
-				evento["modo"], evento["orden_id"], evento["pendientes"] = AltaArgos, nil, []int64{c.ID, srv.ID}
+				if !con010 {
+					tels = nil
+				}
+				if antes.ClienteExistenteID != nil && (antes.ClienteValidado == nil || !*antes.ClienteValidado) {
+					// Nunca sin confirmar que el cliente es de la empresa (GanarProspecto lo confirma con Argos).
+					return Prospecto{}, clienteSinConfirmar()
+				}
+				d.GanadoPor = actorUsuario(t)
+				if antes.ClienteExistenteID != nil {
+					// Cliente que eligió quien lo registró en Argos: Iris no lo crea ni lo edita (§3.6, ajuste
+					// ad): el servicio sale con su id y los números sin nombre quedan solo en el prospecto.
+					srv, err := m.encolar(ctx, t, pendientes.Accion{
+						EmpresaID: antes.EmpresaID, Operacion: OpCrearServicio, IdempotencyKey: ClaveServicio(antes.ID),
+						Ruta: "/servicios", Cuerpo: payloadServicio(d, r, *antes.ClienteExistenteID),
+					})
+					if err != nil {
+						return Prospecto{}, err
+					}
+					ids := []int64{srv.ID}
+					contactos, err := m.encolarContactos(ctx, t, d, *antes.ClienteExistenteID, tels, srv)
+					if err != nil {
+						return Prospecto{}, err
+					}
+					d.AltaModo, d.AltaEstado, d.ClienteArgosID = ptr(AltaArgos), ptr(AltaEsperandoServicio), antes.ClienteExistenteID
+					evento["modo"], evento["orden_id"], evento["pendientes"] = AltaArgos, nil, append(ids, contactos...)
+				} else {
+					c, err := m.encolar(ctx, t, pendientes.Accion{
+						EmpresaID: antes.EmpresaID, Operacion: OpCrearCliente, IdempotencyKey: ClaveCliente(antes.ID),
+						Ruta: "/clientes", Cuerpo: payloadCliente(antes, tels),
+						// Si Argos responde otro codigo_externo, el cliente no queda hecho y el
+						// servicio no sale (queda bloqueado).
+						Verificar: []string{"codigo_externo"},
+					})
+					if err != nil {
+						return Prospecto{}, err
+					}
+					// El servicio, junto: su cliente_id sale de la respuesta del cliente (Ref).
+					srv, err := m.encolar(ctx, t, pendientes.Accion{
+						EmpresaID: antes.EmpresaID, Operacion: OpCrearServicio, IdempotencyKey: ClaveServicio(antes.ID),
+						Ruta: "/servicios", Cuerpo: payloadServicio(d, r, pendientes.Ref(0, "id")), DependeDe: []int64{c.ID},
+					})
+					if err != nil {
+						return Prospecto{}, err
+					}
+					d.AltaModo, d.AltaEstado = ptr(AltaArgos), ptr(AltaEsperandoCliente)
+					evento["modo"], evento["orden_id"], evento["pendientes"] = AltaArgos, nil, []int64{c.ID, srv.ID}
+				}
 			}
 			f, err := guardar(ctx, t, q, antes, d)
 			if err != nil {
@@ -303,12 +340,90 @@ func conDatos(cuerpo map[string]any, opcionales map[string]any) map[string]any {
 // payloadCliente: cuerpo de POST /clientes (Argos 1.2). Sin empresa_id (el cliente es de la
 // instalación); codigo_externo = iris:prospecto:<id>. Se serializa UNA vez y se guarda en el
 // pendiente: la cola y la repetición mandan esos mismos bytes (la huella de Argos es el cuerpo crudo).
-func payloadCliente(p comercialbd.ComercialProspecto) []byte {
-	b, _ := json.Marshal(conDatos(map[string]any{"nombre": p.Nombre, "codigo_externo": CodigoExterno(p.ID)}, map[string]any{
+//
+// tels: los números del prospecto (§3.6, solo con Argos ≥ 0.10.0): los que no son el principal y
+// no tienen nombre van en telefonos_adicionales[] { numero, whatsapp } (A44), nunca con un PUT
+// posterior. Sin ellos, el cuerpo es el de siempre (mismos bytes).
+func payloadCliente(p comercialbd.ComercialProspecto, tels []comercialbd.ComercialProspectoTelefono) []byte {
+	cuerpo := conDatos(map[string]any{"nombre": p.Nombre, "codigo_externo": CodigoExterno(p.ID)}, map[string]any{
 		"nit_cui": p.Documento, "email": p.Correo, "telefono": p.Telefono, "direccion": p.Direccion,
 		"coordenadas": coordenadas(p.Lat, p.Lon), "zona_id": p.ZonaID,
-	}))
+	})
+	adicionales := []map[string]any{}
+	for _, t := range tels {
+		if !t.Principal && t.Nombre == nil {
+			adicionales = append(adicionales, map[string]any{"numero": t.Numero, "whatsapp": t.Whatsapp})
+		}
+	}
+	if len(adicionales) > 0 {
+		cuerpo["telefonos_adicionales"] = adicionales
+	}
+	b, _ := json.Marshal(cuerpo)
 	return b
+}
+
+// ContratoContactos: la versión del contrato con contactos (A42) y telefonos_adicionales (A44).
+const ContratoContactos = "0.10.0"
+
+// OpCrearContacto: POST /clientes/{id}/contactos (A42).
+const OpCrearContacto = "crear_contacto"
+
+// ClaveContacto: iris:contacto:<cliente_id>:<contacto_iris_id> (§3.5). Para los números del
+// prospecto, el contacto de Iris es la fila de comercial.prospecto_telefonos («pt<id>»: no choca
+// con los contactos de la mensajería).
+func ClaveContacto(cliente, telefono int64) string {
+	return "iris:contacto:" + idTexto(cliente) + ":pt" + idTexto(telefono)
+}
+
+// contratoArgosAlMenos: el conector Argos informó un contrato ≥ minima.
+func contratoArgosAlMenos(ctx context.Context, q *comercialbd.Queries, minima string) (bool, error) {
+	v, err := q.ContratoArgosRemoto(ctx)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return conector.VersionAlMenos(v, minima), nil
+}
+
+// encolarContactos: los números del prospecto con nombre (que no son el principal) se crean como
+// contactos del cliente (A42, §3.6), con su relación, solo para el servicio nuevo (servicios: [id
+// del servicio], que sale de la respuesta de su pendiente: dependen de él) y con todos los permisos
+// (decisión 7 del PM, §10.5: el titular recibe un aviso y puede quitarlos). X-Iris-Actor es quien
+// ganó el prospecto (§3.5: contactos.gestionar exige X-Iris-Actor).
+func (m *Modulo) encolarContactos(ctx context.Context, t *auditoria.Tx, p comercialbd.ComercialProspecto, cliente int64,
+	tels []comercialbd.ComercialProspectoTelefono, servicio pendientes.Registro) ([]int64, error) {
+	ids := []int64{}
+	permisos := map[string]bool{"consultar": true, "reportar": true, "pagar": true, "avisos": true}
+	actor := ""
+	if p.GanadoPor != nil {
+		actor = "usuario:" + idTexto(*p.GanadoPor)
+	}
+	for _, tel := range tels {
+		if tel.Principal || tel.Nombre == nil {
+			continue
+		}
+		relacion := "otro"
+		if tel.Relacion != nil && *tel.Relacion == "familiar" {
+			relacion = "familiar"
+		}
+		cuerpo, _ := json.Marshal(map[string]any{
+			"nombre": *tel.Nombre, "relacion": relacion, "servicios": []any{pendientes.Ref(0, "id")},
+			"permisos":  permisos,
+			"telefonos": []map[string]any{{"numero": tel.Numero, "whatsapp": tel.Whatsapp, "principal": true}},
+		})
+		r, err := m.encolar(ctx, t, pendientes.Accion{
+			EmpresaID: p.EmpresaID, Operacion: OpCrearContacto, IdempotencyKey: ClaveContacto(cliente, tel.ID),
+			Ruta: "/clientes/" + idTexto(cliente) + "/contactos", Cuerpo: cuerpo, EntidadID: idTexto(p.ID),
+			DependeDe: []int64{servicio.ID}, Actor: actor,
+		})
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, r.ID)
+	}
+	return ids, nil
 }
 
 // payloadServicio: cuerpo de POST /servicios (Argos 1.2): cliente, router y plan obligatorios,
@@ -429,6 +544,17 @@ func (m *Modulo) nuevoRegistrarCliente() *auditoria.Caso[entradaAltaArgos, Prosp
 			})
 			if err != nil {
 				return Prospecto{}, err
+			}
+			tels, err := q.TelefonosDeProspecto(ctx, antes.ID)
+			if err != nil {
+				return Prospecto{}, err
+			}
+			if con010, err := contratoArgosAlMenos(ctx, q, ContratoContactos); err != nil {
+				return Prospecto{}, err
+			} else if con010 {
+				if _, err := m.encolarContactos(ctx, t, antes, in.ArgosID, tels, b); err != nil {
+					return Prospecto{}, err
+				}
 			}
 			d := antes
 			d.ClienteArgosID, d.AltaEstado = &in.ArgosID, ptr(AltaEsperandoServicio)
@@ -764,4 +890,61 @@ func (m *Modulo) RegistrarTrabajos(bd nucleo.BD) func(*river.Workers) {
 	return func(w *river.Workers) {
 		river.AddWorker(w, &TrabajadorAltas{BD: bd, Modulo: m})
 	}
+}
+
+func clienteSinConfirmar() error {
+	return nucleo.ReglaNegocio("cliente_sin_confirmar",
+		"No se pudo confirmar con Argos que el cliente elegido es de la empresa: reintenta cuando Argos responda")
+}
+
+// entradaConfirmarCliente: Argos confirmó, al ganar, el cliente que eligió quien registró el
+// prospecto en Argos (§3.6, «cliente_validado: false»).
+type entradaConfirmarCliente struct {
+	ProspectoID int64 `json:"prospecto_id"`
+}
+
+func (m *Modulo) nuevoConfirmarCliente() *auditoria.Caso[entradaConfirmarCliente, struct{}] {
+	return auditoria.Nuevo(auditoria.Caso[entradaConfirmarCliente, struct{}]{
+		Accion: "prospectos.ganar", Permiso: nucleo.PermProspectosGanar,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaConfirmarCliente) (struct{}, error) {
+			q := comercialbd.New(t)
+			antes, err := tomar(ctx, t, q, in.ProspectoID, nucleo.PermProspectosGanar, nil)
+			if err != nil {
+				return struct{}{}, err
+			}
+			d := antes
+			d.ClienteValidado = ptr(true)
+			_, err = guardar(ctx, t, q, antes, d)
+			t.Anotar(map[string]any{"cliente_confirmado": antes.ClienteExistenteID})
+			return struct{}{}, err
+		},
+	})
+}
+
+// GanarProspecto: POST /prospectos/{id}/ganar. Si el cliente que eligió Argos quedó sin validar
+// al registrarlo (Argos no respondía), lo confirma primero con Argos, fuera de la transacción: si
+// no es de la empresa, 422 cliente_no_valido; si Argos sigue sin responder, 422
+// cliente_sin_confirmar (el alta no sale).
+func (m *Modulo) GanarProspecto(ctx context.Context, in EntradaGanar) (Prospecto, error) {
+	p, err := m.VerProspecto.Ejecutar(ctx, EntradaVerProspecto{ID: in.ID})
+	if err != nil {
+		return Prospecto{}, err
+	}
+	if p.ClienteExistente != nil && (p.ClienteValidado == nil || !*p.ClienteValidado) && p.EmpresaID != nil {
+		if err := nucleo.ExigirVersion(in.Version, p.Version, "prospecto", in.ID); err != nil {
+			return Prospecto{}, err
+		}
+		ok, err := m.validarClienteArgos(ctx, *p.ClienteExistente, *p.EmpresaID)
+		if err != nil {
+			return Prospecto{}, err
+		}
+		if !ok {
+			return Prospecto{}, clienteSinConfirmar()
+		}
+		if _, err := m.confirmarCliente.Ejecutar(ctx, entradaConfirmarCliente{ProspectoID: in.ID}); err != nil {
+			return Prospecto{}, err
+		}
+		in.Version++ // la confirmación subió la versión que el panel leyó
+	}
+	return m.Ganar.Ejecutar(ctx, in)
 }

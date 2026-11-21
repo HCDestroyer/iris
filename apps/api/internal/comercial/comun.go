@@ -251,7 +251,8 @@ func guardar(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, antes
 		PlanInteresNombre: d.PlanInteresNombre, VendedorID: d.VendedorID, Estado: d.Estado, Notas: d.Notas,
 		MotivoPerdida: d.MotivoPerdida, PerdidoEn: d.PerdidoEn, GanadoEn: d.GanadoEn, ObraConfirmada: d.ObraConfirmada,
 		AltaModo: d.AltaModo, AltaEstado: d.AltaEstado, ClienteArgosID: d.ClienteArgosID, ServicioArgosID: d.ServicioArgosID,
-		OrdenID: d.OrdenID, RouterID: d.RouterID, AltaError: d.AltaError, ID: antes.ID, Version: antes.Version,
+		OrdenID: d.OrdenID, RouterID: d.RouterID, AltaError: d.AltaError, ClienteValidado: d.ClienteValidado,
+		GanadoPor: d.GanadoPor, ID: antes.ID, Version: antes.Version,
 	})
 	if err != nil {
 		return f, nucleo.VerificarVersion(err, "prospecto", antes.ID)
@@ -288,8 +289,10 @@ func cambioDeEstado(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries
 	if err := historial(ctx, t, q, despues.ID, "estado", &antes.Estado, &despues.Estado, motivo, nil); err != nil {
 		return err
 	}
+	// empresa_id y origen: el webhook a Argos (contrato 0.10.0 §6.6) sale solo de los argos_panel.
 	return t.Emitir("prospecto.estado_cambiado", map[string]any{
 		"prospecto_id": despues.ID, "de": antes.Estado, "a": despues.Estado, "motivo": motivo,
+		"empresa_id": despues.EmpresaID, "origen": despues.Origen,
 	})
 }
 
