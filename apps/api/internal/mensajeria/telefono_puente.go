@@ -408,12 +408,8 @@ func (m *Modulo) atenderTelefono(ctx context.Context, w http.ResponseWriter, r *
 	defer func() {
 		_, _ = m.Centralita.Telefono.cerrarConexio.Ejecutar(context.WithoutCancel(ctx), entradaCerrarConexion{ConexionID: cx.id, Motivo: "fin"})
 	}()
-	// Una conexión larga: sin los plazos de lectura y escritura del servidor (el WebSocket tiene los
-	// suyos: el latido y la vida máxima).
-	rc := http.NewResponseController(w)
-	_ = rc.SetReadDeadline(time.Time{})
-	_ = rc.SetWriteDeadline(time.Time{})
-	// El Origin ya se revisó contra IRIS_BASE_URL (prepararTelefono).
+	// Una conexión larga: net/http borra los plazos del servidor al secuestrarla (Accept); la limitan el
+	// latido y la vida máxima. El Origin ya se revisó contra IRIS_BASE_URL (prepararTelefono).
 	nav, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{sippuente.Subprotocolo}, InsecureSkipVerify: true})
 	if err != nil {
 		_ = tp.cen.CloseNow()

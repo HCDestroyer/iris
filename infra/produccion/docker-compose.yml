@@ -269,6 +269,43 @@ services:
         fi
         exec osrm-routed --algorithm mld --max-table-size 1000 /data/iris.osrm
 
+  # Optional TURN relay for the Iris phone (profile telefono; IRIS_TELEFONO=true in the .env). Contract
+  # .claude/integration/contratos/voz.md §3.12 (E4c) and docs/runbooks/centralita-issabel.md. The browser
+  # sends its audio here and coturn relays it only to the Issabel (IRIS_TURN_ISSABEL_IP): every other peer
+  # is denied, so it is never an open relay into the internal network. Host network: the relay ports
+  # (IRIS_TURN_PUERTO_MIN..MAX, UDP) and the listening port (IRIS_TURN_PUERTO, UDP and TCP) are opened on
+  # the host firewall. The credentials are ephemeral (HMAC of IRIS_TURN_SECRETO, the same secret the
+  # messaging service uses); the secret stays in the .env (600).
+  turn:
+    profiles: [telefono]
+    image: coturn/coturn:4.9.0-alpine@sha256:229f87ef2428336ca2f4b4967a961cc6ad7aceb79277bc51f5a179606228d45f
+    restart: unless-stopped
+    logging: *logging
+    network_mode: host
+    environment:
+      TURN_SECRETO: ${IRIS_TURN_SECRETO:-}
+      TURN_RELAY_IP: ${IRIS_TURN_RELAY_IP:-}
+      TURN_ISSABEL_IP: ${IRIS_TURN_ISSABEL_IP:-}
+      TURN_PUERTO: ${IRIS_TURN_PUERTO:-3478}
+      TURN_PUERTO_MIN: ${IRIS_TURN_PUERTO_MIN:-49160}
+      TURN_PUERTO_MAX: ${IRIS_TURN_PUERTO_MAX:-49200}
+      TURN_REALM: ${IRIS_TURN_REALM:-iris}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ "$${#TURN_SECRETO}" -lt 16 ] || [ -z "$$TURN_RELAY_IP" ] || [ -z "$$TURN_ISSABEL_IP" ]; then
+          echo "TURN needs IRIS_TURN_SECRETO (16+ chars), IRIS_TURN_RELAY_IP and IRIS_TURN_ISSABEL_IP in the .env." >&2
+          exit 1
+        fi
+        exec turnserver -n --log-file=stdout --no-cli --fingerprint --no-software-attribute \
+          --listening-port="$$TURN_PUERTO" --no-tls --no-dtls --no-tcp-relay \
+          --realm="$$TURN_REALM" --use-auth-secret --static-auth-secret="$$TURN_SECRETO" \
+          --relay-ip="$$TURN_RELAY_IP" --min-port="$$TURN_PUERTO_MIN" --max-port="$$TURN_PUERTO_MAX" \
+          --no-multicast-peers --denied-peer-ip=0.0.0.0-255.255.255.255 \
+          --denied-peer-ip=::-ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff \
+          --allowed-peer-ip="$$TURN_ISSABEL_IP" --user-quota=4 --total-quota=200 --stale-nonce=600
+
 networks:
   default:
     ipam:

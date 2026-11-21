@@ -2,6 +2,7 @@ package servidor_test
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/servidor"
 )
@@ -365,5 +368,51 @@ func TestProxyOtraRutaConservaPlazos(t *testing.T) {
 	_, dur := cuantosHasta(t, leerIDs(t, apiConDestino(t, destinoCadaTanto(150*time.Millisecond))+"/api/v1/mensajeria/plantillas"))
 	if dur > 1700*time.Millisecond {
 		t.Fatalf("otra ruta mantuvo el flujo %v: perdió el WriteTimeout de la API", dur)
+	}
+}
+
+// El WebSocket del teléfono de Iris pasa por el proxy (upgrade) y sobrevive el ReadTimeout y el
+// WriteTimeout de la API (aquí 1 s): al secuestrar la conexión, net/http borra sus plazos.
+func TestProxyTelefonoSIPSinPlazos(t *testing.T) {
+	destino := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"sip"}, InsecureSkipVerify: true})
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.CloseNow() }()
+		for {
+			tipo, b, err := c.Read(r.Context())
+			if err != nil {
+				return
+			}
+			if err := c.Write(r.Context(), tipo, b); err != nil {
+				return
+			}
+		}
+	})
+	base := apiConDestino(t, destino)
+	eco := func(ruta string) error {
+		ctx, cancelar := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancelar()
+		c, resp, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(base, "http")+ruta, &websocket.DialOptions{Subprotocols: []string{"sip"}})
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		if err != nil {
+			return err
+		}
+		defer func() { _ = c.CloseNow() }()
+		time.Sleep(1500 * time.Millisecond) // pasa el ReadTimeout y el WriteTimeout de la API
+		if err := c.Write(ctx, websocket.MessageText, []byte("OPTIONS")); err != nil {
+			return err
+		}
+		_, b, err := c.Read(ctx)
+		if err == nil && string(b) != "OPTIONS" {
+			return fmt.Errorf("eco: %q", b)
+		}
+		return err
+	}
+	if err := eco(servidor.RutaTelefonoSIP); err != nil {
+		t.Fatalf("el teléfono no sobrevivió los plazos de la API: %v", err)
 	}
 }

@@ -125,6 +125,12 @@ var rutasFlujoSSE = map[string]struct{}{
 	RutaFlujoSSEConversaciones: {},
 }
 
+// RutaTelefonoSIP es el WebSocket del teléfono de Iris (GET /telefono/sip, mensajeria/telefono_puente.go).
+// No necesita exención de plazos: ReverseProxy hace el upgrade y net/http borra los plazos de la conexión
+// al secuestrarla (TestProxyTelefonoSIPSinPlazos lo comprueba); el destino la cierra con su latido y su
+// vida máxima.
+const RutaTelefonoSIP = "/api/v1/mensajeria/telefono/sip"
+
 // Plazos del flujo SSE a través del proxy (variables para las pruebas).
 var (
 	plazoEscrituraSSE = 60 * time.Second
