@@ -75,10 +75,19 @@ func (l *LadoWS) Escribir(ctx context.Context, b []byte) error {
 	return l.c.Write(wctx, websocket.MessageText, b)
 }
 
-// Cerrar con código y motivo.
+// Cerrar con código y motivo: espera el cierre del otro lado como mucho 2 s (así el código llega antes
+// de que el handler termine) y después corta.
 func (l *LadoWS) Cerrar(codigo int, motivo string) {
-	go func() { _ = l.c.Close(websocket.StatusCode(codigo), motivo) }() //nolint:gosec // códigos acotados por el paquete
-	time.AfterFunc(3*time.Second, func() { _ = l.c.CloseNow() })
+	hecho := make(chan struct{})
+	go func() {
+		defer close(hecho)
+		_ = l.c.Close(websocket.StatusCode(codigo), motivo) //nolint:gosec // códigos acotados por el paquete
+	}()
+	select {
+	case <-hecho:
+	case <-time.After(2 * time.Second):
+		_ = l.c.CloseNow()
+	}
 }
 
 // OpcionesWSS de la conexión de Iris al WSS de la Issabel.

@@ -673,8 +673,12 @@ func nuevosCasosLlamadasCentralita(m *Modulo) (*auditoria.Caso[EntradaListarLlam
 	*auditoria.Caso[EntradaLlamadaCentralita, Llamada], *auditoria.Caso[EntradaAnotarCentralita, Llamada],
 	*AsociarClienteCentralita, *auditoria.Caso[EntradaVincularTicket, Llamada]) {
 	listar := auditoria.Nuevo(auditoria.Caso[EntradaListarLlamadasCentralita, ListaLlamadasCentralita]{
-		Accion: "centralita.llamadas", Permiso: nucleo.PermLlamadasVer, AuditarExito: sinAuditar[ListaLlamadasCentralita],
+		// llamadas.ver, salvo las de una orden que quien pide ve (el técnico, E4c): se revisa adentro.
+		Accion: "centralita.llamadas", Acceso: auditoria.Autenticado, AuditarExito: sinAuditar[ListaLlamadasCentralita],
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaListarLlamadasCentralita) (ListaLlamadasCentralita, error) {
+			if !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermLlamadasVer)) && (in.OrdenID == 0 || in.ClienteID != 0 || in.TicketID != 0 || in.Mias) {
+				return ListaLlamadasCentralita{}, nucleo.Prohibido("Te falta el permiso llamadas.ver")
+			}
 			if in.ClienteID == 0 && in.TicketID == 0 && in.OrdenID == 0 && !in.Mias {
 				return ListaLlamadasCentralita{}, campoCentralita("clienteId", "Pide las de un cliente, las de un ticket, las de una orden o las tuyas (mias=true)")
 			}

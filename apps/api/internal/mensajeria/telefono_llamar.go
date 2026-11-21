@@ -166,7 +166,7 @@ func (e EntradaLlamarTelefono) MarshalJSON() ([]byte, error) {
 // MarcacionTelefono es la respuesta de llamar.
 type MarcacionTelefono struct {
 	Destino string    `json:"destino" doc:"La URI SIP que el teléfono marca (el puente solo deja pasar esta)"`
-	Llamada *Llamada  `json:"llamada" nullable:"true" doc:"La llamada en marcando (null en una interna)"`
+	Llamada *Llamada  `json:"llamada,omitempty" doc:"La llamada en marcando (ausente en una interna)"`
 	Vence   time.Time `json:"vence" doc:"Hasta cuándo vale el destino"`
 }
 

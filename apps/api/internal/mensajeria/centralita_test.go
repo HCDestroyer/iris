@@ -58,6 +58,10 @@ func nuevoBancoCentralita(t *testing.T, ajustes ...func(*mensajeria.Config)) *ba
 	for _, s := range []string{
 		`DELETE FROM mensajeria.conv_eventos WHERE conversacion_id IS NULL`,
 		`DELETE FROM mensajeria.centralita_receptores`,
+		`DELETE FROM mensajeria.telefono_tickets`,
+		`DELETE FROM mensajeria.telefono_conexiones`,
+		`DELETE FROM mensajeria.centralita_grupos`,
+		`DELETE FROM mensajeria.llamadas WHERE origen = 'celular'`,
 		`DELETE FROM mensajeria.llamadas WHERE origen = 'centralita'`,
 		`DELETE FROM mensajeria.centralita_extensiones`,
 		`DELETE FROM mensajeria.centralitas`,
