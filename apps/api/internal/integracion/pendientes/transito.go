@@ -110,12 +110,12 @@ func borrarTransito(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integra
 	if !f.TransitoID.Valid {
 		return nil
 	}
-	return pendientesbd.New(t).BorrarTransito(ctx, pendientesbd.BorrarTransitoParams{ID: f.TransitoID.Bytes, Ahora: ahora, Motivo: &motivo})
+	return pendientesbd.New(t).BorrarTransito(ctx, pendientesbd.BorrarTransitoParams{ID: f.TransitoID.Bytes, Ahora: &ahora, Motivo: &motivo})
 }
 
 // PurgarTransito borra los depósitos con más de 7 días (la corre cada pasada de la cola).
 func PurgarTransito(ctx context.Context, q *pendientesbd.Queries, ahora time.Time) (int64, error) {
-	return q.PurgarTransito(ctx, pendientesbd.PurgarTransitoParams{Ahora: ahora, Antes: ahora.Add(-VigenciaTransito)})
+	return q.PurgarTransito(ctx, pendientesbd.PurgarTransitoParams{Ahora: &ahora, Antes: ahora.Add(-VigenciaTransito)})
 }
 
 // esMultipart: A41 y A39 van en multipart/form-data.
@@ -194,4 +194,11 @@ func partesMultipart(operacion string, payload []byte, d Transito) ([]conector.P
 		partes = append(partes, conector.Parte{Campo: f.Campo, Nombre: fmt.Sprintf("%s.%s", f.Campo, ext), Mime: f.Mime, Datos: f.Datos})
 	}
 	return partes, nil
+}
+
+func uuidPG(id *uuid.UUID) pgtype.UUID {
+	if id == nil {
+		return pgtype.UUID{}
+	}
+	return pgtype.UUID{Bytes: *id, Valid: true}
 }

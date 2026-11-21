@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -161,7 +162,7 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 		Entidad: n.Entidad, EntidadID: n.EntidadID, Metodo: n.Metodo, Ruta: n.Ruta, Payload: n.Cuerpo,
 		DependeDe: n.DependeDe, Estado: estado, UltimoError: ultimo, ProximoIntento: proximo,
 		Plantilla: plantilla, PorResolver: porResolver, Verificar: n.Verificar, TecnicoUsuarioID: n.TecnicoUsuarioID,
-		Actor: textoONil(n.Actor), TransitoID: uuidPG(n.TransitoID),
+		Actor: actorONil(n.Actor), TransitoID: uuidPG(n.TransitoID),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		f, err = q.PendientePorClave(ctx, n.IdempotencyKey)
@@ -405,4 +406,14 @@ func RehacerEsperando(ctx context.Context, t *auditoria.Tx, id int64, motivo str
 	t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": antes.Estado, "tecnico_usuario_id": antes.TecnicoUsuarioID},
 		map[string]any{"estado": f.Estado, "esperando": motivo, "tecnico_usuario_id": f.TecnicoUsuarioID})
 	return aRegistro(f), true, t.Emitir(EventoCorregido, eventoDe(f))
+}
+
+// CabeceraActorIris: la persona de Iris que actúa (contrato §7.1).
+const CabeceraActorIris = "X-Iris-Actor"
+
+func actorONil(a string) *string {
+	if a == "" {
+		return nil
+	}
+	return &a
 }
