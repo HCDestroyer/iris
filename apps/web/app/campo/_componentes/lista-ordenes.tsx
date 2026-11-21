@@ -237,7 +237,7 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
                     </BotonRedondo>
                 ) : null}
                 {/* «Llamar» abre la hoja: por la empresa o desde mi celular (E4c fase 3). */}
-                <BotonLlamarOrden orden={orden} className="size-[3.25rem] shrink-0 rounded-full bg-[var(--campo-panel-2)] p-0 md:size-[3.25rem] [&_svg]:size-5" />
+                <BotonLlamarOrden orden={orden} etiqueta="Llamar al cliente" className="size-[3.25rem] shrink-0 rounded-full bg-[var(--campo-panel-2)] p-0 md:size-[3.25rem] [&_svg]:size-5" />
             </div>
         </section>
     );

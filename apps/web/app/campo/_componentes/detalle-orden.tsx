@@ -38,7 +38,7 @@ import { Materiales } from "./materiales";
 import { AccionesPrincipales, EncabezadoOrden, useMarcarEstado } from "./acciones-orden";
 import { Notas } from "./notas";
 import { PausaOrden, TiempoPausado } from "./pausa";
-import { AvisoLlamadaOrden, BotonLlamarOrden, TarjetaLlamadas } from "./telefono";
+import { AvisoLlamadaOrden, BotonLlamarOrden, TarjetaLlamadas, useTelefonoCampo } from "./telefono";
 
 export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | undefined }) {
     const { navegar, estado } = useCampo();
@@ -408,6 +408,7 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
     const deArgos = orden.cliente ? (orden.cliente.telefonos ?? telefonos("telefono", orden.cliente.telefono)) : [];
     const lista = [...telefonos("telefono", orden.contacto.telefono), ...deArgos].filter((t, i, todos) => todos.findIndex((x) => (x.e164 ?? x.original) === (t.e164 ?? t.original)) === i);
     const ahora = useAhora(60_000);
+    const telefono = useTelefonoCampo();
     const lat = orden.lat ?? orden.cliente?.lat ?? null;
     const lon = orden.lon ?? orden.cliente?.lon ?? null;
     const comoLlegar = enlaceComoLlegar(lat, lon, orden.direccion);
@@ -442,7 +443,8 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                 </div>
                 {orden.descripcion ? <p className="whitespace-pre-wrap">{orden.descripcion}</p> : null}
                 <AbrirChatOrden ordenId={orden.id} />
-                {lista.length > 0 ? <ListaTelefonos telefonos={lista} /> : null}
+                {/* Sin `tel:` directo: «Llamar» anota la llamada en la orden (E4c fase 3). */}
+                {lista.length > 0 ? <ListaTelefonos telefonos={lista} sinEnlace={telefono?.puede ?? false} /> : null}
                 {orden.cliente ? (
                     <p className="text-xs text-muted-foreground" title={formatearFecha(orden.cliente.sincronizadoEn)}>
                         Datos de Argos sincronizados {haceTiempo(orden.cliente.sincronizadoEn, ahora)}

@@ -2,6 +2,7 @@ package campo_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -28,8 +30,21 @@ func ordenConContacto(t *testing.T, e entorno, cd context.Context, tec int64) ca
 		Tipo: "visita", Direccion: ptr("Zona 10, 5a avenida 12-34"), Lat: ptr(14.6), Lon: ptr(-90.5), ZonaID: ptr(int64(3)),
 		Descripcion: "Sin internet", Contacto: &campo.EntradaContactoOrden{Nombre: ptr("María"), Telefono: ptr("5512 3480")},
 	}))(t)
-	o = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: o.ID, Version: o.Version, TecnicoID: &tec,
-		Inicio: inicio.Add(time.Duration(len(pruebas.Unico())%5+1) * 24 * time.Hour)}))(t)
+	// El siguiente hueco libre del técnico (como `programada`): la agenda no deja que se crucen.
+	for {
+		huecos.Lock()
+		n := huecos.siguiente[tec]
+		huecos.siguiente[tec] = n + 1
+		huecos.Unlock()
+		p, err := e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: o.ID, Version: o.Version, TecnicoID: &tec,
+			Inicio: inicio.Add(24*time.Hour + time.Duration(n)*2*time.Hour)})
+		var pr *nucleo.Problema
+		if n < 12 && errors.As(err, &pr) && pr.Codigo() == "solape" {
+			continue
+		}
+		o = deber(p, err)(t)
+		break
+	}
 	e.reloj.fijar(inicio)
 	return o
 }
@@ -87,7 +102,7 @@ func TestLoteLlamadaDirecta(t *testing.T) {
 
 func TestLoteLlamadaDirectaReglas(t *testing.T) {
 	e := nuevoEntorno(conDirectas)
-	d, tec, otro := despacho(t), tecnico(t), tecnico(t)
+	d, tec, otro, tercero := despacho(t), tecnico(t), tecnico(t), tecnico(t)
 	cd, ct := como(t, d, "despacho"), como(t, tec, "tecnico")
 	o := ordenConContacto(t, e, cd, tec)
 
@@ -105,7 +120,7 @@ func TestLoteLlamadaDirectaReglas(t *testing.T) {
 	en := inicio.Add(-time.Minute)
 	esperar(t, lote(t, e, ct, directa(ajena.ID, &en)), "rechazada:no_encontrado")
 	o = deber(e.m.VerOrden.Ejecutar(cd, campo.EntradaVerOrden{ID: o.ID}))(t).Orden
-	deber(e.m.AsignarOrden.Ejecutar(cd, campo.EntradaAsignarOrden{ID: o.ID, Version: o.Version, TecnicoID: &otro}))(t)
+	deber(e.m.AsignarOrden.Ejecutar(cd, campo.EntradaAsignarOrden{ID: o.ID, Version: o.Version, TecnicoID: &tercero}))(t)
 	esperar(t, lote(t, e, ct, directa(o.ID, &en)), "rechazada:orden_reasignada")
 }
 

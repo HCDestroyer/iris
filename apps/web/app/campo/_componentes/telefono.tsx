@@ -7,7 +7,7 @@ import { Aviso, Boton, ControlesLlamada, ControlLlamada, Tarjeta, TarjetaConteni
 import { ClipboardList, CloudUpload, Grid3x3, Mic, MicOff, Phone, PhoneMissed, PhoneOff, PhoneOutgoing, RotateCw, Signal, Smartphone, TriangleAlert, X } from "lucide-react";
 import { createContext, use, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { listarLlamadasCentralita } from "@/lib/centralita/api";
-import { enlaceTelefono, filasLlamadas, finDeLlamada, formaEmpresa, horaLlamada, numerosDeOrden, senalDebil, textoSinEmpresa, type FinLlamada, type Llamada, type NumeroOrden } from "@/lib/campo/telefono";
+import { duracionLlana, enlaceTelefono, filasLlamadas, finDeLlamada, formaEmpresa, horaLlamada, numerosDeOrden, senalDebil, textoSinEmpresa, type FinLlamada, type Llamada, type NumeroOrden } from "@/lib/campo/telefono";
 import { nuevaClaveIdempotencia } from "@/lib/api/cliente";
 import { abrirTelefono, leerTelefono, llamarTelefono } from "@/lib/telefono/api";
 import { ErrorMicrofono, pedirMicrofono, permisoMicrofono, soltarMicrofono } from "@/lib/voz/medios";
@@ -30,6 +30,11 @@ export type AvisoLlamada = "iris" | "senal" | "microfono" | "no_contesto" | "ocu
 type Activa = { orden: OrdenVista; numero: NumeroOrden; id: string | null };
 
 type ContextoTelefonoCampo = {
+    /**
+     * Puede llamar con su extensión y anotar la llamada directa (`centralita.llamar`). Sin él, «Llamar»
+     * es el `tel:` de siempre (no hay dónde anotarla).
+     */
+    puede: boolean;
     mio: TelefonoMio | null;
     estado: EstadoTelefono;
     /** Abre la hoja «Llamar a…» de la orden. */
@@ -123,13 +128,14 @@ export function ProveedorTelefonoCampo({ children }: { children: ReactNode }) {
         return () => control.abort();
     }, [enLinea, puedeLlamar, releer]);
 
-    function terminar(a: Activa, visto: { contestada: boolean; causa: string | null }) {
+    function terminar(a: Activa, visto: { contestada: boolean; causa: string | null; desde: number | null; cortada: boolean }) {
         motor.apagado(null);
         setActiva(null);
         setVersion((v) => v + 1);
-        const fin: FinLlamada = finDeLlamada(visto.causa ?? undefined, visto.contestada);
+        const fin: FinLlamada = visto.cortada && !visto.contestada ? "fallo" : finDeLlamada(visto.causa ?? undefined, visto.contestada);
         if (fin === "terminada") {
-            notificar({ tono: "success", texto: "Llamada terminada · quedó en la orden" });
+            const duracion = visto.desde === null ? "" : ` · ${duracionLlana((Date.now() - visto.desde) / 1000)}`;
+            notificar({ tono: "success", texto: `Llamada terminada${duracion} · quedó en la orden` });
         } else if (fin === "no_contesto" || fin === "ocupado") {
             setAviso({ ordenId: a.orden.id, tipo: fin, numero: a.numero });
         } else {
@@ -141,17 +147,27 @@ export function ProveedorTelefonoCampo({ children }: { children: ReactNode }) {
     const local = activa?.id ? (estado.llamadas.find((l) => l.id === activa.id) ?? null) : null;
     useEffect(() => {
         if (!activa?.id) return;
-        const visto = { contestada: false, causa: null as string | null };
-        return motor.suscribir(() => {
+        const visto = { contestada: false, causa: null as string | null, hecho: false, desde: null as number | null, cortada: false };
+        const quitar = motor.suscribir(() => {
+            if (visto.hecho) return;
             const l = motor.leer().llamadas.find((x) => x.id === activa.id);
             if (l) {
-                if (l.desde !== null) visto.contestada = true;
+                if (l.desde !== null) {
+                    visto.contestada = true;
+                    visto.desde = l.desde;
+                }
                 if (l.fase === "terminada") visto.causa = l.causa;
                 return;
             }
-            // Terminó: se cierra la conexión (la app solo la abre para llamar).
+            // Terminó: se cierra la conexión (la app solo la abre para llamar). Una sola vez: apagar el
+            // motor vuelve a avisar a los oyentes.
+            visto.hecho = true;
+            // ¿Se cayó la conexión con la centralita mientras tanto? Entonces no fue el cliente.
+            visto.cortada = motor.leer().conexion.fase === "error";
+            quitar();
             terminar(activa, visto);
         });
+        return quitar;
         // `terminar` cierra sobre el estado de este render; la llamada activa no cambia mientras dura.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activa, motor]);
@@ -181,7 +197,12 @@ export function ProveedorTelefonoCampo({ children }: { children: ReactNode }) {
             return fallar(esErrorDeApi(e) && e.codigo === "limite_llamadas" ? "limite" : "iris");
         }
         const nombre = orden.cliente?.nombre ?? orden.contacto.nombre ?? numero.telefono.mostrar;
-        const id = await motor.llamar(marcacion.destino, { numero: numero.telefono.mostrar, nombre, llamadaId: marcacion.llamada?.id ?? null, interna: false });
+        let id: string | null = null;
+        try {
+            id = await motor.llamar(marcacion.destino, { numero: numero.telefono.mostrar, nombre, llamadaId: marcacion.llamada?.id ?? null, interna: false });
+        } catch {
+            id = null;
+        }
         if (!id) {
             const conexion = motor.leer().conexion;
             return fallar(conexion.fase === "error" && conexion.error.tipo === "microfono" ? "microfono" : "iris");
@@ -190,12 +211,15 @@ export function ProveedorTelefonoCampo({ children }: { children: ReactNode }) {
     }
 
     async function llamarEmpresa(orden: OrdenVista, numero: NumeroOrden) {
-        setHoja(null);
         if (senalDebil(redDelNavegador())) {
+            setHoja(null);
             setAviso({ ordenId: orden.id, tipo: "senal", numero });
             return;
         }
+        // El permiso se consulta antes de cerrar la hoja: la de la explicación se abre en el mismo
+        // momento en que se cierra esta (así «Atrás» del teléfono queda con una sola entrada).
         const p = await permisoMicrofono();
+        setHoja(null);
         if (p === "denied") {
             setAviso({ ordenId: orden.id, tipo: "microfono", numero });
             return;
@@ -241,6 +265,7 @@ export function ProveedorTelefonoCampo({ children }: { children: ReactNode }) {
     }
 
     const valor: ContextoTelefonoCampo = {
+        puede: puedeLlamar,
         mio,
         estado,
         abrirHoja: (o) => {
@@ -270,15 +295,15 @@ export function ProveedorTelefonoCampo({ children }: { children: ReactNode }) {
 }
 
 /** El botón «Llamar» de la orden: abre la hoja (o, sin proveedor, el `tel:` de siempre). */
-export function BotonLlamarOrden({ orden, className }: { orden: OrdenVista; className: string }) {
+export function BotonLlamarOrden({ orden, className, etiqueta = "Llamar" }: { orden: OrdenVista; className: string; etiqueta?: string }) {
     const t = useTelefonoCampo();
     const numeros = numerosDeOrden(orden);
     if (numeros.length === 0) return null;
-    if (!t) {
+    if (!t?.puede) {
         const primero = numeros[0];
         return primero ? (
             <Boton asChild variante="secundario" className={className}>
-                <a href={enlaceTelefono(primero.telefono)} aria-label="Llamar" title="Llamar">
+                <a href={enlaceTelefono(primero.telefono)} aria-label={etiqueta} title={etiqueta}>
                     <Phone aria-hidden />
                 </a>
             </Boton>
@@ -557,9 +582,9 @@ function PantallaLlamada({ activa, local, extension, motor }: { activa: Activa; 
  */
 export function IndicadorTelefono() {
     const t = useTelefonoCampo();
-    const { estado, sesion } = useCampo();
+    const { estado } = useCampo();
     const [abierta, setAbierta] = useState(false);
-    if (!t || !(sesion.permisos?.includes("centralita.llamar") ?? false)) return null;
+    if (!t?.puede) return null;
     const forma = formaEmpresa(estado.conexion, t.mio);
     const listo = forma.ofrecer;
     const texto = listo ? "Teléfono listo para llamar" : forma.motivo === "sin_senal" ? "Teléfono: sin señal" : forma.motivo === "revisando" ? "Teléfono: revisando" : "Teléfono: solo desde tu celular";
@@ -615,16 +640,17 @@ export function TarjetaLlamadas({ orden }: { orden: OrdenVista }) {
     const pendientes = estado.cola.filter((op) => op.tipo === "llamada.directa" && op.ordenId === orden.id).map((op) => ({ id: op.id, ocurridoEn: op.ocurridoEn }));
     const nPendientes = pendientes.length;
     const version = t?.version ?? 0;
+    const puede = t?.puede ?? false;
     useEffect(() => {
-        if (!enLinea) return;
+        if (!enLinea || !puede) return;
         const control = new AbortController();
         listarLlamadasCentralita({ ordenId: orden.id }, control.signal).then(
             (r) => !control.signal.aborted && setServidor({ ordenId: orden.id, lista: r.data ?? [] }),
             () => !control.signal.aborted && setServidor("error"),
         );
         return () => control.abort();
-    }, [enLinea, orden.id, nPendientes, version, reintento]);
-    if (!t) return null;
+    }, [enLinea, puede, orden.id, nPendientes, version, reintento]);
+    if (!t?.puede) return null;
     const lista = servidor && servidor !== "error" && servidor.ordenId === orden.id ? servidor.lista : [];
     const filas = filasLlamadas(lista, pendientes, t.mio?.extension ?? null);
     if (servidor === "error" && filas.length === 0) {

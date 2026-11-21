@@ -481,7 +481,14 @@ export class MotorTelefono {
         for (const otra of this.llamadas.values()) {
             if (otra.datos.fase === "en_curso" && !otra.datos.enEspera) otra.sesion.hold();
         }
-        const sesion = this.ua.call(destino, { mediaStream: mic, pcConfig: await this.pcConfig(), mediaConstraints: { audio: true, video: false } });
+        let sesion: SesionSip;
+        try {
+            sesion = this.ua.call(destino, { mediaStream: mic, pcConfig: await this.pcConfig(), mediaConstraints: { audio: true, video: false } });
+        } catch {
+            // JsSIP no pudo marcar (el WebSocket se cerró justo ahora): sin llamada y sin micrófono abierto.
+            for (const t of mic.getTracks()) t.stop();
+            return null;
+        }
         const l = this.nueva(sesion, { direccion: "saliente", fase: "llamando", ...datos });
         l.microfono = mic;
         return l.datos.id;

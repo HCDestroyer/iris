@@ -71,6 +71,7 @@ test("por la empresa: sin REGISTER, sonando, en curso con teclado, colgar y qued
     expect(tel.abiertos).toEqual([{ dispositivo: "app" }]);
     expect(sip.de("REGISTER")).toHaveLength(0);
     expect(tel.llamadas).toEqual([{ ordenId: 101, telefono: "contacto" }]);
+    await expect.poll(() => sip.sonando()).toBe(true);
     expect(sip.de("INVITE")[0]).toContain(`sip:iris-${tel.filas[0]?.id}@pbx.oficina`);
     await captura(page, "25-sonando");
 
@@ -87,7 +88,7 @@ test("por la empresa: sin REGISTER, sonando, en curso con teclado, colgar y qued
     if (fila) Object.assign(fila, { estado: "terminada", contestadaEn: new Date().toISOString(), duracionSeg: 192 });
     await pantalla.getByRole("button", { name: "Colgar" }).click();
     await expect(pantalla).toHaveCount(0);
-    await expect(page.getByText("Llamada terminada · quedó en la orden")).toBeVisible();
+    await expect(page.getByText(/Llamada terminada · \d+ s · quedó en la orden/)).toBeVisible();
     await expect(slot(page, "llamadas-orden").locator('[data-slot="fila-llamada"]').first()).toContainText("Por la empresa · tú (ext. 311)");
     await expect(slot(page, "llamadas-orden")).toContainText("3 min 12 s · Contestó");
     await captura(page, "34-terminada");
@@ -100,6 +101,7 @@ test("no contestó: lo dice en la orden con «Llamar otra vez» y «Desde mi cel
     const hoja = await abrirHoja(page);
     await hoja.getByRole("button", { name: /Llamar por la empresa/ }).click();
     await expect(slot(page, "pantalla-llamada")).toHaveAttribute("data-fase", "llamando", { timeout: 20_000 });
+    await expect.poll(() => sip.sonando()).toBe(true);
     sip.rechazarSaliente(480, "Temporarily Unavailable");
     const aviso = slot(page, "aviso-llamada");
     await expect(aviso).toHaveAttribute("data-aviso", "no_contesto");

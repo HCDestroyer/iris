@@ -108,7 +108,6 @@ export function finDeLlamada(causa: string | undefined, contestada: boolean): Fi
         case "Unavailable":
         case "Rejected":
         case "Canceled":
-        case "Request Timeout":
         case "Not Found":
             return "no_contesto";
         default:
