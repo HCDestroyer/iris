@@ -70,7 +70,7 @@ func TestCierreConTecnicoArgos16(t *testing.T) {
 	e.cerrar(map[string]any{
 		"orden_id": orden, "tipo": "instalacion", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-16"},
-		"equipos": []any{map[string]any{"accion": "instalar", "serie": "ONT-1", "bodega_id": 3}},
+		"equipos": []any{map[string]any{"accion": "instalar", "serie": "ONT-1", "bodega_id": 3, "desde_app": true, "registrado_por": tec}},
 		"materiales": []any{
 			map[string]any{"producto_id": 5, "cantidad": 2, "bodega_id": 3, "modalidad": "consumible_cobro"},
 			map[string]any{"producto_id": 6, "cantidad": 1, "bodega_id": 3, "modalidad": "comodato"},

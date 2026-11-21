@@ -123,7 +123,11 @@ func TestLoteBodegaCuadrillaConcurrenteConQuitarMiembro(t *testing.T) {
 func TestPanelSoloBodegasGenerales(t *testing.T) {
 	base := int64(9_100_000) + time.Now().UnixNano()%100000*10
 	cuadrilla, personal, general := base, base+1, base+2
-	inv := &inventarioFalso{existencias: map[int64][]campo.Existencia{cuadrilla: {}, personal: {}, general: {}}}
+	// M-4: lista de permitidas. Una personal que Iris aún no vio (Argos dice tipo tecnico) y la de la
+	// ficha de otro técnico tampoco valen.
+	noVista, deFicha := base+3, base+4
+	inv := &inventarioFalso{existencias: map[int64][]campo.Existencia{cuadrilla: {}, personal: {}, general: {}, noVista: {}, deFicha: {}},
+		tipos: map[int64]string{noVista: "tecnico"}}
 	e := nuevoEntorno(func(c *campo.Config) { c.Inventario = inv })
 	d, tec := despacho(t), tecnico(t)
 	cd := como(t, d, "despacho")
@@ -137,12 +141,20 @@ func TestPanelSoloBodegasGenerales(t *testing.T) {
 	o := crearOrden(t, e, cd, "instalacion")
 	o = deber(e.m.ProgramarOrden.Ejecutar(cd, campo.EntradaProgramarOrden{ID: o.ID, Version: o.Version, TecnicoID: &tec,
 		BodegaID: ptr(personal), Inicio: inicio}))(t)
-	for _, b := range []*int64{ptr(cuadrilla), ptr(personal), nil} {
+	if _, err := pool.Exec(context.Background(), `UPDATE agenda.tecnicos SET bodega_id = $2 WHERE usuario_id = $1`, tecnico(t), deFicha); err != nil {
+		t.Fatal(err)
+	}
+	for _, b := range []*int64{ptr(cuadrilla), ptr(personal), nil, ptr(noVista), ptr(deFicha)} {
 		_, err := e.m.UsarMaterialPanel(cd, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 77, Cantidad: 1, BodegaID: b})
 		problema(t, err, 422, campo.CodigoBodegaNoPermitida)
 	}
+	// Si Argos no responde, no se acepta (no se pudo verificar el tipo).
+	inv.caido = true
+	_, err := e.m.UsarMaterialPanel(cd, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 77, Cantidad: 1, BodegaID: ptr(general)})
+	problema(t, err, 422, "bodega_invalida")
+	inv.caido = false
 	deber(e.m.UsarMaterialPanel(cd, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 77, Cantidad: 1, BodegaID: ptr(general)}))(t)
-	if n := contar(t, "SELECT count(*) FROM campo.orden_materiales WHERE orden_id = $1", o.ID); n != 1 {
-		t.Fatalf("solo el de la bodega general: %d", n)
+	if n := contar(t, "SELECT count(*) FROM campo.orden_materiales WHERE orden_id = $1 AND bodega_tipo = 'bodega' AND NOT desde_tecnico", o.ID); n != 1 {
+		t.Fatalf("solo el de la bodega general, con su tipo: %d", n)
 	}
 }

@@ -97,6 +97,8 @@ func (e ExistenciaArgos) IDProducto() int64 {
 type BodegaArgos struct {
 	ID        int64 `json:"id"`
 	EmpresaID int64 `json:"empresa_id"`
+	// Tipo: bodega (general), tecnico (personal) o cuadrilla (§3.9).
+	Tipo string `json:"tipo"`
 }
 
 // EquiposDeServicio: GET /servicios/:id/equipos (todas las páginas).
@@ -177,6 +179,51 @@ func (m *Modulo) BodegaDeEmpresa(ctx context.Context, empresaID, bodegaID int64)
 		return false, err
 	}
 	return b.EmpresaID != 0 && (empresaID == 0 || b.EmpresaID == empresaID), nil
+}
+
+// UnidadArgos: lo que Iris lee de GET /inventario/unidades/:id para el corte inmediato (§3.9).
+type UnidadArgos struct {
+	ID        int64  `json:"id"`
+	EmpresaID int64  `json:"empresa_id"`
+	BodegaID  *int64 `json:"bodega_id"`
+}
+
+// BodegaDeUnidad: la bodega donde está la unidad según Argos (GET /inventario/unidades/:id), o nil
+// si no está en una bodega o es de otra empresa.
+func (m *Modulo) BodegaDeUnidad(ctx context.Context, empresaID, unidadID int64) (*int64, error) {
+	c, err := m.clienteInventario(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var u UnidadArgos
+	if err := c.Pedir(ctx, http.MethodGet, "/inventario/unidades/"+strconv.FormatInt(unidadID, 10), nil, nil, true,
+		&conector.Recurso{Destino: &u}); err != nil {
+		return nil, err
+	}
+	if u.EmpresaID == 0 || (empresaID != 0 && u.EmpresaID != empresaID) {
+		return nil, nil
+	}
+	return u.BodegaID, nil
+}
+
+// TipoDeBodega: el tipo de la bodega en Argos (bodega, tecnico o cuadrilla), o "" si no existe o es
+// de otra empresa (0.13.1 §3.9: despacho solo usa bodegas tipo = bodega).
+func (m *Modulo) TipoDeBodega(ctx context.Context, empresaID, bodegaID int64) (string, error) {
+	c, err := m.clienteInventario(ctx)
+	if err != nil {
+		return "", err
+	}
+	b, err := c.ObtenerBodega(ctx, bodegaID)
+	if EsNoEncontrado(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if b.EmpresaID == 0 || (empresaID != 0 && b.EmpresaID != empresaID) {
+		return "", nil
+	}
+	return b.Tipo, nil
 }
 
 // Existencias devuelve las existencias de la bodega, si es de la empresa (ErrOtraEmpresa si

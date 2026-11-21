@@ -29,7 +29,7 @@ func TestConsumoDesdeLaBodegaDeLaCuadrilla(t *testing.T) {
 	e.cerrar(map[string]any{
 		"orden_id": orden, "tipo": "instalacion", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26"},
-		"equipos":    []any{map[string]any{"accion": "instalar", "serie": "ONT-26", "bodega_id": 3}},
+		"equipos":    []any{map[string]any{"accion": "instalar", "serie": "ONT-26", "bodega_id": 3, "desde_app": true, "registrado_por": tec}},
 		"materiales": []any{desdeApp(5, 8126, tec)},
 	})
 	e.procesar()
@@ -67,7 +67,7 @@ func TestConsumoDesdeLaBodegaDeLaCuadrilla(t *testing.T) {
 	e.cerrar(map[string]any{
 		"orden_id": panel, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26"},
-		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_gasto"}},
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_gasto", "bodega_tipo": "bodega"}},
 	})
 	e.procesar()
 	c = e.llamadaA("iris:consumo:" + panel)
@@ -127,5 +127,46 @@ func TestConsumoDeLaAppConActorDeQuienLoRegistro(t *testing.T) {
 	c := e.llamadaA("iris:consumo:" + orden)
 	if c.Cuerpo["bodega_id"] != 4.0 || c.Cuerpo["tecnico"] == nil || c.Actor != "usuario:"+strconv.FormatInt(tec, 10) {
 		t.Fatalf("consumo de la app: %s actor=%q", c.Crudo, c.Actor)
+	}
+}
+
+// M-5: un comodato o una devolución registrados desde el panel nunca llevan tecnico ni el técnico
+// de la orden como X-Iris-Actor. Con Argos ≥ 0.11.0 esperan a una persona; con uno anterior, la
+// devolución sale con bodega_id y el comodato sin tecnico.
+func TestEquiposDelPanelSinTecnicoDeLaOrden(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	tec := e.tecnico("u-48")
+	cierre := func(orden string) {
+		e.cerrar(map[string]any{
+			"orden_id": orden, "tipo": "cambio_equipo", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
+			"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-48"},
+			"equipos": []any{
+				map[string]any{"accion": "retirar", "unidad_id": 61, "condicion": "buena"},
+				map[string]any{"accion": "instalar", "serie": "ONT-48"},
+			},
+		})
+	}
+	viejo := nuevaOrden()
+	cierre(viejo)
+	e.procesar()
+	if d := e.llamadaA("iris:devolucion:" + viejo + ":61"); d.Cuerpo["tecnico"] != nil || d.Cuerpo["bodega_id"] != 3.0 || d.Actor != "" {
+		t.Fatalf("devolución del panel con Argos anterior: %s actor=%q", d.Crudo, d.Actor)
+	}
+	if c := e.llamadaA("iris:comodato:" + viejo + ":ONT-48"); c.Cuerpo["tecnico"] != nil || c.Actor != "" {
+		t.Fatalf("comodato del panel con Argos anterior: %s actor=%q", c.Crudo, c.Actor)
+	}
+
+	e.exec(`UPDATE integracion.conectores SET contrato_remoto = '0.11.0' WHERE id = $1`, e.conID)
+	t.Cleanup(func() { e.exec(`UPDATE integracion.conectores SET contrato_remoto = NULL WHERE id = $1`, e.conID) })
+	nuevo := nuevaOrden()
+	cierre(nuevo)
+	for clave, p := range e.pendientes(nuevo) {
+		if p.Estado != "fallido_negocio" || p.Error != pendientes.EsperaPersonaEquipoPanel {
+			t.Fatalf("%s del panel con Argos ≥ 0.11.0: %+v", clave, p)
+		}
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE entidad_id = $1 AND tecnico_usuario_id IS NOT NULL`, nuevo); n != 0 {
+		t.Fatalf("sin el técnico de la orden como actor: %d", n)
 	}
 }

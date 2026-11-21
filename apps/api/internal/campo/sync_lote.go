@@ -259,6 +259,7 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 	}
 	existencias, modalidades := m.existenciasDelLote(ctx, in.Operaciones, inicio.Ordenes)
 	comodatos := m.comodatosDelLote(ctx, in.Operaciones, inicio.Ordenes)
+	unidades := m.unidadesDelLote(ctx, in.Operaciones, inicio.Ordenes)
 
 	enEsteLote := map[uuid.UUID]ResultadoOperacion{}
 	bloqueadas := map[string]string{}        // grupo → operación rechazada que la bloquea
@@ -298,6 +299,7 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 			res = m.rechazar(ctx, s, 0, nucleo.Validacion(nucleo.ErrorCampo{Field: "ordenId", Message: "Obligatorio en " + op.Tipo, Rule: "required"}))
 		} else {
 			s.Existencia, s.Modalidad, s.pre = existencias[i], modalidades[i], comodatos[i]
+			s.unidadBodega, s.unidadLeida = unidades[i].bodega, unidades[i].leida
 			res = m.aplicar(ctx, s, op)
 		}
 		if res.Estado == "rechazada" && res.Error != nil && codigosReintentables[res.Error.Codigo()] {
@@ -649,6 +651,49 @@ func (m *Modulo) existenciasDelLote(ctx context.Context, ops []OperacionLote, or
 func itoa(i int) string {
 	b, _ := json.Marshal(i)
 	return string(b)
+}
+
+type unidadLeida struct {
+	bodega *int64
+	leida  bool
+}
+
+// unidadesDelLote (M-7): la bodega de Argos de la unidad que entra en equipo.cambiar y
+// equipo.instalar, leída fuera de toda transacción, solo si el actor dejó alguna cuadrilla (para el
+// corte inmediato de §3.9).
+func (m *Modulo) unidadesDelLote(ctx context.Context, ops []OperacionLote, ordenes map[int64]infoOrden) []unidadLeida {
+	salida := make([]unidadLeida, len(ops))
+	bd := nucleo.BDDe(ctx)
+	actor := contexto.ActorDe(ctx)
+	if bd == nil || !actor.EsUsuario() || m.cfg.Inventario == nil {
+		return salida
+	}
+	dejo, err := campobd.New(bd).DejoAlgunaCuadrilla(ctx, actor.ID)
+	if err != nil || !dejo {
+		return salida
+	}
+	for i, op := range ops {
+		var unidad *int64
+		switch op.Tipo {
+		case OpEquipoCambiar:
+			e, err := datosDe[EntradaCambiarEquipo](op)
+			if err == nil {
+				unidad = e.Entra.UnidadID
+			}
+		case OpEquipoInstalar:
+			e, err := datosDe[EntradaEquipo](op)
+			if err == nil {
+				unidad = e.UnidadID
+			}
+		}
+		info, ok := ordenes[op.OrdenID]
+		if unidad == nil || !ok {
+			continue
+		}
+		b, err := m.cfg.Inventario.BodegaDeUnidad(ctx, info.empresa, *unidad)
+		salida[i] = unidadLeida{bodega: b, leida: err == nil}
+	}
+	return salida
 }
 
 // comodatosDelLote lee de Argos, fuera de toda transacción, el comodato del servicio de cada

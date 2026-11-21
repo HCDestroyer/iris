@@ -379,9 +379,9 @@ WHERE id = @id
 RETURNING *;
 
 -- name: CrearMaterial :one
-INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia,
+INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, bodega_tipo, desde_tecnico, excede_existencia,
                                     registrado_por, canal, ocurrido_en, operacion_id, modalidad)
-VALUES (@id, @orden_id, @producto_id, @descripcion, @cantidad, @bodega_id, @excede_existencia,
+VALUES (@id, @orden_id, @producto_id, @descripcion, @cantidad, @bodega_id, sqlc.narg(bodega_tipo), @desde_tecnico, @excede_existencia,
         @registrado_por, @canal, @ocurrido_en, @operacion_id, sqlc.narg(modalidad))
 RETURNING *;
 
@@ -443,11 +443,21 @@ ORDER BY ocurrido_en DESC, id DESC
 LIMIT 1;
 
 -- name: AsignacionesDeOrden :many
--- El historial de asignación de la orden (asignaciones y programaciones con técnico), con la hora del
--- servidor: para orden_reasignada (0.13.1 §3.10).
-SELECT ocurrido_en, coalesce((datos->>'tecnico_id')::bigint, 0)::bigint AS tecnico_id FROM campo.orden_eventos
-WHERE orden_id = @orden_id AND tipo IN ('asignada', 'programada') AND datos ? 'tecnico_id'
+-- El historial de asignación de la orden (asignaciones y programaciones con técnico o cuadrilla),
+-- con la hora del servidor: para orden_reasignada (0.14.0 §3.10).
+SELECT ocurrido_en,
+       (datos ? 'tecnico_id')::boolean AS trae_tecnico, coalesce((datos->>'tecnico_id')::bigint, 0)::bigint AS tecnico_id,
+       (datos ? 'cuadrilla_id')::boolean AS trae_cuadrilla, coalesce((datos->>'cuadrilla_id')::bigint, 0)::bigint AS cuadrilla_id
+FROM campo.orden_eventos
+WHERE orden_id = @orden_id AND tipo IN ('asignada', 'programada') AND (datos ? 'tecnico_id' OR datos ? 'cuadrilla_id')
 ORDER BY ocurrido_en, id;
+
+-- name: MembresiasDe :many
+-- Los periodos del usuario en cada cuadrilla (agenda.cuadrilla_miembros, hora del servidor).
+SELECT cuadrilla_id, desde, hasta FROM agenda.cuadrilla_miembros WHERE usuario_id = @usuario_id ORDER BY desde;
+
+-- name: BodegaEsDeCuadrilla :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = @bodega_id AND cuadrilla_id = @cuadrilla_id)::boolean;
 
 -- name: EquiposDeOrdenes :many
 SELECT * FROM campo.orden_equipos WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, ocurrido_en, created_at;
@@ -585,7 +595,8 @@ SELECT (EXISTS (
 -- La bodega es de una cuadrilla o la personal de un técnico según Argos (0.13.1 §3.9): desde el panel
 -- no se usa (despacho solo con bodegas tipo = bodega).
 SELECT (EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = @bodega::bigint)
-     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = @bodega::bigint))::boolean;
+     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = @bodega::bigint)
+     OR EXISTS (SELECT 1 FROM agenda.tecnicos ft WHERE ft.bodega_id = @bodega::bigint))::boolean;
 
 -- name: BodegasPermitidas :many
 -- Las bodegas que el técnico puede elegir en la empresa (personal y de su cuadrilla actual): las
@@ -808,3 +819,7 @@ ORDER BY o.id;
 SELECT count(*)::bigint FROM campo.ordenes o
 WHERE o.origen = 'asistente' AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint
   AND o.created_at >= now() - interval '24 hours';
+
+-- name: DejoAlgunaCuadrilla :one
+-- El usuario dejó alguna cuadrilla (para leer de Argos la bodega de la unidad que entra, M-7).
+SELECT EXISTS (SELECT 1 FROM agenda.cuadrilla_miembros WHERE usuario_id = @usuario_id AND hasta IS NOT NULL)::boolean;
