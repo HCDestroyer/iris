@@ -1086,6 +1086,25 @@
         ],
         "type": "object"
       },
+      "AjustesPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "marketingPermitido": {
+            "description": "Se pueden crear y usar plantillas de marketing (Meta cobra más). Apagado de fábrica",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "0 = sin guardar (los de fábrica)",
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "marketingPermitido",
+          "version"
+        ],
+        "type": "object"
+      },
       "AjustesPrueba": {
         "additionalProperties": false,
         "properties": {
@@ -1664,6 +1683,26 @@
           "inicio",
           "fin",
           "motivo"
+        ],
+        "type": "object"
+      },
+      "AutenticacionPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "avisoSeguridad": {
+            "description": "Agrega «Por tu seguridad, no lo compartas.»",
+            "type": "boolean"
+          },
+          "caducaMinutos": {
+            "description": "El código caduca en estos minutos (texto de Meta)",
+            "format": "int64",
+            "maximum": 90,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "avisoSeguridad"
         ],
         "type": "object"
       },
@@ -2255,6 +2294,45 @@
         ],
         "type": "object"
       },
+      "BotonPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "ejemplo": {
+            "description": "url con dato: el valor de ejemplo del final; copiar_codigo: el código de ejemplo",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "telefono": {
+            "description": "telefono: número en formato internacional (+502…)",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "texto": {
+            "description": "Lo que dice el botón (hasta 25 caracteres)",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "respuesta",
+              "url",
+              "telefono",
+              "copiar_codigo"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "description": "url: dirección https; puede terminar con un dato ({{cliente_codigo}})",
+            "maxLength": 4000,
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "texto"
+        ],
+        "type": "object"
+      },
       "Buzon": {
         "additionalProperties": false,
         "properties": {
@@ -2436,6 +2514,45 @@
           "citas",
           "ausencias",
           "truncado"
+        ],
+        "type": "object"
+      },
+      "CambioCuentaPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "type": "string"
+          },
+          "etiqueta": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "usos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "etiqueta",
+          "estado",
+          "codigo",
+          "usos"
         ],
         "type": "object"
       },
@@ -5476,6 +5593,34 @@
         ],
         "type": "object"
       },
+      "ConteosPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "activas": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "atender": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "todas": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "todas",
+          "activas",
+          "revision",
+          "atender"
+        ],
+        "type": "object"
+      },
       "ContrasenaRestablecida": {
         "additionalProperties": false,
         "properties": {
@@ -6841,6 +6986,50 @@
         ],
         "type": "object"
       },
+      "CuentaPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorCuentaPWA",
+            "description": "Último error al hablar con Meta (null si la última vez salió bien)"
+          },
+          "nombres": {
+            "description": "Nombre de cada número en Iris",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "numeros": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "resumen": {
+            "$ref": "#/components/schemas/ResumenSincronizacionPWA"
+          },
+          "sincronizadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "wabaId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "wabaId",
+          "numeros",
+          "nombres",
+          "sincronizadaEn",
+          "resumen",
+          "error"
+        ],
+        "type": "object"
+      },
       "CuerpoAgregarMiembro": {
         "additionalProperties": false,
         "properties": {
@@ -7262,6 +7451,53 @@
         ],
         "type": "object"
       },
+      "DatoPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "clave": {
+            "type": "string"
+          },
+          "codigos": {
+            "description": "Códigos del catálogo que lo traen (vacío = todavía ningún envío de Iris lo llena)",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ejemplo": {
+            "description": "Ejemplo para Meta (nunca un dato real)",
+            "type": "string"
+          },
+          "etiqueta": {
+            "description": "Cómo lo ve quien escribe la plantilla («Nombre del cliente»)",
+            "type": "string"
+          },
+          "grupo": {
+            "enum": [
+              "cliente",
+              "cobro",
+              "orden",
+              "aviso",
+              "verificacion",
+              "empresa"
+            ],
+            "type": "string"
+          },
+          "origen": {
+            "description": "De dónde lo toma Iris («Cliente en Argos · nombre»)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clave",
+          "etiqueta",
+          "origen",
+          "ejemplo",
+          "grupo",
+          "codigos"
+        ],
+        "type": "object"
+      },
       "DatosAdoptados": {
         "additionalProperties": false,
         "properties": {
@@ -7437,6 +7673,48 @@
           "pais",
           "actualizadoEn",
           "completo"
+        ],
+        "type": "object"
+      },
+      "DefinicionPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "autenticacion": {
+            "$ref": "#/components/schemas/AutenticacionPWA"
+          },
+          "botones": {
+            "items": {
+              "$ref": "#/components/schemas/BotonPWA"
+            },
+            "maxItems": 20,
+            "type": "array"
+          },
+          "cuerpo": {
+            "description": "Mensaje con {{dato}}; hasta 1024 caracteres (verificación: lo pone Meta)",
+            "maxLength": 4000,
+            "type": "string"
+          },
+          "encabezado": {
+            "$ref": "#/components/schemas/EncabezadoPWA"
+          },
+          "pie": {
+            "description": "Texto gris bajo el mensaje, hasta 60 caracteres y sin datos",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "variables": {
+            "description": "Cada dato del texto con su ejemplo",
+            "items": {
+              "$ref": "#/components/schemas/VariablePWA"
+            },
+            "maxItems": 40,
+            "type": "array"
+          }
+        },
+        "required": [
+          "cuerpo",
+          "botones",
+          "variables"
         ],
         "type": "object"
       },
@@ -7894,6 +8172,33 @@
         ],
         "type": "object"
       },
+      "EdicionesPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "puedeEditarEn": {
+            "description": "Si ya no puede editarse: desde cuándo (null = puede)",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ultimas24h": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ultimos30d": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ultimas24h",
+          "ultimos30d",
+          "puedeEditarEn"
+        ],
+        "type": "object"
+      },
       "EfectoAsistente": {
         "additionalProperties": false,
         "properties": {
@@ -8148,6 +8453,34 @@
         "required": [
           "id",
           "nombre"
+        ],
+        "type": "object"
+      },
+      "EncabezadoPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "adjuntoId": {
+            "description": "Archivo de ejemplo (imagen, video o documento), subido antes como adjunto",
+            "type": "string"
+          },
+          "texto": {
+            "description": "Solo con tipo texto: hasta 60 caracteres y un dato",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "texto",
+              "imagen",
+              "video",
+              "documento",
+              "ubicacion"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo"
         ],
         "type": "object"
       },
@@ -9125,6 +9458,25 @@
         "required": [
           "version",
           "minutosInactividad"
+        ],
+        "type": "object"
+      },
+      "EntradaAjustesPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "marketingPermitido": {
+            "type": "boolean"
+          },
+          "version": {
+            "description": "La leída (0 si nunca se guardaron)",
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "marketingPermitido",
+          "version"
         ],
         "type": "object"
       },
@@ -10961,6 +11313,71 @@
         },
         "type": "object"
       },
+      "EntradaCrearPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "categoria": {
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "type": "string"
+          },
+          "codigo": {
+            "description": "Código del catálogo de Iris que atenderá",
+            "maxLength": 64,
+            "type": "string"
+          },
+          "definicion": {
+            "$ref": "#/components/schemas/DefinicionPWA"
+          },
+          "enviar": {
+            "description": "Además, enviarla a Meta (si las reglas se cumplen)",
+            "type": "boolean"
+          },
+          "etiqueta": {
+            "description": "Nombre para personas",
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "idioma": {
+            "description": "es, es_MX…",
+            "maxLength": 10,
+            "minLength": 2,
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Nombre en Meta (vacío = se propone desde la etiqueta)",
+            "maxLength": 512,
+            "type": "string"
+          },
+          "usos": {
+            "description": "avisos, conversaciones, asistente",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "wabaId": {
+            "pattern": "^[0-9]{1,30}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wabaId",
+          "etiqueta",
+          "idioma",
+          "categoria",
+          "definicion"
+        ],
+        "type": "object"
+      },
       "EntradaCrearPlantilla": {
         "additionalProperties": false,
         "properties": {
@@ -11148,6 +11565,33 @@
           "codigo",
           "nombre",
           "permisos"
+        ],
+        "type": "object"
+      },
+      "EntradaCrearSugeridaPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "enviar": {
+            "description": "Además, enviarla a Meta",
+            "type": "boolean"
+          },
+          "idioma": {
+            "description": "es por defecto",
+            "maxLength": 10,
+            "type": "string"
+          },
+          "pie": {
+            "description": "Pie (por defecto, el nombre de la empresa); vacío = sin pie",
+            "maxLength": 60,
+            "type": "string"
+          },
+          "wabaId": {
+            "pattern": "^[0-9]{1,30}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wabaId"
         ],
         "type": "object"
       },
@@ -11742,6 +12186,33 @@
         ],
         "type": "object"
       },
+      "EntradaEditarMetaPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "categoria": {
+            "description": "Solo si no está aprobada (Meta no deja cambiarla)",
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "type": "string"
+          },
+          "definicion": {
+            "$ref": "#/components/schemas/DefinicionPWA"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "definicion",
+          "version"
+        ],
+        "type": "object"
+      },
       "EntradaEditarNota": {
         "additionalProperties": false,
         "properties": {
@@ -11786,6 +12257,51 @@
           "notaId",
           "versionNota",
           "texto"
+        ],
+        "type": "object"
+      },
+      "EntradaEditarPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "categoria": {
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "type": "string"
+          },
+          "definicion": {
+            "$ref": "#/components/schemas/DefinicionPWA"
+          },
+          "etiqueta": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "idioma": {
+            "maxLength": 10,
+            "minLength": 2,
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 512,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "etiqueta",
+          "nombre",
+          "idioma",
+          "categoria",
+          "definicion",
+          "version"
         ],
         "type": "object"
       },
@@ -15257,6 +15773,93 @@
         ],
         "type": "object"
       },
+      "EntradaUsosPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "description": "Código del catálogo que atiende (null = ninguno). Si otra plantilla de la cuenta lo tenía, lo suelta",
+            "maxLength": 64,
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usos": {
+            "description": "avisos, conversaciones, asistente (vacío = no se usa)",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/VariableDatoPWA"
+            },
+            "maxItems": 40,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "usos",
+          "codigo",
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaValidarPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "categoria": {
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "type": "string"
+          },
+          "definicion": {
+            "$ref": "#/components/schemas/DefinicionPWA"
+          },
+          "id": {
+            "description": "La plantilla que se edita (para no chocar con su propio nombre)",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "idioma": {
+            "maxLength": 10,
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 600,
+            "type": "string"
+          },
+          "wabaId": {
+            "pattern": "^[0-9]{1,30}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "wabaId",
+          "nombre",
+          "idioma",
+          "categoria",
+          "definicion"
+        ],
+        "type": "object"
+      },
       "EntradaVerificarMFA": {
         "additionalProperties": false,
         "properties": {
@@ -15280,6 +15883,20 @@
           },
           "version": {
             "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaVersionPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
             "format": "int32",
             "minimum": 1,
             "type": "integer"
@@ -15495,6 +16112,24 @@
         "required": [
           "field",
           "message"
+        ],
+        "type": "object"
+      },
+      "ErrorCuentaPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "description": "meta_sin_permiso, meta_token_invalido, meta_no_responde, meta_limite, meta_rechazo",
+            "type": "string"
+          },
+          "en": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "codigo",
+          "en"
         ],
         "type": "object"
       },
@@ -17958,6 +18593,75 @@
         ],
         "type": "object"
       },
+      "HistorialPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "a": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "actorId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "actorNombre": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "de": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detalle": {},
+          "ocurridoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "origen": {
+            "enum": [
+              "usuario",
+              "webhook",
+              "sincronizacion",
+              "sistema"
+            ],
+            "type": "string"
+          },
+          "tipo": {
+            "enum": [
+              "creada",
+              "editada",
+              "enviada",
+              "estado",
+              "categoria",
+              "calidad",
+              "usos",
+              "borrada",
+              "reanudada"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "de",
+          "a",
+          "detalle",
+          "origen",
+          "actorId",
+          "actorNombre",
+          "ocurridoEn"
+        ],
+        "type": "object"
+      },
       "Horario": {
         "additionalProperties": false,
         "properties": {
@@ -18774,6 +19478,36 @@
         ],
         "type": "object"
       },
+      "ListaCuentasPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CuentaPWA"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
+      "ListaDatosPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DatoPWA"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
       "ListaDestinatarios": {
         "additionalProperties": false,
         "properties": {
@@ -19062,6 +19796,32 @@
         ],
         "type": "object"
       },
+      "ListaPlantillasWA": {
+        "additionalProperties": false,
+        "properties": {
+          "conteos": {
+            "$ref": "#/components/schemas/ConteosPWA"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PlantillaWA"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "conteos"
+        ],
+        "type": "object"
+      },
       "ListaPrestamos": {
         "additionalProperties": false,
         "properties": {
@@ -19103,6 +19863,31 @@
         "required": [
           "data",
           "nextCursor"
+        ],
+        "type": "object"
+      },
+      "ListaSugeridasPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SugeridaEnCuentaPWA"
+            },
+            "type": "array"
+          },
+          "empresa": {
+            "description": "Nombre de la empresa (pie de fábrica)",
+            "type": "string"
+          },
+          "faltan": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "data",
+          "faltan",
+          "empresa"
         ],
         "type": "object"
       },
@@ -24286,6 +25071,38 @@
         ],
         "type": "object"
       },
+      "ParametroPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "boton": {
+            "description": "Índice del botón (componente boton)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "componente": {
+            "enum": [
+              "encabezado",
+              "cuerpo",
+              "boton"
+            ],
+            "type": "string"
+          },
+          "dato": {
+            "description": "Clave del dato de Iris",
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Nombre de la variable en Meta (o su posición)",
+            "type": "string"
+          }
+        },
+        "required": [
+          "componente",
+          "nombre",
+          "dato"
+        ],
+        "type": "object"
+      },
       "ParteSincronizacion": {
         "additionalProperties": false,
         "properties": {
@@ -25037,6 +25854,11 @@
           "mensajeria.enviar",
           "mensajeria.registrar_consentimiento",
           "mensajeria.ver",
+          "plantillas_whatsapp.ver",
+          "plantillas_whatsapp.sincronizar",
+          "plantillas_whatsapp.crear",
+          "plantillas_whatsapp.editar",
+          "plantillas_whatsapp.borrar",
           "ordenes.aplicar_datos_argos",
           "ordenes.asignar",
           "ordenes.asignar_formulario",
@@ -25448,6 +26270,285 @@
         ],
         "type": "object"
       },
+      "PlantillaCreadaPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "atender": {
+            "enum": [
+              "rechazada",
+              "pausada",
+              "deshabilitada",
+              "bloqueada",
+              "borrada_en_uso",
+              "reclasificada",
+              "reclasificacion_proxima"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "borradaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "borradaPor": {
+            "enum": [
+              "iris",
+              "meta"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calidad": {
+            "enum": [
+              "GREEN",
+              "YELLOW",
+              "RED",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "categoria": {
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "type": "string"
+          },
+          "categoriaAnterior": {
+            "description": "Meta la reclasificó: la que tenía (hasta que alguien la revise)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaCambiadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaProxima": {
+            "description": "Meta avisó que la reclasificará a esta",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaProximaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "codigo": {
+            "description": "Código del catálogo de Iris que atiende (Argos pide avisos por código)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "definicion": {
+            "$ref": "#/components/schemas/DefinicionPWA"
+          },
+          "ediciones": {
+            "$ref": "#/components/schemas/EdicionesPWA"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "enviadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "errorEnvio": {
+            "$ref": "#/components/schemas/Problema",
+            "description": "Se pidió enviarla y no se pudo: queda como borrador"
+          },
+          "estado": {
+            "enum": [
+              "BORRADOR",
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "PAUSED",
+              "DISABLED",
+              "FLAGGED",
+              "IN_APPEAL",
+              "LIMIT_EXCEEDED",
+              "LOCKED",
+              "ARCHIVED",
+              "PENDING_DELETION",
+              "DELETED"
+            ],
+            "type": "string"
+          },
+          "estadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "etiqueta": {
+            "description": "Nombre para personas",
+            "type": "string"
+          },
+          "formato": {
+            "description": "Variables con nombre o por posición",
+            "enum": [
+              "NAMED",
+              "POSITIONAL"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "idioma": {
+            "type": "string"
+          },
+          "metaId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivo": {
+            "description": "reason de Meta (INVALID_FORMAT, PROMOTIONAL…)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nombre": {
+            "description": "Nombre en Meta",
+            "type": "string"
+          },
+          "nombreLibreEn": {
+            "description": "Meta no deja reusar el nombre hasta esta fecha",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origen": {
+            "enum": [
+              "iris",
+              "sugerida",
+              "meta",
+              "migrada",
+              "canal"
+            ],
+            "type": "string"
+          },
+          "parametros": {
+            "items": {
+              "$ref": "#/components/schemas/ParametroPWA"
+            },
+            "type": "array"
+          },
+          "pausadaHasta": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rechazo": {
+            "$ref": "#/components/schemas/RechazoPWA"
+          },
+          "sincronizadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sugerida": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usos": {
+            "description": "avisos, conversaciones, asistente",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "wabaId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "errorEnvio",
+          "id",
+          "empresaId",
+          "wabaId",
+          "metaId",
+          "nombre",
+          "idioma",
+          "etiqueta",
+          "categoria",
+          "categoriaAnterior",
+          "categoriaCambiadaEn",
+          "categoriaProxima",
+          "categoriaProximaEn",
+          "estado",
+          "estadoEn",
+          "motivo",
+          "rechazo",
+          "calidad",
+          "pausadaHasta",
+          "formato",
+          "definicion",
+          "codigo",
+          "parametros",
+          "usos",
+          "origen",
+          "sugerida",
+          "ediciones",
+          "enviadaEn",
+          "borradaEn",
+          "borradaPor",
+          "nombreLibreEn",
+          "sincronizadaEn",
+          "atender",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "PlantillaDisponible": {
         "additionalProperties": false,
         "properties": {
@@ -25817,6 +26918,569 @@
         ],
         "type": "object"
       },
+      "PlantillaWA": {
+        "additionalProperties": false,
+        "properties": {
+          "atender": {
+            "enum": [
+              "rechazada",
+              "pausada",
+              "deshabilitada",
+              "bloqueada",
+              "borrada_en_uso",
+              "reclasificada",
+              "reclasificacion_proxima"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "borradaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "borradaPor": {
+            "enum": [
+              "iris",
+              "meta"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calidad": {
+            "enum": [
+              "GREEN",
+              "YELLOW",
+              "RED",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "categoria": {
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "type": "string"
+          },
+          "categoriaAnterior": {
+            "description": "Meta la reclasificó: la que tenía (hasta que alguien la revise)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaCambiadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaProxima": {
+            "description": "Meta avisó que la reclasificará a esta",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaProximaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "codigo": {
+            "description": "Código del catálogo de Iris que atiende (Argos pide avisos por código)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "definicion": {
+            "$ref": "#/components/schemas/DefinicionPWA"
+          },
+          "ediciones": {
+            "$ref": "#/components/schemas/EdicionesPWA"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "enviadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "BORRADOR",
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "PAUSED",
+              "DISABLED",
+              "FLAGGED",
+              "IN_APPEAL",
+              "LIMIT_EXCEEDED",
+              "LOCKED",
+              "ARCHIVED",
+              "PENDING_DELETION",
+              "DELETED"
+            ],
+            "type": "string"
+          },
+          "estadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "etiqueta": {
+            "description": "Nombre para personas",
+            "type": "string"
+          },
+          "formato": {
+            "description": "Variables con nombre o por posición",
+            "enum": [
+              "NAMED",
+              "POSITIONAL"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "idioma": {
+            "type": "string"
+          },
+          "metaId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivo": {
+            "description": "reason de Meta (INVALID_FORMAT, PROMOTIONAL…)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nombre": {
+            "description": "Nombre en Meta",
+            "type": "string"
+          },
+          "nombreLibreEn": {
+            "description": "Meta no deja reusar el nombre hasta esta fecha",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origen": {
+            "enum": [
+              "iris",
+              "sugerida",
+              "meta",
+              "migrada",
+              "canal"
+            ],
+            "type": "string"
+          },
+          "parametros": {
+            "items": {
+              "$ref": "#/components/schemas/ParametroPWA"
+            },
+            "type": "array"
+          },
+          "pausadaHasta": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rechazo": {
+            "$ref": "#/components/schemas/RechazoPWA"
+          },
+          "sincronizadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sugerida": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usos": {
+            "description": "avisos, conversaciones, asistente",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "wabaId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "wabaId",
+          "metaId",
+          "nombre",
+          "idioma",
+          "etiqueta",
+          "categoria",
+          "categoriaAnterior",
+          "categoriaCambiadaEn",
+          "categoriaProxima",
+          "categoriaProximaEn",
+          "estado",
+          "estadoEn",
+          "motivo",
+          "rechazo",
+          "calidad",
+          "pausadaHasta",
+          "formato",
+          "definicion",
+          "codigo",
+          "parametros",
+          "usos",
+          "origen",
+          "sugerida",
+          "ediciones",
+          "enviadaEn",
+          "borradaEn",
+          "borradaPor",
+          "nombreLibreEn",
+          "sincronizadaEn",
+          "atender",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "PlantillaWADetalle": {
+        "additionalProperties": false,
+        "properties": {
+          "atender": {
+            "enum": [
+              "rechazada",
+              "pausada",
+              "deshabilitada",
+              "bloqueada",
+              "borrada_en_uso",
+              "reclasificada",
+              "reclasificacion_proxima"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "borradaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "borradaPor": {
+            "enum": [
+              "iris",
+              "meta"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calidad": {
+            "enum": [
+              "GREEN",
+              "YELLOW",
+              "RED",
+              "UNKNOWN"
+            ],
+            "type": "string"
+          },
+          "categoria": {
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "type": "string"
+          },
+          "categoriaAnterior": {
+            "description": "Meta la reclasificó: la que tenía (hasta que alguien la revise)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaCambiadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaProxima": {
+            "description": "Meta avisó que la reclasificará a esta",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "categoriaProximaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "codigo": {
+            "description": "Código del catálogo de Iris que atiende (Argos pide avisos por código)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "definicion": {
+            "$ref": "#/components/schemas/DefinicionPWA"
+          },
+          "ediciones": {
+            "$ref": "#/components/schemas/EdicionesPWA"
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "enviadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "BORRADOR",
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "PAUSED",
+              "DISABLED",
+              "FLAGGED",
+              "IN_APPEAL",
+              "LIMIT_EXCEEDED",
+              "LOCKED",
+              "ARCHIVED",
+              "PENDING_DELETION",
+              "DELETED"
+            ],
+            "type": "string"
+          },
+          "estadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "etiqueta": {
+            "description": "Nombre para personas",
+            "type": "string"
+          },
+          "formato": {
+            "description": "Variables con nombre o por posición",
+            "enum": [
+              "NAMED",
+              "POSITIONAL"
+            ],
+            "type": "string"
+          },
+          "historial": {
+            "items": {
+              "$ref": "#/components/schemas/HistorialPWA"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "idioma": {
+            "type": "string"
+          },
+          "metaId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "motivo": {
+            "description": "reason de Meta (INVALID_FORMAT, PROMOTIONAL…)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "nombre": {
+            "description": "Nombre en Meta",
+            "type": "string"
+          },
+          "nombreLibreEn": {
+            "description": "Meta no deja reusar el nombre hasta esta fecha",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origen": {
+            "enum": [
+              "iris",
+              "sugerida",
+              "meta",
+              "migrada",
+              "canal"
+            ],
+            "type": "string"
+          },
+          "parametros": {
+            "items": {
+              "$ref": "#/components/schemas/ParametroPWA"
+            },
+            "type": "array"
+          },
+          "pausadaHasta": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prestatarias": {
+            "description": "Empresas a las que prestas un número de esta cuenta: mandan con estas mismas plantillas",
+            "items": {
+              "$ref": "#/components/schemas/PrestatariaPWA"
+            },
+            "type": "array"
+          },
+          "rechazo": {
+            "$ref": "#/components/schemas/RechazoPWA"
+          },
+          "sincronizadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sugerida": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "usos": {
+            "description": "avisos, conversaciones, asistente",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "wabaId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "historial",
+          "prestatarias",
+          "id",
+          "empresaId",
+          "wabaId",
+          "metaId",
+          "nombre",
+          "idioma",
+          "etiqueta",
+          "categoria",
+          "categoriaAnterior",
+          "categoriaCambiadaEn",
+          "categoriaProxima",
+          "categoriaProximaEn",
+          "estado",
+          "estadoEn",
+          "motivo",
+          "rechazo",
+          "calidad",
+          "pausadaHasta",
+          "formato",
+          "definicion",
+          "codigo",
+          "parametros",
+          "usos",
+          "origen",
+          "sugerida",
+          "ediciones",
+          "enviadaEn",
+          "borradaEn",
+          "borradaPor",
+          "nombreLibreEn",
+          "sincronizadaEn",
+          "atender",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "PorTipoChat": {
         "additionalProperties": false,
         "properties": {
@@ -26131,6 +27795,30 @@
         ],
         "type": "object"
       },
+      "PrestatariaPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "empresaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "usos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "empresaId",
+          "nombre",
+          "usos"
+        ],
+        "type": "object"
+      },
       "Previsualizacion": {
         "additionalProperties": false,
         "properties": {
@@ -26173,6 +27861,11 @@
             "description": "Explicación de este caso",
             "type": "string"
           },
+          "disponibleEn": {
+            "description": "nombre_bloqueado, limite_ediciones: desde cuándo se puede",
+            "format": "date-time",
+            "type": "string"
+          },
           "errors": {
             "description": "Errores por campo",
             "items": {
@@ -26191,6 +27884,10 @@
             "description": "Código HTTP",
             "format": "int64",
             "type": "integer"
+          },
+          "sugerencia": {
+            "description": "nombre_en_uso, nombre_bloqueado: un nombre libre para ofrecer",
+            "type": "string"
           },
           "title": {
             "description": "Resumen legible del tipo de problema",
@@ -27328,6 +29025,22 @@
         ],
         "type": "object"
       },
+      "RechazoPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "type": "string"
+          },
+          "recomendacion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "motivo",
+          "recomendacion"
+        ],
+        "type": "object"
+      },
       "RecibirLlamadas": {
         "additionalProperties": false,
         "properties": {
@@ -27491,6 +29204,53 @@
           "graphVersion",
           "featureType",
           "sessionInfoVersion"
+        ],
+        "type": "object"
+      },
+      "ReglaPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "campo": {
+            "description": "Dónde corregir (definicion.cuerpo, nombre…)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mensaje": {
+            "description": "En llano: qué pide la regla o qué corregir",
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "regla": {
+            "enum": [
+              "nombre",
+              "nombre_libre",
+              "idioma",
+              "categoria",
+              "marketing",
+              "cuerpo",
+              "encabezado",
+              "pie",
+              "variables_formato",
+              "variables_bordes",
+              "variables_seguidas",
+              "ejemplos",
+              "datos",
+              "botones",
+              "largos",
+              "autenticacion"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "regla",
+          "ok",
+          "mensaje",
+          "campo"
         ],
         "type": "object"
       },
@@ -28330,6 +30090,55 @@
         ],
         "type": "object"
       },
+      "ResultadoReglasPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "formato": {
+            "enum": [
+              "NAMED",
+              "POSITIONAL"
+            ],
+            "type": "string"
+          },
+          "ok": {
+            "description": "Todas las reglas se cumplen: se puede enviar",
+            "type": "boolean"
+          },
+          "reglas": {
+            "items": {
+              "$ref": "#/components/schemas/ReglaPWA"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ok",
+          "formato",
+          "reglas"
+        ],
+        "type": "object"
+      },
+      "ResultadoSincronizacionPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "resumen": {
+            "$ref": "#/components/schemas/ResumenSincronizacionPWA"
+          },
+          "sincronizadaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "wabaId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "wabaId",
+          "sincronizadaEn",
+          "resumen"
+        ],
+        "type": "object"
+      },
       "ResumenAvisos": {
         "additionalProperties": false,
         "properties": {
@@ -28452,6 +30261,52 @@
           "generadoEn",
           "desactualizado",
           "mensajesNuevos"
+        ],
+        "type": "object"
+      },
+      "ResumenSincronizacionPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "borradas": {
+            "description": "Ya no están en Meta",
+            "items": {
+              "$ref": "#/components/schemas/CambioCuentaPWA"
+            },
+            "type": "array"
+          },
+          "cambiadas": {
+            "items": {
+              "$ref": "#/components/schemas/CambioCuentaPWA"
+            },
+            "type": "array"
+          },
+          "nuevas": {
+            "description": "Creadas fuera de Iris (en Meta)",
+            "items": {
+              "$ref": "#/components/schemas/CambioCuentaPWA"
+            },
+            "type": "array"
+          },
+          "origen": {
+            "enum": [
+              "manual",
+              "nocturna",
+              "webhook"
+            ],
+            "type": "string"
+          },
+          "total": {
+            "description": "Plantillas que devolvió Meta",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "nuevas",
+          "cambiadas",
+          "borradas",
+          "origen"
         ],
         "type": "object"
       },
@@ -30445,6 +32300,81 @@
           "origen",
           "creadaEn",
           "actualizadaEn"
+        ],
+        "type": "object"
+      },
+      "SugeridaEnCuentaPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "categoria": {
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "type": "string"
+          },
+          "clave": {
+            "type": "string"
+          },
+          "codigo": {
+            "description": "Código del catálogo que atiende (null = para usos futuros: órdenes, verificación)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "definicion": {
+            "$ref": "#/components/schemas/DefinicionPWA"
+          },
+          "etiqueta": {
+            "type": "string"
+          },
+          "para": {
+            "description": "Dónde la usa Iris, en llano",
+            "type": "string"
+          },
+          "plantilla": {
+            "$ref": "#/components/schemas/SugeridaExistentePWA",
+            "description": "La que ya tienes (null = falta crearla)"
+          },
+          "usos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "plantilla",
+          "clave",
+          "etiqueta",
+          "categoria",
+          "codigo",
+          "usos",
+          "para",
+          "definicion"
+        ],
+        "type": "object"
+      },
+      "SugeridaExistentePWA": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "type": "string"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "nombre": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nombre",
+          "estado"
         ],
         "type": "object"
       },
@@ -32740,6 +34670,49 @@
           "nombre",
           "formato",
           "obligatoria"
+        ],
+        "type": "object"
+      },
+      "VariableDatoPWA": {
+        "additionalProperties": false,
+        "properties": {
+          "dato": {
+            "maxLength": 60,
+            "type": "string"
+          },
+          "nombre": {
+            "maxLength": 60,
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "dato"
+        ],
+        "type": "object"
+      },
+      "VariablePWA": {
+        "additionalProperties": false,
+        "properties": {
+          "dato": {
+            "description": "Qué dato de Iris va aquí (GET /plantillas-whatsapp/datos); null = sin definir (no sirve para avisos)",
+            "maxLength": 60,
+            "type": "string"
+          },
+          "ejemplo": {
+            "description": "Ejemplo para Meta (obligatorio; nunca datos reales)",
+            "maxLength": 200,
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Como va en el texto entre llaves: cliente_nombre o 1, 2… (por posición)",
+            "maxLength": 60,
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "ejemplo"
         ],
         "type": "object"
       },
@@ -65309,6 +67282,2065 @@
           "mensajeria"
         ],
         "x-permiso": "mensajeria.ver"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp": {
+      "get": {
+        "description": "Permiso: `plantillas_whatsapp.ver`. Por cuenta (WABA), con su estado en Meta, calidad, dónde se usan y por qué hay que atenderlas. `conteos` alimenta los filtros. Las borradas en Meta que se usaban salen siempre (para elegir otra).",
+        "operationId": "listarPlantillasWhatsApp",
+        "parameters": [
+          {
+            "description": "Solo esta cuenta",
+            "explode": false,
+            "in": "query",
+            "name": "wabaId",
+            "schema": {
+              "description": "Solo esta cuenta",
+              "pattern": "^[0-9]{0,30}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "activas (aprobadas), revision (borrador o en revisión), atender (rechazadas, pausadas, borradas en uso, reclasificadas)",
+            "explode": false,
+            "in": "query",
+            "name": "grupo",
+            "schema": {
+              "description": "activas (aprobadas), revision (borrador o en revisión), atender (rechazadas, pausadas, borradas en uso, reclasificadas)",
+              "enum": [
+                "activas",
+                "revision",
+                "atender"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "categoria",
+            "schema": {
+              "enum": [
+                "UTILITY",
+                "MARKETING",
+                "AUTHENTICATION"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "idioma",
+            "schema": {
+              "maxLength": 10,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Por nombre o etiqueta",
+            "explode": false,
+            "in": "query",
+            "name": "buscar",
+            "schema": {
+              "description": "Por nombre o etiqueta",
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Incluir todas las borradas (por defecto solo las que Meta borró y se usaban)",
+            "explode": false,
+            "in": "query",
+            "name": "borradas",
+            "schema": {
+              "description": "Incluir todas las borradas (por defecto solo las que Meta borró y se usaban)",
+              "type": "boolean"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "maxLength": 30,
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "format": "int32",
+              "maximum": 200,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaPlantillasWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Plantillas de WhatsApp de las cuentas de la empresa",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.ver"
+      },
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.crear`. Queda como borrador en Iris. Con `enviar`, además se manda a Meta (si no la acepta, `errorEnvio`). 409 `nombre_en_uso` / `nombre_bloqueado` con `sugerencia`; 422 `marketing_no_permitido`.",
+        "operationId": "crearPlantillaWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaCreadaPWA"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "424": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Failed Dependency"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear una plantilla (borrador)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.crear"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/ajustes": {
+      "get": {
+        "description": "Permiso: `plantillas_whatsapp.ver`.",
+        "operationId": "ajustesPlantillasWhatsApp",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AjustesPWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ajustes de plantillas de la empresa",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.ver"
+      },
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.editar`.",
+        "operationId": "guardarAjustesPlantillasWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaAjustesPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AjustesPWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Guardar los ajustes de plantillas",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.editar"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/cuentas": {
+      "get": {
+        "description": "Permiso: `plantillas_whatsapp.ver`.",
+        "operationId": "cuentasPlantillasWhatsApp",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaCuentasPWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cuentas de WhatsApp de la empresa y su última sincronización",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.ver"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/cuentas/{waba}/sincronizar": {
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.sincronizar`. Lee todas las plantillas de la cuenta en Meta y deja Iris igual: nuevas (creadas en Meta), cambiadas y «Borrada en Meta» (nunca se eliminan en Iris). Si Meta no responde o el token no tiene `whatsapp_business_management`, no cambia nada (502 `meta_no_responde`, 424 `meta_sin_permiso` / `meta_token_invalido`) y la cuenta guarda el error.",
+        "operationId": "sincronizarPlantillasWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "waba",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9]{1,30}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultadoSincronizacionPWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "424": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Failed Dependency"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Sincronizar con Meta",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.sincronizar"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/datos": {
+      "get": {
+        "description": "Permiso: `plantillas_whatsapp.ver`.",
+        "operationId": "datosPlantillasWhatsApp",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaDatosPWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Datos que se pueden poner en una plantilla",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.ver"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/sugeridas": {
+      "get": {
+        "description": "Permiso: `plantillas_whatsapp.ver`.",
+        "operationId": "sugeridasPlantillasWhatsApp",
+        "parameters": [
+          {
+            "explode": false,
+            "in": "query",
+            "name": "wabaId",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9]{1,30}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaSugeridasPWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Plantillas sugeridas para un ISP",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.ver"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/sugeridas/{clave}/crear": {
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.crear`. Ya conectada con los datos de Iris y Argos. Con `enviar`, además se manda a Meta; si Meta no la acepta, queda como borrador y `errorEnvio` dice por qué.",
+        "operationId": "crearSugeridaWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "clave",
+            "required": true,
+            "schema": {
+              "pattern": "^[a-z_]{1,40}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCrearSugeridaPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaCreadaPWA"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "424": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Failed Dependency"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Crear una plantilla sugerida",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.crear"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/validar": {
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.ver`. No guarda nada: devuelve la lista «Antes de enviar a Meta» (cada regla ok o qué corregir y dónde).",
+        "operationId": "validarPlantillaWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaValidarPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultadoReglasPWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Revisar las reglas de Meta antes de enviar",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.ver"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}": {
+      "get": {
+        "description": "Permiso: `plantillas_whatsapp.ver`.",
+        "operationId": "verPlantillaWhatsApp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaWADetalle"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Una plantilla con su historial",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.ver"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/actualizar": {
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.editar`.",
+        "operationId": "actualizarPlantillaWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEditarPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Editar un borrador",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.editar"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/borrar": {
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.borrar`. La borra en Meta (solo ese idioma, por su id) y en Iris queda «Borrada» con su historial. Una aprobada deja el nombre bloqueado 30 días (`nombreLibreEn`). Meta no deja borrar una deshabilitada (422 `deshabilitada_no_se_borra`).",
+        "operationId": "borrarPlantillaWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVersionPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "424": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Failed Dependency"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Borrar una plantilla",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.borrar"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/editar": {
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.editar`. Para una plantilla aprobada, rechazada o pausada. Una aprobada: 1 edición cada 24 h y 10 en 30 días (422 `limite_ediciones` con `disponibleEn`) y sin cambiar la categoría.",
+        "operationId": "editarPlantillaWhatsAppEnMeta",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaEditarMetaPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "424": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Failed Dependency"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Corregir y volver a enviar",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.editar"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/enviar": {
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.crear`. Revisa las reglas de Meta (422 `reglas_meta` con cada problema en `errors[]`) y el permiso `whatsapp_business_management` del token. Meta la revisa en hasta 24 horas: el resultado llega por el webhook.",
+        "operationId": "enviarPlantillaWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVersionPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "424": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Failed Dependency"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Enviar un borrador a Meta",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.crear"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/reanudar": {
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.editar`.",
+        "operationId": "reanudarPlantillaWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaVersionPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "424": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Failed Dependency"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reanudar una plantilla pausada",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.editar"
+      }
+    },
+    "/api/v1/mensajeria/plantillas-whatsapp/{id}/usos": {
+      "post": {
+        "description": "Permiso: `plantillas_whatsapp.editar`. Usos (avisos, conversaciones, asistente) y el código del catálogo que atiende (Argos pide avisos por código): si otra plantilla de la cuenta lo tenía, lo suelta. 422 `datos_no_disponibles` si el aviso no trae algún dato de la plantilla. No pasa por Meta.",
+        "operationId": "usosPlantillaWhatsApp",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaUsosPWA"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlantillaWA"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Decidir dónde la usa Iris",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.editar"
       }
     },
     "/api/v1/mensajeria/publico/manuales/{token}": {

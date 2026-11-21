@@ -134,7 +134,7 @@ type PlantillaWA struct {
 	Estado              string         `json:"estado" enum:"BORRADOR,PENDING,APPROVED,REJECTED,PAUSED,DISABLED,FLAGGED,IN_APPEAL,LIMIT_EXCEEDED,LOCKED,ARCHIVED,PENDING_DELETION,DELETED"`
 	EstadoEn            time.Time      `json:"estadoEn"`
 	Motivo              *string        `json:"motivo" nullable:"true" doc:"reason de Meta (INVALID_FORMAT, PROMOTIONAL…)"`
-	Rechazo             *RechazoPWA    `json:"rechazo" nullable:"true"`
+	Rechazo             *RechazoPWA    `json:"rechazo"`
 	Calidad             string         `json:"calidad" enum:"GREEN,YELLOW,RED,UNKNOWN"`
 	PausadaHasta        *time.Time     `json:"pausadaHasta" nullable:"true"`
 	Formato             string         `json:"formato" enum:"NAMED,POSITIONAL" doc:"Variables con nombre o por posición"`

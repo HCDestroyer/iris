@@ -17,7 +17,7 @@ import (
 // aceptó, por qué (la plantilla queda guardada como borrador; no se pierde nada).
 type PlantillaCreadaPWA struct {
 	PlantillaWA
-	ErrorEnvio *nucleo.Problema `json:"errorEnvio" nullable:"true" doc:"Se pidió enviarla y no se pudo: queda como borrador"`
+	ErrorEnvio *nucleo.Problema `json:"errorEnvio" doc:"Se pidió enviarla y no se pudo: queda como borrador"`
 }
 
 type entradaSugeridaHTTP struct {

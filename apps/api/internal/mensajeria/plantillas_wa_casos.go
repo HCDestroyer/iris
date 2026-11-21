@@ -379,8 +379,8 @@ type CuentaPWA struct {
 	Numeros        []string                  `json:"numeros"`
 	Nombres        []string                  `json:"nombres" doc:"Nombre de cada número en Iris"`
 	SincronizadaEn *time.Time                `json:"sincronizadaEn" nullable:"true"`
-	Resumen        *ResumenSincronizacionPWA `json:"resumen" nullable:"true"`
-	Error          *ErrorCuentaPWA           `json:"error" nullable:"true" doc:"Último error al hablar con Meta (null si la última vez salió bien)"`
+	Resumen        *ResumenSincronizacionPWA `json:"resumen"`
+	Error          *ErrorCuentaPWA           `json:"error" doc:"Último error al hablar con Meta (null si la última vez salió bien)"`
 }
 
 // ListaCuentasPWA es { data }.
@@ -1021,7 +1021,7 @@ type EntradaSugeridasPWA struct {
 // SugeridaEnCuentaPWA es una sugerida con la plantilla que ya la cubre (si hay).
 type SugeridaEnCuentaPWA struct {
 	SugeridaPWA
-	Plantilla *SugeridaExistentePWA `json:"plantilla" nullable:"true" doc:"La que ya tienes (null = falta crearla)"`
+	Plantilla *SugeridaExistentePWA `json:"plantilla" doc:"La que ya tienes (null = falta crearla)"`
 }
 
 // SugeridaExistentePWA resume la que ya existe.

@@ -112,7 +112,8 @@ CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(c.plantillas) = 'object' TH
 WHERE c.waba_id <> '' AND c.tipo = 'whatsapp_cloud'
   AND (p.value ->> 'nombre') ~ '^[a-z0-9_]+$' AND char_length(p.value ->> 'nombre') <= 512
   AND (p.value ->> 'idioma') ~ '^[a-z]{2,3}([_-][A-Za-z]{2,4})?$'
-ORDER BY c.waba_id, p.value ->> 'nombre', p.value ->> 'idioma', c.activo DESC, c.id;
+ORDER BY c.waba_id, p.value ->> 'nombre', p.value ->> 'idioma', c.activo DESC, c.id
+ON CONFLICT DO NOTHING;
 
 -- El código: el del número de avisos de la empresa primero, luego el más antiguo.
 WITH candidatos AS (
@@ -127,11 +128,13 @@ FROM (
     -- Una plantilla atiende un solo código: si el mismo nombre servía a dos, el primero (alfabético).
     SELECT DISTINCT ON (waba_id, nombre, idioma) waba_id, codigo, nombre, idioma FROM candidatos ORDER BY waba_id, nombre, idioma, codigo
 ) x
-WHERE t.waba_id = x.waba_id AND t.nombre = x.nombre AND t.idioma = x.idioma AND t.origen = 'migrada';
+WHERE t.waba_id = x.waba_id AND t.nombre = x.nombre AND t.idioma = x.idioma AND t.origen = 'migrada' AND t.codigo IS NULL
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp o WHERE o.waba_id = x.waba_id AND o.codigo = x.codigo AND o.estado <> 'DELETED');
 
 INSERT INTO mensajeria.plantillas_whatsapp_historial (plantilla_id, tipo, a, detalle, origen)
-SELECT id, 'creada', estado, jsonb_build_object('origen', 'migrada', 'codigo', codigo), 'sistema'
-FROM mensajeria.plantillas_whatsapp WHERE origen = 'migrada';
+SELECT p.id, 'creada', p.estado, jsonb_build_object('origen', 'migrada', 'codigo', p.codigo), 'sistema'
+FROM mensajeria.plantillas_whatsapp p
+WHERE p.origen = 'migrada' AND NOT EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp_historial h WHERE h.plantilla_id = p.id);
 
 -- +goose Down
 DROP TABLE mensajeria.plantillas_whatsapp_ajustes;
