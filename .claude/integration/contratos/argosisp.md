@@ -731,7 +731,7 @@ Argos es el dueño de los contactos. Un cliente tiene varios (`core.contactos_cl
 - `relacion`: `titular`, `familiar`, `inquilino`, `empleado` u `otro`. `servicios`: los ids de servicio del cliente a los que aplica, o `null` = todos.
 - `permisos`: `consultar` (saldo, estado del servicio, facturas), `reportar` (tickets y fallas), `pagar` (comprobantes y promesas) y `avisos` (recibe avisos de cobro). Todos encendidos por defecto; se apagan por contacto.
 - **Los permisos son por servicio** (decisión 11 del PM): `consultar` y `pagar` aplican solo a los `servicios[]` del contacto (con `null`, a todos los del cliente). Una promesa o un comprobante pedido por un contacto siempre lleva `servicio_id` de uno de los suyos, y las reglas (cuántas promesas, días y monto) se evalúan con la plantilla de ese servicio, como en §7. Saldo y estado, solo de sus `servicios[]`: con un contacto de `servicios` acotados, Iris solo usa `GET /clientes/:id/estado-cuenta?servicio_id=` (§2.1); si Argos no la soporta, el contacto ve el estado del servicio, nunca el saldo.
-- **`X-Iris-Contacto: <contacto_id>`** (forma en §7.1, 0.10.1) en las promesas (§7.4), los comprobantes (§7.2) y el estado de cuenta por servicio que pide un contacto: Argos valida que el `servicio_id` esté entre los `servicios[]` de ese contacto; si no, `403 servicio_fuera_del_contacto`.
+- **`X-Iris-Contacto: <contacto_id>`** (forma en §7.1, 0.10.1; Argos valida también el permiso del contacto: `pagar` o `consultar`, `403 permiso_de_contacto`) en las promesas (§7.4), los comprobantes (§7.2) y el estado de cuenta por servicio que pide un contacto: Argos valida que el `servicio_id` esté entre los `servicios[]` de ese contacto; si no, `403 servicio_fuera_del_contacto`.
 - `telefonos[]`: `numero` en E.164, `whatsapp` y `principal` (uno por contacto). **Un mismo número puede estar en varios clientes.**
 - **Reservado al titular**, siempre con la identidad de A41: cambiar titular, cambiar plan, cambiar el Wi-Fi, traspaso y baja. Ningún permiso de contacto los abre.
 
@@ -826,8 +826,9 @@ Una persona de Argos (oficina, caja o soporte) registra en Iris a alguien intere
 «Alguien más puede estar a cargo de mi servicio, y viceversa» (decisión 12 del PM, §10.5). Ejemplo: José está a cargo del servicio de su mamá.
 
 - **`contactos_cliente.persona_cliente_id`** (opcional): vincula el contacto con **otro cliente de la misma empresa** (José, que también es cliente). Lo pone el personal de Argos o el titular desde su portal.
-    - **Desde Iris** solo se vincula si el número del contacto es el `telefono` o `movil` **verificado** de ese otro cliente (§7.5); si no, queda como contacto suelto, sin `persona_cliente_id`.
-    - Al vincular, Argos avisa a los dos titulares: al dueño del servicio («José quedó a cargo de S-000412») y a José.
+    - **Desde Iris** solo se vincula si el número del contacto es el `telefono` o `movil` **verificado** de ese otro cliente (§7.5); si no, queda como contacto suelto, sin `persona_cliente_id`. **Verificado** = confirmado con un código en los últimos 12 meses (§3.4.6).
+    - Cambiar los `telefonos` de un contacto con `persona_cliente_id`, o el `telefono`/`movil` de ese cliente, **vuelve a validar el vínculo**: si ya no coincide, se rompe y se avisa a los dos titulares.
+    - Al vincular, Argos avisa a los dos titulares: al dueño del servicio («José quedó a cargo de S-000412») y a José, con **solo el `codigo`** del servicio, nunca su `nombre`.
     - Quitar el contacto rompe el vínculo al momento.
 - **`GET /contactos/buscar`** marca con `a_cargo: true` las filas en que el número no es el titular. El chat ofrece por separado «sus servicios» y «los que tiene a cargo», mostrando solo `codigo` y `nombre` (ajuste g).
 - **Verificación heredada:** la verificación de José (su identidad A41, o un código a su teléfono registrado) vale para actuar como contacto, **solo con los permisos de ese contacto** y nunca para lo reservado al titular del otro servicio (§3.5).
@@ -835,7 +836,7 @@ Una persona de Argos (oficina, caja o soporte) registra en Iris a alguien intere
     - Las acciones sobre el servicio de la mamá llevan `X-Iris-Contacto` con el contacto de José en el cliente de la mamá (§7.1), y se aplica `403 servicio_fuera_del_contacto`.
 - **En Argos:**
     - La ficha del cliente tiene una pestaña «Contactos» con dos listas: «A cargo de sus servicios» y «Está a cargo de».
-    - En caja, al cobrarle a José se muestran aparte las cuentas de los servicios que tiene a cargo, si su contacto tiene `pagar`, con el código y el nombre del servicio. No se muestran el documento, los otros servicios ni los contactos del dueño.
+    - En caja, antes de mostrar las cuentas a cargo, caja identifica a José con su documento. Luego, si su contacto tiene `pagar`, se muestran aparte las cuentas de los servicios que tiene a cargo, con el código y el nombre del servicio. Si tiene `pagar` pero no `consultar`, caja solo cobra el monto que José indica, sin mostrar el saldo ni las facturas. Nunca se muestran el documento, los otros servicios ni los contactos del dueño.
 - **Evento:** `cliente.contactos_cambiados` suma `persona_cliente_id` (o null), sin números (§2.3).
 
 ## 4. Versionado
@@ -1240,9 +1241,9 @@ En Argos todo esto ya existe para el portal del cliente y el panel; Iris usa las
 | Identidad primero | Antes de dar el saldo o de reportar un pago, Iris verifica al cliente: número registrado más una prueba (§7.5). Sin verificar, solo responde información general. |
 | Datos mínimos | Iris nunca recibe el documento (NIT o CUI) del cliente ni datos de tarjeta (§1.1). El saldo se muestra solo al cliente verificado y no se guarda en el historial del chat. |
 | Actor | Cada llamada de §7 lleva `X-Iris-Actor` = `asistente_ia` \| `usuario:<id en Iris>` y `X-Iris-Conversacion` = id de la conversación. La forma exacta (0.7.1) es `^(asistente_ia\|usuario:[A-Za-z0-9_-]{1,64})$` para `X-Iris-Actor` y `^[A-Za-z0-9._:-]{1,128}$` para `X-Iris-Conversacion`. Fuera de formato, o si faltan en una ruta de §7: `400 cabecera_iris_requerida`. Argos audita con actor `token` del usuario técnico Iris y guarda las dos cabeceras en la fila de auditoría, donde se pueden buscar. El canal de la auditoría es `ia` con `asistente_ia` y `api` con `usuario:<id>`. Excepción (0.7.0): en aprobar y rechazar (§7.7) el actor de la auditoría es el usuario de Argos vinculado a `usuario:<id>`, y el token de Iris queda como «vía». |
-| Contacto (0.10.1) | `X-Iris-Contacto: <contacto_id>` (el id del contacto en Argos, entero positivo en decimal, `^[1-9]\d{0,17}$`) va **solo** en las acciones que pide un contacto (§3.5): promesas (§7.4), comprobantes (§7.2) y `GET /clientes/:id/estado-cuenta?servicio_id=` (§2.1). Si el contacto no es de ese cliente, o el `servicio_id` no está entre sus `servicios[]`: `403 servicio_fuera_del_contacto`. Mal formada: `422 validacion` (`field: X-Iris-Contacto`). Sin ella, la acción es del titular, como hasta 0.10.0. |
+| Contacto (0.10.1) | `X-Iris-Contacto` = `<contacto_id>` (el id del contacto en Argos, entero positivo en decimal, `^[1-9]\d{0,17}$`) o el valor literal `titular`. Es **obligatoria en las rutas de §7 que llegan con `X-Iris-Conversacion`** (si falta: `400 cabecera_iris_requerida`), y con `<contacto_id>` va en las acciones que pide un contacto (§3.5): promesas (§7.4), comprobantes (§7.2) y `GET /clientes/:id/estado-cuenta?servicio_id=` (§2.1). Con `titular`, Argos exige que la conversación tenga registrada una verificación del titular de §7.5, o la audita como tal. Con `<contacto_id>`: si el contacto no es de ese cliente o el `servicio_id` no está entre sus `servicios[]`, `403 servicio_fuera_del_contacto`; si el permiso del contacto está apagado (`pagar` en promesas y comprobantes, `consultar` en `estado-cuenta`), `403 permiso_de_contacto`. Mal formada: `422 validacion` (`field: X-Iris-Contacto`). Argos la guarda en la auditoría junto a `X-Iris-Conversacion`. |
 | Empresa | Cada documento es de una empresa: la del servicio (promesas) o la de la cuenta bancaria (comprobantes). Si Iris manda `empresa_id` y no coincide: `422 empresa_no_coincide`. Fuera del alcance del usuario técnico Iris: `403 empresa_no_permitida`. |
-| Idempotencia | Todas las escrituras de §7 llevan `Idempotency-Key` (obligatoria: `400 idempotency_key_requerida`) con las reglas de §3.1. En §7.7 la huella incluye además `X-Iris-Actor`. |
+| Idempotencia | Todas las escrituras de §7 llevan `Idempotency-Key` (obligatoria: `400 idempotency_key_requerida`) con las reglas de §3.1. En §7.7 la huella incluye además `X-Iris-Actor`. Desde 0.10.1, en promesas y comprobantes la huella incluye `X-Iris-Contacto`: la misma clave con otro contacto responde `422 idempotency_key_reutilizada`. |
 
 ### 7.2 Comprobantes de pago (A16)
 
@@ -1739,6 +1740,12 @@ Contexto del PM: el cliente no siempre da todos sus datos al inicio, y en la ins
 - **ah. Código en el chat.** Se compara solo contra los clientes que comparten el número.
 - **ai. `nit_cui` de `POST /clientes`.** No vale como `documento` de §7.5 hasta que coincida con una identidad A41; Argos guarda su origen.
 - **aj. Reporte de titulares existentes.** Argos lista los servicios con `existente: true` que llegan por Iris para que caja o supervisión los revise.
+- **ak. `X-Iris-Contacto` obligatoria (0.10.1, M1).** En las rutas de §7 con `X-Iris-Conversacion`, `<contacto_id>` o `titular` (`400 cabecera_iris_requerida` si falta); con `titular`, verificación de §7.5 registrada o auditada como tal.
+- **al. Permiso del contacto en Argos (0.10.1, M2).** `403 permiso_de_contacto` sin `pagar` o `consultar`; `X-Iris-Contacto` en la auditoría y en la huella de idempotencia de promesas y comprobantes.
+- **am. Revalidar el vínculo (0.10.1, B1).** Al cambiar los números del contacto o del cliente vinculado; si ya no coinciden, se rompe y se avisa a los dos titulares.
+- **an. «Verificado» (0.10.1, B2).** Confirmado con un código en los últimos 12 meses.
+- **ao. Caja con servicios a cargo (0.10.1, B3).** Identifica a José con su documento; con `pagar` sin `consultar`, solo cobra el monto que indica.
+- **ap. Aviso a José (0.10.1, B4).** Solo el `codigo` del servicio, nunca su `nombre`.
 
 **Valor inicial del líder de Iris** (cambiable sin tocar el contrato): un cambio de plan que sube el precio también pide la firma del titular sobre la cotización nueva, apagado de fábrica (lo enciende la empresa).
 
