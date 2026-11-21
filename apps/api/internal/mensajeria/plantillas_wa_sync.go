@@ -104,8 +104,11 @@ func nuevoSincronizarPWA(m *Modulo) *SincronizarPWA {
 			if k.SincronizadaEn != nil {
 				if falta := k.SincronizadaEn.Add(EsperaSincronizarManual).Sub(m.ahora()); falta > 0 {
 					seg := int(falta.Seconds()) + 1
-					return SincronizacionPedida{}, nucleo.NuevoProblema(http.StatusTooManyRequests, "sincronizada_hace_poco", "Se sincronizó hace poco",
-						"Esta cuenta se sincronizó hace menos de 2 minutos. Espera un momento y vuelve a intentar.").ConCabecera("Retry-After", strconv.Itoa(seg))
+					p := nucleo.NuevoProblema(http.StatusTooManyRequests, "sincronizada_hace_poco", "Se sincronizó hace poco",
+						"Esta cuenta se sincronizó hace menos de 2 minutos. Espera un momento y vuelve a intentar.")
+					disponible := k.SincronizadaEn.Add(EsperaSincronizarManual).UTC()
+					p.DisponibleEn = &disponible
+					return SincronizacionPedida{}, p.ConCabecera("Retry-After", strconv.Itoa(seg))
 				}
 			}
 			return SincronizacionPedida{WabaID: in.WabaID, SincronizadaEn: k.SincronizadaEn},
@@ -514,11 +517,14 @@ func (m *Modulo) webhookPlantilla(ctx context.Context, t *auditoria.Tx, q *mensa
 	f.MetaID = &id
 	switch campo {
 	case "message_template_status_update":
-		// Un aviso más viejo que el último cambio de estado (llegó tarde) no lo deshace.
-		if ocurrido > 0 && cuando.Before(f.EstadoEn.Truncate(time.Second)) {
+		// Un aviso más viejo que el último que se aplicó (llegó tarde) no lo deshace: se compara con el
+		// entry.time del último aplicado (meta_evento_en, reloj de Meta), nunca con estado_en. Como algo
+		// pasó en Meta que Iris no vio en orden, se relee la cuenta.
+		if ocurrido > 0 && ocurrido < f.MetaEventoEn {
 			t.Anotar(map[string]any{"plantilla_aviso_viejo": true})
-			return nil
+			return m.encolar(ctx, t.Tx, ArgsSincronizarPlantillas{WabaID: waba, Origen: SyncWebhook})
 		}
+		f.MetaEventoEn = max(f.MetaEventoEn, ocurrido)
 		ev := toUpper(v.Event)
 		switch ev {
 		case "REINSTATED":
@@ -633,6 +639,9 @@ func otroInfoAcotado(v valorPlantillaMeta) map[string]string {
 // sincronizan hace más de 20 horas.
 const HoraSincronizacionNocturna = 2
 
+// DiasAvisosMetaPW: cuánto se guarda cada aviso de Meta aplicado (mensajeria.plantillas_whatsapp_avisos_meta).
+const DiasAvisosMetaPW = 30
+
 // programarSincronizaciones encola (únicos por cuenta) los jobs de la noche.
 func (m *Modulo) programarSincronizaciones(ctx context.Context, bd nucleo.BD) error {
 	ahora := m.ahora()
@@ -641,6 +650,10 @@ func (m *Modulo) programarSincronizaciones(ctx context.Context, bd nucleo.BD) er
 	}
 	antes := ahora.Add(-20 * time.Hour)
 	return nucleo.EnTx(nucleo.ConBD(ctx, bd), func(ctx context.Context, tx pgx.Tx) error {
+		// Los avisos de Meta ya aplicados se guardan 30 días (Meta no reenvía más allá).
+		if _, err := mensajeriabd.New(tx).PurgarAvisosMetaPW(ctx, ahora.Add(-DiasAvisosMetaPW*24*time.Hour)); err != nil {
+			return err
+		}
 		cuentas, err := mensajeriabd.New(tx).CuentasWAParaNoche(ctx, &antes)
 		if err != nil {
 			return err

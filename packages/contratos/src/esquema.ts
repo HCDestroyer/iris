@@ -18310,8 +18310,11 @@ export interface components {
             atender: "rechazada" | "pausada" | "deshabilitada" | "bloqueada" | "borrada_en_uso" | "reclasificada" | "reclasificacion_proxima" | null;
             /** Format: date-time */
             borradaEn: string | null;
-            /** @enum {string|null} */
-            borradaPor: "iris" | "meta" | null;
+            /**
+             * @description sistema: la cuenta pasó a otra empresa y se archivó
+             * @enum {string|null}
+             */
+            borradaPor: "iris" | "meta" | "sistema" | null;
             /** @enum {string} */
             calidad: "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
             /** @enum {string} */
@@ -18524,8 +18527,11 @@ export interface components {
             atender: "rechazada" | "pausada" | "deshabilitada" | "bloqueada" | "borrada_en_uso" | "reclasificada" | "reclasificacion_proxima" | null;
             /** Format: date-time */
             borradaEn: string | null;
-            /** @enum {string|null} */
-            borradaPor: "iris" | "meta" | null;
+            /**
+             * @description sistema: la cuenta pasó a otra empresa y se archivó
+             * @enum {string|null}
+             */
+            borradaPor: "iris" | "meta" | "sistema" | null;
             /** @enum {string} */
             calidad: "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
             /** @enum {string} */
@@ -18594,8 +18600,11 @@ export interface components {
             atender: "rechazada" | "pausada" | "deshabilitada" | "bloqueada" | "borrada_en_uso" | "reclasificada" | "reclasificacion_proxima" | null;
             /** Format: date-time */
             borradaEn: string | null;
-            /** @enum {string|null} */
-            borradaPor: "iris" | "meta" | null;
+            /**
+             * @description sistema: la cuenta pasó a otra empresa y se archivó
+             * @enum {string|null}
+             */
+            borradaPor: "iris" | "meta" | "sistema" | null;
             /** @enum {string} */
             calidad: "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
             /** @enum {string} */
@@ -18796,7 +18805,7 @@ export interface components {
             detail?: string;
             /**
              * Format: date-time
-             * @description nombre_bloqueado, limite_ediciones: desde cuándo se puede
+             * @description nombre_bloqueado, limite_ediciones, sincronizada_hace_poco: desde cuándo se puede
              */
             disponibleEn?: string;
             /** @description Errores por campo */

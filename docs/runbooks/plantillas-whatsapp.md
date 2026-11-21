@@ -16,6 +16,25 @@ Contrato: `.claude/integration/contratos/plantillas-whatsapp.md`.
 
 `mensajeria.canales.plantillas` **no se toca**.
 
+## Cuentas compartidas de antes (una WABA con números de varias empresas)
+
+Antes de esta migración, dos empresas podían tener números en la misma WABA. La migración le da la
+cuenta a una sola (la del número de avisos o, si no, la del número más antiguo). Desde entonces:
+
+- Los números de la dueña usan las plantillas de la cuenta (pantalla «Plantillas de WhatsApp»).
+- Los números de **otra** empresa en esa cuenta siguen con su mapa propio
+  (`mensajeria.canales.plantillas`), como antes: sus avisos no se cortan. No ven ni tocan las
+  plantillas de la cuenta, y editarlos sin cambiar de cuenta (nombre, cola, plantillas) funciona.
+  Moverlos a otra cuenta que ya es de otra empresa responde 409 `waba_de_otra_empresa`.
+- Para ordenarlo: o la otra empresa usa una WABA propia, o la dueña le **presta** su número.
+- Los números inactivos o desconectados no se copiaron. Al **reactivar** uno, si la cuenta no tiene
+  dueña (o la dueña ya no tiene números en ella) pasa a su empresa, y su mapa se copia a la cuenta
+  en revisión (`PENDING`) solo en los códigos que ninguna otra plantilla atiende; luego Iris relee la
+  cuenta en Meta para saber su estado real.
+- Si una cuenta pasa a otra empresa (la anterior ya no tiene números en ella), las plantillas de la
+  anterior quedan archivadas: «Borrada» con `borradaPor = sistema`. No se eliminan y la nueva dueña
+  no las ve; la nueva dueña trae las suyas con «Sincronizar con Meta».
+
 ## Qué borra el `Down`
 
 `goose down` elimina las cinco tablas, y con ellas **todo lo hecho desde el panel de plantillas**:

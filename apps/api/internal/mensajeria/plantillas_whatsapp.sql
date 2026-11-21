@@ -20,7 +20,7 @@ SET meta_id = sqlc.narg('meta_id'), nombre = @nombre, idioma = @idioma, etiqueta
     pausada_hasta = sqlc.narg('pausada_hasta'), formato = @formato, componentes = @componentes, componentes_meta = sqlc.narg('componentes_meta'),
     codigos = @codigos, parametros = @parametros, usos = @usos, ediciones = @ediciones, enviada_en = sqlc.narg('enviada_en'),
     borrada_en = sqlc.narg('borrada_en'), borrada_por = sqlc.narg('borrada_por'), nombre_libre_en = sqlc.narg('nombre_libre_en'),
-    sincronizada_en = sqlc.narg('sincronizada_en'), version = version + 1, updated_at = now()
+    sincronizada_en = sqlc.narg('sincronizada_en'), meta_evento_en = @meta_evento_en, version = version + 1, updated_at = now()
 WHERE id = @id
 RETURNING *;
 
@@ -147,6 +147,15 @@ RETURNING empresa_id;
 UPDATE mensajeria.plantillas_whatsapp_cuentas SET empresa_id = @empresa::bigint, sincronizada_en = NULL, resumen = NULL, error = NULL, error_en = NULL, updated_at = now()
 WHERE waba_id = @waba_id;
 
+-- name: ArchivarPlantillasDeOtraDuena :many
+-- Al cambiar la dueña de la cuenta: las plantillas de la empresa anterior quedan borradas por el
+-- sistema (dejan de contar en los índices únicos de la cuenta y la nueva dueña no las ve).
+UPDATE mensajeria.plantillas_whatsapp
+SET estado = 'DELETED', estado_en = @ahora, borrada_en = @ahora, borrada_por = 'sistema', codigos = '{}', usos = '{}',
+    version = version + 1, updated_at = now()
+WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) <> @empresa::bigint AND estado <> 'DELETED'
+RETURNING *;
+
 -- name: OtraEmpresaUsaWaba :one
 SELECT EXISTS (SELECT 1 FROM mensajeria.canales WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) <> @empresa::bigint AND desconectado_en IS NULL)::boolean;
 
@@ -188,7 +197,8 @@ SELECT DISTINCT e.id, e.nombre, p.usos
 FROM mensajeria.canal_prestamos p
 JOIN mensajeria.canales c ON c.id = p.canal_id
 JOIN nucleo.empresas e ON e.id = p.empresa_id
-WHERE c.waba_id = @waba_id AND p.activo
+JOIN mensajeria.plantillas_whatsapp_cuentas k ON k.waba_id = c.waba_id AND k.empresa_id = coalesce(c.empresa_id, 0)
+WHERE c.waba_id = @waba_id AND k.empresa_id = @empresa::bigint AND p.activo
 ORDER BY e.nombre;
 
 -- name: AjustesPlantillasWA :one
@@ -200,3 +210,7 @@ VALUES (@empresa_id, @marketing_permitido)
 ON CONFLICT (empresa_id) DO UPDATE
 SET marketing_permitido = EXCLUDED.marketing_permitido, version = mensajeria.plantillas_whatsapp_ajustes.version + 1, updated_at = now()
 RETURNING *;
+
+-- name: PurgarAvisosMetaPW :execrows
+-- Los avisos de Meta ya aplicados se guardan 30 días (para descartar repetidos).
+DELETE FROM mensajeria.plantillas_whatsapp_avisos_meta WHERE recibido_en < @antes;

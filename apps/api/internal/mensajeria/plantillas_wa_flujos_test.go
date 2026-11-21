@@ -134,8 +134,8 @@ func TestPlantillasWASincronizarLimitado(t *testing.T) {
 	}
 	r = c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/cuentas/"+c.waba+"/sincronizar", "s2-"+pruebas.Unico(), nil)
 	c.exigir(r, http.StatusTooManyRequests, "type", "urn:iris:problema:sincronizada_hace_poco")
-	if r.h.Get("Retry-After") == "" {
-		t.Fatal("sin Retry-After")
+	if r.h.Get("Retry-After") == "" || r.cuerpo["disponibleEn"] == nil {
+		t.Fatalf("sin Retry-After ni disponibleEn: %v %v", r.h, r.cuerpo)
 	}
 	*c.reloj = c.reloj.Add(2*time.Minute + time.Second)
 	c.exigir(c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/cuentas/"+c.waba+"/sincronizar", "s3-"+pruebas.Unico(), nil), http.StatusAccepted)
@@ -388,7 +388,8 @@ func TestPlantillasWAWabaDeUnaSolaEmpresa(t *testing.T) {
 		"appSecret": "secreto-de-la-empresa-b-0123"})
 	c.exigir(nB, http.StatusCreated)
 	canalB := int64(nB.cuerpo["id"].(float64))
-	// …y no puede pasarlo a la WABA de A.
+	// …y no puede pasarlo a la WABA de A (aunque su token la vea en Meta).
+	c.meta.agregarNumero(c.waba, otroPnid)
 	verB := c.api(adminB, http.MethodGet, fmt.Sprintf("/canales/%d", canalB), nil)
 	c.exigir(c.api(adminB, http.MethodPost, fmt.Sprintf("/canales/%d/actualizar", canalB), map[string]any{"version": verB.cuerpo["version"], "nombre": verB.cuerpo["nombre"],
 		"numero": verB.cuerpo["numero"], "phoneNumberId": otroPnid, "wabaId": c.waba, "plantillas": map[string]any{}}), http.StatusConflict, "type", "urn:iris:problema:waba_de_otra_empresa")
@@ -571,8 +572,16 @@ func TestPlantillasWASincronizacionNocturna(t *testing.T) {
 		t.Fatal("encoló de día")
 	}
 	*c.reloj = time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC) // 03:00 en Guatemala
+	// Los avisos de Meta aplicados hace más de 30 días se purgan.
+	if _, err := c.bd.Exec(c.ctx, `INSERT INTO mensajeria.plantillas_whatsapp_avisos_meta (waba_id, meta_id, campo, evento, ocurrido, recibido_en)
+		VALUES ($1, '1', 'x', 'y', 1, $2), ($1, '2', 'x', 'y', 2, $3)`, c.waba, c.reloj.Add(-31*24*time.Hour), c.reloj.Add(-29*24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 	if err := c.m.ProgramarSincronizaciones(c.ctx, c.bd); err != nil {
 		t.Fatal(err)
+	}
+	if n := c.contar(`SELECT count(*) FROM mensajeria.plantillas_whatsapp_avisos_meta WHERE waba_id = $1 AND campo = 'x'`, c.waba); n != 1 {
+		t.Fatalf("avisos de Meta tras la purga: %d", n)
 	}
 	var mia *mensajeria.ArgsSincronizarPlantillas
 	for _, j := range c.jobsDe("mensajeria.sincronizar_plantillas")[antes:] {

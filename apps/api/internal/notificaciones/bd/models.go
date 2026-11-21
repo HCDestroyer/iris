@@ -2054,6 +2054,7 @@ type MensajeriaPlantillasWhatsapp struct {
 	BorradaPor          *string
 	NombreLibreEn       *time.Time
 	SincronizadaEn      *time.Time
+	MetaEventoEn        int64
 	CreadaPor           *int64
 	Version             int32
 	CreatedAt           time.Time

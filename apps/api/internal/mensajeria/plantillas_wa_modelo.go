@@ -147,7 +147,7 @@ type PlantillaWA struct {
 	Ediciones           EdicionesPWA   `json:"ediciones"`
 	EnviadaEn           *time.Time     `json:"enviadaEn" nullable:"true"`
 	BorradaEn           *time.Time     `json:"borradaEn" nullable:"true"`
-	BorradaPor          *string        `json:"borradaPor" nullable:"true" enum:"iris,meta"`
+	BorradaPor          *string        `json:"borradaPor" nullable:"true" enum:"iris,meta,sistema" doc:"sistema: la cuenta pasó a otra empresa y se archivó"`
 	NombreLibreEn       *time.Time     `json:"nombreLibreEn" nullable:"true" doc:"Meta no deja reusar el nombre hasta esta fecha"`
 	SincronizadaEn      *time.Time     `json:"sincronizadaEn" nullable:"true"`
 	// Atender: por qué la lista la marca (null = nada que hacer).

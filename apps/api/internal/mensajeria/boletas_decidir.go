@@ -588,7 +588,12 @@ func (m *Modulo) avisarBoleta(ctx context.Context, t *auditoria.Tx, q *mensajeri
 		if err != nil {
 			return "", nil, err
 		}
-		if _, aprobada := usables[p.Codigo]; !aprobada || (!uso.propio && !tieneUsoConversacion(uso.usos)) {
+		pm, aprobada := usables[p.Codigo]
+		if !aprobada || (!uso.propio && !tieneUsoConversacion(uso.usos)) {
+			return AvisoBoletaSinAvis, nil, nil
+		}
+		// Una plantilla con datos del cliente de Argos solo sale con el cliente confirmado.
+		if necesitaDatosCliente(pm) && !c.ClienteVerificado {
 			return AvisoBoletaSinAvis, nil, nil
 		}
 		if p.validarVariables(vars, m.ahora()) != nil {

@@ -296,7 +296,7 @@ func nuevoCrearCanalQR(m *Modulo) *CrearCanalQR {
 			if err != nil {
 				return CanalQRConectado{}, err
 			}
-			if err := reclamarWaba(ctx, q, in.in.WabaID, p.empresa); err != nil {
+			if err := m.reclamarWaba(ctx, t, q, in.in.WabaID, p.empresa); err != nil {
 				return CanalQRConectado{}, err
 			}
 			ahora := m.ahora()
