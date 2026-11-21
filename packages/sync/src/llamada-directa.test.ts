@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Problema, ResultadoOperacion } from "./contrato";
+import { textoProblema } from "./campo/textos";
 import { montar } from "./pruebas/montaje";
 
 // llamada.directa (E4c fase 3, contratos/sync.md §2): «Llamar desde mi celular» sin señal. El teléfono
@@ -58,5 +59,11 @@ describe("llamada.directa", () => {
         await motor.registrar("orden.llegar", 1, {});
         await motor.registrar("orden.fallar", 1, { motivoFalla: "cliente_ausente" });
         await expect(motor.registrar("llamada.directa", 1, {})).resolves.toBeTruthy();
+    });
+
+    it("el tope del día y la hora del teléfono se dicen en llano (revisión de #258, B1)", () => {
+        const p = (codigo: string): Problema => ({ type: `urn:iris:problema:${codigo}`, title: codigo, status: 422, errors: null });
+        expect(textoProblema(p("limite_llamadas"))).toBe("Llegaste al límite de 20 llamadas desde tu celular por día en esta orden: esta no quedó anotada.");
+        expect(textoProblema(p("hora_invalida"))).toContain("revisa la fecha y la hora del celular");
     });
 });

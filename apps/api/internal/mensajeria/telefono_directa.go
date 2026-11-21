@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,10 @@ import (
 // POST /telefono/llamada-directa (con señal: el panel o la app piden el número y abren tel:) y la
 // operación llamada.directa de POST /sync/lote (sin señal: el teléfono ya llamó con el número de la
 // orden guardada y la anota al volver la señal, con la hora real).
+
+// maxDirectasOrdenDia: llamadas directas por orden, técnico y día (hora de Guatemala). Un registro
+// sin tope llenaría la orden (y la ficha del cliente) desde un teléfono con la cola rota.
+const maxDirectasOrdenDia = 20
 
 type directa struct {
 	id       uuid.UUID
@@ -39,6 +44,19 @@ func anotarDirecta(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries
 	e164 := "+" + dig
 	if g := nacionalGT(d.numero); g != "" {
 		e164 = "+502" + g
+	}
+	// El tope con candado por orden y persona: dos lotes a la vez no cuentan lo mismo.
+	if err := q.CandadoChat(ctx, "telefono:directa:"+strconv.FormatInt(d.orden, 10)+":"+strconv.FormatInt(d.usuario, 10)); err != nil {
+		return mensajeriabd.MensajeriaLlamada{}, "", err
+	}
+	desde := inicioDia(d.en)
+	n, err := q.ContarDirectasOrdenDia(ctx, mensajeriabd.ContarDirectasOrdenDiaParams{OrdenID: d.orden, UsuarioID: d.usuario, Desde: desde, Hasta: desde.Add(24 * time.Hour)})
+	if err != nil {
+		return mensajeriabd.MensajeriaLlamada{}, "", err
+	}
+	if n >= maxDirectasOrdenDia {
+		return mensajeriabd.MensajeriaLlamada{}, "", nucleo.ReglaNegocio("limite_llamadas",
+			"Llegaste al límite de 20 llamadas directas por día en esta orden")
 	}
 	l, err := q.InsertarLlamadaDirecta(ctx, mensajeriabd.InsertarLlamadaDirectaParams{ID: d.id, IDExterno: "celular:" + d.id.String(), EmpresaID: d.empresa,
 		Numero: e164, ClienteID: d.cliente, ServicioID: d.servicio, UsuarioID: d.usuario, Ahora: d.en, OrdenID: d.orden})

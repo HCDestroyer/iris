@@ -194,3 +194,47 @@ test("el límite de llamadas del día: solo desde mi celular", async ({ page }) 
     await expect(aviso.getByRole("button", { name: "Desde mi celular" })).toBeVisible();
     await captura(page, "36b-limite");
 });
+
+// Revisión de #258, M1: cerrar sesión con una llamada en curso cuelga (BYE a la Issabel) y suelta el
+// micrófono antes de esperar a nada; no queda audio abierto en el teléfono de otra persona. Cerrar
+// sesión recarga la página (y eso también corta el audio), así que cada pista avisa a la prueba
+// cuando la app la detiene, antes de navegar.
+test("cerrar sesión con una llamada en curso cuelga y suelta el micrófono", async ({ page }) => {
+    const pistas = new Map<string, string>();
+    const { sip } = await abrir(page, {
+        antes: async (p) => {
+            await p.exposeFunction("__pista", (id: string, estado: string) => void pistas.set(id, estado));
+            await p.addInitScript(() => {
+                const avisar = (window as unknown as { __pista: (id: string, estado: string) => void }).__pista;
+                const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+                navigator.mediaDevices.getUserMedia = async (c) => {
+                    const s = await original(c);
+                    for (const t of s.getTracks()) {
+                        avisar(t.id, t.readyState);
+                        const detener = t.stop.bind(t);
+                        t.stop = () => {
+                            detener();
+                            avisar(t.id, t.readyState);
+                        };
+                    }
+                    return s;
+                };
+            });
+        },
+    });
+    const hoja = await abrirHoja(page);
+    await hoja.getByRole("button", { name: /Llamar por la empresa/ }).click();
+    const pantalla = slot(page, "pantalla-llamada");
+    await expect.poll(() => sip.sonando(), { timeout: 20_000 }).toBe(true);
+    sip.contestar();
+    await expect(pantalla).toHaveAttribute("data-fase", "en_curso");
+    expect([...pistas.values()]).toContain("live");
+
+    // La llamada tapa la app: se llega a «Yo» por la isla sin colgar (como al volver de otra app).
+    await page.locator('nav[aria-label="Secciones de la app"] a[href*="vista=yo"]').dispatchEvent("click");
+    await page.getByRole("button", { name: "Cerrar sesión", includeHidden: true }).dispatchEvent("click");
+    await expect(page).toHaveURL(/\/campo\?entrar=1$/);
+    await expect.poll(() => sip.de("BYE").length).toBeGreaterThanOrEqual(1);
+    expect(pistas.size).toBeGreaterThan(0);
+    expect([...pistas.values()].every((e) => e === "ended")).toBe(true);
+});

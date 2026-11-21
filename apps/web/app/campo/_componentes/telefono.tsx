@@ -92,7 +92,11 @@ function esperarListo(motor: MotorTelefono, ms = 15_000): Promise<EstadoTelefono
 type Conexion = { effectiveType?: string; rtt?: number };
 const redDelNavegador = (): Conexion | undefined => (navigator as Navigator & { connection?: Conexion }).connection;
 
-export function ProveedorTelefonoCampo({ children }: { children: ReactNode }) {
+/**
+ * `registrar`: la app de campo recibe cómo apagar el teléfono (cuelga y suelta el micrófono) para
+ * llamarlo al cerrar sesión antes de esperar a nada; `null` al desmontarse.
+ */
+export function ProveedorTelefonoCampo({ children, registrar }: { children: ReactNode; registrar?: (detener: (() => void) | null) => void }) {
     const { estado: sync, sesion, motor: cola, notificar } = useCampo();
     const puedeLlamar = sesion.permisos?.includes("centralita.llamar") ?? false;
     const [mio, setMio] = useState<TelefonoMio | null>(null);
@@ -115,6 +119,15 @@ export function ProveedorTelefonoCampo({ children }: { children: ReactNode }) {
             }),
     );
     const estado = useSyncExternalStore(motor.suscribir, motor.leer, motor.leer);
+
+    // Al desmontarse (cerrar sesión, cambiar de empresa, salir) no queda ninguna llamada ni micrófono abiertos.
+    useEffect(() => {
+        registrar?.(() => motor.detenerUa());
+        return () => {
+            registrar?.(null);
+            motor.detenerUa();
+        };
+    }, [motor, registrar]);
 
     // ¿Puedo llamar por la empresa? Solo con señal (y se relee al volver la señal).
     const enLinea = sync.conexion === "en_linea";

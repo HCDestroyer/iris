@@ -338,6 +338,32 @@ describe("llamadas", () => {
         expect(s1?.espera).toBe(true);
     });
 
+    it("detenerUa cuelga, cierra la conexión RTC y suelta el micrófono aunque el WebSocket ya esté caído", async () => {
+        // Revisión de #258, M1: al cerrar sesión en la app de campo no queda nada abierto.
+        const pista = { stop: vi.fn() };
+        const mic = { getTracks: () => [pista] } as unknown as MediaStream;
+        const a = armar({ microfono: () => Promise.resolve(mic) });
+        await a.motor.encender("204");
+        await esperar();
+        a.sockets[0]?.onopen?.();
+        const id = await a.motor.llamar("sip:iris-0199aaaa-0000-7000-8000-000000000009@pbx.oficina", { numero: "+50255123480", nombre: "María", llamadaId: null, interna: false });
+        expect(id).not.toBeNull();
+        const sesion = a.uas[0]?.llamadas[0]?.sesion;
+        if (!sesion) throw new Error("sin sesión");
+        sesion.emitir("accepted");
+        // El WebSocket se cae y JsSIP ya no puede mandar el BYE.
+        a.sockets[0]?.cerrar(1006);
+        sesion.terminate = () => {
+            throw new Error("Invalid status");
+        };
+        const cerrar = vi.fn();
+        Object.assign(sesion, { connection: { close: cerrar } });
+        a.motor.detenerUa();
+        expect(cerrar).toHaveBeenCalledOnce();
+        expect(pista.stop).toHaveBeenCalled();
+        expect(a.motor.leer().llamadas).toEqual([]);
+    });
+
     it("solo marcar (app de campo): sin REGISTER, listo al conectar y llama igual", async () => {
         const a = armar({ registrar: false });
         await a.motor.encender("311");

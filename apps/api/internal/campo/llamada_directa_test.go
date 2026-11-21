@@ -132,3 +132,24 @@ func TestLoteLlamadaDirectaSinMensajeria(t *testing.T) {
 	en := inicio.Add(-time.Minute)
 	esperar(t, lote(t, e, ct, directa(o.ID, &en)), "rechazada:no_disponible")
 }
+
+// Revisión de #258, B1: a lo más 20 llamadas directas por orden, técnico y día; la 21 se rechaza con
+// limite_llamadas (y no deja fila).
+func TestLoteLlamadaDirectaTope(t *testing.T) {
+	e := nuevoEntorno(conDirectas)
+	d, tec := despacho(t), tecnico(t)
+	cd, ct := como(t, d, "despacho"), como(t, tec, "tecnico")
+	o := ordenConContacto(t, e, cd, tec)
+	ops := make([]campo.OperacionLote, 0, 21)
+	quiero := make([]string, 0, 21)
+	for i := range 21 {
+		en := inicio.Add(-time.Duration(i+1) * time.Minute)
+		ops = append(ops, directa(o.ID, &en))
+		quiero = append(quiero, "aplicada")
+	}
+	quiero[20] = "rechazada:limite_llamadas"
+	esperar(t, lote(t, e, ct, ops...), quiero...)
+	if n := contar(t, "SELECT count(*) FROM mensajeria.llamadas WHERE orden_id = $1", o.ID); n != 20 {
+		t.Fatalf("filas: %d", n)
+	}
+}

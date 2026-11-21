@@ -211,6 +211,32 @@ func (q *Queries) ConexionTelefonoVigente(ctx context.Context, id uuid.UUID) (bo
 	return vigente, err
 }
 
+const contarDirectasOrdenDia = `-- name: ContarDirectasOrdenDia :one
+SELECT count(*)::int AS n FROM mensajeria.llamadas
+WHERE origen = 'celular' AND orden_id = $1::bigint AND usuario_id = $2::bigint
+    AND sono_en >= $3::timestamptz AND sono_en < $4::timestamptz
+`
+
+type ContarDirectasOrdenDiaParams struct {
+	OrdenID   int64
+	UsuarioID int64
+	Desde     time.Time
+	Hasta     time.Time
+}
+
+// Llamadas directas de la persona en la orden ese día (de `desde` a `hasta`).
+func (q *Queries) ContarDirectasOrdenDia(ctx context.Context, arg ContarDirectasOrdenDiaParams) (int32, error) {
+	row := q.db.QueryRow(ctx, contarDirectasOrdenDia,
+		arg.OrdenID,
+		arg.UsuarioID,
+		arg.Desde,
+		arg.Hasta,
+	)
+	var n int32
+	err := row.Scan(&n)
+	return n, err
+}
+
 const contarLlamadasPuenteDia = `-- name: ContarLlamadasPuenteDia :one
 SELECT count(*)::int AS n FROM mensajeria.llamadas WHERE puente AND usuario_id = $1::bigint AND sono_en >= $2::timestamptz
 `

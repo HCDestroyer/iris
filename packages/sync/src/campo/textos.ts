@@ -139,6 +139,9 @@ const PROBLEMAS: Record<string, string> = {
     traslado_de_otro_tecnico: "Ese traslado es para otro técnico.",
     lineas_invalidas: "Las líneas recibidas no coinciden con el traslado.",
     firma_invalida: "La firma no es válida: vuelve a firmar.",
+    // llamada.directa (E4c fase 3, contratos/sync.md §2).
+    limite_llamadas: "Llegaste al límite de 20 llamadas desde tu celular por día en esta orden: esta no quedó anotada.",
+    hora_invalida: "La hora del teléfono no cuadra con la orden (revisa la fecha y la hora del celular): la llamada no quedó anotada.",
 };
 
 export function textoProblema(problema: Problema | null | undefined, porDefecto = "El servidor no aceptó la acción."): string {

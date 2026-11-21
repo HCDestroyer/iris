@@ -155,6 +155,12 @@ VALUES (@id, sqlc.narg('empresa_id'), 'centralita', @centralita_id::bigint, @id_
     sqlc.narg('ticket_id'), sqlc.narg('orden_id'), true)
 RETURNING *;
 
+-- name: ContarDirectasOrdenDia :one
+-- Llamadas directas de la persona en la orden ese día (de `desde` a `hasta`).
+SELECT count(*)::int AS n FROM mensajeria.llamadas
+WHERE origen = 'celular' AND orden_id = @orden_id::bigint AND usuario_id = @usuario_id::bigint
+    AND sono_en >= @desde::timestamptz AND sono_en < @hasta::timestamptz;
+
 -- name: InsertarLlamadaDirecta :one
 INSERT INTO mensajeria.llamadas (id, empresa_id, origen, id_externo, direccion, numero, cliente_id, servicio_id, coincidencias, estado, usuario_id,
     atendida_por, motivo_fin, sono_en, suena_hasta, terminada_en, orden_id)

@@ -305,7 +305,13 @@ export class MotorTelefono {
             try {
                 if (!l.sesion.isEnded()) l.sesion.terminate();
             } catch {
-                // Ya terminada.
+                // Ya terminada, o JsSIP no pudo (el WebSocket ya se cayó).
+            }
+            // Aunque JsSIP no haya podido terminarla: la conexión RTC se cierra igual (sin audio colgado).
+            try {
+                l.sesion.connection?.close();
+            } catch {
+                // Ya cerrada.
             }
             this.limpiar(l);
         }
