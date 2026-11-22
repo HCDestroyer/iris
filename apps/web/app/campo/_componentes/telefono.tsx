@@ -3,7 +3,7 @@
 import type { OrdenVista } from "@iris/sync";
 import { esErrorDeApi, esErrorMicrofono, MotorTelefono, type ConfigUa, type EstadoTelefono, type LlamadaTelefono, type TelefonoMio, type UaSip } from "@iris/telefono";
 import { cargarJssip } from "@iris/telefono/jssip";
-import { Aviso, Boton, ControlesLlamada, ControlLlamada, Tarjeta, TarjetaContenido, TecladoTelefono, cn } from "@iris/ui";
+import { Aviso, Boton, ControlesLlamada, ControlLlamada, ListaEleccion, PantallaCompleta, Tarjeta, TarjetaContenido, TecladoTelefono, cn } from "@iris/ui";
 import { ClipboardList, CloudUpload, Grid3x3, Mic, MicOff, Phone, PhoneMissed, PhoneOff, PhoneOutgoing, RotateCw, Signal, Smartphone, TriangleAlert, X } from "lucide-react";
 import { createContext, use, useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { listarLlamadasCentralita } from "@/lib/centralita/api";
@@ -344,29 +344,30 @@ function HojaLlamar({ orden, alCerrar }: { orden: OrdenVista; alCerrar: () => vo
     return (
         <HojaCampo abierto alCambiar={(a) => (a ? undefined : alCerrar())} titulo={`Llamar a ${nombre}`}>
             <div className="grid grid-cols-1 gap-3" data-slot="hoja-llamar" data-empresa={forma.ofrecer ? "si" : forma.motivo}>
-                <div role="radiogroup" aria-label="Número" className="grid grid-cols-1 gap-2">
-                    {numeros.map((n) => {
-                        const on = n.clave === numero?.clave;
+                <ListaEleccion
+                    leyenda="Número"
+                    leyendaOculta
+                    nombre="numero-llamar"
+                    className="grid-cols-1"
+                    valor={numero?.clave}
+                    alCambiar={(v) => setElegido(numeros.find((n) => n.clave === v)?.clave)}
+                    opciones={numeros.map((n) => {
                         const Icono = n.telefono.tipo === "movil" || n.clave === "movil" ? Smartphone : Phone;
-                        return (
-                            <Boton
-                                key={n.clave}
-                                variante="secundario"
-                                role="radio"
-                                aria-checked={on}
-                                data-slot="numero-llamar"
-                                className={cn("h-auto min-h-16 w-full justify-start gap-3 rounded-xl px-3 py-2 text-left font-normal", on && "border-primary ring-1 ring-primary")}
-                                onClick={() => setElegido(n.clave)}
-                            >
-                                <Icono aria-hidden className="size-5 shrink-0" />
-                                <span className="grid min-w-0 flex-1">
-                                    <b className="font-semibold">{n.etiqueta}</b>
-                                    <span className="text-muted-foreground tabular-nums">{n.telefono.mostrar}</span>
+                        return {
+                            valor: n.clave,
+                            texto: `${n.etiqueta} ${n.telefono.mostrar}`,
+                            contenido: (
+                                <span className="flex min-h-11 min-w-0 flex-1 items-center gap-3" data-slot="numero-llamar">
+                                    <Icono aria-hidden className="size-5 shrink-0" />
+                                    <span className="grid min-w-0 flex-1">
+                                        <b className="font-semibold break-words">{n.etiqueta}</b>
+                                        <span className="text-muted-foreground tabular-nums">{n.telefono.mostrar}</span>
+                                    </span>
                                 </span>
-                            </Boton>
-                        );
+                            ),
+                        };
                     })}
-                </div>
+                />
                 {sinEmpresa ? (
                     <Aviso tono="warning" titulo={sinEmpresa.titulo} icono={sinSenal ? Signal : PhoneOff} data-slot="sin-empresa">
                         {sinEmpresa.detalle}
@@ -514,7 +515,7 @@ function PantallaLlamada({ activa, local, extension, motor }: { activa: Activa; 
     const enCurso = fase === "en_curso";
     const tipo = activa.numero.telefono.tipo === "movil" ? " · móvil" : "";
     return (
-        <div role="dialog" aria-modal="true" aria-label={`Llamada con ${nombre}`} data-slot="pantalla-llamada" data-fase={fase} className="fixed inset-0 z-[60] flex flex-col gap-4 overflow-y-auto bg-background px-5 pt-[calc(env(safe-area-inset-top)+1.5rem)] pb-[calc(env(safe-area-inset-bottom)+1.75rem)]">
+        <PantallaCompleta etiqueta={`Llamada con ${nombre}`} data-slot="pantalla-llamada" data-fase={fase} className="flex flex-col gap-4 overflow-y-auto bg-background px-5 pt-[calc(env(safe-area-inset-top)+1.5rem)] pb-[calc(env(safe-area-inset-bottom)+1.75rem)]">
             {teclado ? (
                 <div className="grid justify-items-center gap-1 text-center">
                     <b className="text-xl font-semibold">{nombre}</b>
@@ -585,7 +586,7 @@ function PantallaLlamada({ activa, local, extension, motor }: { activa: Activa; 
                 <br />
                 Queda en la orden y en la ficha del cliente
             </p>
-        </div>
+        </PantallaCompleta>
     );
 }
 
