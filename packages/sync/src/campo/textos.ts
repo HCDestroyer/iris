@@ -59,6 +59,9 @@ export const AVISOS_SERVIDOR: Partial<Record<AvisoResultado, string>> = {
     solapa_con: "Tu tarea se guardó, pero choca con una cita de tu agenda: revisa la hora.",
 };
 
+/** Aviso cuando el teléfono borró datos del titular de la cola (más de 7 días o sin sesión). */
+export const TEXTO_SENSIBLES_BORRADAS = "Los datos del titular se borraron por seguridad: vuelve a tomar los datos.";
+
 export const CONDICIONES = { buena: "Buena", danada: "Dañada", perdido: "Perdido" } as const;
 
 export const OPERACIONES: Record<TipoOperacionLote, string> = {
@@ -85,6 +88,11 @@ export const OPERACIONES: Record<TipoOperacionLote, string> = {
     "tarea.crear": "Tarea propia",
     "tarea.completar": "Tarea hecha",
     "tarea.anular": "Tarea anulada",
+    "llamada.directa": "Llamada desde tu celular",
+    "orden.registrar_identidad": "Identidad del titular",
+    "orden.cambiar_titular": "Cambio de titular",
+    "orden.completar_datos": "Datos del titular y del lugar",
+    "orden.cambiar_plan": "Cambio de plan",
 };
 
 /** Motivo de un rechazo o error de la API, en palabras del técnico. */
@@ -140,6 +148,9 @@ const PROBLEMAS: Record<string, string> = {
     traslado_de_otro_tecnico: "Ese traslado es para otro técnico.",
     lineas_invalidas: "Las líneas recibidas no coinciden con el traslado.",
     firma_invalida: "La firma no es válida: vuelve a firmar.",
+    // llamada.directa (E4c fase 3, contratos/sync.md §2).
+    limite_llamadas: "Llegaste al límite de 20 llamadas desde tu celular por día en esta orden: esta no quedó anotada.",
+    hora_invalida: "La hora del teléfono no cuadra con la orden (revisa la fecha y la hora del celular): la llamada no quedó anotada.",
 };
 
 export function textoProblema(problema: Problema | null | undefined, porDefecto = "El servidor no aceptó la acción."): string {

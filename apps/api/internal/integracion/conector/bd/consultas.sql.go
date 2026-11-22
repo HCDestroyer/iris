@@ -800,7 +800,8 @@ func (q *Queries) EntrantePorWebhook(ctx context.Context, arg EntrantePorWebhook
 }
 
 const existeConectorConBase = `-- name: ExisteConectorConBase :one
-SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = $1 AND base_url = $2 AND estado = 'activo')::boolean AS existe
+SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = $1
+    AND integracion.url_instancia(base_url) = integracion.url_instancia($2::text) AND estado = 'activo')::boolean AS existe
 `
 
 type ExisteConectorConBaseParams struct {
@@ -809,6 +810,7 @@ type ExisteConectorConBaseParams struct {
 }
 
 // El conector activo del sistema tiene ese origen (uno apagado o de un intento no cuenta).
+// Compara la instancia (integracion.url_instancia: la misma URL escrita distinto es la misma).
 func (q *Queries) ExisteConectorConBase(ctx context.Context, arg ExisteConectorConBaseParams) (bool, error) {
 	row := q.db.QueryRow(ctx, existeConectorConBase, arg.Sistema, arg.BaseUrl)
 	var existe bool

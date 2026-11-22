@@ -3,8 +3,8 @@
 import { Boton, Dialogo, DialogoContenido, Entrada, MenuDesplegable, MenuDesplegableContenido, MenuDesplegableDisparador, MenuDesplegableElemento, MenuDesplegableEtiqueta, TecladoTelefono } from "@iris/ui";
 import { ChevronDown, Delete, Phone, Smartphone, UserRound } from "lucide-react";
 import { useState } from "react";
-import { clasificarMarcado, nacionalLegible } from "@/lib/telefono/presentacion";
-import type { TipoTelefonoFicha } from "@/lib/telefono/tipos";
+import { clasificarMarcado, nacionalLegible } from "@iris/telefono";
+import type { TipoTelefonoFicha } from "@iris/telefono";
 import { puedeLlamar, useTelefono, type ContextoTelefono, type OpcionLlamar } from "./proveedor";
 
 /*

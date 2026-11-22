@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -351,4 +352,84 @@ func (e *entorno) reenviarEn(ruta, token string, empresa int64) respuesta {
 	r := respuesta{status: w.Code, h: w.Header()}
 	_ = json.Unmarshal(w.Body.Bytes(), &r.cuerpo)
 	return r
+}
+
+// Bajo: un desvinculado que el relay no pudo publicar (fallido_en) o cuyo webhook agotó deja el
+// vinculado que lo espera agotado a la vista (se reenvía a mano); y la espera tiene tope de 24 h.
+func TestVinculadoQueEsperaUnDesvinculadoQueNoSale(t *testing.T) {
+	e := nuevoEntorno(t, nil)
+	if _, err := e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET contrato_remoto = '0.14.0', alcance_global = true WHERE id = $1`, e.conector); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET contrato_remoto = '0.6.0', alcance_global = NULL WHERE id = $1`, e.conector)
+	})
+	insertar := func(evento string, payload map[string]any, sql string) string {
+		t.Helper()
+		id := uuid.Must(uuid.NewV7())
+		crudo, _ := json.Marshal(payload)
+		if _, err := e.bd.Exec(e.ctx, sql, id, evento, crudo); err != nil {
+			t.Fatal(err)
+		}
+		return id.String()
+	}
+	const publicar = `INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES ($1, $2, 1, $3)`
+	const fallido = `INSERT INTO integracion.outbox (id, evento, empresa_id, payload, intentos, fallido_en, ultimo_error)
+		VALUES ($1, $2, 1, $3, 8, now(), 'falló el suscriptor')`
+	estado := func(id string) (string, string) {
+		t.Helper()
+		var s, u string
+		if err := e.bd.QueryRow(e.ctx, `SELECT estado, coalesce(ultimo_error, '') FROM mensajeria.webhooks_salida WHERE id = $1`, id).Scan(&s, &u); err != nil {
+			t.Fatal(err)
+		}
+		return s, u
+	}
+	// El relay agotó el desvinculado del mismo técnico: el vinculado queda agotado.
+	insertar("tecnico.argos_desvinculado", map[string]any{"tecnico_id": 7401, "usuario_id": 7401, "empresa_id": 1, "version": 3, "id_externo": "u-x",
+		"conector_id": e.conector}, fallido)
+	vin := insertar("tecnico.argos_vinculado", map[string]any{"tecnico_id": 7401, "usuario_id": 7401, "empresa_id": 1, "version": 4, "id_externo": "u-y",
+		"conector_id": e.conector}, publicar)
+	e.publicar()
+	if s, u := estado(vin); s != "agotado" || !strings.HasPrefix(u, "depende_de:") {
+		t.Fatalf("relay agotado: %s %s", s, u)
+	}
+
+	// El webhook del desvinculado (otro técnico, mismo id_externo) agotó: también.
+	e.receptor.fallar.Store(1)
+	des := insertar("tecnico.argos_desvinculado", map[string]any{"tecnico_id": 7402, "usuario_id": 7402, "empresa_id": 1, "version": 2, "id_externo": "u-z",
+		"conector_id": e.conector}, publicar)
+	e.publicar()
+	if _, err := e.bd.Exec(e.ctx, `UPDATE mensajeria.webhooks_salida SET estado = 'agotado' WHERE id = $1`, des); err != nil {
+		t.Fatal(err)
+	}
+	otro := insertar("tecnico.argos_vinculado", map[string]any{"tecnico_id": 7403, "usuario_id": 7403, "empresa_id": 1, "version": 1, "id_externo": "u-z",
+		"conector_id": e.conector}, publicar)
+	e.publicar()
+	if s, _ := estado(otro); s != "agotado" {
+		t.Fatalf("webhook agotado: %s", s)
+	}
+
+	// Tope: más de 24 h esperando un desvinculado pendiente.
+	e.receptor.fallar.Store(1)
+	pend := insertar("tecnico.argos_desvinculado", map[string]any{"tecnico_id": 7404, "usuario_id": 7404, "empresa_id": 1, "version": 5, "id_externo": "u-w",
+		"conector_id": e.conector}, publicar)
+	espera := insertar("tecnico.argos_vinculado", map[string]any{"tecnico_id": 7404, "usuario_id": 7404, "empresa_id": 1, "version": 6, "id_externo": "u-v",
+		"conector_id": e.conector}, publicar)
+	e.publicar()
+	if s, _ := estado(espera); s != "pendiente" {
+		t.Fatalf("antes del tope espera: %s", s)
+	}
+	if _, err := e.bd.Exec(e.ctx, `UPDATE mensajeria.webhooks_salida SET proximo_intento = now() + interval '10 years' WHERE id = $1`, pend); err != nil {
+		t.Fatal(err)
+	}
+	e.relojMu.Lock()
+	*e.reloj = time.Now().Add(25 * time.Hour)
+	e.relojMu.Unlock()
+	if _, err := e.bd.Exec(e.ctx, `UPDATE mensajeria.webhooks_salida SET proximo_intento = $2 WHERE id = $1`, espera, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	e.publicar()
+	if s, u := estado(espera); s != "agotado" || !strings.Contains(u, "24 h") {
+		t.Fatalf("al tope: %s %s", s, u)
+	}
 }

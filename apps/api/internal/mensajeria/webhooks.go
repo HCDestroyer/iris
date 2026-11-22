@@ -50,32 +50,46 @@ const (
 	MotivoEmpresaNoPermitida = "empresa_no_permitida"
 )
 
+// TopeEsperaDesvinculado: un vinculado no espera más que esto el 2xx del desvinculado anterior;
+// después queda agotado a la vista (se reenvía a mano).
+var TopeEsperaDesvinculado = 24 * time.Hour
+
 // ContratoVinculos es la primera versión del contrato con tecnico.argos_vinculado y
 // tecnico.argos_desvinculado (0.14.0 §6.6).
 const ContratoVinculos = "0.14.0"
-
-// contratoMinimo: la versión del contrato de Argos desde la que se le manda el evento.
-func contratoMinimo(evento string) string {
-	switch evento {
-	case "cuadrilla.creada", "cuadrilla.actualizada":
-		return ContratoCuadrillas
-	case eventoVinculado, eventoDesvinculado:
-		return ContratoVinculos
-	}
-	return ContratoWebhooks
-}
 
 // EsperasWebhook son las esperas entre intentos (§1.3).
 var EsperasWebhook = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 12 * time.Hour}
 
 // EventosWebhook son los eventos del outbox que van a Argos.
-var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "cuadrilla.creada", "cuadrilla.actualizada",
-	eventoVinculado, eventoDesvinculado}
+var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "prospecto.estado_cambiado",
+	"cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado}
 
 const (
 	eventoVinculado    = "tecnico.argos_vinculado"
 	eventoDesvinculado = "tecnico.argos_desvinculado"
 )
+
+// contratoMinimoEvento: los eventos que Argos solo recibe con un contrato más nuevo que
+// ContratoWebhooks (§6.6). Con uno anterior, el webhook queda omitido.
+var contratoMinimoEvento = map[string]string{
+	// 0.10.0 §3.6: solo de prospectos registrados desde el panel de Argos, sin datos personales.
+	"prospecto.estado_cambiado": "0.10.0",
+	// 0.11.0 §3.9 y §6.6: bodega de cuadrilla.
+	"cuadrilla.creada":      ContratoCuadrillas,
+	"cuadrilla.actualizada": ContratoCuadrillas,
+	// 0.14.0 §6.6: vínculo de cada técnico.
+	eventoVinculado:    ContratoVinculos,
+	eventoDesvinculado: ContratoVinculos,
+}
+
+// ContratoMinimo devuelve la versión del contrato con que Argos recibe el evento.
+func ContratoMinimo(evento string) string {
+	if v, ok := contratoMinimoEvento[evento]; ok {
+		return v
+	}
+	return ContratoWebhooks
+}
 
 // payloadArgos arma el payload del contrato (solo sus campos) desde el del outbox. ok = false si no
 // va a Argos.
@@ -88,6 +102,9 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		"aviso.entregado": {"aviso_id", "idempotency_key", "empresa_id", "canal", "entregado_en", "leido_en"},
 		"aviso.fallido":   {"aviso_id", "idempotency_key", "empresa_id", "canal", "motivo", "detalle"},
 		"contacto.baja":   {"cliente_id", "empresa_id", "canal", "ocurrido_en", "origen"},
+		// motivo_codigo: Iris no tiene códigos de motivo en el embudo (el motivo es texto de una
+		// persona y nunca viaja): siempre null.
+		"prospecto.estado_cambiado": {"prospecto_id", "empresa_id", "de", "a", "motivo_codigo"},
 		// 0.11.0 §6.6: uno por empresa, con los miembros completos (id_externo null sin vínculo I1).
 		"cuadrilla.creada":      {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
 		"cuadrilla.actualizada": {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
@@ -99,13 +116,18 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		return nil, false
 	}
 	switch evento {
-	case "aviso.entregado", "aviso.fallido":
-		if p["origen"] != "argos" {
+	case "contacto.baja":
+	case "prospecto.estado_cambiado":
+		if p["origen"] != "argos_panel" {
 			return nil, false
 		}
 	case "cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado:
 		// Sin empresa (modo sin conector) no hay bodega ni vínculo en Argos.
 		if p["empresa_id"] == nil {
+			return nil, false
+		}
+	default:
+		if p["origen"] != "argos" {
 			return nil, false
 		}
 	}
@@ -266,9 +288,9 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 		in.Estado, in.Error = "pendiente", texto("sin conector Argos activo")
 	case err != nil:
 		return err
-	case !conector.VersionAlMenos(c.ContratoRemoto, contratoMinimo(w.Evento)) || c.WebhookSalidaUrl == nil:
+	case !conector.VersionAlMenos(c.ContratoRemoto, ContratoMinimo(w.Evento)) || c.WebhookSalidaUrl == nil:
 		in.Estado, in.ConectorID = "omitido", &c.ID
-		in.Error = texto(MotivoSinReceptor + ": el conector Argos no habla el contrato " + contratoMinimo(w.Evento) + " o no informó su receptor de webhooks")
+		in.Error = texto(MotivoSinReceptor + ": el conector Argos no habla el contrato " + ContratoMinimo(w.Evento) + " o no informó su receptor de webhooks")
 	case (w.Evento == eventoVinculado || w.Evento == eventoDesvinculado) && (w.ConectorOrigen == nil || *w.ConectorOrigen != c.ID):
 		// 0.14.0 §6.6: solo al conector del que salió el id_externo.
 		in.Estado, in.ConectorID = "omitido", &c.ID
@@ -285,10 +307,25 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 			Version   int32  `json:"version"`
 		}
 		_ = json.Unmarshal(w.Payload, &p)
-		espera, err := mensajeriabd.New(bd).DesvinculadoAnteriorSinEntregar(ctx, mensajeriabd.DesvinculadoAnteriorSinEntregarParams{
+		q := mensajeriabd.New(bd)
+		fallido, err := q.DesvinculadoAnteriorFallido(ctx, mensajeriabd.DesvinculadoAnteriorFallidoParams{
 			IDExterno: p.IDExterno, Antes: w.CreatedAt, UsuarioID: p.UsuarioID, Version: p.Version, EventoID: w.ID})
 		if err != nil {
 			return err
+		}
+		if fallido {
+			// No va a salir solo: queda agotado a la vista (depende_de en pendientes lo bloquea).
+			return q.AgotarWebhook(ctx, mensajeriabd.AgotarWebhookParams{ID: w.ID,
+				UltimoError: texto("depende_de: el desvinculado anterior de este usuario de Argos no salió (agotado); reenvíalo y después este")})
+		}
+		espera, err := q.DesvinculadoAnteriorSinEntregar(ctx, mensajeriabd.DesvinculadoAnteriorSinEntregarParams{
+			IDExterno: p.IDExterno, Antes: w.CreatedAt, UsuarioID: p.UsuarioID, Version: p.Version, EventoID: w.ID})
+		if err != nil {
+			return err
+		}
+		if espera && m.ahora().Sub(w.CreatedAt) >= TopeEsperaDesvinculado {
+			return q.AgotarWebhook(ctx, mensajeriabd.AgotarWebhookParams{ID: w.ID,
+				UltimoError: texto("depende_de: más de 24 h esperando el 2xx del desvinculado anterior de este usuario de Argos")})
 		}
 		if espera {
 			return mensajeriabd.New(bd).PostergarWebhook(ctx, mensajeriabd.PostergarWebhookParams{ID: w.ID,

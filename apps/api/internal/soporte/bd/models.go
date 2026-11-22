@@ -451,6 +451,32 @@ type CampoOrdenPausa struct {
 	UpdatedAt       time.Time
 }
 
+type CampoOrdenTitular struct {
+	OrdenID              int64
+	EmpresaID            *int64
+	QuienFirma           *string
+	DocumentoTipo        *string
+	Nombre               *string
+	IdentidadPendienteID *int64
+	UltimoPendienteID    *int64
+	Tomas                int32
+	CambiosTitular       int32
+	DatosN               int32
+	CambiosPlan          int32
+	PlanID               *int64
+	ValidadaPor          *int64
+	ValidadaMotivo       *string
+	ValidadaEn           *time.Time
+	Version              int32
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	EnRevision           bool
+	RevisionDesde        *time.Time
+	RevisionLevantadaPor *int64
+	RevisionMotivo       *string
+	RevisionLevantadaEn  *time.Time
+}
+
 type CampoOrdene struct {
 	ID                    int64
 	Numero                string
@@ -700,40 +726,45 @@ type ComercialFactibilidade struct {
 }
 
 type ComercialProspecto struct {
-	ID                int64
-	Numero            string
-	EmpresaID         *int64
-	Origen            string
-	OrigenDetalle     *string
-	Nombre            string
-	Documento         *string
-	Telefono          *string
-	Correo            *string
-	Direccion         string
-	Lat               *float64
-	Lon               *float64
-	ZonaID            *int64
-	PlanInteresID     *int64
-	PlanInteresNombre *string
-	VendedorID        *int64
-	Estado            string
-	Notas             string
-	MotivoPerdida     *string
-	PerdidoEn         *time.Time
-	GanadoEn          *time.Time
-	ObraConfirmada    bool
-	AltaModo          *string
-	AltaEstado        *string
-	ClienteArgosID    *int64
-	ServicioArgosID   *int64
-	OrdenID           *int64
-	CreadoPor         *int64
-	Idempotencia      *string
-	Version           int32
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	RouterID          *int64
-	AltaError         *string
+	ID                 int64
+	Numero             string
+	EmpresaID          *int64
+	Origen             string
+	OrigenDetalle      *string
+	Nombre             string
+	Documento          *string
+	Telefono           *string
+	Correo             *string
+	Direccion          string
+	Lat                *float64
+	Lon                *float64
+	ZonaID             *int64
+	PlanInteresID      *int64
+	PlanInteresNombre  *string
+	VendedorID         *int64
+	Estado             string
+	Notas              string
+	MotivoPerdida      *string
+	PerdidoEn          *time.Time
+	GanadoEn           *time.Time
+	ObraConfirmada     bool
+	AltaModo           *string
+	AltaEstado         *string
+	ClienteArgosID     *int64
+	ServicioArgosID    *int64
+	OrdenID            *int64
+	CreadoPor          *int64
+	Idempotencia       *string
+	Version            int32
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	RouterID           *int64
+	AltaError          *string
+	Modo               *string
+	RegistradoPorArgos *string
+	ClienteExistenteID *int64
+	ClienteValidado    *bool
+	GanadoPor          *int64
 }
 
 type ComercialProspectoEvento struct {
@@ -747,6 +778,28 @@ type ComercialProspectoEvento struct {
 	ActorTipo   string
 	ActorID     *int64
 	CreatedAt   time.Time
+}
+
+type ComercialProspectoTelefono struct {
+	ID          int64
+	ProspectoID int64
+	EmpresaID   *int64
+	Posicion    int16
+	Numero      string
+	Whatsapp    bool
+	Principal   bool
+	Nombre      *string
+	Relacion    *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type ComercialRegistrosArgo struct {
+	ID        int64
+	Actor     string
+	EmpresaID int64
+	Numeros   int32
+	CreatedAt time.Time
 }
 
 type ComercialUmbralesFactibilidad struct {
@@ -915,6 +968,7 @@ type IntegracionArgosServicio struct {
 	PrefijoEnlaceV6   string
 	PrefijoDelegadoV6 string
 	Planta            []byte
+	Nombre            string
 }
 
 type IntegracionArgosSincronizacionEtapa struct {
@@ -1046,6 +1100,18 @@ type IntegracionConectore struct {
 	VinculosCargaAvisadaEn      *time.Time
 }
 
+type IntegracionDatosTransito struct {
+	ID            uuid.UUID
+	EmpresaID     *int64
+	OrdenID       int64
+	Cifrado       []byte
+	TomadoEn      time.Time
+	BorradoEn     *time.Time
+	MotivoBorrado *string
+	CreatedAt     time.Time
+	LlaveCifrada  []byte
+}
+
 type IntegracionEntrante struct {
 	ID          int64
 	ConectorID  int64
@@ -1116,6 +1182,10 @@ type IntegracionPendiente struct {
 	ResueltoMotivo        *string
 	ResueltoPor           *int64
 	ResueltoEn            *time.Time
+	Actor                 *string
+	TransitoID            pgtype.UUID
+	ResueltoComo          *string
+	ResueltoClienteID     *int64
 	EnviadoAConector      *int64
 	EsperandoVinculoDesde *time.Time
 }

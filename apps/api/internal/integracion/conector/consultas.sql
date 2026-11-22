@@ -23,7 +23,9 @@ WHERE sistema = @sistema AND id <> @excepto AND token_entregado_id IS NOT NULL A
 
 -- name: ExisteConectorConBase :one
 -- El conector activo del sistema tiene ese origen (uno apagado o de un intento no cuenta).
-SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = @sistema AND base_url = @base_url AND estado = 'activo')::boolean AS existe;
+-- Compara la instancia (integracion.url_instancia: la misma URL escrita distinto es la misma).
+SELECT EXISTS (SELECT 1 FROM integracion.conectores WHERE sistema = @sistema
+    AND integracion.url_instancia(base_url) = integracion.url_instancia(@base_url::text) AND estado = 'activo')::boolean AS existe;
 
 -- name: TokensEntregadosDeInactivos :many
 -- Los iris_pat_ de los demás conectores del sistema que no están activos (intentos anteriores). No

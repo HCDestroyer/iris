@@ -106,6 +106,23 @@ func (q *Queries) ActualizarCanal(ctx context.Context, arg ActualizarCanalParams
 	return i, err
 }
 
+const agotarWebhook = `-- name: AgotarWebhook :exec
+UPDATE mensajeria.webhooks_salida SET estado = 'agotado', ultimo_error = $1, updated_at = now()
+WHERE id = $2 AND estado = 'pendiente'
+`
+
+type AgotarWebhookParams struct {
+	UltimoError *string
+	ID          uuid.UUID
+}
+
+// El vinculado que espera un desvinculado que no saldrá (o pasadas 24 h): agotado a la vista, para
+// reenviarlo (POST …/reenviar) cuando su dependencia se resuelva.
+func (q *Queries) AgotarWebhook(ctx context.Context, arg AgotarWebhookParams) error {
+	_, err := q.db.Exec(ctx, agotarWebhook, arg.UltimoError, arg.ID)
+	return err
+}
+
 const avisoParaActualizar = `-- name: AvisoParaActualizar :one
 SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at FROM mensajeria.avisos WHERE id = $1 FOR UPDATE
 `
@@ -727,6 +744,43 @@ UPDATE mensajeria.avisos SET intentos = intentos + 1, enviado_en = NULL, updated
 func (q *Queries) ContarIntento(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, contarIntento, id)
 	return err
+}
+
+const desvinculadoAnteriorFallido = `-- name: DesvinculadoAnteriorFallido :one
+SELECT (EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado = 'agotado'
+      AND ((d.payload->>'id_externo' = $1::text AND d.created_at < $2)
+        OR ((d.payload->>'usuario_id')::bigint = $3::bigint AND (d.payload->>'version')::int < $4::int))
+) OR EXISTS (
+    SELECT 1 FROM integracion.outbox o
+    WHERE o.evento = 'tecnico.argos_desvinculado' AND o.publicado_en IS NULL AND o.fallido_en IS NOT NULL
+      AND ((o.payload->>'id_externo' = $1::text AND o.id < $5::uuid)
+        OR ((o.payload->>'usuario_id')::bigint = $3::bigint AND (o.payload->>'version')::int < $4::int))
+))::boolean
+`
+
+type DesvinculadoAnteriorFallidoParams struct {
+	IDExterno string
+	Antes     time.Time
+	UsuarioID int64
+	Version   int32
+	EventoID  uuid.UUID
+}
+
+// El desvinculado del que depende el vinculado ya no va a salir solo: su webhook agotó los reintentos
+// o el relay no lo pudo publicar (outbox con fallido_en). Mismas reglas de dependencia que arriba.
+func (q *Queries) DesvinculadoAnteriorFallido(ctx context.Context, arg DesvinculadoAnteriorFallidoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, desvinculadoAnteriorFallido,
+		arg.IDExterno,
+		arg.Antes,
+		arg.UsuarioID,
+		arg.Version,
+		arg.EventoID,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const desvinculadoAnteriorSinEntregar = `-- name: DesvinculadoAnteriorSinEntregar :one

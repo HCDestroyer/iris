@@ -60,6 +60,11 @@ func (n *Nucleo) validarOrigen(crudo, campo string) (*url.URL, error) {
 func origenDe(u *url.URL) string {
 	// Normalizada (0.14.0 §6.6, identidad de la instancia): esquema y host en minúsculas, sin el punto
 	// final del host ni el puerto por defecto, y sin la barra final.
+	return strings.ToLower(u.Scheme) + "://" + hostNormalizado(u) + strings.TrimRight(u.EscapedPath(), "/")
+}
+
+// hostNormalizado: el host en minúsculas, sin el punto final y sin el puerto por defecto del esquema.
+func hostNormalizado(u *url.URL) string {
 	esquema := strings.ToLower(u.Scheme)
 	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
 	if strings.Contains(host, ":") {
@@ -69,7 +74,7 @@ func origenDe(u *url.URL) string {
 	if p := u.Port(); p != "" && p != porDefecto[esquema] {
 		host += ":" + p
 	}
-	return esquema + "://" + host + strings.TrimRight(u.EscapedPath(), "/")
+	return host
 }
 
 // validarBase es validarOrigen más la protección contra SSRF para una IP escrita tal cual (un

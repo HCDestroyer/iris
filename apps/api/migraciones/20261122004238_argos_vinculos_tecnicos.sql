@@ -30,7 +30,7 @@ ALTER TABLE mensajeria.webhooks_salida ADD COLUMN carga_id uuid;
 CREATE INDEX webhooks_salida_carga_idx ON mensajeria.webhooks_salida (carga_id) WHERE carga_id IS NOT NULL;
 ALTER TABLE mensajeria.webhooks_salida DROP CONSTRAINT webhooks_salida_evento_check;
 ALTER TABLE mensajeria.webhooks_salida ADD CONSTRAINT webhooks_salida_evento_check
-    CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'cuadrilla.creada', 'cuadrilla.actualizada',
+    CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'prospecto.estado_cambiado', 'cuadrilla.creada', 'cuadrilla.actualizada',
                       'tecnico.argos_vinculado', 'tecnico.argos_desvinculado'));
 
 -- Aviso de campana cuando Argos tiene otro cuerpo para la clave de un cambio o intento (0.14.0 §3.10).
@@ -47,7 +47,7 @@ ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
 DELETE FROM mensajeria.webhooks_salida WHERE evento IN ('tecnico.argos_vinculado', 'tecnico.argos_desvinculado');
 ALTER TABLE mensajeria.webhooks_salida DROP CONSTRAINT webhooks_salida_evento_check;
 ALTER TABLE mensajeria.webhooks_salida ADD CONSTRAINT webhooks_salida_evento_check
-    CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'cuadrilla.creada', 'cuadrilla.actualizada'));
+    CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'prospecto.estado_cambiado', 'cuadrilla.creada', 'cuadrilla.actualizada'));
 ALTER TABLE mensajeria.webhooks_salida DROP COLUMN IF EXISTS carga_id;
 ALTER TABLE mensajeria.webhooks_salida DROP COLUMN IF EXISTS conector_origen;
 ALTER TABLE integracion.pendientes DROP COLUMN IF EXISTS esperando_vinculo_desde;

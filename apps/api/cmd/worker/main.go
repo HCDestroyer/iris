@@ -120,7 +120,8 @@ func correr() error {
 	sop.SuscribirHorus(bus, pool)
 	// Acciones en Argos al cerrar una orden (contrato §3): suscriptor de orden.cerrada y cola de
 	// pendientes con reintentos (1 min, 5 min, 30 min, 2 h, 12 h).
-	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos,
+	// Cifrador: abre el depósito de tránsito del paso del titular (contrato 0.10.0 §3.4.8).
+	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Cifrador: acfg.Cifrador,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
@@ -230,7 +231,7 @@ func correr() error {
 			notif.RegistrarTrabajos(pool)(w)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
-			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), inventario.TrabajoPeriodico(5*time.Minute),
+			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), pendientes.TrabajoPurgaTransito(), inventario.TrabajoPeriodico(5*time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
 			agenda.TrabajoPeriodicoZonas(10*time.Minute),
 			// Claves de Idempotency-Key vencidas (y las de SHA-256 plano de antes del HMAC).

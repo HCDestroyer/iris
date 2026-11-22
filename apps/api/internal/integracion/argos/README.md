@@ -432,7 +432,8 @@ admin).
 
 **Reconexión (A-1).** Al activar un conector de la misma instancia de Argos que otro
 (`integracion.misma_instancia_argos`: `base_url` normalizada —host en minúsculas, sin punto final ni puerto
-por defecto; se guarda así desde el canje— y, si los dos lo traen, el mismo `remoto_id`), `migrarVinculos`
+por defecto; se guarda así desde el canje, y la migración normalizó las ya guardadas; el receptor de
+webhooks que manda Argos se compara y se guarda igual— y, si los dos lo traen, el mismo `remoto_id`), `migrarVinculos`
 pasa al nuevo, en la transacción de la activación, los `agenda.tecnicos.argos_conector_id` y el
 `conector_origen` de los webhooks `tecnico.argos_*` aún sin entregar. Lo entregado y la carga cerrada no se
 heredan: el conector nuevo corre su carga inicial al informar 0.14.0 (reemite los vinculados con versión
@@ -543,3 +544,13 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
 - **Emite** `argos.cuenta_bancaria_cambiada` (cuenta, empresa, `campos[]`, `activa`, `creada`,
   `entrante_id` o null): con el webhook siempre; con una relectura, solo si la cuenta cambió. Nunca
   el número ni el titular. **Consume** `cuenta_bancaria.cambiada` de Argos.
+
+## Contrato 0.10.0: código y nombre del servicio (A45 / B24)
+
+- La instantánea guarda `nombre` del servicio (`integracion.argos_servicios.nombre`): el decodificador
+  lo lee de `GET /servicios` (lista blanca), lo deja en una línea y hasta 60 caracteres
+  (`NombreServicio`). Es texto del cliente: la API lo devuelve en `Servicio.nombre` (ausente si no
+  tiene) y el panel lo muestra escapado («S-000412 · Casa»). Nunca va a los logs ni al proveedor de IA
+  (`ServiciosClienteAsistente` no lo lee).
+- `codigo` ya se guardaba. Con el formato de A45 (`S-000412`) el asistente lo usa en la etiqueta corta
+  (`<codigo> · «plan» · «zona»`, §10.5 ajuste ag); con otra forma sigue «Servicio n».

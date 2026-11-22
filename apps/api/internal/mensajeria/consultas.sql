@@ -285,6 +285,27 @@ SELECT (EXISTS (
         OR ((o.payload->>'usuario_id')::bigint = @usuario_id::bigint AND (o.payload->>'version')::int < @version::int))
 ))::boolean;
 
+-- name: DesvinculadoAnteriorFallido :one
+-- El desvinculado del que depende el vinculado ya no va a salir solo: su webhook agotó los reintentos
+-- o el relay no lo pudo publicar (outbox con fallido_en). Mismas reglas de dependencia que arriba.
+SELECT (EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado = 'agotado'
+      AND ((d.payload->>'id_externo' = @id_externo::text AND d.created_at < @antes)
+        OR ((d.payload->>'usuario_id')::bigint = @usuario_id::bigint AND (d.payload->>'version')::int < @version::int))
+) OR EXISTS (
+    SELECT 1 FROM integracion.outbox o
+    WHERE o.evento = 'tecnico.argos_desvinculado' AND o.publicado_en IS NULL AND o.fallido_en IS NOT NULL
+      AND ((o.payload->>'id_externo' = @id_externo::text AND o.id < @evento_id::uuid)
+        OR ((o.payload->>'usuario_id')::bigint = @usuario_id::bigint AND (o.payload->>'version')::int < @version::int))
+))::boolean;
+
+-- name: AgotarWebhook :exec
+-- El vinculado que espera un desvinculado que no saldrá (o pasadas 24 h): agotado a la vista, para
+-- reenviarlo (POST …/reenviar) cuando su dependencia se resuelva.
+UPDATE mensajeria.webhooks_salida SET estado = 'agotado', ultimo_error = @ultimo_error, updated_at = now()
+WHERE id = @id AND estado = 'pendiente';
+
 -- name: WebhookParaReenviar :one
 SELECT * FROM mensajeria.webhooks_salida WHERE id = $1 FOR UPDATE;
 

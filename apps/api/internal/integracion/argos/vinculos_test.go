@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"testing"
 
@@ -290,5 +291,22 @@ func TestCargaDetenidaAvisa(t *testing.T) {
 	}
 	if ok, err := mod.CerrarCargaVinculos(ctx); err != nil || !ok {
 		t.Fatalf("entregado: %v %v", ok, err)
+	}
+}
+
+// El receptor que manda Argos en el canje se compara y se guarda normalizado: el host con punto
+// final o en mayúsculas es el mismo que el de la API.
+func TestReceptorNormalizado(t *testing.T) {
+	e := nuevoEntorno(t)
+	u, err := url.Parse(e.argos.srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.argos.con(func() {
+		e.argos.webhookURL = "HTTP://" + u.Hostname() + ".:" + u.Port() + "/api/v1/integraciones/iris/webhook"
+	})
+	_, id, _ := e.conectado()
+	if got := e.consultarTexto(`SELECT webhook_salida_url FROM integracion.conectores WHERE id = $1`, id); got != e.argos.srv.URL+"/api/v1/integraciones/iris/webhook" {
+		t.Fatalf("receptor: %s", got)
 	}
 }

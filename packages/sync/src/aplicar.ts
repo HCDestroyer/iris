@@ -28,7 +28,13 @@ export function notasSinVersion(orden: Pick<OrdenCampo, "notas">): boolean {
     return (orden.notas ?? []).some((n) => !versionNotaValida(n.version));
 }
 
-export const TIPOS_EVIDENCIA: ReadonlySet<TipoOperacion> = new Set<TipoOperacion>(["nota.agregar", "nota.editar", "nota.eliminar", "adjunto.registrar"]);
+export const TIPOS_EVIDENCIA: ReadonlySet<TipoOperacion> = new Set<TipoOperacion>(["nota.agregar", "nota.editar", "nota.eliminar", "adjunto.registrar", "llamada.directa"]);
+
+/**
+ * Operaciones que van solas (como en la API, `contratos/sync.md` §2): un rechazo suyo no detiene la
+ * orden ni un rechazo de la orden las detiene a ellas. Hoy, `llamada.directa`.
+ */
+export const TIPOS_SUELTOS: ReadonlySet<TipoOperacion> = new Set<TipoOperacion>(["llamada.directa"]);
 
 /** Estado al que lleva cada operación que cambia el estado de la orden. */
 const TRANSICIONES: Partial<Record<TipoOperacion, EstadoOrden>> = {

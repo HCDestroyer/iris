@@ -100,7 +100,12 @@ export const TIPOS_OPERACION = [
     "orden.quitar_formulario",
     "equipo.cambiar",
     "equipo.no_recuperado",
+    "llamada.directa",
 ] as const satisfies readonly TipoOperacion[];
+
+/** Qué número de la orden llamó el técnico (`llamada.directa`); el servidor pone el número. */
+export const TELEFONOS_ORDEN = ["contacto", "movil", "principal"] as const;
+export type TelefonoOrden = (typeof TELEFONOS_ORDEN)[number];
 
 export const MOTIVOS_PAUSA = ["esperando_material", "cliente_ausente", "clima", "acceso", "otro"] as const satisfies readonly MotivoPausa[];
 
@@ -145,6 +150,17 @@ export interface DatosPorTipo {
     "equipo.cambiar": SinVersion<Schema<"EntradaCambiarEquipo">>;
     /** Intento de recuperación en un retiro (0.12.0 §3.10): foto si se negó o se perdió, ubicación en sitio. */
     "equipo.no_recuperado": SinVersion<Schema<"EntradaNoRecuperado">>;
+    /**
+     * «Llamar desde mi celular» (E4c): el teléfono ya abrió `tel:`; la operación la anota en la orden
+     * con la hora real (`ocurridoEn`). No cambia la orden. `datos` de `DatosLlamadaDirectaLote` en la API.
+     */
+    "llamada.directa": { telefono?: TelefonoOrden };
+    // Paso «Confirmar titular y plan» (contrato argosisp.md 0.10.0 §3.4; `contratos/sync.md` §3b). Las
+    // fotos del documento van solo en la cola local, cifradas, hasta que la operación queda aplicada.
+    "orden.registrar_identidad": Schema<"EntradaRegistrarIdentidad">;
+    "orden.cambiar_titular": Schema<"EntradaCambiarTitular">;
+    "orden.completar_datos": Schema<"EntradaCompletarDatos">;
+    "orden.cambiar_plan": Schema<"EntradaCambiarPlan">;
 }
 
 /** Una operación tal como viaja en `POST /sync/lote` (`OperacionLote` con `datos` tipados). */

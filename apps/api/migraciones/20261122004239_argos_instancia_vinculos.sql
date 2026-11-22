@@ -1,20 +1,26 @@
 -- +goose Up
 -- Instancia de Argos (contrato con ArgosISP 0.14.0 §6.6): dos conectores son de la misma instancia si
--- su base_url normalizada coincide (host en minúsculas, sin punto final, sin el puerto por defecto y
--- sin la barra final) y, cuando los dos informaron remoto_id, también ese. Lo usan la reconexión (los
+-- su base_url normalizada coincide (esquema y host en minúsculas, sin punto final, sin el puerto por
+-- defecto y sin la barra final; la ruta tal cual) y, cuando los dos informaron remoto_id, también ese. Lo usan la reconexión (los
 -- vínculos de los técnicos y los webhooks tecnico.argos_* sin entregar pasan al conector nuevo) y la
 -- programación de un webhook cuyo conector de origen ya fue reemplazado.
 
 -- +goose StatementBegin
 CREATE FUNCTION integracion.url_instancia(u text) RETURNS text
 LANGUAGE sql IMMUTABLE AS $$
-    SELECT regexp_replace(
-        regexp_replace(
-            regexp_replace(lower(u), '/+$', ''),
-            '^(https?://[^/]+):(443|80)(/|$)', '\1\3'),
-        '^(https?://[^/:]+)\.(:|/|$)', '\1\2')
+    SELECT regexp_replace(regexp_replace(regexp_replace(
+               lower(coalesce(substring(x FROM '^[^:/]+://[^/]*'), x)) || coalesce(substring(x FROM '^[^:/]+://[^/]*(/.*)$'), ''),
+               '^(https://[^/]+):443(/|$)', '\1\2'),
+               '^(http://[^/]+):80(/|$)', '\1\2'),
+           '^(https?://[^/:]+)\.(:|/|$)', '\1\2')
+    FROM (SELECT regexp_replace(u, '/+$', '') AS x) s
 $$;
 -- +goose StatementEnd
+
+-- Las base_url ya guardadas, normalizadas como las guarda el canje desde ahora (host en minúsculas,
+-- sin punto final ni puerto por defecto, sin barra final; la ruta tal cual).
+UPDATE integracion.conectores SET base_url = integracion.url_instancia(base_url)
+WHERE base_url <> integracion.url_instancia(base_url);
 
 -- +goose StatementBegin
 CREATE FUNCTION integracion.misma_instancia_argos(a bigint, b bigint) RETURNS boolean

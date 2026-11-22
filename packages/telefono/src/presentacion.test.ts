@@ -1,6 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { ErrorApi } from "@/lib/api/errores";
 import { avisoError, clasificarMarcado, motivoFin, numeroLegible, puntoTelefono, reloj, textoErrorLlamar, textoMotivo } from "./presentacion";
+
+/** Un error de la API con la forma del `ErrorApi` del panel (el motor lo distingue por su forma). */
+class ErrorApiPrueba extends Error {
+    readonly estado: number;
+    readonly codigo: string;
+    readonly titulo: string;
+    readonly detalle: string | undefined;
+    readonly reintentarEn: number | undefined;
+    constructor(d: { estado: number; codigo: string; titulo: string; detalle?: string; reintentarEn?: number | undefined }) {
+        super(d.titulo);
+        this.estado = d.estado;
+        this.codigo = d.codigo;
+        this.titulo = d.titulo;
+        this.detalle = d.detalle;
+        this.reintentarEn = d.reintentarEn;
+    }
+}
 
 describe("teclado: lo mismo que acepta el servidor", () => {
     it("Guatemala: 8 dígitos que empiezan por 2 a 7, con o sin +502", () => {
@@ -52,7 +68,7 @@ describe("el punto del teléfono y los avisos", () => {
         expect(textoMotivo("extension_escritorio")).toContain("teléfono de escritorio");
     });
     it("los errores de llamar", () => {
-        const e = (codigo: string, estado = 422) => new ErrorApi({ estado, codigo, titulo: "x" });
+        const e = (codigo: string, estado = 422) => new ErrorApiPrueba({ estado, codigo, titulo: "x" });
         expect(textoErrorLlamar(e("destino_no_permitido")).titulo).toBe("Ese número no se puede marcar");
         expect(textoErrorLlamar(e("limite_llamadas")).titulo).toContain("límite");
         expect(textoErrorLlamar(e("llamadas_simultaneas", 409)).titulo).toContain("muchas llamadas");
