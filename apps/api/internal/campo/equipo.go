@@ -85,6 +85,14 @@ func (m *Modulo) nuevoAutorizarEquipo() *auditoria.Caso[EntradaEquipoOrden, int6
 			if err != nil {
 				return 0, err
 			}
+			// 0.14.3 §4.3: solo con la marca estado_equipo de la empresa.
+			if m.cfg.Equipos.Capacidad != nil {
+				if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionEstadoEquipo)); err != nil {
+					return 0, err
+				} else if !ok {
+					return 0, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "El estado del equipo no está disponible para esta empresa")
+				}
+			}
 			return *f.ServicioID, nil
 		},
 	})
@@ -127,10 +135,10 @@ func (m *Modulo) nuevoCambiarWifi() *auditoria.Caso[EntradaWifiOrden, equipos.Ca
 			if m.cfg.Equipos.Capacidad == nil {
 				return equipos.CambioWifi{}, nucleo.ReglaNegocio("wifi_no_disponible", "Iris no tiene conexión con Argos 0.9.0 para cambiar el Wi-Fi")
 			}
-			if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.CapacidadSoloContrato); err != nil {
+			if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionWifi)); err != nil {
 				return equipos.CambioWifi{}, err
 			} else if !ok {
-				return equipos.CambioWifi{}, nucleo.ReglaNegocio("wifi_no_disponible", "Argos todavía no permite cambiar el Wi-Fi desde Iris (contrato 0.9.0)")
+				return equipos.CambioWifi{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "Cambiar el Wi-Fi no está disponible para esta empresa")
 			}
 			metodo := equipos.MetodoLlamadaVerificada
 			if esTecnico(ctx) {

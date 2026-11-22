@@ -587,10 +587,16 @@ func TestBienvenidaEnLaOrden(t *testing.T) {
 	// Argos avisa por canal: correo fallido, WhatsApp enviada (dos webhooks, mezclados por canal).
 	e.eventoArgos("argos.bienvenida_cambiada", map[string]any{"servicio_id": *o.ServicioID, "empresa_id": 1, "origen_tipo": "iris_orden",
 		"origen_id": orden, "canales": []any{map[string]any{"canal": "correo", "estado": "fallida", "motivo": "sin_contacto"}}})
-	e.eventoArgos("argos.bienvenida_cambiada", map[string]any{"servicio_id": *o.ServicioID, "empresa_id": 1, "origen_tipo": nil,
-		"origen_id": nil, "canales": []any{map[string]any{"canal": "whatsapp", "estado": "enviada"}}})
+	// Sin origen: se relaciona por servicio y titular (una sola instalación en 7 días), pero no cuenta.
+	e.eventoArgos("argos.bienvenida_cambiada", map[string]any{"servicio_id": *o.ServicioID, "empresa_id": 1, "cliente_id": 990, "origen_tipo": nil,
+		"origen_id": nil, "canales": []any{map[string]any{"canal": "telegram", "estado": "enviada"}}})
+	if b := deber(e.m.VerBienvenida.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t); b.Cumplida || len(b.Canales) != 2 || !b.Canales[1].Relacionada {
+		t.Fatalf("relacionada por servicio: %+v", b)
+	}
+	e.eventoArgos("argos.bienvenida_cambiada", map[string]any{"servicio_id": *o.ServicioID, "empresa_id": 1, "origen_tipo": "iris_orden",
+		"origen_id": orden, "canales": []any{map[string]any{"canal": "whatsapp", "estado": "enviada"}}})
 	b = deber(e.m.VerBienvenida.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t)
-	if !b.Cumplida || len(b.Canales) != 2 {
+	if !b.Cumplida || len(b.Canales) != 3 {
 		t.Fatalf("bienvenida: %+v", b)
 	}
 	if enBandeja() {
@@ -686,5 +692,57 @@ func TestClaveWifiAgotadaSeDescarta(t *testing.T) {
 	e.purgar()
 	if n := contar(t, "SELECT count(*) FROM integracion.datos_transito WHERE orden_id = $1 AND cifrado IS NOT NULL", o.ID); n != 0 {
 		t.Fatalf("clave de un agotado de más de 24 h: %d", n)
+	}
+}
+
+// 0.14.3: con capacidades.equipos, cada función solo con su marca (una empresa sin fila: todo false);
+// sin el campo, como en la 0.14.2.
+func TestCapacidadesEquipos(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoPendienteAgente)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE integracion.conectores SET capacidades_equipos =
+		'[{"empresa_id":1,"estado_equipo":false,"wifi":false,"bienvenida":true,"cobro_equipo":false}]' WHERE sistema = 'argosisp'`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.m.VerEquipo(ct, campo.EntradaEquipoOrden{ID: o.ID})
+	problema(t, err, 422, "capacidad_no_disponible")
+	_, err = e.m.CambiarWifi.Ejecutar(ct, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Casa")})
+	problema(t, err, 422, "capacidad_no_disponible")
+	_, err = e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID, ConceptoID: ptr(int64(5)), PrecioUnitario: ptr("100"), MotivoPrecio: ptr("Cobro de prueba sin plantilla")})
+	problema(t, err, 422, "capacidad_no_disponible")
+	r := e.lote(ct, op(campo.OpActivarServicio, o.ID, datosActivacion(false)))
+	if r.Resultados[0].Error == nil || r.Resultados[0].Error.Codigo() != "capacidad_no_disponible" {
+		t.Fatalf("Wi-Fi inicial sin la marca: %+v", r.Resultados[0])
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.conectores SET capacidades_equipos = '[]' WHERE sistema = 'argosisp'"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.m.VerEquipo(ct, campo.EntradaEquipoOrden{ID: o.ID})
+	problema(t, err, 422, "capacidad_no_disponible") // empresa sin fila
+}
+
+// 0.14.3: «activado fuera de la orden»: con exigir lista, cierra sin supervisor y sin comodato.
+func TestActivadoFueraDeLaOrden(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoExigirLista)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	orden := strconv.FormatInt(o.ID, 10)
+	pool := pruebas.Pool(t)
+	if _, err := pool.Exec(context.Background(), `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en) VALUES (990, 1, 'Ana', now())
+		ON CONFLICT (id) DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, estado, sincronizado_en)
+		VALUES ($1, 1, 990, 'activo', now()) ON CONFLICT (id) DO UPDATE SET estado = 'activo'`, *o.ServicioID); err != nil {
+		t.Fatal(err)
+	}
+	esperar(t, e.lote(ct, trabajoDeInstalacion(o.ID)[2:]...), repetir(len(trabajoDeInstalacion(o.ID))-2, "aplicada")...)
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.cerrada' AND payload->>'orden_id' = $1 AND payload->'activacion'->>'estado' = 'activado_fuera'", orden); n != 1 {
+		t.Fatalf("activado_fuera: %d", n)
+	}
+	e.relay()
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE entidad_id = $1 AND operacion IN ('activar_instalacion', 'asignar_comodato')", orden); n != 0 {
+		t.Fatalf("activación o comodato al cerrar: %d", n)
 	}
 }

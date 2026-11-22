@@ -504,7 +504,7 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			if err := despuesDelPasoTitular(ctx, t, f, in.ahora); err != nil {
 				return Pendiente{}, err
 			}
-			if deref(f.CodigoError) == CodigoBodegaRequerida && m.cfg.Argos != nil {
+			if (deref(f.CodigoError) == CodigoBodegaRequerida || deref(f.CodigoError) == "capacidad_no_disponible") && m.cfg.Argos != nil {
 				// Argos volvió a 1.5.x: se relee su versión ya (no al próximo periodo), para que lo
 				// que se encole desde ahora salga con bodega_id.
 				if err := m.cfg.Argos.RevisarContratoYa(ctx, t.Tx); err != nil {

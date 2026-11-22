@@ -10798,6 +10798,7 @@ export interface components {
             estado: "pendiente" | "enviada" | "fallida" | "omitida";
             /** @description Por qué falló u omitió (sin_permiso, baja, sin_contacto…) */
             motivo: string | null;
+            relacionadaPorServicio?: boolean;
         };
         CanalDeLlamada: {
             /** Format: int64 */

@@ -60,6 +60,8 @@ const (
 	ActivacionFallida   = "fallido"
 	// ActivacionNinguna: la orden no tiene intentos (solo en orden.cerrada y en el estado).
 	ActivacionNinguna = "ninguna"
+	// ActivacionFuera: el servicio se activó fuera de la orden (0.14.3; solo en orden.cerrada).
+	ActivacionFuera = "activado_fuera"
 )
 
 // Eventos de la activación (catálogo de CLAUDE.md; nunca la clave Wi-Fi ni el SSID).
@@ -476,6 +478,14 @@ func (m *Modulo) nuevoActivarServicio() *auditoria.Caso[EntradaActivarServicio, 
 			}
 			if motivo != "" {
 				return f, "", problemaNoDisponible(motivo)
+			}
+			// 0.14.3 §4.3: el Wi-Fi inicial exige la marca wifi de la empresa.
+			if in.Wifi != nil && m.cfg.Equipos.Capacidad != nil {
+				if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionWifi)); err != nil {
+					return f, "", err
+				} else if !ok {
+					return f, "", nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "El Wi-Fi inicial no está disponible para esta empresa: activa sin él")
+				}
 			}
 			if f.Estado != EstadoCerrada && esTecnico(ctx) {
 				if err := exigirEstado(f, "activar el servicio de", EstadoEnSitio); err != nil {
@@ -994,6 +1004,8 @@ type activacionCierre struct {
 	estado      string
 	viva        *campobd.CampoActivacione
 	sinMotivo   *string
+	// activadoFuera: Argos ya tiene el servicio activo (0.14.3); ningún equipo lleva comodato al cerrar.
+	activadoFuera bool
 }
 
 // alPayload agrega activacion a orden.cerrada y marca el equipo aprovisionado (el cierre no manda
@@ -1011,7 +1023,7 @@ func (a activacionCierre) alPayload(p map[string]any) {
 		"cerrada_sin_activacion_motivo": a.sinMotivo}
 	equipos, _ := p["equipos"].([]map[string]any)
 	for _, e := range equipos {
-		e["aprovisionado"] = a.viva != nil && e["accion"] == AccionInstalar && mismoEquipo(*a.viva, e)
+		e["aprovisionado"] = e["accion"] == AccionInstalar && (a.activadoFuera || (a.viva != nil && mismoEquipo(*a.viva, e)))
 	}
 }
 
@@ -1065,6 +1077,18 @@ func (m *Modulo) activacionAlCerrar(ctx context.Context, t *auditoria.Tx, q *cam
 	if resultado != "exitosa" || modo != ModoExigirLista {
 		return r, nil
 	}
+	// 0.14.3: el servicio ya está activo en Argos sin un intento listo de la orden («activado fuera de la
+	// orden»): se cierra sin supervisor y sin comodato doble (ni activar-instalacion).
+	if (r.viva == nil || r.viva.Estado != ActivacionLista) && f.ServicioID != nil {
+		fuera, err := q.ServicioActivoEnArgos(ctx, *f.ServicioID)
+		if err != nil {
+			return r, err
+		}
+		if fuera {
+			r.estado, r.activadoFuera = ActivacionFuera, true
+			return r, nil
+		}
+	}
 	falta := ""
 	switch {
 	case r.viva == nil || r.viva.Estado != ActivacionLista:
@@ -1110,13 +1134,17 @@ func (m *Modulo) activacionAlCerrar(ctx context.Context, t *auditoria.Tx, q *cam
 // avisos (sin_permiso, baja), §12.5.
 func bienvenidaCumplida(crudo []byte) bool {
 	var canales []struct {
-		Estado string  `json:"estado"`
-		Motivo *string `json:"motivo"`
+		Estado      string  `json:"estado"`
+		Motivo      *string `json:"motivo"`
+		Relacionada bool    `json:"relacionadaPorServicio"`
 	}
 	if len(crudo) == 0 || json.Unmarshal(crudo, &canales) != nil {
 		return false
 	}
 	for _, c := range canales {
+		if c.Relacionada {
+			continue // relacionada por servicio (0.14.3): no cuenta para el cierre
+		}
 		if c.Estado == "enviada" {
 			return true
 		}

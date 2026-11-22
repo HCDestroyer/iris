@@ -34,10 +34,12 @@ const (
 
 // CanalBienvenida es el estado de un canal.
 type CanalBienvenida struct {
-	Canal   string  `json:"canal" enum:"whatsapp,correo,telegram"`
-	Estado  string  `json:"estado" enum:"pendiente,enviada,fallida,omitida"`
-	Motivo  *string `json:"motivo" nullable:"true" doc:"Por qué falló u omitió (sin_permiso, baja, sin_contacto…)"`
-	AvisoID *string `json:"avisoId,omitempty" doc:"WhatsApp: el aviso de Iris"`
+	// Relacionada: llegó sin origen y se relacionó por servicio (0.14.3): no cuenta para el cierre.
+	Relacionada bool    `json:"relacionadaPorServicio,omitempty"`
+	Canal       string  `json:"canal" enum:"whatsapp,correo,telegram"`
+	Estado      string  `json:"estado" enum:"pendiente,enviada,fallida,omitida"`
+	Motivo      *string `json:"motivo" nullable:"true" doc:"Por qué falló u omitió (sin_permiso, baja, sin_contacto…)"`
+	AvisoID     *string `json:"avisoId,omitempty" doc:"WhatsApp: el aviso de Iris"`
 }
 
 // Bienvenida es el bloque «Bienvenida» de la orden.
@@ -138,10 +140,10 @@ func (m *Modulo) nuevoReenviarBienvenida() *auditoria.Caso[EntradaReenviarBienve
 			if m.cfg.Equipos.Capacidad == nil {
 				return Bienvenida{}, nucleo.ReglaNegocio("bienvenida_no_disponible", "Iris no tiene conexión con Argos")
 			}
-			if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.CapacidadSoloContrato); err != nil {
+			if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionBienvenida)); err != nil {
 				return Bienvenida{}, err
 			} else if !ok {
-				return Bienvenida{}, nucleo.ReglaNegocio("bienvenida_no_disponible", "Argos todavía no permite reenviar la bienvenida desde Iris (contrato 0.9.0)")
+				return Bienvenida{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "La bienvenida no está disponible para esta empresa")
 			}
 			activa := f.Estado == EstadoCerrada && f.Resultado != nil && *f.Resultado == "exitosa"
 			if viva, err := q.ActivacionVivaDeOrden(ctx, f.ID); err == nil && viva.Estado == ActivacionLista {
@@ -187,6 +189,7 @@ func (m *Modulo) nuevoReenviarBienvenida() *auditoria.Caso[EntradaReenviarBienve
 
 // entradaBienvenidaArgos: servicio.bienvenida_cambiada (argos.bienvenida_cambiada).
 type entradaBienvenidaArgos struct {
+	ClienteID  *int64            `json:"cliente_id"`
 	ServicioID int64             `json:"servicio_id"`
 	EmpresaID  *int64            `json:"empresa_id"`
 	OrigenTipo *string           `json:"origen_tipo"`
@@ -209,15 +212,23 @@ func (m *Modulo) nuevoActualizarBienvenida() *auditoria.Caso[entradaBienvenidaAr
 					orden = n
 				}
 			}
+			relacionada := false
 			if orden == 0 {
-				id, err := q.OrdenesDeServicioParaBienvenida(ctx, &in.ServicioID)
-				if errors.Is(err, pgx.ErrNoRows) {
+				// Sin origen (0.14.3): una sola instalación del servicio y del titular actual en los 7 días
+				// anteriores; se muestra «relacionada por servicio» y no cuenta para el cierre.
+				if in.ClienteID == nil {
 					return nil, nil
 				}
+				ids, err := q.OrdenesParaBienvenidaSinOrigen(ctx, campobd.OrdenesParaBienvenidaSinOrigenParams{ServicioID: &in.ServicioID,
+					ClienteID: in.ClienteID, Desde: m.ahora().Add(-7 * 24 * time.Hour)})
 				if err != nil {
 					return nil, err
 				}
-				orden = id
+				if len(ids) != 1 {
+					t.Anotar(map[string]any{"bienvenida_sin_relacionar": len(ids)})
+					return nil, nil
+				}
+				orden, relacionada = ids[0], true
 			}
 			f, err := q.OrdenPorIDParaActualizar(ctx, orden)
 			if errors.Is(err, pgx.ErrNoRows) {
@@ -239,6 +250,7 @@ func (m *Modulo) nuevoActualizarBienvenida() *auditoria.Caso[entradaBienvenidaAr
 			// Se mezcla por canal: lo que no vino queda como estaba.
 			canales := leerCanales(antes.BienvenidaCanales)
 			for _, c := range in.Canales {
+				c.Relacionada = relacionada
 				hecho := false
 				for i := range canales {
 					if canales[i].Canal == c.Canal {

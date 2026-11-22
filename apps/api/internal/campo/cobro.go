@@ -147,10 +147,10 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			if m.cfg.Equipos.Capacidad == nil {
 				return Cobro{}, nucleo.ReglaNegocio("cobro_no_disponible", "Iris no tiene conexión con Argos para cobrar la instalación")
 			}
-			if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.CapacidadSoloContrato); err != nil {
+			if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionCobroEquipo)); err != nil {
 				return Cobro{}, err
 			} else if !ok {
-				return Cobro{}, nucleo.ReglaNegocio("cobro_no_disponible", "Argos todavía no recibe el cobro de la instalación desde Iris (contrato 0.9.0)")
+				return Cobro{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "El cobro de la instalación no está disponible para esta empresa")
 			}
 			// El cierre ya mandó el cargo de la plantilla (iris:cargo:<orden>): otro cobro sería una segunda
 			// factura. Solo si Argos lo rechazó o se resolvió a mano se puede registrar aquí.

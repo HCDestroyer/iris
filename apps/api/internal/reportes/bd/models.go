@@ -1156,6 +1156,7 @@ type IntegracionConectore struct {
 	EliminadoEn                  *time.Time
 	EliminadoPor                 *int64
 	CapacidadesAprovisionamiento []byte
+	CapacidadesEquipos           []byte
 }
 
 type IntegracionDatosTransito struct {

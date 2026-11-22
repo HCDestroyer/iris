@@ -1127,6 +1127,53 @@ func (q *Queries) OrdenesDeServicioParaBienvenida(ctx context.Context, servicioI
 	return id, err
 }
 
+const ordenesParaBienvenidaSinOrigen = `-- name: OrdenesParaBienvenidaSinOrigen :many
+SELECT o.id FROM campo.ordenes o JOIN campo.tipos_orden t ON t.id = o.tipo_id
+WHERE o.servicio_id = $1 AND o.cliente_id = $2 AND t.codigo = 'instalacion' AND o.estado <> 'cancelada'
+  AND o.updated_at >= $3
+LIMIT 2
+`
+
+type OrdenesParaBienvenidaSinOrigenParams struct {
+	ServicioID *int64
+	ClienteID  *int64
+	Desde      time.Time
+}
+
+// Bienvenida sin origen (0.14.3 §12.5): instalaciones del servicio y del titular actual con actividad en
+// los 7 días anteriores a la recepción; solo se relaciona si hay exactamente una.
+func (q *Queries) OrdenesParaBienvenidaSinOrigen(ctx context.Context, arg OrdenesParaBienvenidaSinOrigenParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, ordenesParaBienvenidaSinOrigen, arg.ServicioID, arg.ClienteID, arg.Desde)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const servicioActivoEnArgos = `-- name: ServicioActivoEnArgos :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios WHERE id = $1 AND estado = 'activo')::boolean
+`
+
+// La instantánea de Argos dice que el servicio ya está activo (0.14.3: «activado fuera de la orden»).
+func (q *Queries) ServicioActivoEnArgos(ctx context.Context, servicioID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, servicioActivoEnArgos, servicioID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const sumarIntentoActivacion = `-- name: SumarIntentoActivacion :one
 UPDATE campo.orden_activacion SET intentos = intentos + 1, version = version + 1, updated_at = now()
 WHERE orden_id = $1 RETURNING intentos

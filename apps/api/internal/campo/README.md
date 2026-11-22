@@ -392,3 +392,11 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   `orden.cobro_cambiado`, `orden.bienvenida_cambiada` y `orden.bienvenida_reenviada`; consume
   `integracion.pendiente_hecho`, `_fallido`, `_resuelto_manual`, `argos.instalacion_resuelta`,
   `argos.factura_cambiada` y `argos.bienvenida_cambiada`.
+
+**Contrato 0.14.3:** cada función del bloque E (estado del equipo, Wi-Fi —también el inicial al activar—, bienvenida y
+cobro) se ofrece solo con su marca en `capacidades.equipos` de la empresa (sin el campo, como en la 0.14.2; una empresa
+sin fila, todo false): si no, 422 `capacidad_no_disponible`. Un 422 `capacidad_no_disponible` de Argos deja el pendiente
+terminal y hace releer el estado. Con «exigir lista» y el servicio ya `activo` en la instantánea de Argos, el cierre sale
+con `activacion.estado: activado_fuera`, sin supervisor ni comodato. Una bienvenida sin origen se relaciona solo con la
+única instalación del servicio y del titular de los últimos 7 días, marcada `relacionadaPorServicio`, y no cuenta para
+`cierre_exige_bienvenida`.

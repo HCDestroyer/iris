@@ -143,3 +143,15 @@ WHERE t.codigo = 'instalacion' AND o.servicio_id IS NOT NULL
   AND (sqlc.narg(antes)::bigint IS NULL OR o.id < sqlc.narg(antes)::bigint)
 ORDER BY o.id DESC
 LIMIT @limite;
+
+-- name: ServicioActivoEnArgos :one
+-- La instantánea de Argos dice que el servicio ya está activo (0.14.3: «activado fuera de la orden»).
+SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios WHERE id = @servicio_id AND estado = 'activo')::boolean;
+
+-- name: OrdenesParaBienvenidaSinOrigen :many
+-- Bienvenida sin origen (0.14.3 §12.5): instalaciones del servicio y del titular actual con actividad en
+-- los 7 días anteriores a la recepción; solo se relaciona si hay exactamente una.
+SELECT o.id FROM campo.ordenes o JOIN campo.tipos_orden t ON t.id = o.tipo_id
+WHERE o.servicio_id = @servicio_id AND o.cliente_id = @cliente_id AND t.codigo = 'instalacion' AND o.estado <> 'cancelada'
+  AND o.updated_at >= @desde
+LIMIT 2;

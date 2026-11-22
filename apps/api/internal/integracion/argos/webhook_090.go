@@ -65,10 +65,31 @@ type CapacidadAprovisionamiento struct {
 	TR069     bool  `json:"tr069"`
 }
 
-// capacidadesEstado es `capacidades` de GET /integraciones/iris/estado (0.9.0 §4.3).
+// capacidadesEstado es `capacidades` de GET /integraciones/iris/estado (0.9.0 §4.3; equipos desde 0.14.3).
 type capacidadesEstado struct {
 	Aprovisionamiento []CapacidadAprovisionamiento `json:"aprovisionamiento"`
+	Equipos           []CapacidadEquipos           `json:"equipos"`
 }
+
+// CapacidadEquipos: las funciones del bloque E por empresa (0.14.3 §4.3).
+type CapacidadEquipos struct {
+	EmpresaID    int64 `json:"empresa_id"`
+	EstadoEquipo bool  `json:"estado_equipo"`
+	Wifi         bool  `json:"wifi"`
+	Bienvenida   bool  `json:"bienvenida"`
+	CobroEquipo  bool  `json:"cobro_equipo"`
+}
+
+// Funciones de capacidades.equipos (0.14.3).
+const (
+	FuncionEstadoEquipo = "estado_equipo"
+	FuncionWifi         = "wifi"
+	FuncionBienvenida   = "bienvenida"
+	FuncionCobroEquipo  = "cobro_equipo"
+)
+
+// CodigoCapacidadNoDisponible: Argos (0.14.3) no tiene la función en true para la empresa.
+const CodigoCapacidadNoDisponible = "capacidad_no_disponible"
 
 // Tecnologías de la activación (§12.1).
 const (
@@ -98,6 +119,9 @@ func (m *Modulo) Aprovisionamiento(ctx context.Context, q conector.DBTX, empresa
 	if tecnologia == CapacidadSoloContrato {
 		return SoportaEquipos(contrato), nil
 	}
+	if f, ok := strings.CutPrefix(tecnologia, "funcion:"); ok {
+		return m.funcionEquipos(ctx, q, contrato, empresa, f)
+	}
 	if !SoportaEquipos(contrato) || len(crudo) == 0 || empresa == nil {
 		return false, nil
 	}
@@ -123,6 +147,44 @@ func (m *Modulo) Aprovisionamiento(ctx context.Context, q conector.DBTX, empresa
 	return false, nil
 }
 
+// funcionEquipos: la marca de capacidades.equipos (0.14.3) de la empresa. Sin el campo (Argos <
+// 0.14.3), como en la 0.14.2: según el contrato informado. Una empresa sin fila cuenta como false.
+func (m *Modulo) funcionEquipos(ctx context.Context, q conector.DBTX, contrato *string, empresa *int64, funcion string) (bool, error) {
+	if !SoportaEquipos(contrato) {
+		return false, nil
+	}
+	var crudo []byte
+	if err := q.QueryRow(ctx, `SELECT capacidades_equipos FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&crudo); err != nil {
+		return false, err
+	}
+	if len(crudo) == 0 || string(crudo) == "null" {
+		return true, nil
+	}
+	var caps []CapacidadEquipos
+	if json.Unmarshal(crudo, &caps) != nil || empresa == nil {
+		return false, nil
+	}
+	for _, c := range caps {
+		if c.EmpresaID == *empresa {
+			switch funcion {
+			case FuncionEstadoEquipo:
+				return c.EstadoEquipo, nil
+			case FuncionWifi:
+				return c.Wifi, nil
+			case FuncionBienvenida:
+				return c.Bienvenida, nil
+			case FuncionCobroEquipo:
+				return c.CobroEquipo, nil
+			}
+		}
+	}
+	return false, nil
+}
+
+// Funcion arma el argumento de Aprovisionamiento para una función de capacidades.equipos.
+func Funcion(f string) string { return "funcion:" + f }
+
 // guardarCapacidades guarda capacidades.aprovisionamiento del conector (null si Argos no la mandó).
 func guardarCapacidades(ctx context.Context, q conector.DBTX, conectorID int64, caps *capacidadesEstado) error {
 	var crudo []byte
@@ -132,7 +194,15 @@ func guardarCapacidades(ctx context.Context, q conector.DBTX, conectorID int64, 
 			return err
 		}
 	}
-	_, err := q.Exec(ctx, `UPDATE integracion.conectores SET capacidades_aprovisionamiento = $2 WHERE id = $1`, conectorID, crudo)
+	var equipos []byte
+	if caps != nil && caps.Equipos != nil {
+		var err error
+		if equipos, err = json.Marshal(caps.Equipos); err != nil {
+			return err
+		}
+	}
+	_, err := q.Exec(ctx, `UPDATE integracion.conectores SET capacidades_aprovisionamiento = $2, capacidades_equipos = $3 WHERE id = $1`,
+		conectorID, crudo, equipos)
 	return err
 }
 

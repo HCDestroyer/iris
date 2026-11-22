@@ -95,6 +95,8 @@ ALTER TABLE integracion.datos_transito ADD CONSTRAINT datos_transito_motivo_borr
 -- Lo que Argos puede aprovisionar, por empresa y tecnología (0.9.0 §4.3, capacidades.aprovisionamiento):
 -- [{ empresa_id, ftth, wireless, tr069 }]. null = no lo informó (Iris activa al cerrar).
 ALTER TABLE integracion.conectores ADD COLUMN capacidades_aprovisionamiento jsonb;
+-- 0.14.3 §4.3: capacidades.equipos [{ empresa_id, estado_equipo, wifi, bienvenida, cobro_equipo }]; null = Argos < 0.14.3.
+ALTER TABLE integracion.conectores ADD COLUMN capacidades_equipos jsonb;
 
 -- Cambios de Wi-Fi pedidos a Argos (§12.4, POST /servicios/:id/wifi): desde la orden, el ticket o la
 -- conversación (enlace de un solo uso del asistente, B14). Sin la clave (va en el depósito de
@@ -129,7 +131,7 @@ CREATE INDEX cambios_wifi_solicitud_idx ON integracion.cambios_wifi (solicitud_i
 
 -- +goose Down
 DROP TABLE integracion.cambios_wifi;
-ALTER TABLE integracion.conectores DROP COLUMN capacidades_aprovisionamiento;
+ALTER TABLE integracion.conectores DROP COLUMN capacidades_equipos, DROP COLUMN capacidades_aprovisionamiento;
 UPDATE integracion.pendientes SET transito_id = NULL
 WHERE transito_id IN (SELECT id FROM integracion.datos_transito WHERE entidad <> 'orden');
 DELETE FROM integracion.datos_transito WHERE entidad <> 'orden';

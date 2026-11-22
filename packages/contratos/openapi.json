@@ -3406,6 +3406,9 @@
               "string",
               "null"
             ]
+          },
+          "relacionadaPorServicio": {
+            "type": "boolean"
           }
         },
         "required": [
