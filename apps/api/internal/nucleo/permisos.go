@@ -188,6 +188,9 @@ const (
 	PermProspectosPerder             Permiso = "prospectos.perder"
 	PermProspectosReabrir            Permiso = "prospectos.reabrir"
 	PermProspectosGanar              Permiso = "prospectos.ganar"
+	// PermProspectosCompletarTareaArgos: marcar hecha la tarea «Abrir en Argos» de una solicitud del
+	// portal de Argos ganada (contrato 0.9.0 §11.7): una persona ya la aplicó en Argos.
+	PermProspectosCompletarTareaArgos Permiso = "prospectos.completar_tarea_argos"
 	// PermProspectosRegistrarIntegracion: registrar un prospecto desde Argos (contrato 0.10.0 §3.6,
 	// A44). Solo del rol integracion_argos: no lee, no lista ni edita prospectos.
 	PermProspectosRegistrarIntegracion Permiso = "prospectos.registrar_integracion"
@@ -673,6 +676,7 @@ var Catalogo = []DefPermiso{
 	{PermPortalArgosVerSolicitudes, "Portal de Argos: el cliente ve sus solicitudes de servicio (solo el token_portal de Argos)"},
 	{PermPortalArgosVerTickets, "Portal de Argos: el cliente ve sus tickets y categorías (solo el token_portal de Argos)"},
 	{PermProspectosAsignar, "Asignar un prospecto a un vendedor"},
+	{PermProspectosCompletarTareaArgos, "Marcar hecha la tarea «Abrir en Argos» de una solicitud del portal de Argos ganada (cambio de plan, traslado u otro)"},
 	{PermProspectosContactar, "Marcar un prospecto como contactado"},
 	{PermProspectosCrear, "Registrar prospectos (panel, web, referidos…)"},
 	{PermProspectosEditar, "Editar los datos de un prospecto"},
@@ -782,7 +786,7 @@ var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesRespon
 var permisosComercial = []Permiso{
 	PermProspectosVer, PermProspectosCrear, PermProspectosEditar, PermProspectosAsignar, PermProspectosContactar,
 	PermProspectosRegistrarActividad, PermProspectosPerder, PermProspectosReabrir, PermProspectosGanar,
-	PermFactibilidadEvaluar, PermCotizacionesCrear, PermCotizacionesAceptar, PermContratosCrear, PermContratosFirmar,
+	PermProspectosCompletarTareaArgos, PermFactibilidadEvaluar, PermCotizacionesCrear, PermCotizacionesAceptar, PermContratosCrear, PermContratosFirmar,
 }
 
 // RolesBase son los roles que crea y mantiene el seed (CLAUDE.md §8). Sus permisos se

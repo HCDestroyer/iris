@@ -49,8 +49,10 @@ const (
 
 // Estados del alta.
 const (
-	AltaLocal             = "local"
-	AltaArgos             = "argos"
+	AltaLocal = "local"
+	AltaArgos = "argos"
+	// AltaSolicitud: cambio de plan, traslado u otro del portal de Argos (§11.7): no llama a Argos.
+	AltaSolicitud         = "solicitud"
 	AltaEsperandoCliente  = "esperando_cliente"
 	AltaEsperandoServicio = "esperando_servicio"
 	AltaCompleta          = "completa"
@@ -166,6 +168,20 @@ func exigirRequisitos(ctx context.Context, q *comercialbd.Queries, p comercialbd
 	return r, nil
 }
 
+// requisitosCambioPlan: el prospecto cotizado (o con contrato) y su cotización aceptada.
+func requisitosCambioPlan(ctx context.Context, q *comercialbd.Queries, p comercialbd.ComercialProspecto) (requisitos, error) {
+	var r requisitos
+	if err := exigirEstado(p, "ganar", EstadoCotizado, EstadoContrato); err != nil {
+		return r, err
+	}
+	c, err := q.CotizacionViva(ctx, p.ID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && c.Estado != "aceptada") {
+		return r, nucleo.ReglaNegocio("cotizacion_no_aceptada", "Para ganar un cambio de plan, la cotización debe estar aceptada")
+	}
+	r.cotizacion = c
+	return r, err
+}
+
 func mismaCoordenada(a, b *float64) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
@@ -179,12 +195,20 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 			if err != nil {
 				return Prospecto{}, err
 			}
-			if err := exigirEstado(antes, "ganar", EstadoContrato); err != nil {
-				return Prospecto{}, err
-			}
-			r, err := exigirRequisitos(ctx, q, antes, in.ConfirmarObra)
-			if err != nil {
-				return Prospecto{}, err
+			var r requisitos
+			if deref(antes.SolicitudTipo) == SolicitudCambioPlan {
+				// Cambio de plan del portal de Argos (§10.4 punto 10): basta la cotización aceptada, sin
+				// contrato ni factibilidad (el servicio ya existe).
+				if r, err = requisitosCambioPlan(ctx, q, antes); err != nil {
+					return Prospecto{}, err
+				}
+			} else {
+				if err := exigirEstado(antes, "ganar", EstadoContrato); err != nil {
+					return Prospecto{}, err
+				}
+				if r, err = exigirRequisitos(ctx, q, antes, in.ConfirmarObra); err != nil {
+					return Prospecto{}, err
+				}
 			}
 			conector, err := q.EstadoConectorArgos(ctx)
 			if err != nil {
@@ -195,11 +219,16 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 			d.Estado, d.GanadoEn, d.ObraConfirmada = EstadoGanado, &ahora, r.factibilidad.Resultado == FactibleRequiereObra
 			evento := map[string]any{"prospecto_id": antes.ID, "empresa_id": antes.EmpresaID, "contrato_id": r.contrato.ID,
 				"cotizacion_id": r.cotizacion.ID, "plan_id": r.cotizacion.PlanID, "obra_confirmada": d.ObraConfirmada}
+			if r.contrato.ID == 0 {
+				evento["contrato_id"] = nil // cambio de plan: sin contrato
+			}
 			if antes.SolicitudTipo != nil && *antes.SolicitudTipo != SolicitudAlta {
 				// Solicitud del portal de Argos (0.9.0 §11.7) de cambio de plan, traslado u otro: nada por API
 				// en Argos (una persona lo aplica allá hasta A34) y la orden, si hace falta, la decide el asesor.
 				evento["modo"], evento["orden_id"], evento["pendientes"], evento["solicitud_tipo"] = "solicitud", nil, []int64{}, *antes.SolicitudTipo
+				evento["tarea_argos"] = "pendiente"
 				d.GanadoPor = actorUsuario(t)
+				d.AltaModo, d.AltaEstado = ptr(AltaSolicitud), ptr(AltaCompleta)
 			} else if conector == "" {
 				// Modo sin conector: la orden con los datos capturados, ya.
 				o, err := m.crearOrdenInstalacion(ctx, antes, r, nil, nil)
@@ -303,7 +332,22 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 			if err := t.Emitir("prospecto.ganado", evento); err != nil {
 				return Prospecto{}, err
 			}
-			return aProspecto(f), cambioDeEstado(ctx, t, q, antes, f, nil)
+			if evento["tarea_argos"] != nil {
+				// La tarea «Abrir en Argos»: la solicitud sigue en_proceso hasta que alguien la marca hecha.
+				if f, err = q.FijarTareaArgos(ctx, comercialbd.FijarTareaArgosParams{ID: f.ID, TareaArgos: ptr("pendiente")}); err != nil {
+					return Prospecto{}, err
+				}
+			}
+			if err := cambioDeEstado(ctx, t, q, antes, f, nil); err != nil {
+				return Prospecto{}, err
+			}
+			if f.SolicitudTipo != nil {
+				// estado_cliente lo acaba de fijar cambioDeEstado.
+				if f, err = q.ProspectoPorID(ctx, f.ID); err != nil {
+					return Prospecto{}, err
+				}
+			}
+			return aProspecto(f), nil
 		},
 	})
 }

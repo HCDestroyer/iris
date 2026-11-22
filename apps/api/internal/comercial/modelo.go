@@ -37,6 +37,9 @@ type Prospecto struct {
 	GanadoEn          *time.Time `json:"ganadoEn" nullable:"true"`
 	ObraConfirmada    bool       `json:"obraConfirmada" doc:"Se ganó con factibilidad requiere_obra confirmada"`
 	Alta              *Alta      `json:"alta,omitempty" doc:"Alta del cliente (solo ganado)"`
+	SolicitudTipo     *string    `json:"solicitudTipo" nullable:"true" enum:"alta,cambio_plan,traslado,otro" doc:"Solicitud de servicio del portal de Argos (§11.7); null en los demás"`
+	EstadoCliente     *string    `json:"estadoCliente" nullable:"true" enum:"recibida,en_revision,cotizada,en_proceso,completada,no_procede" doc:"Lo que ve el cliente de su solicitud"`
+	TareaArgos        *string    `json:"tareaArgos" nullable:"true" enum:"pendiente,hecha" doc:"Cambio de plan, traslado u otro ganado: la tarea «Abrir en Argos» para que una persona lo aplique allá"`
 	CreadoEn          time.Time  `json:"creadoEn"`
 	ActualizadoEn     time.Time  `json:"actualizadoEn"`
 	Version           int32      `json:"version"`
@@ -44,7 +47,7 @@ type Prospecto struct {
 
 // Alta es el resultado de ganar.
 type Alta struct {
-	Modo            string  `json:"modo" enum:"local,argos" doc:"local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes"`
+	Modo            string  `json:"modo" enum:"local,argos,solicitud" doc:"local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes; solicitud: cambio de plan, traslado u otro del portal de Argos, sin llamar a Argos (tarea «Abrir en Argos»)"`
 	Estado          string  `json:"estado" enum:"esperando_cliente,esperando_servicio,completa"`
 	ClienteArgosID  *int64  `json:"clienteArgosId" nullable:"true"`
 	ServicioArgosID *int64  `json:"servicioArgosId" nullable:"true"`
@@ -62,6 +65,7 @@ func aProspecto(f comercialbd.ComercialProspecto) Prospecto {
 		Estado: f.Estado, Notas: f.Notas, MotivoPerdida: f.MotivoPerdida, PerdidoEn: f.PerdidoEn, GanadoEn: f.GanadoEn,
 		ObraConfirmada: f.ObraConfirmada, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt, Version: f.Version,
 		Modo: f.Modo, ClienteExistente: f.ClienteExistenteID, ClienteValidado: f.ClienteValidado,
+		SolicitudTipo: f.SolicitudTipo, EstadoCliente: f.EstadoCliente, TareaArgos: f.TareaArgos,
 	}
 	if f.AltaModo != nil {
 		p.Alta = &Alta{Modo: *f.AltaModo, Estado: deref(f.AltaEstado), ClienteArgosID: f.ClienteArgosID,

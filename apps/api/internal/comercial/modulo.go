@@ -117,10 +117,12 @@ type Modulo struct {
 	prepararRegistroArgos *auditoria.Caso[EntradaRegistrarArgos, previoRegistroArgos]
 	registrarArgos        *auditoria.Caso[entradaRegistroArgos, resultadoRegistroArgos]
 	// Solicitudes de servicio del portal de Argos (0.9.0 §11.7): solicitudes_portal.go.
-	crearSolicitud      *auditoria.Caso[EntradaCrearSolicitud, SolicitudServicio]
-	ListarSolicitudes   *auditoria.Caso[EntradaSolicitudes, nucleo.Pagina[SolicitudServicio]]
-	VerSolicitud        *auditoria.Caso[EntradaVerSolicitud, SolicitudServicio]
-	ordenDeSolicitud    *auditoria.Caso[entradaOrdenSolicitud, struct{}]
+	crearSolicitud    *auditoria.Caso[EntradaCrearSolicitud, SolicitudServicio]
+	ListarSolicitudes *auditoria.Caso[EntradaSolicitudes, nucleo.Pagina[SolicitudServicio]]
+	VerSolicitud      *auditoria.Caso[EntradaVerSolicitud, SolicitudServicio]
+	ordenDeSolicitud  *auditoria.Caso[entradaOrdenSolicitud, struct{}]
+	// CompletarTareaArgos: una persona aplicó en Argos la solicitud ganada (§11.7).
+	CompletarTareaArgos *auditoria.Caso[EntradaCompletarTareaArgos, Prospecto]
 	contarRegistroArgos *auditoria.Caso[entradaRegistroArgos, struct{}]
 	confirmarCliente    *auditoria.Caso[entradaConfirmarCliente, struct{}]
 }
@@ -181,6 +183,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.registrarArgos = m.nuevoRegistrarArgos()
 	m.crearSolicitud, m.ListarSolicitudes, m.VerSolicitud = m.nuevoCrearSolicitud(), m.nuevoListarSolicitudes(), m.nuevoVerSolicitud()
 	m.ordenDeSolicitud = m.nuevoOrdenDeSolicitud()
+	m.CompletarTareaArgos = m.nuevoCompletarTareaArgos()
 	m.contarRegistroArgos = m.nuevoContarRegistroArgos()
 	m.confirmarCliente = m.nuevoConfirmarCliente()
 	return m

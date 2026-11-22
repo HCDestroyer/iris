@@ -1293,10 +1293,11 @@
             "type": "string"
           },
           "modo": {
-            "description": "local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes",
+            "description": "local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes; solicitud: cambio de plan, traslado u otro del portal de Argos, sin llamar a Argos (tarea «Abrir en Argos»)",
             "enum": [
               "local",
-              "argos"
+              "argos",
+              "solicitud"
             ],
             "type": "string"
           },
@@ -3319,6 +3320,22 @@
           "enCurso",
           "empresasActivas",
           "plazasInsuficientes"
+        ],
+        "type": "object"
+      },
+      "CapacidadesConector": {
+        "additionalProperties": false,
+        "properties": {
+          "capacidades": {
+            "$ref": "#/components/schemas/CapacidadesIris"
+          },
+          "contrato_iris": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "contrato_iris",
+          "capacidades"
         ],
         "type": "object"
       },
@@ -10817,6 +10834,20 @@
         "properties": {
           "version": {
             "description": "Versión leída; si cambió, 409",
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "type": "object"
+      },
+      "EntradaCompletarTareaArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "version": {
             "format": "int32",
             "minimum": 1,
             "type": "integer"
@@ -26701,6 +26732,7 @@
           "integraciones.revisar_version",
           "integraciones.sincronizar",
           "integraciones.ver",
+          "integraciones.ver_capacidades",
           "integraciones.ver_pendientes",
           "llamadas.anotar",
           "llamadas.colgar",
@@ -26765,6 +26797,7 @@
           "portal_argos.ver_solicitudes",
           "portal_argos.ver_tickets",
           "prospectos.asignar",
+          "prospectos.completar_tarea_argos",
           "prospectos.contactar",
           "prospectos.crear",
           "prospectos.editar",
@@ -28973,6 +29006,21 @@
             ],
             "type": "string"
           },
+          "estadoCliente": {
+            "description": "Lo que ve el cliente de su solicitud",
+            "enum": [
+              "recibida",
+              "en_revision",
+              "cotizada",
+              "en_proceso",
+              "completada",
+              "no_procede"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ganadoEn": {
             "format": "date-time",
             "type": [
@@ -29070,6 +29118,30 @@
               "null"
             ]
           },
+          "solicitudTipo": {
+            "description": "Solicitud de servicio del portal de Argos (§11.7); null en los demás",
+            "enum": [
+              "alta",
+              "cambio_plan",
+              "traslado",
+              "otro"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tareaArgos": {
+            "description": "Cambio de plan, traslado u otro ganado: la tarea «Abrir en Argos» para que una persona lo aplique allá",
+            "enum": [
+              "pendiente",
+              "hecha"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "telefono": {
             "type": [
               "string",
@@ -29122,6 +29194,9 @@
           "perdidoEn",
           "ganadoEn",
           "obraConfirmada",
+          "solicitudTipo",
+          "estadoCliente",
+          "tareaArgos",
           "creadoEn",
           "actualizadoEn",
           "version"
@@ -29205,6 +29280,21 @@
               "perdido"
             ],
             "type": "string"
+          },
+          "estadoCliente": {
+            "description": "Lo que ve el cliente de su solicitud",
+            "enum": [
+              "recibida",
+              "en_revision",
+              "cotizada",
+              "en_proceso",
+              "completada",
+              "no_procede"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "factibilidad": {
             "$ref": "#/components/schemas/Factibilidad",
@@ -29317,6 +29407,30 @@
               "null"
             ]
           },
+          "solicitudTipo": {
+            "description": "Solicitud de servicio del portal de Argos (§11.7); null en los demás",
+            "enum": [
+              "alta",
+              "cambio_plan",
+              "traslado",
+              "otro"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tareaArgos": {
+            "description": "Cambio de plan, traslado u otro ganado: la tarea «Abrir en Argos» para que una persona lo aplique allá",
+            "enum": [
+              "pendiente",
+              "hecha"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "telefono": {
             "type": [
               "string",
@@ -29382,6 +29496,9 @@
           "perdidoEn",
           "ganadoEn",
           "obraConfirmada",
+          "solicitudTipo",
+          "estadoCliente",
+          "tareaArgos",
           "creadoEn",
           "actualizadoEn",
           "version"
@@ -44263,6 +44380,87 @@
         "x-permiso": "integraciones.conectar"
       }
     },
+    "/api/v1/integraciones/argosisp/capacidades": {
+      "get": {
+        "description": "Permiso: `integraciones.ver_capacidades`. Contrato con Argos 0.14.2 §4.3: solo el token del panel de Argos (rol `integracion_argos`). Responde `{ contrato_iris, capacidades }` del conector al que pertenece el token; con el de otro conector o uno apagado, 404; con el `token_portal`, 403.",
+        "operationId": "capacidadesArgos",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapacidadesConector"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Capacidades de Iris para el portal de Argos",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.ver_capacidades"
+      }
+    },
     "/api/v1/integraciones/argosisp/conectar": {
       "post": {
         "description": "Permiso: `integraciones.conectar`. Iris canjea el código en Argos (servidor a servidor), guarda el token `atk_…` y el secreto del webhook cifrados y deja el conector **apagado** hasta que se active. Entrega a Argos un `iris_pat_` del usuario de integración que vence en 15 min si el conector no se activa. Solo para orígenes de `IRIS_ARGOS_ORIGENES` o del conector activo de este sistema (422 `origenes_no_configurados` / `origen_no_permitido`; ver `conexion/previsualizar`) y exige `empresas.todas` sin límite (403). 502 `argos_rechazo` si Argos rechaza el código (vencido o usado).",
@@ -45704,7 +45902,7 @@
               "schema": {
                 "properties": {
                   "archivos": {
-                    "description": "Hasta 3 archivos de 10 MB (JPEG, PNG, WebP o PDF; se comprueban por el contenido)",
+                    "description": "Hasta 3 archivos de 10 MB (JPEG, PNG o PDF; se comprueban por el contenido; HEIC y WebP, 422 mime_no_permitido)",
                     "items": {
                       "contentMediaType": "application/octet-stream",
                       "format": "binary",
@@ -46750,7 +46948,7 @@
               "schema": {
                 "properties": {
                   "archivos": {
-                    "description": "Hasta 3 archivos de 10 MB (JPEG, PNG, WebP o PDF; se comprueban por el contenido)",
+                    "description": "Hasta 3 archivos de 10 MB (JPEG, PNG o PDF; se comprueban por el contenido; HEIC y WebP, 422 mime_no_permitido)",
                     "items": {
                       "contentMediaType": "application/octet-stream",
                       "format": "binary",
@@ -82792,6 +82990,129 @@
         "x-permiso": "prospectos.asignar"
       }
     },
+    "/api/v1/prospectos/{id}/completar-tarea-argos": {
+      "post": {
+        "description": "Permiso: `prospectos.completar_tarea_argos`. Solicitud del portal de Argos ganada (cambio de plan, traslado u otro, contrato 0.9.0 §11.7): una persona ya la aplicó en Argos. La solicitud pasa a `completada` (emite `solicitud_servicio.estado_cambiado`, que va a Argos). Sin tarea pendiente, 422 `sin_tarea_argos`. Emite `prospecto.tarea_argos_completada`.",
+        "operationId": "completarTareaArgos",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaCompletarTareaArgos"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Prospecto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Marcar hecha la tarea «Abrir en Argos»",
+        "tags": [
+          "comercial"
+        ],
+        "x-permiso": "prospectos.completar_tarea_argos"
+      }
+    },
     "/api/v1/prospectos/{id}/contactar": {
       "post": {
         "description": "Permiso: `prospectos.contactar`. nuevo → contactado. Emite `prospecto.estado_cambiado`.",
@@ -83732,7 +84053,7 @@
     },
     "/api/v1/prospectos/{id}/ganar": {
       "post": {
-        "description": "Permiso: `prospectos.ganar`. Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales. Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`. Con un cliente elegido en Argos sin validar (Argos no respondía al registrarlo), lo confirma antes con Argos: de otra empresa, 422 `cliente_no_valido`; Argos sin responder, 422 `cliente_sin_confirmar`.",
+        "description": "Permiso: `prospectos.ganar`. Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales (un cambio de plan del portal de Argos: solo la cotización aceptada, desde cotizado o contrato). Cambio de plan, traslado u otro del portal no llaman a Argos: quedan con la tarea «Abrir en Argos» (`tareaArgos: pendiente`) y la solicitud `en_proceso`. Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`. Con un cliente elegido en Argos sin validar (Argos no respondía al registrarlo), lo confirma antes con Argos: de otra empresa, 422 `cliente_no_valido`; Argos sin responder, 422 `cliente_sin_confirmar`.",
         "operationId": "ganarProspecto",
         "parameters": [
           {

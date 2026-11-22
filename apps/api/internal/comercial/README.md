@@ -106,8 +106,12 @@ cliente de Argos conocido (`cliente_existente_id`) y su `solicitud_tipo` (`alta`
 - `estado_cliente` (`recibida`, `en_revision`, `cotizada`, `en_proceso`, `completada`, `no_procede`) se
   deriva del estado del prospecto y del cierre de su orden; cada cambio emite
   `solicitud_servicio.estado_cambiado` (va a Argos por §6.6).
-- Ganar: una `alta` solo pide `POST /servicios` con el cliente conocido; `cambio_plan`, `traslado` y
-  `otro` no llaman a Argos (modo `solicitud`; una persona lo aplica allá) y quedan `completada`.
+- Ganar (§10.4 punto 10): una `alta` solo pide `POST /servicios` con el cliente conocido; el
+  `traslado` exige contrato firmado; el `cambio_plan` se gana con la cotización aceptada, sin contrato
+  ni factibilidad. `cambio_plan`, `traslado` y `otro` no llaman a Argos (`alta.modo = solicitud`):
+  quedan con la tarea «Abrir en Argos» (`tareaArgos: pendiente`) y la solicitud `en_proceso` hasta que
+  alguien la marca hecha con `POST /prospectos/{id}/completar-tarea-argos`
+  (`prospectos.completar_tarea_argos`), que la pasa a `completada`.
 
 ## Eventos
 

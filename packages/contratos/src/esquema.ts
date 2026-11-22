@@ -1240,6 +1240,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/argosisp/capacidades": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Capacidades de Iris para el portal de Argos
+         * @description Permiso: `integraciones.ver_capacidades`. Contrato con Argos 0.14.2 §4.3: solo el token del panel de Argos (rol `integracion_argos`). Responde `{ contrato_iris, capacidades }` del conector al que pertenece el token; con el de otro conector o uno apagado, 404; con el `token_portal`, 403.
+         */
+        get: operations["capacidadesArgos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/conectar": {
         parameters: {
             query?: never;
@@ -7577,6 +7597,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/prospectos/{id}/completar-tarea-argos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Marcar hecha la tarea «Abrir en Argos»
+         * @description Permiso: `prospectos.completar_tarea_argos`. Solicitud del portal de Argos ganada (cambio de plan, traslado u otro, contrato 0.9.0 §11.7): una persona ya la aplicó en Argos. La solicitud pasa a `completada` (emite `solicitud_servicio.estado_cambiado`, que va a Argos). Sin tarea pendiente, 422 `sin_tarea_argos`. Emite `prospecto.tarea_argos_completada`.
+         */
+        post: operations["completarTareaArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/prospectos/{id}/contactar": {
         parameters: {
             query?: never;
@@ -7732,7 +7772,7 @@ export interface paths {
         put?: never;
         /**
          * Ganar el prospecto
-         * @description Permiso: `prospectos.ganar`. Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales. Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`. Con un cliente elegido en Argos sin validar (Argos no respondía al registrarlo), lo confirma antes con Argos: de otra empresa, 422 `cliente_no_valido`; Argos sin responder, 422 `cliente_sin_confirmar`.
+         * @description Permiso: `prospectos.ganar`. Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales (un cambio de plan del portal de Argos: solo la cotización aceptada, desde cotizado o contrato). Cambio de plan, traslado u otro del portal no llaman a Argos: quedan con la tarea «Abrir en Argos» (`tareaArgos: pendiente`) y la solicitud `en_proceso`. Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`. Con un cliente elegido en Argos sin validar (Argos no respondía al registrarlo), lo confirma antes con Argos: de otra empresa, 422 `cliente_no_valido`; Argos sin responder, 422 `cliente_sin_confirmar`.
          */
         post: operations["ganarProspecto"];
         delete?: never;
@@ -10085,10 +10125,10 @@ export interface components {
             /** @enum {string} */
             estado: "esperando_cliente" | "esperando_servicio" | "completa";
             /**
-             * @description local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes
+             * @description local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes; solicitud: cambio de plan, traslado u otro del portal de Argos, sin llamar a Argos (tarea «Abrir en Argos»)
              * @enum {string}
              */
-            modo: "local" | "argos";
+            modo: "local" | "argos" | "solicitud";
             /**
              * Format: int64
              * @description Orden de instalación (al completarse el alta)
@@ -10760,6 +10800,10 @@ export interface components {
             maxSimultaneas: number;
             /** @description Hay más empresas activas que plazas: la plaza garantizada por empresa no alcanza para todas */
             plazasInsuficientes: boolean;
+        };
+        CapacidadesConector: {
+            capacidades: components["schemas"]["CapacidadesIris"];
+            contrato_iris: string;
         };
         CapacidadesIris: {
             /** @description Adjuntos en los tickets del portal (§11.6) */
@@ -13337,6 +13381,10 @@ export interface components {
              * Format: int32
              * @description Versión leída; si cambió, 409
              */
+            version: number;
+        };
+        EntradaCompletarTareaArgos: {
+            /** Format: int32 */
             version: number;
         };
         EntradaConectar: {
@@ -18731,7 +18779,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cambiar_plan" | "ordenes.cambiar_titular" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.completar_datos" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.validar_identidad" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "portal_argos.confirmar_solucion" | "portal_argos.crear_ticket" | "portal_argos.responder_ticket" | "portal_argos.solicitar_servicio" | "portal_argos.ver_solicitudes" | "portal_argos.ver_tickets" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.registrar_integracion" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_capacidades" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cambiar_plan" | "ordenes.cambiar_titular" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.completar_datos" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.validar_identidad" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "portal_argos.confirmar_solucion" | "portal_argos.crear_ticket" | "portal_argos.responder_ticket" | "portal_argos.solicitar_servicio" | "portal_argos.ver_solicitudes" | "portal_argos.ver_tickets" | "prospectos.asignar" | "prospectos.completar_tarea_argos" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.registrar_integracion" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -19418,6 +19466,11 @@ export interface components {
             empresaId: number | null;
             /** @enum {string} */
             estado: "nuevo" | "contactado" | "factibilidad" | "cotizado" | "contrato" | "ganado" | "perdido";
+            /**
+             * @description Lo que ve el cliente de su solicitud
+             * @enum {string|null}
+             */
+            estadoCliente: "recibida" | "en_revision" | "cotizada" | "en_proceso" | "completada" | "no_procede" | null;
             /** Format: date-time */
             ganadoEn: string | null;
             /** Format: int64 */
@@ -19453,6 +19506,16 @@ export interface components {
              */
             planInteresId: number | null;
             planInteresNombre: string | null;
+            /**
+             * @description Solicitud de servicio del portal de Argos (§11.7); null en los demás
+             * @enum {string|null}
+             */
+            solicitudTipo: "alta" | "cambio_plan" | "traslado" | "otro" | null;
+            /**
+             * @description Cambio de plan, traslado u otro ganado: la tarea «Abrir en Argos» para que una persona lo aplique allá
+             * @enum {string|null}
+             */
+            tareaArgos: "pendiente" | "hecha" | null;
             telefono: string | null;
             /**
              * Format: int64
@@ -19495,6 +19558,11 @@ export interface components {
             empresaId: number | null;
             /** @enum {string} */
             estado: "nuevo" | "contactado" | "factibilidad" | "cotizado" | "contrato" | "ganado" | "perdido";
+            /**
+             * @description Lo que ve el cliente de su solicitud
+             * @enum {string|null}
+             */
+            estadoCliente: "recibida" | "en_revision" | "cotizada" | "en_proceso" | "completada" | "no_procede" | null;
             /** @description La última evaluación */
             factibilidad?: components["schemas"]["Factibilidad"];
             /** Format: date-time */
@@ -19534,6 +19602,16 @@ export interface components {
              */
             planInteresId: number | null;
             planInteresNombre: string | null;
+            /**
+             * @description Solicitud de servicio del portal de Argos (§11.7); null en los demás
+             * @enum {string|null}
+             */
+            solicitudTipo: "alta" | "cambio_plan" | "traslado" | "otro" | null;
+            /**
+             * @description Cambio de plan, traslado u otro ganado: la tarea «Abrir en Argos» para que una persona lo aplique allá
+             * @enum {string|null}
+             */
+            tareaArgos: "pendiente" | "hecha" | null;
             telefono: string | null;
             /** @description Números del prospecto registrado desde Argos (vacío en los demás: usan telefono) */
             telefonos: components["schemas"]["TelefonoProspecto"][] | null;
@@ -27193,6 +27271,71 @@ export interface operations {
             };
         };
     };
+    capacidadesArgos: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CapacidadesConector"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     conectarArgos: {
         parameters: {
             query?: never;
@@ -28084,7 +28227,7 @@ export interface operations {
                 "application/json": components["schemas"]["CuerpoCrearTicketArgos"];
                 "application/octet-stream": string;
                 "multipart/form-data": {
-                    /** @description Hasta 3 archivos de 10 MB (JPEG, PNG, WebP o PDF; se comprueban por el contenido) */
+                    /** @description Hasta 3 archivos de 10 MB (JPEG, PNG o PDF; se comprueban por el contenido; HEIC y WebP, 422 mime_no_permitido) */
                     archivos?: string[];
                     /** @description El mismo JSON que en application/json */
                     datos: string;
@@ -28682,7 +28825,7 @@ export interface operations {
                 "application/json": components["schemas"]["CuerpoResponderArgos"];
                 "application/octet-stream": string;
                 "multipart/form-data": {
-                    /** @description Hasta 3 archivos de 10 MB (JPEG, PNG, WebP o PDF; se comprueban por el contenido) */
+                    /** @description Hasta 3 archivos de 10 MB (JPEG, PNG o PDF; se comprueban por el contenido; HEIC y WebP, 422 mime_no_permitido) */
                     archivos?: string[];
                     /** @description El mismo JSON que en application/json */
                     datos: string;
@@ -52971,6 +53114,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaAsignarProspecto"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Prospecto"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    completarTareaArgos: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCompletarTareaArgos"];
             };
         };
         responses: {

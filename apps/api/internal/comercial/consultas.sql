@@ -435,3 +435,11 @@ SELECT nombre, telefono, movil, correo, direccion, lat, lon, zona_id FROM integr
 -- name: ServicioDeClienteSolicitud :one
 SELECT id, direccion, lat, lon, zona_id FROM integracion.argos_servicios
 WHERE id = @id AND cliente_id = @cliente_id AND empresa_id = @empresa_id;
+
+-- name: FijarTareaArgos :one
+-- La tarea «Abrir en Argos» de una solicitud ganada (§11.7): pendiente al ganar, hecha al marcarla.
+UPDATE comercial.prospectos
+SET tarea_argos = @tarea_argos, tarea_argos_hecha_en = sqlc.narg(hecha_en), tarea_argos_hecha_por = sqlc.narg(hecha_por),
+    version = version + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;

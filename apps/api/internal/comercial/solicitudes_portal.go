@@ -133,9 +133,10 @@ func EstadoClienteDe(estado string, tipo string, ordenID *int64, completada bool
 	case EstadoContrato:
 		return "en_proceso"
 	case EstadoGanado:
-		// Con orden, en proceso hasta que la orden se cierra bien; sin orden (cambio de plan, traslado
-		// u otro, que una persona aplica en Argos al ganarla), completada.
-		if completada || (ordenID == nil && tipo != SolicitudAlta) {
+		// En proceso hasta que termina: una alta, al cerrarse bien su orden; cambio de plan, traslado u
+		// otro, al marcar hecha la tarea «Abrir en Argos» (o al cerrarse bien su orden, si el asesor abrió
+		// una).
+		if completada {
 			return "completada"
 		}
 		return "en_proceso"
@@ -151,7 +152,7 @@ func sincronizarEstadoCliente(ctx context.Context, t *auditoria.Tx, q *comercial
 	if f.SolicitudTipo == nil {
 		return nil
 	}
-	nuevo := EstadoClienteDe(f.Estado, *f.SolicitudTipo, f.OrdenID, completada)
+	nuevo := EstadoClienteDe(f.Estado, *f.SolicitudTipo, f.OrdenID, completada || deref(f.TareaArgos) == "hecha")
 	anterior := deref(f.EstadoCliente)
 	if nuevo == anterior {
 		return nil
@@ -481,5 +482,47 @@ func (m *Modulo) SuscribirSolicitudes(bus *integracion.Bus, bd nucleo.BD) {
 		}
 		_, err := m.ordenDeSolicitud.Ejecutar(nucleo.ConBD(contexto.Sistema(ctx, contexto.CanalWorker), bd), p)
 		return err
+	})
+}
+
+// Tarea «Abrir en Argos» (§11.7 y §10.4 punto 10) --------------------------------------------
+
+// EntradaCompletarTareaArgos: una persona aplicó en Argos el cambio de plan, el traslado u otro.
+type EntradaCompletarTareaArgos struct {
+	ID      int64 `json:"-"`
+	Version int32 `json:"version" minimum:"1"`
+}
+
+func (m *Modulo) nuevoCompletarTareaArgos() *auditoria.Caso[EntradaCompletarTareaArgos, Prospecto] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaCompletarTareaArgos, Prospecto]{
+		Accion: "prospectos.completar_tarea_argos", Permiso: nucleo.PermProspectosCompletarTareaArgos,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCompletarTareaArgos) (Prospecto, error) {
+			q := comercialbd.New(t)
+			antes, err := tomar(ctx, t, q, in.ID, nucleo.PermProspectosCompletarTareaArgos, &in.Version)
+			if err != nil {
+				return Prospecto{}, err
+			}
+			if deref(antes.TareaArgos) != "pendiente" {
+				return Prospecto{}, nucleo.ReglaNegocio("sin_tarea_argos", "El prospecto no tiene una tarea «Abrir en Argos» pendiente")
+			}
+			ahora := m.ahora()
+			f, err := q.FijarTareaArgos(ctx, comercialbd.FijarTareaArgosParams{ID: antes.ID, TareaArgos: ptr("hecha"), HechaEn: &ahora, HechaPor: actorUsuario(t)})
+			if err != nil {
+				return Prospecto{}, err
+			}
+			t.RegistrarCambios("prospecto", f.ID, map[string]any{"tarea_argos": "pendiente"}, map[string]any{"tarea_argos": "hecha"})
+			if err := historial(ctx, t, q, f.ID, "tarea_argos", ptr("pendiente"), ptr("hecha"), nil, nil); err != nil {
+				return Prospecto{}, err
+			}
+			if err := t.Emitir("prospecto.tarea_argos_completada", map[string]any{"prospecto_id": f.ID, "empresa_id": f.EmpresaID,
+				"solicitud_tipo": f.SolicitudTipo}); err != nil {
+				return Prospecto{}, err
+			}
+			if err := sincronizarEstadoCliente(ctx, t, q, f, false); err != nil {
+				return Prospecto{}, err
+			}
+			f, err = q.ProspectoPorID(ctx, f.ID)
+			return aProspecto(f), err
+		},
 	})
 }

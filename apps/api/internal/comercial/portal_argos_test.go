@@ -446,7 +446,7 @@ func TestPortalArgosSolicitudes(t *testing.T) {
 		quiere       string
 	}{
 		{"nuevo", "alta", nil, false, "recibida"}, {"factibilidad", "alta", nil, false, "en_revision"}, {"cotizado", "alta", nil, false, "cotizada"},
-		{"contrato", "alta", nil, false, "en_proceso"}, {"ganado", "alta", nil, false, "en_proceso"}, {"ganado", "traslado", nil, false, "completada"},
+		{"contrato", "alta", nil, false, "en_proceso"}, {"ganado", "alta", nil, false, "en_proceso"}, {"ganado", "traslado", nil, false, "en_proceso"}, {"ganado", "traslado", nil, true, "completada"},
 		{"ganado", "alta", new(int64), true, "completada"}, {"perdido", "otro", nil, false, "no_procede"},
 	}
 	for _, c := range casos {
@@ -475,4 +475,61 @@ func TestCapacidadesParaArgos(t *testing.T) {
 	p.e.apagar()
 	pedir(p.panel).problema(t, http.StatusNotFound, "no_encontrado")
 	p.e.encender()
+}
+
+// §10.4 punto 10 y §11.7: el cambio de plan se gana con la cotización aceptada, sin contrato ni llamar a
+// Argos; queda con la tarea «Abrir en Argos» y la solicitud en_proceso hasta que alguien la marca hecha.
+func TestPortalArgosSolicitudGanada(t *testing.T) {
+	p := nuevoPortalArgos(t)
+	// Un plan inactivo no vale (0.14.2: plan activo de Argos, sin empresa).
+	p.pedir(http.MethodPost, clientePortal, "/solicitudes", map[string]any{"tipo": "cambio_plan", "servicio_id": 4411, "plan_interes_id": 399}).
+		problema(t, http.StatusUnprocessableEntity, "validacion")
+	cambio := p.pedir(http.MethodPost, clientePortal, "/solicitudes", map[string]any{"tipo": "cambio_plan", "servicio_id": 4411, "plan_interes_id": 300}).
+		ok(t, http.StatusCreated)
+	traslado := p.pedir(http.MethodPost, clientePortal, "/solicitudes", map[string]any{"tipo": "traslado", "servicio_id": 4411, "direccion": "Zona 10"}).
+		ok(t, http.StatusCreated)
+	v := usuarioCon(t, rol("ventas"))
+	asignarEmpresa(t, v, 1)
+	ctx := enEmpresa(t, v, 1, "ventas")
+	cotizar := func(id int64) comercial.ProspectoDetalle {
+		t.Helper()
+		d := deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+		deber(p.e.com.Contactar.Ejecutar(ctx, comercial.EntradaTransicion{ID: id, Version: d.Version}))(t)
+		manual(t, p.e.com, ctx, id, "viable", nil)
+		d = deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+		c := deber(p.e.com.CrearCotizacion(ctx, comercial.EntradaCrearCotizacion{ProspectoID: id, Version: d.Version,
+			Lineas: []comercial.EntradaLinea{{Tipo: "plan", PlanID: ptr(int64(300))}}}))(t)
+		deber(p.e.com.AceptarCotizacion.Ejecutar(ctx, comercial.EntradaAceptarCotizacion{ID: c.ID, Version: c.Version}))(t)
+		return deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	}
+	// El traslado sigue exigiendo el contrato firmado.
+	dt := cotizar(int64(traslado["id"].(float64)))
+	_, err := p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: dt.ID, Version: dt.Version})
+	problema(t, err, 422, "transicion_invalida")
+
+	id := int64(cambio["id"].(float64))
+	d := cotizar(id)
+	if d.Estado != comercial.EstadoCotizado {
+		t.Fatalf("estado: %s", d.Estado)
+	}
+	g := deber(p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: d.Version}))(t)
+	if g.Estado != comercial.EstadoGanado || g.TareaArgos == nil || *g.TareaArgos != "pendiente" || g.EstadoCliente == nil || *g.EstadoCliente != "en_proceso" {
+		t.Fatalf("ganado: %+v", g)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE idempotency_key LIKE $1", "iris:%:"+strconv.FormatInt(id, 10)); n != 0 {
+		t.Fatalf("no llama a Argos: %d pendientes", n)
+	}
+	if s := p.pedir(http.MethodGet, clientePortal, "/solicitudes/"+strconv.FormatInt(id, 10), nil).ok(t, http.StatusOK); s["estado_cliente"] != "en_proceso" {
+		t.Fatalf("solicitud: %v", s)
+	}
+	h := deber(p.e.com.CompletarTareaArgos.Ejecutar(ctx, comercial.EntradaCompletarTareaArgos{ID: id, Version: g.Version}))(t)
+	if *h.TareaArgos != "hecha" || *h.EstadoCliente != "completada" {
+		t.Fatalf("hecha: %+v", h)
+	}
+	_, err = p.e.com.CompletarTareaArgos.Ejecutar(ctx, comercial.EntradaCompletarTareaArgos{ID: id, Version: h.Version})
+	problema(t, err, 422, "sin_tarea_argos")
+	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'solicitud_servicio.estado_cambiado'
+		AND payload->>'solicitud_id' = $1 AND payload->>'a' = 'completada'`, strconv.FormatInt(id, 10)); n != 1 {
+		t.Fatalf("evento completada: %d", n)
+	}
 }

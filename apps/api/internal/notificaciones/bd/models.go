@@ -743,6 +743,9 @@ type ComercialProspecto struct {
 	SolicitudServicioID *int64
 	SolicitudComentario *string
 	EstadoCliente       *string
+	TareaArgos          *string
+	TareaArgosHechaEn   *time.Time
+	TareaArgosHechaPor  *int64
 }
 
 type ComercialProspectoEvento struct {

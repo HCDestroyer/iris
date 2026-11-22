@@ -154,11 +154,18 @@ func (m *Modulo) Registrar(api huma.API) {
 		"perdido → contactado.", nucleo.PermProspectosReabrir),
 		m.Reabrir.Ejecutar, func(e *EntradaTransicion, id int64, _ string) { e.ID = id })
 	registrarConID(api, accion("ganarProspecto", "/api/v1/prospectos/{id}/ganar", "Ganar el prospecto",
-		"Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales. "+
+		"Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales "+
+			"(un cambio de plan del portal de Argos: solo la cotización aceptada, desde cotizado o contrato). Cambio de plan, traslado u otro del portal "+
+			"no llaman a Argos: quedan con la tarea «Abrir en Argos» (`tareaArgos: pendiente`) y la solicitud `en_proceso`. "+
 			"Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). "+
 			"Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`. "+
 			"Con un cliente elegido en Argos sin validar (Argos no respondía al registrarlo), lo confirma antes con Argos: de otra empresa, 422 `cliente_no_valido`; Argos sin responder, 422 `cliente_sin_confirmar`.", nucleo.PermProspectosGanar),
 		m.GanarProspecto, func(e *EntradaGanar, id int64, _ string) { e.ID = id })
+	registrarConID(api, accion("completarTareaArgos", "/api/v1/prospectos/{id}/completar-tarea-argos", "Marcar hecha la tarea «Abrir en Argos»",
+		"Solicitud del portal de Argos ganada (cambio de plan, traslado u otro, contrato 0.9.0 §11.7): una persona ya la aplicó en Argos. "+
+			"La solicitud pasa a `completada` (emite `solicitud_servicio.estado_cambiado`, que va a Argos). Sin tarea pendiente, 422 `sin_tarea_argos`. "+
+			"Emite `prospecto.tarea_argos_completada`.", nucleo.PermProspectosCompletarTareaArgos),
+		m.CompletarTareaArgos.Ejecutar, func(e *EntradaCompletarTareaArgos, id int64, _ string) { e.ID = id })
 
 	// Factibilidad.
 	registrarConID(api, accion("evaluarFactibilidad", "/api/v1/prospectos/{id}/factibilidad", "Evaluar la factibilidad",
