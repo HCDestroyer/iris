@@ -1,4 +1,4 @@
-Versión: 0.14.0 (21 nov 2026) · Iris ↔ ArgosISP
+Versión: 0.14.1 (22 nov 2026) · Iris ↔ ArgosISP
 
 # Contrato de integración Iris ↔ ArgosISP (copia de ArgosISP)
 
@@ -18,6 +18,7 @@ Versión: 0.14.0 (21 nov 2026) · Iris ↔ ArgosISP
 - **0.12.1 (21 nov 2026): parche aditivo sobre la 0.12.0, acordado con Argos; pendiente de implementar en los dos lados.** Clave del consentimiento por número (§6.4) y tickets del portal pedidos por un contacto de un servicio a cargo (§11, B28; §10.8).
 - **0.13.0 (21 nov 2026): minor y aditiva sobre la 0.12.1, decidida por el PM y acordada con Argos; pendiente de implementar en los dos lados.** Caídas repetidas con umbral de Iris y falla general (§3.11), gestiones de cobro (§3.12) y lectura de plantillas de WhatsApp desde Argos (§6.7). Decisiones del PM en §10.9.
 - **0.14.0 (21 nov 2026): minor sobre la 0.13.0, acordada con Argos; pendiente de implementar en los dos lados.** No es aditiva: cambia claves, reintentos y lo que cuenta como intento de recuperación, con la transición de §4.5. Sale de la revisión de seguridad de B26 y B27 en Iris y de tres revisiones de este cambio: qué errores de bodega y equipos no se reintentan solos, quién va en `X-Iris-Actor` en el material y en los equipos, el vínculo de cada técnico enviado a Argos, claves por operación y consumo por actor, foto obligatoria en todo intento con verificación del intento de servidor a servidor (ruta nueva de Iris), y la validación de ubicación y foto que hace Iris (§3.9, §3.10, §6.6; §10.10). Espejo: `iris#274` · PR enlazada en `argos-isp`.
+- **0.14.1 (22 nov 2026): parche aditivo sobre la 0.14.0, propuesto por Argos y acordado; pendiente de implementar en los dos lados.** Cambio de titular a una **empresa** en A39 (§3.4.4): `cliente.tipo`, NIT en los campos fiscales que ya existían y `representante` con DPI o pasaporte; titular existente por NIT verificado, con asignación al momento solo si el representante ya está registrado en esa empresa y, si no, revisión (`titular_empresa_en_revision`); `tipo_titular` en `servicio.titular_cambiado`. Incluye la revisión de seguridad y las decisiones del PM del 22 nov 2026 (§10.11).
 
 ## 0. Principios
 
@@ -253,7 +254,7 @@ Iris guarda en `integracion.argos_clientes` y `integracion.argos_servicios` solo
 | `factura.emitida` / `factura.anulada` / `pago.registrado` / `pago.anulado` (0.9.0, A36): solo de facturas con `origen_tipo = iris_orden` y a conectores con contrato ≥ 0.9.0. Factura: factura_id, numero, empresa_id, cliente_id, servicio_id, origen_tipo, origen_id, estado, total, saldo, moneda. Pago: pago_id, factura_id, origen_tipo, origen_id, empresa_id, monto, fecha. Son eventos que Argos ya tiene (§6.3); hoy solo envía a Iris `comprobante.*` y `promesa.*` | Actualiza el cobro de la orden: «facturado», «pagado», «anulado» o, con `pago.anulado`, vuelve a «facturado». |
 | `servicio.bienvenida_cambiada` (0.9.0, §12.5): servicio_id, empresa_id, cliente_id, origen_tipo (`iris_orden`, o null si la activación fue desde el panel de Argos), origen_id (o null), canales[] (`{ canal: whatsapp \| correo \| telegram, estado: pendiente \| enviada \| fallida \| omitida, motivo (o null), aviso_id (o null) }`; en WhatsApp, Argos reenvía lo que Iris le informó con `aviso.entregado` / `aviso.fallido`, §6.6, y `aviso_id` es el de Iris), reenvio (bool). Uno por cambio de estado, deduplicado por `X-Webhook-Id`. Nunca el texto ni las cuentas. Solo a conectores con contrato ≥ 0.9.0 | Actualiza el bloque «Bienvenida» de la orden. |
 | `equipo.wifi_resuelto` (0.9.0, §12.4): solicitud_id, servicio_id, empresa_id, origen_tipo (`iris_orden` \| `iris_ticket` \| `iris_conversacion`), origen_id, idempotency_key, estado (`aplicado` \| `fallido`), causa (o null). Nunca el SSID ni la clave | Muestra el resultado en la orden o el ticket. |
-| `servicio.titular_cambiado` (0.10.0, §3.4.4): servicio_id, empresa_id, de_cliente_id, a_cliente_id, existente (bool), posible_duplicado (bool), de_cliente_eliminado (bool), motivo_codigo (`menor_de_edad` \| `otro`; el texto queda solo en la auditoría de Argos), origen_tipo (`iris_orden` o null), origen_id (o null). Nunca el documento ni la identidad. Solo a conectores con contrato ≥ 0.10.0 | Mueve el servicio y la orden al titular en la instantánea; si `de_cliente_eliminado`, quita el cliente anterior y pasa el prospecto al nuevo. |
+| `servicio.titular_cambiado` (0.10.0, §3.4.4): servicio_id, empresa_id, de_cliente_id, a_cliente_id, existente (bool), posible_duplicado (bool), de_cliente_eliminado (bool), motivo_codigo (`menor_de_edad` \| `otro`; el texto queda solo en la auditoría de Argos), origen_tipo (`iris_orden` o null), origen_id (o null), tipo_titular (`persona` \| `empresa`; desde 0.14.1). Nunca el documento ni la identidad. Solo a conectores con contrato ≥ 0.10.0 | Mueve el servicio y la orden al titular en la instantánea; si `de_cliente_eliminado`, quita el cliente anterior y pasa el prospecto al nuevo. |
 | `cliente.identidad_registrada` (0.10.0, §3.4.3): cliente_id, empresa_id, documento_tipo, metodo. Nunca el número ni la foto. Solo a conectores con contrato ≥ 0.10.0 | Marca la identidad del titular como registrada en la orden y borra la foto del depósito de tránsito. |
 | `cliente.contactos_cambiados` (0.10.0, §3.5): cliente_id, empresa_id, contacto_id, accion (`creado` \| `editado` \| `quitado`), campos[] (solo nombres: `nombre`, `relacion`, `servicios`, `permisos`, `telefonos`, `persona_cliente_id`), persona_cliente_id (0.10.1, o null). Nunca los números. Solo a conectores con contrato ≥ 0.10.0 | Refresca la caché de contactos de ese cliente (relee `GET /clientes/:id/contactos`). |
 | `servicio.config_cambiada` y `catalogo.cambiado` (0.10.0, cambios sin forma nueva): `servicio.config_cambiada` lleva además `origen_tipo`/`origen_id` cuando el cambio de plan vino de Iris (§3.4.5); `catalogo.cambiado` de plan suma `modo` y `routers` en `campos[]` | Refresca la instantánea; con `origen_tipo = iris_orden`, no avisa de nuevo al vendedor. |
@@ -612,7 +613,7 @@ El cliente no siempre da todos sus datos al vender, y en la instalación puede c
 
 | Dato | Regla |
 | --- | --- |
-| Tipo de documento | `dpi` o `pasaporte`. En modo empresarial: `nit` de la empresa y un **representante** con `dpi` |
+| Tipo de documento | `dpi` o `pasaporte`. En empresa (`cliente.tipo: empresa`, 0.14.1): NIT en `tipo_documento_fiscal` + `nit_cui` y un **representante** con DPI o pasaporte (decisión del PM, 22 nov 2026, que amplía la decisión 4) |
 | Número | DPI: 13 dígitos con la verificación de departamento y municipio. Pasaporte: alfanumérico de 5 a 20. NIT: con dígito verificador (`K` permitido) |
 | Nombre completo | Tal como aparece en el documento (2 a 200) |
 | Mayor de edad | Casilla obligatoria «El titular es mayor de edad» (`mayor_de_edad: true`); **sin** fecha de nacimiento |
@@ -632,7 +633,7 @@ El cliente no siempre da todos sus datos al vender, y en la instalación puede c
 | --- | --- |
 | `frente` | Obligatoria. JPEG o PNG, hasta 5 MB |
 | `reverso` | Opcional, igual |
-| `documento_tipo` | `dpi`, `pasaporte` (o `dpi` del representante en empresarial) |
+| `documento_tipo` | `dpi` o `pasaporte` (en empresa, el del representante) |
 | `documento_numero` | Con las reglas de §3.4.2 |
 | `nombre` | Como aparece en el documento |
 | `mayor_de_edad` | `true` (otro valor: `422 validacion`) |
@@ -662,10 +663,36 @@ El cliente no siempre da todos sus datos al vender, y en la instalación puede c
 }
 ```
 
+- **Titular empresa (0.14.1).** `cliente.tipo` es `persona` (por defecto) o `empresa`. Con `empresa`:
+    - `cliente` lleva `nombre` (la razón social), `tipo_documento_fiscal: "nit"` y `nit_cui` (obligatorio: `422 nit_requerido`), y los mismos `telefono`, `whatsapp`, `email` y `relacion`; **no** lleva `documento_tipo`, `documento_numero` ni `mayor_de_edad`: mandarlos con `tipo: empresa` responde `422 validacion`.
+    - `cliente.tipo: empresa` no obliga a un plan `modo: empresarial`: el plan se elige aparte (A40).
+    - `representante` es obligatorio (`422 representante_requerido`): `{ nombre, documento_tipo: "dpi" | "pasaporte", documento_numero, mayor_de_edad: true }`. Con `tipo: persona`, `representante` está prohibido (`422 representante_no_permitido`).
+    - `frente`, `reverso` e `identidad.coincide` son del documento del **representante**; Argos registra esa identidad (A41) a nombre del representante, ligada al cliente empresa.
+    - La identidad del representante nunca vale como `documento` de §7.5 ni como `datos_titular` de §12.4 del cliente empresa, y nunca escribe `nit_cui`. En una empresa con historial, la regla de §3.4.3 compara al representante con las identidades A41 de esa empresa; si no coincide, `422 titular_empresa_en_revision`.
+    - **Titular existente en empresas: por NIT.** Argos solo considera clientes guardados como `tipo = empresa` y con `nit_cui` de origen verificado en Argos: nunca uno llenado por A43 ni creado por el token de Iris en `POST /clientes` (§3.2). Un cliente `persona` nunca coincide por NIT. El NIT se compara sin guiones ni espacios y sin distinguir mayúsculas (la `K`), como en §7.5. En personas, la búsqueda sigue siendo por documento (abajo).
+        - **Mismo NIT y misma razón social normalizada:** Argos asigna al momento solo si el `documento_tipo`, el `documento_numero` y el nombre normalizado del representante coinciden con una identidad A41, vigente o anterior, de esa empresa. Si no coinciden, `422 titular_empresa_en_revision`, sin datos del cliente: no cambia nada, la orden pasa a revisión de un supervisor y decide una persona de Argos con `clientes.ver_identidad`.
+        - **Mismo NIT y otra razón social:** `422 titular_no_coincide`.
+        - **Más de un candidato:** `422 titular_empresa_en_revision`.
+        - La identidad de un representante nuevo **nunca reemplaza** la vigente de un cliente empresa con historial: queda como representante adicional hasta que Argos la apruebe.
+    - El documento del representante sigue las mismas reglas que el del titular persona: solo en tránsito en Iris, nunca en `payload`, eventos, logs ni errores. En pendientes, panel y auditoría, todo `representante.*` sale como `***`, salvo `documento_tipo`.
+
+  Ejemplo de `datos` con empresa:
+
+  ```json
+  {
+    "cliente": { "tipo": "empresa", "nombre": "Ferretería El Sol, S.A.", "tipo_documento_fiscal": "nit", "nit_cui": "1234567-8", "telefono": "+502 2233-4455", "whatsapp": true, "email": null, "relacion": "otro" },
+    "representante": { "nombre": "Ana Pérez", "documento_tipo": "dpi", "documento_numero": "1234567890101", "mayor_de_edad": true },
+    "identidad": { "coincide": true, "verificado_en": "2026-11-21T16:02:00Z", "metodo": "foto_documento" },
+    "motivo_codigo": "otro",
+    "motivo": "La venta se hizo a nombre de la empresa del cliente",
+    "origen_tipo": "iris_orden",
+    "origen_id": "9123"
+  }
+  ```
 - **Quién es el titular lo decide Argos.** Iris **nunca** manda un `cliente_id`. Argos compara en su lado, en la empresa del servicio:
     - **Mismo `documento_tipo` y `documento_numero` y mismo nombre normalizado** (sin tildes, sin distinguir mayúsculas y sin espacios dobles): con la identidad de A41 tomada en sitio (foto del documento, «Coincide con el titular» y la firma del contrato a su nombre, B20), Argos **asigna el servicio a ese cliente al momento**, registra en él la identidad como **versión nueva** y le manda un aviso **informativo**, que no bloquea nada, por sus canales registrados («Se agregó un servicio a tu nombre; si no fuiste tú, comunícate con nosotros»). La respuesta solo dice `titular: { cliente_id, existente: true }`, sin ningún otro dato de ese cliente. `activar-instalacion` y `aprovisionar` siguen normal (decisión 9 del PM, §10.5).
-    - **Mismo documento y otro nombre:** `422 titular_no_coincide`, sin datos del otro cliente, y no cambia nada. Cada `titular_no_coincide` suma a un **contador aparte** del documento que coincidió: no bloquea la verificación del titular en §7.5; pasado el tope (5 en 24 h), solo bloquea nuevos cambios de titular hacia ese documento (`429 demasiados_cambios_titular`). La orden queda en revisión de un supervisor.
-    - **Ningún cliente con ese documento:** crea uno nuevo (`titular: { cliente_id, existente: false }`). Solo marca `posible_duplicado: true` cuando coinciden el nombre o el teléfono y el documento no, para que una persona de Argos lo revise.
+    - **Mismo documento y otro nombre:** `422 titular_no_coincide`, sin datos del otro cliente, y no cambia nada. Cada `titular_no_coincide` suma a un **contador aparte** del documento que coincidió: no bloquea la verificación del titular en §7.5; pasado el tope (5 en 24 h), solo bloquea nuevos cambios de titular hacia ese documento (`429 demasiados_cambios_titular`). La orden queda en revisión de un supervisor. En empresas, el contador cuenta por NIT normalizado y suman también los `titular_empresa_en_revision`; el tope bloquea los cambios hacia ese NIT con cualquier representante.
+    - **Ningún cliente con ese documento** (en empresas, el documento es el NIT): crea uno nuevo (`titular: { cliente_id, existente: false }`). Solo marca `posible_duplicado: true` cuando coinciden el nombre o el teléfono y el documento no, para que una persona de Argos lo revise.
 - **Límites:** como máximo **2 cambios de titular por servicio** y **10 por empresa y técnico** (`X-Iris-Actor`) al día: `429 demasiados_cambios_titular` con `Retry-After`.
 - La identidad que registra (A41) es la `evidencia` del cambio: no hay adjuntos de Iris.
 - Solo en `pendiente_instalacion` (`422 servicio_no_pendiente`). `version` opcional (principios). `motivo_codigo` (`menor_de_edad` u `otro`) y `motivo` de 10 a 500 caracteres; el texto queda solo en la auditoría de Argos (B1). Sin `frente` o sin `coincide: true`: `422 evidencia_requerida`.
@@ -702,7 +729,7 @@ Argos solo exige nombre y teléfono al crear. Lo que falte lo manda Iris **antes
 | 422 | `sin_ip_disponible` | A38, `activar-instalacion`, `aprovisionar` (`causa`) |
 | 422 | `plan_no_permitido` | A40, `activar-instalacion`, `aprovisionar` |
 | 422 | `evidencia_requerida` | A39 |
-| 422 | `titular_no_coincide` | A39 y A41: el documento es de otro cliente con otro nombre. En Iris, la operación de la cola queda `rechazada` con este código y la orden pasa a revisión de un supervisor |
+| 422 | `titular_no_coincide` | A39 y A41: el documento es de otro cliente con otro nombre (en empresas, el NIT es de otra razón social). En Iris, la operación de la cola queda `rechazada` con este código y la orden pasa a revisión de un supervisor |
 | 422 | `campo_ya_registrado` | A43 |
 | 422 | `cliente_con_historial` | A43 (`telefono`, `movil`, `email`, `nombre`, `tipo_documento_fiscal` o `nit_cui` de un cliente con historial) |
 | 403 | `servicio_no_de_iris` | Todas las de §3.4 |
@@ -710,21 +737,23 @@ Argos solo exige nombre y teléfono al crear. Lo que falte lo manda Iris **antes
 | 429 | `demasiados_cambios_titular` | A39 (2 por servicio y 10 por empresa y técnico al día) |
 | 413 / 422 | `tamano_excedido` / `mime_no_permitido` | A39, A41 (fotos) |
 | 422 | `validacion` | Cualquier campo (`errors[]`): documento, NIT, teléfono, `mayor_de_edad` |
+| 422 | `representante_requerido` / `nit_requerido` / `representante_no_permitido` | A39 con `cliente.tipo` (0.14.1): empresa sin representante o sin NIT; persona con representante |
+| 422 | `titular_empresa_en_revision` | A39 con empresa (0.14.1): el representante no coincide con una identidad A41 de la empresa del NIT, o hay más de un candidato. Sin datos del cliente; no cambia nada. En Iris, la operación de la cola queda `rechazada` con este código y la orden pasa a revisión de un supervisor; decide una persona de Argos |
 
 Todos son de negocio y no se reintentan solos (§3.1).
 
 #### 3.4.8 En Iris (informativo para Argos)
 
-- **Sin señal primero.** En el teléfono, la foto del documento vive **solo en la cola local**, cifrada con una llave WebCrypto **no exportable**, hasta que el servidor de Iris confirma que la recibió; entonces se borra del teléfono, y también al cerrar o revocar la sesión. En el servidor de Iris queda en un **depósito de tránsito cifrado**, fuera de los adjuntos y fuera de la auditoría (`***`), y sale a Argos por `integracion.pendientes` con `Idempotency-Key = iris:identidad:<orden_id>:<toma>` (o dentro de A39). En `integracion.pendientes` el documento y las fotos se guardan **solo como referencia al depósito**, nunca en `payload`; los eventos `integracion.pendiente_*` y el panel muestran `documento_numero`, `telefono` y `email` como `***`.
+- **Sin señal primero.** En el teléfono, la foto del documento vive **solo en la cola local**, cifrada con una llave WebCrypto **no exportable**, hasta que el servidor de Iris confirma que la recibió; entonces se borra del teléfono, y también al cerrar o revocar la sesión. En el servidor de Iris queda en un **depósito de tránsito cifrado**, fuera de los adjuntos y fuera de la auditoría (`***`), y sale a Argos por `integracion.pendientes` con `Idempotency-Key = iris:identidad:<orden_id>:<toma>` (o dentro de A39). En `integracion.pendientes` el documento y las fotos se guardan **solo como referencia al depósito**, nunca en `payload`; los eventos `integracion.pendiente_*` y el panel muestran `documento_numero`, `telefono` y `email` como `***`, y con empresa (0.14.1), todo `representante.*` salvo `documento_tipo`.
 - **Borrado:** la foto se borra del servidor de Iris al recibir el `2xx` de Argos. En cualquier otro caso (rechazada, cancelada o resuelta a mano) se borra a los **7 días de tomada**, y la orden muestra el error para tomarla otra vez. Nadie la ve en el depósito de tránsito, tampoco el agente.
 - **Sin identidad, la orden no activa**, salvo que un agente la valide desde el panel con `ordenes.validar_identidad` (motivo, auditado). Ese permiso **solo** permite activar: nunca cambiar el titular ni registrar A41. La revisión desde el panel (`metodo: revision_panel`) la hace un supervisor sobre la foto tomada en sitio, con motivo.
-- **El número de documento** nunca va en eventos ni logs de Iris; en la auditoría, `***`.
+- **El número de documento** nunca va en eventos ni logs de Iris; en la auditoría, `***`. Con empresa, en pendientes, panel y auditoría todo `representante.*` sale como `***`, salvo `documento_tipo`.
 - **El prospecto** queda «ganado, alta pendiente» (`alta.estado = esperando_activacion`) ligado al cliente y al servicio de Argos hasta que el servicio se activa; ahí pasa a `completa`. Si cambia el titular, el prospecto pasa al titular nuevo.
 - **La firma** del titular es la del **contrato regenerado** a su nombre, en la orden (un menor no puede quedar como quien firmó). Si cambió el plan, ese contrato ya lleva el precio nuevo: la firma en sitio cubre la subida de precio (B6).
 - **El técnico no ve** `posible_duplicado` (B4) ni, con `existente: true`, otros servicios ni datos del cliente existente.
 - **El cambio de plan** crea una revisión nueva de la cotización con el plan nuevo (reemplaza la vigente) y avisa al vendedor. Los planes que el técnico puede elegir son los de `GET /planes?router_id=&modo=`, guardados en el paquete del día.
 - **El cobro de la instalación** de la orden (§3) sale después del paso «Confirmar titular y plan», a nombre del titular final y con el plan final.
-- **`titular_no_coincide`:** la operación `orden.cambiar_titular` queda `rechazada` en la sincronización con ese código (regla en `contratos/sync.md`), la orden pasa a revisión de un supervisor y la activación no sale. El técnico no ve datos del otro cliente.
+- **`titular_no_coincide` y `titular_empresa_en_revision`:** la operación `orden.cambiar_titular` queda `rechazada` en la sincronización con ese código (regla en `contratos/sync.md`), la orden pasa a revisión de un supervisor y la activación no sale. El técnico no ve datos del otro cliente.
 - **Si Argos rechaza** un paso, Iris no lo muestra como hecho: la orden queda «pendiente en Argos» con el motivo, la activación queda bloqueada (`integracion.pendiente_bloqueado`) y el técnico o un agente corrigen o lo resuelven a mano. Nunca se activa con el titular o el plan equivocados.
 
 ### 3.5 Contactos del cliente (0.10.0, A42)
@@ -1060,8 +1089,9 @@ Decisiones del PM en §10.9.
 
 ## 4. Versionado
 
-Semver. Esta versión 0.14.0 es una minor sobre la 0.13.0, no aditiva (transición en §4.5); la 0.13.0 es una minor aditiva sobre la 0.12.1, que es un parche aditivo sobre la 0.12.0, que es una minor aditiva sobre la 0.11.0, que es una minor aditiva sobre la 0.10.1, que es aditiva sobre la 0.10.0, y esta sobre la 0.9.0 (ver «Gobierno»); todas están acordadas con Argos y decididas por el PM, y pendientes de implementar en los dos lados. La 0.8.1 está espejada (`iris#222` y `argos-isp#258`) y salió en Argos 1.21.0. Desde 1.0.0, solo cambios compatibles en versiones menores.
+Semver. Esta versión 0.14.1 es un parche aditivo sobre la 0.14.0, que es una minor sobre la 0.13.0, no aditiva (transición en §4.5); la 0.13.0 es una minor aditiva sobre la 0.12.1, que es un parche aditivo sobre la 0.12.0, que es una minor aditiva sobre la 0.11.0, que es una minor aditiva sobre la 0.10.1, que es aditiva sobre la 0.10.0, y esta sobre la 0.9.0 (ver «Gobierno»); todas están acordadas con Argos y decididas por el PM, y pendientes de implementar en los dos lados. La 0.8.1 está espejada (`iris#222` y `argos-isp#258`) y salió en Argos 1.21.0. Desde 1.0.0, solo cambios compatibles en versiones menores.
 
+- **0.14.1** (22 nov 2026; parche aditivo, propuesto por Argos, §10.11; espejo: PR enlazada en `argos-isp`): §3.4.4, A39 acepta `cliente.tipo` (`persona` por defecto, `empresa`), con NIT en `tipo_documento_fiscal` + `nit_cui` y `representante { nombre, documento_tipo, documento_numero, mayor_de_edad }` cuyo documento es el de la identidad; representante con DPI o pasaporte que no vale para §7.5 ni §12.4 ni escribe `nit_cui`; búsqueda del titular existente por NIT normalizado, solo entre clientes `tipo = empresa` con `nit_cui` verificado en Argos, con asignación al momento solo si el representante coincide con una identidad A41 de esa empresa y, si no o con más de un candidato, `422 titular_empresa_en_revision`; el representante nuevo no reemplaza la identidad vigente; contador por NIT; `representante.*` como `***` salvo `documento_tipo`; `cliente.tipo: empresa` no obliga a un plan empresarial; errores `representante_requerido`, `nit_requerido`, `representante_no_permitido` y `titular_empresa_en_revision`; `servicio.titular_cambiado` suma `tipo_titular`. Con Argos < 0.14.1, Iris no ofrece el cambio de titular a empresa (la orden lo muestra como no disponible).
 - **0.14.0** (21 nov 2026; minor sobre la 0.13.0, acordada con Argos, §10.10; espejo `iris#274` · PR enlazada en `argos-isp`; transición en §4.5): §3.9, consumos desde la app con `tecnico` + `bodega_id` + `X-Iris-Actor` (comodatos y devoluciones sin `bodega_id`), `tecnico` = I1 del actor, consumo por actor y bodega (`iris:consumo:<orden_id>:<usuario_id>:<bodega_id>`), `403 actor_desconocido` y `403 actor_no_coincide` también en la bodega personal con contrato ≥ 0.14.0, despacho solo con bodegas `tipo = bodega`, y los `403` de negocio reconocidos por la URN completa y sin reintento. §3.10, `X-Iris-Actor` = usuario autenticado del lote; el técnico que dejó la orden, hasta 12 h (excepción a `contratos/sync.md` §3); `equipo.cambiar` y `equipo.no_recuperado` como tipos del lote, enviados al aplicarse; claves con el id de la operación y huella con `X-Iris-Actor`; `foto_ref` obligatoria en todo intento; `429 demasiados_intentos` definitivo en `…/no-recuperado` aunque venga con `Retry-After`; validación de Iris con `ubicacion_sin_referencia`; «al día» en America/Guatemala; `GET <iris>/api/v1/integraciones/argosisp/intentos-recuperacion/verificacion` (permiso `adjuntos.verificar_integracion`) que verifica el intento o el cambio completo, con tope; un intento sin verificar no cambia la unidad, no avisa ni cuenta; aviso al titular solo por intentos verificados, uno por servicio al día; `foto_ref` obligatoria en un cambio con `cobro_propuesto`, que sin verificar no entra a la cola; el cupo diario no cuenta intentos que Iris no confirma. §3.3, `409 contrato_regresivo` y `422 contrato_no_soportado`; cupo diario por el día de la `fecha` y `503` si su verificación no es concluyente. §6.6, webhooks `tecnico.argos_vinculado` y `tecnico.argos_desvinculado` con `empresa_id` y `version`, para todo técnico, con carga inicial cerrada con `vinculos_cargados` (`409 vinculos_en_carga` mientras tanto) y `GET <iris>/…/tecnicos/:usuario_id` para conciliar; `motivo: desactivado`; vínculo solo de inventario. Pedidos A47, A48, B26 y B27 ampliados.
 - **0.13.0** (21 nov 2026; decidida por el PM, §10.9; acordada con Argos): **A49:** `servicio.caidas_repetidas` con umbral de 3 caídas en 60 min, configurable por empresa; Iris decide y abre un ticket por servicio. **A50:** `red.falla_general_abierta` / `red.falla_general_cerrada` con ids de servicios afectados (hasta 5000) y `GET /api/v1/incidentes-red/:incidente_id/servicios` para el resto; Iris abre un ticket general por incidente. **A51:** `POST /clientes/:id/gestiones-cobro` sin texto libre, montos ni teléfonos. **A52:** Argos lee las plantillas de WhatsApp de Iris (§6.7). Permisos `incidentes_red.leer`, `clientes.registrar_gestion_cobro` (Argos) y `plantillas_whatsapp.leer_integracion` (Iris). Pedidos A49–A52 y B29–B32.
 - **0.12.1** (21 nov 2026; acordada con Argos, §10.8): §6.4, con `telefono` la `Idempotency-Key` del consentimiento es `argos:consentimiento:<empresa_id>:<cliente_id>:whatsapp:<h>:<ocurrido_en>` (`<h>` = 16 primeros hex del HMAC-SHA256 de `"consentimiento:" + número E.164` con el secreto del receptor de webhooks de Iris; el número en claro solo en el cuerpo). §11: `?servicio_id=` en `GET …/portal/tickets`, `X-Iris-Contacto` (`<contacto_id>` o `titular`) en toda ruta de §11 con `X-Iris-Contacto-Version`, `servicio_id` obligatorio, `403 servicio_fuera_del_contacto` con la caché de Iris (relectura y `503` si Argos no responde), los tickets ajenos del servicio solo con número, estado y fechas, y `creado_por_contacto`. Pedido B28.
@@ -2168,6 +2198,29 @@ Sale de la revisión de seguridad de B26 y B27 en Iris y de tres revisiones de e
 - **N-4. Verificación no concluyente.** Si la del intento que ocupa el cupo no es concluyente, `503` con `Retry-After`, que se reintenta, nunca `429 demasiados_intentos` (§3.10).
 - **N-5. Día del cupo.** El de la `fecha` en America/Guatemala, no el día en que llega a Argos.
 - **N-6. Versión mayor que la de Argos.** `422 contrato_no_soportado`, sin registrarla (§3.3, §4.5).
+
+### 10.11 Acordado con Argos para la 0.14.1 (22 nov 2026)
+
+Iris preguntó cómo va A39 cuando el titular es una empresa; Argos propuso no usar `nit` como `documento_tipo` (que es un documento de identidad de persona, cifrado y comparado por «coincide») y separar la empresa del representante:
+
+1. `cliente.tipo` (`persona` | `empresa`); con empresa, NIT en los campos fiscales que ya existían y sin documento de identidad.
+2. `representante` obligatorio con empresa y prohibido con persona; su documento es el de la identidad (A41) y el de las fotos.
+3. Titular existente por NIT en empresas.
+4. `tipo_titular` en `servicio.titular_cambiado`, nunca con documentos.
+
+**Decisión del PM (22 nov 2026):**
+
+- **Empresa existente:** se asigna al momento solo si el representante ya está registrado en esa empresa. Si es nuevo, va a revisión de un supervisor y de una persona de Argos (`titular_empresa_en_revision`).
+- **Documento del representante:** se aceptan DPI o pasaporte.
+
+**Ajustes de la revisión de seguridad de la 0.14.1** (todos aceptados por Argos, 22 nov 2026; Argos marca el NIT verificado con `nit_verificado_en` y `nit_verificado_por`, que pone solo una persona en su panel y se borra si cambia `nit_cui`):
+
+- **a. Representante que no coincide (altos 1 y 3).** Con mismo NIT y misma razón social, asignación al momento solo si el representante coincide con una identidad A41, vigente o anterior, de esa empresa; si no, `422 titular_empresa_en_revision`, sin datos del cliente, y decide una persona de Argos con `clientes.ver_identidad`. Un representante nuevo nunca reemplaza la identidad vigente de una empresa con historial.
+- **b. Qué NIT cuenta (alto 2).** Solo clientes `tipo = empresa` con `nit_cui` verificado en Argos (nunca de A43 ni de `POST /clientes` del token de Iris); un cliente `persona` nunca coincide; con más de un candidato, revisión; NIT normalizado como en §7.5.
+- **c. Contador por NIT (medio 1).** Suman también los `titular_empresa_en_revision`; el tope bloquea ese NIT con cualquier representante.
+- **d. Alcance de la identidad del representante (medio 2).** Nunca vale para §7.5 ni §12.4 del cliente empresa ni escribe `nit_cui`; §3.4.3 lo compara con las identidades A41 de la empresa.
+- **e. Datos del representante (medio 3).** `***` en pendientes, panel y auditoría, salvo `documento_tipo`.
+- **f. Forma del cliente empresa (medio 4).** `422 validacion` con `documento_tipo`, `documento_numero` o `mayor_de_edad` en el `cliente`; NIT como documento de la búsqueda; el plan no tiene que ser `modo: empresarial` (A40).
 
 ## 11. Portal del cliente de Argos (0.9.0, bloque P)
 
