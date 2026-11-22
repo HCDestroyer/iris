@@ -187,7 +187,7 @@ Una tarea está terminada solo si:
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id (creado); modo (local, argos), contrato_id, cotizacion_id, orden_id (o null), pendientes[] (ganado); motivo (perdido) |
 | `prospecto.actualizado` / `prospecto.asignado` / `prospecto.estado_cambiado` / `prospecto.actividad_registrada` | comercial | prospecto_id; campos[] (actualizado); vendedor_id, vendedor_anterior_id (asignado); de, a, motivo (estado); actividad_id, tipo (actividad) |
 | `prospecto.alta_actualizada` | comercial (alta en Argos) | prospecto_id, estado (esperando_servicio, esperando_activacion, completa), cliente_id, servicio_id (o null), orden_id (o null); también al pasar al titular nuevo (B17) |
-| `prospecto.venta_revisada` | comercial (B20, cambio de plan o titular hecho en Argos) | prospecto_id, empresa_id, vendedor_id (o null), orden_id, motivo (plan, titular), cotizacion_id (vigente), contrato_id (borrador; se acepta al firmarlo en la orden) |
+| `prospecto.venta_revisada` | comercial (B20, cambio de plan o titular hecho en Argos) | prospecto_id, empresa_id, vendedor_id (o null), orden_id, motivo (plan, titular), cotizacion_id (la revisión, vigente), contrato_id (regenerado en borrador, se firma en la orden; o null con la orden cancelada, fallida o cerrada) |
 | `factibilidad.evaluada` | comercial | prospecto_id, factibilidad_id, resultado (viable, no_viable, requiere_obra, indeterminado), motor, motivo (o null), router_id/caja (o null), distancia_m |
 | `factibilidad.umbrales_cambiados` | comercial | empresa_id, viable_m, obra_m |
 | `cotizacion.creada` / `cotizacion.aceptada` | comercial | cotizacion_id, prospecto_id, numero; revision, plan_id, total_mensual, total_unico, moneda, reemplaza_id (creada) |
@@ -217,7 +217,7 @@ Una tarea está terminada solo si:
 | `orden.titular_movido` | campo (B17) | orden_id, numero, servicio_id, de_cliente_id (o null), a_cliente_id, tipo_titular (o null), entrante_id |
 | `orden.identidad_registrada` / `orden.cambio_titular_registrado` | campo (paso «Confirmar titular y plan», §3.4) | orden_id, pendiente_id, documento_tipo (dpi, pasaporte), reemplaza_id (o null); toma, metodo (identidad); cambio, tipo_titular (persona, empresa), motivo_codigo (cambio); nunca el número, el nombre ni la foto |
 | `orden.revision_titular_levantada` | campo (panel, §3.4.8) | orden_id, usuario_id; nunca el motivo |
-| `orden.paso_titular_tras_cancelar` | integracion (pendientes) | orden_id, pendiente_id, operacion, estado_orden (cancelada, fallida) |
+| `orden.paso_titular_tras_cancelar` | integracion (pendientes) | orden_id, pendiente_id, operacion, estado_orden (cancelada, fallida; cerrada solo en cambiar_plan y cambiar_titular) |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |
 | `empresa.creada` / `empresa.actualizada` | identidad (núcleo) | empresa_id; origen (creada), campos[] (actualizada) |

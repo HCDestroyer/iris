@@ -27,9 +27,11 @@ import (
 //     su precio de Argos), a nombre del titular confirmado en la orden y con vigencia nueva;
 //   - se regenera el contrato en borrador con esa revisión, ligado a la orden (contenido.ordenId),
 //     a nombre del titular nuevo. El contrato firmado **sigue vivo**: el cambio de contrato ocurre al
-//     firmar el regenerado en la orden (FirmarContratoEnOrden, o /contratos/{id}/firmar con la
-//     firma del cliente), que anula el anterior y acepta la revisión. La firma en sitio cubre la
-//     subida de precio (B6). Un cambio hecho desde el panel no se da por aceptado sin esa firma;
+//     firmar el regenerado en sitio (solo con la operación del lote orden.firmar_contrato,
+//     FirmarEnOrdenEnTx; /contratos/{id}/firmar lo rechaza con se_firma_en_la_orden), que anula el
+//     anterior y acepta la revisión. La firma en sitio cubre la subida de precio (B6). Un cambio
+//     hecho desde el panel no se da por aceptado sin esa firma. Con la orden cancelada, fallida o
+//     cerrada, la revisión se crea sin contrato (se regenera al reabrir o reprogramar la orden);
 //   - una revisión anterior aún sin firmar queda reemplazada (y su contrato regenerado, anulado);
 //   - el vendedor recibe un aviso (prospecto.venta_revisada → campana).
 //
@@ -90,7 +92,7 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			if err != nil {
 				return r, err
 			}
-			terminada := ordenTerminal(o.Estado)
+			terminada := sinFirmaEnSitio(o.Estado)
 			idem := claveRevision(in.Clave)
 			if _, err := q.CotizacionPorIdempotencia(ctx, &idem); err == nil {
 				return r, nil // ya revisada (el evento llegó dos veces)
@@ -177,10 +179,8 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			if err != nil {
 				return r, err
 			}
-			notas := fmt.Sprintf("Revisión por cambio de %s en la instalación %s: se acepta al firmar el contrato regenerado en la orden", in.Motivo, numeroOrden)
-			if terminada {
-				notas += " (la orden está " + o.Estado + ": el contrato se regenera al reabrirla)"
-			}
+			// Las notas salen en el PDF del cliente: sin avisos internos (esos van al historial).
+			notas := fmt.Sprintf("Revisión por cambio de %s en la instalación %s.", in.Motivo, numeroOrden)
 			// Vigencia nueva: la de la venta puede haber vencido (el prospecto está ganado).
 			vence := m.ahora().Add(m.cfg.VigenciaCotizacion).UTC().Truncate(time.Microsecond)
 			pdfID, err := m.nuevoPDFID()
@@ -227,6 +227,7 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			}
 			if err := historial(ctx, t, q, p.ID, "venta_revisada", nil, nil, nil, map[string]any{
 				"orden_id": in.OrdenID, "motivo": in.Motivo, "cotizacion_id": cot.ID, "base_id": base.ID, "reemplaza_id": reemplaza, "contrato_id": contrato,
+				"estado_orden": o.Estado, "sin_contrato": terminada,
 			}); err != nil {
 				return r, err
 			}

@@ -17,8 +17,9 @@ import (
 
 // Orden de instalación cancelada o fallida (B20, revisión de #280): el contrato regenerado en
 // borrador ya no se puede firmar en sitio, así que se anula. La revisión de la cotización queda sin
-// aceptar y el contrato firmado de la venta sigue vivo. Se dispara con orden.estado_cambiada
-// (a = cancelada o fallida); idempotente.
+// aceptar y el contrato firmado de la venta sigue vivo. Igual con la orden cerrada: ya no se firma
+// en sitio (no queda «por firmar»). Se dispara con orden.estado_cambiada (a = cancelada, fallida o
+// cerrada); idempotente.
 //
 // Orden reabierta o reprogramada (de cancelada o fallida a otro estado abierto): Argos ya tiene el
 // plan o el titular nuevo, así que el contrato se regenera en borrador para esa orden con la última
@@ -29,14 +30,19 @@ import (
 // Los dos leen el estado de la orden con candado compartido antes de tomar el prospecto (como
 // RevisarVenta): no se cruzan con cancelar ni reabrir.
 
-// ordenTerminal: estados de la orden sin firma en sitio posible.
+// ordenTerminal: cancelada o fallida (se puede reabrir o reprogramar).
 func ordenTerminal(estado string) bool { return estado == "cancelada" || estado == "fallida" }
 
-// EntradaOrdenTerminada: la orden que se canceló o falló.
+// sinFirmaEnSitio: estados de la orden en los que el contrato regenerado no se puede firmar en
+// sitio: cancelada o fallida, y cerrada (que no se reabre).
+func sinFirmaEnSitio(estado string) bool { return ordenTerminal(estado) || estado == "cerrada" }
+
+// EntradaOrdenTerminada: la orden que cambió de estado (orden.estado_cambiada).
 type EntradaOrdenTerminada struct {
 	OrdenID int64  `json:"orden_id"`
 	Estado  string `json:"a"`
-	// De: el estado anterior (orden.estado_cambiada); de cancelada o fallida a pendiente = reabierta.
+	// De: el estado anterior; de cancelada o fallida a un estado abierto = reabierta (→ pendiente)
+	// o reprogramada (fallida → programada).
 	De string `json:"de,omitempty"`
 }
 
@@ -63,7 +69,7 @@ func (m *Modulo) nuevoOrdenTerminada() *auditoria.Caso[EntradaOrdenTerminada, Re
 				return r, err
 			}
 			// Con el estado leído de la orden, no el del evento (pudo reabrirse después).
-			if !ordenTerminal(o.Estado) {
+			if !sinFirmaEnSitio(o.Estado) {
 				return r, nil
 			}
 			id, err := q.ProspectoGanadoDeOrden(ctx, &in.OrdenID)
@@ -124,7 +130,7 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 				return r, err
 			}
 			// Con el estado leído de la orden: sigue abierta (no cancelada, fallida ni cerrada).
-			if ordenTerminal(o.Estado) || o.Estado == "cerrada" {
+			if sinFirmaEnSitio(o.Estado) {
 				return r, nil
 			}
 			id, err := q.ProspectoGanadoDeOrden(ctx, &in.OrdenID)
@@ -154,7 +160,7 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 				return r, err
 			}
 			if !rev.VigenteHasta.After(m.ahora()) {
-				antes := rev.VigenteHasta
+				antes, pdfAntes := rev.VigenteHasta, rev.PdfAdjuntoID
 				pdfID, err := m.nuevoPDFID()
 				if err != nil {
 					return r, err
@@ -163,7 +169,8 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 					VigenteHasta: m.ahora().Add(m.cfg.VigenciaCotizacion).UTC().Truncate(time.Microsecond), PdfAdjuntoID: pdfID, ID: rev.ID}); err != nil {
 					return r, err
 				}
-				t.RegistrarCambios("cotizacion", rev.ID, map[string]any{"vigente_hasta": antes}, map[string]any{"vigente_hasta": rev.VigenteHasta})
+				t.RegistrarCambios("cotizacion", rev.ID, map[string]any{"vigente_hasta": antes, "pdf_adjunto_id": pdfAntes},
+					map[string]any{"vigente_hasta": rev.VigenteHasta, "pdf_adjunto_id": rev.PdfAdjuntoID})
 				r.Renovada = &rev.ID
 			}
 			var cliente clientePDF
@@ -201,14 +208,15 @@ func (m *Modulo) OrdenReabierta(ctx context.Context, in EntradaOrdenTerminada) (
 	return r, nil
 }
 
-// OrdenTerminada anula el contrato regenerado de una orden cancelada o fallida (actor sistema).
+// OrdenTerminada anula el contrato regenerado de una orden cancelada, fallida o cerrada (actor
+// sistema).
 func (m *Modulo) OrdenTerminada(ctx context.Context, in EntradaOrdenTerminada) (ResultadoOrdenTerminada, error) {
 	return m.ordenTerminada.Ejecutar(ctx, in)
 }
 
-// suscribirOrdenTerminada: orden.estado_cambiada a cancelada o fallida, o de vuelta a pendiente
-// (reabierta) (cmd/worker, con
-// SuscribirRevisionVenta).
+// suscribirOrdenTerminada: orden.estado_cambiada a cancelada, fallida o cerrada (anula), o de
+// cancelada o fallida a un estado abierto: reabierta o reprogramada (regenera). Lo suscribe
+// SuscribirRevisionVenta (cmd/worker).
 func (m *Modulo) suscribirOrdenTerminada(bus *integracion.Bus, bd nucleo.BD, log *slog.Logger) {
 	bus.Suscribir("comercial.orden_terminada", "orden.estado_cambiada", func(ctx context.Context, e integracion.Evento) error {
 		var in EntradaOrdenTerminada
@@ -219,10 +227,10 @@ func (m *Modulo) suscribirOrdenTerminada(bus *integracion.Bus, bd nucleo.BD, log
 		switch {
 		case in.OrdenID <= 0:
 			return nil
-		case ordenTerminal(in.Estado):
+		case sinFirmaEnSitio(in.Estado):
 			_, err := m.OrdenTerminada(nucleo.ConBD(ctx, bd), in)
 			return err
-		case ordenTerminal(in.De) && !ordenTerminal(in.Estado):
+		case ordenTerminal(in.De) && !sinFirmaEnSitio(in.Estado):
 			// Reabierta (→ pendiente) o reprogramada (fallida → programada).
 			_, err := m.OrdenReabierta(nucleo.ConBD(ctx, bd), in)
 			return err

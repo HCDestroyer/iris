@@ -288,13 +288,15 @@ func EsCodigoRevisionTitular(codigo string) bool {
 }
 
 // EventoPasoTrasCancelar: un paso del titular que estaba saliendo cuando la orden se canceló o
-// falló quedó hecho en Argos: supervisión revisa (no se deshace solo).
+// falló quedó hecho en Argos, o un cambio de plan o de titular quedó hecho con la orden ya
+// cerrada (no hubo firma del contrato regenerado en sitio): supervisión revisa (no se deshace solo).
 const EventoPasoTrasCancelar = "orden.paso_titular_tras_cancelar"
 
 // despuesDelPasoTitular, en la transacción del resultado de un intento:
 //   - titular_no_coincide (A39 o A41) o titular_empresa_en_revision (A39 con empresa, 0.14.1): la
 //     orden queda en revisión de un supervisor (marca persistente en campo.orden_titular);
-//   - hecho con la orden ya cancelada o fallida: avisa a supervisión (lo hecho no se deshace).
+//   - hecho con la orden ya cancelada o fallida (o un cambio de plan o de titular con la orden
+//     cerrada): avisa a supervisión (lo hecho no se deshace).
 func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, ahora time.Time) error {
 	if !slices.Contains(OperacionesTitular, f.Operacion) || f.Entidad != "orden" {
 		return nil
@@ -319,7 +321,8 @@ func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.
 		if err != nil {
 			return err
 		}
-		if estado == "cancelada" || estado == "fallida" {
+		cambioSinFirma := estado == "cerrada" && (f.Operacion == OpCambiarPlan || f.Operacion == OpCambiarTitular)
+		if estado == "cancelada" || estado == "fallida" || cambioSinFirma {
 			slog.WarnContext(ctx, "pendientes: paso del titular hecho en Argos con la orden ya terminada", "pendiente", f.ID, "orden", orden, "estado_orden", estado)
 			return t.Emitir(EventoPasoTrasCancelar, map[string]any{"orden_id": orden, "pendiente_id": f.ID, "operacion": f.Operacion, "estado_orden": estado})
 		}

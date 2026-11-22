@@ -1,10 +1,14 @@
 package comercial_test
 
 import (
+	"bytes"
+	"compress/zlib"
 	"context"
 	"io"
 	"log/slog"
+	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -298,6 +302,45 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 		t.Fatal("la revisión no quedó aceptada con la firma")
 	}
 
+	// Las notas de la revisión salen en el PDF del cliente: sin avisos internos (orden cancelada,
+	// regenerar al reabrir…), también después de renovar la vigencia.
+	if txt := textoPDF(t, deber(e.com.PDFCotizacionDePrueba(ctx, *r4.CotizacionID))(t)); !strings.Contains(txt, "Notas") ||
+		strings.Contains(txt, "cancelada") || strings.Contains(txt, "reabrir") || strings.Contains(txt, "se acepta al firmar") {
+		t.Fatalf("aviso interno en el PDF de la revisión: %q", txt)
+	}
+	if n := contar(t, `SELECT count(*) FROM auditoria.cambios WHERE entidad = 'cotizacion' AND entidad_id = $1 AND campo = 'pdf_adjunto_id'`,
+		strconv.FormatInt(*r4.CotizacionID, 10)); n == 0 {
+		t.Fatal("renovar la vigencia sin el PDF nuevo en el diff")
+	}
+
+	// Orden cerrada: un regenerado sin firmar ya no se ofrece por firmar (se anula), y un cambio
+	// que Argos acepta tarde crea la revisión sin contrato.
+	r5 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
+		PlanID: ptr(int64(300)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":4"}))(t)
+	if r5.ContratoID == nil {
+		t.Fatalf("revisión en sitio: %+v", r5)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'cerrada', finalizada_en = now(), resultado = 'exitosa' WHERE id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+	if rc := deber(e.com.OrdenTerminada(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "cerrada", De: "en_sitio"}))(t); rc.ContratoID == nil || *rc.ContratoID != *r5.ContratoID {
+		t.Fatalf("orden cerrada con un regenerado sin firmar: %+v", rc)
+	}
+	r6 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
+		PlanID: ptr(int64(301)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":5"}))(t)
+	if r6.CotizacionID == nil || r6.ContratoID != nil {
+		t.Fatalf("revisión con la orden cerrada: %+v", r6)
+	}
+	if pf := porFirmar(); pf != nil {
+		t.Fatalf("por firmar con la orden cerrada: %+v", pf)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'prospecto.venta_revisada' AND (payload->>'cotizacion_id')::bigint = $1 AND payload->'contrato_id' = 'null'::jsonb", *r6.CotizacionID); n != 1 {
+		t.Fatal("venta_revisada sin contrato con la orden cerrada")
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', finalizada_en = NULL, resultado = NULL WHERE id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+
 	// MEDIA de la verificación de #280: el DPI de quien firma (/firmar y la firma en la orden) nunca
 	// queda en claro en la auditoría.
 	for _, consulta := range []string{
@@ -367,4 +410,21 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 		"UPDATE comercial.prospectos SET alta_estado = 'esperando_activacion', cliente_argos_id = $2 WHERE id = $1", prospecto, *d.Alta.ClienteArgosID); err != nil {
 		t.Fatal(err)
 	}
+}
+
+var flujoPDF = regexp.MustCompile(`(?s)stream\r?\n(.*?)\r?\nendstream`)
+
+// textoPDF: el contenido de los flujos del PDF (descomprimidos), para buscar texto.
+func textoPDF(t *testing.T, pdf []byte) string {
+	t.Helper()
+	var b strings.Builder
+	for _, m := range flujoPDF.FindAllSubmatch(pdf, -1) {
+		r, err := zlib.NewReader(bytes.NewReader(m[1]))
+		if err != nil {
+			continue
+		}
+		crudo, _ := io.ReadAll(r)
+		b.Write(crudo)
+	}
+	return b.String()
 }

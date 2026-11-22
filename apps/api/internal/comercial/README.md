@@ -120,7 +120,7 @@ De la venta a la instalación (contrato argosisp.md 0.10.0 §3.4.8):
   que el titular firma el regenerado en la orden (`FirmarEnOrdenEnTx`, operación del lote
   `orden.firmar_contrato`; `POST /contratos/{id}/firmar` lo rechaza con `409 se_firma_en_la_orden`):
   ahí el firmado se anula, la aceptada queda reemplazada y la revisión aceptada (la firma en sitio
-  cubre la subida de precio). Con la orden cancelada o fallida (`orden.estado_cambiada`,
+  cubre la subida de precio). Con la orden cancelada, fallida o cerrada (`orden.estado_cambiada`,
   `orden_terminada.go`), el regenerado se anula, la revisión queda sin aceptar y el firmado sigue
   vivo; una revisión que llegue después se crea sin contrato. Al reabrirla o reprogramarla (de
   cancelada o fallida a un estado abierto), el contrato se regenera para esa orden con la última

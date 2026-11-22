@@ -195,6 +195,24 @@ func TestTitularCancelarDetieneLosPasos(t *testing.T) {
 	if est := deber(e.m.Titular.Ver.Ejecutar(e.cs, campo.EntradaVerOrden{ID: p.ID}))(t); !est.CambiadoEnArgos {
 		t.Fatalf("titular ya cambiado en Argos: %+v", est)
 	}
+
+	// Verificación de #280: un cambio de titular que Argos acepta con la orden ya cerrada (sin firma
+	// del contrato regenerado en sitio) también avisa a supervisión.
+	c := e.instalacion(tec, ct, true)
+	ordenC := strconv.FormatInt(c.ID, 10)
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, c.ID, datosCambioTitular())), "aplicada")
+	e.falso.fijarAlRecibir(func(ruta string) {
+		if strings.HasSuffix(ruta, "/cambiar-titular") {
+			if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'cerrada', finalizada_en = now(), resultado = 'exitosa', version = version + 1 WHERE id = $1", c.ID); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	e.procesar()
+	e.falso.fijarAlRecibir(nil)
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.paso_titular_tras_cancelar' AND payload->>'orden_id' = $1 AND payload->>'estado_orden' = 'cerrada'", ordenC); n != 1 {
+		t.Fatalf("aviso a supervisión con la orden cerrada: %d", n)
+	}
 }
 
 // MEDIA 5 y B9: un cambio de titular resuelto a mano (no reemplazado por otra toma) deja el cobro y el
