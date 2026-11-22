@@ -285,8 +285,10 @@ WHERE v.conversacion_id = @conversacion_id AND v.cliente_id = @cliente_id AND v.
 ORDER BY v.creada_en DESC LIMIT 1;
 
 -- name: CrearEnlaceWifi :one
-INSERT INTO mensajeria.enlaces_wifi (id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en)
-VALUES (@id, @huella, sqlc.narg(empresa_id), @conversacion_id, @cliente_id, @servicio_id, @verificacion_id, @metodo, @verificado_en, @vence_en)
+INSERT INTO mensajeria.enlaces_wifi (id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en,
+    token_cifrado)
+VALUES (@id, @huella, sqlc.narg(empresa_id), @conversacion_id, @cliente_id, @servicio_id, @verificacion_id, @metodo, @verificado_en, @vence_en,
+    @token_cifrado)
 RETURNING *;
 
 -- name: EnlaceWifiVigente :one
@@ -294,7 +296,7 @@ SELECT * FROM mensajeria.enlaces_wifi WHERE huella = @huella AND usado_en IS NUL
 
 -- name: UsarEnlaceWifi :one
 -- Un solo uso: solo el primero que llega lo toma (los demás no ven fila).
-UPDATE mensajeria.enlaces_wifi SET usado_en = @ahora
+UPDATE mensajeria.enlaces_wifi SET usado_en = @ahora, token_cifrado = NULL
 WHERE huella = @huella AND usado_en IS NULL AND vence_en > @ahora
 RETURNING *;
 
@@ -303,3 +305,12 @@ UPDATE mensajeria.enlaces_wifi SET cambio_id = @cambio_id WHERE id = @id;
 
 -- name: ClienteDeConversacion :one
 SELECT cliente_id FROM mensajeria.conversaciones WHERE id = @id;
+
+-- name: TokenEnlaceWifiParaEnviar :one
+-- El último enlace vigente de la conversación (para poner el token al mandar el mensaje a Meta).
+SELECT id, token_cifrado FROM mensajeria.enlaces_wifi
+WHERE conversacion_id = @conversacion_id AND usado_en IS NULL AND vence_en > @ahora AND token_cifrado IS NOT NULL
+ORDER BY created_at DESC LIMIT 1;
+
+-- name: PurgarTokensEnlaceWifi :exec
+UPDATE mensajeria.enlaces_wifi SET token_cifrado = NULL WHERE token_cifrado IS NOT NULL AND vence_en <= @ahora;

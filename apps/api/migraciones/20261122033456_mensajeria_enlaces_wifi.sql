@@ -18,6 +18,9 @@ CREATE TABLE mensajeria.enlaces_wifi (
     vence_en        timestamptz NOT NULL,
     usado_en        timestamptz,
     cambio_id       uuid,
+    -- El token cifrado solo para ponerlo en el mensaje al mandarlo a Meta (el mensaje guardado lleva
+    -- /wifi/***); se borra al usarse y no sirve después de vence_en.
+    token_cifrado   bytea,
     created_at      timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX enlaces_wifi_conv_idx ON mensajeria.enlaces_wifi (conversacion_id, created_at);

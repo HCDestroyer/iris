@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const cambioWifiPorClave = `-- name: CambioWifiPorClave :one
-SELECT id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at FROM integracion.cambios_wifi WHERE idempotency_key = $1 FOR UPDATE
+SELECT id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, verificacion_id, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at FROM integracion.cambios_wifi WHERE idempotency_key = $1 FOR UPDATE
 `
 
 func (q *Queries) CambioWifiPorClave(ctx context.Context, idempotencyKey string) (IntegracionCambiosWifi, error) {
@@ -33,6 +34,7 @@ func (q *Queries) CambioWifiPorClave(ctx context.Context, idempotencyKey string)
 		&i.ConSsid,
 		&i.ConClave,
 		&i.IdempotencyKey,
+		&i.VerificacionID,
 		&i.PendienteID,
 		&i.SolicitudID,
 		&i.Estado,
@@ -46,7 +48,7 @@ func (q *Queries) CambioWifiPorClave(ctx context.Context, idempotencyKey string)
 }
 
 const cambioWifiPorSolicitud = `-- name: CambioWifiPorSolicitud :one
-SELECT id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at FROM integracion.cambios_wifi WHERE solicitud_id = $1::bigint FOR UPDATE
+SELECT id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, verificacion_id, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at FROM integracion.cambios_wifi WHERE solicitud_id = $1::bigint FOR UPDATE
 `
 
 func (q *Queries) CambioWifiPorSolicitud(ctx context.Context, solicitudID int64) (IntegracionCambiosWifi, error) {
@@ -66,6 +68,7 @@ func (q *Queries) CambioWifiPorSolicitud(ctx context.Context, solicitudID int64)
 		&i.ConSsid,
 		&i.ConClave,
 		&i.IdempotencyKey,
+		&i.VerificacionID,
 		&i.PendienteID,
 		&i.SolicitudID,
 		&i.Estado,
@@ -79,7 +82,7 @@ func (q *Queries) CambioWifiPorSolicitud(ctx context.Context, solicitudID int64)
 }
 
 const cambiosWifiDeOrigen = `-- name: CambiosWifiDeOrigen :many
-SELECT id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at FROM integracion.cambios_wifi WHERE origen_tipo = $1 AND origen_id = $2
+SELECT id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, verificacion_id, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at FROM integracion.cambios_wifi WHERE origen_tipo = $1 AND origen_id = $2
 ORDER BY created_at DESC LIMIT 20
 `
 
@@ -111,6 +114,7 @@ func (q *Queries) CambiosWifiDeOrigen(ctx context.Context, arg CambiosWifiDeOrig
 			&i.ConSsid,
 			&i.ConClave,
 			&i.IdempotencyKey,
+			&i.VerificacionID,
 			&i.PendienteID,
 			&i.SolicitudID,
 			&i.Estado,
@@ -151,10 +155,10 @@ func (q *Queries) CambiosWifiDelDia(ctx context.Context, arg CambiosWifiDelDiaPa
 const crearCambioWifi = `-- name: CrearCambioWifi :one
 
 INSERT INTO integracion.cambios_wifi (id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo,
-    verificado_en, con_ssid, con_clave, idempotency_key, pendiente_id, estado)
+    verificado_en, con_ssid, con_clave, idempotency_key, pendiente_id, estado, verificacion_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-    $10, $11, $12, $13, $14, 'pendiente')
-RETURNING id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at
+    $10, $11, $12, $13, $14, 'pendiente', $15)
+RETURNING id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, verificacion_id, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at
 `
 
 type CrearCambioWifiParams struct {
@@ -172,6 +176,7 @@ type CrearCambioWifiParams struct {
 	ConClave       bool
 	IdempotencyKey string
 	PendienteID    *int64
+	VerificacionID *int64
 }
 
 // Cambios de Wi-Fi pedidos a Argos (contrato argosisp.md 0.9.0 §12.4).
@@ -191,6 +196,7 @@ func (q *Queries) CrearCambioWifi(ctx context.Context, arg CrearCambioWifiParams
 		arg.ConClave,
 		arg.IdempotencyKey,
 		arg.PendienteID,
+		arg.VerificacionID,
 	)
 	var i IntegracionCambiosWifi
 	err := row.Scan(
@@ -207,6 +213,7 @@ func (q *Queries) CrearCambioWifi(ctx context.Context, arg CrearCambioWifiParams
 		&i.ConSsid,
 		&i.ConClave,
 		&i.IdempotencyKey,
+		&i.VerificacionID,
 		&i.PendienteID,
 		&i.SolicitudID,
 		&i.Estado,
@@ -223,7 +230,7 @@ const guardarCambioWifi = `-- name: GuardarCambioWifi :one
 UPDATE integracion.cambios_wifi SET estado = $1, solicitud_id = $2, causa = $3,
     detalle = $4, entrante_id = $5, updated_at = now()
 WHERE id = $6
-RETURNING id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at
+RETURNING id, empresa_id, servicio_id, cliente_id, origen_tipo, origen_id, actor, usuario_id, metodo, verificado_en, con_ssid, con_clave, idempotency_key, verificacion_id, pendiente_id, solicitud_id, estado, causa, detalle, entrante_id, created_at, updated_at
 `
 
 type GuardarCambioWifiParams struct {
@@ -259,6 +266,7 @@ func (q *Queries) GuardarCambioWifi(ctx context.Context, arg GuardarCambioWifiPa
 		&i.ConSsid,
 		&i.ConClave,
 		&i.IdempotencyKey,
+		&i.VerificacionID,
 		&i.PendienteID,
 		&i.SolicitudID,
 		&i.Estado,
@@ -268,5 +276,55 @@ func (q *Queries) GuardarCambioWifi(ctx context.Context, arg GuardarCambioWifiPa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
+	return i, err
+}
+
+const servicioEsDelCliente = `-- name: ServicioEsDelCliente :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios WHERE id = $1 AND cliente_id = $2)::boolean
+`
+
+type ServicioEsDelClienteParams struct {
+	ServicioID int64
+	ClienteID  int64
+}
+
+// La instantánea de Argos dice que el servicio sigue siendo del cliente.
+func (q *Queries) ServicioEsDelCliente(ctx context.Context, arg ServicioEsDelClienteParams) (bool, error) {
+	row := q.db.QueryRow(ctx, servicioEsDelCliente, arg.ServicioID, arg.ClienteID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const verificacionParaPanel = `-- name: VerificacionParaPanel :one
+SELECT v.id, v.creada_en FROM mensajeria.asistente_verificaciones v
+WHERE v.id = $1 AND v.cliente_id = $2 AND v.resultado = 'coincide' AND v.creada_en >= $3
+  AND NOT EXISTS (SELECT 1 FROM integracion.cambios_wifi c WHERE c.verificacion_id = v.id)
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.enlaces_wifi e WHERE e.verificacion_id = v.id AND e.id IS DISTINCT FROM $4::uuid)
+`
+
+type VerificacionParaPanelParams struct {
+	ID        int64
+	ClienteID int64
+	Desde     time.Time
+	EnlaceID  pgtype.UUID
+}
+
+type VerificacionParaPanelRow struct {
+	ID       int64
+	CreadaEn time.Time
+}
+
+// Una verificación §7.5 (desafío de Argos que coincidió) del cliente, de menos de 10 min y sin usar en
+// otro cambio ni en un enlace del asistente: vale para un solo cambio (0.9.0 §12.4).
+func (q *Queries) VerificacionParaPanel(ctx context.Context, arg VerificacionParaPanelParams) (VerificacionParaPanelRow, error) {
+	row := q.db.QueryRow(ctx, verificacionParaPanel,
+		arg.ID,
+		arg.ClienteID,
+		arg.Desde,
+		arg.EnlaceID,
+	)
+	var i VerificacionParaPanelRow
+	err := row.Scan(&i.ID, &i.CreadaEn)
 	return i, err
 }

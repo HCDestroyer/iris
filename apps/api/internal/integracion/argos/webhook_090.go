@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -542,7 +543,11 @@ const CabeceraActorIris = "X-Iris-Actor"
 
 // EntradaConfirmarCuenta: la cuenta de la instantánea (§7.8) que un admin de Iris confirma.
 type EntradaConfirmarCuenta struct {
-	ID int64 `path:"id" minimum:"1"`
+	ID   int64 `path:"id" minimum:"1"`
+	Body struct {
+		// CambiadaEn: lo que leyó quien revisó la cuenta; si Argos la cambió después, 409.
+		CambiadaEn *time.Time `json:"cambiadaEn" nullable:"true" doc:"cambiadaEn que se revisó (null si no tenía); si la cuenta cambió después, 409 cuenta_cambiada"`
+	}
 }
 
 // CuentaConfirmada es la respuesta (sin el número ni el titular).
@@ -570,6 +575,13 @@ func (m *Modulo) nuevoConfirmarCuenta() *auditoria.Caso[EntradaConfirmarCuenta, 
 				return CuentaConfirmada{}, err
 			}
 			t.FijarEmpresa(antes.EmpresaID)
+			// Solo una cuenta de una empresa que el actor puede ver (la misma respuesta que si no existe).
+			if !empresaAccesible(ctx, antes.EmpresaID) {
+				return CuentaConfirmada{}, nucleo.NoEncontrado("La cuenta no está en la instantánea de Argos")
+			}
+			if !mismaHoraPtr(antes.CambiadaEn, in.Body.CambiadaEn) {
+				return CuentaConfirmada{}, nucleo.Conflicto("cuenta_cambiada", "Argos cambió la cuenta después de revisarla: revísala otra vez")
+			}
 			a := contexto.ActorDe(ctx)
 			if !a.EsUsuario() {
 				return CuentaConfirmada{}, nucleo.Prohibido("La confirma una persona")
@@ -595,4 +607,22 @@ func (m *Modulo) registrarConfirmarCuenta(api huma.API) {
 	huma.Register(api, op, func(ctx context.Context, in *EntradaConfirmarCuenta) (*conector.Cuerpo[CuentaConfirmada], error) {
 		return conector.Responder(caso.Ejecutar(ctx, *in))
 	})
+}
+
+// empresaAccesible: la empresa está entre las del actor (o el actor no tiene límite de empresa).
+func empresaAccesible(ctx context.Context, empresa int64) bool {
+	e := contexto.EmpresasDe(ctx)
+	return e.Todas || slices.Contains(e.Disponibles, empresa) || contexto.EmpresaDe(ctx) == empresa && empresa != 0
+}
+
+func mismaHoraPtr(a, b *time.Time) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.Truncate(time.Microsecond).Equal(b.Truncate(time.Microsecond))
+}
+
+// ConfirmarCuentaBancaria corre el caso de uso de confirmar una cuenta (también para las pruebas).
+func (m *Modulo) ConfirmarCuentaBancaria(ctx context.Context, in EntradaConfirmarCuenta) (CuentaConfirmada, error) {
+	return m.nuevoConfirmarCuenta().Ejecutar(ctx, in)
 }

@@ -540,6 +540,27 @@ func (q *Queries) DesbloquearDependientes(ctx context.Context, arg DesbloquearDe
 	return items, nil
 }
 
+const descartarClavesAgotadas = `-- name: DescartarClavesAgotadas :execrows
+UPDATE integracion.datos_transito SET cifrado = NULL, llave_cifrada = NULL, borrado_en = $1, motivo_borrado = 'vencido'
+WHERE cifrado IS NOT NULL AND id IN (
+    SELECT transito_id FROM integracion.pendientes
+    WHERE operacion IN ('aprovisionar', 'cambiar_wifi') AND estado = 'agotado' AND transito_id IS NOT NULL AND updated_at < $2)
+`
+
+type DescartarClavesAgotadasParams struct {
+	Ahora *time.Time
+	Antes time.Time
+}
+
+// La clave Wi-Fi de un pendiente agotado (Argos no respondió) se descarta a las 24 h (0.9.0 §12.1).
+func (q *Queries) DescartarClavesAgotadas(ctx context.Context, arg DescartarClavesAgotadasParams) (int64, error) {
+	result, err := q.db.Exec(ctx, descartarClavesAgotadas, arg.Ahora, arg.Antes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const detenerEnCurso = `-- name: DetenerEnCurso :one
 UPDATE integracion.pendientes
 SET estado = 'resuelto_manual', resuelto_motivo = $1::text, resuelto_como = $1::text,

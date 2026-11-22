@@ -453,7 +453,8 @@ func (q *Queries) AsegurarOrdenActivacion(ctx context.Context, arg AsegurarOrden
 
 const bienvenidasSinEnviar = `-- name: BienvenidasSinEnviar :many
 
-SELECT o.id, o.numero, o.empresa_id, o.cliente_id, o.servicio_id, o.estado, o.finalizada_en, oa.bienvenida_canales, oa.bienvenida_en
+SELECT o.id, o.numero, o.empresa_id, o.cliente_id, o.servicio_id, o.estado, o.finalizada_en, o.zona_id, o.cuadrilla_id, o.tecnico_id,
+       oa.bienvenida_canales, oa.bienvenida_en
 FROM campo.ordenes o
 JOIN campo.tipos_orden t ON t.id = o.tipo_id
 LEFT JOIN campo.orden_activacion oa ON oa.orden_id = o.id
@@ -486,6 +487,9 @@ type BienvenidasSinEnviarRow struct {
 	ServicioID        *int64
 	Estado            string
 	FinalizadaEn      *time.Time
+	ZonaID            *int64
+	CuadrillaID       *int64
+	TecnicoID         *int64
 	BienvenidaCanales []byte
 	BienvenidaEn      *time.Time
 }
@@ -516,6 +520,9 @@ func (q *Queries) BienvenidasSinEnviar(ctx context.Context, arg BienvenidasSinEn
 			&i.ServicioID,
 			&i.Estado,
 			&i.FinalizadaEn,
+			&i.ZonaID,
+			&i.CuadrillaID,
+			&i.TecnicoID,
 			&i.BienvenidaCanales,
 			&i.BienvenidaEn,
 		); err != nil {

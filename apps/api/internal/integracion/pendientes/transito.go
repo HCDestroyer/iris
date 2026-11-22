@@ -215,8 +215,17 @@ func borrarTransito(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integra
 
 // PurgarTransito borra los depósitos con más de 7 días (job diario ArgsPurgarTransito).
 func PurgarTransito(ctx context.Context, q *pendientesbd.Queries, ahora time.Time) (int64, error) {
-	return q.PurgarTransito(ctx, pendientesbd.PurgarTransitoParams{Ahora: &ahora, Antes: ahora.Add(-VigenciaTransito)})
+	n, err := q.PurgarTransito(ctx, pendientesbd.PurgarTransitoParams{Ahora: &ahora, Antes: ahora.Add(-VigenciaTransito)})
+	if err != nil {
+		return n, err
+	}
+	// La clave Wi-Fi de lo agotado no espera 7 días: a las 24 h (0.9.0 §12.1).
+	k, err := q.DescartarClavesAgotadas(ctx, pendientesbd.DescartarClavesAgotadasParams{Ahora: &ahora, Antes: ahora.Add(-VigenciaClaveAgotada)})
+	return n + k, err
 }
+
+// VigenciaClaveAgotada: la clave Wi-Fi de un pendiente agotado se descarta a las 24 h.
+const VigenciaClaveAgotada = 24 * time.Hour
 
 // esMultipart: A41 y A39 van en multipart/form-data.
 func esMultipart(operacion string) bool {

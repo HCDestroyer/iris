@@ -974,5 +974,7 @@ func PermisosAsistenteVisitas() []Permiso {
 
 func PermisosAsistenteIA() []Permiso {
 	return []Permiso{PermConversacionesResponder, PermTicketsCrear, PermConversacionesRegistrarBoleta,
-		PermConversacionesRegistrarPromesa, PermConversacionesPedirReconexion}
+		PermConversacionesRegistrarPromesa, PermConversacionesPedirReconexion,
+		// 0.9.0 §12.3 y §12.4 (B14): solo si la empresa enciende ver_equipo o cambiar_wifi.
+		PermServiciosVerEquipo, PermServiciosCambiarWifi}
 }

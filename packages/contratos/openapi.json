@@ -11273,6 +11273,23 @@
         ],
         "type": "object"
       },
+      "EntradaConfirmarCuentaBody": {
+        "additionalProperties": false,
+        "properties": {
+          "cambiadaEn": {
+            "description": "cambiadaEn que se revisó (null si no tenía); si la cuenta cambió después, 409 cuenta_cambiada",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "cambiadaEn"
+        ],
+        "type": "object"
+      },
       "EntradaConfirmarHuella": {
         "additionalProperties": false,
         "properties": {
@@ -16871,6 +16888,12 @@
             "maxLength": 32,
             "minLength": 1,
             "type": "string"
+          },
+          "verificacionId": {
+            "description": "Desde el panel, obligatoria: la verificación de identidad del titular (desafío de Argos, §7.5) de menos de 10 minutos y de un solo uso. Sin ella, 422 verificacion_requerida",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
           }
         },
         "type": "object"
@@ -27263,6 +27286,7 @@
           "integraciones.abrir_argos",
           "integraciones.activar",
           "integraciones.conectar",
+          "integraciones.confirmar_cuenta_bancaria",
           "integraciones.desactivar",
           "integraciones.eliminar",
           "integraciones.reintentar",
@@ -27291,13 +27315,6 @@
           "mensajeria.registrar_consentimiento",
           "mensajeria.ver",
           "ordenes.activar_servicio",
-          "ordenes.cerrar_sin_activacion",
-          "integraciones.confirmar_cuenta_bancaria",
-          "ordenes.cobro_editar_monto",
-          "ordenes.reenviar_bienvenida",
-          "ordenes.registrar_cobro",
-          "servicios.cambiar_wifi",
-          "servicios.ver_equipo",
           "ordenes.aplicar_datos_argos",
           "ordenes.asignar",
           "ordenes.asignar_formulario",
@@ -27305,6 +27322,8 @@
           "ordenes.cambiar_titular",
           "ordenes.cancelar",
           "ordenes.cerrar",
+          "ordenes.cerrar_sin_activacion",
+          "ordenes.cobro_editar_monto",
           "ordenes.completar_datos",
           "ordenes.crear",
           "ordenes.descartar_datos_argos",
@@ -27317,7 +27336,9 @@
           "ordenes.programar",
           "ordenes.reabrir",
           "ordenes.reanudar",
+          "ordenes.reenviar_bienvenida",
           "ordenes.registrar",
+          "ordenes.registrar_cobro",
           "ordenes.reprogramar",
           "ordenes.tomar",
           "ordenes.validar_identidad",
@@ -27354,6 +27375,8 @@
           "rutas.proponer",
           "rutas.publicar",
           "rutas.ver",
+          "servicios.cambiar_wifi",
+          "servicios.ver_equipo",
           "servicios.ver_red",
           "servicios.ver_ubicacion",
           "servidor_ia.administrar",
@@ -45104,6 +45127,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConfirmarCuentaBody"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
@@ -71544,7 +71577,19 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {
@@ -71616,7 +71661,19 @@
                 }
               }
             },
-            "description": "Accepted"
+            "description": "Accepted",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "401": {
             "content": {

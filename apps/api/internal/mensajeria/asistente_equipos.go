@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -49,6 +50,50 @@ const (
 	AccionCambiarWifi = "cambiar_wifi"
 )
 
+// Los tokens de los enlaces públicos nunca salen en los logs HTTP (nucleo.EnmascararRuta).
+func init() {
+	nucleo.RegistrarRutaConSecreto(Prefijo + "/publico/wifi/{token}")
+	nucleo.RegistrarRutaConSecreto(Prefijo + "/publico/manuales/{token}")
+}
+
+// Límite por IP del formulario público del enlace (un token es de 256 bits; esto frena el ruido).
+const (
+	MaxEnlaceWifiPorIP  = 20
+	VentanaEnlaceWifiIP = 10 * time.Minute
+)
+
+// limiteIP cuenta las peticiones por IP en una ventana (solo en memoria, por proceso).
+type limiteIP struct {
+	mu   sync.Mutex
+	vist map[string][]time.Time
+}
+
+func (l *limiteIP) permitir(ip string, ahora time.Time) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.vist == nil {
+		l.vist = map[string][]time.Time{}
+	}
+	desde := ahora.Add(-VentanaEnlaceWifiIP)
+	v := l.vist[ip][:0]
+	for _, t := range l.vist[ip] {
+		if t.After(desde) {
+			v = append(v, t)
+		}
+	}
+	if len(v) >= MaxEnlaceWifiPorIP {
+		l.vist[ip] = v
+		return false
+	}
+	l.vist[ip] = append(v, ahora)
+	if len(l.vist) > 10000 {
+		l.vist = map[string][]time.Time{}
+	}
+	return true
+}
+
+var limiteEnlaceWifi limiteIP
+
 // VigenciaEnlaceWifi: el enlace dura 10 min; la verificación también (§12.4).
 const VigenciaEnlaceWifi = 10 * time.Minute
 
@@ -63,9 +108,18 @@ var reMarcaEnlaceWifi = regexp.MustCompile(`\{\{\s*enlace_wifi\s*\}\}`)
 // la palabra que sigue (8 a 63 caracteres sin espacios: lo que acepta WPA2).
 var reClaveWifi = regexp.MustCompile(`(?i)\b(?:(?:clave|contrase(?:ñ|n)a|password|passwd|pass)\b[^.\n?!]{0,30}?\b(?:wi-?fi|red|internet|modem|módem|router)|(?:wi-?fi|red|internet)\b[^.\n?!]{0,30}?\b(?:clave|contrase(?:ñ|n)a|password|passwd|pass))\b(?:\s+(?:es|sea|será|sera|nueva|ahora|quiero|que|sea|pon|ponle|a))*\s*[:=]?\s*["'«]?(\S{8,63})`)
 
+// reClaveSuelta: con cambiar_wifi encendido, también «clave|contraseña … <8 a 63 caracteres>» sin
+// nombrar el Wi-Fi (el cliente contesta a «¿qué clave quieres?»).
+var reClaveSuelta = regexp.MustCompile(`(?i)\b(?:clave|contrase(?:ñ|n)a|password|passwd|pass)\b(?:\s+(?:es|sea|será|sera|nueva|ahora|quiero|que|pon|ponle|a|de|mi))*\s*[:=]?\s*["'«]?(\S{8,63})`)
+
 // TaparClaveWifi tapa una clave Wi-Fi escrita en el chat (§12.4): el mensaje guardado nunca la lleva.
-func TaparClaveWifi(s string) string {
-	idx := reClaveWifi.FindAllStringSubmatchIndex(s, -1)
+func TaparClaveWifi(s string) string { return taparCon(s, reClaveWifi) }
+
+// TaparClaveWifiAmplio: TaparClaveWifi y, además, cualquier «clave: …» de 8 a 63 caracteres.
+func TaparClaveWifiAmplio(s string) string { return taparCon(taparCon(s, reClaveWifi), reClaveSuelta) }
+
+func taparCon(s string, re *regexp.Regexp) string {
+	idx := re.FindAllStringSubmatchIndex(s, -1)
 	if len(idx) == 0 {
 		return s
 	}
@@ -102,6 +156,9 @@ func (m *Modulo) herrEstadoEquipo(ctx context.Context, t *turnoIA, hecha accionH
 	ae, ok := m.cfg.Argos.(ArgosEquipo)
 	if !ok || t.servicioID == nil {
 		return rechazo("la conversación no tiene un servicio con equipo."), hecha
+	}
+	if !t.verificado {
+		return rechazo("primero verifica la identidad del cliente (verificar_identidad)."), hecha
 	}
 	e, err := ae.LeerEquipo(ctx, *t.servicioID, equipos.ActorAsistente, true)
 	if err != nil {
@@ -158,12 +215,24 @@ func (m *Modulo) herrEnlaceWifi(ctx context.Context, t *turnoIA, hecha accionHec
 		if err != nil {
 			return err
 		}
-		if _, err := q.CrearEnlaceWifi(ctx, mensajeriabd.CrearEnlaceWifiParams{ID: id, Huella: huella[:], EmpresaID: &t.empresa,
-			ConversacionID: t.conv, ClienteID: t.clienteID, ServicioID: *t.servicioID, VerificacionID: v.ID,
-			Metodo: equipos.MetodoDatosTitular, VerificadoEn: v.CreadaEn, VenceEn: ahora.Add(VigenciaEnlaceWifi)}); err != nil {
+		if m.cfg.Cifrador == nil {
+			return errors.New("sin IRIS_CLAVE_CIFRADO")
+		}
+		cifrado, err := m.cfg.Cifrador.Cifrar([]byte(token), datosEnlace(id))
+		if err != nil {
 			return err
 		}
-		url = strings.TrimRight(m.cfg.BaseURL, "/") + "/wifi/" + token
+		if err := q.PurgarTokensEnlaceWifi(ctx, ahora); err != nil {
+			return err
+		}
+		if _, err := q.CrearEnlaceWifi(ctx, mensajeriabd.CrearEnlaceWifiParams{ID: id, Huella: huella[:], EmpresaID: &t.empresa,
+			ConversacionID: t.conv, ClienteID: t.clienteID, ServicioID: *t.servicioID, VerificacionID: v.ID,
+			Metodo: equipos.MetodoDatosTitular, VerificadoEn: v.CreadaEn, VenceEn: ahora.Add(VigenciaEnlaceWifi), TokenCifrado: cifrado}); err != nil {
+			return err
+		}
+		// El mensaje guardado (historial, bandeja, modelo) lleva el enlace tapado; el token se pone solo
+		// al mandarlo a Meta (conTokenEnlace).
+		url = strings.TrimRight(m.cfg.BaseURL, "/") + EnlaceWifiTapado
 		return nil
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -211,7 +280,60 @@ type WifiPedido struct {
 }
 
 func enlaceVencido() *nucleo.Problema {
-	return nucleo.NuevoProblema(http.StatusGone, "enlace_vencido", "Enlace vencido", "Este enlace ya se usó o venció. Pide otro por el chat")
+	return nucleo.NuevoProblema(http.StatusGone, "enlace_vencido", "Enlace vencido", "Este enlace ya se usó o venció. Pide otro por el chat").
+		ConCabecera("Cache-Control", "no-store").ConCabecera("Referrer-Policy", "no-referrer")
+}
+
+// noAuditarVencido: un 410 de un token inexistente lo provoca cualquiera; no deja fila.
+func noAuditarVencido(err error) bool {
+	var p *nucleo.Problema
+	return !errors.As(err, &p) || p.Codigo() != "enlace_vencido"
+}
+
+// salidaEnlace: las respuestas del enlace no se guardan ni pasan el token como Referer.
+type salidaEnlace[T any] struct {
+	CacheControl   string `header:"Cache-Control"`
+	ReferrerPolicy string `header:"Referrer-Policy"`
+	Body           T
+}
+
+func conCabecerasEnlace[T any](v T) *salidaEnlace[T] {
+	return &salidaEnlace[T]{CacheControl: "no-store", ReferrerPolicy: "no-referrer", Body: v}
+}
+
+// entradaToken: el token de la ruta y la IP de quien llama (límite por IP).
+type entradaToken struct {
+	Token string `path:"token" minLength:"40" maxLength:"60"`
+	ip    string
+}
+
+// Resolve toma la IP remota (huma.Resolver).
+func (e *entradaToken) Resolve(ctx huma.Context) []error {
+	e.ip = ctx.RemoteAddr()
+	if h, _, ok := strings.Cut(e.ip, ":"); ok && !strings.Contains(h, "[") {
+		e.ip = h
+	}
+	return nil
+}
+
+// entradaUsarEnlace: el token, la IP y lo que escribió el cliente.
+type entradaUsarEnlace struct {
+	Token string `path:"token" minLength:"40" maxLength:"60"`
+	Body  EntradaWifiPublico
+	ip    string
+}
+
+// Resolve toma la IP remota (huma.Resolver).
+func (e *entradaUsarEnlace) Resolve(ctx huma.Context) []error {
+	var t entradaToken
+	t.Resolve(ctx)
+	e.ip = t.ip
+	return nil
+}
+
+func demasiadasPeticiones() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusTooManyRequests, "demasiadas_peticiones", "Demasiadas peticiones", "Espera unos minutos").
+		ConCabecera("Retry-After", "600").ConCabecera("Cache-Control", "no-store")
 }
 
 func huellaToken(token string) []byte {
@@ -222,6 +344,7 @@ func huellaToken(token string) []byte {
 func (m *Modulo) nuevoVerEnlaceWifi() *auditoria.Caso[string, EnlaceWifiPublico] {
 	return auditoria.Nuevo(auditoria.Caso[string, EnlaceWifiPublico]{
 		Accion: "servicios.ver_enlace_wifi", Acceso: auditoria.Publico, AuditarExito: func(EnlaceWifiPublico) bool { return false },
+		AuditarError: noAuditarVencido,
 		Logica: func(ctx context.Context, t *auditoria.Tx, token string) (EnlaceWifiPublico, error) {
 			t.FijarEmpresa(0)
 			e, err := mensajeriabd.New(t).EnlaceWifiVigente(ctx, mensajeriabd.EnlaceWifiVigenteParams{Huella: huellaToken(token), Ahora: m.ahora()})
@@ -241,7 +364,7 @@ func (m *Modulo) nuevoVerEnlaceWifi() *auditoria.Caso[string, EnlaceWifiPublico]
 // mismo cliente; la llamada sale con X-Iris-Actor: asistente_ia, X-Iris-Conversacion y la verificación.
 func (m *Modulo) nuevoUsarEnlaceWifi() *auditoria.Caso[EntradaWifiPublico, WifiPedido] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaWifiPublico, WifiPedido]{
-		Accion: "servicios.cambiar_wifi", Acceso: auditoria.Publico,
+		Accion: "servicios.cambiar_wifi", Acceso: auditoria.Publico, AuditarError: noAuditarVencido,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaWifiPublico) (WifiPedido, error) {
 			t.FijarEmpresa(0)
 			if in.SSID == nil && in.Clave == nil {
@@ -281,6 +404,7 @@ func (m *Modulo) nuevoUsarEnlaceWifi() *auditoria.Caso[EntradaWifiPublico, WifiP
 			c, err := equipos.Encolar(ctx, t, m.cfg.Cifrador, equipos.Pedido{
 				EmpresaID: e.EmpresaID, ServicioID: e.ServicioID, ClienteID: e.ClienteID, OrigenTipo: equipos.OrigenConversacion,
 				OrigenID: e.ConversacionID, Actor: equipos.ActorAsistente, Metodo: e.Metodo, VerificadoEn: e.VerificadoEn,
+				VerificacionID: &e.VerificacionID, EnlaceID: &e.ID, RevalidarServicio: true,
 				SSID: in.SSID, Clave: in.Clave, Ahora: ahora, Zona: zonaPlantillas,
 			}, pendientes.Encolador(m.cfg.Encolar))
 			if err != nil {
@@ -299,14 +423,15 @@ func (m *Modulo) registrarEnlaceWifi(api huma.API) {
 	ver := op("verEnlaceWifi", http.MethodGet, "/publico/wifi/{token}", "Enlace de un solo uso para cambiar el Wi-Fi", "", http.StatusOK)
 	ver.Security = nil
 	ver.Description = "Sin sesión: el token es la credencial (256 bits; Iris guarda solo su huella). Dice si el enlace sigue vigente (10 min, un solo uso)."
-	huma.Register(api, ver, func(ctx context.Context, in *struct {
-		Token string `path:"token" minLength:"40" maxLength:"60"`
-	}) (*cuerpo[EnlaceWifiPublico], error) {
+	huma.Register(api, ver, func(ctx context.Context, in *entradaToken) (*salidaEnlace[EnlaceWifiPublico], error) {
+		if !limiteEnlaceWifi.permitir(in.ip, time.Now()) {
+			return nil, demasiadasPeticiones()
+		}
 		r, err := m.VerEnlaceWifi.Ejecutar(ctx, in.Token)
 		if err != nil {
 			return nil, err
 		}
-		return &cuerpo[EnlaceWifiPublico]{Body: r}, nil
+		return conCabecerasEnlace(r), nil
 	})
 	usar := op("usarEnlaceWifi", http.MethodPost, "/publico/wifi/{token}", "Cambiar el Wi-Fi con el enlace", "", http.StatusAccepted, http.StatusGone,
 		http.StatusTooManyRequests)
@@ -314,16 +439,84 @@ func (m *Modulo) registrarEnlaceWifi(api huma.API) {
 	usar.Description = "El cliente escribe el nombre o la clave nuevos (al menos uno). Consume el enlace (un solo uso) y manda el cambio a Argos " +
 		"(POST /servicios/:id/wifi con X-Iris-Actor: asistente_ia y la verificación de la conversación). 410 `enlace_vencido` (usado, vencido o el " +
 		"cliente de la conversación cambió); 429 `demasiados_cambios_wifi`. La clave nunca se guarda ni se devuelve."
-	huma.Register(api, usar, func(ctx context.Context, in *struct {
-		Token string `path:"token" minLength:"40" maxLength:"60"`
-		Body  EntradaWifiPublico
-	}) (*cuerpo[WifiPedido], error) {
+	huma.Register(api, usar, func(ctx context.Context, in *entradaUsarEnlace) (*salidaEnlace[WifiPedido], error) {
+		if !limiteEnlaceWifi.permitir(in.ip, time.Now()) {
+			return nil, demasiadasPeticiones()
+		}
 		e := in.Body
 		e.Token = in.Token
 		r, err := m.UsarEnlaceWifi.Ejecutar(contexto.ConCanal(ctx, contexto.CanalPortal), e)
 		if err != nil {
 			return nil, err
 		}
-		return &cuerpo[WifiPedido]{Body: r}, nil
+		return conCabecerasEnlace(r), nil
 	})
+}
+
+// EnlaceWifiTapado: cómo queda el enlace en el mensaje guardado.
+const EnlaceWifiTapado = "/wifi/" + auditoria.Mascara
+
+func datosEnlace(id uuid.UUID) []byte { return []byte("enlace_wifi:" + id.String()) }
+
+// conTokenEnlace pone el token del último enlace vigente de la conversación en el texto que sale a
+// Meta (nunca en el mensaje guardado). Sin enlace vigente, el texto sale tapado.
+func (m *Modulo) conTokenEnlace(ctx context.Context, q *mensajeriabd.Queries, conv int64, texto *string, ahora time.Time) (*string, error) {
+	if texto == nil || !strings.Contains(*texto, EnlaceWifiTapado) || m.cfg.Cifrador == nil {
+		return texto, nil
+	}
+	f, err := q.TokenEnlaceWifiParaEnviar(ctx, mensajeriabd.TokenEnlaceWifiParaEnviarParams{ConversacionID: conv, Ahora: ahora})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return texto, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	token, err := m.cfg.Cifrador.Descifrar(f.TokenCifrado, datosEnlace(f.ID))
+	if err != nil {
+		return nil, err
+	}
+	v := strings.Replace(*texto, EnlaceWifiTapado, "/wifi/"+string(token), 1)
+	return &v, nil
+}
+
+// tapadorWifi para el payload crudo de Meta (taparEntranteMetaCon).
+func tapadorWifi(amplio bool) func(string) (string, bool) {
+	return func(s string) (string, bool) {
+		t := TaparClaveWifi(s)
+		if amplio {
+			t = TaparClaveWifiAmplio(s)
+		}
+		return t, t != s
+	}
+}
+
+// wifiEncendido: algún perfil del asistente de la empresa tiene cambiar_wifi.
+func wifiEncendido(ctx context.Context, q *mensajeriabd.Queries, empresa *int64) bool {
+	if empresa == nil {
+		return false
+	}
+	aj, err := leerAjustesAsistente(ctx, q, *empresa)
+	if err != nil || aj == nil {
+		return false
+	}
+	for _, p := range perfilesDe(aj.Perfiles) {
+		if p.Acciones.CambiarWifi {
+			return true
+		}
+	}
+	return false
+}
+
+// taparWifiEntrante tapa la clave en el texto del mensaje que llega y, si tapó algo, también en el
+// payload crudo de Meta (mensajeria.entrantes).
+func taparWifiEntrante(ctx context.Context, q *mensajeriabd.Queries, canal int64, wamid string, empresa *int64, texto *string) (*string, error) {
+	if texto == nil {
+		return nil, nil
+	}
+	amplio := wifiEncendido(ctx, q, empresa)
+	t, cambio := tapadorWifi(amplio)(*texto)
+	if !cambio {
+		return texto, nil
+	}
+	return &t, taparEntranteMetaCon(ctx, q, canal, wamid, tapadorWifi(amplio))
 }

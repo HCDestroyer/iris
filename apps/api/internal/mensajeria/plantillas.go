@@ -342,7 +342,7 @@ func (v Ventana) String() string {
 
 var (
 	reCodigoCliente    = regexp.MustCompile(`^[A-Za-z0-9-]{1,30}$`)
-	reDigitos4         = regexp.MustCompile(`[0-9]{4,}`)
+	reDigitos4         = regexp.MustCompile(`[0-9](?:[\s.\-/]?[0-9]){3,}`)
 	reEnlaceBienvenida = regexp.MustCompile(`(?i)(https?://|www\.|[a-z0-9-]+\.(com|net|org|gt|io|co|info|biz|me|app|xyz|ly|link)\b)`)
 )
 

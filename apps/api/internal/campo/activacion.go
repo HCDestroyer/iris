@@ -696,6 +696,9 @@ type EntradaResolverActivacion struct {
 	Pasos          []argos.PasoAprovisionamiento `json:"pasos,omitempty"`
 	ServicioEstado *string                       `json:"servicio_estado,omitempty"`
 	EntranteID     *int64                        `json:"entrante_id,omitempty"`
+	// Del webhook: deben coincidir con los del intento (si no, se ignora).
+	ServicioID *int64 `json:"servicio_id,omitempty"`
+	EmpresaID  *int64 `json:"empresa_id,omitempty"`
 	// Revivir: un pendiente que había fallido y se reintentó a mano quedó hecho (vuelve a en_proceso
 	// si no hay otro intento vivo).
 	Revivir bool `json:"revivir,omitempty"`
@@ -763,6 +766,10 @@ func (m *Modulo) nuevoResolverActivacion() *auditoria.Caso[EntradaResolverActiva
 				return r, err
 			}
 			r.ActivacionID, r.OrdenID, r.De, r.Resultado = &antes.ID, antes.OrdenID, antes.Estado, "sin_cambios"
+			if (in.ServicioID != nil && *in.ServicioID != antes.ServicioID) || (in.EmpresaID != nil && !mismoID(in.EmpresaID, antes.EmpresaID)) {
+				t.Anotar(map[string]any{"webhook_de_otro_servicio": true})
+				return r, nil
+			}
 			if in.AprovisionamientoID != nil && antes.AprovisionamientoID != nil && *antes.AprovisionamientoID != *in.AprovisionamientoID {
 				// Otro aprovisionamiento con la misma clave: no se mezcla (se revisa a mano).
 				t.Anotar(map[string]any{"aprovisionamiento_distinto": *in.AprovisionamientoID})
@@ -949,6 +956,8 @@ type eventoInstalacion struct {
 	Detalle             *string `json:"detalle"`
 	ServicioEstado      *string `json:"servicio_estado"`
 	EntranteID          *int64  `json:"entrante_id"`
+	ServicioID          *int64  `json:"servicio_id"`
+	EmpresaID           *int64  `json:"empresa_id"`
 }
 
 // resolverDesdeWebhook aplica instalacion.aprovisionada / instalacion.fallida.
@@ -959,7 +968,7 @@ func (m *Modulo) resolverDesdeWebhook(ctx context.Context, payload []byte) error
 	}
 	_, err := m.Activacion.Resolver.Ejecutar(ctx, EntradaResolverActivacion{Fuente: FuenteWebhook, IdempotencyKey: e.IdempotencyKey,
 		AprovisionamientoID: e.AprovisionamientoID, Estado: e.Estado, Causa: e.Causa, Reintentable: e.Reintentable, Detalle: e.Detalle,
-		ServicioEstado: e.ServicioEstado, EntranteID: e.EntranteID})
+		ServicioEstado: e.ServicioEstado, EntranteID: e.EntranteID, ServicioID: e.ServicioID, EmpresaID: e.EmpresaID})
 	return err
 }
 

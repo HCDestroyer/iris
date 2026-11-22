@@ -741,9 +741,11 @@ func (q *Queries) ContarIntento(ctx context.Context, id uuid.UUID) error {
 }
 
 const crearEnlaceWifi = `-- name: CrearEnlaceWifi :one
-INSERT INTO mensajeria.enlaces_wifi (id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en, usado_en, cambio_id, created_at
+INSERT INTO mensajeria.enlaces_wifi (id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en,
+    token_cifrado)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+    $11)
+RETURNING id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en, usado_en, cambio_id, token_cifrado, created_at
 `
 
 type CrearEnlaceWifiParams struct {
@@ -757,6 +759,7 @@ type CrearEnlaceWifiParams struct {
 	Metodo         string
 	VerificadoEn   time.Time
 	VenceEn        time.Time
+	TokenCifrado   []byte
 }
 
 func (q *Queries) CrearEnlaceWifi(ctx context.Context, arg CrearEnlaceWifiParams) (MensajeriaEnlacesWifi, error) {
@@ -771,6 +774,7 @@ func (q *Queries) CrearEnlaceWifi(ctx context.Context, arg CrearEnlaceWifiParams
 		arg.Metodo,
 		arg.VerificadoEn,
 		arg.VenceEn,
+		arg.TokenCifrado,
 	)
 	var i MensajeriaEnlacesWifi
 	err := row.Scan(
@@ -786,6 +790,7 @@ func (q *Queries) CrearEnlaceWifi(ctx context.Context, arg CrearEnlaceWifiParams
 		&i.VenceEn,
 		&i.UsadoEn,
 		&i.CambioID,
+		&i.TokenCifrado,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -842,7 +847,7 @@ func (q *Queries) CuentasParaBienvenida(ctx context.Context, arg CuentasParaBien
 }
 
 const enlaceWifiVigente = `-- name: EnlaceWifiVigente :one
-SELECT id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en, usado_en, cambio_id, created_at FROM mensajeria.enlaces_wifi WHERE huella = $1 AND usado_en IS NULL AND vence_en > $2
+SELECT id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en, usado_en, cambio_id, token_cifrado, created_at FROM mensajeria.enlaces_wifi WHERE huella = $1 AND usado_en IS NULL AND vence_en > $2
 `
 
 type EnlaceWifiVigenteParams struct {
@@ -866,6 +871,7 @@ func (q *Queries) EnlaceWifiVigente(ctx context.Context, arg EnlaceWifiVigentePa
 		&i.VenceEn,
 		&i.UsadoEn,
 		&i.CambioID,
+		&i.TokenCifrado,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -1722,6 +1728,15 @@ func (q *Queries) PausarCanal(ctx context.Context, arg PausarCanalParams) error 
 	return err
 }
 
+const purgarTokensEnlaceWifi = `-- name: PurgarTokensEnlaceWifi :exec
+UPDATE mensajeria.enlaces_wifi SET token_cifrado = NULL WHERE token_cifrado IS NOT NULL AND vence_en <= $1
+`
+
+func (q *Queries) PurgarTokensEnlaceWifi(ctx context.Context, ahora time.Time) error {
+	_, err := q.db.Exec(ctx, purgarTokensEnlaceWifi, ahora)
+	return err
+}
+
 const registrarPruebaCanal = `-- name: RegistrarPruebaCanal :one
 UPDATE mensajeria.canales
 SET ultima_prueba_en = $1, ultimo_estado = $2, ultimo_detalle = $3, rechazado_por_envio = false
@@ -1857,10 +1872,34 @@ func (q *Queries) SiguienteIDCanal(ctx context.Context) (int64, error) {
 	return column_1, err
 }
 
+const tokenEnlaceWifiParaEnviar = `-- name: TokenEnlaceWifiParaEnviar :one
+SELECT id, token_cifrado FROM mensajeria.enlaces_wifi
+WHERE conversacion_id = $1 AND usado_en IS NULL AND vence_en > $2 AND token_cifrado IS NOT NULL
+ORDER BY created_at DESC LIMIT 1
+`
+
+type TokenEnlaceWifiParaEnviarParams struct {
+	ConversacionID int64
+	Ahora          time.Time
+}
+
+type TokenEnlaceWifiParaEnviarRow struct {
+	ID           uuid.UUID
+	TokenCifrado []byte
+}
+
+// El último enlace vigente de la conversación (para poner el token al mandar el mensaje a Meta).
+func (q *Queries) TokenEnlaceWifiParaEnviar(ctx context.Context, arg TokenEnlaceWifiParaEnviarParams) (TokenEnlaceWifiParaEnviarRow, error) {
+	row := q.db.QueryRow(ctx, tokenEnlaceWifiParaEnviar, arg.ConversacionID, arg.Ahora)
+	var i TokenEnlaceWifiParaEnviarRow
+	err := row.Scan(&i.ID, &i.TokenCifrado)
+	return i, err
+}
+
 const usarEnlaceWifi = `-- name: UsarEnlaceWifi :one
-UPDATE mensajeria.enlaces_wifi SET usado_en = $1
+UPDATE mensajeria.enlaces_wifi SET usado_en = $1, token_cifrado = NULL
 WHERE huella = $2 AND usado_en IS NULL AND vence_en > $1
-RETURNING id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en, usado_en, cambio_id, created_at
+RETURNING id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en, usado_en, cambio_id, token_cifrado, created_at
 `
 
 type UsarEnlaceWifiParams struct {
@@ -1885,6 +1924,7 @@ func (q *Queries) UsarEnlaceWifi(ctx context.Context, arg UsarEnlaceWifiParams) 
 		&i.VenceEn,
 		&i.UsadoEn,
 		&i.CambioID,
+		&i.TokenCifrado,
 		&i.CreatedAt,
 	)
 	return i, err

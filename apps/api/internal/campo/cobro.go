@@ -152,6 +152,15 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			} else if !ok {
 				return Cobro{}, nucleo.ReglaNegocio("cobro_no_disponible", "Argos todavía no recibe el cobro de la instalación desde Iris (contrato 0.9.0)")
 			}
+			// El cierre ya mandó el cargo de la plantilla (iris:cargo:<orden>): otro cobro sería una segunda
+			// factura. Solo si Argos lo rechazó o se resolvió a mano se puede registrar aquí.
+			if p, err := pendientes.PorClave(ctx, t, "iris:cargo:"+strconv.FormatInt(f.ID, 10)); err == nil {
+				if p.Estado != pendientes.EstadoFallidoNegocio && p.Estado != pendientes.EstadoResueltoManual {
+					return Cobro{}, nucleo.Conflicto("cobro_al_cerrar", "El cierre de la orden ya pidió el cobro de la instalación a Argos")
+				}
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return Cobro{}, err
+			}
 			if _, err := q.CobroVivoDeOrden(ctx, f.ID); err == nil {
 				return Cobro{}, nucleo.Conflicto("cobro_registrado", "La instalación ya tiene un cobro (si se anuló en Argos, se puede registrar otro)")
 			} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -167,7 +176,9 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 				}
 				concepto, plantilla = p.CobroConceptoID, p.CobroPrecio
 			}
+			conceptoCambiado := false
 			if in.ConceptoID != nil {
+				conceptoCambiado = concepto == nil || *concepto != *in.ConceptoID
 				concepto = in.ConceptoID
 			}
 			if concepto == nil {
@@ -189,13 +200,13 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 				return Cobro{}, campoInvalido("precioUnitario", "El precio debe ser mayor que 0, con dos decimales como mucho", "positivo")
 			}
 			var motivo *string
-			if precioPlantilla == nil || *precioPlantilla != texto {
+			if precioPlantilla == nil || *precioPlantilla != texto || conceptoCambiado {
 				if !cubre(ctx, nucleo.PermOrdenesCobroEditarMonto, f) {
-					return Cobro{}, fueraDeAlcance("Cambiar el precio de la plantilla exige ordenes.cobro_editar_monto")
+					return Cobro{}, fueraDeAlcance("Cambiar el precio o el concepto de la plantilla exige ordenes.cobro_editar_monto")
 				}
 				motivo = textoLimpio(in.MotivoPrecio)
 				if motivo == nil || utf8.RuneCountInString(*motivo) < 10 {
-					return Cobro{}, campoInvalido("motivoPrecio", "Escribe por qué cambia el precio (10 a 500 caracteres)", "required")
+					return Cobro{}, campoInvalido("motivoPrecio", "Escribe por qué cambia el precio o el concepto (10 a 500 caracteres)", "required")
 				}
 			}
 			descripcion := textoLimpio(in.Descripcion)
@@ -415,8 +426,11 @@ func (m *Modulo) SuscribirCobros(bus *integracion.Bus, bd nucleo.BD) {
 			in.Numero = campoTexto(reg.Respuesta, "factura.numero")
 			in.Total = campoTexto(reg.Respuesta, "factura.total")
 			in.Moneda = campoTexto(reg.Respuesta, "factura.moneda")
-		case pendientes.EventoFallido, pendientes.EventoResueltoManual:
+		case pendientes.EventoFallido:
 			in.Estado, in.Detalle = CobroFallido, reg.UltimoError
+		case pendientes.EventoResueltoManual:
+			// Resuelto a mano: se da por cobrado en Argos (el cupo no se libera sin una factura anulada).
+			in.Estado, in.Detalle = CobroFacturado, reg.UltimoError
 		default:
 			return nil
 		}

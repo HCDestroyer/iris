@@ -342,3 +342,10 @@ WHERE orden_id = @orden_id::bigint AND NOT en_revision;
 
 -- name: EstadoDeOrden :one
 SELECT estado FROM campo.ordenes WHERE id = @id::bigint;
+
+-- name: DescartarClavesAgotadas :execrows
+-- La clave Wi-Fi de un pendiente agotado (Argos no respondió) se descarta a las 24 h (0.9.0 §12.1).
+UPDATE integracion.datos_transito SET cifrado = NULL, llave_cifrada = NULL, borrado_en = @ahora, motivo_borrado = 'vencido'
+WHERE cifrado IS NOT NULL AND id IN (
+    SELECT transito_id FROM integracion.pendientes
+    WHERE operacion IN ('aprovisionar', 'cambiar_wifi') AND estado = 'agotado' AND transito_id IS NOT NULL AND updated_at < @antes);

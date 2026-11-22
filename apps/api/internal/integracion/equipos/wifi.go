@@ -17,6 +17,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
@@ -56,6 +58,15 @@ const (
 	EventoCambioResuelto = "wifi.cambio_resuelto"
 )
 
+// VigenciaVerificacion: la verificación §7.5 vale 10 min para un solo cambio (§12.4).
+const VigenciaVerificacion = 10 * time.Minute
+
+func verificacionRequerida() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "verificacion_requerida", "Verificación requerida",
+		"Confirma al titular con el desafío de identidad (vale 10 minutos y para un solo cambio)",
+		nucleo.ErrorCampo{Field: "verificacionId", Message: "Falta una verificación vigente y sin usar del titular", Rule: "verificacion"})
+}
+
 // MaxCambiosDia: Argos acepta 3 cambios por servicio al día (§12.4); Iris no encola un cuarto.
 const MaxCambiosDia = 3
 
@@ -75,7 +86,14 @@ type Pedido struct {
 	// Verificación del titular (§12.4): método y cuándo.
 	Metodo       string
 	VerificadoEn time.Time
-	SSID         *string
+	// VerificacionID: la verificación §7.5 que respalda el cambio (de un solo uso); con ella, VerificadoEn
+	// es la de la fila. Obligatoria salvo el técnico en sitio (presencial).
+	VerificacionID *int64
+	// EnlaceID: el enlace del asistente que usa la verificación (no cuenta como otro uso).
+	EnlaceID *uuid.UUID
+	// RevalidarServicio: comprobar en la instantánea que el servicio sigue siendo del cliente (enlace).
+	RevalidarServicio bool
+	SSID              *string
 	// Clave: solo en memoria; va al depósito cifrado.
 	Clave *string
 	Ahora time.Time
@@ -130,6 +148,29 @@ func Encolar(ctx context.Context, t *auditoria.Tx, cif *nucleo.Cifrador, p Pedid
 		}
 	}
 	q := equiposbd.New(t)
+	if p.Metodo != MetodoPresencial {
+		if p.VerificacionID == nil {
+			return CambioWifi{}, verificacionRequerida()
+		}
+		v, err := q.VerificacionParaPanel(ctx, equiposbd.VerificacionParaPanelParams{ID: *p.VerificacionID, ClienteID: p.ClienteID, EnlaceID: uuidPG(p.EnlaceID),
+			Desde: p.Ahora.Add(-VigenciaVerificacion)})
+		if errors.Is(err, pgx.ErrNoRows) {
+			return CambioWifi{}, verificacionRequerida()
+		}
+		if err != nil {
+			return CambioWifi{}, err
+		}
+		p.VerificadoEn = v.CreadaEn
+	}
+	if p.RevalidarServicio {
+		ok, err := q.ServicioEsDelCliente(ctx, equiposbd.ServicioEsDelClienteParams{ServicioID: p.ServicioID, ClienteID: p.ClienteID})
+		if err != nil {
+			return CambioWifi{}, err
+		}
+		if !ok {
+			return CambioWifi{}, nucleo.ReglaNegocio("servicio_de_otro_cliente", "El servicio ya no es de este cliente")
+		}
+	}
 	zona := p.Zona
 	if zona == nil {
 		zona = time.UTC
@@ -180,7 +221,12 @@ func Encolar(ctx context.Context, t *auditoria.Tx, cif *nucleo.Cifrador, p Pedid
 		ID: id, EmpresaID: p.EmpresaID, ServicioID: p.ServicioID, ClienteID: p.ClienteID, OrigenTipo: p.OrigenTipo,
 		OrigenID: strconv.FormatInt(p.OrigenID, 10), Actor: p.Actor, UsuarioID: p.UsuarioID, Metodo: p.Metodo,
 		VerificadoEn: p.VerificadoEn.UTC(), ConSsid: p.SSID != nil, ConClave: p.Clave != nil, IdempotencyKey: clave, PendienteID: &reg.ID,
+		VerificacionID: p.VerificacionID,
 	})
+	var pe *pgconn.PgError
+	if errors.As(err, &pe) && pe.Code == "23505" {
+		return CambioWifi{}, verificacionRequerida() // la verificación ya se usó (otro pedido a la vez)
+	}
 	if err != nil {
 		return CambioWifi{}, err
 	}
@@ -256,6 +302,8 @@ type entradaResolver struct {
 	Causa          *string `json:"causa,omitempty"`
 	Detalle        *string `json:"detalle,omitempty"`
 	EntranteID     *int64  `json:"entrante_id,omitempty"`
+	ServicioID     *int64  `json:"servicio_id,omitempty"`
+	EmpresaID      *int64  `json:"empresa_id,omitempty"`
 }
 
 func valida(de, a string) bool {
@@ -290,6 +338,10 @@ func resolver(ctx context.Context, t *auditoria.Tx, in entradaResolver) (*Cambio
 		return nil, err
 	}
 	t.FijarEntidad("cambio_wifi", f.ID)
+	if (in.ServicioID != nil && *in.ServicioID != f.ServicioID) || (in.EmpresaID != nil && !equalPtr(in.EmpresaID, f.EmpresaID)) {
+		t.Anotar(map[string]any{"webhook_de_otro_servicio": true})
+		return nil, nil
+	}
 	if f.EmpresaID != nil {
 		t.FijarEmpresa(*f.EmpresaID)
 	}
@@ -375,15 +427,24 @@ func (m *Modulo) Suscribir(bus *integracion.Bus, bd nucleo.BD, log *slog.Logger)
 			Estado         string  `json:"estado"`
 			Causa          *string `json:"causa"`
 			EntranteID     *int64  `json:"entrante_id"`
+			ServicioID     *int64  `json:"servicio_id"`
+			EmpresaID      *int64  `json:"empresa_id"`
 		}
 		if json.Unmarshal(e.Payload, &p) != nil {
 			return nil
 		}
 		_, err := m.resolver.Ejecutar(nucleo.ConBD(ctx, bd), entradaResolver{IdempotencyKey: p.IdempotencyKey, SolicitudID: p.SolicitudID,
-			Estado: p.Estado, Causa: p.Causa, EntranteID: p.EntranteID})
+			Estado: p.Estado, Causa: p.Causa, EntranteID: p.EntranteID, ServicioID: p.ServicioID, EmpresaID: p.EmpresaID})
 		if err != nil {
 			log.WarnContext(ctx, "equipos: no se pudo guardar el resultado del cambio de Wi-Fi", "evento", e.ID, "err", err)
 		}
 		return err
 	})
+}
+
+func uuidPG(id *uuid.UUID) pgtype.UUID {
+	if id == nil {
+		return pgtype.UUID{}
+	}
+	return pgtype.UUID{Bytes: *id, Valid: true}
 }

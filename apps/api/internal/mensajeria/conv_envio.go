@@ -610,7 +610,12 @@ func nuevoPrepararMensaje(m *Modulo) *auditoria.Caso[uuid.UUID, mensajePreparado
 			if err != nil {
 				return mensajePreparado{}, err
 			}
-			s := MensajeSaliente{ID: f.ID, Destino: c.Numero, Texto: f.Texto}
+			// El enlace del Wi-Fi (0.9.0 §12.4) va con su token solo hacia Meta.
+			textoMeta, err := m.conTokenEnlace(ctx, q, c.ID, f.Texto, ahora)
+			if err != nil {
+				return mensajePreparado{}, err
+			}
+			s := MensajeSaliente{ID: f.ID, Destino: c.Numero, Texto: textoMeta}
 			if f.Plantilla != nil {
 				p, ok := PlantillaPorCodigo(*f.Plantilla)
 				if !ok {

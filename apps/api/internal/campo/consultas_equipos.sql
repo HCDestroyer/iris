@@ -127,7 +127,8 @@ SELECT cobro_concepto_id, cobro_precio FROM campo.plantillas_checklist WHERE id 
 -- name: BienvenidasSinEnviar :many
 -- Instalaciones activas (intento listo o cerradas con éxito) de los últimos 30 días cuya bienvenida
 -- no salió por ningún canal ni quedó sin enviar porque el cliente no acepta avisos (§12.5).
-SELECT o.id, o.numero, o.empresa_id, o.cliente_id, o.servicio_id, o.estado, o.finalizada_en, oa.bienvenida_canales, oa.bienvenida_en
+SELECT o.id, o.numero, o.empresa_id, o.cliente_id, o.servicio_id, o.estado, o.finalizada_en, o.zona_id, o.cuadrilla_id, o.tecnico_id,
+       oa.bienvenida_canales, oa.bienvenida_en
 FROM campo.ordenes o
 JOIN campo.tipos_orden t ON t.id = o.tipo_id
 LEFT JOIN campo.orden_activacion oa ON oa.orden_id = o.id

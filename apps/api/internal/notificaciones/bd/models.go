@@ -1099,6 +1099,7 @@ type IntegracionCambiosWifi struct {
 	ConSsid        bool
 	ConClave       bool
 	IdempotencyKey string
+	VerificacionID *int64
 	PendienteID    *int64
 	SolicitudID    *int64
 	Estado         string
@@ -1990,6 +1991,7 @@ type MensajeriaEnlacesWifi struct {
 	VenceEn        time.Time
 	UsadoEn        *time.Time
 	CambioID       pgtype.UUID
+	TokenCifrado   []byte
 	CreatedAt      time.Time
 }
 

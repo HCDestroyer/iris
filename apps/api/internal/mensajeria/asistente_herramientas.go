@@ -757,7 +757,9 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 	if !ok || t.clienteID == 0 {
 		return rechazo("la verificación de identidad no está disponible. Pasa a una persona."), h
 	}
-	if t.fuerte {
+	// Con cambiar_wifi, cada cambio pide su propia verificación de un solo uso (0.9.0 §12.4): aunque ya
+	// esté verificada, se hace el desafío para dejar la fila que consume enlace_wifi.
+	if t.fuerte && !t.acciones[AccionCambiarWifi] {
 		return resHerramienta{contenido: "La identidad del cliente ya está verificada."}, h
 	}
 	q := mensajeriabd.New(nucleo.BDDe(ctx))

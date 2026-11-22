@@ -425,9 +425,18 @@ func TestEquipoYWifiDesdeLaOrden(t *testing.T) {
 	if len(lista) != 1 || lista[0].Estado != equipos.EstadoEnProceso {
 		t.Fatalf("cambios: %+v", lista)
 	}
+	// M4: desde el panel, sin una verificación §7.5 vigente y sin usar, 422; con ella, un solo cambio.
+	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "llamada_verificada"})
+	problema(t, err, 422, "verificacion_requerida")
+	verif := verificacionDePrueba(t, 990)
+	deber(e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "llamada_verificada", VerificacionID: &verif}))(t)
+	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel 2"), Metodo: "llamada_verificada", VerificacionID: &verif})
+	problema(t, err, 422, "verificacion_requerida")
+	otra := verificacionDePrueba(t, 991) // de otro cliente
+	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel 3"), Metodo: "llamada_verificada", VerificacionID: &otra})
+	problema(t, err, 422, "verificacion_requerida")
 	// Tres por día: el cuarto no sale.
 	deber(e.m.CambiarWifi.Ejecutar(ct, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Casa")}))(t)
-	deber(e.m.CambiarWifi.Ejecutar(ct, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Casa 2")}))(t)
 	_, err = e.m.CambiarWifi.Ejecutar(ct, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Casa 3")})
 	problema(t, err, 429, "demasiados_cambios_wifi")
 	sinClaveWifi(t)
@@ -588,4 +597,94 @@ func TestBienvenidaEnLaOrden(t *testing.T) {
 		t.Fatal("la bienvenida enviada sigue en la bandeja")
 	}
 	esperar(t, e.lote(ct, op(campo.OpCerrar, o.ID, map[string]any{"resultado": "exitosa"})), "aplicada")
+}
+
+// A1: si el cierre ya pidió el cargo de la plantilla, registrar el cobro daría una segunda factura.
+func TestCobroDespuesDelCierreConCargo(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	orden := strconv.FormatInt(o.ID, 10)
+	var cobrar *bool
+	var monto *float64
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT cobrar, cargo_monto::float8 FROM campo.plantillas_checklist
+		WHERE id = (SELECT plantilla_id FROM campo.ordenes WHERE id = $1)`, o.ID).Scan(&cobrar, &monto); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), `UPDATE campo.plantillas_checklist SET cobro_concepto_id = NULL, cobro_precio = NULL,
+			cobrar = $2, cargo_monto = $3 WHERE id = (SELECT plantilla_id FROM campo.ordenes WHERE id = $1)`, o.ID, cobrar, monto)
+	})
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE campo.plantillas_checklist SET cobro_concepto_id = 5, cobro_precio = 350,
+		cobrar = true, cargo_monto = 100 WHERE id = (SELECT plantilla_id FROM campo.ordenes WHERE id = $1)`, o.ID); err != nil {
+		t.Fatal(err)
+	}
+	esperar(t, e.lote(ct, trabajoDeInstalacion(o.ID)[2:]...), repetir(len(trabajoDeInstalacion(o.ID))-2, "aplicada")...)
+	e.relay()
+	_, err := e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID})
+	problema(t, err, 409, "cobro_al_cerrar")
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE entidad_id = $1 AND operacion = 'cargo'", orden); n != 1 {
+		t.Fatalf("pendientes de cargo: %d", n)
+	}
+	// Otro concepto que el de la plantilla exige el permiso y el motivo (despacho no lo tiene).
+	o2 := e.instalacionPropia(tec, ct)
+	desp := usuarioCon(t, identidad.AsignacionRol{Rol: "despacho"})
+	asignarEmpresa(t, desp, 1)
+	cd := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), desp, 1, permisosDe("despacho")...)
+	_, err = e.m.RegistrarCobro.Ejecutar(cd, campo.EntradaRegistrarCobro{ID: o2.ID, ConceptoID: ptr(int64(9))})
+	problema(t, err, 403, "fuera_de_alcance")
+}
+
+// verificacionDePrueba: una verificación §7.5 que coincidió hace un momento (en una conversación).
+func verificacionDePrueba(t *testing.T, cliente int64) int64 {
+	t.Helper()
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	var canal, conv, id int64
+	if err := pool.QueryRow(ctx, `INSERT INTO mensajeria.canales (empresa_id, tipo, canal, nombre, numero, phone_number_id, credenciales_cifradas)
+		VALUES (1, 'whatsapp_cloud', 'whatsapp', $1, $2, $3, '\x00') RETURNING id`, "Verif "+pruebas.Unico(),
+		"+50224"+pruebas.Unico()[:6], pruebas.Unico()).Scan(&canal); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, ultima_actividad, cliente_id)
+		VALUES (1, $1, '+50255550009', now(), $2) RETURNING id`, canal, cliente).Scan(&conv); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `INSERT INTO mensajeria.asistente_verificaciones (empresa_id, conversacion_id, cliente_id, resultado, creada_en)
+		VALUES (1, $1, $2, 'coincide', now()) RETURNING id`, conv, cliente).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// Bajo 6: un webhook de instalación de otro servicio no toca el intento.
+func TestActivacionWebhookDeOtroServicio(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoPendienteAgente)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	esperar(t, e.lote(ct, op(campo.OpActivarServicio, o.ID, datosActivacion(false))), "aplicada")
+	clave := pendientes.ClaveAprovisionar(o.ID, 1)
+	otro := *o.ServicioID + 1000
+	r := deber(e.m.Activacion.Resolver.Ejecutar(sistema(t), campo.EntradaResolverActivacion{Fuente: campo.FuenteWebhook, IdempotencyKey: &clave,
+		Estado: campo.ActivacionLista, ServicioID: &otro}))(t)
+	if r.Resultado != "sin_cambios" || e.activacion(o.ID).Estado != campo.ActivacionPendiente {
+		t.Fatalf("webhook de otro servicio: %+v", r)
+	}
+}
+
+// Bajo 8: la clave Wi-Fi de un pendiente agotado se descarta a las 24 h (no espera 7 días).
+func TestClaveWifiAgotadaSeDescarta(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoPendienteAgente)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	esperar(t, e.lote(ct, op(campo.OpActivarServicio, o.ID, datosActivacion(true))), "aplicada")
+	clave := pendientes.ClaveAprovisionar(o.ID, 1)
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE integracion.pendientes SET estado = 'agotado', updated_at = now() - interval '25 hours'
+		WHERE idempotency_key = $1`, clave); err != nil {
+		t.Fatal(err)
+	}
+	e.purgar()
+	if n := contar(t, "SELECT count(*) FROM integracion.datos_transito WHERE orden_id = $1 AND cifrado IS NOT NULL", o.ID); n != 0 {
+		t.Fatalf("clave de un agotado de más de 24 h: %d", n)
+	}
 }

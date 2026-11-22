@@ -35,6 +35,8 @@ type EntradaWifiOrden struct {
 	// Metodo: el técnico en sitio es presencial; un agente confirma al titular con el desafío de
 	// §7.5 (llamada_verificada).
 	Metodo string `json:"metodo,omitempty" enum:"presencial,llamada_verificada" doc:"Cómo se comprobó que quien pide es el titular. El técnico: presencial (se pone solo); un agente: llamada_verificada"`
+	// VerificacionID: un agente manda la verificación §7.5 del titular (de menos de 10 min, sin usar).
+	VerificacionID *int64 `json:"verificacionId,omitempty" minimum:"1" doc:"Desde el panel, obligatoria: la verificación de identidad del titular (desafío de Argos, §7.5) de menos de 10 minutos y de un solo uso. Sin ella, 422 verificacion_requerida"`
 }
 
 // errorEquipo traduce lo que respondió Argos al leer el equipo (§12.3): 409 equipo_sin_gestion; lo
@@ -140,11 +142,15 @@ func (m *Modulo) nuevoCambiarWifi() *auditoria.Caso[EntradaWifiOrden, equipos.Ca
 			} else if in.Metodo == equipos.MetodoPresencial {
 				return equipos.CambioWifi{}, campoInvalido("metodo", "Desde el panel, confirma al titular con el desafío y usa llamada_verificada", "enum")
 			}
+			var verificacion *int64
+			if metodo != equipos.MetodoPresencial {
+				verificacion = in.VerificacionID
+			}
 			ahora := m.ahora()
 			return equipos.Encolar(ctx, t, m.cfg.Titular.Cifrador, equipos.Pedido{
 				EmpresaID: f.EmpresaID, ServicioID: *f.ServicioID, ClienteID: *f.ClienteID, OrigenTipo: equipos.OrigenOrden,
 				OrigenID: f.ID, Actor: pendientes.ActorUsuario(a.ID), UsuarioID: &a.ID, Metodo: metodo, VerificadoEn: ahora,
-				SSID: in.SSID, Clave: in.Clave, Ahora: ahora, Zona: m.cfg.ZonaHoraria,
+				SSID: in.SSID, Clave: in.Clave, Ahora: ahora, Zona: m.cfg.ZonaHoraria, VerificacionID: verificacion,
 			}, m.cfg.Titular.Encolar)
 		},
 	})

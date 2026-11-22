@@ -1384,16 +1384,19 @@ ON CONFLICT (id) DO UPDATE SET
     alias = excluded.alias, titular = excluded.titular, tipo = excluded.tipo, moneda = excluded.moneda, activa = excluded.activa,
     sincronizado_en = excluded.sincronizado_en, updated_at = now(),
     cambiada_en = CASE WHEN (integracion.argos_cuentas_bancarias.numero, integracion.argos_cuentas_bancarias.titular,
-            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id)
-        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id)
+            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id,
+            integracion.argos_cuentas_bancarias.activa, integracion.argos_cuentas_bancarias.banco_nombre, integracion.argos_cuentas_bancarias.tipo)
+        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id, excluded.activa, excluded.banco_nombre, excluded.tipo)
         THEN now() ELSE integracion.argos_cuentas_bancarias.cambiada_en END,
     confirmada_por = CASE WHEN (integracion.argos_cuentas_bancarias.numero, integracion.argos_cuentas_bancarias.titular,
-            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id)
-        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id)
+            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id,
+            integracion.argos_cuentas_bancarias.activa, integracion.argos_cuentas_bancarias.banco_nombre, integracion.argos_cuentas_bancarias.tipo)
+        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id, excluded.activa, excluded.banco_nombre, excluded.tipo)
         THEN NULL ELSE integracion.argos_cuentas_bancarias.confirmada_por END,
     confirmada_en = CASE WHEN (integracion.argos_cuentas_bancarias.numero, integracion.argos_cuentas_bancarias.titular,
-            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id)
-        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id)
+            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id,
+            integracion.argos_cuentas_bancarias.activa, integracion.argos_cuentas_bancarias.banco_nombre, integracion.argos_cuentas_bancarias.tipo)
+        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id, excluded.activa, excluded.banco_nombre, excluded.tipo)
         THEN NULL ELSE integracion.argos_cuentas_bancarias.confirmada_en END
 WHERE integracion.argos_cuentas_bancarias.sincronizado_en <= excluded.sincronizado_en
 `
@@ -1414,7 +1417,7 @@ type GuardarCuentaBancariaParams struct {
 
 // Gana la lectura más reciente de Argos (una relectura vieja no pisa a una nueva).
 // 0.9.0 §12.5: una cuenta nueva (después de la primera carga) o con otro número, titular, banco,
-// moneda o empresa queda «recién cambiada» (cambiada_en) y pierde la confirmación del admin.
+// moneda, empresa, banco, tipo o activa (una reactivada) queda «recién cambiada» (cambiada_en) y pierde la confirmación del admin.
 func (q *Queries) GuardarCuentaBancaria(ctx context.Context, arg GuardarCuentaBancariaParams) (int64, error) {
 	result, err := q.db.Exec(ctx, guardarCuentaBancaria,
 		arg.ID,

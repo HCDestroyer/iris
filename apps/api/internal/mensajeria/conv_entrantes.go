@@ -50,8 +50,7 @@ func contenidoEntrante(msg metaMensaje) nuevoMensaje {
 	texto := func(s string) {
 		s = strings.TrimSpace(s)
 		if s != "" {
-			// Una clave Wi-Fi escrita en el chat no queda en el historial ni se usa (0.9.0 §12.4).
-			s = TaparClaveWifi(recortar(s, MaxTextoWhatsApp))
+			s = recortar(s, MaxTextoWhatsApp)
 			n.texto = &s
 		}
 	}
@@ -156,6 +155,10 @@ func (m *Modulo) recibirMensaje(ctx context.Context, t *auditoria.Tx, canal mens
 		return err
 	}
 	n := contenidoEntrante(msg)
+	// Una clave Wi-Fi escrita en el chat no queda en el historial, en el payload crudo ni se usa (0.9.0 §12.4).
+	if n.texto, err = taparWifiEntrante(ctx, q, canal.ID, wamid, c.EmpresaID, n.texto); err != nil {
+		return err
+	}
 	n.proveedor = &wamid
 	n.creadoEn = cuando
 	antes := c

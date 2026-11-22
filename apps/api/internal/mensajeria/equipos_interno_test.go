@@ -64,3 +64,19 @@ func TestMarcaEnlaceWifi(t *testing.T) {
 		t.Fatal("dos marcas: falla cerrado")
 	}
 }
+
+// M3 y bajo 7: con cambiar_wifi, «contraseña: …» se tapa aunque no nombre el Wi-Fi; la bienvenida no
+// deja pasar 4 dígitos aunque vayan separados.
+func TestClaveSueltaYDigitosSeparados(t *testing.T) {
+	if got := TaparClaveWifiAmplio("contraseña: Perro2024!"); strings.Contains(got, "Perro2024") {
+		t.Fatalf("amplio: %q", got)
+	}
+	if got := TaparClaveWifi("contraseña: Perro2024!"); got != "contraseña: Perro2024!" {
+		t.Fatalf("sin cambiar_wifi no se tapa: %q", got)
+	}
+	for _, v := range []string{"Cuenta 1-2-3-4", "pague 12 34 56", "1.234.567"} {
+		if validarBienvenida("nombre", v) == "" {
+			t.Errorf("%q debía rechazarse", v)
+		}
+	}
+}

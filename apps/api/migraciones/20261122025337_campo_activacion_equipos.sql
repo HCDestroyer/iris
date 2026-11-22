@@ -113,6 +113,8 @@ CREATE TABLE integracion.cambios_wifi (
     con_ssid        boolean     NOT NULL,
     con_clave       boolean     NOT NULL,
     idempotency_key text        NOT NULL UNIQUE,
+    -- La verificación §7.5 que se usó (de un solo uso; null con el técnico en sitio).
+    verificacion_id bigint      UNIQUE,
     pendiente_id    bigint,
     solicitud_id    bigint,
     estado          text        NOT NULL CHECK (estado IN ('pendiente', 'en_proceso', 'aplicado', 'fallido')),

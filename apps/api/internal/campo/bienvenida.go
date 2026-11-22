@@ -188,6 +188,7 @@ func (m *Modulo) nuevoReenviarBienvenida() *auditoria.Caso[EntradaReenviarBienve
 // entradaBienvenidaArgos: servicio.bienvenida_cambiada (argos.bienvenida_cambiada).
 type entradaBienvenidaArgos struct {
 	ServicioID int64             `json:"servicio_id"`
+	EmpresaID  *int64            `json:"empresa_id"`
 	OrigenTipo *string           `json:"origen_tipo"`
 	OrigenID   *string           `json:"origen_id"`
 	Canales    []CanalBienvenida `json:"canales"`
@@ -225,7 +226,7 @@ func (m *Modulo) nuevoActualizarBienvenida() *auditoria.Caso[entradaBienvenidaAr
 			if err != nil {
 				return nil, err
 			}
-			if f.ServicioID == nil || *f.ServicioID != in.ServicioID {
+			if f.ServicioID == nil || *f.ServicioID != in.ServicioID || (in.EmpresaID != nil && !mismoID(in.EmpresaID, f.EmpresaID)) {
 				t.Anotar(map[string]any{"orden_de_otro_servicio": orden})
 				return nil, nil
 			}
@@ -348,6 +349,11 @@ func (m *Modulo) nuevoBienvenidasSinEnviar() *auditoria.Caso[EntradaBienvenidasS
 					c := strconv.FormatInt(filas[i-1].ID, 10)
 					r.NextCursor = &c
 					break
+				}
+				// Solo las de la zona o cuadrilla del actor (alcance de ordenes.reenviar_bienvenida).
+				if !cubre(ctx, nucleo.PermOrdenesReenviarBienvenida, campobd.CampoOrden{ID: f.ID, EmpresaID: f.EmpresaID, ZonaID: f.ZonaID,
+					CuadrillaID: f.CuadrillaID, TecnicoID: f.TecnicoID}) {
+					continue
 				}
 				r.Data = append(r.Data, BienvenidaSinEnviar{OrdenID: f.ID, Numero: f.Numero, ClienteID: f.ClienteID, ServicioID: f.ServicioID,
 					Estado: f.Estado, Canales: leerCanales(f.BienvenidaCanales)})
