@@ -333,6 +333,17 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 				if c.ClienteID == nil {
 					return reglaConv("sin_cliente", "La conversación no tiene cliente asociado")
 				}
+				// Si el número es de un contacto del cliente (§3.5), se confirma ese contacto, no el
+				// titular: la conversación queda con él y su rol sale de sus permisos.
+				if c.ContactoArgosID == nil {
+					if _, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, *c.ClienteID); err != nil {
+						return err
+					} else if contacto != nil {
+						if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
+							return err
+						}
+					}
+				}
 				// La confirmación de una persona da la verificación fuerte de este periodo (se pierde al
 				// resolver): confirmar otra vez después de reabrir la vuelve a dar.
 				vig, err := vigenciaFuerte(ctx, q, empresaDeConv(*c))
@@ -362,7 +373,7 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 					return err
 				}
 				return t.Emitir("conversacion.cliente_confirmado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID,
-					"cliente_id": c.ClienteID, "actor_id": a.usuario})
+					"cliente_id": c.ClienteID, "actor_id": a.usuario, "contacto_argos_id": c.ContactoArgosID})
 			})
 		},
 	})

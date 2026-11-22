@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
@@ -129,6 +131,18 @@ func nuevoRegistrarConsentimiento(m *Modulo) *RegistrarConsentimiento {
 			if in.fuera {
 				return resultadoConsentimiento{}, clienteFueraDeEmpresa()
 			}
+			if in.Telefono != nil {
+				// El número debe ser de un contacto del cliente en la caché de Argos (§3.5).
+				es, err := mensajeriabd.New(t).NumeroDeContactoDelCliente(ctx, mensajeriabd.NumeroDeContactoDelClienteParams{Numero: *in.Telefono,
+					ClienteID: in.ClienteID, Empresa: in.EmpresaID})
+				if err != nil {
+					return resultadoConsentimiento{}, err
+				}
+				if !es {
+					return resultadoConsentimiento{}, nucleo.NuevoProblema(http.StatusUnprocessableEntity, "numero_no_es_contacto", "El número no es de un contacto",
+						"El número no está entre los contactos del cliente que Iris conoce de Argos", nucleo.ErrorCampo{Field: "telefono", Message: "No es de un contacto del cliente", Rule: "contacto"})
+				}
+			}
 			t.FijarEmpresa(in.EmpresaID)
 			hecho := hechoConsentimiento{EmpresaID: in.EmpresaID, ClienteID: in.ClienteID, Canal: in.Canal, Estado: in.Estado, Origen: in.Origen,
 				OcurridoEn: in.OcurridoEn.UTC().Format(time.RFC3339Nano)}
@@ -149,6 +163,11 @@ func (k *RegistrarConsentimiento) Ejecutar(ctx context.Context, in EntradaConsen
 	fuera, err := k.m.clienteFueraDeEmpresa(ctx, in.ClienteID, in.EmpresaID)
 	if err != nil {
 		return resultadoConsentimiento{}, err
+	}
+	if in.Telefono != nil {
+		// Antes de exigir que el número sea de un contacto, Iris relee los contactos del cliente si no
+		// lo encuentra (X-Iris-Actor «sistema», 0.14.2): un contacto recién creado en Argos aún no está.
+		k.m.asegurarNumeroDeContacto(ctx, in.EmpresaID, in.ClienteID, *in.Telefono)
 	}
 	return k.final.Ejecutar(ctx, entradaFinalConsentimiento{EntradaConsentimiento: in, fuera: fuera})
 }
@@ -251,4 +270,19 @@ func (m *Modulo) vigenteDe(ctx context.Context, q *mensajeriabd.Queries, f mensa
 		return resultadoConsentimiento{}, err
 	}
 	return resultadoConsentimiento{Consentimiento: Consentimiento{ConsentimientoID: f.ID, EstadoVigente: v.Estado}, Nuevo: nuevo}, nil
+}
+
+// asegurarNumeroDeContacto relee los contactos del cliente si el número no está en la caché. De mejor
+// esfuerzo: si Argos no responde, decide la caché.
+func (m *Modulo) asegurarNumeroDeContacto(ctx context.Context, empresa, cliente int64, numero string) {
+	ac, ok := m.cfg.Argos.(ArgosContactos)
+	bd := nucleo.BDDe(ctx)
+	if m.cfg.Argos == nil || !ok || bd == nil {
+		return
+	}
+	es, err := mensajeriabd.New(bd).NumeroDeContactoDelCliente(ctx, mensajeriabd.NumeroDeContactoDelClienteParams{Numero: numero, ClienteID: cliente, Empresa: empresa})
+	if err != nil || es {
+		return
+	}
+	_, _ = ac.RefrescarContactos(ctx, argos.EntradaRefrescarContactos{ClienteID: cliente, Forzar: true})
 }

@@ -202,9 +202,10 @@ RETURNING *;
 SELECT id FROM mensajeria.avisos WHERE estado = 'en_cola' AND created_at < @antes ORDER BY created_at LIMIT 200;
 
 -- name: ClientesAvisadosEn :many
--- Clientes a los que se avisó desde un canal a un número (bajas por chat).
+-- Clientes a los que se avisó desde un canal a un número (bajas por chat). Sin las copias a
+-- contactos (§3.5): la baja de un contacto es solo por número, nunca la del titular.
 SELECT DISTINCT empresa_id, cliente_id FROM mensajeria.avisos
-WHERE canal_id = @canal_id AND destino = @destino
+WHERE canal_id = @canal_id AND destino = @destino AND aviso_padre_id IS NULL
 ORDER BY empresa_id, cliente_id;
 
 -- Entrantes (Meta) ---------------------------------------------------------------------------
@@ -268,3 +269,14 @@ SELECT * FROM mensajeria.webhooks_salida WHERE id = $1;
 -- El conector Argos activo con su receptor (§6.6).
 SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo';
+
+-- name: ContarAvisosNumeroDelDia :one
+-- Copias a un número de contacto desde el inicio del día (los bloqueados no cuentan): el mismo límite
+-- diario que un cliente (§6.5).
+SELECT count(*)::bigint FROM mensajeria.avisos
+WHERE empresa_id = @empresa_id AND destino = @destino::text AND created_at >= @desde AND estado <> 'bloqueado'
+  AND aviso_padre_id IS NOT NULL;
+
+-- name: BloquearAvisosNumero :exec
+-- Serializa la cuenta del límite diario de un número de contacto.
+SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.aviso_numero:' || @empresa_id::bigint || ':' || @destino::text, 0));

@@ -310,6 +310,10 @@ func nuevoGuardarContactos() *auditoria.Caso[entradaGuardarContactos, int] {
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaGuardarContactos) (int, error) {
 			t.FijarEntidad("cliente_argos", in.ClienteID)
 			q := argosbd.New(t)
+			antes, err := q.HuellaContactosCliente(ctx, in.ClienteID)
+			if err != nil {
+				return 0, err
+			}
 			var quitados int64
 			if in.borrar {
 				t.Anotar(map[string]any{"resultado_argos": "no_existe"})
@@ -329,11 +333,19 @@ func nuevoGuardarContactos() *auditoria.Caso[entradaGuardarContactos, int] {
 				}
 				quitados = n
 			}
-			if quitados > 0 {
-				// Contactos que Argos ya no devuelve: la mensajería quita la verificación a sus
-				// conversaciones (sin números ni nombres).
+			despues, err := q.HuellaContactosCliente(ctx, in.ClienteID)
+			if err != nil {
+				return 0, err
+			}
+			if quitados > 0 || (antes != "" && antes != despues) {
+				// Contactos que Argos ya no devuelve o cuyos números cambiaron: la mensajería quita la
+				// verificación a las conversaciones de esos contactos (sin números ni nombres).
+				accion := "editado"
+				if quitados > 0 {
+					accion = "quitado"
+				}
 				if err := t.Emitir(EventoContactosArgosCambiados, map[string]any{"cliente_id": in.ClienteID, "empresa_id": nil,
-					"contacto_id": nil, "accion": "quitado", "persona_cliente_id": nil, "entrante_id": nil}); err != nil {
+					"contacto_id": nil, "accion": accion, "persona_cliente_id": nil, "entrante_id": nil}); err != nil {
 					return 0, err
 				}
 			}

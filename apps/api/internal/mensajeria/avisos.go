@@ -386,13 +386,16 @@ func (k *EnviarAviso) crear(ctx context.Context, t *auditoria.Tx, in entradaFina
 // PlantillasCobro son las plantillas de §6.3 que también salen a los contactos con «avisos» (§3.5).
 var PlantillasCobro = map[string]bool{"factura_por_vencer": true, "factura_vencida": true, "corte_por_falta_de_pago": true}
 
-// avisosAContactos: un aviso de cobro sale también a los contactos del cliente con «avisos» que
-// cubren el servicio (§3.5, A42/B22), uno por contacto, al número que Iris tiene en su caché de
-// contactos (nunca del cuerpo del aviso) y solo si ese número tiene permiso vigente (§6.4, por
-// número) y no pidió la baja en el chat. Son copias sin Idempotency-Key ni webhooks hacia Argos.
+// avisosAContactos: un aviso de cobro que quedó en cola sale también a los contactos del cliente con
+// «avisos» que cubren el servicio (§3.5, A42/B22), uno por contacto, al número que Iris tiene en su
+// caché de contactos (nunca del cuerpo del aviso): el principal o, si ese no tiene permiso, el
+// siguiente. Solo con permiso vigente del número (§6.4) y sin baja pedida en el chat, y con el límite
+// diario por número (el mismo de un cliente, bajo su candado). Un original bloqueado no genera
+// copias. Las copias se auditan y emiten aviso.creado (con aviso_padre_id), sin Idempotency-Key ni
+// webhooks hacia Argos (origen iris).
 func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, padre mensajeriabd.MensajeriaAviso,
 	base mensajeriabd.InsertarAvisoParams, p Plantilla, ahora time.Time) error {
-	if !PlantillasCobro[padre.Plantilla] || padre.CanalPreferido != CanalWhatsApp {
+	if !PlantillasCobro[padre.Plantilla] || padre.CanalPreferido != CanalWhatsApp || padre.Estado != EstadoEnCola {
 		return nil
 	}
 	ks, err := q.ContactosConAvisos(ctx, mensajeriabd.ContactosConAvisosParams{ClienteID: padre.ClienteID, Empresa: padre.EmpresaID, ServicioID: padre.ServicioID})
@@ -403,41 +406,43 @@ func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensa
 	if err != nil {
 		return err
 	}
-	vistos := map[int64]bool{}
-	creados := 0
+	if r == nil || !r.a.PermiteAvisos() || !r.a.Aprobada(p.Codigo) {
+		return nil
+	}
+	hecho := map[int64]bool{}
 	for _, k := range ks {
-		if vistos[k.ContactoID] {
+		if hecho[k.ContactoID] {
 			continue
 		}
-		vistos[k.ContactoID] = true
-		v, err := q.ConsentimientoVigenteNumero(ctx, mensajeriabd.ConsentimientoVigenteNumeroParams{EmpresaID: padre.EmpresaID, ClienteID: padre.ClienteID,
-			Canal: CanalWhatsApp, Telefono: k.Numero})
-		if errors.Is(err, pgx.ErrNoRows) || (err == nil && v.Estado != "acepta") {
-			continue
-		}
+		ok, err := m.numeroPuedeRecibir(ctx, q, padre.EmpresaID, padre.ClienteID, k.Numero)
 		if err != nil {
 			return err
 		}
-		// Una baja que el número pidió en el chat también manda (§6.4).
-		if b, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: padre.EmpresaID, Telefono: k.Numero}); err == nil && b.Estado == "baja" {
+		if !ok {
+			// Sin permiso o con baja: se prueba el siguiente número del mismo contacto.
 			continue
-		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		}
+		hecho[k.ContactoID] = true
+		if err := q.BloquearAvisosNumero(ctx, mensajeriabd.BloquearAvisosNumeroParams{EmpresaID: padre.EmpresaID, Destino: k.Numero}); err != nil {
 			return err
 		}
 		id, err := uuid.NewV7()
 		if err != nil {
 			return err
 		}
+		numero, medio := k.Numero, CanalWhatsApp
 		fila := base
 		fila.ID, fila.Origen, fila.IdempotencyKey, fila.HashPeticion, fila.Estado, fila.Motivo, fila.FinalizadoEn = id, "iris", nil, nil, EstadoEnCola, nil, nil
-		fila.Canal, fila.CanalID, fila.Remitente, fila.Destino, fila.ProgramadoEn = nil, nil, nil, nil, nil
-		numero := k.Numero
-		if r == nil || !r.a.PermiteAvisos() || !r.a.Aprobada(p.Codigo) {
-			motivo := MotivoCanalNoDisponible
+		fila.Canal, fila.CanalID, fila.Remitente, fila.Destino, fila.ProgramadoEn = &medio, r.canalID, &r.remitente, &numero, nil
+		n, err := q.ContarAvisosNumeroDelDia(ctx, mensajeriabd.ContarAvisosNumeroDelDiaParams{EmpresaID: padre.EmpresaID, Destino: numero,
+			Desde: inicioDelDia(ahora, m.cfg.Zona)})
+		if err != nil {
+			return err
+		}
+		if padre.Prioridad != "urgente" && n >= int64(m.cfg.LimiteDiario) {
+			motivo := MotivoLimiteDiario
 			fila.Estado, fila.Motivo, fila.FinalizadoEn = EstadoBloqueado, &motivo, &ahora
 		} else {
-			medio := CanalWhatsApp
-			fila.Canal, fila.CanalID, fila.Remitente, fila.Destino = &medio, r.canalID, &r.remitente, &numero
 			_, fin := m.cfg.Silencio.enSilencio(ahora, m.cfg.Zona)
 			fila.ProgramadoEn = &fin
 		}
@@ -445,20 +450,45 @@ func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensa
 		if err != nil {
 			return err
 		}
-		if err := q.FijarAvisoContacto(ctx, mensajeriabd.FijarAvisoContactoParams{ID: a.ID, AvisoPadreID: pgtype.UUID{Bytes: padre.ID, Valid: true}, ContactoArgosID: &k.ContactoID}); err != nil {
+		if err := q.FijarAvisoContacto(ctx, mensajeriabd.FijarAvisoContactoParams{ID: a.ID, AvisoPadreID: pgtype.UUID{Bytes: padre.ID, Valid: true},
+			ContactoArgosID: &k.ContactoID}); err != nil {
 			return err
 		}
+		t.RegistrarCambios("aviso", a.ID, nil, auditable(a))
 		if a.Estado == EstadoEnCola {
 			if err := m.encolar(ctx, t.Tx, ArgsEnviarAviso{AvisoID: a.ID, programado: *a.ProgramadoEn}); err != nil {
 				return err
 			}
 		}
-		creados++
-	}
-	if creados > 0 {
-		t.Anotar(map[string]any{"avisos_a_contactos": creados})
+		// Nunca el número ni el contacto en claro: solo el aviso del que es copia.
+		if err := t.Emitir("aviso.creado", map[string]any{"aviso_id": a.ID, "empresa_id": a.EmpresaID, "cliente_id": a.ClienteID,
+			"servicio_id": a.ServicioID, "plantilla": a.Plantilla, "estado": a.Estado, "motivo": a.Motivo, "origen": a.Origen,
+			"prioridad": a.Prioridad, "programado_en": a.ProgramadoEn, "aviso_padre_id": padre.ID}); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// numeroPuedeRecibir: el número de un contacto tiene permiso por número vigente (§6.4) y no pidió la
+// baja en el chat.
+func (m *Modulo) numeroPuedeRecibir(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente int64, numero string) (bool, error) {
+	v, err := q.ConsentimientoVigenteNumero(ctx, mensajeriabd.ConsentimientoVigenteNumeroParams{EmpresaID: empresa, ClienteID: cliente,
+		Canal: CanalWhatsApp, Telefono: numero})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil || v.Estado != "acepta" {
+		return false, err
+	}
+	b, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: empresa, Telefono: numero})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return b.Estado != "baja", nil
 }
 
 // origenDe: los avisos de un usuario de integración de Argos son de Argos (sus webhooks van a

@@ -1812,6 +1812,22 @@ func (q *Queries) GuardarZona(ctx context.Context, arg GuardarZonaParams) error 
 	return err
 }
 
+const huellaContactosCliente = `-- name: HuellaContactosCliente :one
+SELECT coalesce(md5(string_agg(k.contacto_id::text || ':' || k.es_titular::text || ':' || coalesce(t.digitos, ''), ','
+    ORDER BY k.contacto_id, t.digitos)), '')::text
+FROM integracion.argos_contactos k LEFT JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id
+WHERE k.cliente_id = $1
+`
+
+// Huella de los contactos del cliente en la caché (ids, si son titulares y sus números): si cambia al
+// releer, la mensajería revisa las conversaciones asociadas por esos contactos.
+func (q *Queries) HuellaContactosCliente(ctx context.Context, clienteID int64) (string, error) {
+	row := q.db.QueryRow(ctx, huellaContactosCliente, clienteID)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const iDsExternosVinculados = `-- name: IDsExternosVinculados :many
 SELECT argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo IS NOT NULL
 `

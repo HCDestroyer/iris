@@ -102,6 +102,17 @@ func nuevoPrepararEnvio(m *Modulo) *auditoria.Caso[entradaPreparar, preparado] {
 			if a.VenceEn != nil && !ahora.Before(*a.VenceEn) {
 				return preparado{Accion: accionNada, Final: true}, m.fallar(ctx, t, a, MotivoVencido, texto("venció antes de poder enviarse"))
 			}
+			if a.AvisoPadreID.Valid {
+				// Copia a un contacto (§3.5): el contacto, su permiso «avisos», el servicio, el permiso
+				// del número y la baja se revisan otra vez al enviar.
+				puede, err := m.copiaPuedeSalir(ctx, q, a)
+				if err != nil {
+					return preparado{}, err
+				}
+				if !puede {
+					return preparado{Accion: accionNada, Final: true}, m.fallar(ctx, t, a, MotivoRechazado, texto("el contacto ya no puede recibir avisos"))
+				}
+			}
 			r, err := m.resolverPorID(ctx, q, a.CanalID, a.EmpresaID)
 			if err != nil {
 				return preparado{}, err
@@ -135,6 +146,11 @@ func nuevoPrepararEnvio(m *Modulo) *auditoria.Caso[entradaPreparar, preparado] {
 			datos, err := datosParaEnvio(ctx, q, p, variables, a.EmpresaID, &cliente, a.ServicioID)
 			if err != nil {
 				return preparado{}, err
+			}
+			if a.AvisoPadreID.Valid {
+				// La copia a un contacto no lleva el nombre ni el código del titular: saludo neutro.
+				delete(datos, "cliente_nombre")
+				delete(datos, "cliente_codigo")
 			}
 			return preparado{Accion: accionEnviar, r: r, mensaje: Mensaje{AvisoID: a.ID, Destino: *a.Destino, Plantilla: p, Variables: variables, Datos: datos}}, nil
 		},
@@ -314,4 +330,17 @@ func nuevoVencerAvisos(m *Modulo) *auditoria.Caso[struct{}, int] {
 			return n, nil
 		},
 	})
+}
+
+// copiaPuedeSalir: la copia de un aviso a un contacto todavía puede enviarse (§3.5 y §6.4).
+func (m *Modulo) copiaPuedeSalir(ctx context.Context, q *mensajeriabd.Queries, a mensajeriabd.MensajeriaAviso) (bool, error) {
+	if a.ContactoArgosID == nil || a.Destino == nil {
+		return false, nil
+	}
+	ok, err := q.ContactoConAvisosVigente(ctx, mensajeriabd.ContactoConAvisosVigenteParams{Numero: *a.Destino, ContactoID: *a.ContactoArgosID,
+		ClienteID: a.ClienteID, ServicioID: a.ServicioID})
+	if err != nil || !ok {
+		return false, err
+	}
+	return m.numeroPuedeRecibir(ctx, q, a.EmpresaID, a.ClienteID, *a.Destino)
 }

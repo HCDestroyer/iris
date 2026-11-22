@@ -333,6 +333,21 @@ func (q *Queries) BloquearAvisosCliente(ctx context.Context, arg BloquearAvisosC
 	return err
 }
 
+const bloquearAvisosNumero = `-- name: BloquearAvisosNumero :exec
+SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.aviso_numero:' || $1::bigint || ':' || $2::text, 0))
+`
+
+type BloquearAvisosNumeroParams struct {
+	EmpresaID int64
+	Destino   string
+}
+
+// Serializa la cuenta del límite diario de un número de contacto.
+func (q *Queries) BloquearAvisosNumero(ctx context.Context, arg BloquearAvisosNumeroParams) error {
+	_, err := q.db.Exec(ctx, bloquearAvisosNumero, arg.EmpresaID, arg.Destino)
+	return err
+}
+
 const bloquearConsentimientos = `-- name: BloquearConsentimientos :exec
 SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.consentimiento:' || $1::bigint || ':' || $2::bigint || ':' || $3::text, 0))
 `
@@ -534,7 +549,7 @@ func (q *Queries) CanalesActivosDeEmpresas(ctx context.Context, arg CanalesActiv
 
 const clientesAvisadosEn = `-- name: ClientesAvisadosEn :many
 SELECT DISTINCT empresa_id, cliente_id FROM mensajeria.avisos
-WHERE canal_id = $1 AND destino = $2
+WHERE canal_id = $1 AND destino = $2 AND aviso_padre_id IS NULL
 ORDER BY empresa_id, cliente_id
 `
 
@@ -548,7 +563,8 @@ type ClientesAvisadosEnRow struct {
 	ClienteID int64
 }
 
-// Clientes a los que se avisó desde un canal a un número (bajas por chat).
+// Clientes a los que se avisó desde un canal a un número (bajas por chat). Sin las copias a
+// contactos (§3.5): la baja de un contacto es solo por número, nunca la del titular.
 func (q *Queries) ClientesAvisadosEn(ctx context.Context, arg ClientesAvisadosEnParams) ([]ClientesAvisadosEnRow, error) {
 	rows, err := q.db.Query(ctx, clientesAvisadosEn, arg.CanalID, arg.Destino)
 	if err != nil {
@@ -765,6 +781,27 @@ type ContarAvisosDelDiaParams struct {
 // Avisos automáticos del cliente desde el inicio del día (los bloqueados no cuentan).
 func (q *Queries) ContarAvisosDelDia(ctx context.Context, arg ContarAvisosDelDiaParams) (int64, error) {
 	row := q.db.QueryRow(ctx, contarAvisosDelDia, arg.EmpresaID, arg.ClienteID, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const contarAvisosNumeroDelDia = `-- name: ContarAvisosNumeroDelDia :one
+SELECT count(*)::bigint FROM mensajeria.avisos
+WHERE empresa_id = $1 AND destino = $2::text AND created_at >= $3 AND estado <> 'bloqueado'
+  AND aviso_padre_id IS NOT NULL
+`
+
+type ContarAvisosNumeroDelDiaParams struct {
+	EmpresaID int64
+	Destino   string
+	Desde     time.Time
+}
+
+// Copias a un número de contacto desde el inicio del día (los bloqueados no cuentan): el mismo límite
+// diario que un cliente (§6.5).
+func (q *Queries) ContarAvisosNumeroDelDia(ctx context.Context, arg ContarAvisosNumeroDelDiaParams) (int64, error) {
+	row := q.db.QueryRow(ctx, contarAvisosNumeroDelDia, arg.EmpresaID, arg.Destino, arg.Desde)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err

@@ -45,6 +45,36 @@ func (q *Queries) ContactoArgosDeCliente(ctx context.Context, arg ContactoArgosD
 	return i, err
 }
 
+const contactoConAvisosVigente = `-- name: ContactoConAvisosVigente :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.argos_contactos k
+    JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp AND t.numero = $1::text
+    WHERE k.contacto_id = $2 AND k.cliente_id = $3 AND k.avisos AND NOT k.es_titular
+      AND (k.servicios IS NULL OR $4::bigint = ANY (k.servicios))
+)::boolean
+`
+
+type ContactoConAvisosVigenteParams struct {
+	Numero     string
+	ContactoID int64
+	ClienteID  int64
+	ServicioID *int64
+}
+
+// Al enviar una copia: el contacto sigue en la caché, con «avisos», con ese número con WhatsApp y
+// cubriendo el servicio del aviso.
+func (q *Queries) ContactoConAvisosVigente(ctx context.Context, arg ContactoConAvisosVigenteParams) (bool, error) {
+	row := q.db.QueryRow(ctx, contactoConAvisosVigente,
+		arg.Numero,
+		arg.ContactoID,
+		arg.ClienteID,
+		arg.ServicioID,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const contactosArgosDelNumero = `-- name: ContactosArgosDelNumero :many
 
 SELECT c.contacto_id, c.cliente_id, c.empresa_id, c.nombre, c.relacion, c.es_titular, c.servicios, c.consultar, c.reportar,
@@ -173,7 +203,10 @@ const desverificarConvsSinContacto = `-- name: DesverificarConvsSinContacto :man
 UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_por = NULL, version = c.version + 1, updated_at = now()
 WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
   AND (c.cliente_id = $1 OR c.contacto_argos_id = $2::bigint)
-  AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id)
+  AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id
+      AND NOT k.es_titular
+      AND EXISTS (SELECT 1 FROM integracion.argos_contacto_telefonos t
+          WHERE t.contacto_id = k.contacto_id AND t.digitos = regexp_replace(c.numero, '[^0-9]', '', 'g')))
 RETURNING c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at, c.fuera_horario_hasta, c.guardia_hasta, c.bot_espera_en, c.bot_vence_en, c.bot_motivo, c.bot_atendio_en, c.bot_menu, c.categoria_id, c.categoria_confianza, c.categoria_origen, c.categoria_en, c.clasificado_mensaje_id, c.asistente_actividad_tipo, c.asistente_actividad_texto, c.asistente_actividad_en, c.cola_origen, c.asistente_transfirio_en, c.asistente_estado, c.asistente_turnos, c.asistente_presento_en, c.identidad_verificada_en, c.identidad_vence_en, c.bot_diferido_mensaje_id, c.asistente_motivo_paso, c.asistente_pausado_en, c.asistente_pausado_por, c.asistente_pausa_motivo, c.asistente_reanudado_en, c.asistente_atencion_desde, c.asistente_pausa_previo, c.contacto_argos_id
 `
 
@@ -183,7 +216,8 @@ type DesverificarConvsSinContactoParams struct {
 }
 
 // Las conversaciones asociadas por un contacto que ya no está en la caché (Argos lo quitó, dejó de
-// devolverlo o la caché del cliente se olvidó): pierden la verificación del número.
+// devolverlo o la caché del cliente se olvidó), que ya no tiene el número de la conversación o que
+// pasó a titular: pierden la verificación del número.
 func (q *Queries) DesverificarConvsSinContacto(ctx context.Context, arg DesverificarConvsSinContactoParams) ([]MensajeriaConversacion, error) {
 	rows, err := q.db.Query(ctx, desverificarConvsSinContacto, arg.ClienteID, arg.ContactoID)
 	if err != nil {
@@ -385,6 +419,28 @@ func (q *Queries) NumeroBuscadoEn(ctx context.Context, arg NumeroBuscadoEnParams
 	return buscado_en, err
 }
 
+const numeroDeContactoDelCliente = `-- name: NumeroDeContactoDelCliente :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.argos_contactos k
+    JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.numero = $1::text
+    WHERE k.cliente_id = $2 AND (k.empresa_id IS NULL OR k.empresa_id = $3::bigint)
+)::boolean
+`
+
+type NumeroDeContactoDelClienteParams struct {
+	Numero    string
+	ClienteID int64
+	Empresa   int64
+}
+
+// El número es de un contacto del cliente en la caché (permiso por número, §6.4).
+func (q *Queries) NumeroDeContactoDelCliente(ctx context.Context, arg NumeroDeContactoDelClienteParams) (bool, error) {
+	row := q.db.QueryRow(ctx, numeroDeContactoDelCliente, arg.Numero, arg.ClienteID, arg.Empresa)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const servicioInstantaneaPorID = `-- name: ServicioInstantaneaPorID :one
 SELECT id, cliente_id, empresa_id, codigo, nombre, estado FROM integracion.argos_servicios WHERE id = $1
 `
@@ -458,4 +514,21 @@ func (q *Queries) ServiciosDeClientesInstantanea(ctx context.Context, arg Servic
 		return nil, err
 	}
 	return items, nil
+}
+
+const ticketParaOrden = `-- name: TicketParaOrden :one
+SELECT cliente_id, servicio_id FROM soporte.tickets WHERE id = $1
+`
+
+type TicketParaOrdenRow struct {
+	ClienteID  *int64
+	ServicioID *int64
+}
+
+// El cliente y el servicio de un ticket (orden con ticket desde la conversación: permiso del contacto).
+func (q *Queries) TicketParaOrden(ctx context.Context, id int64) (TicketParaOrdenRow, error) {
+	row := q.db.QueryRow(ctx, ticketParaOrden, id)
+	var i TicketParaOrdenRow
+	err := row.Scan(&i.ClienteID, &i.ServicioID)
+	return i, err
 }

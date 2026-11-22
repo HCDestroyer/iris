@@ -56,11 +56,15 @@ UPDATE mensajeria.conversaciones SET contacto_argos_id = sqlc.narg('contacto_arg
 
 -- name: DesverificarConvsSinContacto :many
 -- Las conversaciones asociadas por un contacto que ya no está en la caché (Argos lo quitó, dejó de
--- devolverlo o la caché del cliente se olvidó): pierden la verificación del número.
+-- devolverlo o la caché del cliente se olvidó), que ya no tiene el número de la conversación o que
+-- pasó a titular: pierden la verificación del número.
 UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_por = NULL, version = c.version + 1, updated_at = now()
 WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
   AND (c.cliente_id = @cliente_id OR c.contacto_argos_id = sqlc.narg('contacto_id')::bigint)
-  AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id)
+  AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id
+      AND NOT k.es_titular
+      AND EXISTS (SELECT 1 FROM integracion.argos_contacto_telefonos t
+          WHERE t.contacto_id = k.contacto_id AND t.digitos = regexp_replace(c.numero, '[^0-9]', '', 'g')))
 RETURNING c.*;
 
 -- name: ContactosConAvisos :many
@@ -76,3 +80,25 @@ LIMIT 50;
 
 -- name: FijarAvisoContacto :exec
 UPDATE mensajeria.avisos SET aviso_padre_id = @aviso_padre_id, contacto_argos_id = @contacto_argos_id WHERE id = @id;
+
+-- name: ContactoConAvisosVigente :one
+-- Al enviar una copia: el contacto sigue en la caché, con «avisos», con ese número con WhatsApp y
+-- cubriendo el servicio del aviso.
+SELECT EXISTS (
+    SELECT 1 FROM integracion.argos_contactos k
+    JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp AND t.numero = @numero::text
+    WHERE k.contacto_id = @contacto_id AND k.cliente_id = @cliente_id AND k.avisos AND NOT k.es_titular
+      AND (k.servicios IS NULL OR sqlc.narg('servicio_id')::bigint = ANY (k.servicios))
+)::boolean;
+
+-- name: NumeroDeContactoDelCliente :one
+-- El número es de un contacto del cliente en la caché (permiso por número, §6.4).
+SELECT EXISTS (
+    SELECT 1 FROM integracion.argos_contactos k
+    JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.numero = @numero::text
+    WHERE k.cliente_id = @cliente_id AND (k.empresa_id IS NULL OR k.empresa_id = @empresa::bigint)
+)::boolean;
+
+-- name: TicketParaOrden :one
+-- El cliente y el servicio de un ticket (orden con ticket desde la conversación: permiso del contacto).
+SELECT cliente_id, servicio_id FROM soporte.tickets WHERE id = @id;

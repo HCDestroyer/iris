@@ -375,7 +375,12 @@ func (m *Modulo) herrEstadoServicio(ctx context.Context, t *turnoIA, l LlamadaIA
 			svs = append(svs, s)
 		}
 	}
-	fallas, err := q.FallasHorusCliente(ctx, mensajeriabd.FallasHorusClienteParams{ClienteID: t.clienteID, Empresa: t.empresa})
+	// Solo las fallas de sus servicios (§3.5): un contacto acotado no se entera de las de otros.
+	var filtroServ []int64
+	if !rol.Propio.esTitular() {
+		filtroServ = rol.Propio.Servicios
+	}
+	fallas, err := q.FallasHorusCliente(ctx, mensajeriabd.FallasHorusClienteParams{ClienteID: t.clienteID, Empresa: t.empresa, Servicios: filtroServ})
 	if err != nil {
 		return resHerramienta{fallo: true}, h
 	}

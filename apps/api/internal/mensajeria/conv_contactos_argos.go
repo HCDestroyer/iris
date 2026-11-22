@@ -231,6 +231,13 @@ func (m *Modulo) rolDeConversacion(ctx context.Context, q *mensajeriabd.Queries,
 	if r.Propio != nil {
 		return r, nil
 	}
+	if c.ContactoArgosID != nil && !titular {
+		// Se asoció por un contacto que ya no tiene este número (o que Argos quitó o volvió titular):
+		// sin rol, aunque un supervisor lo hubiera confirmado o hubiera verificación fuerte (lo que se
+		// confirmó fue ese contacto, no el titular).
+		r.Propio = &rolEnCliente{ClienteID: cliente, SinRol: true}
+		return r, nil
+	}
 	confiable := titular || (c.ClienteVerificado && c.VerificadoPor != nil)
 	if !confiable && c.ClienteVerificado {
 		vig, err := vigenciaFuerte(ctx, q, empresa)
@@ -245,6 +252,23 @@ func (m *Modulo) rolDeConversacion(ctx context.Context, q *mensajeriabd.Queries,
 		r.Propio = &rolEnCliente{ClienteID: cliente, SinRol: true}
 	}
 	return r, nil
+}
+
+// filtroFallas: los servicios cuyas fallas puede conocer quien escribe (§3.5): nil = todos (titular),
+// los suyos si es un contacto acotado, y ninguno sin «consultar» (ok = false).
+func (m *Modulo) filtroFallas(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion) (servicios []int64, ok bool, err error) {
+	rol, err := m.rolDeConversacion(ctx, q, c)
+	if err != nil || rol.Propio == nil {
+		return nil, rol.Propio != nil, err
+	}
+	p := *rol.Propio
+	if !p.permite(PermisoContactoConsultar) {
+		return nil, false, nil
+	}
+	if p.esTitular() {
+		return nil, true, nil
+	}
+	return p.Servicios, true, nil
 }
 
 // Errores de contacto (mismos códigos que Argos, §7.1).

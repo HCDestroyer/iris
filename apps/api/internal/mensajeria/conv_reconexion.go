@@ -145,6 +145,23 @@ func nuevoPedirReconexion(m *Modulo) *PedirReconexion {
 			if err != nil {
 				return previaReconexion{}, err
 			}
+			// Quién la pide (§3.5): en la misma transacción, el titular o el contacto con «pagar» que
+			// registró la boleta (la reconexión sale con su X-Iris-Contacto).
+			servicioBoleta := b.ServicioID
+			if servicioBoleta == nil {
+				servicioBoleta = c.ServicioID
+			}
+			acc, err := m.accesoAServicio(ctx, q, c, servicioBoleta, PermisoContactoPagar)
+			if err != nil {
+				return previaReconexion{}, err
+			}
+			contactoBoleta := argos.ContactoTitular
+			if b.ContactoArgos != nil {
+				contactoBoleta = *b.ContactoArgos
+			}
+			if acc.Contacto != contactoBoleta {
+				return previaReconexion{}, reglaConv("otra_persona", "La boleta la registró otra persona (titular o contacto): la reconexión la pide quien pagó")
+			}
 			previa, err := q.ReconexionPorComprobante(ctx, *b.ComprobanteID)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return previaReconexion{}, err

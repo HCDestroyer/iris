@@ -462,3 +462,78 @@ func TestAsistenteConContactoSinConsultar(t *testing.T) {
 	b.exigirProblema(b.apiClave(b.supervisor, http.MethodPost, "/conversaciones/"+conv+"/crear-orden", "or-"+conv, map[string]any{"tipo": "visita", "servicioId": ss[0],
 		"descripcion": "Sin internet"}), http.StatusForbidden, "permiso_de_contacto")
 }
+
+// M1 de la verificación: un contacto confirmado por un supervisor no pasa a titular si Argos le quita
+// el número (sin borrar el contacto) ni si lo vuelve titular: queda sin rol al momento (antes de que
+// corra el suscriptor) y, con el evento, pierde la verificación. Confirmar confirma al contacto.
+func TestContactoConfirmadoSinSuNumero(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, ss := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.m1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	r := b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(c)})
+	b.exigir(r, http.StatusOK)
+	if rol := r.cuerpo["rolContacto"].(map[string]any); rol["rol"] != "contacto" {
+		t.Fatalf("confirmar confirma al contacto, no al titular: %v", rol)
+	}
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusOK)
+	// Argos le quita el número (el contacto sigue): sin rol aunque esté confirmado, antes del evento.
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contacto_telefonos WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+	if rol := b.conv(num)["rolContacto"].(map[string]any); rol["rol"] != "sin_confirmar" {
+		t.Fatalf("sin su número, sin rol: %v", rol)
+	}
+	b.emitirContactos(cliente, contacto, "editado")
+	if k := b.conv(num)["contacto"].(map[string]any); k["verificado"] != false {
+		t.Fatalf("pierde la verificación: %v", k)
+	}
+	// Vuelve el número pero Argos lo hizo titular: sigue sin rol.
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos, whatsapp, principal) VALUES ($1, $2, $3, true, true)`,
+		contacto, "+"+num, num); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET es_titular = true, relacion = 'titular' WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	r = b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))})
+	b.exigir(r, http.StatusOK)
+	if rol := r.cuerpo["rolContacto"].(map[string]any); rol["rol"] != "sin_confirmar" {
+		t.Fatalf("un contacto vuelto titular sin ser el número del cliente: %v", rol)
+	}
+}
+
+// M2 de la verificación: si un contacto responde «BAJA» a la copia de un aviso, la baja es solo de su
+// número: no toca el permiso del titular ni avisa contacto.baja a Argos.
+func TestBajaDeUnContactoNoEsDelTitular(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, _ := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	padre, copia := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	for _, f := range []struct {
+		id      uuid.UUID
+		destino string
+		padre   *uuid.UUID
+	}{{padre, "+50211112222", nil}, {copia, "+" + num, &padre}} {
+		if _, err := b.bd.Exec(b.ctx, `INSERT INTO mensajeria.avisos (id, empresa_id, cliente_id, plantilla, canal_preferido, prioridad, origen, estado,
+			canal, canal_id, destino, aviso_padre_id, created_at) VALUES ($1, 1, $2, 'factura_por_vencer', 'whatsapp', 'normal', 'iris', 'entregado',
+			'whatsapp', $3, $4, $5, now())`, f.id, cliente, b.canal.ID, f.destino, f.padre); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.texto(num, "wamid.baja1", "BAJA")
+	if n := b.contar(`SELECT count(*) FROM mensajeria.consentimientos WHERE cliente_id = $1`, cliente); n != 0 {
+		t.Fatalf("la baja del contacto tocó el permiso del titular: %d", n)
+	}
+	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'contacto.baja' AND (payload->>'cliente_id')::bigint = $1`, cliente); n != 0 {
+		t.Fatal("contacto.baja del titular por la baja de un contacto")
+	}
+	if n := b.contar(`SELECT count(*) FROM mensajeria.consentimientos_numero WHERE telefono = $1 AND estado = 'baja'`, "+"+num); n != 1 {
+		t.Fatalf("la baja queda por número: %d", n)
+	}
+}

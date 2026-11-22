@@ -1117,7 +1117,15 @@ func (m *Modulo) contextoAsistente(ctx context.Context, q *mensajeriabd.Queries,
 		}
 	}
 	if aj.FuenteHorus && c.ClienteID != nil && empresa != 0 {
-		fallas, err := q.FallasHorusCliente(ctx, mensajeriabd.FallasHorusClienteParams{ClienteID: *c.ClienteID, Empresa: empresa})
+		// Solo las fallas de los servicios de quien escribe (§3.5).
+		filtro, consulta, err := m.filtroFallas(ctx, q, c)
+		if err != nil {
+			return out, err
+		}
+		var fallas []mensajeriabd.FallasHorusClienteRow
+		if consulta {
+			fallas, err = q.FallasHorusCliente(ctx, mensajeriabd.FallasHorusClienteParams{ClienteID: *c.ClienteID, Empresa: empresa, Servicios: filtro})
+		}
 		if err != nil {
 			return out, err
 		}

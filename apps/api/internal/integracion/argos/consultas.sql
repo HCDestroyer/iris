@@ -638,3 +638,11 @@ SELECT * FROM integracion.argos_contactos WHERE contacto_id = @contacto_id;
 
 -- name: TelefonosDeContactoArgos :many
 SELECT * FROM integracion.argos_contacto_telefonos WHERE contacto_id = @contacto_id ORDER BY principal DESC, numero;
+
+-- name: HuellaContactosCliente :one
+-- Huella de los contactos del cliente en la caché (ids, si son titulares y sus números): si cambia al
+-- releer, la mensajería revisa las conversaciones asociadas por esos contactos.
+SELECT coalesce(md5(string_agg(k.contacto_id::text || ':' || k.es_titular::text || ':' || coalesce(t.digitos, ''), ','
+    ORDER BY k.contacto_id, t.digitos)), '')::text
+FROM integracion.argos_contactos k LEFT JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id
+WHERE k.cliente_id = @cliente_id;

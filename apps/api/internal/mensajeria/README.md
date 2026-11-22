@@ -870,3 +870,9 @@ AMI adopta la fila de una saliente del puente.
   `corte_por_falta_de_pago` salen también, una copia por contacto (`avisos.aviso_padre_id`), a los
   contactos con `avisos` que cubren el servicio, al número de la caché y solo con su permiso por número
   vigente (y sin baja en el chat). Sin Idempotency-Key, sin webhook hacia Argos y fuera del límite diario del cliente.
+- **La caché de contactos no vence con Argos caído:** el rol se calcula con lo que haya; un contacto que
+  ya no tiene el número de la conversación (o que pasó a titular) deja la conversación `sin_confirmar`
+  aunque un supervisor la hubiera confirmado. Confirmar una conversación de un contacto confirma al
+  contacto, no al titular. La baja que un contacto pide en el chat es solo de su número (nunca la del
+  titular ni `contacto.baja`). Las copias de avisos salen solo de un original en cola, con límite diario
+  por número, se revisan otra vez al enviar y no llevan el nombre ni el código del titular.
