@@ -21,6 +21,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/equipos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
@@ -228,7 +229,8 @@ type Modulo struct {
 	CambiarWifi     *auditoria.Caso[EntradaWifiOrden, equipos.CambioWifi]
 	CambiosWifi     *auditoria.Caso[EntradaEquipoOrden, []equipos.CambioWifi]
 	// Cobro de la instalación (cobro.go; 0.9.0 §3, B15).
-	RegistrarCobro *auditoria.Caso[EntradaRegistrarCobro, Cobro]
+	RegistrarCobro *RegistradorCobro
+	avisoCobro     *auditoria.Caso[pendientes.Registro, bool]
 	VerCobros      *auditoria.Caso[EntradaVerOrden, []Cobro]
 	SeguirCobro    *auditoria.Caso[entradaCobroArgos, *Cobro]
 	// Bienvenida en la orden (bienvenida.go; 0.9.0 §12.5, B16).
@@ -331,7 +333,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.autorizarEquipo = m.nuevoAutorizarEquipo()
 	m.CambiarWifi = m.nuevoCambiarWifi()
 	m.CambiosWifi = m.nuevoCambiosWifi()
-	m.RegistrarCobro = m.nuevoRegistrarCobro()
+	m.RegistrarCobro = &RegistradorCobro{m: m, caso: m.nuevoRegistrarCobro()}
+	m.avisoCobro = m.nuevoAvisoCobro()
 	m.VerCobros = m.nuevoVerCobros()
 	m.SeguirCobro = m.nuevoSeguirCobro()
 	m.VerBienvenida = m.nuevoVerBienvenida()

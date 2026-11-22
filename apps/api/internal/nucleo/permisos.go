@@ -129,6 +129,9 @@ const (
 	// integraciones.confirmar_cuenta_bancaria: un admin confirma una cuenta recién cambiada en Argos
 	// para que entre en la bienvenida antes de las 24 h (§12.5). Solo admin (todos los permisos).
 	PermIntegracionesConfirmarCuentaBancaria Permiso = "integraciones.confirmar_cuenta_bancaria"
+	// integraciones.confirmar_cobro: un supervisor dice si existe en Argos la factura de un cargo «por
+	// confirmar» (422 capacidad_no_disponible tras un envío sin respuesta, 0.14.3 §3).
+	PermIntegracionesConfirmarCobro Permiso = "integraciones.confirmar_cobro"
 
 	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
 	// asignarla (y programarla) en un paso; exige además ordenes.crear, ordenes.asignar y, con
@@ -476,7 +479,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true,
-	PermIntegracionesResolverPendiente: true, PermIntegracionesConfirmarCuentaBancaria: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
+	PermIntegracionesResolverPendiente: true, PermIntegracionesConfirmarCuentaBancaria: true, PermIntegracionesConfirmarCobro: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermPlantillasWhatsAppCrear: true, PermPlantillasWhatsAppEditar: true, PermPlantillasWhatsAppBorrar: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
@@ -599,6 +602,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesAbrirArgos, "Abrir Argos con tu usuario desde Iris («Abrir en Argos») y vincular tu usuario de Argos (enlace de un solo uso, 60 s)"},
 	{PermIntegracionesActivar, "Activar un conector con ArgosISP u Horus"},
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
+	{PermIntegracionesConfirmarCobro, "Confirmar si existe en Argos la factura de un cobro «por confirmar» (con su número, que Iris valida leyendo Argos) o que no existe (sale el cobro de reemplazo)"},
 	{PermIntegracionesConfirmarCuentaBancaria, "Confirmar una cuenta bancaria recién cambiada en Argos para que entre ya en el mensaje de bienvenida (sin esperar 24 h)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesEliminar, "Eliminar un conector apagado que ya no se usa (queda en la auditoría; sus credenciales se borran)"},
@@ -794,6 +798,7 @@ var RolesBase = []DefRol{
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermIntegracionesVer, PermEmpresasVer,
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
+			PermIntegracionesConfirmarCobro,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar, PermLlamadasDesbloquearNumero,

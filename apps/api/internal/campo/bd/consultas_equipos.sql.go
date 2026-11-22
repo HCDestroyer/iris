@@ -553,7 +553,7 @@ func (q *Queries) CobroDePlantilla(ctx context.Context, id int64) (CobroDePlanti
 }
 
 const cobroParaActualizar = `-- name: CobroParaActualizar :one
-SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE id = $1 FOR UPDATE
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at, es_instalacion FROM campo.cobros WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CobroParaActualizar(ctx context.Context, id uuid.UUID) (CampoCobro, error) {
@@ -582,12 +582,13 @@ func (q *Queries) CobroParaActualizar(ctx context.Context, id uuid.UUID) (CampoC
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EsInstalacion,
 	)
 	return i, err
 }
 
 const cobroPorClave = `-- name: CobroPorClave :one
-SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE idempotency_key = $1
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at, es_instalacion FROM campo.cobros WHERE idempotency_key = $1
 `
 
 func (q *Queries) CobroPorClave(ctx context.Context, idempotencyKey string) (CampoCobro, error) {
@@ -616,12 +617,13 @@ func (q *Queries) CobroPorClave(ctx context.Context, idempotencyKey string) (Cam
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EsInstalacion,
 	)
 	return i, err
 }
 
 const cobroPorFactura = `-- name: CobroPorFactura :one
-SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE factura_id = $1::bigint AND orden_id = $2 ORDER BY created_at DESC LIMIT 1
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at, es_instalacion FROM campo.cobros WHERE factura_id = $1::bigint AND orden_id = $2 ORDER BY created_at DESC LIMIT 1
 `
 
 type CobroPorFacturaParams struct {
@@ -655,13 +657,14 @@ func (q *Queries) CobroPorFactura(ctx context.Context, arg CobroPorFacturaParams
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EsInstalacion,
 	)
 	return i, err
 }
 
 const cobroVivoDeOrden = `-- name: CobroVivoDeOrden :one
 
-SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE orden_id = $1 AND estado IN ('pendiente', 'facturado', 'pagado')
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at, es_instalacion FROM campo.cobros WHERE orden_id = $1 AND estado IN ('pendiente', 'facturado', 'pagado', 'por_confirmar')
 `
 
 // Cobro de la instalación (B15) -------------------------------------------------------------------
@@ -691,12 +694,13 @@ func (q *Queries) CobroVivoDeOrden(ctx context.Context, ordenID int64) (CampoCob
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EsInstalacion,
 	)
 	return i, err
 }
 
 const cobrosDeOrden = `-- name: CobrosDeOrden :many
-SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE orden_id = $1 ORDER BY created_at DESC
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at, es_instalacion FROM campo.cobros WHERE orden_id = $1 ORDER BY created_at DESC
 `
 
 func (q *Queries) CobrosDeOrden(ctx context.Context, ordenID int64) ([]CampoCobro, error) {
@@ -731,6 +735,7 @@ func (q *Queries) CobrosDeOrden(ctx context.Context, ordenID int64) ([]CampoCobr
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.EsInstalacion,
 		); err != nil {
 			return nil, err
 		}
@@ -832,10 +837,11 @@ func (q *Queries) CrearActivacion(ctx context.Context, arg CrearActivacionParams
 
 const crearCobro = `-- name: CrearCobro :one
 INSERT INTO campo.cobros (id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla,
-    motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id)
+    motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, es_instalacion)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
-    $9, $10, $11, 'pendiente', $12, $13)
-RETURNING id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at
+    $9, $10, $11, 'pendiente', $12, $13,
+    $14)
+RETURNING id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at, es_instalacion
 `
 
 type CrearCobroParams struct {
@@ -852,6 +858,7 @@ type CrearCobroParams struct {
 	RegistradoPor   *int64
 	IdempotencyKey  string
 	PendienteID     *int64
+	EsInstalacion   bool
 }
 
 func (q *Queries) CrearCobro(ctx context.Context, arg CrearCobroParams) (CampoCobro, error) {
@@ -869,6 +876,7 @@ func (q *Queries) CrearCobro(ctx context.Context, arg CrearCobroParams) (CampoCo
 		arg.RegistradoPor,
 		arg.IdempotencyKey,
 		arg.PendienteID,
+		arg.EsInstalacion,
 	)
 	var i CampoCobro
 	err := row.Scan(
@@ -894,6 +902,7 @@ func (q *Queries) CrearCobro(ctx context.Context, arg CrearCobroParams) (CampoCo
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EsInstalacion,
 	)
 	return i, err
 }
@@ -1038,7 +1047,7 @@ const guardarCobro = `-- name: GuardarCobro :one
 UPDATE campo.cobros SET estado = $1, factura_id = $2, numero = $3, total = $4,
     moneda = $5, detalle = $6, version = version + 1, updated_at = now()
 WHERE id = $7
-RETURNING id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at
+RETURNING id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at, es_instalacion
 `
 
 type GuardarCobroParams struct {
@@ -1085,6 +1094,7 @@ func (q *Queries) GuardarCobro(ctx context.Context, arg GuardarCobroParams) (Cam
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.EsInstalacion,
 	)
 	return i, err
 }

@@ -349,3 +349,52 @@ UPDATE integracion.datos_transito SET cifrado = NULL, llave_cifrada = NULL, borr
 WHERE cifrado IS NOT NULL AND id IN (
     SELECT transito_id FROM integracion.pendientes
     WHERE operacion IN ('aprovisionar', 'cambiar_wifi') AND estado = 'agotado' AND transito_id IS NOT NULL AND updated_at < @antes);
+
+-- Cobro de la instalación (contrato 0.14.3 §3) -------------------------------------------------
+
+-- name: BloquearOrdenCampo :one
+-- El cargo del cierre se decide con la orden bloqueada (una transacción por orden a la vez), igual
+-- que el registro del cobro de A36: nunca quedan dos cargos vigentes con la línea de instalación.
+SELECT id FROM campo.ordenes WHERE id = @id::bigint FOR UPDATE;
+
+-- name: ConceptosInstalacionVigentes :many
+-- Conceptos de los cobros de A36 vigentes de la orden con la línea de instalación (encolado,
+-- enviado, emitido o por confirmar; no fallido ni anulado).
+SELECT concepto_id FROM campo.cobros
+WHERE orden_id = @orden_id::bigint AND es_instalacion AND estado IN ('pendiente', 'facturado', 'pagado', 'por_confirmar');
+
+-- name: MarcarEnvioSinRespuesta :exec
+-- Un intento quedó sin respuesta (timeout o 5xx): Argos pudo haberlo hecho.
+UPDATE integracion.pendientes SET envio_sin_respuesta = true WHERE id = @id AND NOT envio_sin_respuesta;
+
+-- name: MarcarCargoTerminal :one
+-- 422 capacidad_no_disponible: el cargo nunca se reintenta con su clave; por_confirmar si un envío
+-- anterior quedó sin respuesta.
+UPDATE integracion.pendientes
+SET cargo_terminal = true, por_confirmar = @por_confirmar::boolean, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: EnlazarReemplazo :exec
+UPDATE integracion.pendientes SET reemplazo_de = @de::bigint, version = version + 1, updated_at = now() WHERE id = @id;
+
+-- name: MarcarReemplazado :exec
+UPDATE integracion.pendientes SET reemplazado_por = @por::bigint, version = version + 1, updated_at = now()
+WHERE id = @id AND reemplazado_por IS NULL;
+
+-- name: ConfirmarCobroEmitido :one
+-- El supervisor confirmó la factura (validada leyendo Argos): el cargo queda hecho con ella.
+UPDATE integracion.pendientes
+SET estado = 'hecho', hecho_en = @ahora::timestamptz, respuesta = @respuesta::jsonb, por_confirmar = false,
+    confirmado_motivo = @motivo::text, confirmado_por = sqlc.narg(confirmado_por), confirmado_en = @ahora::timestamptz,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND por_confirmar AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: ConfirmarCobroInexistente :one
+-- El supervisor confirmó que la factura no existe: el cargo queda fallido (terminal).
+UPDATE integracion.pendientes
+SET por_confirmar = false, confirmado_motivo = @motivo::text, confirmado_por = sqlc.narg(confirmado_por),
+    confirmado_en = @ahora::timestamptz, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND por_confirmar AND estado = 'fallido_negocio'
+RETURNING *;

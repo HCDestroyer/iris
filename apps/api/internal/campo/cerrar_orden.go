@@ -129,7 +129,9 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			payload["cargo"] = cargoDe(f, tipo, plantilla)
 			// El cobro de la instalación ya registrado desde la orden (0.9.0 §3, B15): el cierre no manda
 			// el de la plantilla (iris:cargo:<orden_id>).
-			if tipo.Codigo == tipoInstalacion {
+			// Con lineas[] (0.14.3) lo decide la cola al encolar, con la orden bloqueada: sale sin la línea
+			// de instalación y con las demás. La forma anterior no se puede partir: no sale.
+			if c, ok := payload["cargo"].(map[string]any); ok && c["lineas"] == nil && tipo.Codigo == tipoInstalacion {
 				registrado, err := cobroRegistrado(ctx, q, f.ID)
 				if err != nil {
 					return f, "", err
@@ -319,12 +321,17 @@ func AccesoAdjuntos(ctx context.Context, db campobd.DBTX, ordenID string, subir 
 // o, si no los trae, los del tipo); si no, el tipo. Formato que espera la cola de I1
 // (contratos/eventos.md): {producto_id?, monto? (> 0), descripcion?}. Un tipo o plantilla que
 // dice cobrar sin producto ni monto no cobra (la base lo impide en el tipo).
+//
+// Desde la 0.14.3, con un concepto de Argos (cargo_concepto_id del tipo o de la plantilla) y precio, el
+// cargo lleva el cuerpo real: { lineas: [{ concepto_id, precio_unitario, descripcion }], descripcion }.
+// Si ese concepto es el de instalación (codigo_sistema), la cola decide al encolar si la línea sale.
 func cargoDe(f campobd.CampoOrden, tipo campobd.CampoTiposOrden, plantilla *campobd.CampoPlantillasChecklist) map[string]any {
 	cobrar, producto, monto, descripcion := tipo.Cobrar, tipo.CargoProductoID, tipo.CargoMonto, tipo.CargoDescripcion
+	concepto := tipo.CargoConceptoID
 	if plantilla != nil && plantilla.Cobrar != nil {
 		cobrar = *plantilla.Cobrar
-		if plantilla.CargoProductoID != nil || plantilla.CargoMonto.Valid {
-			producto, monto = plantilla.CargoProductoID, plantilla.CargoMonto
+		if plantilla.CargoProductoID != nil || plantilla.CargoMonto.Valid || plantilla.CargoConceptoID != nil {
+			producto, monto, concepto = plantilla.CargoProductoID, plantilla.CargoMonto, plantilla.CargoConceptoID
 		}
 		if strings.TrimSpace(plantilla.CargoDescripcion) != "" {
 			descripcion = plantilla.CargoDescripcion
@@ -339,6 +346,11 @@ func cargoDe(f campobd.CampoOrden, tipo campobd.CampoTiposOrden, plantilla *camp
 		descripcion = tipo.Nombre
 	}
 	cargo := map[string]any{"descripcion": strings.TrimSpace(descripcion) + " (" + f.Numero + ")"}
+	if concepto != nil && conMonto {
+		cargo["lineas"] = []any{map[string]any{"concepto_id": *concepto,
+			"precio_unitario": strconv.FormatFloat(valor.Float64, 'f', 2, 64), "descripcion": cargo["descripcion"]}}
+		return cargo
+	}
 	if producto != nil {
 		cargo["producto_id"] = *producto
 	}

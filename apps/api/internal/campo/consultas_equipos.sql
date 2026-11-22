@@ -92,7 +92,7 @@ ORDER BY o.id DESC LIMIT 1;
 -- Cobro de la instalación (B15) -------------------------------------------------------------------
 
 -- name: CobroVivoDeOrden :one
-SELECT * FROM campo.cobros WHERE orden_id = @orden_id AND estado IN ('pendiente', 'facturado', 'pagado');
+SELECT * FROM campo.cobros WHERE orden_id = @orden_id AND estado IN ('pendiente', 'facturado', 'pagado', 'por_confirmar');
 
 -- name: CobrosDeOrden :many
 SELECT * FROM campo.cobros WHERE orden_id = @orden_id ORDER BY created_at DESC;
@@ -108,9 +108,10 @@ SELECT * FROM campo.cobros WHERE id = @id FOR UPDATE;
 
 -- name: CrearCobro :one
 INSERT INTO campo.cobros (id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla,
-    motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id)
+    motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, es_instalacion)
 VALUES (@id, @orden_id, sqlc.narg(empresa_id), @servicio_id, @cliente_id, @concepto_id, @precio_unitario, sqlc.narg(precio_plantilla),
-    sqlc.narg(motivo_precio), sqlc.narg(descripcion), sqlc.narg(registrado_por), 'pendiente', @idempotency_key, sqlc.narg(pendiente_id))
+    sqlc.narg(motivo_precio), sqlc.narg(descripcion), sqlc.narg(registrado_por), 'pendiente', @idempotency_key, sqlc.narg(pendiente_id),
+    @es_instalacion)
 RETURNING *;
 
 -- name: GuardarCobro :one

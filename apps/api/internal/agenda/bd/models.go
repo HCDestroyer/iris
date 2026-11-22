@@ -286,6 +286,7 @@ type CampoCobro struct {
 	Version         int32
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	EsInstalacion   bool
 }
 
 type CampoDispositivo struct {
@@ -620,6 +621,7 @@ type CampoPlantillasChecklist struct {
 	CierreExigeBienvenida *bool
 	CobroConceptoID       *int64
 	CobroPrecio           pgtype.Numeric
+	CargoConceptoID       *int64
 }
 
 type CampoPosicione struct {
@@ -675,6 +677,7 @@ type CampoTiposOrden struct {
 	CargoProductoID  *int64
 	CargoMonto       pgtype.Numeric
 	CargoDescripcion string
+	CargoConceptoID  *int64
 }
 
 type ComercialActividade struct {
@@ -1246,6 +1249,14 @@ type IntegracionPendiente struct {
 	TransitoID        *uuid.UUID
 	ResueltoComo      *string
 	ResueltoClienteID *int64
+	EnvioSinRespuesta bool
+	CargoTerminal     bool
+	PorConfirmar      bool
+	ConfirmadoMotivo  *string
+	ConfirmadoPor     *int64
+	ConfirmadoEn      *time.Time
+	ReemplazoDe       *int64
+	ReemplazadoPor    *int64
 }
 
 type MensajeriaAjustesBandeja struct {

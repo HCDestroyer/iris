@@ -383,8 +383,16 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   503 `equipo_sin_respuesta`) y `POST|GET /ordenes/{id}/wifi` (`servicios.cambiar_wifi`; `integracion/equipos`).
 - **Cobro de la instalación** (`cobro.go`, B15): `POST /ordenes/{id}/cobros` (`ordenes.registrar_cobro`; cambiar el
   precio de la plantilla exige `ordenes.cobro_editar_monto` y motivo; nunca Q0), `iris:cargo:<orden>:<cargo_id>`
-  con `X-Iris-Actor`; un cobro vivo por orden. El cierre ya no manda el cargo de la plantilla. Sigue
-  `argos.factura_cambiada` (facturado, pagado, anulado).
+  con `X-Iris-Actor`; un cobro vivo por orden. Sigue `argos.factura_cambiada` (facturado, pagado, anulado).
+  **0.14.3:** el cobro guarda `es_instalacion` (su concepto es el de `codigo_sistema = "instalacion"`, leído de
+  `GET /conceptos-cargo` fuera de la transacción; si no se puede leer, cuenta como instalación). Solo la línea de
+  instalación exige `cobro_equipo` (422 `capacidad_no_disponible`) y choca con el cargo del cierre vigente con esa
+  línea (409 `cobro_al_cerrar`). El cierre manda `cargo.lineas[]` si el tipo o la plantilla tienen
+  `cargo_concepto_id` (y precio); la cola quita la línea de instalación si hay un cobro de A36 vigente (con la orden
+  bloqueada, como aquí). Estado `por_confirmar` (422 tras un envío sin respuesta; vigente) hasta que un supervisor
+  confirme en la cola; la orden lo muestra en su historial (`tipo = cobro`: `por_confirmar`, `reemplazado`,
+  `reemplazo_rechazado`, `sin_reemplazo`). El reenvío de la bienvenida no manda la orden como `origen` si la
+  bienvenida solo llegó relacionada por servicio.
 - **Bienvenida** (`bienvenida.go`, B16): `GET /ordenes/{id}/bienvenida`, `POST /ordenes/{id}/bienvenida/reenviar`
   (`ordenes.reenviar_bienvenida`, `iris:bienvenida:<orden>:<n>`) y la bandeja `GET /ordenes/bienvenidas-sin-enviar`;
   el estado por canal llega con `argos.bienvenida_cambiada`.

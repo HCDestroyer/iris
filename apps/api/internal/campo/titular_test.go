@@ -69,10 +69,14 @@ type argosTitular struct {
 	aprovs  map[string]string
 	equipos map[string]string
 	n       int
+	// 0.14.3 §3: GET /conceptos-cargo (el 5 es el de instalación) y GET /facturas.
+	conceptos string
+	facturas  string
 }
 
 func nuevoArgosTitular(t *testing.T) *argosTitular {
-	a := &argosTitular{rechazos: map[string][]string{}, servicios: map[string]string{}, aprovs: map[string]string{}, equipos: map[string]string{}}
+	a := &argosTitular{rechazos: map[string][]string{}, servicios: map[string]string{}, aprovs: map[string]string{}, equipos: map[string]string{},
+		conceptos: `[{"id":5,"empresa_id":1,"codigo_sistema":"instalacion"},{"id":9,"empresa_id":1,"codigo_sistema":null}]`, facturas: `[]`}
 	json200 := func(w http.ResponseWriter, status int, v string) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
@@ -95,6 +99,18 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 			return
 		}
 		json200(w, 200, cuerpo)
+	})
+	mux.HandleFunc("GET /api/v1/conceptos-cargo", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		c := a.conceptos
+		a.mu.Unlock()
+		json200(w, 200, c)
+	})
+	mux.HandleFunc("GET /api/v1/facturas", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		c := a.facturas
+		a.mu.Unlock()
+		json200(w, 200, c)
 	})
 	mux.HandleFunc("GET /api/v1/aprovisionamientos/{id}", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()

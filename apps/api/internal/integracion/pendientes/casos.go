@@ -54,6 +54,11 @@ type Pendiente struct {
 	ResueltoEn     *time.Time   `json:"resueltoEn,omitempty"`
 	CreadoEn       time.Time    `json:"creadoEn"`
 	Version        int32        `json:"version"`
+	// Cobro de la instalación (0.14.3 §3).
+	CargoTerminal  bool   `json:"cargoTerminal,omitempty" required:"false" doc:"Cargo rechazado con 422 capacidad_no_disponible: nunca se reintenta con su clave"`
+	PorConfirmar   bool   `json:"porConfirmar,omitempty" required:"false" doc:"«Cobro por confirmar»: el 422 llegó tras un envío sin respuesta; un supervisor confirma en Argos si la factura existe (confirmar-cobro). Cuenta como vigente"`
+	ReemplazoDe    *int64 `json:"reemplazoDe,omitempty" required:"false" doc:"Cobro de reemplazo (sin la línea de instalación) del cargo indicado; nunca genera otro"`
+	ReemplazadoPor *int64 `json:"reemplazadoPor,omitempty" required:"false" doc:"Sus demás líneas salieron en este cobro de reemplazo"`
 
 	empresaID *int64
 }
@@ -82,6 +87,7 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 	}
 	p.PorResolver = f.PorResolver
 	p.ResueltoMotivo, p.ResueltoPor, p.ResueltoEn = f.ResueltoMotivo, f.ResueltoPor, f.ResueltoEn
+	p.CargoTerminal, p.PorConfirmar, p.ReemplazoDe, p.ReemplazadoPor = f.CargoTerminal, f.PorConfirmar, f.ReemplazoDe, f.ReemplazadoPor
 	p.CodigoError, p.Corregible = f.CodigoError, f.Estado == EstadoFallidoNegocio && EsCorregible(f.CodigoError)
 	if f.Operacion == OpConsumo {
 		p.Cargos, p.FacturaID = cargosDeRespuesta(f.Respuesta)
@@ -239,6 +245,10 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 				return Pendiente{}, err
 			}
 			switch {
+			case f.CargoTerminal:
+				// 0.14.3 §3: Argos no guarda la clave en un 4xx; reintentarla crearía la factura completa.
+				return Pendiente{}, nucleo.Conflicto("cargo_terminal",
+					"Argos rechazó este cobro por capacidad_no_disponible: nunca se reintenta con su clave"+cargoTerminalDetalle(f))
 			case f.DatosIncompletos:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_incompleto",
 					"La orden no traía los datos para esta acción ("+deref(f.UltimoError)+"); vuelve a cerrar la orden con los datos "+
@@ -272,6 +282,17 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 			return aPendiente(nueva), m.avisarCola(ctx, t.Tx)
 		},
 	})
+}
+
+// cargoTerminalDetalle completa el 409 cargo_terminal.
+func cargoTerminalDetalle(f pendientesbd.IntegracionPendiente) string {
+	switch {
+	case f.PorConfirmar:
+		return " (está por confirmar: di si la factura existe en Argos)"
+	case f.ReemplazadoPor != nil:
+		return " (sus demás líneas salieron en el pendiente " + strconv.FormatInt(*f.ReemplazadoPor, 10) + ")"
+	}
+	return ""
 }
 
 // EntradaResolverManual: dar por resuelto a mano un pendiente que Argos rechazó por negocio o que
@@ -351,6 +372,10 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			}
 			if in.ClienteID != nil && f.Operacion != OpCambiarTitular {
 				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "clienteId", Message: "Solo al resolver un cambio de titular", Rule: "solo_titular"})
+			}
+			if f.PorConfirmar {
+				return Pendiente{}, nucleo.Conflicto("cobro_por_confirmar",
+					"Este cobro está por confirmar: di si la factura existe en Argos (confirmar-cobro)")
 			}
 			if f.Estado != EstadoFallidoNegocio {
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_resoluble",

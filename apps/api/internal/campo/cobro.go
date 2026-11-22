@@ -40,6 +40,9 @@ const (
 	CobroPagado    = "pagado"
 	CobroAnulado   = "anulado"
 	CobroFallido   = "fallido"
+	// CobroPorConfirmar: Argos respondió 422 capacidad_no_disponible tras un envío sin respuesta; un
+	// supervisor confirma si la factura existe (0.14.3 §3). Cuenta como vigente.
+	CobroPorConfirmar = "por_confirmar"
 )
 
 // Eventos del cobro (catálogo de CLAUDE.md).
@@ -57,12 +60,15 @@ type EntradaRegistrarCobro struct {
 	PrecioUnitario *string `json:"precioUnitario,omitempty" pattern:"^[0-9]{1,10}(\\.[0-9]{1,2})?$" doc:"Bruto con IVA, mayor que 0. Sin él, el de la plantilla; uno distinto exige ordenes.cobro_editar_monto y motivo"`
 	MotivoPrecio   *string `json:"motivoPrecio,omitempty" minLength:"10" maxLength:"500" doc:"Obligatorio si el precio no es el de la plantilla"`
 	Descripcion    *string `json:"descripcion,omitempty" minLength:"1" maxLength:"200"`
+
+	// conceptoInstalacion: leído de Argos antes de la transacción (0 = desconocido).
+	conceptoInstalacion int64
 }
 
 // Cobro es el cobro de la instalación de una orden.
 type Cobro struct {
 	ID             uuid.UUID `json:"id" doc:"cargo_id de la clave iris:cargo:<orden>:<cargo_id>"`
-	Estado         string    `json:"estado" enum:"pendiente,facturado,pagado,anulado,fallido"`
+	Estado         string    `json:"estado" enum:"pendiente,facturado,pagado,anulado,fallido,por_confirmar" doc:"por_confirmar: un supervisor confirma en Argos si la factura existe (cuenta como vigente)"`
 	ConceptoID     int64     `json:"conceptoId"`
 	PrecioUnitario string    `json:"precioUnitario"`
 	PrecioEditado  bool      `json:"precioEditado" doc:"El precio no es el de la plantilla (con motivo)"`
@@ -115,6 +121,28 @@ func precioNumerico(s string) (pgtype.Numeric, string, bool) {
 	return n, texto, true
 }
 
+// RegistradorCobro lee de Argos, fuera de la transacción, el concepto de instalación de la empresa de
+// la orden y registra el cobro (ordenes.registrar_cobro).
+type RegistradorCobro struct {
+	m    *Modulo
+	caso *auditoria.Caso[EntradaRegistrarCobro, Cobro]
+}
+
+// Ejecutar registra el cobro de la instalación.
+func (r *RegistradorCobro) Ejecutar(ctx context.Context, in EntradaRegistrarCobro) (Cobro, error) {
+	in.conceptoInstalacion = 0
+	if leer := r.m.cfg.Equipos.ConceptoInstalacion; leer != nil && contexto.PermisosDe(ctx).Tiene(string(nucleo.PermOrdenesRegistrarCobro)) {
+		if bd := nucleo.BDDe(ctx); bd != nil {
+			if f, err := campobd.New(bd).OrdenPorID(ctx, in.ID); err == nil && f.EmpresaID != nil {
+				if id, err := leer(ctx, *f.EmpresaID); err == nil {
+					in.conceptoInstalacion = id
+				}
+			}
+		}
+	}
+	return r.caso.Ejecutar(ctx, in)
+}
+
 func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Cobro] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaRegistrarCobro, Cobro]{
 		Accion: "ordenes.registrar_cobro", Permiso: nucleo.PermOrdenesRegistrarCobro,
@@ -131,6 +159,7 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			if !a.EsUsuario() {
 				return Cobro{}, nucleo.Prohibido("El cobro lo registra una persona (X-Iris-Actor)")
 			}
+			instalacion := in.conceptoInstalacion
 			tipo, err := tipoDe(ctx, q, f)
 			if err != nil {
 				return Cobro{}, err
@@ -146,20 +175,6 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			}
 			if m.cfg.Equipos.Capacidad == nil {
 				return Cobro{}, nucleo.ReglaNegocio("cobro_no_disponible", "Iris no tiene conexión con Argos para cobrar la instalación")
-			}
-			if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionCobroEquipo)); err != nil {
-				return Cobro{}, err
-			} else if !ok {
-				return Cobro{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "El cobro de la instalación no está disponible para esta empresa")
-			}
-			// El cierre ya mandó el cargo de la plantilla (iris:cargo:<orden>): otro cobro sería una segunda
-			// factura. Solo si Argos lo rechazó o se resolvió a mano se puede registrar aquí.
-			if p, err := pendientes.PorClave(ctx, t, "iris:cargo:"+strconv.FormatInt(f.ID, 10)); err == nil {
-				if p.Estado != pendientes.EstadoFallidoNegocio && p.Estado != pendientes.EstadoResueltoManual {
-					return Cobro{}, nucleo.Conflicto("cobro_al_cerrar", "El cierre de la orden ya pidió el cobro de la instalación a Argos")
-				}
-			} else if !errors.Is(err, pgx.ErrNoRows) {
-				return Cobro{}, err
 			}
 			if _, err := q.CobroVivoDeOrden(ctx, f.ID); err == nil {
 				return Cobro{}, nucleo.Conflicto("cobro_registrado", "La instalación ya tiene un cobro (si se anuló en Argos, se puede registrar otro)")
@@ -209,6 +224,27 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 					return Cobro{}, campoInvalido("motivoPrecio", "Escribe por qué cambia el precio o el concepto (10 a 500 caracteres)", "required")
 				}
 			}
+			// La línea de instalación es la del concepto con codigo_sistema "instalacion" (0.14.3 §4.3). Si
+			// no se puede leer, cuenta como instalación (lo más estricto).
+			esInstalacion := true
+			if instalacion > 0 {
+				esInstalacion = *concepto == instalacion
+			}
+			if esInstalacion {
+				// Con cobro_equipo en false, Iris no manda la línea de instalación (0.14.3 §3).
+				if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionCobroEquipo)); err != nil {
+					return Cobro{}, err
+				} else if !ok {
+					return Cobro{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "El cobro de la instalación no está disponible para esta empresa")
+				}
+				// El cargo del cierre (iris:cargo:<orden>) vigente con la línea de instalación: otro cobro sería
+				// una segunda factura. Solo si Argos lo rechazó (sin «por confirmar») o se resolvió a mano.
+				if con, err := pendientes.CargoDelCierreConInstalacion(ctx, t, strconv.FormatInt(f.ID, 10), instalacion); err != nil {
+					return Cobro{}, err
+				} else if con {
+					return Cobro{}, nucleo.Conflicto("cobro_al_cerrar", "El cierre de la orden ya pidió el cobro de la instalación a Argos")
+				}
+			}
 			descripcion := textoLimpio(in.Descripcion)
 			id, err := uuid.NewV7()
 			if err != nil {
@@ -237,7 +273,7 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			}
 			c, err := q.CrearCobro(ctx, campobd.CrearCobroParams{ID: id, OrdenID: f.ID, EmpresaID: f.EmpresaID, ServicioID: *f.ServicioID,
 				ClienteID: *f.ClienteID, ConceptoID: *concepto, PrecioUnitario: precio, PrecioPlantilla: plantilla, MotivoPrecio: motivo,
-				Descripcion: descripcion, RegistradoPor: &a.ID, IdempotencyKey: clave, PendienteID: &reg.ID})
+				Descripcion: descripcion, RegistradoPor: &a.ID, IdempotencyKey: clave, PendienteID: &reg.ID, EsInstalacion: esInstalacion})
 			if esViolacionUnica(err) {
 				return Cobro{}, nucleo.Conflicto("cobro_registrado", "La instalación ya tiene un cobro")
 			}
@@ -301,12 +337,14 @@ type entradaCobroArgos struct {
 func transicionCobro(de, a string) bool {
 	switch a {
 	case CobroFacturado:
-		return de == CobroPendiente || de == CobroPagado || de == CobroFallido
+		return de == CobroPendiente || de == CobroPagado || de == CobroFallido || de == CobroPorConfirmar
 	case CobroPagado:
 		return de == CobroPendiente || de == CobroFacturado
 	case CobroAnulado:
 		return de == CobroPendiente || de == CobroFacturado || de == CobroPagado
 	case CobroFallido:
+		return de == CobroPendiente || de == CobroPorConfirmar
+	case CobroPorConfirmar:
 		return de == CobroPendiente
 	}
 	return false
@@ -363,7 +401,7 @@ func (m *Modulo) nuevoSeguirCobro() *auditoria.Caso[entradaCobroArgos, *Cobro] {
 			}
 			if in.Estado != antes.Estado && transicionCobro(antes.Estado, in.Estado) {
 				p.Estado = in.Estado
-				if in.Estado == CobroFallido {
+				if in.Estado == CobroFallido || in.Estado == CobroPorConfirmar {
 					p.Detalle = recortar(textoLimpio(in.Detalle), 300)
 				}
 			}
@@ -403,12 +441,21 @@ func (m *Modulo) SuscribirCobros(bus *integracion.Bus, bd nucleo.BD) {
 			Operacion      string `json:"operacion"`
 			IdempotencyKey string `json:"idempotency_key"`
 		}
-		if json.Unmarshal(e.Payload, &p) != nil || p.Operacion != pendientes.OpCargo || strings.Count(p.IdempotencyKey, ":") != 3 {
+		if json.Unmarshal(e.Payload, &p) != nil || p.Operacion != pendientes.OpCargo {
 			return nil
 		}
 		ctx = nucleo.ConBD(ctx, bd)
 		reg, err := pendientes.PorClave(ctx, bd, p.IdempotencyKey)
 		if err != nil {
+			return nil
+		}
+		if e.Evento == pendientes.EventoFallido && reg.CargoTerminal {
+			// 422 capacidad_no_disponible (0.14.3 §3): se avisa en la orden.
+			if _, err := m.avisoCobro.Ejecutar(ctx, reg); err != nil {
+				return err
+			}
+		}
+		if strings.Count(p.IdempotencyKey, ":") != 3 {
 			return nil
 		}
 		in := entradaCobroArgos{IdempotencyKey: &p.IdempotencyKey}
@@ -428,6 +475,9 @@ func (m *Modulo) SuscribirCobros(bus *integracion.Bus, bd nucleo.BD) {
 			in.Moneda = campoTexto(reg.Respuesta, "factura.moneda")
 		case pendientes.EventoFallido:
 			in.Estado, in.Detalle = CobroFallido, reg.UltimoError
+			if reg.PorConfirmar {
+				in.Estado = CobroPorConfirmar
+			}
 		case pendientes.EventoResueltoManual:
 			// Resuelto a mano: se da por cobrado en Argos (el cupo no se libera sin una factura anulada).
 			in.Estado, in.Detalle = CobroFacturado, reg.UltimoError
@@ -492,5 +542,59 @@ func (m *Modulo) registrarCobros(api huma.API) {
 		nucleo.PermOrdenesVer, http.StatusOK, http.StatusNotFound)
 	huma.Register(api, ver, func(ctx context.Context, in *EntradaVerOrden) (*cuerpo[[]Cobro], error) {
 		return responder(m.VerCobros.Ejecutar(ctx, *in))
+	})
+}
+
+// nuevoAvisoCobro deja en el historial de la orden que Argos rechazó un cobro con 422
+// capacidad_no_disponible (0.14.3 §3): por confirmar, reenviado sin la línea de instalación o sin
+// reemplazo (el supervisor lo revisa). Idempotente por pendiente y situación.
+func (m *Modulo) nuevoAvisoCobro() *auditoria.Caso[pendientes.Registro, bool] {
+	return auditoria.Nuevo(auditoria.Caso[pendientes.Registro, bool]{
+		Accion: "ordenes.aviso_cobro", Acceso: auditoria.Autenticado, AuditarExito: func(b bool) bool { return b },
+		Logica: func(ctx context.Context, t *auditoria.Tx, reg pendientes.Registro) (bool, error) {
+			orden, err := strconv.ParseInt(reg.EntidadID, 10, 64)
+			if err != nil {
+				return false, nil
+			}
+			q := campobd.New(t)
+			f, err := q.OrdenPorIDParaActualizar(ctx, orden)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			situacion := "sin_reemplazo"
+			switch {
+			case reg.PorConfirmar:
+				situacion = "por_confirmar"
+			case reg.ReemplazadoPor != nil:
+				situacion = "reemplazado"
+			case reg.ReemplazoDe != nil:
+				situacion = "reemplazo_rechazado"
+			}
+			var ya int
+			if err := t.QueryRow(ctx, `SELECT count(*) FROM campo.orden_eventos WHERE orden_id = $1 AND tipo = 'cobro'
+				AND datos->>'pendiente_id' = $2 AND a = $3`, f.ID, strconv.FormatInt(reg.ID, 10), situacion).Scan(&ya); err != nil {
+				return false, err
+			}
+			if ya > 0 {
+				return false, nil
+			}
+			t.FijarEntidad("orden", f.ID)
+			t.FijarEmpresa(deref(f.EmpresaID))
+			datos := map[string]any{"pendiente_id": strconv.FormatInt(reg.ID, 10), "idempotency_key": reg.IdempotencyKey,
+				"causa": pendientes.CodigoCapacidadNoDisponible, "reemplazo_id": reg.ReemplazadoPor, "reemplazo_de": reg.ReemplazoDe}
+			motivo := map[string]string{
+				"por_confirmar":       "Cobro por confirmar: Argos rechazó el cobro tras un envío sin respuesta; un supervisor confirma si la factura existe",
+				"reemplazado":         "El cobro de la instalación no está disponible: las demás líneas salieron en un cobro nuevo",
+				"reemplazo_rechazado": "Argos también rechazó el cobro de reemplazo: revísalo a mano",
+				"sin_reemplazo":       "El cobro de la instalación no está disponible para esta empresa",
+			}[situacion]
+			if err := historial(ctx, t, q, f.ID, "cobro", nil, &situacion, &motivo, datos, m.ahora()); err != nil {
+				return false, err
+			}
+			return true, nil
+		},
 	})
 }

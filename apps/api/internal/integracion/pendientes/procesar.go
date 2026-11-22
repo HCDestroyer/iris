@@ -90,6 +90,11 @@ type resultadoIntento struct {
 	// respuesta del 2xx, ya limpia (no va a la auditoría: queda en el pendiente).
 	respuesta []byte
 	ahora     time.Time
+	// sinRespuesta: la llamada salió y Argos no respondió (timeout, red o 5xx): pudo hacerlo.
+	sinRespuesta bool
+	// conceptoInstalacion: con un cargo rechazado por 422 capacidad_no_disponible, el concepto de
+	// instalación de la empresa (para el cobro de reemplazo); 0 si no tiene.
+	conceptoInstalacion int64
 }
 
 // intentar hace la llamada a Argos y clasifica el resultado.
@@ -180,8 +185,10 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	var er *conector.ErrorRemoto
 	if !errors.As(err, &er) {
 		r.Error = "error al llamar a Argos: " + sinCredenciales(err.Error())
+		r.sinRespuesta = true
 		return r
 	}
+	r.sinRespuesta = !er.Bloqueado() && (er.Status == 0 || er.Status >= 500)
 	if er.Status != 0 {
 		s := int32(er.Status) //nolint:gosec // código HTTP
 		r.Status = &s
@@ -210,7 +217,37 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	}
 	r.Negocio = EsNegocio(er)
 	r.Error = describir(er)
+	if r.Negocio && esCargoSinCapacidad(f.Operacion, er.Status, r.Codigo) && f.ReemplazoDe == nil && !f.EnvioSinRespuesta {
+		// El cargo queda terminal y sus demás líneas salen como un cobro de reemplazo (0.14.3 §3): hace
+		// falta el concepto de instalación de la empresa. Si no se puede leer ahora, el intento cuenta
+		// como temporal (Argos no guarda la clave en un 4xx: repetirlo es seguro) y se reintenta.
+		id, err := m.cfg.Argos.ConceptoInstalacion(ctx, deref64(f.EmpresaID))
+		switch {
+		case err == nil:
+			r.conceptoInstalacion = id
+		case errors.Is(err, argos.ErrSinConceptoInstalacion):
+			// Sin concepto de instalación no se sabe qué línea quitar: no hay reemplazo (se avisa).
+		default:
+			r.Negocio = false
+			r.Error += " (no se pudo leer el concepto de instalación para el cobro de reemplazo; se reintenta)"
+		}
+	}
 	return r
+}
+
+// CodigoCapacidadNoDisponible: Argos ≥ 0.14.3 rechaza una llamada sin su capacidad (§4.3).
+const CodigoCapacidadNoDisponible = "capacidad_no_disponible"
+
+// esCargoSinCapacidad: un cargo rechazado con 422 capacidad_no_disponible (cobro_equipo en false).
+func esCargoSinCapacidad(operacion string, status int, codigo string) bool {
+	return operacion == OpCargo && status == http.StatusUnprocessableEntity && codigo == CodigoCapacidadNoDisponible
+}
+
+func deref64(v *int64) int64 {
+	if v == nil {
+		return 0
+	}
+	return *v
 }
 
 // Códigos de Argos 0.5.0 (§3.3) que Iris trata aparte.
@@ -474,6 +511,17 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			}
 			t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": antes.Estado, "intentos": antes.Intentos},
 				map[string]any{"estado": f.Estado, "intentos": f.Intentos})
+			if in.sinRespuesta && !in.Exito {
+				if err := q.MarcarEnvioSinRespuesta(ctx, f.ID); err != nil {
+					return Pendiente{}, err
+				}
+			}
+			var reemplazo *pendientesbd.IntegracionPendiente
+			if f.Estado == EstadoFallidoNegocio && f.Operacion == OpCargo && deref(f.CodigoError) == CodigoCapacidadNoDisponible {
+				if f, reemplazo, err = m.cargoSinCapacidad(ctx, t, antes, f, in.conceptoInstalacion, in.ahora); err != nil {
+					return Pendiente{}, err
+				}
+			}
 			if evento != "" {
 				if err := t.Emitir(evento, payload); err != nil {
 					return Pendiente{}, err
@@ -514,6 +562,11 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			if f.Estado == EstadoFallidoNegocio || f.Estado == EstadoAgotado {
 				slog.WarnContext(ctx, "pendientes: acción hacia Argos sin completar", "pendiente", f.ID,
 					"operacion", f.Operacion, "estado", f.Estado, "error", in.Error)
+			}
+			if reemplazo != nil {
+				if err := m.avisarCola(ctx, t.Tx); err != nil {
+					return Pendiente{}, err
+				}
 			}
 			return aPendiente(f), nil
 		},

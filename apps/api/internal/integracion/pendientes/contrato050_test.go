@@ -60,8 +60,8 @@ func (e *entorno) llamadaA(clave string) llamada {
 }
 
 // Con Argos ≥ 1.6.0 y el técnico vinculado: tecnico en vez de bodega_id; el consumo lleva solo
-// consumibles (un comodato se omite con aviso) y el cargo de un producto que Argos ya cobra por
-// modalidad no se manda (409 cargo_duplicado).
+// consumibles (un comodato se omite con aviso) y el cargo de un producto consumible_cobro del consumo
+// no se encola (0.14.3 §3: Argos lo cobra con el consumo), con aviso.
 func TestCierreConTecnicoArgos16(t *testing.T) {
 	e := nuevoEntorno(t)
 	e.argos16()
@@ -79,22 +79,17 @@ func TestCierreConTecnicoArgos16(t *testing.T) {
 		"cargo": map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
 	})
 	ps := e.pendientes(orden)
-	cargo, ok := ps["iris:cargo:"+orden]
-	if !ok || len(ps) != 4 {
-		t.Fatalf("el cargo se encola siempre (nunca se descarta): %+v", ps)
-	}
-	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND depende_de = ARRAY[$2::bigint]`, cargo.ID, ps["iris:consumo:"+orden].ID); n != 1 {
-		t.Fatal("el cargo del mismo producto espera al consumo")
+	if _, ok := ps["iris:cargo:"+orden]; ok || len(ps) != 3 {
+		t.Fatalf("el cargo de un consumible_cobro no se encola: %+v", ps)
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'integracion.pendiente_omitido' AND payload->>'orden_id' = $1
 		AND payload->>'motivo' = 'material_comodato'`, orden); n != 1 {
 		t.Fatalf("aviso del comodato: %d", n)
 	}
-	// Argos ya lo cobró por modalidad en el consumo: 409 cargo_duplicado = hecho.
-	e.argos.mu.Lock()
-	e.argos.tipos["/facturas/cargo-unico"] = "urn:argosisp:problema:cargo_duplicado"
-	e.argos.mu.Unlock()
-	e.argos.responder("/facturas/cargo-unico", 409)
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'integracion.pendiente_omitido' AND payload->>'orden_id' = $1
+		AND payload->>'motivo' = 'consumible_cobro' AND payload->'operaciones' ? $2`, orden, "iris:cargo:"+orden); n != 1 {
+		t.Fatalf("aviso del cargo de un consumible_cobro: %d", n)
+	}
 	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE entidad_id = $1 AND tecnico_usuario_id = $2`, orden, tec); n != 2 {
 		t.Fatalf("tecnico_usuario_id (comodato y consumo): %d", n)
 	}
@@ -111,9 +106,6 @@ func TestCierreConTecnicoArgos16(t *testing.T) {
 		t.Fatalf("comodato con tecnico: %s", com.Crudo)
 	}
 	// cargos[] y factura_id del consumo quedan en el pendiente (para la orden).
-	if f := e.pendientes(orden)["iris:cargo:"+orden]; f.Estado != "hecho" {
-		t.Fatalf("cargo conciliado: %+v", f)
-	}
 	ps2, err := pendientes.DeEntidad(context.Background(), e.pool, "orden", orden)
 	if err != nil {
 		t.Fatal(err)
@@ -256,7 +248,7 @@ func TestCargoNoSeDescartaSiElConsumoFalla(t *testing.T) {
 	e.cerrar(map[string]any{
 		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20, "tecnico_id": tec,
 		"tecnico":    map[string]any{"id_externo": "u-cargo"},
-		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "modalidad": "consumible_cobro"}},
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "modalidad": nil}},
 		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
 	})
 	e.procesar()
@@ -351,7 +343,7 @@ func TestResolverManualLiberaElCargo(t *testing.T) {
 	e.cerrar(map[string]any{
 		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20, "tecnico_id": tec,
 		"tecnico":    map[string]any{"id_externo": "u-manual"},
-		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "modalidad": "consumible_cobro"}},
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "modalidad": nil}},
 		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
 	})
 	e.procesar()
@@ -490,7 +482,7 @@ func TestResolverManualConCargoResueltoTambien(t *testing.T) {
 	e.cerrar(map[string]any{
 		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20, "tecnico_id": tec,
 		"tecnico":    map[string]any{"id_externo": "u-tambien"},
-		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "modalidad": "consumible_cobro"}},
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "modalidad": nil}},
 		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
 	})
 	e.procesar()

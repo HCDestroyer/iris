@@ -76,6 +76,11 @@ type Registro struct {
 	ActualizadoEn    time.Time
 	// Version: control optimista (CompletarEsperando / FallarEsperando la exigen).
 	Version int32
+	// Cobro de la instalación (0.14.3 §3): cargo terminal, «por confirmar» y su reemplazo.
+	CargoTerminal  bool
+	PorConfirmar   bool
+	ReemplazoDe    *int64
+	ReemplazadoPor *int64
 }
 
 func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
@@ -85,6 +90,7 @@ func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 		HechoEn: f.HechoEn, DependeDe: f.DependeDe, UltimoError: f.UltimoError,
 		CodigoError: f.CodigoError, EmpresaID: f.EmpresaID, EntidadID: f.EntidadID, TecnicoUsuarioID: f.TecnicoUsuarioID,
 		ActualizadoEn: f.UpdatedAt, Version: f.Version,
+		CargoTerminal: f.CargoTerminal, PorConfirmar: f.PorConfirmar, ReemplazoDe: f.ReemplazoDe, ReemplazadoPor: f.ReemplazadoPor,
 	}
 }
 

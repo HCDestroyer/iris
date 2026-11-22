@@ -82,6 +82,9 @@ type ConfigEquipos struct {
 	LeerAprovisionamiento func(ctx context.Context, id int64) (argos.Aprovisionamiento, error)
 	// LeerEquipo: GET /servicios/:id/equipo (fuera de transacción).
 	LeerEquipo func(ctx context.Context, servicio int64, actor string, asistente bool) (argos.EstadoEquipo, error)
+	// ConceptoInstalacion: el concepto con codigo_sistema "instalacion" de la empresa (GET
+	// /conceptos-cargo, 0.14.3 §4.3). nil o error = desconocido (Iris lo trata como instalación).
+	ConceptoInstalacion func(ctx context.Context, empresa int64) (int64, error)
 }
 
 // pgxQuerier: lo que la capacidad necesita de la transacción.
@@ -102,6 +105,7 @@ func EquiposDeArgos(a *argos.Modulo) ConfigEquipos {
 		},
 		LeerAprovisionamiento: a.LeerAprovisionamiento,
 		LeerEquipo:            a.LeerEquipo,
+		ConceptoInstalacion:   a.ConceptoInstalacion,
 	}
 }
 

@@ -173,3 +173,24 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   `activar_instalacion` con un intento `listo` en la orden queda hecho (conciliado).
 - Lista blanca de la respuesta: también `aprovisionamiento_id`, `solicitud_id`, `causa`, `reintentable`,
   `numero`, `total`, `moneda` y el objeto `factura { id, numero, estado, total, moneda }`.
+
+## Contrato 0.14.3: cobro de la instalación (`cobro.go`, `cierre_orden.go`)
+
+- **Cargo del cierre con `lineas[]`** (cuerpo real de Argos, como A36). La línea de instalación es la del concepto con
+  `codigo_sistema = "instalacion"` (`argos.ConceptoInstalacion`, `GET /conceptos-cargo`, leído fuera de la
+  transacción) o la de un cobro de A36 vigente. Al encolar, con `campo.ordenes` bloqueada (`FOR UPDATE`, igual que
+  el registro de A36), el cargo sale sin ella si hay un cobro de A36 vigente con esa línea o la empresa tiene
+  `cobro_equipo: false`; sin líneas no sale (`pendiente_omitido`, `cargo_sin_lineas`). El cuerpo queda fijo.
+- **Forma anterior** (`producto_id`, `monto`): solo de cierres emitidos antes; un `consumible_cobro` del consumo no se
+  encola (`pendiente_omitido`, `consumible_cobro`).
+- **422 `capacidad_no_disponible` en un cargo:** queda `fallido_negocio` y `cargoTerminal` (reintentar: 409
+  `cargo_terminal`). Sus demás líneas salen sin la de instalación como un cobro de reemplazo (`reemplazoDe` /
+  `reemplazadoPor`, clave `iris:cargo:<orden>:<uuid>`), que nunca genera otro: si también recibe el 422, queda
+  fallido y se avisa (log de error, `pendiente_fallido` y el historial de la orden). Si el concepto de instalación no
+  se puede leer en ese momento, el intento cuenta como temporal (Argos no guarda la clave en un 4xx).
+- **«Cobro por confirmar»:** si el 422 llega después de un envío sin respuesta (`envio_sin_respuesta`: timeout, red o
+  5xx), queda `porConfirmar` (vigente), sin reemplazo ni reintento; resolver a mano responde 409
+  `cobro_por_confirmar`. `POST /integraciones/pendientes/{id}/confirmar-cobro` (`integraciones.confirmar_cobro`):
+  con `existe` y el `numero`, Iris lee la factura en Argos y la valida (empresa, servicio, `origen_id` y líneas
+  iguales) → `hecho` con ella (`pendiente_hecho`); con `existe = false` → fallido y sale el reemplazo
+  (`pendiente_fallido`). Nunca se concilia solo por `origen_id`.

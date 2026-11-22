@@ -43,7 +43,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		nucleo.PermIntegracionesReintentar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
 	re.Description += " Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con " +
 		"los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 " +
-		"`pendiente_no_reintentable` (hecho, en curso, resuelto a mano o bloqueado: reintenta su dependencia o resuélvela a mano) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite " +
+		"`pendiente_no_reintentable` (hecho, en curso, resuelto a mano o bloqueado: reintenta su dependencia o resuélvela a mano) o `pendiente_incompleto` (la orden no traía los datos). 409 `cargo_terminal`: un cargo rechazado con `422 capacidad_no_disponible` nunca se reintenta con su clave (0.14.3 §3). Auditado; emite " +
 		"`integracion.pendiente_reintentado`."
 	huma.Register(api, re, func(ctx context.Context, in *entradaReintentarHTTP) (*cuerpo[Pendiente], error) {
 		p, err := m.Reintentar.Ejecutar(ctx, EntradaReintentar{ID: in.ID, Version: in.Body.Version})
@@ -72,6 +72,37 @@ func (m *Modulo) Registrar(api huma.API) {
 		}
 		return &cuerpo[Pendiente]{Body: p}, nil
 	})
+
+	cc := conector.Operacion(conector.EtiquetaIntegraciones, "confirmarCobroIntegracion", http.MethodPost,
+		"/api/v1/integraciones/pendientes/{id}/confirmar-cobro", "Confirmar en Argos un cobro «por confirmar»",
+		nucleo.PermIntegracionesConfirmarCobro, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	cc.Description += " Un cargo que recibió `422 capacidad_no_disponible` después de un envío sin respuesta (timeout o 5xx) " +
+		"queda «por confirmar» (`porConfirmar`): Argos pudo haber creado la factura con el primer envío, y nada sale hasta que " +
+		"un supervisor revise Argos (contrato 0.14.3 §3; nunca se concilia solo por `origen_id`). Con `existe` = true y el " +
+		"`numero` de la factura, Iris la lee en Argos y la valida (misma empresa, mismo servicio, `origen_id` de la orden y " +
+		"líneas iguales al cuerpo del cargo): el cargo queda `hecho` con ese `factura_id` y no sale el reemplazo (422 " +
+		"`factura_no_encontrada` o `factura_no_coincide`; 503 si Argos no responde). Con `existe` = false, el cargo queda " +
+		"`fallido_negocio` (terminal) y sus demás líneas salen sin la de instalación como un cobro nuevo, con otro `cargo_id`. " +
+		"409 por `version` o `cobro_no_por_confirmar`. Auditado; emite `integracion.pendiente_hecho` o `integracion.pendiente_fallido`."
+	huma.Register(api, cc, func(ctx context.Context, in *entradaConfirmarCobroHTTP) (*cuerpo[Pendiente], error) {
+		p, err := m.ConfirmarCobro(ctx, EntradaConfirmarCobro{ID: in.ID, Version: in.Body.Version, Existe: in.Body.Existe,
+			Numero: in.Body.Numero, Motivo: in.Body.Motivo})
+		if err != nil {
+			return nil, err
+		}
+		return &cuerpo[Pendiente]{Body: p}, nil
+	})
+}
+
+type entradaConfirmarCobroHTTP struct {
+	nucleo.ConIdempotencia
+	ID   int64 `path:"id" minimum:"1"`
+	Body struct {
+		Version int32   `json:"version" minimum:"1"`
+		Existe  bool    `json:"existe" doc:"true: la factura existe en Argos (con numero). false: no existe (sale el cobro de reemplazo)"`
+		Numero  *string `json:"numero,omitempty" required:"false" minLength:"1" maxLength:"60" doc:"Con existe = true: número de la factura en Argos"`
+		Motivo  string  `json:"motivo" minLength:"5" maxLength:"1000" doc:"Qué se revisó en Argos"`
+	}
 }
 
 type entradaResolverManualHTTP struct {

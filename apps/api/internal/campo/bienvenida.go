@@ -65,6 +65,20 @@ type EntradaReenviarBienvenida struct {
 	Canales []string `json:"canales,omitempty" maxItems:"3" uniqueItems:"true" enum:"whatsapp,correo,telegram" doc:"Sin ellos, todos los que Argos tenga configurados"`
 }
 
+// soloRelacionada: la orden tiene canales de bienvenida y todos llegaron sin origen (relacionados
+// por servicio).
+func soloRelacionada(canales []CanalBienvenida) bool {
+	if len(canales) == 0 {
+		return false
+	}
+	for _, c := range canales {
+		if !c.Relacionada {
+			return false
+		}
+	}
+	return true
+}
+
 func leerCanales(crudo []byte) []CanalBienvenida {
 	c := []CanalBienvenida{}
 	if len(crudo) > 0 {
@@ -154,14 +168,22 @@ func (m *Modulo) nuevoReenviarBienvenida() *auditoria.Caso[EntradaReenviarBienve
 			if !activa {
 				return Bienvenida{}, nucleo.Conflicto("servicio_no_activo", "El servicio aún no está activo: la bienvenida sale al activarlo")
 			}
-			if _, err := q.AsegurarOrdenActivacion(ctx, campobd.AsegurarOrdenActivacionParams{OrdenID: f.ID, EmpresaID: f.EmpresaID}); err != nil {
+			oa, err := q.AsegurarOrdenActivacion(ctx, campobd.AsegurarOrdenActivacionParams{OrdenID: f.ID, EmpresaID: f.EmpresaID})
+			if err != nil {
 				return Bienvenida{}, err
 			}
 			n, err := q.SumarReenvioBienvenida(ctx, f.ID)
 			if err != nil {
 				return Bienvenida{}, err
 			}
-			cuerpo := map[string]any{"origen_tipo": pendientes.OrigenTipo, "origen_id": strconv.FormatInt(f.ID, 10)}
+			cuerpo := map[string]any{}
+			if !soloRelacionada(leerCanales(oa.BienvenidaCanales)) {
+				cuerpo["origen_tipo"], cuerpo["origen_id"] = pendientes.OrigenTipo, strconv.FormatInt(f.ID, 10)
+			} else {
+				// La bienvenida llegó sin origen y solo se relacionó por servicio (0.14.3): esta orden no es su
+				// origen real; el reenvío no lo afirma.
+				t.Anotar(map[string]any{"sin_origen": true})
+			}
 			if len(in.Canales) > 0 {
 				cuerpo["canales"] = in.Canales
 			}
