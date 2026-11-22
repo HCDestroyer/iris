@@ -177,6 +177,18 @@ func TestFallaGeneralAperturaDespuesDelCierre(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(context.Background()) }()
+	// Como el cierre: primero IncidenteRed (FOR NO KEY UPDATE) y después el UPDATE.
+	if _, err := tx.Exec(context.Background(), "SELECT id FROM soporte.incidentes_red WHERE incidente_id = 'inc-86b' AND empresa_id = 86 FOR NO KEY UPDATE"); err != nil {
+		t.Fatal(err)
+	}
+	// Ese candado no frena a quien registra un aviso (FOR KEY SHARE de la llave foránea).
+	fk, cancelar := context.WithTimeout(context.Background(), 3*time.Second)
+	_, err = pruebas.Pool(t).Exec(fk, `INSERT INTO soporte.avisos_falla_clientes (incidente, cliente_id, tipo, ticket_id)
+		SELECT id, 8699, 'cierre', $1 FROM soporte.incidentes_red WHERE incidente_id = 'inc-86b' AND empresa_id = 86`, h.ID)
+	cancelar()
+	if err != nil {
+		t.Fatalf("la llave foránea no espera al cierre: %v", err)
+	}
 	if _, err := tx.Exec(context.Background(), "UPDATE soporte.incidentes_red SET estado = 'cerrada', cerrada_en = now() WHERE incidente_id = 'inc-86b' AND empresa_id = 86"); err != nil {
 		t.Fatal(err)
 	}
@@ -352,5 +364,95 @@ func TestFallaGeneralCierreReprogramado(t *testing.T) {
 	}
 	if e := estadoDe(t, *general); e != "cerrado" {
 		t.Fatalf("general: %s", e)
+	}
+}
+
+// Bajo 2 (2.ª revisión): con el general reusado, un «arriba» viejo (anterior a la falla nueva) no
+// resuelve: solo cuenta el incidente más reciente del hijo. Bajo 4: al reusar, todos los hijos abiertos
+// pasan al incidente nuevo, y el «falla resuelta» atrasado del incidente viejo no les llega.
+func TestFallaGeneralReusoIncidenteMasReciente(t *testing.T) {
+	registrarEmpresas(t, 90)
+	instantanea(t, 90, 9001, 900001, 9000)
+	instantanea(t, 90, 9002, 900002, 9000)
+	inicio := time.Now().UTC()
+	m, reloj, jobs := nuevoModuloConCola(inicio)
+	yo := agente(t)
+	asignarEmpresa(t, yo, 90)
+	ctx := comoEnEmpresa(t, yo, 90)
+	sinServicio := categoriaID(t, "sin_servicio")
+	espera := crear(t, m, ctx, soporte.EntradaCrearTicket{ClienteID: ptr(int64(9001)), ServicioID: ptr(int64(900001)), CategoriaID: &sinServicio}).ID
+	nuevo := crear(t, m, ctx, soporte.EntradaCrearTicket{ClienteID: ptr(int64(9002)), ServicioID: ptr(int64(900002)), CategoriaID: &sinServicio}).ID
+	ejecutarSQL(t, "UPDATE soporte.tickets SET estado = 'abierto' WHERE id = $1", espera)
+	a := fallaRouter(90, "inc-90a", "9000", inicio.Add(-2*time.Hour), 900001, 900002)
+	aplicarRed(t, m, argos.EventoInternoFallaAbierta, a)
+	general := exigirRed(t, a.EntranteID, soporte.RedFallaCreada)
+	cerrarFallaRed(t, m, a)
+	jobs.tomar() // el «falla resuelta» de inc-90a queda sin correr
+	// Vuelve antes de 30 min: se reusa el general y los dos hijos pasan al incidente nuevo.
+	reloj.avanzar(5 * time.Minute)
+	b := fallaRouter(90, "inc-90b", "9000", inicio.Add(-10*time.Minute), 900001, 900002)
+	aplicarRed(t, m, argos.EventoInternoFallaAbierta, b)
+	if got := exigirRed(t, b.EntranteID, soporte.RedFallaReusada); *got != *general {
+		t.Fatal("reusa el general")
+	}
+	for _, id := range []int64{espera, nuevo} {
+		if n := contarSQL(t, `SELECT count(*) FROM soporte.incidente_red_hijos h JOIN soporte.incidentes_red i ON i.id = h.incidente
+			WHERE h.ticket_id = $1 AND i.incidente_id = 'inc-90b'`, id); n != 1 {
+			t.Fatalf("hijo %d en el incidente nuevo: %d", id, n)
+		}
+	}
+	// El «falla resuelta» atrasado de inc-90a no les llega: están en un incidente más nuevo y abierto.
+	var incA int64
+	if err := pruebas.Pool(t).QueryRow(context.Background(), "SELECT id FROM soporte.incidentes_red WHERE incidente_id = 'inc-90a'").Scan(&incA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.AvisarHijos(pruebas.ContextoSistema(pruebas.Pool(t)), soporte.ArgsAvisarHijos{MaestroID: *general, Aviso: soporte.AvisoFallaCerrada, Incidente: incA}); err != nil {
+		t.Fatal(err)
+	}
+	if publicos(t, espera) != 0 || publicos(t, nuevo) != 0 {
+		t.Fatalf("sin «falla resuelta» del incidente viejo: %d %d", publicos(t, espera), publicos(t, nuevo))
+	}
+	// Se cierra la falla nueva; un «arriba» de Horus posterior a inc-90a pero anterior a inc-90b no resuelve.
+	ejecutarSQL(t, "UPDATE soporte.tickets SET estado = 'abierto' WHERE id = $1", espera)
+	cerrarFallaRed(t, m, b)
+	if e := estadoDe(t, espera); e != "en_espera" {
+		t.Fatalf("espera tras el cierre: %s", e)
+	}
+	routerArriba(t, m, 90, 9000, inicio.Add(-30*time.Minute))
+	if e := estadoDe(t, espera); e != "en_espera" {
+		t.Fatalf("un arriba anterior a la falla reusada no resuelve: %s", e)
+	}
+	routerArriba(t, m, 90, 9000, time.Now().UTC())
+	if e := estadoDe(t, espera); e != "resuelto" {
+		t.Fatalf("el arriba nuevo sí: %s", e)
+	}
+}
+
+// Bajo 3 (2.ª revisión): con un router compartido, los eventos del hijo salen con su empresa.
+func TestConfirmacionRouterCompartidoConEmpresaDelHijo(t *testing.T) {
+	registrarEmpresas(t, 91)
+	instantanea(t, 91, 9101, 910001, 9100)
+	m, _, _ := nuevoModuloConCola(time.Now().UTC())
+	yo := agente(t)
+	asignarEmpresa(t, yo, 91)
+	ctx := comoEnEmpresa(t, yo, 91)
+	sinServicio := categoriaID(t, "sin_servicio")
+	h := crear(t, m, ctx, soporte.EntradaCrearTicket{ClienteID: ptr(int64(9101)), ServicioID: ptr(int64(910001)), CategoriaID: &sinServicio}).ID
+	ejecutarSQL(t, "UPDATE soporte.tickets SET estado = 'abierto' WHERE id = $1", h)
+	f := fallaRouter(91, "inc-91", "9100", time.Now().UTC().Add(-time.Hour), 910001)
+	aplicarRed(t, m, argos.EventoInternoFallaAbierta, f)
+	cerrarFallaRed(t, m, f)
+	if n, err := m.ResolverConfirmadosCompartido(pruebas.ContextoSistema(pruebas.Pool(t)), 9100, time.Now().UTC()); err != nil || n != 1 {
+		t.Fatalf("compartido: %d %v", n, err)
+	}
+	if n := contarSQL(t, `SELECT count(*) FROM integracion.outbox WHERE (payload->>'ticket_id')::bigint = $1
+		AND evento IN ('ticket.estado_cambiado', 'ticket.respondido') AND created_at > now() - interval '1 minute' AND empresa_id IS DISTINCT FROM 91`, h); n != 0 {
+		t.Fatalf("eventos sin la empresa del hijo: %d", n)
+	}
+	if n := contarSQL(t, `SELECT count(*) FROM integracion.outbox WHERE (payload->>'ticket_id')::bigint = $1 AND evento = 'ticket.respondido' AND empresa_id = 91`, h); n != 1 {
+		t.Fatalf("ticket.respondido con la empresa del hijo: %d", n)
+	}
+	if n := contarSQL(t, `SELECT count(*) FROM auditoria.acciones WHERE accion = 'tickets.horus_incidente' AND entrada->'auditoria'->'hijos_falla_por_empresa'->>'91' = '1'`); n < 1 {
+		t.Fatalf("la auditoría anota la empresa del hijo: %d", n)
 	}
 }

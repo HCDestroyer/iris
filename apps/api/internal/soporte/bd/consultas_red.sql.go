@@ -512,12 +512,114 @@ func (q *Queries) HayCierreAnticipado(ctx context.Context, arg HayCierreAnticipa
 	return column_1, err
 }
 
+const hijoEnIncidenteMasNuevoAbierto = `-- name: HijoEnIncidenteMasNuevoAbierto :one
+SELECT EXISTS (SELECT 1 FROM soporte.incidente_red_hijos h JOIN soporte.incidentes_red i ON i.id = h.incidente
+               WHERE h.ticket_id = $1 AND h.incidente > $2::bigint AND i.estado = 'abierta')::boolean
+`
+
+type HijoEnIncidenteMasNuevoAbiertoParams struct {
+	TicketID  int64
+	Incidente int64
+}
+
+func (q *Queries) HijoEnIncidenteMasNuevoAbierto(ctx context.Context, arg HijoEnIncidenteMasNuevoAbiertoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hijoEnIncidenteMasNuevoAbierto, arg.TicketID, arg.Incidente)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const hijosAbiertos = `-- name: HijosAbiertos :many
 SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo, propuesta_origen, propuesta_orden_id FROM soporte.tickets WHERE ticket_padre_id = $1 AND estado IN ('nuevo', 'abierto', 'en_espera') ORDER BY id FOR UPDATE
 `
 
 func (q *Queries) HijosAbiertos(ctx context.Context, padreID *int64) ([]SoporteTicket, error) {
 	rows, err := q.db.Query(ctx, hijosAbiertos, padreID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SoporteTicket
+	for rows.Next() {
+		var i SoporteTicket
+		if err := rows.Scan(
+			&i.ID,
+			&i.Numero,
+			&i.EmpresaID,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.ZonaID,
+			&i.ContactoNombre,
+			&i.ContactoTelefono,
+			&i.ContactoCorreo,
+			&i.CategoriaID,
+			&i.Prioridad,
+			&i.Estado,
+			&i.Origen,
+			&i.Asunto,
+			&i.AsignadoA,
+			&i.CuadrillaID,
+			&i.NivelEscalamiento,
+			&i.SlaID,
+			&i.CalendarioID,
+			&i.SlaInicio,
+			&i.SlaRespuestaMin,
+			&i.SlaResolucionMin,
+			&i.PausaSeg,
+			&i.RiesgoRespuesta,
+			&i.VenceRespuesta,
+			&i.RiesgoResolucion,
+			&i.VenceResolucion,
+			&i.PrimeraRespuestaEn,
+			&i.EnEsperaDesde,
+			&i.ResueltoEn,
+			&i.CerradoEn,
+			&i.TicketPadreID,
+			&i.FusionadoEnID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Idempotencia,
+			&i.ContactoVerificado,
+			&i.Maestro,
+			&i.RouterID,
+			&i.InfraID,
+			&i.IncidenteNombre,
+			&i.HallazgoID,
+			&i.UrlHorus,
+			&i.Propuesta,
+			&i.PropuestaEn,
+			&i.PropuestaMotivo,
+			&i.PropuestaOrigen,
+			&i.PropuestaOrdenID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const hijosAbiertosDeIncidente = `-- name: HijosAbiertosDeIncidente :many
+SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id FROM soporte.tickets t
+JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id AND h.incidente = $1::bigint
+WHERE t.ticket_padre_id = $2::bigint AND t.estado IN ('nuevo', 'abierto', 'en_espera') AND t.maestro IS NULL
+ORDER BY t.id
+FOR UPDATE OF t
+`
+
+type HijosAbiertosDeIncidenteParams struct {
+	Incidente int64
+	GeneralID int64
+}
+
+// Los hijos de un incidente anterior que siguen colgando del ticket general y en espera de verificar
+// (al reusar el general vuelven a abierto y pasan al incidente nuevo).
+func (q *Queries) HijosAbiertosDeIncidente(ctx context.Context, arg HijosAbiertosDeIncidenteParams) ([]SoporteTicket, error) {
+	rows, err := q.db.Query(ctx, hijosAbiertosDeIncidente, arg.Incidente, arg.GeneralID)
 	if err != nil {
 		return nil, err
 	}
@@ -670,91 +772,6 @@ func (q *Queries) HijosDeIncidente(ctx context.Context, arg HijosDeIncidentePara
 	return items, nil
 }
 
-const hijosEnEsperaDeIncidente = `-- name: HijosEnEsperaDeIncidente :many
-SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id FROM soporte.tickets t
-JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id AND h.incidente = $1::bigint
-WHERE t.ticket_padre_id = $2::bigint AND t.estado = 'en_espera' AND t.maestro IS NULL
-ORDER BY t.id
-FOR UPDATE OF t
-`
-
-type HijosEnEsperaDeIncidenteParams struct {
-	Incidente int64
-	GeneralID int64
-}
-
-// Los hijos de un incidente anterior que siguen colgando del ticket general y en espera de verificar
-// (al reusar el general vuelven a abierto y pasan al incidente nuevo).
-func (q *Queries) HijosEnEsperaDeIncidente(ctx context.Context, arg HijosEnEsperaDeIncidenteParams) ([]SoporteTicket, error) {
-	rows, err := q.db.Query(ctx, hijosEnEsperaDeIncidente, arg.Incidente, arg.GeneralID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []SoporteTicket
-	for rows.Next() {
-		var i SoporteTicket
-		if err := rows.Scan(
-			&i.ID,
-			&i.Numero,
-			&i.EmpresaID,
-			&i.ClienteID,
-			&i.ServicioID,
-			&i.ZonaID,
-			&i.ContactoNombre,
-			&i.ContactoTelefono,
-			&i.ContactoCorreo,
-			&i.CategoriaID,
-			&i.Prioridad,
-			&i.Estado,
-			&i.Origen,
-			&i.Asunto,
-			&i.AsignadoA,
-			&i.CuadrillaID,
-			&i.NivelEscalamiento,
-			&i.SlaID,
-			&i.CalendarioID,
-			&i.SlaInicio,
-			&i.SlaRespuestaMin,
-			&i.SlaResolucionMin,
-			&i.PausaSeg,
-			&i.RiesgoRespuesta,
-			&i.VenceRespuesta,
-			&i.RiesgoResolucion,
-			&i.VenceResolucion,
-			&i.PrimeraRespuestaEn,
-			&i.EnEsperaDesde,
-			&i.ResueltoEn,
-			&i.CerradoEn,
-			&i.TicketPadreID,
-			&i.FusionadoEnID,
-			&i.Version,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.Idempotencia,
-			&i.ContactoVerificado,
-			&i.Maestro,
-			&i.RouterID,
-			&i.InfraID,
-			&i.IncidenteNombre,
-			&i.HallazgoID,
-			&i.UrlHorus,
-			&i.Propuesta,
-			&i.PropuestaEn,
-			&i.PropuestaMotivo,
-			&i.PropuestaOrigen,
-			&i.PropuestaOrdenID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const hijosVerificandoDeRouter = `-- name: HijosVerificandoDeRouter :many
 SELECT DISTINCT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id FROM soporte.tickets t
 JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id
@@ -764,6 +781,7 @@ WHERE t.empresa_id = coalesce($1::bigint, t.empresa_id)
   AND i.empresa_id = t.empresa_id AND s.router_id = $2
   AND t.id > $3::bigint AND t.estado = 'en_espera' AND t.maestro IS NULL
   AND t.en_espera_desde >= i.cerrada_en
+  AND NOT EXISTS (SELECT 1 FROM soporte.incidente_red_hijos h2 WHERE h2.ticket_id = t.id AND h2.incidente > i.id)
   AND i.cerrada_en + make_interval(0, 0, 0, 0, coalesce((SELECT a.verificacion_horas FROM soporte.red_ajustes a WHERE a.empresa_id = i.empresa_id), 24)) >= $4::timestamptz
   AND i.desde < $5::timestamptz
 ORDER BY t.id
@@ -951,7 +969,7 @@ func (q *Queries) IncidenteAbiertoDeServicioCompartido(ctx context.Context, arg 
 }
 
 const incidenteRed = `-- name: IncidenteRed :one
-SELECT id, incidente_id, empresa_id, alcance, alcance_id, ticket_id, estado, desde, hasta, cerrada_en, reusa_de, created_at, updated_at FROM soporte.incidentes_red WHERE incidente_id = $1 AND empresa_id = $2 FOR UPDATE
+SELECT id, incidente_id, empresa_id, alcance, alcance_id, ticket_id, estado, desde, hasta, cerrada_en, reusa_de, created_at, updated_at FROM soporte.incidentes_red WHERE incidente_id = $1 AND empresa_id = $2 FOR NO KEY UPDATE
 `
 
 type IncidenteRedParams struct {
@@ -959,6 +977,7 @@ type IncidenteRedParams struct {
 	EmpresaID   int64
 }
 
+// FOR NO KEY UPDATE: no choca con el FOR KEY SHARE de las llaves foraneas (avisos_falla_clientes).
 func (q *Queries) IncidenteRed(ctx context.Context, arg IncidenteRedParams) (SoporteIncidentesRed, error) {
 	row := q.db.QueryRow(ctx, incidenteRed, arg.IncidenteID, arg.EmpresaID)
 	var i SoporteIncidentesRed

@@ -518,8 +518,8 @@ func (m *Modulo) abrirFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.Q
 		return ResultadoRed{}, err
 	}
 	if reusa != nil {
-		// Los hijos del incidente anterior que esperaban verificar con el cliente: la falla volvió.
-		if err := m.retomarHijosEnEspera(ctx, t, q, *reusa, inc, general); err != nil {
+		// Los hijos abiertos del incidente anterior pasan al nuevo: la falla volvió.
+		if err := m.retomarHijos(ctx, t, q, *reusa, inc, general); err != nil {
 			return ResultadoRed{}, err
 		}
 	}
@@ -568,17 +568,23 @@ func (m *Modulo) sumarAfectados(ctx context.Context, t *auditoria.Tx, q *soporte
 	return len(hijos), m.encolarAvisoFalla(ctx, t, general, inc, AvisoFallaAbierta)
 }
 
-// retomarHijosEnEspera: al reusar el ticket general, los hijos del incidente anterior que siguen en
-// espera vuelven a abierto (su espera empieza de nuevo cuando se cierre el incidente nuevo) y pasan al
-// incidente nuevo, así reciben su aviso de apertura.
-func (m *Modulo) retomarHijosEnEspera(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, anterior int64, inc soportebd.SoporteIncidentesRed,
+// retomarHijos: al reusar el ticket general, todos los hijos abiertos del incidente anterior pasan al
+// incidente nuevo (así reciben su apertura y su cierre); los que esperaban verificar vuelven a abierto
+// (su espera empieza de nuevo cuando se cierre el incidente nuevo).
+func (m *Modulo) retomarHijos(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, anterior int64, inc soportebd.SoporteIncidentesRed,
 	general soportebd.SoporteTicket) error {
-	hijos, err := q.HijosEnEsperaDeIncidente(ctx, soportebd.HijosEnEsperaDeIncidenteParams{Incidente: anterior, GeneralID: general.ID})
+	hijos, err := q.HijosAbiertosDeIncidente(ctx, soportebd.HijosAbiertosDeIncidenteParams{Incidente: anterior, GeneralID: general.ID})
 	if err != nil {
 		return err
 	}
 	ahora := m.ahora()
 	for _, h := range hijos {
+		if h.Estado != EstadoEnEspera {
+			if err := q.RegistrarHijoIncidente(ctx, soportebd.RegistrarHijoIncidenteParams{Incidente: inc.ID, TicketID: h.ID}); err != nil {
+				return err
+			}
+			continue
+		}
 		cal, err := cargarCalendario(ctx, q, h.CalendarioID)
 		if err != nil {
 			return err
@@ -839,6 +845,7 @@ func (m *Modulo) resolverConfirmadosPorHorus(ctx context.Context, t *auditoria.T
 	ahora := m.ahora()
 	resueltos := 0
 	despues := int64(0)
+	porEmpresa := map[int64]int{}
 	for {
 		hijos, err := q.HijosVerificandoDeRouter(ctx, soportebd.HijosVerificandoDeRouterParams{EmpresaID: empresa, RouterID: &router, Despues: despues,
 			Ahora: ahora, Ocurrido: ocurrido.UTC(), Limite: TandaConfirmados})
@@ -854,12 +861,24 @@ func (m *Modulo) resolverConfirmadosPorHorus(ctx context.Context, t *auditoria.T
 			if f.Estado != EstadoEnEspera || f.TicketPadreID == nil || h.TicketPadreID == nil || *f.TicketPadreID != *h.TicketPadreID {
 				continue
 			}
-			if err := m.resolverHijoConfirmado(ctx, t, q, f, ahora); err != nil {
+			if empresa == nil {
+				// Router compartido: los eventos del hijo salen con su empresa (y la auditoría la anota).
+				t.FijarEmpresa(deref(f.EmpresaID))
+				porEmpresa[deref(f.EmpresaID)]++
+			}
+			err = m.resolverHijoConfirmado(ctx, t, q, f, ahora)
+			if empresa == nil {
+				t.FijarEmpresa(0)
+			}
+			if err != nil {
 				return resueltos, err
 			}
 			resueltos++
 		}
 		if len(hijos) < TandaConfirmados {
+			if len(porEmpresa) > 0 {
+				t.Anotar(map[string]any{"hijos_falla_por_empresa": porEmpresa})
+			}
 			return resueltos, nil
 		}
 	}

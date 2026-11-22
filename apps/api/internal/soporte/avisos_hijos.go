@@ -234,6 +234,13 @@ func (m *Modulo) avisoFallaPermitido(ctx context.Context, t *auditoria.Tx, q *so
 		// «falla resuelta».
 		return false, nil
 	}
+	if tipo == "cierre" {
+		// El cierre de un incidente viejo no le dice «resuelta» a un hijo que ya está en uno más nuevo y abierto.
+		nuevo, err := q.HijoEnIncidenteMasNuevoAbierto(ctx, soportebd.HijoEnIncidenteMasNuevoAbiertoParams{TicketID: h.ID, Incidente: in.Incidente})
+		if err != nil || nuevo {
+			return false, err
+		}
+	}
 	if tipo == "apertura" {
 		// Con el incidente ya cerrado, la apertura no sale (queda registrada sin mensaje).
 		if inc.Estado != "abierta" {

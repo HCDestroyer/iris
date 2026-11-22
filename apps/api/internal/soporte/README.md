@@ -226,8 +226,9 @@ serializados por empresa con un advisory lock. Un evento de una empresa que Iris
     ya trae `hasta`, no abre nada. Si el mismo alcance se cerró hace menos de 30 min, se reusa (y
     reabre) su ticket, salvo que el job de los 30 min ya lo haya cerrado: entonces uno nuevo. Si el alcance es un router con maestro de Horus abierto, ese maestro
     es el ticket general (y Horus avisa a los hijos: la falla no manda su apertura ni su cierre). Al
-    reusar un general, los hijos del incidente anterior que siguen en espera vuelven a abierto, pasan al
-    incidente nuevo y reciben su apertura (el tope de 6 h no cuenta la del incidente reusado). Absorbe como hijos los tickets **de conectividad** (`categorias.conectividad`:
+    reusar un general, todos los hijos abiertos del incidente anterior pasan al incidente nuevo (los que
+    esperaban verificar vuelven a abierto) y reciben su apertura; el «falla resuelta» atrasado del
+    incidente viejo no les llega (el tope de 6 h no cuenta la del incidente reusado). Absorbe como hijos los tickets **de conectividad** (`categorias.conectividad`:
     `sin_servicio`, `intermitencia`, `lentitud`, `caidas_repetidas`) abiertos de los servicios
     afectados creados después de `desde`, también los hijos de la posible falla (que pasa a ser hija); y
     mientras siga abierta, los tickets nuevos de conectividad de esos servicios nacen hijos. Cada hijo
@@ -254,7 +255,7 @@ serializados por empresa con un advisory lock. Un evento de una empresa que Iris
     reciben aviso hasta que Horus confirme. Cuando Horus avisa que un router volvió, se resuelven con un
     mensaje al cliente solo los hijos que esperan verificar: siguen colgando del ticket general de su
     incidente ya cerrado, están en espera desde el cierre, el cierre fue hace menos de
-    `verificacionHoras` y la falla empezó antes del aviso de Horus; de la empresa del router (uno
+    `verificacionHoras` la falla empezó antes del aviso de Horus y es el incidente más reciente del hijo; de la empresa del router (uno
     compartido: las empresas de sus servicios), por tandas de 200.
   - La bandeja trata un servicio del cliente en una falla general abierta como «falla masiva» para la
     guardia fuera de horario (`RouterCaidoDelCliente`).

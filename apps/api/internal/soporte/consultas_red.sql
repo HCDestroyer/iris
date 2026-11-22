@@ -82,7 +82,8 @@ ORDER BY id
 FOR UPDATE;
 
 -- name: IncidenteRed :one
-SELECT * FROM soporte.incidentes_red WHERE incidente_id = @incidente_id AND empresa_id = @empresa_id FOR UPDATE;
+-- FOR NO KEY UPDATE: no choca con el FOR KEY SHARE de las llaves foraneas (avisos_falla_clientes).
+SELECT * FROM soporte.incidentes_red WHERE incidente_id = @incidente_id AND empresa_id = @empresa_id FOR NO KEY UPDATE;
 
 -- name: IncidenteReusable :one
 -- Un incidente del mismo alcance que se cerró desde @desde (su ticket general se reusa).
@@ -148,14 +149,18 @@ SELECT EXISTS (SELECT 1 FROM soporte.avisos_falla_clientes
                WHERE cliente_id = @cliente_id AND tipo = @tipo AND enviado_en >= @desde AND incidente <> @incidente::bigint
                  AND incidente IS DISTINCT FROM sqlc.narg(excluir)::bigint)::boolean;
 
--- name: HijosEnEsperaDeIncidente :many
--- Los hijos de un incidente anterior que siguen colgando del ticket general y en espera de verificar
--- (al reusar el general vuelven a abierto y pasan al incidente nuevo).
+-- name: HijosAbiertosDeIncidente :many
+-- Los hijos abiertos de un incidente anterior que siguen colgando del ticket general (al reusar el
+-- general pasan al incidente nuevo; los que esperaban verificar vuelven a abierto).
 SELECT t.* FROM soporte.tickets t
 JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id AND h.incidente = @incidente::bigint
-WHERE t.ticket_padre_id = @general_id::bigint AND t.estado = 'en_espera' AND t.maestro IS NULL
+WHERE t.ticket_padre_id = @general_id::bigint AND t.estado IN ('nuevo', 'abierto', 'en_espera') AND t.maestro IS NULL
 ORDER BY t.id
 FOR UPDATE OF t;
+
+-- name: HijoEnIncidenteMasNuevoAbierto :one
+SELECT EXISTS (SELECT 1 FROM soporte.incidente_red_hijos h JOIN soporte.incidentes_red i ON i.id = h.incidente
+               WHERE h.ticket_id = @ticket_id AND h.incidente > @incidente::bigint AND i.estado = 'abierta')::boolean;
 
 -- name: RegistrarAvisoHijoSinMensaje :exec
 INSERT INTO soporte.avisos_hijos (maestro_id, aviso, hijo_id, mensaje_id) VALUES (@maestro_id, @aviso, @hijo_id, NULL);
@@ -203,6 +208,7 @@ WHERE t.empresa_id = coalesce(sqlc.narg(empresa_id)::bigint, t.empresa_id)
   AND i.empresa_id = t.empresa_id AND s.router_id = @router_id
   AND t.id > @despues::bigint AND t.estado = 'en_espera' AND t.maestro IS NULL
   AND t.en_espera_desde >= i.cerrada_en
+  AND NOT EXISTS (SELECT 1 FROM soporte.incidente_red_hijos h2 WHERE h2.ticket_id = t.id AND h2.incidente > i.id)
   AND i.cerrada_en + make_interval(0, 0, 0, 0, coalesce((SELECT a.verificacion_horas FROM soporte.red_ajustes a WHERE a.empresa_id = i.empresa_id), 24)) >= @ahora::timestamptz
   AND i.desde < @ocurrido::timestamptz
 ORDER BY t.id
