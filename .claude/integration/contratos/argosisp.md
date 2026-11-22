@@ -2213,7 +2213,7 @@ Iris preguntó cómo va A39 cuando el titular es una empresa; Argos propuso no u
 - **Empresa existente:** se asigna al momento solo si el representante ya está registrado en esa empresa. Si es nuevo, va a revisión de un supervisor y de una persona de Argos (`titular_empresa_en_revision`).
 - **Documento del representante:** se aceptan DPI o pasaporte.
 
-**Ajustes de la revisión de seguridad de la 0.14.1:**
+**Ajustes de la revisión de seguridad de la 0.14.1** (todos aceptados por Argos, 22 nov 2026; Argos marca el NIT verificado con `nit_verificado_en` y `nit_verificado_por`, que pone solo una persona en su panel y se borra si cambia `nit_cui`):
 
 - **a. Representante que no coincide (altos 1 y 3).** Con mismo NIT y misma razón social, asignación al momento solo si el representante coincide con una identidad A41, vigente o anterior, de esa empresa; si no, `422 titular_empresa_en_revision`, sin datos del cliente, y decide una persona de Argos con `clientes.ver_identidad`. Un representante nuevo nunca reemplaza la identidad vigente de una empresa con historial.
 - **b. Qué NIT cuenta (alto 2).** Solo clientes `tipo = empresa` con `nit_cui` verificado en Argos (nunca de A43 ni de `POST /clientes` del token de Iris); un cliente `persona` nunca coincide; con más de un candidato, revisión; NIT normalizado como en §7.5.
