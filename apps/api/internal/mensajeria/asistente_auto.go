@@ -197,6 +197,9 @@ type turnoIA struct {
 	// saldo: el monto leído de Argos para la marca {{saldo}} (solo en memoria: nunca en logs,
 	// auditoría ni eventos).
 	saldo *string
+	// enlaceWifi: el enlace de un solo uso que creó enlace_wifi en este turno (marca {{enlace_wifi}};
+	// 0.9.0 §12.4). El modelo nunca lo ve.
+	enlaceWifi *string
 	// textoCuentas: el texto fijo con las cuentas de la empresa para la marca {{cuentas}} (§7.8; solo
 	// con número registrado). El modelo nunca lo ve.
 	textoCuentas *string
@@ -1254,7 +1257,11 @@ func validarMensajeAutonomo(t *turnoIA, crudo string) (string, bool) {
 		}
 	}
 	texto, ok := conFraseReconexion(t, texto)
-	if !ok || strings.Contains(texto, "{{") {
+	if !ok {
+		return "", false
+	}
+	// El enlace de un solo uso para el Wi-Fi solo lo pone el servidor (0.9.0 §12.4).
+	if texto, ok = conEnlaceWifi(t, texto); !ok || strings.Contains(texto, "{{") {
 		return "", false
 	}
 	return texto, true

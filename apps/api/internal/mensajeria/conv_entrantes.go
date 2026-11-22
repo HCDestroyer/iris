@@ -50,7 +50,8 @@ func contenidoEntrante(msg metaMensaje) nuevoMensaje {
 	texto := func(s string) {
 		s = strings.TrimSpace(s)
 		if s != "" {
-			s = recortar(s, MaxTextoWhatsApp)
+			// Una clave Wi-Fi escrita en el chat no queda en el historial ni se usa (0.9.0 §12.4).
+			s = TaparClaveWifi(recortar(s, MaxTextoWhatsApp))
 			n.texto = &s
 		}
 	}

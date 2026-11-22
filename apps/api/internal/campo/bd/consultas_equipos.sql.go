@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const activacionPorAprovisionamiento = `-- name: ActivacionPorAprovisionamiento :one
@@ -450,6 +451,290 @@ func (q *Queries) AsegurarOrdenActivacion(ctx context.Context, arg AsegurarOrden
 	return i, err
 }
 
+const bienvenidasSinEnviar = `-- name: BienvenidasSinEnviar :many
+
+SELECT o.id, o.numero, o.empresa_id, o.cliente_id, o.servicio_id, o.estado, o.finalizada_en, oa.bienvenida_canales, oa.bienvenida_en
+FROM campo.ordenes o
+JOIN campo.tipos_orden t ON t.id = o.tipo_id
+LEFT JOIN campo.orden_activacion oa ON oa.orden_id = o.id
+WHERE t.codigo = 'instalacion' AND o.servicio_id IS NOT NULL
+  AND ($1::boolean OR coalesce(o.empresa_id, 0) = coalesce($2::bigint, 0))
+  AND ((o.estado = 'cerrada' AND o.resultado = 'exitosa') OR EXISTS (
+        SELECT 1 FROM campo.activaciones a WHERE a.orden_id = o.id AND a.estado = 'listo'))
+  AND coalesce(o.finalizada_en, o.updated_at) > $3
+  AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(coalesce(oa.bienvenida_canales, '[]'::jsonb)) c
+        WHERE c->>'estado' = 'enviada' OR c->>'motivo' IN ('sin_permiso', 'baja'))
+  AND ($4::bigint IS NULL OR o.id < $4::bigint)
+ORDER BY o.id DESC
+LIMIT $5
+`
+
+type BienvenidasSinEnviarParams struct {
+	Todas     bool
+	EmpresaID *int64
+	Desde     *time.Time
+	Antes     *int64
+	Limite    int32
+}
+
+type BienvenidasSinEnviarRow struct {
+	ID                int64
+	Numero            string
+	EmpresaID         *int64
+	ClienteID         *int64
+	ServicioID        *int64
+	Estado            string
+	FinalizadaEn      *time.Time
+	BienvenidaCanales []byte
+	BienvenidaEn      *time.Time
+}
+
+// Bienvenida (B16) ------------------------------------------------------------------------------
+// Instalaciones activas (intento listo o cerradas con éxito) de los últimos 30 días cuya bienvenida
+// no salió por ningún canal ni quedó sin enviar porque el cliente no acepta avisos (§12.5).
+func (q *Queries) BienvenidasSinEnviar(ctx context.Context, arg BienvenidasSinEnviarParams) ([]BienvenidasSinEnviarRow, error) {
+	rows, err := q.db.Query(ctx, bienvenidasSinEnviar,
+		arg.Todas,
+		arg.EmpresaID,
+		arg.Desde,
+		arg.Antes,
+		arg.Limite,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []BienvenidasSinEnviarRow
+	for rows.Next() {
+		var i BienvenidasSinEnviarRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Numero,
+			&i.EmpresaID,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.Estado,
+			&i.FinalizadaEn,
+			&i.BienvenidaCanales,
+			&i.BienvenidaEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cobroDePlantilla = `-- name: CobroDePlantilla :one
+SELECT cobro_concepto_id, cobro_precio FROM campo.plantillas_checklist WHERE id = $1
+`
+
+type CobroDePlantillaRow struct {
+	CobroConceptoID *int64
+	CobroPrecio     pgtype.Numeric
+}
+
+func (q *Queries) CobroDePlantilla(ctx context.Context, id int64) (CobroDePlantillaRow, error) {
+	row := q.db.QueryRow(ctx, cobroDePlantilla, id)
+	var i CobroDePlantillaRow
+	err := row.Scan(&i.CobroConceptoID, &i.CobroPrecio)
+	return i, err
+}
+
+const cobroParaActualizar = `-- name: CobroParaActualizar :one
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) CobroParaActualizar(ctx context.Context, id uuid.UUID) (CampoCobro, error) {
+	row := q.db.QueryRow(ctx, cobroParaActualizar, id)
+	var i CampoCobro
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.EmpresaID,
+		&i.ServicioID,
+		&i.ClienteID,
+		&i.ConceptoID,
+		&i.PrecioUnitario,
+		&i.PrecioPlantilla,
+		&i.MotivoPrecio,
+		&i.Descripcion,
+		&i.RegistradoPor,
+		&i.Estado,
+		&i.IdempotencyKey,
+		&i.PendienteID,
+		&i.FacturaID,
+		&i.Numero,
+		&i.Total,
+		&i.Moneda,
+		&i.Detalle,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const cobroPorClave = `-- name: CobroPorClave :one
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE idempotency_key = $1
+`
+
+func (q *Queries) CobroPorClave(ctx context.Context, idempotencyKey string) (CampoCobro, error) {
+	row := q.db.QueryRow(ctx, cobroPorClave, idempotencyKey)
+	var i CampoCobro
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.EmpresaID,
+		&i.ServicioID,
+		&i.ClienteID,
+		&i.ConceptoID,
+		&i.PrecioUnitario,
+		&i.PrecioPlantilla,
+		&i.MotivoPrecio,
+		&i.Descripcion,
+		&i.RegistradoPor,
+		&i.Estado,
+		&i.IdempotencyKey,
+		&i.PendienteID,
+		&i.FacturaID,
+		&i.Numero,
+		&i.Total,
+		&i.Moneda,
+		&i.Detalle,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const cobroPorFactura = `-- name: CobroPorFactura :one
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE factura_id = $1::bigint AND orden_id = $2 ORDER BY created_at DESC LIMIT 1
+`
+
+type CobroPorFacturaParams struct {
+	FacturaID int64
+	OrdenID   int64
+}
+
+func (q *Queries) CobroPorFactura(ctx context.Context, arg CobroPorFacturaParams) (CampoCobro, error) {
+	row := q.db.QueryRow(ctx, cobroPorFactura, arg.FacturaID, arg.OrdenID)
+	var i CampoCobro
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.EmpresaID,
+		&i.ServicioID,
+		&i.ClienteID,
+		&i.ConceptoID,
+		&i.PrecioUnitario,
+		&i.PrecioPlantilla,
+		&i.MotivoPrecio,
+		&i.Descripcion,
+		&i.RegistradoPor,
+		&i.Estado,
+		&i.IdempotencyKey,
+		&i.PendienteID,
+		&i.FacturaID,
+		&i.Numero,
+		&i.Total,
+		&i.Moneda,
+		&i.Detalle,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const cobroVivoDeOrden = `-- name: CobroVivoDeOrden :one
+
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE orden_id = $1 AND estado IN ('pendiente', 'facturado', 'pagado')
+`
+
+// Cobro de la instalación (B15) -------------------------------------------------------------------
+func (q *Queries) CobroVivoDeOrden(ctx context.Context, ordenID int64) (CampoCobro, error) {
+	row := q.db.QueryRow(ctx, cobroVivoDeOrden, ordenID)
+	var i CampoCobro
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.EmpresaID,
+		&i.ServicioID,
+		&i.ClienteID,
+		&i.ConceptoID,
+		&i.PrecioUnitario,
+		&i.PrecioPlantilla,
+		&i.MotivoPrecio,
+		&i.Descripcion,
+		&i.RegistradoPor,
+		&i.Estado,
+		&i.IdempotencyKey,
+		&i.PendienteID,
+		&i.FacturaID,
+		&i.Numero,
+		&i.Total,
+		&i.Moneda,
+		&i.Detalle,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const cobrosDeOrden = `-- name: CobrosDeOrden :many
+SELECT id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at FROM campo.cobros WHERE orden_id = $1 ORDER BY created_at DESC
+`
+
+func (q *Queries) CobrosDeOrden(ctx context.Context, ordenID int64) ([]CampoCobro, error) {
+	rows, err := q.db.Query(ctx, cobrosDeOrden, ordenID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CampoCobro
+	for rows.Next() {
+		var i CampoCobro
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrdenID,
+			&i.EmpresaID,
+			&i.ServicioID,
+			&i.ClienteID,
+			&i.ConceptoID,
+			&i.PrecioUnitario,
+			&i.PrecioPlantilla,
+			&i.MotivoPrecio,
+			&i.Descripcion,
+			&i.RegistradoPor,
+			&i.Estado,
+			&i.IdempotencyKey,
+			&i.PendienteID,
+			&i.FacturaID,
+			&i.Numero,
+			&i.Total,
+			&i.Moneda,
+			&i.Detalle,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const crearActivacion = `-- name: CrearActivacion :one
 INSERT INTO campo.activaciones (id, orden_id, empresa_id, servicio_id, intento, idempotency_key, origen, pedido_por, estado,
     equipo_tipo, equipo_serie, equipo_mac, equipo_unidad_id, equipo_modelo, planta, wireless, wifi_ssid, con_clave_wifi, pendiente_id)
@@ -531,6 +816,74 @@ func (q *Queries) CrearActivacion(ctx context.Context, arg CrearActivacionParams
 		&i.ConsultadoEn,
 		&i.ResueltoEn,
 		&i.EntranteID,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const crearCobro = `-- name: CrearCobro :one
+INSERT INTO campo.cobros (id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla,
+    motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+    $9, $10, $11, 'pendiente', $12, $13)
+RETURNING id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at
+`
+
+type CrearCobroParams struct {
+	ID              uuid.UUID
+	OrdenID         int64
+	EmpresaID       *int64
+	ServicioID      int64
+	ClienteID       int64
+	ConceptoID      int64
+	PrecioUnitario  pgtype.Numeric
+	PrecioPlantilla pgtype.Numeric
+	MotivoPrecio    *string
+	Descripcion     *string
+	RegistradoPor   *int64
+	IdempotencyKey  string
+	PendienteID     *int64
+}
+
+func (q *Queries) CrearCobro(ctx context.Context, arg CrearCobroParams) (CampoCobro, error) {
+	row := q.db.QueryRow(ctx, crearCobro,
+		arg.ID,
+		arg.OrdenID,
+		arg.EmpresaID,
+		arg.ServicioID,
+		arg.ClienteID,
+		arg.ConceptoID,
+		arg.PrecioUnitario,
+		arg.PrecioPlantilla,
+		arg.MotivoPrecio,
+		arg.Descripcion,
+		arg.RegistradoPor,
+		arg.IdempotencyKey,
+		arg.PendienteID,
+	)
+	var i CampoCobro
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.EmpresaID,
+		&i.ServicioID,
+		&i.ClienteID,
+		&i.ConceptoID,
+		&i.PrecioUnitario,
+		&i.PrecioPlantilla,
+		&i.MotivoPrecio,
+		&i.Descripcion,
+		&i.RegistradoPor,
+		&i.Estado,
+		&i.IdempotencyKey,
+		&i.PendienteID,
+		&i.FacturaID,
+		&i.Numero,
+		&i.Total,
+		&i.Moneda,
+		&i.Detalle,
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -674,6 +1027,61 @@ func (q *Queries) GuardarActivacion(ctx context.Context, arg GuardarActivacionPa
 	return i, err
 }
 
+const guardarCobro = `-- name: GuardarCobro :one
+UPDATE campo.cobros SET estado = $1, factura_id = $2, numero = $3, total = $4,
+    moneda = $5, detalle = $6, version = version + 1, updated_at = now()
+WHERE id = $7
+RETURNING id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla, motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id, factura_id, numero, total, moneda, detalle, version, created_at, updated_at
+`
+
+type GuardarCobroParams struct {
+	Estado    string
+	FacturaID *int64
+	Numero    *string
+	Total     pgtype.Numeric
+	Moneda    *string
+	Detalle   *string
+	ID        uuid.UUID
+}
+
+func (q *Queries) GuardarCobro(ctx context.Context, arg GuardarCobroParams) (CampoCobro, error) {
+	row := q.db.QueryRow(ctx, guardarCobro,
+		arg.Estado,
+		arg.FacturaID,
+		arg.Numero,
+		arg.Total,
+		arg.Moneda,
+		arg.Detalle,
+		arg.ID,
+	)
+	var i CampoCobro
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.EmpresaID,
+		&i.ServicioID,
+		&i.ClienteID,
+		&i.ConceptoID,
+		&i.PrecioUnitario,
+		&i.PrecioPlantilla,
+		&i.MotivoPrecio,
+		&i.Descripcion,
+		&i.RegistradoPor,
+		&i.Estado,
+		&i.IdempotencyKey,
+		&i.PendienteID,
+		&i.FacturaID,
+		&i.Numero,
+		&i.Total,
+		&i.Moneda,
+		&i.Detalle,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const ordenActivacion = `-- name: OrdenActivacion :one
 SELECT orden_id, empresa_id, intentos, sin_activacion_motivo, sin_activacion_por, bienvenida_canales, bienvenida_en, bienvenida_reenvios, version, created_at, updated_at FROM campo.orden_activacion WHERE orden_id = $1
 `
@@ -697,7 +1105,7 @@ func (q *Queries) OrdenActivacion(ctx context.Context, ordenID int64) (CampoOrde
 	return i, err
 }
 
-const ordenesDeServicioParaBienvenida = `-- name: OrdenesDeServicioParaBienvenida :many
+const ordenesDeServicioParaBienvenida = `-- name: OrdenesDeServicioParaBienvenida :one
 SELECT o.id FROM campo.ordenes o JOIN campo.tipos_orden t ON t.id = o.tipo_id
 WHERE o.servicio_id = $1 AND t.codigo = 'instalacion' AND o.estado <> 'cancelada'
 ORDER BY o.id DESC LIMIT 1
@@ -705,24 +1113,11 @@ ORDER BY o.id DESC LIMIT 1
 
 // Órdenes de instalación del servicio con un intento listo o cerradas con éxito (la bienvenida de
 // Argos sin origen se relaciona por servicio).
-func (q *Queries) OrdenesDeServicioParaBienvenida(ctx context.Context, servicioID *int64) ([]int64, error) {
-	rows, err := q.db.Query(ctx, ordenesDeServicioParaBienvenida, servicioID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
+func (q *Queries) OrdenesDeServicioParaBienvenida(ctx context.Context, servicioID *int64) (int64, error) {
+	row := q.db.QueryRow(ctx, ordenesDeServicioParaBienvenida, servicioID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const sumarIntentoActivacion = `-- name: SumarIntentoActivacion :one

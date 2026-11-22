@@ -82,12 +82,15 @@ type AccionesAsistente struct {
 	RecibirBoleta      bool `json:"recibir_boleta" doc:"La registra como comprobante en Argos; nunca aprueba"`
 	PromesaPago        bool `json:"promesa_pago" doc:"Argos decide con sus reglas del canal ia"`
 	ReconexionTemporal bool `json:"reconexion_temporal" doc:"Argos decide con sus reglas del canal ia"`
-	PasarAPersona      bool `json:"pasar_a_persona" doc:"Siempre true: no se puede apagar"`
+	// 0.9.0 §12.3 y §12.4 (B14): apagadas de fábrica.
+	VerEquipo     bool `json:"ver_equipo,omitempty" doc:"Leer si el equipo del cliente está en línea y su señal (sin serie, MAC ni datos de red). Apagada de fábrica"`
+	CambiarWifi   bool `json:"cambiar_wifi,omitempty" doc:"Mandar al cliente verificado un enlace de un solo uso para cambiar su Wi-Fi (el asistente nunca pide ni ve la clave). Apagada de fábrica"`
+	PasarAPersona bool `json:"pasar_a_persona" doc:"Siempre true: no se puede apagar"`
 }
 
 // nombresAcciones: las ocho que se pueden apagar, en el orden de la pantalla.
 var nombresAcciones = []string{"responder_dudas", "avisar_fallas", "dar_saldo", "crear_ticket", "agendar_visita", "recibir_boleta",
-	"promesa_pago", "reconexion_temporal"}
+	"promesa_pago", "reconexion_temporal", AccionVerEquipo, AccionCambiarWifi}
 
 func (a AccionesAsistente) encendida(nombre string) bool {
 	switch nombre {
@@ -107,6 +110,10 @@ func (a AccionesAsistente) encendida(nombre string) bool {
 		return a.PromesaPago
 	case "reconexion_temporal":
 		return a.ReconexionTemporal
+	case AccionVerEquipo:
+		return a.VerEquipo
+	case AccionCambiarWifi:
+		return a.CambiarWifi
 	case "pasar_a_persona":
 		return true
 	}

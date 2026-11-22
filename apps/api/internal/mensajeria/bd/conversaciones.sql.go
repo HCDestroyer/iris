@@ -252,7 +252,7 @@ func (q *Queries) AvanzarSeqConversacion(ctx context.Context, arg AvanzarSeqConv
 }
 
 const avisoDeProveedorCanal = `-- name: AvisoDeProveedorCanal :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at FROM mensajeria.avisos WHERE canal_id = $1 AND proveedor_id = $2
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id FROM mensajeria.avisos WHERE canal_id = $1 AND proveedor_id = $2
 `
 
 type AvisoDeProveedorCanalParams struct {
@@ -295,6 +295,7 @@ func (q *Queries) AvisoDeProveedorCanal(ctx context.Context, arg AvisoDeProveedo
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OrdenID,
 	)
 	return i, err
 }
@@ -4115,7 +4116,7 @@ func (q *Queries) TocarCola(ctx context.Context, id int64) (MensajeriaCola, erro
 }
 
 const ultimoAvisoA = `-- name: UltimoAvisoA :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at FROM mensajeria.avisos
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id FROM mensajeria.avisos
 WHERE canal_id = $1 AND destino = $2 AND enviado_en IS NOT NULL AND enviado_en >= $3::timestamptz
 ORDER BY enviado_en DESC LIMIT 1
 `
@@ -4161,6 +4162,7 @@ func (q *Queries) UltimoAvisoA(ctx context.Context, arg UltimoAvisoAParams) (Men
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OrdenID,
 	)
 	return i, err
 }

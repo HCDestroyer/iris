@@ -263,6 +263,31 @@ type CampoAjuste struct {
 	CierreExigeBienvenida bool
 }
 
+type CampoCobro struct {
+	ID              uuid.UUID
+	OrdenID         int64
+	EmpresaID       *int64
+	ServicioID      int64
+	ClienteID       int64
+	ConceptoID      int64
+	PrecioUnitario  pgtype.Numeric
+	PrecioPlantilla pgtype.Numeric
+	MotivoPrecio    *string
+	Descripcion     *string
+	RegistradoPor   *int64
+	Estado          string
+	IdempotencyKey  string
+	PendienteID     *int64
+	FacturaID       *int64
+	Numero          *string
+	Total           pgtype.Numeric
+	Moneda          *string
+	Detalle         *string
+	Version         int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+}
+
 type CampoDispositivo struct {
 	ID             string
 	UsuarioID      int64
@@ -593,6 +618,8 @@ type CampoPlantillasChecklist struct {
 	AlgunaVezActiva       bool
 	ActivacionModo        *string
 	CierreExigeBienvenida *bool
+	CobroConceptoID       *int64
+	CobroPrecio           pgtype.Numeric
 }
 
 type CampoPosicion struct {
@@ -911,6 +938,9 @@ type IntegracionArgosCuentasBancaria struct {
 	SincronizadoEn time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	CambiadaEn     *time.Time
+	ConfirmadaPor  *int64
+	ConfirmadaEn   *time.Time
 }
 
 type IntegracionArgosCuentasLectura struct {
@@ -1411,6 +1441,7 @@ type MensajeriaAviso struct {
 	Intentos       int32
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	OrdenID        *int64
 }
 
 type MensajeriaBoleta struct {
@@ -1944,6 +1975,22 @@ type MensajeriaDisponibilidad struct {
 	HorarioHasta    *time.Time
 	Version         int32
 	UpdatedAt       time.Time
+}
+
+type MensajeriaEnlacesWifi struct {
+	ID             uuid.UUID
+	Huella         []byte
+	EmpresaID      *int64
+	ConversacionID int64
+	ClienteID      int64
+	ServicioID     int64
+	VerificacionID int64
+	Metodo         string
+	VerificadoEn   time.Time
+	VenceEn        time.Time
+	UsadoEn        *time.Time
+	CambioID       *uuid.UUID
+	CreatedAt      time.Time
 }
 
 type MensajeriaEntrante struct {

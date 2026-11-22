@@ -1118,7 +1118,7 @@ INSERT INTO campo.plantillas_checklist (codigo, nombre, descripcion, tipo_codigo
                                         version_actual_id, activa, alguna_vez_activa)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
         0, $8, $8)
-RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida
+RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida, cobro_concepto_id, cobro_precio
 `
 
 type CrearPlantillaParams struct {
@@ -1166,6 +1166,8 @@ func (q *Queries) CrearPlantilla(ctx context.Context, arg CrearPlantillaParams) 
 		&i.AlgunaVezActiva,
 		&i.ActivacionModo,
 		&i.CierreExigeBienvenida,
+		&i.CobroConceptoID,
+		&i.CobroPrecio,
 	)
 	return i, err
 }
@@ -1468,7 +1470,7 @@ const fijarVersionActual = `-- name: FijarVersionActual :one
 UPDATE campo.plantillas_checklist SET version_actual_id = $1, nombre = $2, requiere_firma = $3,
     updated_at = now()
 WHERE id = $4
-RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida
+RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida, cobro_concepto_id, cobro_precio
 `
 
 type FijarVersionActualParams struct {
@@ -1507,6 +1509,8 @@ func (q *Queries) FijarVersionActual(ctx context.Context, arg FijarVersionActual
 		&i.AlgunaVezActiva,
 		&i.ActivacionModo,
 		&i.CierreExigeBienvenida,
+		&i.CobroConceptoID,
+		&i.CobroPrecio,
 	)
 	return i, err
 }
@@ -1999,7 +2003,7 @@ UPDATE campo.plantillas_checklist SET nombre = $1, descripcion = $2, tipo_codigo
     alguna_vez_activa = alguna_vez_activa OR $5,
     version = version + 1, updated_at = now()
 WHERE id = $7 AND version = $8
-RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida
+RETURNING id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida, cobro_concepto_id, cobro_precio
 `
 
 type GuardarPlantillaParams struct {
@@ -2048,6 +2052,8 @@ func (q *Queries) GuardarPlantilla(ctx context.Context, arg GuardarPlantillaPara
 		&i.AlgunaVezActiva,
 		&i.ActivacionModo,
 		&i.CierreExigeBienvenida,
+		&i.CobroConceptoID,
+		&i.CobroPrecio,
 	)
 	return i, err
 }
@@ -3547,7 +3553,7 @@ func (q *Queries) OrdenesPorIDs(ctx context.Context, ids []int64) ([]CampoOrden,
 }
 
 const paginaPlantillas = `-- name: PaginaPlantillas :many
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida FROM campo.plantillas_checklist
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida, cobro_concepto_id, cobro_precio FROM campo.plantillas_checklist
 WHERE ($1::boolean OR empresa_id IS NULL OR empresa_id = $2)
   AND (NOT $3::boolean OR activa)
   AND ($4::text IS NULL OR tipo_codigo IS NULL OR tipo_codigo = $4)
@@ -3608,6 +3614,8 @@ func (q *Queries) PaginaPlantillas(ctx context.Context, arg PaginaPlantillasPara
 			&i.AlgunaVezActiva,
 			&i.ActivacionModo,
 			&i.CierreExigeBienvenida,
+			&i.CobroConceptoID,
+			&i.CobroPrecio,
 		); err != nil {
 			return nil, err
 		}
@@ -3707,7 +3715,7 @@ func (q *Queries) PausasDeOrdenes(ctx context.Context, ordenes []int64) ([]Campo
 }
 
 const plantillaPorID = `-- name: PlantillaPorID :one
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida FROM campo.plantillas_checklist WHERE id = $1
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida, cobro_concepto_id, cobro_precio FROM campo.plantillas_checklist WHERE id = $1
 `
 
 func (q *Queries) PlantillaPorID(ctx context.Context, id int64) (CampoPlantillasChecklist, error) {
@@ -3734,12 +3742,14 @@ func (q *Queries) PlantillaPorID(ctx context.Context, id int64) (CampoPlantillas
 		&i.AlgunaVezActiva,
 		&i.ActivacionModo,
 		&i.CierreExigeBienvenida,
+		&i.CobroConceptoID,
+		&i.CobroPrecio,
 	)
 	return i, err
 }
 
 const plantillaPorIDCompartida = `-- name: PlantillaPorIDCompartida :one
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida FROM campo.plantillas_checklist WHERE id = $1 FOR SHARE
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida, cobro_concepto_id, cobro_precio FROM campo.plantillas_checklist WHERE id = $1 FOR SHARE
 `
 
 // Al agregar un formulario: la edición (FOR UPDATE) espera, así no reescribe una versión que
@@ -3768,12 +3778,14 @@ func (q *Queries) PlantillaPorIDCompartida(ctx context.Context, id int64) (Campo
 		&i.AlgunaVezActiva,
 		&i.ActivacionModo,
 		&i.CierreExigeBienvenida,
+		&i.CobroConceptoID,
+		&i.CobroPrecio,
 	)
 	return i, err
 }
 
 const plantillaPorIDParaActualizar = `-- name: PlantillaPorIDParaActualizar :one
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida FROM campo.plantillas_checklist WHERE id = $1 FOR UPDATE
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida, cobro_concepto_id, cobro_precio FROM campo.plantillas_checklist WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) PlantillaPorIDParaActualizar(ctx context.Context, id int64) (CampoPlantillasChecklist, error) {
@@ -3800,12 +3812,14 @@ func (q *Queries) PlantillaPorIDParaActualizar(ctx context.Context, id int64) (C
 		&i.AlgunaVezActiva,
 		&i.ActivacionModo,
 		&i.CierreExigeBienvenida,
+		&i.CobroConceptoID,
+		&i.CobroPrecio,
 	)
 	return i, err
 }
 
 const plantillasPorIDs = `-- name: PlantillasPorIDs :many
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida FROM campo.plantillas_checklist WHERE id = ANY($1::bigint[])
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida, cobro_concepto_id, cobro_precio FROM campo.plantillas_checklist WHERE id = ANY($1::bigint[])
 `
 
 func (q *Queries) PlantillasPorIDs(ctx context.Context, ids []int64) ([]CampoPlantillasChecklist, error) {
@@ -3838,6 +3852,8 @@ func (q *Queries) PlantillasPorIDs(ctx context.Context, ids []int64) ([]CampoPla
 			&i.AlgunaVezActiva,
 			&i.ActivacionModo,
 			&i.CierreExigeBienvenida,
+			&i.CobroConceptoID,
+			&i.CobroPrecio,
 		); err != nil {
 			return nil, err
 		}
@@ -3850,7 +3866,7 @@ func (q *Queries) PlantillasPorIDs(ctx context.Context, ids []int64) ([]CampoPla
 }
 
 const plantillasVisibles = `-- name: PlantillasVisibles :many
-SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida FROM campo.plantillas_checklist
+SELECT id, codigo, nombre, tipo_codigo, requiere_firma, activa, version, created_at, updated_at, cobrar, cargo_producto_id, cargo_monto, cargo_descripcion, empresa_id, descripcion, creado_por, version_actual_id, alguna_vez_activa, activacion_modo, cierre_exige_bienvenida, cobro_concepto_id, cobro_precio FROM campo.plantillas_checklist
 WHERE ($1::boolean OR empresa_id IS NULL OR empresa_id = $2)
   AND (NOT $3::boolean OR activa)
   AND ($4::text IS NULL OR tipo_codigo IS NULL OR tipo_codigo = $4)
@@ -3905,6 +3921,8 @@ func (q *Queries) PlantillasVisibles(ctx context.Context, arg PlantillasVisibles
 			&i.AlgunaVezActiva,
 			&i.ActivacionModo,
 			&i.CierreExigeBienvenida,
+			&i.CobroConceptoID,
+			&i.CobroPrecio,
 		); err != nil {
 			return nil, err
 		}

@@ -227,6 +227,15 @@ type Modulo struct {
 	autorizarEquipo *auditoria.Caso[EntradaEquipoOrden, int64]
 	CambiarWifi     *auditoria.Caso[EntradaWifiOrden, equipos.CambioWifi]
 	CambiosWifi     *auditoria.Caso[EntradaEquipoOrden, []equipos.CambioWifi]
+	// Cobro de la instalación (cobro.go; 0.9.0 §3, B15).
+	RegistrarCobro *auditoria.Caso[EntradaRegistrarCobro, Cobro]
+	VerCobros      *auditoria.Caso[EntradaVerOrden, []Cobro]
+	SeguirCobro    *auditoria.Caso[entradaCobroArgos, *Cobro]
+	// Bienvenida en la orden (bienvenida.go; 0.9.0 §12.5, B16).
+	VerBienvenida        *auditoria.Caso[EntradaVerOrden, Bienvenida]
+	ReenviarBienvenida   *auditoria.Caso[EntradaReenviarBienvenida, Bienvenida]
+	ActualizarBienvenida *auditoria.Caso[entradaBienvenidaArgos, *Bienvenida]
+	BienvenidasSinEnviar *auditoria.Caso[EntradaBienvenidasSinEnviar, nucleo.Pagina[BienvenidaSinEnviar]]
 }
 
 // Nuevo arma el módulo.
@@ -322,6 +331,13 @@ func Nuevo(cfg Config) *Modulo {
 	m.autorizarEquipo = m.nuevoAutorizarEquipo()
 	m.CambiarWifi = m.nuevoCambiarWifi()
 	m.CambiosWifi = m.nuevoCambiosWifi()
+	m.RegistrarCobro = m.nuevoRegistrarCobro()
+	m.VerCobros = m.nuevoVerCobros()
+	m.SeguirCobro = m.nuevoSeguirCobro()
+	m.VerBienvenida = m.nuevoVerBienvenida()
+	m.ReenviarBienvenida = m.nuevoReenviarBienvenida()
+	m.ActualizarBienvenida = m.nuevoActualizarBienvenida()
+	m.BienvenidasSinEnviar = m.nuevoBienvenidasSinEnviar()
 	// Las tareas de agenda se ligan a órdenes que el actor ve (reglas de campo).
 	cfg.Agenda.UsarOrdenes(m)
 	return m

@@ -186,8 +186,11 @@ type Modulo struct {
 	// ServidorIA: el servidor de IA de la instalación (contratos/voz.md §4).
 	ServidorIA *CasosServidorIA
 
-	EnviarAviso             *EnviarAviso
-	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
+	EnviarAviso *EnviarAviso
+	VerAviso    *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
+	// Enlace de un solo uso para cambiar el Wi-Fi (asistente_equipos.go; 0.9.0 §12.4, B14).
+	VerEnlaceWifi           *auditoria.Caso[string, EnlaceWifiPublico]
+	UsarEnlaceWifi          *auditoria.Caso[EntradaWifiPublico, WifiPedido]
 	RegistrarConsentimiento *RegistrarConsentimiento
 	ListarPlantillas        *auditoria.Caso[EntradaPlantillas, ListaPlantillas]
 	CrearCanal              *CasoCanal[EntradaCrearCanal]
@@ -436,6 +439,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.Centralita = nuevosCasosCentralita(m)
 	m.despertarCentralitas = make(chan string, 64)
 	m.idProceso = uuid.Must(uuid.NewV7()).String()
+	m.VerEnlaceWifi = m.nuevoVerEnlaceWifi()
+	m.UsarEnlaceWifi = m.nuevoUsarEnlaceWifi()
 	return m
 }
 

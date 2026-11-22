@@ -127,6 +127,17 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 				plantilla = &p
 			}
 			payload["cargo"] = cargoDe(f, tipo, plantilla)
+			// El cobro de la instalación ya registrado desde la orden (0.9.0 §3, B15): el cierre no manda
+			// el de la plantilla (iris:cargo:<orden_id>).
+			if tipo.Codigo == tipoInstalacion {
+				registrado, err := cobroRegistrado(ctx, q, f.ID)
+				if err != nil {
+					return f, "", err
+				}
+				if registrado {
+					payload["cargo"] = nil
+				}
+			}
 			// El técnico en Argos (contrato 0.5.0 §3.3), congelado al cerrar: el vínculo de su ficha de
 			// agenda. null = sin vincular (la cola usa bodega_id, también con Argos < 1.6.0).
 			if payload["tecnico"], err = tecnicoArgos(ctx, q, f.TecnicoID); err != nil {

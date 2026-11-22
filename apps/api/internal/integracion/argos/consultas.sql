@@ -411,12 +411,28 @@ SELECT * FROM integracion.argos_cuentas_bancarias ORDER BY empresa_id, banco_nom
 
 -- name: GuardarCuentaBancaria :execrows
 -- Gana la lectura más reciente de Argos (una relectura vieja no pisa a una nueva).
-INSERT INTO integracion.argos_cuentas_bancarias (id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en)
-VALUES (@id, @empresa_id, @banco_id, @banco_nombre, @numero, @alias, @titular, @tipo, @moneda, @activa, @sincronizado_en)
+-- 0.9.0 §12.5: una cuenta nueva (después de la primera carga) o con otro número, titular, banco,
+-- moneda o empresa queda «recién cambiada» (cambiada_en) y pierde la confirmación del admin.
+INSERT INTO integracion.argos_cuentas_bancarias (id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en,
+    cambiada_en)
+VALUES (@id, @empresa_id, @banco_id, @banco_nombre, @numero, @alias, @titular, @tipo, @moneda, @activa, @sincronizado_en,
+    CASE WHEN EXISTS (SELECT 1 FROM integracion.argos_cuentas_lecturas) THEN now() END)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, banco_id = excluded.banco_id, banco_nombre = excluded.banco_nombre, numero = excluded.numero,
     alias = excluded.alias, titular = excluded.titular, tipo = excluded.tipo, moneda = excluded.moneda, activa = excluded.activa,
-    sincronizado_en = excluded.sincronizado_en, updated_at = now()
+    sincronizado_en = excluded.sincronizado_en, updated_at = now(),
+    cambiada_en = CASE WHEN (integracion.argos_cuentas_bancarias.numero, integracion.argos_cuentas_bancarias.titular,
+            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id)
+        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id)
+        THEN now() ELSE integracion.argos_cuentas_bancarias.cambiada_en END,
+    confirmada_por = CASE WHEN (integracion.argos_cuentas_bancarias.numero, integracion.argos_cuentas_bancarias.titular,
+            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id)
+        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id)
+        THEN NULL ELSE integracion.argos_cuentas_bancarias.confirmada_por END,
+    confirmada_en = CASE WHEN (integracion.argos_cuentas_bancarias.numero, integracion.argos_cuentas_bancarias.titular,
+            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id)
+        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id)
+        THEN NULL ELSE integracion.argos_cuentas_bancarias.confirmada_en END
 WHERE integracion.argos_cuentas_bancarias.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: BorrarCuentaBancaria :execrows
@@ -588,3 +604,8 @@ UPDATE integracion.argos_certificados
 SET visto_en = @visto_en, ultimo_visto_en = @visto_en, cambiado = true, anterior_id = @anterior_id
 WHERE id = @id
 RETURNING *;
+
+-- name: ConfirmarCuentaBancaria :one
+-- Un admin de Iris confirma una cuenta recién cambiada: entra en la bienvenida antes de las 24 h (§12.5).
+UPDATE integracion.argos_cuentas_bancarias SET confirmada_por = @usuario_id, confirmada_en = now(), updated_at = now()
+WHERE id = @id RETURNING *;

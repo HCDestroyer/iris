@@ -26,7 +26,9 @@ var listasRespuesta = map[string][]string{"cargos": {"id", "producto_id", "monto
 
 // Objetos que también se guardan, solo con esos campos escalares (contrato 0.10.0 §3.4.4): el
 // titular que quedó en el servicio (A39), para cobrar la instalación a su nombre.
-var objetosRespuesta = map[string][]string{"titular": {"cliente_id", "existente"}}
+var objetosRespuesta = map[string][]string{"titular": {"cliente_id", "existente"},
+	// Contrato 0.9.0 (A36): la factura única que emitió Argos para el cobro de la orden.
+	"factura": {"id", "numero", "estado", "total", "moneda"}}
 
 var camposPermitidos = func() map[string]bool {
 	m := map[string]bool{}

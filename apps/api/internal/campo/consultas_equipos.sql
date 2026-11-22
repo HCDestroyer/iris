@@ -82,9 +82,63 @@ FROM (SELECT 1) uno
 LEFT JOIN campo.ajustes a ON coalesce(a.empresa_id, 0) = coalesce(sqlc.narg(empresa_id)::bigint, 0)
 LEFT JOIN campo.plantillas_checklist p ON p.id = sqlc.narg(plantilla_id)::bigint;
 
--- name: OrdenesDeServicioParaBienvenida :many
+-- name: OrdenesDeServicioParaBienvenida :one
 -- Órdenes de instalación del servicio con un intento listo o cerradas con éxito (la bienvenida de
 -- Argos sin origen se relaciona por servicio).
 SELECT o.id FROM campo.ordenes o JOIN campo.tipos_orden t ON t.id = o.tipo_id
 WHERE o.servicio_id = @servicio_id AND t.codigo = 'instalacion' AND o.estado <> 'cancelada'
 ORDER BY o.id DESC LIMIT 1;
+
+-- Cobro de la instalación (B15) -------------------------------------------------------------------
+
+-- name: CobroVivoDeOrden :one
+SELECT * FROM campo.cobros WHERE orden_id = @orden_id AND estado IN ('pendiente', 'facturado', 'pagado');
+
+-- name: CobrosDeOrden :many
+SELECT * FROM campo.cobros WHERE orden_id = @orden_id ORDER BY created_at DESC;
+
+-- name: CobroPorClave :one
+SELECT * FROM campo.cobros WHERE idempotency_key = @idempotency_key;
+
+-- name: CobroPorFactura :one
+SELECT * FROM campo.cobros WHERE factura_id = @factura_id::bigint AND orden_id = @orden_id ORDER BY created_at DESC LIMIT 1;
+
+-- name: CobroParaActualizar :one
+SELECT * FROM campo.cobros WHERE id = @id FOR UPDATE;
+
+-- name: CrearCobro :one
+INSERT INTO campo.cobros (id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id, precio_unitario, precio_plantilla,
+    motivo_precio, descripcion, registrado_por, estado, idempotency_key, pendiente_id)
+VALUES (@id, @orden_id, sqlc.narg(empresa_id), @servicio_id, @cliente_id, @concepto_id, @precio_unitario, sqlc.narg(precio_plantilla),
+    sqlc.narg(motivo_precio), sqlc.narg(descripcion), sqlc.narg(registrado_por), 'pendiente', @idempotency_key, sqlc.narg(pendiente_id))
+RETURNING *;
+
+-- name: GuardarCobro :one
+UPDATE campo.cobros SET estado = @estado, factura_id = sqlc.narg(factura_id), numero = sqlc.narg(numero), total = sqlc.narg(total),
+    moneda = sqlc.narg(moneda), detalle = sqlc.narg(detalle), version = version + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: CobroDePlantilla :one
+SELECT cobro_concepto_id, cobro_precio FROM campo.plantillas_checklist WHERE id = @id;
+
+-- Bienvenida (B16) ------------------------------------------------------------------------------
+
+-- name: BienvenidasSinEnviar :many
+-- Instalaciones activas (intento listo o cerradas con éxito) de los últimos 30 días cuya bienvenida
+-- no salió por ningún canal ni quedó sin enviar porque el cliente no acepta avisos (§12.5).
+SELECT o.id, o.numero, o.empresa_id, o.cliente_id, o.servicio_id, o.estado, o.finalizada_en, oa.bienvenida_canales, oa.bienvenida_en
+FROM campo.ordenes o
+JOIN campo.tipos_orden t ON t.id = o.tipo_id
+LEFT JOIN campo.orden_activacion oa ON oa.orden_id = o.id
+WHERE t.codigo = 'instalacion' AND o.servicio_id IS NOT NULL
+  AND (@todas::boolean OR coalesce(o.empresa_id, 0) = coalesce(sqlc.narg(empresa_id)::bigint, 0))
+  AND ((o.estado = 'cerrada' AND o.resultado = 'exitosa') OR EXISTS (
+        SELECT 1 FROM campo.activaciones a WHERE a.orden_id = o.id AND a.estado = 'listo'))
+  AND coalesce(o.finalizada_en, o.updated_at) > @desde
+  AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(coalesce(oa.bienvenida_canales, '[]'::jsonb)) c
+        WHERE c->>'estado' = 'enviada' OR c->>'motivo' IN ('sin_permiso', 'baja'))
+  AND (sqlc.narg(antes)::bigint IS NULL OR o.id < sqlc.narg(antes)::bigint)
+ORDER BY o.id DESC
+LIMIT @limite;
