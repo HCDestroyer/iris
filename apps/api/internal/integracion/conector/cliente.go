@@ -374,6 +374,48 @@ func (c *Cliente) EscribirMultipart(ctx context.Context, ruta string, campos map
 	return c.unaCuerpo(ctx, http.MethodPost, ruta, nil, &b, mw.FormDataContentType(), destino, clave)
 }
 
+// Parte es una parte de un multipart/form-data: sin Nombre es un campo de texto; con Nombre, un
+// archivo (Mime obligatorio). Una parte de texto con Mime (p. ej. application/json) lo declara.
+type Parte struct {
+	Campo  string
+	Nombre string
+	Mime   string
+	Datos  []byte
+}
+
+// EscribirPartes es EscribirMultipart con varias partes en el orden dado (contrato 0.10.0 §3.4:
+// A39 y A41 mandan los datos y el frente y el reverso del documento). Un solo intento, con
+// Idempotency-Key; la huella de Argos son las partes en orden, sin el boundary.
+func (c *Cliente) EscribirPartes(ctx context.Context, ruta string, partes []Parte, clave string, destino any) error {
+	if clave == "" {
+		return errors.New("conector: una escritura necesita Idempotency-Key")
+	}
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	for _, p := range partes {
+		h := textproto.MIMEHeader{}
+		if p.Nombre != "" {
+			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, p.Campo, p.Nombre))
+		} else {
+			h.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q`, p.Campo))
+		}
+		if p.Mime != "" {
+			h.Set("Content-Type", p.Mime)
+		}
+		w, err := mw.CreatePart(h)
+		if err != nil {
+			return err
+		}
+		if _, err := w.Write(p.Datos); err != nil {
+			return err
+		}
+	}
+	if err := mw.Close(); err != nil {
+		return err
+	}
+	return c.unaCuerpo(ctx, http.MethodPost, ruta, nil, &b, mw.FormDataContentType(), destino, clave)
+}
+
 func (c *Cliente) una(ctx context.Context, metodo, ruta string, consulta url.Values, cuerpo any, destino any, clave string) error {
 	var lector io.Reader
 	tipo := ""

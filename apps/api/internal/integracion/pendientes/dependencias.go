@@ -52,6 +52,10 @@ func bloquearDependientes(ctx context.Context, t *auditoria.Tx, id int64, estado
 // desbloquearDependientes: el pendiente id quedó hecho; vuelven a la cola los bloqueados cuyas
 // dependencias están todas hechas. Emite integracion.pendiente_desbloqueado por cada uno.
 func (m *Modulo) desbloquearDependientes(ctx context.Context, t *auditoria.Tx, id int64, ahora time.Time) error {
+	return desbloquear(ctx, t, id, ahora)
+}
+
+func desbloquear(ctx context.Context, t *auditoria.Tx, id int64, ahora time.Time) error {
 	filas, err := pendientesbd.New(t).DesbloquearDependientes(ctx, pendientesbd.DesbloquearDependientesParams{Ahora: ahora, ID: id})
 	if err != nil {
 		return err

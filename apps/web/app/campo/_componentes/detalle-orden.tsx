@@ -2,7 +2,7 @@
 
 import type { OrdenVista } from "@iris/sync";
 import { estadoPasos, faltantesAntesDeFirmar, llego, PASOS_ORDEN, progresoPasos, puedeReanudar, TITULOS_PASO, urlDeVista, type PasoOrden } from "@iris/sync/campo";
-import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, cn } from "@iris/ui";
+import { Aviso, BarraProgreso, Boton, Cargando, cn, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import {
     ArrowLeft,
     CircleCheck,
@@ -13,7 +13,6 @@ import {
     MapPinCheck,
     Navigation,
     PenLine,
-    Phone,
     Route,
 } from "lucide-react";
 import { useEffect, useRef, useState, type MouseEvent } from "react";
@@ -26,7 +25,7 @@ import { enlaceComoLlegar } from "@/lib/campo/gps";
 import { accionesDe } from "@/lib/campo/reglas";
 import { AVISOS_SERVIDOR, OPERACIONES } from "@/lib/campo/textos";
 import { haceTiempo } from "@/lib/datos/presentacion";
-import { enlaceTel, principal, telefonos } from "@/lib/datos/telefono";
+import { telefonos } from "@/lib/datos/telefono";
 import { formatearFecha } from "@/lib/fechas";
 import { Checklist } from "./checklist";
 import { PasoCierre } from "./cierre";
@@ -39,6 +38,7 @@ import { Materiales } from "./materiales";
 import { AccionesPrincipales, EncabezadoOrden, useMarcarEstado } from "./acciones-orden";
 import { Notas } from "./notas";
 import { PausaOrden, TiempoPausado } from "./pausa";
+import { AvisoLlamadaOrden, BotonLlamarOrden, TarjetaLlamadas, useTelefonoCampo } from "./telefono";
 
 export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | undefined }) {
     const { navegar, estado } = useCampo();
@@ -76,6 +76,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
         <article aria-labelledby="titulo-orden" className="grid gap-4">
             <EncabezadoOrden orden={orden} alVolver={() => navegar({ tipo: "lista" })} alAgregarNota={acciones.notas ? () => setAgregandoNota(true) : null} />
             <AvisosOrden orden={orden} />
+            <AvisoLlamadaOrden orden={orden} />
             {orden.estado === "pendiente" ? (
                 <Aviso tono="neutral" titulo="Esperando programación">
                     Despacho todavía no le dio hora a esta orden.
@@ -86,6 +87,7 @@ function ResumenOrden({ orden }: { orden: OrdenVista }) {
             <Cliente orden={orden} nombre={nombre} />
             {orden.estado !== "pendiente" ? <ProgresoOrden orden={orden} /> : null}
             <Notas orden={orden} editable={acciones.notas} agregando={agregandoNota} alAgregar={setAgregandoNota} />
+            <TarjetaLlamadas orden={orden} />
         </article>
     );
 }
@@ -226,20 +228,7 @@ function ProgresoOrden({ orden, actual, compacto = false }: { orden: OrdenVista;
         navegar({ tipo: "orden", id: orden.id, paso: p });
     };
     const barra = (
-        <div
-            role="progressbar"
-            aria-label="Avance de la orden"
-            aria-valuemin={0}
-            aria-valuemax={total}
-            aria-valuenow={listos}
-            aria-valuetext={texto}
-            className="grid gap-1.5"
-            style={{ gridTemplateColumns: `repeat(${total}, minmax(0, 1fr))` }}
-        >
-            {Array.from({ length: total }, (_, i) => (
-                <span key={i} className={cn("h-1.5 rounded-full", i < listos ? "bg-primary" : "bg-[var(--campo-anillo)]")} />
-            ))}
-        </div>
+        <BarraProgreso pasos valor={listos} maximo={total} etiqueta="Avance de la orden" textoValor={texto} clasePendiente="bg-[var(--campo-anillo)]" />
     );
     const estadoDe = (p: (typeof pasos)[number]) => {
         const bloqueado = p.paso === "cierre" && !listaParaFirmar && orden.estado !== "cerrada";
@@ -405,9 +394,8 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
     // contacto capturado en la orden se normaliza igual. Primero el contacto en sitio de la orden.
     const deArgos = orden.cliente ? (orden.cliente.telefonos ?? telefonos("telefono", orden.cliente.telefono)) : [];
     const lista = [...telefonos("telefono", orden.contacto.telefono), ...deArgos].filter((t, i, todos) => todos.findIndex((x) => (x.e164 ?? x.original) === (t.e164 ?? t.original)) === i);
-    const paraLlamar = orden.contacto.telefono ? (lista[0] ?? null) : principal(lista);
-    const llamar = paraLlamar ? enlaceTel(paraLlamar) : null;
     const ahora = useAhora(60_000);
+    const telefono = useTelefonoCampo();
     const lat = orden.lat ?? orden.cliente?.lat ?? null;
     const lon = orden.lon ?? orden.cliente?.lon ?? null;
     const comoLlegar = enlaceComoLlegar(lat, lon, orden.direccion);
@@ -436,18 +424,14 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                                 </a>
                             </Boton>
                         ) : null}
-                        {llamar ? (
-                            <Boton asChild variante="secundario" className="size-12 rounded-full bg-[var(--campo-panel-2)] p-0 shadow-none md:size-12 [&_svg]:size-5">
-                                <a href={llamar} aria-label="Llamar" title="Llamar">
-                                    <Phone aria-hidden />
-                                </a>
-                            </Boton>
-                        ) : null}
+                        {/* «Llamar» abre la hoja: por la empresa o desde mi celular (E4c fase 3). */}
+                        <BotonLlamarOrden orden={orden} className="size-12 rounded-full bg-[var(--campo-panel-2)] p-0 shadow-none md:size-12 [&_svg]:size-5" />
                     </div>
                 </div>
                 {orden.descripcion ? <p className="whitespace-pre-wrap">{orden.descripcion}</p> : null}
                 <AbrirChatOrden ordenId={orden.id} />
-                {lista.length > 0 ? <ListaTelefonos telefonos={lista} /> : null}
+                {/* Sin `tel:` directo: «Llamar» anota la llamada en la orden (E4c fase 3). */}
+                {lista.length > 0 ? <ListaTelefonos telefonos={lista} sinEnlace={telefono?.puede ?? false} /> : null}
                 {orden.cliente ? (
                     <p className="text-xs text-muted-foreground" title={formatearFecha(orden.cliente.sincronizadoEn)}>
                         Datos de Argos sincronizados {haceTiempo(orden.cliente.sincronizadoEn, ahora)}

@@ -1,5 +1,4 @@
-import { ErrorApi } from "@/lib/api/errores";
-import { ErrorMicrofono } from "@/lib/voz/medios";
+import { esErrorDeApi, esErrorMicrofono } from "./errores";
 import { motivoFin } from "./presentacion";
 import { CIERRE_ABRIR, SocketIris, type CierreSocket } from "./socket";
 import type { ConexionTelefono, ErrorTelefono, EstadoTelefono, LlamadaTelefono, MotivoTelefono, SesionTelefono } from "./tipos";
@@ -56,7 +55,8 @@ export type UaSip = {
     call: (destino: string, o: OpcionesLlamadaSip) => SesionSip;
 };
 
-export type ConfigUa = { socket: SocketIris; uri: string; contacto: string; nombre: string };
+/** `registrar: false`: solo marca (app de campo, primera etapa): sin REGISTER ni entrantes. */
+export type ConfigUa = { socket: SocketIris; uri: string; contacto: string; nombre: string; registrar: boolean };
 
 export type DependenciasMotor = {
     abrir: () => Promise<SesionTelefono>;
@@ -67,6 +67,11 @@ export type DependenciasMotor = {
     timbre: () => { detener: () => void };
     /** El servidor cortó por algo que dice `GET /telefono` (4003 sin motivo propio). */
     revisar: () => void;
+    /**
+     * `false`: solo marca (la app de campo, `dispositivo: app`; contratos/voz.md §3.12): sin REGISTER
+     * (el puente lo rechaza) ni entrantes; está listo al conectar el WebSocket. De fábrica, `true`.
+     */
+    registrar?: boolean;
     ahora?: () => number;
     /** Para las pruebas: el WebSocket y la parte azarosa del Contact. */
     crearWebSocket?: (url: string, protocolos: string[]) => WebSocket;
@@ -82,7 +87,7 @@ const MOTIVOS: readonly MotivoTelefono[] = ["sin_centralita", "sin_extension", "
 
 /** Qué hacer con un error de `abrir`. */
 export function clasificarErrorAbrir(e: unknown, ahora: number): ResultadoAbrir {
-    if (e instanceof ErrorApi) {
+    if (esErrorDeApi(e)) {
         if (e.codigo === "registro_sin_probar") return { tipo: "error", error: { tipo: "clave" } };
         const m = MOTIVOS.find((x) => x === e.codigo);
         if (m) return { tipo: "no_disponible", motivo: m };
@@ -233,9 +238,21 @@ export class MotorTelefono {
             origen: this.d.origen,
         });
         const contacto = `sip:${sesion.sip.usuario}@${(this.d.azar ?? azarContacto)()}.invalid;transport=ws`;
-        const ua = this.d.crearUa({ socket, uri: sesion.sip.uri, contacto, nombre: sesion.sip.nombre });
+        const registrar = this.d.registrar ?? true;
+        const ua = this.d.crearUa({ socket, uri: sesion.sip.uri, contacto, nombre: sesion.sip.nombre, registrar });
         this.ua = ua;
         this.registrado = false;
+        if (!registrar) {
+            // Solo marca: listo con el WebSocket abierto (no hay registro que esperar).
+            ua.on("connected", () => {
+                if (gen !== this.generacion) return;
+                this.registrado = true;
+                if (this.estado.conexion.fase !== "error" || this.estado.conexion.error.tipo === "sin_conexion") this.conexion({ fase: "listo" });
+            });
+            ua.on("disconnected", () => {
+                if (gen === this.generacion) this.registrado = false;
+            });
+        }
         ua.on("registered", () => {
             if (gen !== this.generacion) return;
             this.registrado = true;
@@ -288,7 +305,13 @@ export class MotorTelefono {
             try {
                 if (!l.sesion.isEnded()) l.sesion.terminate();
             } catch {
-                // Ya terminada.
+                // Ya terminada, o JsSIP no pudo (el WebSocket ya se cayó).
+            }
+            // Aunque JsSIP no haya podido terminarla: la conexión RTC se cierra igual (sin audio colgado).
+            try {
+                l.sesion.connection?.close();
+            } catch {
+                // Ya cerrada.
             }
             this.limpiar(l);
         }
@@ -315,7 +338,7 @@ export class MotorTelefono {
                 for (const t of m.getTracks()) t.stop();
                 this.conexion(this.registrado ? { fase: "listo" } : { fase: "conectando" });
             } catch (e) {
-                if (e instanceof ErrorMicrofono) this.microfonoBloqueado(e.estado);
+                if (esErrorMicrofono(e)) this.microfonoBloqueado(e.estado);
             }
             return;
         }
@@ -347,14 +370,14 @@ export class MotorTelefono {
         try {
             return await this.d.pedirMicrofono();
         } catch (e) {
-            this.microfonoBloqueado(e instanceof ErrorMicrofono ? e.estado : "no_disponible");
+            this.microfonoBloqueado(esErrorMicrofono(e) ? e.estado : "no_disponible");
             return null;
         }
     }
 
-    private nueva(sesion: SesionSip, datos: Omit<LlamadaTelefono, "id" | "desde" | "silenciada" | "enEspera" | "motivoFin">): Interna {
+    private nueva(sesion: SesionSip, datos: Omit<LlamadaTelefono, "id" | "desde" | "silenciada" | "enEspera" | "motivoFin" | "causa">): Interna {
         const id = `t${this.siguienteId++}`;
-        const l: Interna = { datos: { ...datos, id, desde: null, silenciada: false, enEspera: false, motivoFin: null }, sesion, parar: null, microfono: null };
+        const l: Interna = { datos: { ...datos, id, desde: null, silenciada: false, enEspera: false, motivoFin: null, causa: null }, sesion, parar: null, microfono: null };
         this.llamadas.set(id, l);
         this.vigilar(l);
         this.publicarLlamadas();
@@ -399,7 +422,7 @@ export class MotorTelefono {
         s.on("unmuted", () => this.cambiar(l, { silenciada: false }));
         const fin = (e: EventoSip) => {
             if (listoIce !== null) globalThis.clearTimeout(listoIce);
-            this.cambiar(l, { fase: "terminada", motivoFin: motivoFin(e.cause, l.datos.direccion) });
+            this.cambiar(l, { fase: "terminada", motivoFin: motivoFin(e.cause, l.datos.direccion), causa: e.cause ?? null });
             this.limpiar(l);
             this.llamadas.delete(l.datos.id);
             this.publicarLlamadas();
@@ -464,7 +487,14 @@ export class MotorTelefono {
         for (const otra of this.llamadas.values()) {
             if (otra.datos.fase === "en_curso" && !otra.datos.enEspera) otra.sesion.hold();
         }
-        const sesion = this.ua.call(destino, { mediaStream: mic, pcConfig: await this.pcConfig(), mediaConstraints: { audio: true, video: false } });
+        let sesion: SesionSip;
+        try {
+            sesion = this.ua.call(destino, { mediaStream: mic, pcConfig: await this.pcConfig(), mediaConstraints: { audio: true, video: false } });
+        } catch {
+            // JsSIP no pudo marcar (el WebSocket se cerró justo ahora): sin llamada y sin micrófono abierto.
+            for (const t of mic.getTracks()) t.stop();
+            return null;
+        }
         const l = this.nueva(sesion, { direccion: "saliente", fase: "llamando", ...datos });
         l.microfono = mic;
         return l.datos.id;

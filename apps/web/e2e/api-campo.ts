@@ -56,6 +56,8 @@ export interface ApiCampo {
     /** Las PATCH de tus fallan (la subida queda a medias) mientras sea true. */
     pausarSubidas: boolean;
     lotes: Schema<"EntradaLote">[];
+    /** `llamada.directa` aplicadas (E4c fase 3): las anota la mensajería en la orden. */
+    llamadasDirectas: OperacionLote[];
     /** Tareas propias como las ve el servidor. */
     tareas: Map<string, Schema<"Tarea">>;
     /** Órdenes libres; `tomadaPor` = otro técnico ya la tomó (409 con su nombre). */
@@ -167,6 +169,7 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
         sinRed: false,
         pausarSubidas: false,
         lotes: [],
+        llamadasDirectas: [],
         lotesDe: [],
         resultados: [],
         peticiones: [],
@@ -278,6 +281,12 @@ export async function simularApiCampo(page: Page, opciones: OpcionesCampo = {}):
             return { id: op.id, estado: "rechazada", error: problema("no_encontrado", 404, "No encontrada") };
         }
         const conOrden = (r: ResultadoOperacion): ResultadoOperacion => ({ ...r, orden: { version: o.version, estado: o.estado } });
+        if (op.tipo === "llamada.directa") {
+            // Como la API: va sola (no la bloquea la orden), no cambia la orden y su id es el de la llamada.
+            if (!op.ocurridoEn) return conOrden({ id: op.id, estado: "rechazada", error: problema("validacion", 422, "Falta ocurridoEn") });
+            if (!api.llamadasDirectas.some((x) => x.id === op.id)) api.llamadasDirectas.push(op);
+            return conOrden({ id: op.id, estado: "aplicada", llamadaId: op.id });
+        }
         if (rechazadas.has(ordenId)) {
             return conOrden({ id: op.id, estado: "rechazada", error: problema("bloqueada_por_rechazo", 409, "Bloqueada por un rechazo anterior") });
         }

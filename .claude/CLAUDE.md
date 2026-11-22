@@ -113,7 +113,8 @@ Cada agente es dueño de las carpetas que indica su brief y no toca las de otro.
 ### 10. Frontend
 
 - Componentes de HeroUI v3 (React Aria) envueltos en `packages/ui` con los tokens de la identidad Horus (`docs/marca/horus-tokens.css`): un solo color de marca (teal) y estados con icono + texto + color. Las pantallas importan de `@iris/ui`, nunca de `@heroui/react`. Íconos solo de Lucide. Guía y mapa de componentes: `docs/ui/guia.md`.
-- Nada de `<button>` o `<input>` crudos fuera de `packages/ui`.
+- **HeroUI primero:** toda pieza de interfaz es un componente de HeroUI envuelto en `@iris/ui`; un control propio solo si HeroUI no lo trae, con su motivo escrito en `docs/ui/guia.md` (ESLint prohíbe importar `@heroui/*` fuera de `packages/ui`).
+- Nada de `<button>`, `<input>`, `<select>`, `<textarea>`, `<table>` ni `<dialog>` crudos fuera de `packages/ui`.
 - Indentación de 4 espacios. TypeScript estricto, sin `any`.
 - Tipos y cliente HTTP desde `packages/contratos`; nada de interfaces duplicadas a mano.
 - Formularios con `react-hook-form` + `zod`, espejo del validador del backend.
@@ -170,7 +171,7 @@ Una tarea está terminada solo si:
 | `orden.asignada` | campo | orden_id, tecnico_id (o null), cuadrilla_id (o null), tecnico_anterior_id (o null), origen (asignar, tomar, programar, reprogramar, crear), motivo (o null) |
 | `orden.programada` | agenda | orden_id, tecnico_id, cuadrilla_id, inicio, fin, ventana_inicio/ventana_fin (o null), reprogramada, origen (programar, reprogramar, asignar), motivo (o null) |
 | `orden.estado_cambiada` | campo | orden_id, de, a, motivo |
-| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id), equipos[] (accion: instalar \| retirar \| cambio \| no_recuperado, unidad_id, serie, mac, condicion, bodega_id; cambio: sale_unidad_id, entra, motivo, destino_sale, cobro_propuesto?; no_recuperado: motivo, foto_ref?), cargo (o null: producto_id?, monto?, descripcion) |
+| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id, usuario_id), equipos[] (accion: instalar \| retirar \| cambio \| no_recuperado, unidad_id, serie, mac, condicion, bodega_id, usuario_id en instalar y retirar; cambio: sale_unidad_id, entra, motivo, destino_sale, cobro_propuesto?; no_recuperado: motivo, foto_ref; cambio y no_recuperado solo resumen: salen a Argos al aplicarse), cargo (o null: producto_id?, monto?, descripcion) |
 | `orden.pausada` / `orden.reanudada` | campo | orden_id, pausa_id; motivo, nota (o null), desde (pausada); a, duracion_seg, tiempo_pausado_seg (reanudada) |
 | `orden.formulario_agregado` / `orden.formulario_quitado` | campo | orden_id, formulario_id, plantilla_id, origen; version_id, numero_version (agregado) |
 | `campo.ajustes_cambiados` | campo | empresa_id (o null), campos[], tecnicos_toman_libres |
@@ -179,7 +180,7 @@ Una tarea está terminada solo si:
 | `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id, empresa_id, version, miembros[] (usuario_id, id_externo o null), jefe_usuario_id (o null); nombre, zonas[] (creada); campos[], activa (actualizada); van también a Argos |
 | `tecnico.creado` / `tecnico.actualizado` | agenda | tecnico_id (ficha), usuario_id; cuadrilla_id (creado); campos[], activo (actualizado) |
 | `tecnico.ausencia_registrada` / `tecnico.ausencia_anulada` | agenda | tecnico_id, usuario_id, ausencia_id; inicio, fin, motivo, citas_en_conflicto (registrada); motivo (anulada) |
-| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, id_externo; anterior_id_externo (vinculado); motivo (desvinculado) |
+| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, empresa_id, version, id_externo; anterior_id_externo (vinculado); motivo, p. ej. desactivado (desvinculado); van también a Argos (contrato ≥ 0.14.0) |
 | `tarea.creada` / `tarea.completada` / `tarea.anulada` | agenda | tarea_id, empresa_id, tecnico_id; creada_por, inicio, fin, duracion_min, orden_id (o null), cliente_id (o null), origen, solapa_con (creada); completada_por, completada_en (completada); anulada_por, motivo (o null) (anulada) |
 | `ruta.propuesta` / `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[], motor, degradada; modo, motivo_motor (propuesta); reemplaza_id, version (publicada) |
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
@@ -211,6 +212,8 @@ Una tarea está terminada solo si:
 | `argos.promesa_cambiada` | integracion (argos, webhooks promesa.*) | promesa_id, estado, tipo, empresa_id, cliente_id, servicio_id, comprobante_id (o null), canal, vence, motivo_reconexion (o null), motivo (cancelada), entrante_id; nunca el monto |
 | `argos.cuenta_bancaria_cambiada` | integracion (argos, webhook de Argos y relecturas) | cuenta_bancaria_id, empresa_id, campos[], activa, creada, entrante_id (o null); nunca el número de cuenta ni el titular |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
+| `orden.revision_titular_levantada` | campo (panel, §3.4.8) | orden_id, usuario_id; nunca el motivo |
+| `orden.paso_titular_tras_cancelar` | integracion (pendientes) | orden_id, pendiente_id, operacion, estado_orden (cancelada, fallida) |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |
 | `empresa.creada` / `empresa.actualizada` | identidad (núcleo) | empresa_id; origen (creada), campos[] (actualizada) |
