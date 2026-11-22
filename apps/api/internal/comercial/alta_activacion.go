@@ -188,6 +188,8 @@ type eventoPendienteOrden struct {
 	Entidad   string `json:"entidad"`
 	EntidadID string `json:"entidad_id"`
 	Clave     string `json:"idempotency_key"`
+	// De: el estado anterior (integracion.pendiente_resuelto_manual).
+	De string `json:"de"`
 }
 
 // SuscribirActivacion: la activación de una instalación hecha en Argos completa el alta; el

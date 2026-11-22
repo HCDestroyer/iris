@@ -112,7 +112,10 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			base := pendiente
 			if !hayPendiente {
 				if base, err = q.CotizacionViva(ctx, p.ID); errors.Is(err, pgx.ErrNoRows) {
-					return r, nil
+					// Sin cotización de la venta no hay revisión ni contrato: la orden no cerraría sin
+					// un supervisor; se le avisa por qué.
+					return r, emitirContratoSinFirma(t, sinFirma{orden: in.OrdenID, p: p, operacion: operacionDeClave(in.Clave),
+						motivo: MotivoSinCotizacionViva, clave: in.Clave})
 				} else if err != nil {
 					return r, err
 				}
@@ -252,7 +255,8 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			}
 			// Cerrada sin contrato: Argos ya aplicó el cambio sin la firma; avisa a supervisión.
 			if o.Estado == "cerrada" && !avisado {
-				if err := emitirContratoSinFirma(t, in.OrdenID, p, nil, cot.ID, operacionDeRevision(&idem), MotivoCambioTrasCierre); err != nil {
+				if err := emitirContratoSinFirma(t, sinFirma{orden: in.OrdenID, p: p, cotizacion: &cot.ID, operacion: operacionDeRevision(&idem),
+					motivo: MotivoCambioTrasCierre}); err != nil {
 					return r, err
 				}
 			}
@@ -365,7 +369,7 @@ func (m *Modulo) RevisarVenta(ctx context.Context, in EntradaRevisarVenta) (Resu
 func (m *Modulo) SuscribirRevisionVenta(bus *integracion.Bus, bd nucleo.BD, log *slog.Logger) {
 	// La orden cancelada o fallida anula el contrato regenerado que esperaba la firma en sitio.
 	m.suscribirOrdenTerminada(bus, bd, log)
-	bus.Suscribir("comercial.venta_revisada", pendientes.EventoHecho, func(ctx context.Context, e integracion.Evento) error {
+	revisar := func(ctx context.Context, e integracion.Evento) error {
 		var p eventoPendienteOrden
 		if err := json.Unmarshal(e.Payload, &p); err != nil || p.Entidad != "orden" {
 			return nil
@@ -395,7 +399,7 @@ func (m *Modulo) SuscribirRevisionVenta(bus *integracion.Bus, bd nucleo.BD, log 
 			}
 			if err := json.Unmarshal(reg.Payload, &cuerpo); err != nil || cuerpo.PlanID == nil {
 				log.WarnContext(ctx, "comercial: cambio de plan sin plan_id", "pendiente", reg.ID)
-				return nil
+				return m.SinRevision(ctx, EntradaSinRevision{OrdenID: orden, Clave: p.Clave, Motivo: MotivoSinPlan})
 			}
 			in.PlanID = cuerpo.PlanID
 		}
@@ -403,8 +407,29 @@ func (m *Modulo) SuscribirRevisionVenta(bus *integracion.Bus, bd nucleo.BD, log 
 		var pr *nucleo.Problema
 		if errors.As(err, &pr) && pr.Status < 500 {
 			log.WarnContext(ctx, "comercial: la venta no se revisó", "orden", orden, "codigo", pr.Codigo())
-			return nil
+			codigo := pr.Codigo()
+			return m.SinRevision(ctx, EntradaSinRevision{OrdenID: orden, Clave: p.Clave, Motivo: MotivoRevisionRechazada, Detalle: &codigo})
 		}
 		return err
+	}
+	bus.Suscribir("comercial.venta_revisada", pendientes.EventoHecho, revisar)
+	// Un fallido_negocio que un supervisor resolvió a mano (lo corrigió en Argos) también revisa la
+	// venta; los resueltos por reemplazo o por la orden cancelada o fallida, no.
+	bus.Suscribir("comercial.venta_revisada", pendientes.EventoResueltoManual, func(ctx context.Context, e integracion.Evento) error {
+		var p eventoPendienteOrden
+		if err := json.Unmarshal(e.Payload, &p); err != nil || p.Entidad != "orden" || p.De != pendientes.EstadoFallidoNegocio || p.Clave == "" {
+			return nil
+		}
+		if p.Operacion != pendientes.OpCambiarPlan && p.Operacion != pendientes.OpCambiarTitular {
+			return nil
+		}
+		reg, err := pendientes.PorClave(nucleo.ConBD(ctx, bd), bd, p.Clave)
+		if err != nil {
+			return err
+		}
+		if reg.Estado != pendientes.EstadoResueltoManual || reg.ResueltoComo == nil || *reg.ResueltoComo != pendientes.ComoManual {
+			return nil
+		}
+		return revisar(ctx, e)
 	})
 }

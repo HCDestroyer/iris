@@ -58,7 +58,7 @@ func exigirContratoFirmado(ctx context.Context, q *campobd.Queries, f campobd.Ca
 		if c.Operacion == "cambiar_titular" {
 			cambio = "de titular"
 		}
-		detalle = "El cambio " + cambio + " sigue en curso con Argos; espera el contrato nuevo y la firma del titular antes de cerrar"
+		detalle = "El cambio " + cambio + " todavía no tiene el contrato nuevo firmado (sigue en curso con Argos o espera el contrato); espera la firma del titular antes de cerrar"
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}

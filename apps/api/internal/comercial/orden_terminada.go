@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -145,15 +146,89 @@ func anularSinFirma(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries
 		return false, err
 	}
 	operacion := operacionDeRevision(cot.Idempotencia)
-	return true, emitirContratoSinFirma(t, o.ID, p, &c.ID, c.CotizacionID, operacion, motivoCodigo)
+	return true, emitirContratoSinFirma(t, sinFirma{orden: o.ID, p: p, contrato: &c.ID, cotizacion: &c.CotizacionID, operacion: operacion, motivo: motivoCodigo})
 }
 
-// emitirContratoSinFirma: orden.contrato_sin_firma (contrato_id null si la revisión se creó sin
-// contrato, con la orden ya cerrada).
-func emitirContratoSinFirma(t *auditoria.Tx, orden int64, p comercialbd.ComercialProspecto, contrato *int64, cotizacion int64,
-	operacion *string, motivo string) error {
-	return t.Emitir(EventoContratoSinFirma, map[string]any{"orden_id": orden, "prospecto_id": p.ID, "empresa_id": p.EmpresaID,
-		"contrato_id": contrato, "cotizacion_id": cotizacion, "operacion": operacion, "motivo": motivo})
+// sinFirma: los datos de orden.contrato_sin_firma.
+type sinFirma struct {
+	orden      int64
+	p          comercialbd.ComercialProspecto
+	contrato   *int64  // nil: la revisión se creó sin contrato (o no se pudo crear)
+	cotizacion *int64  // la revisión; nil si no se pudo crear
+	operacion  *string // cambiar_plan o cambiar_titular
+	motivo     string
+	clave      string // la del pendiente, cuando no hay revisión
+	detalle    *string
+}
+
+// emitirContratoSinFirma: orden.contrato_sin_firma, aviso a supervisión.
+func emitirContratoSinFirma(t *auditoria.Tx, s sinFirma) error {
+	payload := map[string]any{"orden_id": s.orden, "prospecto_id": s.p.ID, "empresa_id": s.p.EmpresaID,
+		"contrato_id": s.contrato, "cotizacion_id": s.cotizacion, "operacion": s.operacion, "motivo": s.motivo}
+	if s.clave != "" {
+		payload["clave"] = s.clave
+	}
+	if s.detalle != nil {
+		payload["detalle"] = *s.detalle
+	}
+	return t.Emitir(EventoContratoSinFirma, payload)
+}
+
+// Motivos diagnósticos de orden.contrato_sin_firma: Argos aceptó el cambio pero comercial no pudo
+// crear la revisión, así que no habrá contrato que firmar y la orden no cierra sin un supervisor.
+const (
+	MotivoSinCotizacionViva = "sin_cotizacion_viva" // el prospecto no tiene cotización aceptada ni revisión
+	MotivoSinPlan           = "sin_plan"            // el cambio de plan no trae plan_id
+	MotivoRevisionRechazada = "revision_rechazada"  // la revisión dio un error de negocio (detalle: el código)
+	MotivoSinRegenerar      = "sin_regenerar"       // la orden se cerró antes de regenerar el contrato tras reabrirla
+)
+
+// operacionDeClave: cambiar_plan o cambiar_titular según la clave del pendiente.
+func operacionDeClave(clave string) *string {
+	idem := claveRevision(clave)
+	return operacionDeRevision(&idem)
+}
+
+// EntradaSinRevision: un cambio hecho en Argos cuya revisión no se pudo crear (motivo diagnóstico).
+type EntradaSinRevision struct {
+	OrdenID int64
+	Clave   string
+	Motivo  string
+	Detalle *string
+}
+
+func (m *Modulo) nuevoSinRevision() *auditoria.Caso[EntradaSinRevision, bool] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaSinRevision, bool]{
+		Accion: "prospectos.revision_imposible", Acceso: auditoria.Autenticado,
+		AuditarExito: func(r bool) bool { return r },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaSinRevision) (bool, error) {
+			if err := exigirSistema(ctx); err != nil {
+				return false, err
+			}
+			q := comercialbd.New(t)
+			id, err := q.ProspectoGanadoDeOrden(ctx, &in.OrdenID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			p, err := q.ProspectoPorID(ctx, id)
+			if err != nil {
+				return false, err
+			}
+			t.FijarEntidad("prospecto", p.ID)
+			t.FijarEmpresa(deref(p.EmpresaID))
+			return true, emitirContratoSinFirma(t, sinFirma{orden: in.OrdenID, p: p, operacion: operacionDeClave(in.Clave), motivo: in.Motivo,
+				clave: in.Clave, detalle: in.Detalle})
+		},
+	})
+}
+
+// SinRevision avisa a supervisión que un cambio hecho en Argos quedó sin revisión (actor sistema).
+func (m *Modulo) SinRevision(ctx context.Context, in EntradaSinRevision) error {
+	_, err := m.sinRevision.Ejecutar(ctx, in)
+	return err
 }
 
 // operacionDeRevision: cambiar_plan o cambiar_titular según la clave de la revisión (nil si no).
@@ -193,7 +268,11 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 			if err != nil {
 				return r, err
 			}
-			// Con el estado leído de la orden: sigue abierta (no cancelada, fallida ni cerrada).
+			// Con el estado leído de la orden: sigue abierta (no cancelada, fallida ni cerrada). Si ya
+			// se cerró (un supervisor, sin la firma) con una revisión de esta orden por firmar, avisa.
+			if o.Estado == "cerrada" {
+				return r, avisarCerradaSinRegenerar(ctx, t, q, in.OrdenID)
+			}
 			if sinFirmaEnSitio(o.Estado) {
 				return r, nil
 			}
@@ -301,4 +380,36 @@ func (m *Modulo) suscribirOrdenTerminada(bus *integracion.Bus, bd nucleo.BD, log
 		}
 		return nil
 	})
+}
+
+// avisarCerradaSinRegenerar: la orden reabierta se cerró antes de regenerar el contrato; si el
+// prospecto tiene una revisión de esta orden por firmar, emite orden.contrato_sin_firma (la campana
+// es una por revisión).
+func avisarCerradaSinRegenerar(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, orden int64) error {
+	id, err := q.ProspectoGanadoDeOrden(ctx, &orden)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	p, err := q.ProspectoPorID(ctx, id)
+	if err != nil {
+		return err
+	}
+	rev, err := q.RevisionPorFirmar(ctx, p.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	ord := strconv.FormatInt(orden, 10)
+	if rev.Idempotencia == nil || (!strings.HasPrefix(*rev.Idempotencia, claveRevision("iris:plan:"+ord+":")) &&
+		!strings.HasPrefix(*rev.Idempotencia, claveRevision("iris:titular:"+ord+":"))) {
+		return nil
+	}
+	t.FijarEmpresa(deref(p.EmpresaID))
+	return emitirContratoSinFirma(t, sinFirma{orden: orden, p: p, cotizacion: &rev.ID, operacion: operacionDeRevision(rev.Idempotencia),
+		motivo: MotivoSinRegenerar})
 }

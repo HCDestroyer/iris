@@ -789,15 +789,19 @@ FOR UPDATE;
 SELECT cliente_id FROM integracion.argos_servicios WHERE id = @id FOR SHARE;
 
 -- name: CambioSinRevisionDeOrden :one
--- B20 (verificación de #280): un cambio de plan o de titular de una orden de una venta de Iris que
--- todavía no tiene su revisión: sin terminar en la cola (pendiente, en_curso, bloqueado o agotado:
--- se reintenta), o hecho en Argos sin la cotización de comercial (iris:venta:<clave>), que llega
--- por el relay. Con él, la instalación no cierra sin la firma del contrato que se va a regenerar.
+-- B20 (verificación de #280): un cambio de plan o de titular de una orden de una venta de Iris cuya
+-- revisión todavía no está firmada: sin terminar en la cola (pendiente, en_curso, bloqueado o
+-- agotado: se reintenta), o hecho en Argos (o resuelto a mano por un supervisor que lo corrigió en
+-- Argos) sin su revisión (iris:venta:<clave>) aceptada (firmada) o reemplazada por una posterior:
+-- falta la revisión (llega por el relay), o falta regenerar o firmar su contrato. Con él, la
+-- instalación no cierra sin la firma (solo un supervisor, con motivo). Las órdenes sin prospecto
+-- ganado quedan fuera: B6 de una venta hecha en Argos es de Argos.
 SELECT p.operacion, p.estado FROM integracion.pendientes p
 WHERE p.entidad = 'orden' AND p.entidad_id = (@orden_id::bigint)::text
   AND p.operacion IN ('cambiar_plan', 'cambiar_titular')
   AND EXISTS (SELECT 1 FROM comercial.prospectos pr WHERE pr.orden_id = @orden_id::bigint AND pr.estado = 'ganado')
   AND (p.estado IN ('pendiente', 'en_curso', 'bloqueado', 'agotado')
-       OR (p.estado = 'hecho' AND NOT EXISTS (
-           SELECT 1 FROM comercial.cotizaciones c WHERE c.idempotencia = 'iris:venta:' || p.idempotency_key)))
+       OR ((p.estado = 'hecho' OR (p.estado = 'resuelto_manual' AND p.resuelto_como = 'manual'))
+           AND NOT EXISTS (SELECT 1 FROM comercial.cotizaciones c
+                           WHERE c.idempotencia = 'iris:venta:' || p.idempotency_key AND c.estado IN ('aceptada', 'reemplazada'))))
 ORDER BY p.id DESC LIMIT 1;

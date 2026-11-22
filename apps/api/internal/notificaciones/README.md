@@ -58,7 +58,8 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
 - **Supervisión de la instalación** (`avisos_supervision.go`, B20): el worker consume
   `orden.paso_titular_tras_cancelar` (tipo `paso_titular`, clave `paso_titular:<pendiente_id>`) y
   `orden.contrato_sin_firma` (tipo `contrato_sin_firma`, clave `contrato_sin_firma:<contrato_id>` o,
-  sin contrato, `contrato_sin_firma:cotizacion:<cotizacion_id>`) y
+  sin contrato, `contrato_sin_firma:cotizacion:<cotizacion_id>`, y en los diagnósticos
+  `contrato_sin_firma:pendiente:<clave>`, con un título que dice por qué no hay contrato) y
   pone un aviso en la campana de cada supervisor activo con `ordenes.validar_identidad` cuyo rol
   cubre la orden (global, su zona o su cuadrilla) y opera en su empresa (con la orden sin empresa,
   sin conector, no se filtra por empresa). Enlace a la orden; sin

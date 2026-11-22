@@ -124,7 +124,12 @@ De la venta a la instalación (contrato argosisp.md 0.10.0 §3.4.8):
   `orden_terminada.go`), el regenerado se anula, la revisión queda sin aceptar y el firmado sigue
   vivo; una revisión que llegue después se crea sin contrato. Al reabrirla o reprogramarla (de
   cancelada o fallida a un estado abierto), el contrato se regenera para esa orden con la última
-  revisión sin aceptar (vigencia y PDF nuevos si venció). Estos casos y `RevisarVenta` leen la orden con `FOR SHARE` antes de tomar el prospecto. Una revisión sin firmar la reemplaza la siguiente. Emite
+  revisión sin aceptar (vigencia y PDF nuevos si venció). Con la orden cerrada, cada cambio sin la firma (regenerado
+  anulado, revisión creada sin contrato, orden reabierta cerrada antes de regenerar) y cada cambio
+  hecho cuya revisión no se pudo crear (sin cotización, sin plan, error de negocio) emiten
+  `orden.contrato_sin_firma` para la campana de supervisión. Un `cambiar_plan` o `cambiar_titular`
+  en `fallido_negocio` que un supervisor resolvió a mano (`resuelto_como = manual`) también revisa
+  la venta (`integracion.pendiente_resuelto_manual`). Estos casos y `RevisarVenta` leen la orden con `FOR SHARE` antes de tomar el prospecto. Una revisión sin firmar la reemplaza la siguiente. Emite
   `prospecto.venta_revisada`, que notificaciones pone en la campana del vendedor; el detalle del
   prospecto trae `porFirmarEnOrden`. Idempotente por la clave del pendiente.
 - **B17, titular en orden**: `argos.titular_cambiado` pasa el prospecto solo si la instantánea dice

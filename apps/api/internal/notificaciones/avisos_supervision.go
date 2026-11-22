@@ -50,6 +50,9 @@ type EntradaAvisarSupervision struct {
 	Operacion    *string `json:"operacion"`
 	EstadoOrden  string  `json:"estado_orden"`
 	Motivo       string  `json:"motivo"`
+	// Clave del pendiente y detalle (motivos diagnósticos: la revisión no se pudo crear).
+	Clave   string  `json:"clave"`
+	Detalle *string `json:"detalle"`
 }
 
 // cambioDe: «el plan», «el titular» o «el paso del titular».
@@ -92,6 +95,9 @@ func (m *Modulo) nuevoAvisarSupervision() *auditoria.Caso[EntradaAvisarSupervisi
 				case in.CotizacionID > 0:
 					// Revisión creada sin contrato (Argos aceptó con la orden ya cerrada).
 					clave = fmt.Sprintf("%s:cotizacion:%d", TipoAvisoContratoSinFirma, in.CotizacionID)
+				case in.Clave != "":
+					// La revisión no se pudo crear (motivo diagnóstico): una por pendiente.
+					clave = fmt.Sprintf("%s:pendiente:%s", TipoAvisoContratoSinFirma, in.Clave)
 				default:
 					return r, nil
 				}
@@ -117,11 +123,12 @@ func (m *Modulo) nuevoAvisarSupervision() *auditoria.Caso[EntradaAvisarSupervisi
 			case TipoAvisoPasoTitular:
 				titulo = fmt.Sprintf("Argos aplicó %s de la orden %s, que ya estaba %s", cambioDe(in.Operacion), o.Numero, in.EstadoOrden)
 			case TipoAvisoContratoSinFirma:
-				titulo = fmt.Sprintf("La orden %s se cerró sin la firma del contrato nuevo (%s)", o.Numero, cambioDe(in.Operacion))
+				titulo = tituloSinFirma(o.Numero, in)
 			}
 			datos, err := json.Marshal(map[string]any{"orden_id": o.ID, "pendiente_id": nulo(in.PendienteID), "contrato_id": nulo(in.ContratoID),
 				"cotizacion_id": nulo(in.CotizacionID),
-				"prospecto_id":  in.ProspectoID, "operacion": in.Operacion, "estado_orden": in.EstadoOrden, "motivo": in.Motivo})
+				"prospecto_id":  in.ProspectoID, "operacion": in.Operacion, "estado_orden": in.EstadoOrden, "motivo": in.Motivo,
+				"clave": in.Clave, "detalle": in.Detalle})
 			if err != nil {
 				return r, err
 			}
@@ -176,4 +183,25 @@ func (m *Modulo) suscribirSupervision(bus *integracion.Bus, bd nucleo.BD) {
 			return err
 		})
 	}
+}
+
+// tituloSinFirma: el texto de contrato_sin_firma según el motivo (los diagnósticos dicen por qué
+// la orden no cierra sin un supervisor).
+func tituloSinFirma(numero string, in EntradaAvisarSupervision) string {
+	cambio := cambioDe(in.Operacion)
+	switch in.Motivo {
+	case "sin_cotizacion_viva":
+		return fmt.Sprintf("Argos aplicó %s de la orden %s, pero la venta no tiene cotización: no habrá contrato nuevo que firmar", cambio, numero)
+	case "sin_plan":
+		return fmt.Sprintf("Argos aplicó el cambio de plan de la orden %s sin el plan nuevo: no habrá contrato nuevo que firmar", numero)
+	case "revision_rechazada":
+		detalle := ""
+		if in.Detalle != nil {
+			detalle = " (" + *in.Detalle + ")"
+		}
+		return fmt.Sprintf("Argos aplicó %s de la orden %s, pero no se pudo crear el contrato nuevo%s", cambio, numero, detalle)
+	case "sin_regenerar":
+		return fmt.Sprintf("La orden %s se cerró antes de regenerar el contrato nuevo (%s)", numero, cambio)
+	}
+	return fmt.Sprintf("La orden %s se cerró sin la firma del contrato nuevo (%s)", numero, cambio)
 }

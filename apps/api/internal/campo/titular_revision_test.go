@@ -196,8 +196,9 @@ func TestTitularCancelarDetieneLosPasos(t *testing.T) {
 		t.Fatalf("titular ya cambiado en Argos: %+v", est)
 	}
 
-	// Verificación de #280: un cambio de titular que Argos acepta con la orden ya cerrada (sin firma
-	// del contrato regenerado en sitio) también avisa a supervisión.
+	// Verificación de #280: un cambio de titular que Argos acepta con la orden ya cerrada no deja
+	// paso_titular: lo avisa comercial con orden.contrato_sin_firma (una sola campana). El paso
+	// termina hecho.
 	c := e.instalacion(tec, ct, true)
 	ordenC := strconv.FormatInt(c.ID, 10)
 	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, c.ID, datosCambioTitular())), "aplicada")
@@ -210,8 +211,11 @@ func TestTitularCancelarDetieneLosPasos(t *testing.T) {
 	})
 	e.procesar()
 	e.falso.fijarAlRecibir(nil)
-	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.paso_titular_tras_cancelar' AND payload->>'orden_id' = $1 AND payload->>'estado_orden' = 'cerrada'", ordenC); n != 1 {
-		t.Fatalf("aviso a supervisión con la orden cerrada: %d", n)
+	if pc := e.pendiente("iris:titular:" + ordenC + ":1"); pc.Estado != pendientes.EstadoHecho {
+		t.Fatalf("el paso con la orden cerrada termina: %+v", pc)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.paso_titular_tras_cancelar' AND payload->>'orden_id' = $1", ordenC); n != 0 {
+		t.Fatalf("paso_titular con la orden cerrada (lo avisa comercial): %d", n)
 	}
 }
 

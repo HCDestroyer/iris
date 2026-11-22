@@ -288,15 +288,14 @@ func EsCodigoRevisionTitular(codigo string) bool {
 }
 
 // EventoPasoTrasCancelar: un paso del titular que estaba saliendo cuando la orden se canceló o
-// falló quedó hecho en Argos, o un cambio de plan o de titular quedó hecho con la orden ya
-// cerrada (no hubo firma del contrato regenerado en sitio): supervisión revisa (no se deshace solo).
+// falló quedó hecho en Argos: supervisión revisa (no se deshace solo). Un cambio de plan o de
+// titular hecho con la orden ya cerrada lo avisa comercial (orden.contrato_sin_firma).
 const EventoPasoTrasCancelar = "orden.paso_titular_tras_cancelar"
 
 // despuesDelPasoTitular, en la transacción del resultado de un intento:
 //   - titular_no_coincide (A39 o A41) o titular_empresa_en_revision (A39 con empresa, 0.14.1): la
 //     orden queda en revisión de un supervisor (marca persistente en campo.orden_titular);
-//   - hecho con la orden ya cancelada o fallida (o un cambio de plan o de titular con la orden
-//     cerrada): avisa a supervisión (lo hecho no se deshace).
+//   - hecho con la orden ya cancelada o fallida: avisa a supervisión (lo hecho no se deshace).
 func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, ahora time.Time) error {
 	if !slices.Contains(OperacionesTitular, f.Operacion) || f.Entidad != "orden" {
 		return nil
@@ -323,8 +322,9 @@ func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.
 		if err != nil {
 			return err
 		}
-		cambioSinFirma := estado == "cerrada" && (f.Operacion == OpCambiarPlan || f.Operacion == OpCambiarTitular)
-		if estado == "cancelada" || estado == "fallida" || cambioSinFirma {
+		// Con la orden cerrada, un cambio de plan o de titular lo avisa comercial
+		// (orden.contrato_sin_firma, una sola campana); aquí solo cancelada o fallida.
+		if estado == "cancelada" || estado == "fallida" {
 			slog.WarnContext(ctx, "pendientes: paso del titular hecho en Argos con la orden ya terminada", "pendiente", f.ID, "orden", orden, "estado_orden", estado)
 			return t.Emitir(EventoPasoTrasCancelar, map[string]any{"orden_id": orden, "pendiente_id": f.ID, "operacion": f.Operacion, "estado_orden": estado})
 		}
@@ -543,4 +543,13 @@ func TrabajoPurgaTransito() *river.PeriodicJob {
 	return river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour),
 		func() (river.JobArgs, *river.InsertOpts) { return ArgsPurgarTransito{}, nil },
 		&river.PeriodicJobOpts{RunOnStart: true})
+}
+
+// ordenDePasoTitular: la orden de un paso del titular (false si no lo es).
+func ordenDePasoTitular(f pendientesbd.IntegracionPendiente) (int64, bool) {
+	if !slices.Contains(OperacionesTitular, f.Operacion) || f.Entidad != "orden" {
+		return 0, false
+	}
+	orden, err := strconv.ParseInt(f.EntidadID, 10, 64)
+	return orden, err == nil
 }
