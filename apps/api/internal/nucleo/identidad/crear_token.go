@@ -163,7 +163,8 @@ func puedeEmitir(ctx context.Context, q *identidadbd.Queries, actor contexto.Act
 		if err != nil {
 			return err
 		}
-		if falta, ok := quien.Cubre(efectivos); !ok {
+		// El token nuevo no es un token_portal: el middleware le quitará portal_argos.*.
+		if falta, ok := quien.Cubre(efectivos.SinPrefijo(prefijoTokenPortal)); !ok {
 			return nucleo.Prohibido("El token tendría el permiso " + falta + ", que el token con el que lo creas no tiene; limita sus permisos")
 		}
 		return nil

@@ -4,11 +4,22 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
 )
+
+// prefijoTokenPortal: los permisos portal_argos.* solo valen en el token_portal que Iris emite en el
+// canje del conector (contrato con Argos 0.9.0 §1.2); ninguna sesión ni token creado por la API los
+// usa, así que no cuentan al comparar quién puede asignar un rol, emitir un token o administrar a
+// un usuario de integración.
+const prefijoTokenPortal = "portal_argos."
+
+func soloTokenPortal(permiso string) bool {
+	return strings.HasPrefix(permiso, prefijoTokenPortal)
+}
 
 // cargarPermisos arma los permisos efectivos de un usuario a partir de sus roles. Con limite
 // (permisos de un token), solo quedan los que están en ambos.
@@ -50,7 +61,7 @@ func exigirSuperior(ctx context.Context, q *identidadbd.Queries, quien contexto.
 		return err
 	}
 	for _, p := range actuales.Lista() {
-		if !quien.TieneGlobal(p) {
+		if !quien.TieneGlobal(p) && !soloTokenPortal(p) {
 			return nucleo.Prohibido(fmt.Sprintf("No puedes %s: el usuario tiene el permiso %s, que no tienes sin límite de alcance", que, p))
 		}
 	}
@@ -121,7 +132,7 @@ func resolverRoles(ctx context.Context, q *identidadbd.Queries, quien contexto.P
 		return nil, err
 	}
 	for _, p := range permisos {
-		if !quien.TieneGlobal(p.Permiso) {
+		if !quien.TieneGlobal(p.Permiso) && !soloTokenPortal(p.Permiso) {
 			var codigo string
 			for c, f := range porCodigo {
 				if f.ID == p.RolID {
