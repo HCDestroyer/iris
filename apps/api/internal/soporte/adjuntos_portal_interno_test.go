@@ -255,10 +255,10 @@ func TestMemoriaJPEGConRellenoAntesDelSOF(t *testing.T) {
 
 // B1: sin SOF reconocible se cuenta como progresivo (falla cerrado).
 func TestMemoriaJPEGSinSOFFallaCerrado(t *testing.T) {
-	if got := memoriaDecodificada([]byte{0xff, 0xd8, 0xff, 0xd9}, "image/jpeg", 10_000_000, color.YCbCrModel); got != 10_000_000*(4+12) {
+	if got := memoriaDecodificada([]byte{0xff, 0xd8, 0xff, 0xd9}, "image/jpeg", 3200, 3200, color.YCbCrModel); got != 3200*3200*(4+12) {
 		t.Fatalf("sin SOF: %d", got)
 	}
-	if got := memoriaDecodificada([]byte{0xff, 0xd8}, "image/jpeg", 1_000_000, color.GrayModel); got != 1_000_000*(1+4) {
+	if got := memoriaDecodificada([]byte{0xff, 0xd8}, "image/jpeg", 1000, 1000, color.GrayModel); got != 1024*1024*(1+4) {
 		t.Fatalf("gris sin SOF: %d", got)
 	}
 }
@@ -275,5 +275,16 @@ func TestMemoriaJPEGRGB(t *testing.T) {
 	adobe := []byte{0xff, 0xee, 0, 14, 'A', 'd', 'o', 'b', 'e', 0, 100, 0, 0, 0, 0, 0}
 	if _, err := comprobarArchivo("a.jpg", jpegArmado(0xc0, []byte{1, 2, 3}, 6000, 5000, false, adobe)); codigoDe(t, err) != "imagen_demasiado_grande" {
 		t.Fatalf("rgb por Adobe: %v", err)
+	}
+}
+
+// Relleno de MCU: Go reserva el JPEG con ancho y alto redondeados a múltiplos de 32. Un RGB (7 B por
+// píxel) de 6001×4992 ocupa 209,7 MB sin relleno (pasaría) y 210,2 MB con él (6016×4992): no pasa.
+func TestMemoriaJPEGRellenoMCU(t *testing.T) {
+	if _, err := comprobarArchivo("justo.jpg", jpegArmado(0xc0, []byte{'R', 'G', 'B'}, 5984, 4992, false, nil)); err != nil {
+		t.Fatalf("múltiplo de 32: %v", err)
+	}
+	if _, err := comprobarArchivo("relleno.jpg", jpegArmado(0xc0, []byte{'R', 'G', 'B'}, 6001, 4992, false, nil)); codigoDe(t, err) != "imagen_demasiado_grande" {
+		t.Fatalf("con relleno: %v", err)
 	}
 }

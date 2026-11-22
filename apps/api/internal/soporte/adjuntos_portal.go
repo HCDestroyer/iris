@@ -184,7 +184,7 @@ func comprobarArchivo(nombre string, datos []byte) (archivoPortal, error) {
 			return archivoPortal{}, mimeNoPermitido()
 		}
 		pixeles := int64(cfg.Width) * int64(cfg.Height)
-		if pixeles > MaxPixelesAdjuntoPortal || memoriaDecodificada(datos, tipo, pixeles, cfg.ColorModel) > MaxBytesDecodificada {
+		if pixeles > MaxPixelesAdjuntoPortal || memoriaDecodificada(datos, tipo, int64(cfg.Width), int64(cfg.Height), cfg.ColorModel) > MaxBytesDecodificada {
 			return archivoPortal{}, imagenDemasiadoGrande()
 		}
 	case "application/pdf":
@@ -204,8 +204,14 @@ func comprobarArchivo(nombre string, datos []byte) (archivoPortal, error) {
 //   - PNG entrelazado (Adam7): el doble (cada pasada se decodifica aparte y se copia).
 //
 // Falla cerrado: si no encuentra el SOF, cuenta la imagen como progresiva con los componentes de su
-// modelo de color.
-func memoriaDecodificada(datos []byte, tipo string, pixeles int64, modelo color.Model) int64 {
+// modelo de color. En un JPEG todo se cuenta con el ancho y el alto redondeados a múltiplos de 32
+// (el MCU más grande, 4×8 píxeles por muestra × 8): Go reserva la imagen y los coeficientes con ese
+// relleno (revisión del relleno de MCU).
+func memoriaDecodificada(datos []byte, tipo string, ancho, alto int64, modelo color.Model) int64 {
+	pixeles := ancho * alto
+	if tipo == "image/jpeg" {
+		pixeles = rellenoMCU(ancho) * rellenoMCU(alto)
+	}
 	total := pixeles * bytesPorPixel(modelo)
 	switch tipo {
 	case "image/jpeg":
@@ -229,6 +235,11 @@ func memoriaDecodificada(datos []byte, tipo string, pixeles int64, modelo color.
 		}
 	}
 	return total
+}
+
+// rellenoMCU redondea un lado del JPEG al múltiplo de 32 siguiente.
+func rellenoMCU(n int64) int64 {
+	return (n + 31) / 32 * 32
 }
 
 // componentesDe: los componentes de un JPEG según el modelo de color de DecodeConfig.
