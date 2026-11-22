@@ -334,35 +334,3 @@ export function GraficaSerie({ titulo, descripcion, series, instantes, marcas, f
         </section>
     );
 }
-
-export type PropsMedidor = {
-    /** Parte usada, de 0 a 1; `null`: no hay dato (no se dibuja relleno). */
-    parte: number | null;
-    /** Qué mide, para lectores de pantalla («Memoria de video»). */
-    etiqueta: string;
-    /** Cómo se lee el valor («13.1 de 24 GB»). */
-    texto: string;
-    /** Color por estado: normal (marca), aviso o error. Va siempre con su texto al lado. */
-    tono?: "normal" | "aviso" | "error";
-    className?: string;
-};
-
-/** Barra de «cuánto de cuánto»: un `meter` con el relleno anclado a la izquierda. */
-export function Medidor({ parte, etiqueta, texto, tono = "normal", className }: PropsMedidor) {
-    const valor = parte === null ? null : Math.min(Math.max(parte, 0), 1);
-    return (
-        <div
-            role="meter"
-            aria-label={etiqueta}
-            aria-valuemin={0}
-            aria-valuemax={100}
-            {...(valor === null ? {} : { "aria-valuenow": Math.round(valor * 100) })}
-            aria-valuetext={texto}
-            data-slot="medidor"
-            data-tono={tono}
-            className={cn("h-1.5 w-full overflow-hidden rounded-full bg-elevated", className)}
-        >
-            {valor === null ? null : <div className={cn("h-full rounded-full", tono === "error" ? "bg-error" : tono === "aviso" ? "bg-warning" : "bg-primary")} style={{ width: `${valor * 100}%` }} />}
-        </div>
-    );
-}

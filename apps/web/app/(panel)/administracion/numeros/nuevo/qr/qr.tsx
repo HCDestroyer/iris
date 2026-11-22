@@ -10,7 +10,6 @@ import {
     EyeOff,
     Gauge,
     Info,
-    LoaderCircle,
     Megaphone,
     QrCode,
     RotateCw,
@@ -200,7 +199,7 @@ function Flujo({ registro }: { registro: RegistroMeta }) {
             <Pantalla subtitulo={creando ? "Meta respondió. Conectando el número…" : "Completa los pasos en la ventana de Meta."}>
                 <section className="surface-card grid justify-items-center gap-3 p-6 text-center sm:p-8" data-fase={estado.fase} aria-live="polite">
                     <span className="grid size-14 place-items-center rounded-full bg-primary/10 text-primary">
-                        <LoaderCircle aria-hidden className="size-7 animate-spin motion-reduce:animate-none" />
+                        <Cargando decorativo tamano="lg" />
                     </span>
                     <h2 className="text-lg font-semibold">{creando ? "Conectando el número…" : "Esperando a Meta…"}</h2>
                     <p className="max-w-prose text-sm text-muted-foreground">
@@ -299,7 +298,7 @@ function Flujo({ registro }: { registro: RegistroMeta }) {
                     <Link href="/administracion/numeros/nuevo">Cancelar</Link>
                 </Boton>
                 <Boton onClick={conectar} disabled={!leido || sdk.estado !== "listo"} title={!leido ? "Marca «Leí lo que cambia en la app del teléfono»" : undefined}>
-                    {sdk.estado === "cargando" ? <LoaderCircle aria-hidden className="animate-spin motion-reduce:animate-none" /> : <SquareArrowOutUpRight aria-hidden />}
+                    {sdk.estado === "cargando" ? <Cargando decorativo /> : <SquareArrowOutUpRight aria-hidden />}
                     {sdk.estado === "cargando" ? "Preparando…" : "Conectar con Meta"}
                 </Boton>
             </PiePagina>

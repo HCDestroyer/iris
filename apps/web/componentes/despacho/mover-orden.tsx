@@ -1,8 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, CampoArea, CampoFecha, CampoHora, CampoSelector, Casilla, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, iconoPorTono } from "@iris/ui";
-import { ExternalLink, LoaderCircle, RotateCw } from "lucide-react";
+import { Aviso, Boton, CampoArea, CampoFecha, CampoHora, CampoSelector, Casilla, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, iconoPorTono, Cargando } from "@iris/ui";
+import { ExternalLink, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
@@ -185,10 +185,7 @@ export function DialogoMoverOrden({ movible, destino, desaparecida, filas, hoy, 
 
                     <section aria-label="Disponibilidad" aria-live="polite" className="grid gap-1.5" data-testid="disponibilidad">
                         {asignables.estado === "cargando" ? (
-                            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <LoaderCircle aria-hidden className="size-4 animate-spin" />
-                                Comprobando la disponibilidad…
-                            </p>
+                            <Cargando visible texto="Comprobando la disponibilidad…" />
                         ) : asignables.estado === "error" ? (
                             <Aviso
                                 tono="warning"
