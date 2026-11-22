@@ -229,7 +229,7 @@ Una tarea está terminada solo si:
 | `aviso.creado` | mensajeria | aviso_id, empresa_id, cliente_id, servicio_id (o null), plantilla, estado (en_cola \| bloqueado), motivo (o null), origen (argos \| iris), prioridad, programado_en (o null) |
 | `aviso.enviado` / `aviso.leido` | mensajeria | aviso_id, origen; canal, canal_id (o null) (enviado); leido_en (leido) |
 | `aviso.entregado` / `aviso.fallido` | mensajeria | aviso_id, idempotency_key, empresa_id, cliente_id, canal (o null), origen; entregado_en, leido_en (o null) (entregado); motivo (vencido, numero_invalido, rechazado_por_canal, agotado), detalle (o null) (fallido). Uno por aviso; van a Argos (§6.6) |
-| `consentimiento.registrado` | mensajeria | consentimiento_id, empresa_id, cliente_id, canal, estado (acepta \| baja), origen, ocurrido_en, estado_vigente |
+| `consentimiento.registrado` | mensajeria | consentimiento_id, empresa_id, cliente_id, canal, estado (acepta \| baja), origen, ocurrido_en, estado_vigente, por_numero (permiso de un número de contacto; nunca el número) |
 | `contacto.baja` | mensajeria (chat) | cliente_id, empresa_id, canal, ocurrido_en, origen (cliente \| agente), consentimiento_id; va a Argos (§6.6) |
 | `chat.conversacion_creada` | mensajeria (chat) | conversacion_id, empresa_id, tipo (directa \| cuadrilla \| orden), cuadrilla_id (o null), orden_id (o null), creada_por, miembros[] |
 | `chat.mensaje_enviado` | mensajeria (chat) | conversacion_id, mensaje_id, empresa_id, tipo, cuadrilla_id, orden_id, autor_id, seq, contenido (texto, foto, ubicacion), enviado_en, destinatarios[]; nunca el texto |

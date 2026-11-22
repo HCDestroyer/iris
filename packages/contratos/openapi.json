@@ -10905,6 +10905,11 @@
               "argos_portal"
             ],
             "type": "string"
+          },
+          "telefono": {
+            "description": "Opcional (contrato 0.10.0): el número E.164 de un contacto del cliente; el permiso es de ese número. Con él, la Idempotency-Key es argos:consentimiento:\u003cempresa_id\u003e:\u003ccliente_id\u003e:whatsapp:\u003ch\u003e:\u003cocurrido_en\u003e, con h = 16 hex del HMAC-SHA256 del número (0.12.1)",
+            "pattern": "^\\+[1-9][0-9]{7,14}$",
+            "type": "string"
           }
         },
         "required": [

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/riverqueue/river"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -373,10 +374,91 @@ func (k *EnviarAviso) crear(ctx context.Context, t *auditoria.Tx, in entradaFina
 			return AvisoCreado{}, err
 		}
 	}
-	return aCreado(a, false), t.Emitir("aviso.creado", map[string]any{
+	if err := t.Emitir("aviso.creado", map[string]any{
 		"aviso_id": a.ID, "empresa_id": a.EmpresaID, "cliente_id": a.ClienteID, "servicio_id": a.ServicioID, "plantilla": a.Plantilla,
 		"estado": a.Estado, "motivo": a.Motivo, "origen": a.Origen, "prioridad": a.Prioridad, "programado_en": a.ProgramadoEn,
-	})
+	}); err != nil {
+		return AvisoCreado{}, err
+	}
+	return aCreado(a, false), m.avisosAContactos(ctx, t, q, a, fila, p, ahora)
+}
+
+// PlantillasCobro son las plantillas de §6.3 que también salen a los contactos con «avisos» (§3.5).
+var PlantillasCobro = map[string]bool{"factura_por_vencer": true, "factura_vencida": true, "corte_por_falta_de_pago": true}
+
+// avisosAContactos: un aviso de cobro sale también a los contactos del cliente con «avisos» que
+// cubren el servicio (§3.5, A42/B22), uno por contacto, al número que Iris tiene en su caché de
+// contactos (nunca del cuerpo del aviso) y solo si ese número tiene permiso vigente (§6.4, por
+// número) y no pidió la baja en el chat. Son copias sin Idempotency-Key ni webhooks hacia Argos.
+func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, padre mensajeriabd.MensajeriaAviso,
+	base mensajeriabd.InsertarAvisoParams, p Plantilla, ahora time.Time) error {
+	if !PlantillasCobro[padre.Plantilla] || padre.CanalPreferido != CanalWhatsApp {
+		return nil
+	}
+	ks, err := q.ContactosConAvisos(ctx, mensajeriabd.ContactosConAvisosParams{ClienteID: padre.ClienteID, Empresa: padre.EmpresaID, ServicioID: padre.ServicioID})
+	if err != nil {
+		return err
+	}
+	r, err := m.resolver(ctx, q, padre.EmpresaID, CanalWhatsApp)
+	if err != nil {
+		return err
+	}
+	vistos := map[int64]bool{}
+	creados := 0
+	for _, k := range ks {
+		if vistos[k.ContactoID] {
+			continue
+		}
+		vistos[k.ContactoID] = true
+		v, err := q.ConsentimientoVigenteNumero(ctx, mensajeriabd.ConsentimientoVigenteNumeroParams{EmpresaID: padre.EmpresaID, ClienteID: padre.ClienteID,
+			Canal: CanalWhatsApp, Telefono: k.Numero})
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && v.Estado != "acepta") {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		// Una baja que el número pidió en el chat también manda (§6.4).
+		if b, err := q.ConsentimientoNumeroVigente(ctx, mensajeriabd.ConsentimientoNumeroVigenteParams{Empresa: padre.EmpresaID, Telefono: k.Numero}); err == nil && b.Estado == "baja" {
+			continue
+		} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		id, err := uuid.NewV7()
+		if err != nil {
+			return err
+		}
+		fila := base
+		fila.ID, fila.Origen, fila.IdempotencyKey, fila.HashPeticion, fila.Estado, fila.Motivo, fila.FinalizadoEn = id, "iris", nil, nil, EstadoEnCola, nil, nil
+		fila.Canal, fila.CanalID, fila.Remitente, fila.Destino, fila.ProgramadoEn = nil, nil, nil, nil, nil
+		numero := k.Numero
+		if r == nil || !r.a.PermiteAvisos() || !r.a.Aprobada(p.Codigo) {
+			motivo := MotivoCanalNoDisponible
+			fila.Estado, fila.Motivo, fila.FinalizadoEn = EstadoBloqueado, &motivo, &ahora
+		} else {
+			medio := CanalWhatsApp
+			fila.Canal, fila.CanalID, fila.Remitente, fila.Destino = &medio, r.canalID, &r.remitente, &numero
+			_, fin := m.cfg.Silencio.enSilencio(ahora, m.cfg.Zona)
+			fila.ProgramadoEn = &fin
+		}
+		a, err := q.InsertarAviso(ctx, fila)
+		if err != nil {
+			return err
+		}
+		if err := q.FijarAvisoContacto(ctx, mensajeriabd.FijarAvisoContactoParams{ID: a.ID, AvisoPadreID: pgtype.UUID{Bytes: padre.ID, Valid: true}, ContactoArgosID: &k.ContactoID}); err != nil {
+			return err
+		}
+		if a.Estado == EstadoEnCola {
+			if err := m.encolar(ctx, t.Tx, ArgsEnviarAviso{AvisoID: a.ID, programado: *a.ProgramadoEn}); err != nil {
+				return err
+			}
+		}
+		creados++
+	}
+	if creados > 0 {
+		t.Anotar(map[string]any{"avisos_a_contactos": creados})
+	}
+	return nil
 }
 
 // origenDe: los avisos de un usuario de integración de Argos son de Argos (sus webhooks van a

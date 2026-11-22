@@ -62,3 +62,17 @@ WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
   AND (c.cliente_id = @cliente_id OR c.contacto_argos_id = sqlc.narg('contacto_id')::bigint)
   AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id)
 RETURNING c.*;
+
+-- name: ContactosConAvisos :many
+-- Los números con WhatsApp de los contactos del cliente con «avisos» que cubren el servicio (§3.5):
+-- con servicios null, todos; sin servicio en el aviso, solo esos. El titular no (es el cliente).
+SELECT k.contacto_id, t.numero, t.principal FROM integracion.argos_contactos k
+JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp
+WHERE k.cliente_id = @cliente_id AND k.avisos AND NOT k.es_titular
+  AND (k.empresa_id IS NULL OR k.empresa_id = @empresa::bigint)
+  AND (k.servicios IS NULL OR sqlc.narg('servicio_id')::bigint = ANY (k.servicios))
+ORDER BY k.contacto_id, t.principal DESC, t.numero
+LIMIT 50;
+
+-- name: FijarAvisoContacto :exec
+UPDATE mensajeria.avisos SET aviso_padre_id = @aviso_padre_id, contacto_argos_id = @contacto_argos_id WHERE id = @id;

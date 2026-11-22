@@ -8,6 +8,9 @@ package mensajeriabd
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const contactoArgosDeCliente = `-- name: ContactoArgosDeCliente :one
@@ -112,6 +115,50 @@ func (q *Queries) ContactosArgosDelNumero(ctx context.Context, arg ContactosArgo
 			&i.ClienteEnEmpresa,
 			&i.PersonaConocida,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const contactosConAvisos = `-- name: ContactosConAvisos :many
+SELECT k.contacto_id, t.numero, t.principal FROM integracion.argos_contactos k
+JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp
+WHERE k.cliente_id = $1 AND k.avisos AND NOT k.es_titular
+  AND (k.empresa_id IS NULL OR k.empresa_id = $2::bigint)
+  AND (k.servicios IS NULL OR $3::bigint = ANY (k.servicios))
+ORDER BY k.contacto_id, t.principal DESC, t.numero
+LIMIT 50
+`
+
+type ContactosConAvisosParams struct {
+	ClienteID  int64
+	Empresa    int64
+	ServicioID *int64
+}
+
+type ContactosConAvisosRow struct {
+	ContactoID int64
+	Numero     string
+	Principal  bool
+}
+
+// Los números con WhatsApp de los contactos del cliente con «avisos» que cubren el servicio (§3.5):
+// con servicios null, todos; sin servicio en el aviso, solo esos. El titular no (es el cliente).
+func (q *Queries) ContactosConAvisos(ctx context.Context, arg ContactosConAvisosParams) ([]ContactosConAvisosRow, error) {
+	rows, err := q.db.Query(ctx, contactosConAvisos, arg.ClienteID, arg.Empresa, arg.ServicioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContactosConAvisosRow
+	for rows.Next() {
+		var i ContactosConAvisosRow
+		if err := rows.Scan(&i.ContactoID, &i.Numero, &i.Principal); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -244,6 +291,21 @@ func (q *Queries) EleccionesClienteNumero(ctx context.Context, arg EleccionesCli
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const fijarAvisoContacto = `-- name: FijarAvisoContacto :exec
+UPDATE mensajeria.avisos SET aviso_padre_id = $1, contacto_argos_id = $2 WHERE id = $3
+`
+
+type FijarAvisoContactoParams struct {
+	AvisoPadreID    pgtype.UUID
+	ContactoArgosID *int64
+	ID              uuid.UUID
+}
+
+func (q *Queries) FijarAvisoContacto(ctx context.Context, arg FijarAvisoContactoParams) error {
+	_, err := q.db.Exec(ctx, fijarAvisoContacto, arg.AvisoPadreID, arg.ContactoArgosID, arg.ID)
+	return err
 }
 
 const fijarContactoArgosConv = `-- name: FijarContactoArgosConv :exec

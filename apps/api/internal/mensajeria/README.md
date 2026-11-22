@@ -862,3 +862,11 @@ AMI adopta la fila de una saliente del puente.
 - **Asistente:** recibe quién escribe (rol, permisos y códigos de servicio, nunca el nombre del servicio
   ni, si no es el titular, el nombre del titular). Con un contacto ve solo sus servicios; sin `consultar`,
   ni estado, ni precio, ni cuenta; sin `reportar`, no agenda visitas (y el panel no crea órdenes).
+- **Permiso por número** (`consentimientos.go`, §6.4, 0.10.0 y 0.12.1): `POST /consentimientos` acepta
+  `telefono` (E.164) de un contacto del cliente; el permiso y su vigente son de ese número. La
+  `Idempotency-Key` lleva el HMAC del número (`argos:consentimiento:<e>:<c>:whatsapp:<h>:<ocurrido_en>`):
+  con el número en claro, 422. El número no va a eventos (`por_numero`) y en la auditoría queda enmascarado.
+- **Avisos de cobro a los contactos** (`avisos.go`): `factura_por_vencer`, `factura_vencida` y
+  `corte_por_falta_de_pago` salen también, una copia por contacto (`avisos.aviso_padre_id`), a los
+  contactos con `avisos` que cubren el servicio, al número de la caché y solo con su permiso por número
+  vigente (y sin baja en el chat). Sin Idempotency-Key, sin webhook hacia Argos y fuera del límite diario del cliente.

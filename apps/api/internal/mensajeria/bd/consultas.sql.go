@@ -106,7 +106,7 @@ func (q *Queries) ActualizarCanal(ctx context.Context, arg ActualizarCanalParams
 }
 
 const avisoParaActualizar = `-- name: AvisoParaActualizar :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at FROM mensajeria.avisos WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id FROM mensajeria.avisos WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) AvisoParaActualizar(ctx context.Context, id uuid.UUID) (MensajeriaAviso, error) {
@@ -143,13 +143,15 @@ func (q *Queries) AvisoParaActualizar(ctx context.Context, id uuid.UUID) (Mensaj
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
 
 const avisoPorClave = `-- name: AvisoPorClave :one
 
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at FROM mensajeria.avisos WHERE usuario_id = $1::bigint AND idempotency_key = $2::text
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id FROM mensajeria.avisos WHERE usuario_id = $1::bigint AND idempotency_key = $2::text
 `
 
 type AvisoPorClaveParams struct {
@@ -192,12 +194,14 @@ func (q *Queries) AvisoPorClave(ctx context.Context, arg AvisoPorClaveParams) (M
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
 
 const avisoPorID = `-- name: AvisoPorID :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at FROM mensajeria.avisos WHERE id = $1
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id FROM mensajeria.avisos WHERE id = $1
 `
 
 func (q *Queries) AvisoPorID(ctx context.Context, id uuid.UUID) (MensajeriaAviso, error) {
@@ -234,12 +238,14 @@ func (q *Queries) AvisoPorID(ctx context.Context, id uuid.UUID) (MensajeriaAviso
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
 
 const avisoPorProveedor = `-- name: AvisoPorProveedor :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at FROM mensajeria.avisos WHERE canal_id = $1 AND proveedor_id = $2 FOR UPDATE
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id FROM mensajeria.avisos WHERE canal_id = $1 AND proveedor_id = $2 FOR UPDATE
 `
 
 type AvisoPorProveedorParams struct {
@@ -281,6 +287,8 @@ func (q *Queries) AvisoPorProveedor(ctx context.Context, arg AvisoPorProveedorPa
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
@@ -590,7 +598,7 @@ func (q *Queries) ConectorArgosParaWebhooks(ctx context.Context) (ConectorArgosP
 
 const consentimientoPorClave = `-- name: ConsentimientoPorClave :one
 
-SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at FROM mensajeria.consentimientos WHERE registrado_por = $1::bigint AND idempotency_key = $2::text
+SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono FROM mensajeria.consentimientos WHERE registrado_por = $1::bigint AND idempotency_key = $2::text
 `
 
 type ConsentimientoPorClaveParams struct {
@@ -615,20 +623,23 @@ func (q *Queries) ConsentimientoPorClave(ctx context.Context, arg Consentimiento
 		&i.HashPeticion,
 		&i.EntranteID,
 		&i.CreatedAt,
+		&i.Telefono,
 	)
 	return i, err
 }
 
 const consentimientoPorHecho = `-- name: ConsentimientoPorHecho :one
-SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at FROM mensajeria.consentimientos
+SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono FROM mensajeria.consentimientos
 WHERE empresa_id = $1 AND cliente_id = $2 AND canal = $3
-  AND ocurrido_en = $4 AND estado = $5 AND origen = $6
+  AND telefono IS NOT DISTINCT FROM $4::text
+  AND ocurrido_en = $5 AND estado = $6 AND origen = $7
 `
 
 type ConsentimientoPorHechoParams struct {
 	EmpresaID  int64
 	ClienteID  int64
 	Canal      string
+	Telefono   *string
 	OcurridoEn time.Time
 	Estado     string
 	Origen     string
@@ -639,6 +650,7 @@ func (q *Queries) ConsentimientoPorHecho(ctx context.Context, arg Consentimiento
 		arg.EmpresaID,
 		arg.ClienteID,
 		arg.Canal,
+		arg.Telefono,
 		arg.OcurridoEn,
 		arg.Estado,
 		arg.Origen,
@@ -657,13 +669,14 @@ func (q *Queries) ConsentimientoPorHecho(ctx context.Context, arg Consentimiento
 		&i.HashPeticion,
 		&i.EntranteID,
 		&i.CreatedAt,
+		&i.Telefono,
 	)
 	return i, err
 }
 
 const consentimientoVigente = `-- name: ConsentimientoVigente :one
-SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at FROM mensajeria.consentimientos
-WHERE empresa_id = $1 AND cliente_id = $2 AND canal = $3
+SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono FROM mensajeria.consentimientos
+WHERE empresa_id = $1 AND cliente_id = $2 AND canal = $3 AND telefono IS NULL
 ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
 LIMIT 1
 `
@@ -674,7 +687,7 @@ type ConsentimientoVigenteParams struct {
 	Canal     string
 }
 
-// El de ocurrido_en más reciente; a igual ocurrido_en, la baja manda.
+// El de ocurrido_en más reciente; a igual ocurrido_en, la baja manda. Solo el del cliente (sin número).
 func (q *Queries) ConsentimientoVigente(ctx context.Context, arg ConsentimientoVigenteParams) (MensajeriaConsentimiento, error) {
 	row := q.db.QueryRow(ctx, consentimientoVigente, arg.EmpresaID, arg.ClienteID, arg.Canal)
 	var i MensajeriaConsentimiento
@@ -691,6 +704,48 @@ func (q *Queries) ConsentimientoVigente(ctx context.Context, arg ConsentimientoV
 		&i.HashPeticion,
 		&i.EntranteID,
 		&i.CreatedAt,
+		&i.Telefono,
+	)
+	return i, err
+}
+
+const consentimientoVigenteNumero = `-- name: ConsentimientoVigenteNumero :one
+SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono FROM mensajeria.consentimientos
+WHERE empresa_id = $1 AND cliente_id = $2 AND canal = $3 AND telefono = $4::text
+ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
+LIMIT 1
+`
+
+type ConsentimientoVigenteNumeroParams struct {
+	EmpresaID int64
+	ClienteID int64
+	Canal     string
+	Telefono  string
+}
+
+// El permiso de un número de contacto del cliente (§6.4, A42), con la misma regla.
+func (q *Queries) ConsentimientoVigenteNumero(ctx context.Context, arg ConsentimientoVigenteNumeroParams) (MensajeriaConsentimiento, error) {
+	row := q.db.QueryRow(ctx, consentimientoVigenteNumero,
+		arg.EmpresaID,
+		arg.ClienteID,
+		arg.Canal,
+		arg.Telefono,
+	)
+	var i MensajeriaConsentimiento
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ClienteID,
+		&i.Canal,
+		&i.Estado,
+		&i.Origen,
+		&i.OcurridoEn,
+		&i.RegistradoPor,
+		&i.IdempotencyKey,
+		&i.HashPeticion,
+		&i.EntranteID,
+		&i.CreatedAt,
+		&i.Telefono,
 	)
 	return i, err
 }
@@ -698,6 +753,7 @@ func (q *Queries) ConsentimientoVigente(ctx context.Context, arg ConsentimientoV
 const contarAvisosDelDia = `-- name: ContarAvisosDelDia :one
 SELECT count(*)::bigint FROM mensajeria.avisos
 WHERE empresa_id = $1 AND cliente_id = $2 AND created_at >= $3 AND estado <> 'bloqueado'
+  AND aviso_padre_id IS NULL
 `
 
 type ContarAvisosDelDiaParams struct {
@@ -865,7 +921,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
     $18, $19, $20, $21, $22, $23)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at
+RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id
 `
 
 type InsertarAvisoParams struct {
@@ -952,6 +1008,8 @@ func (q *Queries) InsertarAviso(ctx context.Context, arg InsertarAvisoParams) (M
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
@@ -1048,18 +1106,19 @@ func (q *Queries) InsertarCanal(ctx context.Context, arg InsertarCanalParams) (M
 }
 
 const insertarConsentimiento = `-- name: InsertarConsentimiento :one
-INSERT INTO mensajeria.consentimientos (empresa_id, cliente_id, canal, estado, origen, ocurrido_en,
+INSERT INTO mensajeria.consentimientos (empresa_id, cliente_id, canal, telefono, estado, origen, ocurrido_en,
     registrado_por, idempotency_key, hash_peticion, entrante_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7,
-    $8, $9, $10)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+    $9, $10, $11)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at
+RETURNING id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono
 `
 
 type InsertarConsentimientoParams struct {
 	EmpresaID      int64
 	ClienteID      int64
 	Canal          string
+	Telefono       *string
 	Estado         string
 	Origen         string
 	OcurridoEn     time.Time
@@ -1074,6 +1133,7 @@ func (q *Queries) InsertarConsentimiento(ctx context.Context, arg InsertarConsen
 		arg.EmpresaID,
 		arg.ClienteID,
 		arg.Canal,
+		arg.Telefono,
 		arg.Estado,
 		arg.Origen,
 		arg.OcurridoEn,
@@ -1096,6 +1156,7 @@ func (q *Queries) InsertarConsentimiento(ctx context.Context, arg InsertarConsen
 		&i.HashPeticion,
 		&i.EntranteID,
 		&i.CreatedAt,
+		&i.Telefono,
 	)
 	return i, err
 }
@@ -1288,7 +1349,7 @@ UPDATE mensajeria.avisos
 SET estado = 'entregado', entregado_en = $1, leido_en = coalesce(leido_en, $2),
     finalizado_en = now(), updated_at = now()
 WHERE id = $3
-RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at
+RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id
 `
 
 type MarcarEntregadoParams struct {
@@ -1331,6 +1392,8 @@ func (q *Queries) MarcarEntregado(ctx context.Context, arg MarcarEntregadoParams
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
@@ -1339,7 +1402,7 @@ const marcarEnviado = `-- name: MarcarEnviado :one
 UPDATE mensajeria.avisos
 SET proveedor_id = $1, enviado_en = $2, intentos = intentos + 1, updated_at = now()
 WHERE id = $3
-RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at
+RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id
 `
 
 type MarcarEnviadoParams struct {
@@ -1382,6 +1445,8 @@ func (q *Queries) MarcarEnviado(ctx context.Context, arg MarcarEnviadoParams) (M
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
@@ -1391,7 +1456,7 @@ UPDATE mensajeria.avisos
 SET estado = 'fallido', motivo = $1, detalle = $2, canal = coalesce(canal, $3),
     finalizado_en = now(), updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at
+RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id
 `
 
 type MarcarFallidoParams struct {
@@ -1440,12 +1505,14 @@ func (q *Queries) MarcarFallido(ctx context.Context, arg MarcarFallidoParams) (M
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
 
 const marcarLeido = `-- name: MarcarLeido :one
-UPDATE mensajeria.avisos SET leido_en = $1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at
+UPDATE mensajeria.avisos SET leido_en = $1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id
 `
 
 type MarcarLeidoParams struct {
@@ -1487,6 +1554,8 @@ func (q *Queries) MarcarLeido(ctx context.Context, arg MarcarLeidoParams) (Mensa
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }

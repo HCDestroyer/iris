@@ -13217,6 +13217,8 @@ export interface components {
              * @enum {string}
              */
             origen: "argos_panel" | "argos_portal";
+            /** @description Opcional (contrato 0.10.0): el número E.164 de un contacto del cliente; el permiso es de ese número. Con él, la Idempotency-Key es argos:consentimiento:<empresa_id>:<cliente_id>:whatsapp:<h>:<ocurrido_en>, con h = 16 hex del HMAC-SHA256 del número (0.12.1) */
+            telefono?: string;
         };
         EntradaConsentimientoNumero: {
             /**

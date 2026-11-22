@@ -94,12 +94,13 @@ SELECT * FROM mensajeria.consentimientos WHERE registrado_por = @registrado_por:
 -- name: ConsentimientoPorHecho :one
 SELECT * FROM mensajeria.consentimientos
 WHERE empresa_id = @empresa_id AND cliente_id = @cliente_id AND canal = @canal
+  AND telefono IS NOT DISTINCT FROM sqlc.narg('telefono')::text
   AND ocurrido_en = @ocurrido_en AND estado = @estado AND origen = @origen;
 
 -- name: InsertarConsentimiento :one
-INSERT INTO mensajeria.consentimientos (empresa_id, cliente_id, canal, estado, origen, ocurrido_en,
+INSERT INTO mensajeria.consentimientos (empresa_id, cliente_id, canal, telefono, estado, origen, ocurrido_en,
     registrado_por, idempotency_key, hash_peticion, entrante_id)
-VALUES (@empresa_id, @cliente_id, @canal, @estado, @origen, @ocurrido_en, @registrado_por,
+VALUES (@empresa_id, @cliente_id, @canal, sqlc.narg('telefono'), @estado, @origen, @ocurrido_en, @registrado_por,
     @idempotency_key, @hash_peticion, @entrante_id)
 ON CONFLICT DO NOTHING
 RETURNING *;
@@ -109,9 +110,16 @@ RETURNING *;
 SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.consentimiento:' || @empresa_id::bigint || ':' || @cliente_id::bigint || ':' || @canal::text, 0));
 
 -- name: ConsentimientoVigente :one
--- El de ocurrido_en más reciente; a igual ocurrido_en, la baja manda.
+-- El de ocurrido_en más reciente; a igual ocurrido_en, la baja manda. Solo el del cliente (sin número).
 SELECT * FROM mensajeria.consentimientos
-WHERE empresa_id = @empresa_id AND cliente_id = @cliente_id AND canal = @canal
+WHERE empresa_id = @empresa_id AND cliente_id = @cliente_id AND canal = @canal AND telefono IS NULL
+ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
+LIMIT 1;
+
+-- name: ConsentimientoVigenteNumero :one
+-- El permiso de un número de contacto del cliente (§6.4, A42), con la misma regla.
+SELECT * FROM mensajeria.consentimientos
+WHERE empresa_id = @empresa_id AND cliente_id = @cliente_id AND canal = @canal AND telefono = @telefono::text
 ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
 LIMIT 1;
 
@@ -146,7 +154,8 @@ SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.aviso:' || @empresa_id
 -- name: ContarAvisosDelDia :one
 -- Avisos automáticos del cliente desde el inicio del día (los bloqueados no cuentan).
 SELECT count(*)::bigint FROM mensajeria.avisos
-WHERE empresa_id = @empresa_id AND cliente_id = @cliente_id AND created_at >= @desde AND estado <> 'bloqueado';
+WHERE empresa_id = @empresa_id AND cliente_id = @cliente_id AND created_at >= @desde AND estado <> 'bloqueado'
+  AND aviso_padre_id IS NULL;
 
 -- name: BloquearRemitente :exec
 SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.remitente:' || @remitente::text, 0));

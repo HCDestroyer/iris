@@ -38,7 +38,7 @@ func (q *Queries) AvanzarSeqHistorial(ctx context.Context, arg AvanzarSeqHistori
 }
 
 const avisosEnColaDePrestamo = `-- name: AvisosEnColaDePrestamo :many
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at FROM mensajeria.avisos
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id FROM mensajeria.avisos
 WHERE canal_id = $1 AND empresa_id = $2 AND estado = 'en_cola' AND enviado_en IS NULL
 ORDER BY id
 FOR UPDATE
@@ -89,6 +89,8 @@ func (q *Queries) AvisosEnColaDePrestamo(ctx context.Context, arg AvisosEnColaDe
 			&i.Intentos,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AvisoPadreID,
+			&i.ContactoArgosID,
 		); err != nil {
 			return nil, err
 		}

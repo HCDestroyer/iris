@@ -1333,36 +1333,38 @@ type MensajeriaAsistenteVerificacione struct {
 }
 
 type MensajeriaAviso struct {
-	ID             uuid.UUID
-	EmpresaID      int64
-	ClienteID      int64
-	ServicioID     *int64
-	Plantilla      string
-	Variables      []byte
-	CanalPreferido string
-	Prioridad      string
-	Origen         string
-	Estado         string
-	Motivo         *string
-	Detalle        *string
-	Canal          *string
-	CanalID        *int64
-	Remitente      *string
-	Destino        *string
-	ProveedorID    *string
-	UsuarioID      *int64
-	TokenID        *int64
-	IdempotencyKey *string
-	HashPeticion   []byte
-	VenceEn        *time.Time
-	ProgramadoEn   *time.Time
-	EnviadoEn      *time.Time
-	EntregadoEn    *time.Time
-	LeidoEn        *time.Time
-	FinalizadoEn   *time.Time
-	Intentos       int32
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID              uuid.UUID
+	EmpresaID       int64
+	ClienteID       int64
+	ServicioID      *int64
+	Plantilla       string
+	Variables       []byte
+	CanalPreferido  string
+	Prioridad       string
+	Origen          string
+	Estado          string
+	Motivo          *string
+	Detalle         *string
+	Canal           *string
+	CanalID         *int64
+	Remitente       *string
+	Destino         *string
+	ProveedorID     *string
+	UsuarioID       *int64
+	TokenID         *int64
+	IdempotencyKey  *string
+	HashPeticion    []byte
+	VenceEn         *time.Time
+	ProgramadoEn    *time.Time
+	EnviadoEn       *time.Time
+	EntregadoEn     *time.Time
+	LeidoEn         *time.Time
+	FinalizadoEn    *time.Time
+	Intentos        int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	AvisoPadreID    pgtype.UUID
+	ContactoArgosID *int64
 }
 
 type MensajeriaBoleta struct {
@@ -1691,6 +1693,7 @@ type MensajeriaConsentimiento struct {
 	HashPeticion   []byte
 	EntranteID     *int64
 	CreatedAt      time.Time
+	Telefono       *string
 }
 
 type MensajeriaConsentimientosNumero struct {
