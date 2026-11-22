@@ -244,27 +244,22 @@ func nuevoAvisarCargaDetenida(m *Modulo) *auditoria.Caso[entradaCargaDetenida, b
 	})
 }
 
-// migrarVinculos (A-1): al activar un conector Argos de la misma instancia que otro (misma base_url,
-// p. ej. una reconexión), los vínculos de técnicos, los webhooks tecnico.argos_* (los entregados
-// también: Argos ya los tiene, y depende_de los cuenta) y la carga inicial de ese otro pasan al nuevo:
-// siguen entregándose y conciliándose sin otra carga.
+// migrarVinculos (A-1): al activar un conector de la misma instancia de Argos que otro
+// (integracion.misma_instancia_argos: base_url normalizada y, si los dos lo traen, remoto_id; p. ej.
+// una reconexión), los vínculos de los técnicos y los webhooks tecnico.argos_* aún sin entregar
+// (pendientes o agotados) pasan al nuevo. Lo ya entregado y la carga cerrada NO pasan: el conector
+// nuevo corre su propia carga inicial (reemite los vinculados con una versión mayor; para el mismo
+// Argos es inocuo) y, hasta cerrarla, las operaciones con `tecnico` esperan (un Argos reinstalado en
+// la misma URL nunca hereda «entregado»).
 func migrarVinculos(ctx context.Context, tx pgx.Tx, nuevo int64) error {
-	const misma = `v.sistema = 'argosisp' AND v.id <> n.id AND rtrim(v.base_url, '/') = rtrim(n.base_url, '/')`
-	if _, err := tx.Exec(ctx, `UPDATE agenda.tecnicos t SET argos_conector_id = n.id
-		FROM integracion.conectores v, integracion.conectores n
-		WHERE n.id = $1 AND v.id = t.argos_conector_id AND `+misma, nuevo); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE agenda.tecnicos t SET argos_conector_id = $1
+		WHERE t.argos_conector_id IS NOT NULL AND t.argos_conector_id <> $1
+		  AND integracion.misma_instancia_argos(t.argos_conector_id, $1)`, nuevo); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE mensajeria.webhooks_salida w SET conector_origen = n.id, updated_at = now()
-		FROM integracion.conectores v, integracion.conectores n
-		WHERE n.id = $1 AND v.id = w.conector_origen AND `+misma, nuevo); err != nil {
-		return err
-	}
-	_, err := tx.Exec(ctx, `UPDATE integracion.conectores n SET vinculos_carga_id = v.vinculos_carga_id, vinculos_carga_n = v.vinculos_carga_n,
-		vinculos_cargados_en = v.vinculos_cargados_en, vinculos_carga_avisada_en = v.vinculos_carga_avisada_en
-		FROM (SELECT v.* FROM integracion.conectores v, integracion.conectores n
-		      WHERE n.id = $1 AND v.vinculos_carga_id IS NOT NULL AND `+misma+` ORDER BY v.id DESC LIMIT 1) v
-		WHERE n.id = $1 AND n.vinculos_carga_id IS NULL`, nuevo)
+	_, err := tx.Exec(ctx, `UPDATE mensajeria.webhooks_salida w SET conector_origen = $1, updated_at = now()
+		WHERE w.conector_origen IS NOT NULL AND w.conector_origen <> $1 AND w.estado IN ('pendiente', 'agotado')
+		  AND integracion.misma_instancia_argos(w.conector_origen, $1)`, nuevo)
 	return err
 }
 

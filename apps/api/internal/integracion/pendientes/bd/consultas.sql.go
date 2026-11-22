@@ -831,17 +831,22 @@ func (q *Queries) EsperandoFoto(ctx context.Context, arg EsperandoFotoParams) ([
 }
 
 const estadoVinculo = `-- name: EstadoVinculo :one
-SELECT coalesce((
+SELECT CASE WHEN (SELECT c.vinculos_cargados_en FROM integracion.conectores c WHERE c.id = $1::bigint) IS NULL THEN 'carga_abierta'
+            ELSE coalesce(v.estado, 'sin_vinculo') END::text AS estado,
+       coalesce(v.motivo, '')::text AS motivo
+FROM agenda.tecnicos t
+LEFT JOIN LATERAL (
     SELECT CASE
         WHEN o.evento <> 'tecnico.argos_vinculado' OR t.argos_id_externo IS NULL OR o.payload->>'id_externo' <> t.argos_id_externo THEN 'sin_vinculo'
         WHEN w.id IS NULL THEN 'sin_programar'
         WHEN w.conector_origen IS DISTINCT FROM $1::bigint THEN 'otro_conector'
-        ELSE w.estado END
+        ELSE w.estado END AS estado,
+        CASE WHEN w.estado = 'omitido' THEN split_part(coalesce(w.ultimo_error, ''), ':', 1) END AS motivo
     FROM integracion.outbox o LEFT JOIN mensajeria.webhooks_salida w ON w.id = o.id
     WHERE o.evento IN ('tecnico.argos_vinculado', 'tecnico.argos_desvinculado')
       AND (o.payload->>'tecnico_id')::bigint = t.id AND (o.payload->>'empresa_id')::bigint = $2::bigint
-    ORDER BY (o.payload->>'version')::int DESC, o.id DESC LIMIT 1), 'sin_vinculo')::text AS estado
-FROM agenda.tecnicos t WHERE t.usuario_id = $3::bigint
+    ORDER BY (o.payload->>'version')::int DESC, o.id DESC LIMIT 1) v ON true
+WHERE t.usuario_id = $3::bigint
 `
 
 type EstadoVinculoParams struct {
@@ -850,15 +855,22 @@ type EstadoVinculoParams struct {
 	UsuarioID  int64
 }
 
+type EstadoVinculoRow struct {
+	Estado string
+	Motivo string
+}
+
 // 0.14.0 §6.6: el estado del vínculo VIGENTE del técnico en la empresa (M-3: el último
 // tecnico.argos_* emitido para esa empresa, comparado con el id_externo de la ficha, no la última
 // fila de webhook) y de su webhook hacia este conector. Estados: entregado, pendiente, agotado,
-// omitido (de su webhook); sin_programar (aún en el outbox); otro_conector; sin_vinculo.
-func (q *Queries) EstadoVinculo(ctx context.Context, arg EstadoVinculoParams) (string, error) {
+// omitido (de su webhook); sin_programar (aún en el outbox); otro_conector; sin_vinculo; carga_abierta
+// (el conector aún no cerró su carga inicial de vínculos: tras reconectar, nada se hereda). motivo: el de
+// un omitido (prefijo de ultimo_error: sin_receptor, otro_conector, empresa_no_permitida).
+func (q *Queries) EstadoVinculo(ctx context.Context, arg EstadoVinculoParams) (EstadoVinculoRow, error) {
 	row := q.db.QueryRow(ctx, estadoVinculo, arg.ConectorID, arg.EmpresaID, arg.UsuarioID)
-	var estado string
-	err := row.Scan(&estado)
-	return estado, err
+	var i EstadoVinculoRow
+	err := row.Scan(&i.Estado, &i.Motivo)
+	return i, err
 }
 
 const fallarEsperando = `-- name: FallarEsperando :one

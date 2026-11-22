@@ -730,12 +730,17 @@ func (q *Queries) ContarIntento(ctx context.Context, id uuid.UUID) error {
 }
 
 const desvinculadoAnteriorSinEntregar = `-- name: DesvinculadoAnteriorSinEntregar :one
-SELECT EXISTS (
+SELECT (EXISTS (
     SELECT 1 FROM mensajeria.webhooks_salida d
     WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado IN ('pendiente', 'agotado')
       AND ((d.payload->>'id_externo' = $1::text AND d.created_at < $2)
         OR ((d.payload->>'usuario_id')::bigint = $3::bigint AND (d.payload->>'version')::int < $4::int))
-)::boolean
+) OR EXISTS (
+    SELECT 1 FROM integracion.outbox o
+    WHERE o.evento = 'tecnico.argos_desvinculado' AND o.publicado_en IS NULL
+      AND ((o.payload->>'id_externo' = $1::text AND o.id < $5::uuid)
+        OR ((o.payload->>'usuario_id')::bigint = $3::bigint AND (o.payload->>'version')::int < $4::int))
+))::boolean
 `
 
 type DesvinculadoAnteriorSinEntregarParams struct {
@@ -743,18 +748,21 @@ type DesvinculadoAnteriorSinEntregarParams struct {
 	Antes     time.Time
 	UsuarioID int64
 	Version   int32
+	EventoID  uuid.UUID
 }
 
 // 0.14.0 §6.6: el vinculado de un técnico no sale hasta el 2xx del desvinculado anterior del mismo
 // id_externo (el que lo liberó, de otro técnico) ni del desvinculado anterior del mismo técnico
 // (M-3: cambió su id_externo; mismo cambio, versión menor), aunque haya agotado sus reintentos
 // (POST …/webhooks-salida/{id}/reenviar lo vuelve a mandar).
+// También los que siguen en el outbox sin publicar (el relay falló y quedaron en backoff).
 func (q *Queries) DesvinculadoAnteriorSinEntregar(ctx context.Context, arg DesvinculadoAnteriorSinEntregarParams) (bool, error) {
 	row := q.db.QueryRow(ctx, desvinculadoAnteriorSinEntregar,
 		arg.IDExterno,
 		arg.Antes,
 		arg.UsuarioID,
 		arg.Version,
+		arg.EventoID,
 	)
 	var column_1 bool
 	err := row.Scan(&column_1)
@@ -1162,7 +1170,12 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 const insertarWebhookSalida = `-- name: InsertarWebhookSalida :exec
 
 INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento, conector_origen, carga_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+VALUES ($1, $2, $3, $4, $5, $6,
+        coalesce((SELECT a.id FROM integracion.conectores a
+                  WHERE a.sistema = 'argosisp' AND a.estado = 'activo' AND a.id <> $7::bigint
+                    AND integracion.misma_instancia_argos(a.id, $7::bigint)
+                  ORDER BY a.id DESC LIMIT 1), $7::bigint),
+        $8)
 ON CONFLICT (id) DO NOTHING
 `
 
@@ -1180,6 +1193,8 @@ type InsertarWebhookSalidaParams struct {
 // Webhooks hacia Argos -------------------------------------------------------------------------
 // proximo_intento con el reloj del módulo (no el now() de la base): el despacho compara contra ese
 // mismo reloj, y en las pruebas es fijo.
+// 0.14.0 §6.6: un conector de origen ya reemplazado por el activo de la misma instancia de Argos (una
+// reconexión con el evento aún en el outbox) pasa al activo.
 func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhookSalidaParams) error {
 	_, err := q.db.Exec(ctx, insertarWebhookSalida,
 		arg.ID,

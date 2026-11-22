@@ -430,10 +430,14 @@ deja abierta). Columnas: `integracion.conectores.vinculos_carga_id`, `vinculos_c
 `argos.carga_vinculos_detenida` una vez por episodio (`vinculos_carga_avisada_en`; aviso de campana al
 admin).
 
-**Reconexión (A-1).** Al activar un conector de la misma instancia de Argos que otro (misma `base_url`),
-`migrarVinculos` pasa al nuevo, en la transacción de la activación, los `agenda.tecnicos.argos_conector_id`,
-el `conector_origen` de los webhooks `tecnico.argos_*` y la carga inicial: los vínculos siguen
-entregándose y conciliándose, y las operaciones con `tecnico` siguen saliendo.
+**Reconexión (A-1).** Al activar un conector de la misma instancia de Argos que otro
+(`integracion.misma_instancia_argos`: `base_url` normalizada —host en minúsculas, sin punto final ni puerto
+por defecto; se guarda así desde el canje— y, si los dos lo traen, el mismo `remoto_id`), `migrarVinculos`
+pasa al nuevo, en la transacción de la activación, los `agenda.tecnicos.argos_conector_id` y el
+`conector_origen` de los webhooks `tecnico.argos_*` aún sin entregar. Lo entregado y la carga cerrada no se
+heredan: el conector nuevo corre su carga inicial al informar 0.14.0 (reemite los vinculados con versión
+mayor) y, hasta cerrarla, `depende_de` espera. Un evento que seguía en el outbox con el conector viejo se
+programa hacia el activo de la misma instancia (mensajeria).
 
 ## Contrato 0.7.1 (A24)
 

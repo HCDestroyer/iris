@@ -3,6 +3,8 @@ package argos_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"strconv"
 	"testing"
 
@@ -139,11 +141,13 @@ func TestCargaDeVinculosAlInformar014(t *testing.T) {
 	}
 }
 
-// A-1: reconectar la misma instancia de Argos (misma base_url) pasa al conector nuevo los vínculos
-// de los técnicos, los webhooks tecnico.argos_* (entregados o no) y la carga inicial: siguen
-// entregándose y conciliándose, sin otra carga. Lo de otros webhooks no cambia.
+// A-1: reconectar la misma instancia de Argos (base_url normalizada y, si los dos lo traen, remoto_id)
+// pasa al conector nuevo los vínculos de los técnicos y los webhooks tecnico.argos_* sin entregar. Lo
+// entregado y la carga cerrada NO pasan: el conector nuevo corre su propia carga al informar 0.14.0
+// (un Argos reinstalado en la misma URL no hereda «entregado»). Otra instancia no se lleva nada.
 func TestReconexionConservaLosVinculos(t *testing.T) {
 	e := nuevoEntorno(t)
+	e.argos.con(func() { e.argos.version, e.argos.contratoMax = "1.30.0", "0.14.0" })
 	admin, viejo, _ := e.conectado()
 	ctx := pruebas.ContextoSistema(e.pool)
 	u, err := e.ident.CrearUsuario.Ejecutar(ctx, identidad.EntradaCrearUsuario{Nombre: "Técnico", Correo: pruebas.Correo("vinc"), Contrasena: contrasena})
@@ -156,8 +160,8 @@ func TestReconexionConservaLosVinculos(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _, _ = e.pool.Exec(context.Background(), `DELETE FROM agenda.tecnicos WHERE id = $1`, ficha) })
-	carga := uuid.Must(uuid.NewV7())
-	if _, err := e.pool.Exec(ctx, `UPDATE integracion.conectores SET vinculos_carga_id = $2, vinculos_carga_n = 2 WHERE id = $1`, viejo, carga); err != nil {
+	if _, err := e.pool.Exec(ctx, `UPDATE integracion.conectores SET vinculos_carga_id = $2, vinculos_carga_n = 2, vinculos_cargados_en = now()
+		WHERE id = $1`, viejo, uuid.Must(uuid.NewV7())); err != nil {
 		t.Fatal(err)
 	}
 	webhook := func(evento, estado string) uuid.UUID {
@@ -170,6 +174,10 @@ func TestReconexionConservaLosVinculos(t *testing.T) {
 	}
 	entregado, pendiente := webhook("tecnico.argos_vinculado", "entregado"), webhook("tecnico.argos_vinculado", "pendiente")
 
+	// La misma URL escrita distinto (mayúsculas, puerto por defecto) es la misma instancia.
+	if _, err := e.pool.Exec(ctx, `UPDATE integracion.conectores SET base_url = upper(base_url) WHERE id = $1`, viejo); err != nil {
+		t.Fatal(err)
+	}
 	nuevo := e.reconectar(admin, false)
 	if nuevo == viejo {
 		t.Fatal("la reconexión crea otro conector")
@@ -177,20 +185,58 @@ func TestReconexionConservaLosVinculos(t *testing.T) {
 	if e.contar(`SELECT count(*) FROM agenda.tecnicos WHERE id = $1 AND argos_conector_id = $2`, ficha, nuevo) != 1 {
 		t.Fatal("el vínculo pasa al conector nuevo")
 	}
-	if e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE id = ANY($1) AND conector_origen = $2`, []uuid.UUID{entregado, pendiente}, nuevo) != 2 {
-		t.Fatal("los webhooks del vínculo pasan al conector nuevo")
+	if e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE id = $1 AND conector_origen = $2`, pendiente, nuevo) != 1 ||
+		e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE id = $1 AND conector_origen = $2`, entregado, viejo) != 1 {
+		t.Fatal("solo el webhook sin entregar pasa al conector nuevo")
 	}
-	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND vinculos_carga_id = $2 AND vinculos_carga_n = 2`, nuevo, carga) != 1 {
-		t.Fatal("la carga sigue en el conector nuevo")
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND vinculos_carga_id IS NULL AND vinculos_cargados_en IS NULL`, nuevo) != 1 {
+		t.Fatal("la carga cerrada no se hereda")
+	}
+	// Al informar 0.14.0, el conector nuevo corre su carga (con los vínculos que ahora son suyos).
+	cargas := []int64{}
+	cfg := e.cfg
+	cfg.ContratoIris = "0.14.0"
+	cfg.Vinculos = func(_ context.Context, conectorID int64, _ uuid.UUID) (int, error) {
+		cargas = append(cargas, conectorID)
+		return 1, nil
+	}
+	mod := argos.Nuevo(cfg)
+	mod.Nucleo().FijarTokens(e.ident)
+	if _, err := mod.InformarContrato.Ejecutar(ctx, nuevo); err != nil {
+		t.Fatal(err)
+	}
+	if len(cargas) != 1 || cargas[0] != nuevo || e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND vinculos_carga_id IS NOT NULL
+		AND vinculos_cargados_en IS NULL`, nuevo) != 1 {
+		t.Fatalf("la carga se vuelve a correr en el conector nuevo: %v", cargas)
 	}
 
-	// Otra instancia (otra base_url) no se lleva nada.
+	// Otra instancia: otra base_url, o la misma con otro remoto_id, no se lleva nada.
 	if _, err := e.pool.Exec(ctx, `UPDATE integracion.conectores SET base_url = 'https://otro-argos.prueba' WHERE id = $1`, nuevo); err != nil {
 		t.Fatal(err)
 	}
 	otro := e.reconectar(admin, false)
 	if e.contar(`SELECT count(*) FROM agenda.tecnicos WHERE id = $1 AND argos_conector_id = $2`, ficha, nuevo) != 1 || otro == nuevo {
-		t.Fatal("otra instancia de Argos no se lleva el vínculo")
+		t.Fatal("otra URL no se lleva el vínculo")
+	}
+	if _, err := e.pool.Exec(ctx, `UPDATE agenda.tecnicos SET argos_conector_id = $2 WHERE id = $1`, ficha, otro); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.pool.Exec(ctx, `UPDATE integracion.conectores SET remoto_id = 'argos-a' WHERE id = $1`, otro); err != nil {
+		t.Fatal(err)
+	}
+	r := admin.pedir(http.MethodPost, "/api/v1/integraciones/argosisp/conectar", map[string]any{"enlace": e.argos.enlace()})
+	if r.status != 201 {
+		t.Fatalf("conectar: %d %s", r.status, r.crudo)
+	}
+	ultimo := int64(r.cuerpo["id"].(float64))
+	if _, err := e.pool.Exec(ctx, `UPDATE integracion.conectores SET remoto_id = 'argos-b' WHERE id = $1`, ultimo); err != nil {
+		t.Fatal(err)
+	}
+	if a := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/integraciones/conectores/%d/activar", ultimo), map[string]any{"version": 1}); a.status != 200 {
+		t.Fatalf("activar: %d %s", a.status, a.crudo)
+	}
+	if e.contar(`SELECT count(*) FROM agenda.tecnicos WHERE id = $1 AND argos_conector_id = $2`, ficha, otro) != 1 {
+		t.Fatal("otro remoto_id no se lleva el vínculo")
 	}
 }
 

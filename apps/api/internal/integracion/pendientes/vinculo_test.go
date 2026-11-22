@@ -20,6 +20,9 @@ func (e *entorno) con014() *pendientes.Modulo {
 	cfg.ContratoIris = "0.14.0"
 	am := argos.Nuevo(cfg)
 	am.Nucleo().FijarTokens(pruebas.TokensFalsos{})
+	// La carga inicial de vínculos del conector, ya cerrada (si no, depende_de espera).
+	e.exec(`UPDATE integracion.conectores SET vinculos_carga_id = $2, vinculos_carga_n = 0, vinculos_cargados_en = now() WHERE id = $1`,
+		e.conID, uuid.Must(uuid.NewV7()))
 	return pendientes.Nuevo(pendientes.Config{Argos: am, Reloj: func() time.Time { return e.reloj }})
 }
 
@@ -126,8 +129,10 @@ func TestOperacionConTecnicoEsperaSuVinculado(t *testing.T) {
 		t.Fatalf("con el vinculado vigente entregado: %s", estado)
 	}
 
-	// A-1: reconectar la misma instancia de Argos: el vínculo y sus webhooks pasan al conector nuevo
-	// y las operaciones siguen saliendo.
+	// A-1: reconectar la misma instancia de Argos: el vínculo pasa al conector nuevo, pero lo
+	// entregado no se hereda: hasta cerrar la carga nueva (que reemite el vinculado con versión mayor),
+	// la operación espera; después sale.
+	pendienteViejo := e.vinculado("tecnico.argos_vinculado", tec, nuevo, 4, "pendiente")
 	c, err := e.am.Conectar.Ejecutar(e.ctx(), argos.EntradaConectar{Enlace: e.argos.srv.URL + "/conectar#codigo-de-reconexion-456"})
 	if err != nil {
 		t.Fatal(err)
@@ -136,13 +141,25 @@ func TestOperacionConTecnicoEsperaSuVinculado(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.exec(`UPDATE integracion.conectores SET contrato_remoto = '0.14.0', version_remota = (SELECT version_remota FROM integracion.conectores WHERE id = $2) WHERE id = $1`, c.ID, e.conID)
-	if e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE id = $1 AND conector_origen = $2`, w2, c.ID) != 1 {
-		t.Fatal("el webhook del vínculo pasa al conector nuevo")
+	if e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE id = $1 AND conector_origen = $2`, w2, e.conID) != 1 ||
+		e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE id = $1 AND conector_origen = $2`, pendienteViejo, c.ID) != 1 {
+		t.Fatal("solo el webhook sin entregar pasa al conector nuevo")
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND vinculos_carga_id IS NULL AND vinculos_cargados_en IS NULL`, c.ID) != 1 {
+		t.Fatal("la carga cerrada no se hereda")
 	}
 	tras := e.opConTecnico(tec, "reconexion")
 	procesarCon(t, e, m)
+	if estado, codigo, _ := e.estadoPendiente(tras.ID); estado != pendientes.EstadoPendiente || codigo != pendientes.CodigoDependeDeVinculado {
+		t.Fatalf("con la carga nueva abierta espera: %s %s", estado, codigo)
+	}
+	// La carga nueva reemite el vinculado (versión mayor) hacia el conector nuevo y se cierra.
+	e.exec(`UPDATE mensajeria.webhooks_salida SET estado = 'entregado' WHERE id = $1`, pendienteViejo)
+	e.exec(`UPDATE integracion.conectores SET vinculos_carga_id = $2, vinculos_carga_n = 1, vinculos_cargados_en = now() WHERE id = $1`, c.ID, uuid.Must(uuid.NewV7()))
+	e.reloj = e.reloj.Add(2 * pendientes.EsperaVinculo)
+	procesarCon(t, e, m)
 	if estado, _, _ := e.estadoPendiente(tras.ID); estado != pendientes.EstadoHecho {
-		t.Fatalf("tras reconectar sale: %s", estado)
+		t.Fatalf("con la carga cerrada y el vinculado entregado sale: %s", estado)
 	}
 }
 
@@ -168,6 +185,13 @@ func TestVinculoAgotadoTopeYOmitido(t *testing.T) {
 		t.Fatalf("agotado: %s %s %d %d", estado, codigo, intentos, bloqueados(op.ID))
 	}
 	e.exec(`UPDATE mensajeria.webhooks_salida SET estado = 'entregado' WHERE id = $1`, w)
+	// Con el conector apagado el estado del vínculo no se puede saber: sigue bloqueado.
+	e.exec(`UPDATE integracion.conectores SET estado = 'apagado' WHERE id = $1`, e.conID)
+	procesarCon(t, e, m)
+	e.exec(`UPDATE integracion.conectores SET estado = 'activo' WHERE id = $1`, e.conID)
+	if estado, _, _ := e.estadoPendiente(op.ID); estado != pendientes.EstadoBloqueado {
+		t.Fatalf("sin conector no se desbloquea: %s", estado)
+	}
 	procesarCon(t, e, m)
 	if estado, _, _ := e.estadoPendiente(op.ID); estado != pendientes.EstadoHecho {
 		t.Fatalf("con el 2xx se desbloquea y sale: %s", estado)
@@ -194,11 +218,23 @@ func TestVinculoAgotadoTopeYOmitido(t *testing.T) {
 	// Omitido: fallido de negocio con empresa_no_permitida (para una persona).
 	ext3 := "u-84-" + uuid.NewString()[:8]
 	tec3 := e.tecnico(ext3)
-	e.vinculado("tecnico.argos_vinculado", tec3, ext3, 1, "omitido")
+	wo := e.vinculado("tecnico.argos_vinculado", tec3, ext3, 1, "omitido")
+	e.exec(`UPDATE mensajeria.webhooks_salida SET ultimo_error = 'empresa_no_permitida: la empresa no está en el alcance del conector Argos' WHERE id = $1`, wo)
 	om := e.opConTecnico(tec3, "omitido")
 	procesarCon(t, e, m)
 	if estado, codigo, _ := e.estadoPendiente(om.ID); estado != pendientes.EstadoFallidoNegocio || codigo != pendientes.CodigoEmpresaNoPermitida {
 		t.Fatalf("omitido: %s %s", estado, codigo)
+	}
+
+	// Omitido porque el conector no informó su receptor: sin_receptor (no empresa_no_permitida).
+	ext4 := "u-85-" + uuid.NewString()[:8]
+	tec4 := e.tecnico(ext4)
+	wr := e.vinculado("tecnico.argos_vinculado", tec4, ext4, 1, "omitido")
+	e.exec(`UPDATE mensajeria.webhooks_salida SET ultimo_error = 'sin_receptor: el conector Argos no habla el contrato 0.14.0 o no informó su receptor de webhooks' WHERE id = $1`, wr)
+	sr := e.opConTecnico(tec4, "sin_receptor")
+	procesarCon(t, e, m)
+	if estado, codigo, _ := e.estadoPendiente(sr.ID); estado != pendientes.EstadoFallidoNegocio || codigo != pendientes.CodigoSinReceptor {
+		t.Fatalf("sin receptor: %s %s", estado, codigo)
 	}
 }
 

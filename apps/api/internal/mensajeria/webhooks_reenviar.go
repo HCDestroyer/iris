@@ -13,6 +13,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Reenviar un webhook de Iris hacia Argos que agotó sus reintentos (contrato 0.14.0 §6.6). Un
@@ -52,6 +53,10 @@ func nuevoReenviarWebhook(m *Modulo) *auditoria.Caso[EntradaReenviarWebhook, Web
 			if err != nil {
 				return WebhookSalida{}, err
 			}
+			// Fuera de la empresa activa: el mismo 404 que uno que no existe.
+			if !visibleEnEmpresa(ctx, antes.EmpresaID) {
+				return WebhookSalida{}, nucleo.NoEncontrado("El webhook no existe")
+			}
 			if antes.Estado != "agotado" {
 				return WebhookSalida{}, nucleo.ReglaNegocio("webhook_no_agotado",
 					"Solo se reenvía un webhook que agotó sus reintentos; este está "+antes.Estado)
@@ -69,6 +74,19 @@ func nuevoReenviarWebhook(m *Modulo) *auditoria.Caso[EntradaReenviarWebhook, Web
 			return WebhookSalida{ID: f.ID, Evento: f.Evento, EmpresaID: f.EmpresaID, Estado: f.Estado, Intentos: f.Intentos, ProximoIntento: f.ProximoIntento}, nil
 		},
 	})
+}
+
+// visibleEnEmpresa: el webhook es de la empresa activa (o se ven todas); uno sin empresa solo sin
+// empresa activa (como pendientes.visible).
+func visibleEnEmpresa(ctx context.Context, empresa *int64) bool {
+	e := contexto.EmpresasDe(ctx)
+	switch e.Estado {
+	case contexto.EmpresaNoResuelta:
+		return true
+	case contexto.EmpresaActiva:
+		return empresa != nil && *empresa == contexto.EmpresaDe(ctx)
+	}
+	return empresa == nil
 }
 
 type entradaReenviarHTTP struct {

@@ -111,8 +111,11 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   `TopeEsperaVinculo` (24 h, desde `esperando_vinculo_desde`). Al tope, o si el vinculado quedó `agotado`,
   pasa a `bloqueado` (`integracion.pendiente_bloqueado` con `depende_de: null`), y vuelve solo a la cola
   (`_desbloqueado`) cuando el vinculado tiene el `2xx` (se reenvía con `POST
-  /mensajeria/webhooks-salida/{id}/reenviar`). Un vinculado `omitido` (empresa fuera del alcance) deja la
-  operación `fallido_negocio` con `empresa_no_permitida`.
+  /mensajeria/webhooks-salida/{id}/reenviar`). Mientras el conector activo no cierre su carga inicial de vínculos
+  (`carga_abierta`, p. ej. tras reconectar) también espera. Un vinculado `omitido` deja la operación
+  `fallido_negocio` con el motivo del omitido: `empresa_no_permitida` (fuera del alcance), `sin_receptor`
+  (el conector no informó su receptor) u `otro_conector`. Un bloqueado solo se desbloquea con el `2xx`
+  (sin conector activo sigue bloqueado).
 - **Clave reutilizada.** Un `422 idempotency_key_reutilizada` deja el pendiente `fallido_negocio` y emite
   `integracion.pendiente_clave_reutilizada` (`seguridad` en cambios e intentos): la campana avisa al admin.
 - **Verificación.** `GET …/intentos-recuperacion/verificacion` solo responde a un conector al que Iris ya

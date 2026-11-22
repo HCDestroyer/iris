@@ -43,6 +43,13 @@ const ContratoWebhooks = "0.6.0"
 // cuadrilla.actualizada (0.11.0 §3.9 y §6.6, bodega de cuadrilla).
 const ContratoCuadrillas = "0.11.0"
 
+// Motivos de un webhook omitido (el prefijo de ultimo_error; pendientes los lee en depende_de).
+const (
+	MotivoSinReceptor        = "sin_receptor"
+	MotivoOtroConector       = "otro_conector"
+	MotivoEmpresaNoPermitida = "empresa_no_permitida"
+)
+
 // ContratoVinculos es la primera versión del contrato con tecnico.argos_vinculado y
 // tecnico.argos_desvinculado (0.14.0 §6.6).
 const ContratoVinculos = "0.14.0"
@@ -261,15 +268,15 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 		return err
 	case !conector.VersionAlMenos(c.ContratoRemoto, contratoMinimo(w.Evento)) || c.WebhookSalidaUrl == nil:
 		in.Estado, in.ConectorID = "omitido", &c.ID
-		in.Error = texto("el conector Argos no habla el contrato " + contratoMinimo(w.Evento) + " o no informó su receptor de webhooks")
+		in.Error = texto(MotivoSinReceptor + ": el conector Argos no habla el contrato " + contratoMinimo(w.Evento) + " o no informó su receptor de webhooks")
 	case (w.Evento == eventoVinculado || w.Evento == eventoDesvinculado) && (w.ConectorOrigen == nil || *w.ConectorOrigen != c.ID):
 		// 0.14.0 §6.6: solo al conector del que salió el id_externo.
 		in.Estado, in.ConectorID = "omitido", &c.ID
-		in.Error = texto("el vínculo del técnico no salió de este conector Argos")
+		in.Error = texto(MotivoOtroConector + ": el vínculo del técnico no salió de este conector Argos")
 	case (w.Evento == eventoVinculado || w.Evento == eventoDesvinculado) && !c.AlcanceGlobal &&
 		(w.EmpresaID == nil || !slices.Contains(c.Empresas, *w.EmpresaID)):
 		in.Estado, in.ConectorID = "omitido", &c.ID
-		in.Error = texto("la empresa no está en el alcance del conector Argos")
+		in.Error = texto(MotivoEmpresaNoPermitida + ": la empresa no está en el alcance del conector Argos")
 	case w.Evento == eventoVinculado:
 		// El vinculado espera el 2xx del desvinculado anterior del mismo id_externo (§6.6).
 		var p struct {
@@ -279,7 +286,7 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 		}
 		_ = json.Unmarshal(w.Payload, &p)
 		espera, err := mensajeriabd.New(bd).DesvinculadoAnteriorSinEntregar(ctx, mensajeriabd.DesvinculadoAnteriorSinEntregarParams{
-			IDExterno: p.IDExterno, Antes: w.CreatedAt, UsuarioID: p.UsuarioID, Version: p.Version})
+			IDExterno: p.IDExterno, Antes: w.CreatedAt, UsuarioID: p.UsuarioID, Version: p.Version, EventoID: w.ID})
 		if err != nil {
 			return err
 		}

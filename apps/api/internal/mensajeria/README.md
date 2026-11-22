@@ -59,8 +59,13 @@ WhatsApp por QR y Telegram son de fases siguientes: QR declarará `PermiteAvisos
 `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` van solo al conector del que salió el vínculo
 (`webhooks_salida.conector_origen`) y en las empresas de su alcance. Un vinculado espera el `2xx` del
 desvinculado anterior del mismo `id_externo` (otro técnico) o del mismo técnico con versión menor (cambio de
-`id_externo`). Un webhook `agotado` se reenvía con `POST /mensajeria/webhooks-salida/{id}/reenviar`
-(`integraciones.reenviar_webhook`, auditado; evento `integracion.webhook_reenviado`).
+`id_externo`), también si ese desvinculado sigue en el outbox sin publicar (relay en backoff). Al programar
+un `tecnico.argos_*` cuyo conector de origen fue reemplazado por el activo de la misma instancia de Argos
+(una reconexión con el evento aún en el outbox), el origen pasa al activo. Un omitido guarda su motivo como
+prefijo de `ultimo_error` (`sin_receptor`, `otro_conector`, `empresa_no_permitida`). Un webhook `agotado`
+se reenvía con `POST /mensajeria/webhooks-salida/{id}/reenviar`
+(`integraciones.reenviar_webhook`, auditado; evento `integracion.webhook_reenviado`; de otra empresa que la
+activa, 404).
 
 ## Eventos
 

@@ -23,16 +23,23 @@ import (
 //     EsperaVinculo sin gastar intentos, hasta TopeEsperaVinculo (24 h); al tope queda bloqueado;
 //   - agotado: bloqueado a la vista (integracion.pendiente_bloqueado) hasta que una persona lo
 //     reenvíe (POST /mensajeria/webhooks-salida/{id}/reenviar) y Argos responda 2xx;
-//   - omitido (la empresa está fuera del alcance del conector): fallido_negocio con
-//     empresa_no_permitida, para una persona.
+//   - omitido: fallido_negocio para una persona, con empresa_no_permitida (fuera del alcance),
+//     sin_receptor (el conector no informó su receptor) u otro_conector (otra instancia);
+//   - carga_abierta: el conector aún no cerró su carga inicial de vínculos (tras reconectar no se
+//     hereda nada): espera.
 //
 // Un bloqueado por el vínculo vuelve solo a la cola cuando su vinculado tiene el 2xx.
 
 // CodigoDependeDeVinculado: la operación espera (o quedó bloqueada por) el vinculado de su técnico.
 const CodigoDependeDeVinculado = "depende_de_vinculado"
 
-// CodigoEmpresaNoPermitida: el vinculado no salió porque la empresa está fuera del alcance del conector.
-const CodigoEmpresaNoPermitida = "empresa_no_permitida"
+// Por qué un vinculado se omitió (los prefijos de mensajeria): la empresa está fuera del alcance del
+// conector; el conector no informó su receptor (o no habla 0.14.0); el vínculo es de otra instancia.
+const (
+	CodigoEmpresaNoPermitida = "empresa_no_permitida"
+	CodigoSinReceptor        = "sin_receptor"
+	CodigoOtroConector       = "otro_conector"
+)
 
 // EsperaVinculo: cada cuánto se vuelve a mirar el vinculado (no gasta intentos).
 var EsperaVinculo = time.Minute
@@ -48,30 +55,31 @@ const (
 )
 
 // estadoVinculo: "" = la operación no depende del vínculo (sin `tecnico`, sin 0.14.0 o sin conector).
-func (m *Modulo) estadoVinculo(ctx context.Context, f pendientesbd.IntegracionPendiente) (string, error) {
+// motivo: el de un vinculado omitido.
+func (m *Modulo) estadoVinculo(ctx context.Context, f pendientesbd.IntegracionPendiente) (estado, motivo string, err error) {
 	if m.cfg.Argos == nil || f.TecnicoUsuarioID == nil || f.EmpresaID == nil || !llevaTecnico(f.Payload) || !m.cfg.Argos.InformaVinculos() {
-		return "", nil
+		return "", "", nil
 	}
 	bd := nucleo.BDDe(ctx)
 	ok, err := m.cfg.Argos.ClavesPorOperacion(ctx, bd)
 	if err != nil || !ok {
-		return "", err
+		return "", "", err
 	}
 	conectorID, err := m.cfg.Argos.ConectorActivoID(ctx, bd)
 	if err != nil {
-		return "", nil //nolint:nilerr // sin conector activo: el intento lo registra como fallo temporal
+		return "", "", nil //nolint:nilerr // sin conector activo: el intento lo registra como fallo temporal
 	}
-	estado, err := pendientesbd.New(bd).EstadoVinculo(ctx, pendientesbd.EstadoVinculoParams{
+	r, err := pendientesbd.New(bd).EstadoVinculo(ctx, pendientesbd.EstadoVinculoParams{
 		ConectorID: conectorID, EmpresaID: *f.EmpresaID, UsuarioID: *f.TecnicoUsuarioID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "sin_vinculo", nil
+		return "sin_vinculo", "", nil
 	}
-	return estado, err
+	return r.Estado, r.Motivo, err
 }
 
 // dependeDeVinculo decide antes de llamar a Argos. true = puede salir.
 func (m *Modulo) dependeDeVinculo(ctx context.Context, f pendientesbd.IntegracionPendiente, ahora time.Time) (bool, error) {
-	estado, err := m.estadoVinculo(ctx, f)
+	estado, motivoOmitido, err := m.estadoVinculo(ctx, f)
 	if err != nil {
 		return false, err
 	}
@@ -87,9 +95,15 @@ func (m *Modulo) dependeDeVinculo(ctx context.Context, f pendientesbd.Integracio
 		}
 		return true, nil
 	case vinculoOmitido:
-		_, err := m.resolver.Ejecutar(ctx, resultadoIntento{ID: f.ID, Negocio: true, Codigo: CodigoEmpresaNoPermitida, ahora: ahora,
-			Error: fmt.Sprintf("el vínculo del usuario %d no se mandó a Argos: la empresa %d está fuera del alcance del conector; corrige el alcance o hazlo a mano",
-				*f.TecnicoUsuarioID, *f.EmpresaID)})
+		codigo, detalle := CodigoSinReceptor, "el conector Argos no informó su receptor de webhooks o no habla 0.14.0; vuelve a conectar o hazlo a mano"
+		switch motivoOmitido {
+		case CodigoEmpresaNoPermitida:
+			codigo, detalle = CodigoEmpresaNoPermitida, fmt.Sprintf("la empresa %d está fuera del alcance del conector; corrige el alcance o hazlo a mano", *f.EmpresaID)
+		case CodigoOtroConector:
+			codigo, detalle = CodigoOtroConector, "el vínculo salió de otra instancia de Argos; vuelve a vincular al técnico o hazlo a mano"
+		}
+		_, err := m.resolver.Ejecutar(ctx, resultadoIntento{ID: f.ID, Negocio: true, Codigo: codigo, ahora: ahora,
+			Error: fmt.Sprintf("el vínculo del usuario %d no se mandó a Argos: %s", *f.TecnicoUsuarioID, detalle)})
 		return false, err
 	case vinculoAgotado:
 		return false, m.bloquearVinculo(ctx, f, fmt.Sprintf("depende_de: el tecnico.argos_vinculado del usuario %d en la empresa %d agotó sus reintentos; "+
@@ -155,11 +169,12 @@ func (m *Modulo) desbloquearPorVinculo(ctx context.Context, ahora time.Time) err
 		return err
 	}
 	for _, f := range fs {
-		estado, err := m.estadoVinculo(ctx, f)
+		estado, _, err := m.estadoVinculo(ctx, f)
 		if err != nil {
 			return err
 		}
-		if estado != vinculoEntregado && estado != "" {
+		// Solo con el 2xx: sin conector (o sin 0.14.0) el estado viene vacío y sigue bloqueado.
+		if estado != vinculoEntregado {
 			continue
 		}
 		if _, err := m.desbloquearVinculo.Ejecutar(ctx, entradaDesbloqueoVinculo{ID: f.ID, Ahora: ahora}); err != nil {
