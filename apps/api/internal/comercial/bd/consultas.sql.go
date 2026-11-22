@@ -932,7 +932,7 @@ INSERT INTO comercial.prospectos (
     $7, $8, $9, $10, $11, $12,
     $13, $14, $15, $16, $17
 )
-RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por
+RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado
 `
 
 type CrearProspectoParams struct {
@@ -1025,6 +1025,8 @@ func (q *Queries) CrearProspecto(ctx context.Context, arg CrearProspectoParams) 
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
@@ -1039,7 +1041,7 @@ INSERT INTO comercial.prospectos (
     $8, $9, $10, $11, $12, $13,
     $14, $15, $16
 )
-RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por
+RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado
 `
 
 type CrearProspectoArgosParams struct {
@@ -1129,6 +1131,8 @@ func (q *Queries) CrearProspectoArgos(ctx context.Context, arg CrearProspectoArg
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
@@ -1137,32 +1141,36 @@ const crearSolicitudPortal = `-- name: CrearSolicitudPortal :one
 
 INSERT INTO comercial.prospectos (
     empresa_id, origen, nombre, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, vendedor_id, notas,
-    cliente_existente_id, cliente_validado, idempotencia, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente
+    cliente_existente_id, cliente_validado, idempotencia, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente,
+    solicitud_plan_id, solicitud_plan_no_validado
 ) VALUES (
     $1, 'portal_argos', $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, true, $13,
-    $14, $15, $16, 'recibida'
+    $14, $15, $16, 'recibida',
+    $17, $18
 )
-RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por
+RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado
 `
 
 type CrearSolicitudPortalParams struct {
-	EmpresaID           *int64
-	Nombre              string
-	Telefono            *string
-	Correo              *string
-	Direccion           string
-	Lat                 *float64
-	Lon                 *float64
-	ZonaID              *int64
-	PlanInteresID       *int64
-	VendedorID          *int64
-	Notas               string
-	ClienteID           *int64
-	Idempotencia        *string
-	SolicitudTipo       *string
-	SolicitudServicioID *int64
-	SolicitudComentario *string
+	EmpresaID               *int64
+	Nombre                  string
+	Telefono                *string
+	Correo                  *string
+	Direccion               string
+	Lat                     *float64
+	Lon                     *float64
+	ZonaID                  *int64
+	PlanInteresID           *int64
+	VendedorID              *int64
+	Notas                   string
+	ClienteID               *int64
+	Idempotencia            *string
+	SolicitudTipo           *string
+	SolicitudServicioID     *int64
+	SolicitudComentario     *string
+	SolicitudPlanID         *int64
+	SolicitudPlanNoValidado bool
 }
 
 // Solicitudes de servicio del portal de Argos (contrato 0.9.0 §11.7) -------------------------
@@ -1184,6 +1192,8 @@ func (q *Queries) CrearSolicitudPortal(ctx context.Context, arg CrearSolicitudPo
 		arg.SolicitudTipo,
 		arg.SolicitudServicioID,
 		arg.SolicitudComentario,
+		arg.SolicitudPlanID,
+		arg.SolicitudPlanNoValidado,
 	)
 	var i ComercialProspecto
 	err := row.Scan(
@@ -1233,6 +1243,8 @@ func (q *Queries) CrearSolicitudPortal(ctx context.Context, arg CrearSolicitudPo
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
@@ -1494,7 +1506,7 @@ UPDATE comercial.prospectos
 SET tarea_argos = $1, tarea_argos_hecha_en = $2, tarea_argos_hecha_por = $3,
     version = version + 1, updated_at = now()
 WHERE id = $4
-RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por
+RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado
 `
 
 type FijarTareaArgosParams struct {
@@ -1560,6 +1572,8 @@ func (q *Queries) FijarTareaArgos(ctx context.Context, arg FijarTareaArgosParams
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
@@ -1691,7 +1705,7 @@ SET origen_detalle      = $1,
     version             = version + 1,
     updated_at          = now()
 WHERE id = $28 AND version = $29
-RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por
+RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado
 `
 
 type GuardarProspectoParams struct {
@@ -1807,6 +1821,8 @@ func (q *Queries) GuardarProspecto(ctx context.Context, arg GuardarProspectoPara
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
@@ -1969,7 +1985,7 @@ func (q *Queries) ListarActividades(ctx context.Context, arg ListarActividadesPa
 }
 
 const listarProspectos = `-- name: ListarProspectos :many
-SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por FROM comercial.prospectos p
+SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado FROM comercial.prospectos p
 WHERE ($1::bigint = 0 OR p.id < $1)
   AND ($2::boolean OR p.empresa_id IS NOT DISTINCT FROM $3::bigint)
   AND ($4::boolean OR p.zona_id = ANY ($5::bigint[]) OR p.vendedor_id = $6::bigint)
@@ -2080,6 +2096,8 @@ func (q *Queries) ListarProspectos(ctx context.Context, arg ListarProspectosPara
 			&i.TareaArgos,
 			&i.TareaArgosHechaEn,
 			&i.TareaArgosHechaPor,
+			&i.SolicitudPlanID,
+			&i.SolicitudPlanNoValidado,
 		); err != nil {
 			return nil, err
 		}
@@ -2092,7 +2110,7 @@ func (q *Queries) ListarProspectos(ctx context.Context, arg ListarProspectosPara
 }
 
 const listarSolicitudesCliente = `-- name: ListarSolicitudesCliente :many
-SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por FROM comercial.prospectos
+SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado FROM comercial.prospectos
 WHERE empresa_id = $1::bigint AND cliente_existente_id = $2::bigint AND solicitud_tipo IS NOT NULL
   AND ($3::bigint IS NULL OR id < $3)
   AND (cardinality($4::text[]) = 0 OR estado_cliente = ANY($4::text[]))
@@ -2170,6 +2188,8 @@ func (q *Queries) ListarSolicitudesCliente(ctx context.Context, arg ListarSolici
 			&i.TareaArgos,
 			&i.TareaArgosHechaEn,
 			&i.TareaArgosHechaPor,
+			&i.SolicitudPlanID,
+			&i.SolicitudPlanNoValidado,
 		); err != nil {
 			return nil, err
 		}
@@ -2239,7 +2259,7 @@ func (q *Queries) PrimeraSolicitudUltimoDia(ctx context.Context, arg PrimeraSoli
 }
 
 const prospectoAbiertoConNumeros = `-- name: ProspectoAbiertoConNumeros :one
-SELECT p.id, p.numero, p.empresa_id, p.origen, p.origen_detalle, p.nombre, p.documento, p.telefono, p.correo, p.direccion, p.lat, p.lon, p.zona_id, p.plan_interes_id, p.plan_interes_nombre, p.vendedor_id, p.estado, p.notas, p.motivo_perdida, p.perdido_en, p.ganado_en, p.obra_confirmada, p.alta_modo, p.alta_estado, p.cliente_argos_id, p.servicio_argos_id, p.orden_id, p.creado_por, p.idempotencia, p.version, p.created_at, p.updated_at, p.router_id, p.alta_error, p.modo, p.registrado_por_argos, p.cliente_existente_id, p.cliente_validado, p.ganado_por, p.solicitud_tipo, p.solicitud_servicio_id, p.solicitud_comentario, p.estado_cliente, p.tarea_argos, p.tarea_argos_hecha_en, p.tarea_argos_hecha_por FROM comercial.prospectos p
+SELECT p.id, p.numero, p.empresa_id, p.origen, p.origen_detalle, p.nombre, p.documento, p.telefono, p.correo, p.direccion, p.lat, p.lon, p.zona_id, p.plan_interes_id, p.plan_interes_nombre, p.vendedor_id, p.estado, p.notas, p.motivo_perdida, p.perdido_en, p.ganado_en, p.obra_confirmada, p.alta_modo, p.alta_estado, p.cliente_argos_id, p.servicio_argos_id, p.orden_id, p.creado_por, p.idempotencia, p.version, p.created_at, p.updated_at, p.router_id, p.alta_error, p.modo, p.registrado_por_argos, p.cliente_existente_id, p.cliente_validado, p.ganado_por, p.solicitud_tipo, p.solicitud_servicio_id, p.solicitud_comentario, p.estado_cliente, p.tarea_argos, p.tarea_argos_hecha_en, p.tarea_argos_hecha_por, p.solicitud_plan_id, p.solicitud_plan_no_validado FROM comercial.prospectos p
 WHERE p.empresa_id = $1 AND p.estado NOT IN ('ganado', 'perdido')
     AND (EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = p.id AND t.numero = ANY($2::text[]))
          OR p.telefono = ANY($3::text[]))
@@ -2307,12 +2327,14 @@ func (q *Queries) ProspectoAbiertoConNumeros(ctx context.Context, arg ProspectoA
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
 
 const prospectoPorID = `-- name: ProspectoPorID :one
-SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por FROM comercial.prospectos WHERE id = $1
+SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado FROM comercial.prospectos WHERE id = $1
 `
 
 func (q *Queries) ProspectoPorID(ctx context.Context, id int64) (ComercialProspecto, error) {
@@ -2365,12 +2387,14 @@ func (q *Queries) ProspectoPorID(ctx context.Context, id int64) (ComercialProspe
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
 
 const prospectoPorIDParaActualizar = `-- name: ProspectoPorIDParaActualizar :one
-SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por FROM comercial.prospectos WHERE id = $1 FOR UPDATE
+SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado FROM comercial.prospectos WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) ProspectoPorIDParaActualizar(ctx context.Context, id int64) (ComercialProspecto, error) {
@@ -2423,12 +2447,14 @@ func (q *Queries) ProspectoPorIDParaActualizar(ctx context.Context, id int64) (C
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
 
 const prospectoPorIdempotencia = `-- name: ProspectoPorIdempotencia :one
-SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por FROM comercial.prospectos WHERE idempotencia = $1
+SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado FROM comercial.prospectos WHERE idempotencia = $1
 `
 
 func (q *Queries) ProspectoPorIdempotencia(ctx context.Context, idempotencia *string) (ComercialProspecto, error) {
@@ -2481,6 +2507,8 @@ func (q *Queries) ProspectoPorIdempotencia(ctx context.Context, idempotencia *st
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
@@ -2709,7 +2737,7 @@ func (q *Queries) SolicitudAbierta(ctx context.Context, arg SolicitudAbiertaPara
 }
 
 const solicitudDeOrden = `-- name: SolicitudDeOrden :one
-SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por FROM comercial.prospectos WHERE orden_id = $1 AND solicitud_tipo IS NOT NULL
+SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado FROM comercial.prospectos WHERE orden_id = $1 AND solicitud_tipo IS NOT NULL
 `
 
 func (q *Queries) SolicitudDeOrden(ctx context.Context, ordenID *int64) (ComercialProspecto, error) {
@@ -2762,12 +2790,14 @@ func (q *Queries) SolicitudDeOrden(ctx context.Context, ordenID *int64) (Comerci
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }
 
 const solicitudPorIdempotencia = `-- name: SolicitudPorIdempotencia :one
-SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por FROM comercial.prospectos WHERE idempotencia = $1 AND solicitud_tipo IS NOT NULL
+SELECT id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por, solicitud_plan_id, solicitud_plan_no_validado FROM comercial.prospectos WHERE idempotencia = $1 AND solicitud_tipo IS NOT NULL
 `
 
 func (q *Queries) SolicitudPorIdempotencia(ctx context.Context, idempotencia *string) (ComercialProspecto, error) {
@@ -2820,6 +2850,8 @@ func (q *Queries) SolicitudPorIdempotencia(ctx context.Context, idempotencia *st
 		&i.TareaArgos,
 		&i.TareaArgosHechaEn,
 		&i.TareaArgosHechaPor,
+		&i.SolicitudPlanID,
+		&i.SolicitudPlanNoValidado,
 	)
 	return i, err
 }

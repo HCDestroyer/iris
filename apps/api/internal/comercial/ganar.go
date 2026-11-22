@@ -201,10 +201,11 @@ func requisitosCambioPlan(ctx context.Context, q *comercialbd.Queries, p comerci
 	return r, err
 }
 
-// planDeLaSolicitud: el plan de la cotización aceptada es el que pidió el cliente; si es otro (o no
-// pidió uno), hace falta un motivo, que queda como actividad del prospecto.
+// planDeLaSolicitud: el plan de la cotización aceptada es el que pidió el cliente al crear la
+// solicitud (solicitud_plan_id, fijo: no el plan_interes_id, que se edita); si es otro, si no pidió
+// uno o si el pedido no se pudo validar con Argos, hace falta un motivo, que queda como actividad.
 func planDeLaSolicitud(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, p comercialbd.ComercialProspecto, r requisitos, motivo *string, ahora time.Time) error {
-	if r.cotizacion.PlanID != nil && p.PlanInteresID != nil && *r.cotizacion.PlanID == *p.PlanInteresID {
+	if !p.SolicitudPlanNoValidado && r.cotizacion.PlanID != nil && p.SolicitudPlanID != nil && *r.cotizacion.PlanID == *p.SolicitudPlanID {
 		return nil
 	}
 	texto := ""
@@ -216,14 +217,17 @@ func planDeLaSolicitud(ctx context.Context, t *auditoria.Tx, q *comercialbd.Quer
 			Message: "El plan cotizado no es el que pidió el cliente en su solicitud: indica el motivo"})
 	}
 	pedido := "ninguno"
-	if p.PlanInteresID != nil {
-		pedido = strconv.FormatInt(*p.PlanInteresID, 10)
+	if p.SolicitudPlanID != nil {
+		pedido = strconv.FormatInt(*p.SolicitudPlanID, 10)
+		if p.SolicitudPlanNoValidado {
+			pedido += " (no validado)"
+		}
 	}
 	cotizado := "ninguno"
 	if r.cotizacion.PlanID != nil {
 		cotizado = strconv.FormatInt(*r.cotizacion.PlanID, 10)
 	}
-	t.Anotar(map[string]any{"plan_pedido": p.PlanInteresID, "plan_cotizado": r.cotizacion.PlanID})
+	t.Anotar(map[string]any{"plan_pedido": p.SolicitudPlanID, "plan_pedido_no_validado": p.SolicitudPlanNoValidado, "plan_cotizado": r.cotizacion.PlanID})
 	_, err := q.CrearActividad(ctx, comercialbd.CrearActividadParams{EmpresaID: p.EmpresaID, ProspectoID: p.ID, Tipo: "nota",
 		Descripcion: "Cambio de plan con otro plan que el pedido (pedido: " + pedido + ", cotizado: " + cotizado + "). Motivo: " + texto,
 		OcurridaEn:  ahora, AutorID: actorUsuario(t)})

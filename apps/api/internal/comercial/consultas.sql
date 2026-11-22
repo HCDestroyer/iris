@@ -383,11 +383,13 @@ LIMIT 1;
 -- name: CrearSolicitudPortal :one
 INSERT INTO comercial.prospectos (
     empresa_id, origen, nombre, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, vendedor_id, notas,
-    cliente_existente_id, cliente_validado, idempotencia, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente
+    cliente_existente_id, cliente_validado, idempotencia, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente,
+    solicitud_plan_id, solicitud_plan_no_validado
 ) VALUES (
     @empresa_id, 'portal_argos', @nombre, sqlc.narg(telefono), sqlc.narg(correo), @direccion, sqlc.narg(lat), sqlc.narg(lon),
     sqlc.narg(zona_id), sqlc.narg(plan_interes_id), sqlc.narg(vendedor_id), @notas, @cliente_id, true, sqlc.narg(idempotencia),
-    @solicitud_tipo, sqlc.narg(solicitud_servicio_id), sqlc.narg(solicitud_comentario), 'recibida'
+    @solicitud_tipo, sqlc.narg(solicitud_servicio_id), sqlc.narg(solicitud_comentario), 'recibida',
+    sqlc.narg(solicitud_plan_id), @solicitud_plan_no_validado
 )
 RETURNING *;
 

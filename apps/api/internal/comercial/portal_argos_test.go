@@ -590,8 +590,14 @@ func TestPortalArgosCambioPlanOtroPlanYPlanNoValidado(t *testing.T) {
 		Lineas: []comercial.EntradaLinea{{Tipo: "plan", PlanID: ptr(int64(300))}}}))(t)
 	deber(p.e.com.AceptarCotizacion.Ejecutar(ctx, comercial.EntradaAceptarCotizacion{ID: c.ID, Version: c.Version,
 		EvidenciaCliente: &comercial.EvidenciaAceptacion{Canal: "telefono", Fecha: time.Now().Add(-time.Minute)}}))(t)
+	// Ventas pone en el prospecto el plan cotizado: no cuenta, el pedido no se validó (revisión M1).
 	d = deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
-	// La solicitud quedó sin plan: el cotizado es «otro», así que hace falta el motivo.
+	deber(p.e.com.EditarProspecto.Ejecutar(ctx, comercial.EntradaEditarProspecto{ID: id, Version: d.Version, PlanInteresID: ptr(int64(300))}))(t)
+	d = deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	if d.PlanInteresID == nil || *d.PlanInteresID != 300 {
+		t.Fatalf("editado: %v", d.PlanInteresID)
+	}
+	// El plan pedido no se validó: aunque coincida con el cotizado, hace falta el motivo.
 	_, err := p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: d.Version})
 	problema(t, err, 422, "validacion")
 	g := deber(p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: d.Version, MotivoPlan: ptr("El cliente confirmó Fibra 100 por teléfono")}))(t)
@@ -600,5 +606,35 @@ func TestPortalArgosCambioPlanOtroPlanYPlanNoValidado(t *testing.T) {
 	}
 	if n := contar(t, `SELECT count(*) FROM comercial.actividades WHERE prospecto_id = $1 AND tipo = 'nota' AND descripcion LIKE '%Fibra 100 por teléfono%'`, id); n != 1 {
 		t.Fatalf("actividad del motivo: %d", n)
+	}
+}
+
+// Revisión M1: editar planInteresId al plan cotizado no evita el motivo: se compara contra el plan que
+// pidió el cliente al crear la solicitud.
+func TestPortalArgosPlanPedidoFijo(t *testing.T) {
+	p := nuevoPortalArgos(t)
+	s := p.pedir(http.MethodPost, otroCliente, "/solicitudes", map[string]any{"tipo": "cambio_plan", "servicio_id": 4412, "plan_interes_id": 300}).
+		ok(t, http.StatusCreated)
+	id := int64(s["id"].(float64))
+	v := usuarioCon(t, rol("ventas"))
+	asignarEmpresa(t, v, 1)
+	ctx := enEmpresa(t, v, 1, "ventas")
+	d := deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	deber(p.e.com.Contactar.Ejecutar(ctx, comercial.EntradaTransicion{ID: id, Version: d.Version}))(t)
+	manual(t, p.e.com, ctx, id, "viable", nil)
+	d = deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	// Cotiza el plan 301 (no el 300 pedido) y cambia el plan de interés a 301.
+	c := deber(p.e.com.CrearCotizacion(ctx, comercial.EntradaCrearCotizacion{ProspectoID: id, Version: d.Version,
+		Lineas: []comercial.EntradaLinea{{Tipo: "plan", PlanID: ptr(int64(301)), PrecioUnitario: ptr("199.00")}}}))(t)
+	deber(p.e.com.AceptarCotizacion.Ejecutar(ctx, comercial.EntradaAceptarCotizacion{ID: c.ID, Version: c.Version,
+		EvidenciaCliente: &comercial.EvidenciaAceptacion{Canal: "presencial", Fecha: time.Now().Add(-time.Minute)}}))(t)
+	d = deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	deber(p.e.com.EditarProspecto.Ejecutar(ctx, comercial.EntradaEditarProspecto{ID: id, Version: d.Version, PlanInteresID: ptr(int64(301))}))(t)
+	d = deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	_, err := p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: d.Version})
+	problema(t, err, 422, "validacion")
+	deber(p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: d.Version, MotivoPlan: ptr("El cliente prefirió 200 Mbps")}))(t)
+	if n := contar(t, `SELECT count(*) FROM comercial.actividades WHERE prospecto_id = $1 AND descripcion LIKE '%pedido: 300, cotizado: 301%'`, id); n != 1 {
+		t.Fatalf("actividad: %d", n)
 	}
 }

@@ -198,7 +198,10 @@ func (m *Modulo) nuevoCrearSolicitud() *auditoria.Caso[EntradaCrearSolicitud, So
 			}
 			d := comercialbd.CrearSolicitudPortalParams{EmpresaID: &s.EmpresaID, ClienteID: &s.ClienteID, SolicitudTipo: &in.Tipo,
 				Idempotencia: idem, Lat: in.lat, Lon: in.lon, PlanInteresID: in.PlanInteresID}
+			// El plan pedido queda fijo (revisión M1): plan_interes_id se puede editar después.
+			d.SolicitudPlanID = in.PlanInteresID
 			if in.planNoValidado != nil {
+				d.SolicitudPlanID, d.SolicitudPlanNoValidado = in.planNoValidado, true
 				d.Notas = "Plan no validado: el cliente pidió el plan " + strconv.FormatInt(*in.planNoValidado, 10) +
 					" de Argos y Argos no respondió al validarlo; confírmalo al cotizar."
 				t.Anotar(map[string]any{"plan_no_validado": *in.planNoValidado})

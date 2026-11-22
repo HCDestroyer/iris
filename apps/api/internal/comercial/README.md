@@ -112,8 +112,9 @@ cliente de Argos conocido (`cliente_existente_id`) y su `solicitud_tipo` (`alta`
   quedan con la tarea «Abrir en Argos» (`tareaArgos: pendiente`) y la solicitud `en_proceso` hasta que
   alguien la marca hecha con `POST /prospectos/{id}/completar-tarea-argos`
   (`prospectos.completar_tarea_argos`), que la pasa a `completada`.
-- Revisión H3: un cambio de plan cuyo plan cotizado no es el `plan_interes_id` de la solicitud (o sin
-  plan pedido) exige `motivoPlan` al ganar, que queda como actividad; aceptar la cotización de una
+- Revisión H3 y M1: un cambio de plan cuyo plan cotizado no es el que pidió el cliente al crear la
+  solicitud (`solicitud_plan_id`, fijo: editar `planInteresId` no cuenta), sin plan pedido o con el
+  pedido sin validar (`solicitud_plan_no_validado`), exige `motivoPlan` al ganar, que queda como actividad; aceptar la cotización de una
   solicitud exige `evidenciaCliente { canal, fecha }` (teléfono, WhatsApp, presencial o correo; queda
   en la cotización con quién la registró y en la auditoría); el ajuste por empresa
   `cambioPlanExigeContrato` (`GET/POST /comercial/ajustes-solicitudes`, `prospectos.configurar_solicitudes`,
