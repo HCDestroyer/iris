@@ -199,6 +199,7 @@ UPDATE campo.ordenes SET
     en_camino_en = @en_camino_en, en_sitio_en = @en_sitio_en, finalizada_en = @finalizada_en,
     resultado = @resultado, motivo_falla = @motivo_falla, motivo = @motivo,
     pausada_desde = @pausada_desde, pausada_en = @pausada_en, pausada_seg = @pausada_seg,
+    cliente_id = @cliente_id,
     version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
@@ -723,6 +724,12 @@ WHERE o.origen = 'asistente' AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg('em
 -- name: TitularDeOrden :one
 SELECT * FROM campo.orden_titular WHERE orden_id = @orden_id;
 
+-- name: ContratoPorFirmarDeOrden :one
+-- B20: el contrato regenerado en la instalación (comercial), en borrador, que se firma en la orden.
+SELECT id, numero, version FROM comercial.contratos
+WHERE estado = 'borrador' AND (contenido->>'ordenId') = (@orden_id::bigint)::text
+ORDER BY id DESC LIMIT 1;
+
 -- name: GuardarTitular :one
 -- Lo que ya se registró del paso (sin el documento ni los datos de contacto). La orden está tomada
 -- con candado: no hay dos escrituras a la vez. en_revision también la pone la cola de pendientes
@@ -730,15 +737,16 @@ SELECT * FROM campo.orden_titular WHERE orden_id = @orden_id;
 INSERT INTO campo.orden_titular (
     orden_id, empresa_id, quien_firma, documento_tipo, nombre, identidad_pendiente_id, ultimo_pendiente_id,
     tomas, cambios_titular, datos_n, cambios_plan, plan_id, validada_por, validada_motivo, validada_en,
-    en_revision, revision_desde
+    en_revision, revision_desde, tipo_titular
 ) VALUES (
     @orden_id, sqlc.narg(empresa_id), sqlc.narg(quien_firma), sqlc.narg(documento_tipo), sqlc.narg(nombre),
     sqlc.narg(identidad_pendiente_id), sqlc.narg(ultimo_pendiente_id), @tomas, @cambios_titular, @datos_n, @cambios_plan,
     sqlc.narg(plan_id), sqlc.narg(validada_por), sqlc.narg(validada_motivo), sqlc.narg(validada_en),
-    @en_revision, sqlc.narg(revision_desde)
+    @en_revision, sqlc.narg(revision_desde), sqlc.narg(tipo_titular)
 )
 ON CONFLICT (orden_id) DO UPDATE SET
     quien_firma = EXCLUDED.quien_firma, documento_tipo = EXCLUDED.documento_tipo, nombre = EXCLUDED.nombre,
+    tipo_titular = EXCLUDED.tipo_titular,
     identidad_pendiente_id = EXCLUDED.identidad_pendiente_id, ultimo_pendiente_id = EXCLUDED.ultimo_pendiente_id,
     tomas = EXCLUDED.tomas, cambios_titular = EXCLUDED.cambios_titular, datos_n = EXCLUDED.datos_n,
     cambios_plan = EXCLUDED.cambios_plan, plan_id = EXCLUDED.plan_id, validada_por = EXCLUDED.validada_por,
@@ -766,11 +774,16 @@ SELECT estado FROM integracion.argos_servicios WHERE id = @id;
 -- del paquete del día (§3.4.5) y decide el modo del titular (§3.4.2). Sin modo, residencial.
 SELECT id, coalesce(modo, 'residencial')::text AS modo FROM comercial.prospectos WHERE id = ANY(@ids::bigint[]);
 
--- name: MoverOrdenesAlTitular :many
--- B17: servicio.titular_cambiado de Argos pasa las órdenes abiertas del servicio al titular nuevo
--- (las cerradas conservan el cliente con que se cerraron). Idempotente.
-UPDATE campo.ordenes
-SET cliente_id = @cliente_id, updated_at = now()
+-- name: OrdenesAbiertasDeServicio :many
+-- B17: las órdenes abiertas del servicio que aún no están en el titular nuevo (las cerradas
+-- conservan el cliente con que se cerraron), con candado en orden de id: se mueven con guardar.
+SELECT * FROM campo.ordenes
 WHERE servicio_id = @servicio_id AND estado NOT IN ('cerrada', 'fallida', 'cancelada')
   AND cliente_id IS DISTINCT FROM @cliente_id
-RETURNING id, numero, empresa_id;
+ORDER BY id
+FOR UPDATE;
+
+-- name: TitularDeServicioArgos :one
+-- B17 (MEDIA 2 de #280): el titular del servicio en la instantánea de Argos, con candado
+-- compartido: el aviso de campo solo mueve si sigue siendo el del evento.
+SELECT cliente_id FROM integracion.argos_servicios WHERE id = @id FOR SHARE;

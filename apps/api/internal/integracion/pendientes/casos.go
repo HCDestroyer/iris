@@ -123,13 +123,22 @@ var camposOcultosCambioTitular = func() map[string]bool {
 	return m
 }()
 
-// ocultarCampos reemplaza por *** esos campos en cualquier nivel del cuerpo.
+// ocultarCampos reemplaza por *** esos campos en cualquier nivel del cuerpo. Del representante de
+// una empresa titular (A39, contrato 0.14.1) todo sale como *** salvo documento_tipo.
 func ocultarCampos(v any, ocultos map[string]bool) {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, hijo := range x {
 			if ocultos[k] {
 				x[k] = "***"
+				continue
+			}
+			if r, ok := hijo.(map[string]any); ok && k == "representante" {
+				for rk := range r {
+					if rk != "documento_tipo" {
+						r[rk] = "***"
+					}
+				}
 				continue
 			}
 			ocultarCampos(hijo, ocultos)

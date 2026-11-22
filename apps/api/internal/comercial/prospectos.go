@@ -568,6 +568,25 @@ func (m *Modulo) detalle(ctx context.Context, t *auditoria.Tx, q *comercialbd.Qu
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return d, err
 	}
+	if c, err := q.RevisionPorFirmar(ctx, f.ID); err == nil && f.OrdenID != nil {
+		v, err := m.aCotizacion(ctx, q, c)
+		if err != nil {
+			return d, err
+		}
+		r := &RevisionEnOrden{OrdenID: *f.OrdenID, Cotizacion: v}
+		if ct, err := q.ContratoPorFirmarEnOrden(ctx, f.ID); err == nil {
+			vc, err := aContrato(ctx, q, ct)
+			if err != nil {
+				return d, err
+			}
+			r.Contrato = &vc
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return d, err
+		}
+		d.PorFirmarEnOrden = r
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return d, err
+	}
 	ps, err := pendientes.DeEntidad(ctx, t, EntidadPendientes, idTexto(f.ID))
 	if err != nil {
 		return d, err

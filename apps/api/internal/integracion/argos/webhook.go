@@ -218,6 +218,17 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 			r.Resultado = "aplicado"
 		}
 	}
+	// servicio.titular_cambiado: el candado del servicio antes de guardar la ficha (MEDIA 2 de #280).
+	titularAtrasado := false
+	if in.titular != nil && in.errArgos == nil && in.omitido == "" {
+		if titularAtrasado, err = bloquearTitular(ctx, q, in); err != nil {
+			return r, err
+		}
+		if titularAtrasado && in.ficha != nil {
+			// La ficha del titular del aviso atrasado no reescribe ese servicio (ya es de otro).
+			in.ficha = in.ficha.sinServicio(*in.titular.ServicioID)
+		}
+	}
 	switch {
 	case in.borrar && in.ClienteID != nil:
 		// Argos ya no tiene al cliente: sus copias en tickets y órdenes se anonimizan.
@@ -252,7 +263,7 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		}
 	}
 	if in.titular != nil && in.errArgos == nil && in.omitido == "" {
-		emitido, err := emitirTitularCambiado(t, in)
+		emitido, err := emitirTitularCambiado(ctx, t, q, in, titularAtrasado)
 		if err != nil {
 			return r, err
 		}

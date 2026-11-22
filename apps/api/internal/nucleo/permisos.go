@@ -611,7 +611,7 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
 	{PermOrdenesAsignarForm, "Agregar formularios (plantillas) a una orden o quitarlos mientras no tengan respuestas"},
 	{PermOrdenesCambiarPlan, "Cambiar el plan de una instalación antes de activarla (entre los permitidos, con motivo; el técnico solo en sus órdenes en sitio; despacho y supervisor desde el panel)"},
-	{PermOrdenesCambiarTitular, "Registrar la identidad del titular de una instalación o cambiar el titular antes de activar (con la foto del documento; el técnico solo en sus órdenes en sitio)"},
+	{PermOrdenesCambiarTitular, "Registrar la identidad del titular de una instalación, cambiar el titular antes de activar (con la foto del documento) y tomar la firma del contrato regenerado (el técnico solo en sus órdenes en sitio)"},
 	{PermOrdenesCancelar, "Cancelar órdenes de trabajo"},
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
 	{PermOrdenesCompletarDatos, "Completar los datos que falten del titular y del lugar de una instalación antes de activarla (el técnico solo en sus órdenes en sitio; despacho y supervisor desde el panel)"},

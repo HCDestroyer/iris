@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,10 +23,14 @@ import (
 // B20; decisión 2 del PM y ajuste e de §10.5). Cuando Argos acepta el cambio de plan (A40) o de
 // titular (A39) de la orden de instalación de una venta de Iris:
 //
-//   - la cotización vigente queda reemplazada por una revisión nueva, ya aceptada, con el plan
-//     nuevo (y su precio de Argos) y a nombre del titular confirmado en la orden;
-//   - el contrato vivo se anula y se regenera en borrador con esa revisión, a nombre del titular
-//     nuevo: se firma en la orden (la firma en sitio cubre la subida de precio, B6);
+//   - se crea una revisión nueva de la cotización, **vigente** (no aceptada), con el plan nuevo (y
+//     su precio de Argos), a nombre del titular confirmado en la orden y con vigencia nueva;
+//   - se regenera el contrato en borrador con esa revisión, ligado a la orden (contenido.ordenId),
+//     a nombre del titular nuevo. El contrato firmado **sigue vivo**: el cambio de contrato ocurre al
+//     firmar el regenerado en la orden (FirmarContratoEnOrden, o /contratos/{id}/firmar con la
+//     firma del cliente), que anula el anterior y acepta la revisión. La firma en sitio cubre la
+//     subida de precio (B6). Un cambio hecho desde el panel no se da por aceptado sin esa firma;
+//   - una revisión anterior aún sin firmar queda reemplazada (y su contrato regenerado, anulado);
 //   - el vendedor recibe un aviso (prospecto.venta_revisada → campana).
 //
 // Se dispara con integracion.pendiente_hecho de las operaciones cambiar_plan y cambiar_titular
@@ -88,19 +93,26 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			if err != nil {
 				return r, err
 			}
-			viva, err := q.CotizacionViva(ctx, p.ID)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return r, nil
+			// La base es la última revisión: la que espera firma en la orden, si hay, o la aceptada.
+			pendiente, err := q.RevisionPorFirmar(ctx, p.ID)
+			hayPendiente := err == nil
+			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+				return r, err
 			}
+			base := pendiente
+			if !hayPendiente {
+				if base, err = q.CotizacionViva(ctx, p.ID); errors.Is(err, pgx.ErrNoRows) {
+					return r, nil
+				} else if err != nil {
+					return r, err
+				}
+			}
+			lineas, err := q.LineasDeCotizacion(ctx, base.ID)
 			if err != nil {
 				return r, err
 			}
-			lineas, err := q.LineasDeCotizacion(ctx, viva.ID)
-			if err != nil {
-				return r, err
-			}
-			mensual, unico := centavos(viva.TotalMensual), centavos(viva.TotalUnico)
-			planID := viva.PlanID
+			mensual, unico := centavos(base.TotalMensual), centavos(base.TotalUnico)
+			planID := base.PlanID
 			if in.Motivo == RevisionPorPlan && in.plan != nil {
 				planID = &in.plan.ID
 				for i := range lineas {
@@ -136,8 +148,17 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			if err != nil {
 				return r, err
 			}
-			// Cotización: revisión nueva, aceptada (la firma del contrato regenerado en sitio la acepta).
-			if err := q.MarcarReemplazada(ctx, viva.ID); err != nil {
+			// La revisión anterior sin firmar queda reemplazada y su contrato regenerado, anulado. La
+			// aceptada y el contrato firmado siguen vivos hasta la firma del regenerado.
+			var reemplaza *int64
+			if hayPendiente {
+				if err := q.MarcarReemplazada(ctx, pendiente.ID); err != nil {
+					return r, err
+				}
+				t.RegistrarCambios("cotizacion", pendiente.ID, map[string]any{"estado": pendiente.Estado}, map[string]any{"estado": "reemplazada"})
+				reemplaza = &pendiente.ID
+			}
+			if err := anularPorFirmarEnOrden(ctx, t, q, p.ID, "Reemplazado por otra revisión en la instalación "+numeroOrden); err != nil {
 				return r, err
 			}
 			revision, err := q.SiguienteRevision(ctx, p.ID)
@@ -148,10 +169,12 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			if err != nil {
 				return r, err
 			}
-			notas := fmt.Sprintf("Revisión por cambio de %s en la instalación %s", in.Motivo, numeroOrden)
+			notas := fmt.Sprintf("Revisión por cambio de %s en la instalación %s: se acepta al firmar el contrato regenerado en la orden", in.Motivo, numeroOrden)
+			// Vigencia nueva: la de la venta puede haber vencido (el prospecto está ganado).
+			vence := m.ahora().Add(m.cfg.VigenciaCotizacion).UTC().Truncate(time.Microsecond)
 			cot, err := q.CrearCotizacion(ctx, comercialbd.CrearCotizacionParams{
-				EmpresaID: p.EmpresaID, ProspectoID: p.ID, Revision: revision, Moneda: viva.Moneda,
-				TotalMensual: aNumeric(mensual), TotalUnico: aNumeric(unico), VigenteHasta: viva.VigenteHasta, PlanID: planID,
+				EmpresaID: p.EmpresaID, ProspectoID: p.ID, Revision: revision, Moneda: base.Moneda,
+				TotalMensual: aNumeric(mensual), TotalUnico: aNumeric(unico), VigenteHasta: vence, PlanID: planID,
 				Notas: notas, Cliente: crudoCliente, Idempotencia: &idem,
 			})
 			if err != nil {
@@ -165,33 +188,25 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 					return r, err
 				}
 			}
-			ahora := m.ahora()
-			if cot, err = q.AceptarCotizacion(ctx, comercialbd.AceptarCotizacionParams{Ahora: &ahora, ID: cot.ID, Version: cot.Version}); err != nil {
-				return r, err
-			}
-			if err := q.EnlazarReemplazo(ctx, comercialbd.EnlazarReemplazoParams{ReemplazadaPor: &cot.ID, ID: viva.ID}); err != nil {
-				return r, err
+			if hayPendiente {
+				if err := q.EnlazarReemplazo(ctx, comercialbd.EnlazarReemplazoParams{ReemplazadaPor: &cot.ID, ID: pendiente.ID}); err != nil {
+					return r, err
+				}
 			}
 			t.RegistrarCambios("cotizacion", cot.ID, nil, cot)
 			if err := t.Emitir("cotizacion.creada", map[string]any{
 				"cotizacion_id": cot.ID, "prospecto_id": p.ID, "numero": cot.Numero, "revision": cot.Revision, "plan_id": cot.PlanID,
-				"total_mensual": aTexto(mensual), "total_unico": aTexto(unico), "moneda": cot.Moneda, "reemplaza_id": viva.ID,
+				"total_mensual": aTexto(mensual), "total_unico": aTexto(unico), "moneda": cot.Moneda, "reemplaza_id": reemplaza,
 			}); err != nil {
 				return r, err
 			}
-			if err := t.Emitir("cotizacion.aceptada", map[string]any{"cotizacion_id": cot.ID, "prospecto_id": p.ID, "numero": cot.Numero}); err != nil {
-				return r, err
-			}
 			// Contrato regenerado a nombre del titular, para firmar en la orden.
-			if err := anularContratoVivo(ctx, t, q, p.ID, "Regenerado en la instalación "+numeroOrden); err != nil {
-				return r, err
-			}
 			ct, err := m.regenerarContrato(ctx, t, q, p, cot, cliente, in.OrdenID)
 			if err != nil {
 				return r, err
 			}
 			if err := historial(ctx, t, q, p.ID, "venta_revisada", nil, nil, nil, map[string]any{
-				"orden_id": in.OrdenID, "motivo": in.Motivo, "cotizacion_id": cot.ID, "reemplaza_id": viva.ID, "contrato_id": ct.ID,
+				"orden_id": in.OrdenID, "motivo": in.Motivo, "cotizacion_id": cot.ID, "base_id": base.ID, "reemplaza_id": reemplaza, "contrato_id": ct.ID,
 			}); err != nil {
 				return r, err
 			}

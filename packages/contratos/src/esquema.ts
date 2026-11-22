@@ -11462,6 +11462,13 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        ContratoPorFirmar: {
+            /** Format: int64 */
+            id: number;
+            numero: string;
+            /** Format: int32 */
+            version: number;
+        };
         ConversacionChat: {
             /** Format: date-time */
             creada_en: string;
@@ -14170,6 +14177,23 @@ export interface components {
              */
             version: number;
         };
+        EntradaFirmarContrato: {
+            /**
+             * Format: int64
+             * @description El contrato regenerado de la orden (GET /ordenes/{id}/titular, contratoPorFirmar)
+             */
+            contratoId: number;
+            /** @description Opcional; nunca va en eventos ni en la auditoría */
+            firmanteDocumento?: string;
+            /** @description El titular (o el representante de la empresa titular) */
+            firmanteNombre: string;
+            /** Format: double */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
+            /** @description Firma en SVG: <svg width="…" height="…"> con <path d="…"> (comandos M, L, C, Q, H, V, Z) */
+            svg: string;
+        };
         EntradaFusionarTickets: {
             /**
              * Format: int64
@@ -15489,11 +15513,13 @@ export interface components {
         EstadoTitular: {
             /** @description La orden se canceló o falló, pero el titular o el plan ya cambiaron en Argos (no se deshace solo) */
             cambiadoEnArgos: boolean;
+            /** @description El contrato regenerado en la instalación (cambio de plan o de titular aceptado por Argos), en borrador: se firma en sitio con orden.firmar_contrato. Ausente si no hay */
+            contratoPorFirmar?: components["schemas"]["ContratoPorFirmar"];
             /**
-             * @description nit: venta empresarial (la identidad es la del representante, con DPI)
+             * @description El documento de la identidad (con empresa, el del representante)
              * @enum {string|null}
              */
-            documentoTipo: "dpi" | "pasaporte" | "nit" | null;
+            documentoTipo: "dpi" | "pasaporte" | null;
             /** @description El titular está en revisión de un supervisor: no se toma otra identidad ni otro titular hasta que la levante (POST /ordenes/{id}/levantar-revision-titular) */
             enRevision: boolean;
             /**
@@ -15506,7 +15532,7 @@ export interface components {
              * @enum {string}
              */
             modo: "residencial" | "empresarial";
-            /** @description Del titular, como en el documento (nunca el número) */
+            /** @description Del titular, como en el documento; con empresa, la razón social (nunca el número) */
             nombre: string | null;
             /** Format: int64 */
             ordenId: number;
@@ -15523,6 +15549,13 @@ export interface components {
              * @enum {string|null}
              */
             quienFirma: "misma" | "otra" | null;
+            /**
+             * @description empresa: la identidad (documentoTipo) es la del representante
+             * @enum {string|null}
+             */
+            tipoTitular: "persona" | "empresa" | null;
+            /** @description false: Argos informa un contrato < 0.14.1 y el cambio de titular a una empresa no se ofrece (422 titular_empresa_no_disponible) */
+            titularEmpresaDisponible: boolean;
             /**
              * Format: int32
              * @description 0 si la orden aún no tiene el paso
@@ -17303,7 +17336,7 @@ export interface components {
              */
             ordenId?: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular" | "llamada.directa" | "orden.registrar_identidad" | "orden.cambiar_titular" | "orden.completar_datos" | "orden.cambiar_plan";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular" | "llamada.directa" | "orden.registrar_identidad" | "orden.cambiar_titular" | "orden.completar_datos" | "orden.cambiar_plan" | "orden.firmar_contrato";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -19272,7 +19305,7 @@ export interface components {
             clienteExistenteId: number | null;
             /** @description false: Argos no respondió al registrarlo (se confirma después) */
             clienteValidado: boolean | null;
-            /** @description El borrador o firmado */
+            /** @description El borrador o firmado (con una revisión de la instalación por firmar, el firmado: sigue vivo hasta que se firma el regenerado) */
             contrato?: components["schemas"]["Contrato"];
             correo: string | null;
             /** @description La vigente o aceptada */
@@ -19328,6 +19361,8 @@ export interface components {
              */
             planInteresId: number | null;
             planInteresNombre: string | null;
+            /** @description Cambio de plan o de titular aceptado por Argos en la instalación: la cotización nueva (vigente) y el contrato regenerado (borrador) que el titular firma en la orden. Hasta esa firma no se da por aceptado */
+            porFirmarEnOrden?: components["schemas"]["RevisionEnOrden"];
             telefono: string | null;
             /** @description Números del prospecto registrado desde Argos (vacío en los demás: usan telefono) */
             telefonos: components["schemas"]["TelefonoProspecto"][] | null;
@@ -19723,9 +19758,16 @@ export interface components {
             total: components["schemas"]["FilaTecnico"];
         };
         Representante: {
-            /** @description DPI del representante. Nunca se devuelve ni va en eventos, logs ni auditoría */
+            /** @description Nunca se devuelve ni va en eventos, logs ni auditoría */
             documentoNumero: string;
-            /** @description Como aparece en su DPI */
+            /**
+             * @description DPI o pasaporte (decisión del PM)
+             * @enum {string}
+             */
+            documentoTipo: "dpi" | "pasaporte";
+            /** @description «El representante es mayor de edad»: debe ser true */
+            mayorDeEdad: boolean;
+            /** @description Como aparece en su documento */
             nombre: string;
         };
         RequisitoLlamadas: {
@@ -19988,6 +20030,13 @@ export interface components {
         };
         RevisionCuentas: {
             data: components["schemas"]["TextoConCuenta"][] | null;
+        };
+        RevisionEnOrden: {
+            /** @description El contrato regenerado en borrador (ausente si se anuló) */
+            contrato?: components["schemas"]["Contrato"];
+            cotizacion: components["schemas"]["Cotizacion"];
+            /** Format: int64 */
+            ordenId: number;
         };
         Rol: {
             /** @description Un rol desactivado no da permisos ni se puede asignar */
@@ -21191,29 +21240,34 @@ export interface components {
             orden: boolean;
         };
         TitularNuevo: {
-            /** @description DPI, pasaporte o NIT de la empresa (con verificador, K permitido) */
-            documentoNumero: string;
+            /** @description Persona: DPI o pasaporte. Empresa: no va. Nunca se devuelve ni va en eventos, logs ni auditoría */
+            documentoNumero?: string;
             /**
-             * @description nit solo en una venta empresarial (y ahí es obligatorio): el titular es la empresa y la identidad, la del representante
+             * @description Persona: obligatorio. Empresa: no va (la identidad es la del representante)
              * @enum {string}
              */
-            documentoTipo: "dpi" | "pasaporte" | "nit";
+            documentoTipo?: "dpi" | "pasaporte";
             email?: string;
-            /** @description Debe ser true (en empresarial, del representante) */
-            mayorDeEdad: boolean;
+            /** @description Persona: debe ser true. Empresa: no va (lo marca el representante) */
+            mayorDeEdad?: boolean;
             /** @description NIT (con verificador, K permitido) o CUI; vacío con cf */
             nitCui?: string;
-            /** @description Como aparece en el documento */
+            /** @description Como aparece en el documento; con empresa, la razón social */
             nombre: string;
             /**
              * @description Relación con quien pidió el servicio
              * @enum {string}
              */
             relacion?: "titular" | "familiar" | "otro";
-            /** @description Obligatorio en una venta empresarial (y solo ahí) */
+            /** @description Obligatorio con titular empresa (y solo ahí). En la auditoría y los pendientes, todo menos documentoTipo sale como *** */
             representante?: components["schemas"]["Representante"];
             /** @description 8 dígitos de Guatemala (+502 opcional) */
             telefono: string;
+            /**
+             * @description persona (por defecto) o empresa (contrato 0.14.1; no depende del modo de la venta ni del plan). Con Argos < 0.14.1, 422 titular_empresa_no_disponible
+             * @enum {string}
+             */
+            tipo?: "persona" | "empresa";
             /**
              * @description «Facturar a» (FEL)
              * @enum {string}

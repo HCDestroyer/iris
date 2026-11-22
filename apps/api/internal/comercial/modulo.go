@@ -105,6 +105,7 @@ type Modulo struct {
 	crearContrato        *auditoria.Caso[EntradaCrearContrato, Contrato]
 	datosPDFBorrador     *auditoria.Caso[EntradaVerContrato, datosContratoPDF]
 	prepararFirma        *auditoria.Caso[EntradaFirmar, datosContratoPDF]
+	prepararFirmaEnOrden *auditoria.Caso[campo.EntradaFirmaContratoSync, datosContratoPDF]
 	firmar               *auditoria.Caso[entradaFirmaLista, Contrato]
 	registrarCliente     *auditoria.Caso[entradaAltaArgos, Prospecto]
 	completarAlta        *auditoria.Caso[entradaAltaArgos, Prospecto]
@@ -167,6 +168,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.crearContrato = m.nuevoCrearContratoCaso()
 	m.datosPDFBorrador = m.nuevoDatosPDFBorrador()
 	m.prepararFirma = m.nuevoPrepararFirma()
+	m.prepararFirmaEnOrden = m.nuevoPrepararFirmaEnOrden()
 	m.firmar = m.nuevoFirmar()
 	m.registrarCliente = m.nuevoRegistrarCliente()
 	m.completarAlta = m.nuevoCompletarAlta()

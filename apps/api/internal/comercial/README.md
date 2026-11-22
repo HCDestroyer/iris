@@ -113,11 +113,18 @@ De la venta a la instalación (contrato argosisp.md 0.10.0 §3.4.8):
   periódico). `argos.titular_cambiado` (webhook `servicio.titular_cambiado` confirmado) la pasa al
   cliente nuevo. Ambos emiten `prospecto.alta_actualizada`.
 - **B20, cotización y contrato al cambiar** (`venta_revisada.go`): `integracion.pendiente_hecho` de
-  `cambiar_plan` o `cambiar_titular` (entidad `orden`) crea una revisión nueva de la cotización, ya
-  aceptada, con el plan nuevo y su precio de Argos (si Argos no publica el precio, conserva el
-  anterior) y a nombre del titular confirmado en la orden; anula el contrato vivo y lo regenera en
-  borrador (`contenido.ordenId`: se firma en la orden); emite `prospecto.venta_revisada`, que
-  notificaciones pone en la campana del vendedor. Idempotente por la clave del pendiente.
+  `cambiar_plan` o `cambiar_titular` (entidad `orden`) crea una revisión nueva de la cotización,
+  **vigente** y con vigencia nueva, con el plan nuevo y su precio de Argos (si Argos no publica el
+  precio, conserva el anterior) y a nombre del titular confirmado en la orden, y regenera el contrato
+  en borrador (`contenido.ordenId`). La cotización aceptada y el contrato firmado siguen vivos hasta
+  que el titular firma el regenerado en la orden (`FirmarEnOrdenEnTx`, operación del lote
+  `orden.firmar_contrato`, o `POST /contratos/{id}/firmar`, que acepta un regenerado de un prospecto
+  ganado): ahí el firmado se anula, la aceptada queda reemplazada y la revisión aceptada (la firma
+  en sitio cubre la subida de precio). Una revisión sin firmar la reemplaza la siguiente. Emite
+  `prospecto.venta_revisada`, que notificaciones pone en la campana del vendedor; el detalle del
+  prospecto trae `porFirmarEnOrden`. Idempotente por la clave del pendiente.
+- **B17, titular en orden**: `argos.titular_cambiado` pasa el prospecto solo si la instantánea dice
+  que el servicio es de `a_cliente_id` (un aviso atrasado no lo devuelve).
 
 ## Pruebas
 

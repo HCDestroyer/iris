@@ -3,7 +3,10 @@ package campo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+
+	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
@@ -25,6 +28,8 @@ type EntradaTitularArgos struct {
 	DeClienteID *int64 `json:"de_cliente_id"`
 	AClienteID  int64  `json:"a_cliente_id"`
 	EntranteID  int64  `json:"entrante_id"`
+	// TipoTitular: persona o empresa (contrato 0.14.1; ausente con un Argos anterior).
+	TipoTitular *string `json:"tipo_titular,omitempty"`
 }
 
 // ResultadoTitularArgos: las órdenes movidas.
@@ -44,13 +49,31 @@ func (m *Modulo) nuevoMoverAlTitular() *auditoria.Caso[EntradaTitularArgos, Resu
 			if in.ServicioID <= 0 || in.AClienteID <= 0 {
 				return r, nil
 			}
-			filas, err := campobd.New(t).MoverOrdenesAlTitular(ctx, campobd.MoverOrdenesAlTitularParams{
+			q := campobd.New(t)
+			// Solo si la instantánea sigue diciendo que el servicio es de a_cliente_id (MEDIA 2 de
+			// #280): un aviso atrasado (A→B después de B→C) no devuelve las órdenes a B.
+			actual, err := q.TitularDeServicioArgos(ctx, in.ServicioID)
+			if errors.Is(err, pgx.ErrNoRows) || (err == nil && actual != in.AClienteID) {
+				t.Anotar(map[string]any{"titular": "no_coincide_instantanea", "entrante_id": in.EntranteID})
+				return r, nil
+			}
+			if err != nil {
+				return r, err
+			}
+			filas, err := q.OrdenesAbiertasDeServicio(ctx, campobd.OrdenesAbiertasDeServicioParams{
 				ServicioID: &in.ServicioID, ClienteID: &in.AClienteID,
 			})
 			if err != nil {
 				return r, err
 			}
-			for _, f := range filas {
+			for _, antes := range filas {
+				// Con guardar: versión nueva, feed del técnico y diff en la auditoría.
+				d := antes
+				d.ClienteID = &in.AClienteID
+				f, err := guardar(ctx, t, q, antes, d)
+				if err != nil {
+					return r, err
+				}
 				r.Ordenes = append(r.Ordenes, f.ID)
 				if f.EmpresaID != nil {
 					t.FijarEmpresa(*f.EmpresaID)
@@ -59,7 +82,7 @@ func (m *Modulo) nuevoMoverAlTitular() *auditoria.Caso[EntradaTitularArgos, Resu
 				}
 				if err := t.Emitir(EventoTitularMovido, map[string]any{
 					"orden_id": f.ID, "numero": f.Numero, "servicio_id": in.ServicioID, "de_cliente_id": in.DeClienteID,
-					"a_cliente_id": in.AClienteID, "entrante_id": in.EntranteID,
+					"a_cliente_id": in.AClienteID, "tipo_titular": in.TipoTitular, "entrante_id": in.EntranteID,
 				}); err != nil {
 					return r, err
 				}

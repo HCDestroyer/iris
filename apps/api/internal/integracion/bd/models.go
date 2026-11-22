@@ -449,6 +449,7 @@ type CampoOrdenTitular struct {
 	RevisionLevantadaPor *int64
 	RevisionMotivo       *string
 	RevisionLevantadaEn  *time.Time
+	TipoTitular          *string
 }
 
 type CampoOrdene struct {
@@ -924,6 +925,7 @@ type IntegracionArgosServicio struct {
 	PrefijoDelegadoV6 string
 	Planta            []byte
 	Nombre            string
+	TitularCambiadoEn *time.Time
 }
 
 type IntegracionArgosSincronizacionEtapa struct {

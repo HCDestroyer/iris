@@ -12,8 +12,10 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	comercialbd "github.com/HCDestroyer/iris/apps/api/internal/comercial/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Firma del contrato: la del cliente capturada como imagen (SVG de trazos, igual que la firma de
@@ -79,12 +81,44 @@ func anularContratoVivo(ctx context.Context, t *auditoria.Tx, q *comercialbd.Que
 	if err != nil {
 		return err
 	}
+	if err := anular(ctx, t, q, c, prospecto, motivo); err != nil {
+		return err
+	}
+	// Un regenerado de la instalación por firmar convive con el firmado: también se anula.
+	return anularPorFirmarEnOrden(ctx, t, q, prospecto, motivo)
+}
+
+// anularPorFirmarEnOrden anula el contrato regenerado en la instalación que aún no se firmó (B20).
+func anularPorFirmarEnOrden(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, prospecto int64, motivo string) error {
+	c, err := q.ContratoPorFirmarEnOrden(ctx, prospecto)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return anular(ctx, t, q, c, prospecto, motivo)
+}
+
+func anular(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, c comercialbd.ComercialContrato, prospecto int64, motivo string) error {
 	f, err := q.AnularContrato(ctx, comercialbd.AnularContratoParams{Motivo: &motivo, ID: c.ID})
 	if err != nil {
 		return err
 	}
 	t.RegistrarCambios("contrato", f.ID, map[string]any{"estado": c.Estado}, map[string]any{"estado": f.Estado, "motivo_anulacion": motivo})
 	return t.Emitir("contrato.anulado", map[string]any{"contrato_id": f.ID, "prospecto_id": prospecto, "de": c.Estado, "motivo": motivo})
+}
+
+// ordenDeContrato: la orden de instalación donde se firma un contrato regenerado (B20); nil en
+// los demás.
+func ordenDeContrato(c comercialbd.ComercialContrato) *int64 {
+	var v struct {
+		OrdenID *int64 `json:"ordenId"`
+	}
+	if err := json.Unmarshal(c.Contenido, &v); err != nil {
+		return nil
+	}
+	return v.OrdenID
 }
 
 func (m *Modulo) nuevoCrearContratoCaso() *auditoria.Caso[EntradaCrearContrato, Contrato] {
@@ -307,14 +341,30 @@ func (m *Modulo) exigirFirmable(ctx context.Context, t *auditoria.Tx, q *comerci
 	if err := nucleo.ExigirVersion(in.Version, c.Version, "contrato", c.ID); err != nil {
 		return c, p, err
 	}
-	if c.Estado != "borrador" || p.Estado != EstadoContrato {
-		return c, p, transicionInvalida("Solo se firma un contrato en borrador de un prospecto en estado contrato")
+	return c, p, m.contratoFirmable(ctx, q, c, p)
+}
+
+// contratoFirmable: el contrato está en borrador y su prospecto en estado contrato; o es el
+// contrato regenerado en la instalación (contenido.ordenId, B20) de un prospecto ganado, con su
+// revisión aún por aceptar (la firma la acepta). La cotización, vigente.
+func (m *Modulo) contratoFirmable(ctx context.Context, q *comercialbd.Queries, c comercialbd.ComercialContrato, p comercialbd.ComercialProspecto) error {
+	enOrden := ordenDeContrato(c) != nil
+	switch {
+	case c.Estado != "borrador":
+		return transicionInvalida("Solo se firma un contrato en borrador")
+	case enOrden && (p.Estado != EstadoGanado || p.OrdenID == nil || *p.OrdenID != *ordenDeContrato(c)):
+		return transicionInvalida("El contrato regenerado en la instalación se firma con el prospecto ganado y su orden")
+	case !enOrden && p.Estado != EstadoContrato:
+		return transicionInvalida("Solo se firma un contrato en borrador de un prospecto en estado contrato")
 	}
 	cot, err := q.CotizacionPorID(ctx, c.CotizacionID)
 	if err != nil {
-		return c, p, err
+		return err
 	}
-	return c, p, m.exigirVigente(cot)
+	if enOrden && cot.Estado != "vigente" {
+		return transicionInvalida("La revisión de este contrato ya no está vigente (otra la reemplazó)")
+	}
+	return m.exigirVigente(cot)
 }
 
 func (m *Modulo) nuevoPrepararFirma() *auditoria.Caso[EntradaFirmar, datosContratoPDF] {
@@ -326,25 +376,9 @@ func (m *Modulo) nuevoPrepararFirma() *auditoria.Caso[EntradaFirmar, datosContra
 			if err != nil {
 				return datosContratoPDF{}, err
 			}
-			nombre, err := texto("firmanteNombre", in.FirmanteNombre, 1, 200)
+			nombre, documento, svg, err := validarFirma(in.FirmanteNombre, in.FirmanteDocumento, in.SVG, in.Lat, in.Lon)
 			if err != nil {
 				return datosContratoPDF{}, err
-			}
-			documento, err := textoOpcional("firmanteDocumento", in.FirmanteDocumento, 40)
-			if err != nil {
-				return datosContratoPDF{}, err
-			}
-			if err := validarCoordenadas(in.Lat, in.Lon); err != nil {
-				return datosContratoPDF{}, err
-			}
-			svg := strings.TrimSpace(in.SVG)
-			if strings.ContainsRune(svg, 0) || len(svg) > 200_000 {
-				return datosContratoPDF{}, campoInvalido("svg", "Firma inválida", "svg")
-			}
-			svg, err = normalizarFirma(svg)
-			if err != nil {
-				return datosContratoPDF{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "svg", Rule: "firma",
-					Message: "La firma debe ser un SVG con width y height (0–10000) y trazos <path d> (M, L, C, Q, H, V, Z): " + err.Error()})
 			}
 			d, err := datosContrato(c)
 			if err != nil {
@@ -392,33 +426,8 @@ func (m *Modulo) nuevoFirmar() *auditoria.Caso[entradaFirmaLista, Contrato] {
 			if err != nil {
 				return Contrato{}, err
 			}
-			a, err := q.EstadoAdjunto(ctx, in.adjunto)
-			if err != nil || a.Estado != "completo" || a.Sha256 != in.sha {
-				return Contrato{}, nucleo.NoDisponible("El PDF firmado no quedó guardado; vuelve a firmar")
-			}
-			nombre, _ := texto("firmanteNombre", in.FirmanteNombre, 1, 200)
-			documento, _ := textoOpcional("firmanteDocumento", in.FirmanteDocumento, 40)
-			f, err := q.FirmarContrato(ctx, comercialbd.FirmarContratoParams{
-				FirmanteNombre: &nombre, FirmanteDocumento: documento, FirmaSvg: &in.SVG, FirmaLat: in.Lat, FirmaLon: in.Lon,
-				FirmadoEn: &in.en, FirmadoPor: actorUsuario(t), PdfFirmadoID: &in.adjunto, PdfFirmadoSha256: &in.sha,
-				ID: c.ID, Version: c.Version,
-			})
+			f, err := firmarEnTx(ctx, t, q, c, p, in)
 			if err != nil {
-				return Contrato{}, nucleo.VerificarVersion(err, "contrato", c.ID)
-			}
-			t.RegistrarCambios("contrato", f.ID, c, f)
-			t.Anotar(map[string]any{"pdf_firmado_id": in.adjunto, "pdf_firmado_sha256": in.sha})
-			if _, err := guardar(ctx, t, q, p, p); err != nil {
-				return Contrato{}, err
-			}
-			if err := historial(ctx, t, q, p.ID, "contrato_firmado", nil, nil, nil, map[string]any{
-				"contrato_id": f.ID, "numero": f.Numero, "pdf_sha256": in.sha,
-			}); err != nil {
-				return Contrato{}, err
-			}
-			if err := t.Emitir("contrato.firmado", map[string]any{
-				"contrato_id": f.ID, "prospecto_id": p.ID, "numero": f.Numero, "adjunto_id": in.adjunto, "sha256": in.sha,
-			}); err != nil {
 				return Contrato{}, err
 			}
 			return aContrato(ctx, q, f)
@@ -432,4 +441,223 @@ func (m *Modulo) exigirVigente(c comercialbd.ComercialCotizacion) error {
 		return nil
 	}
 	return nucleo.ReglaNegocio("cotizacion_vencida", "La cotización "+c.Numero+" venció el "+m.diaLocal(c.VigenteHasta)+"; crea una revisión nueva")
+}
+
+// firmarEnTx marca el contrato firmado (con el PDF firmado ya guardado). Con el contrato regenerado
+// en la instalación (B20) es el cambio de contrato: antes de firmar, el firmado anterior se anula y
+// su cotización aceptada queda reemplazada; después, la revisión queda aceptada (la firma en sitio
+// del titular cubre la subida de precio, B6).
+func firmarEnTx(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, c comercialbd.ComercialContrato,
+	p comercialbd.ComercialProspecto, in entradaFirmaLista) (comercialbd.ComercialContrato, error) {
+	a, err := q.EstadoAdjunto(ctx, in.adjunto)
+	if err != nil || a.Estado != "completo" || a.Sha256 != in.sha {
+		return c, nucleo.NoDisponible("El PDF firmado no quedó guardado; vuelve a firmar")
+	}
+	orden := ordenDeContrato(c)
+	if orden != nil {
+		motivo := "Reemplazado por el contrato " + c.Numero + " firmado en la instalación"
+		if viejo, err := q.ContratoFirmadoDe(ctx, p.ID); err == nil {
+			if err := anular(ctx, t, q, viejo, p.ID, motivo); err != nil {
+				return c, err
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return c, err
+		}
+		if aceptada, err := q.CotizacionAceptadaDe(ctx, p.ID); err == nil {
+			if err := q.MarcarReemplazada(ctx, aceptada.ID); err != nil {
+				return c, err
+			}
+			if err := q.EnlazarReemplazo(ctx, comercialbd.EnlazarReemplazoParams{ReemplazadaPor: &c.CotizacionID, ID: aceptada.ID}); err != nil {
+				return c, err
+			}
+			t.RegistrarCambios("cotizacion", aceptada.ID, map[string]any{"estado": aceptada.Estado},
+				map[string]any{"estado": "reemplazada", "reemplazada_por": c.CotizacionID})
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return c, err
+		}
+	}
+	nombre, _ := texto("firmanteNombre", in.FirmanteNombre, 1, 200)
+	documento, _ := textoOpcional("firmanteDocumento", in.FirmanteDocumento, 40)
+	f, err := q.FirmarContrato(ctx, comercialbd.FirmarContratoParams{
+		FirmanteNombre: &nombre, FirmanteDocumento: documento, FirmaSvg: &in.SVG, FirmaLat: in.Lat, FirmaLon: in.Lon,
+		FirmadoEn: &in.en, FirmadoPor: actorUsuario(t), PdfFirmadoID: &in.adjunto, PdfFirmadoSha256: &in.sha,
+		ID: c.ID, Version: c.Version,
+	})
+	if err != nil {
+		return f, nucleo.VerificarVersion(err, "contrato", c.ID)
+	}
+	t.RegistrarCambios("contrato", f.ID, c, f)
+	t.Anotar(map[string]any{"pdf_firmado_id": in.adjunto, "pdf_firmado_sha256": in.sha})
+	if orden != nil {
+		cot, err := q.CotizacionPorIDParaActualizar(ctx, c.CotizacionID)
+		if err != nil {
+			return f, err
+		}
+		aceptada, err := q.AceptarCotizacion(ctx, comercialbd.AceptarCotizacionParams{Ahora: &in.en, AceptadaPor: actorUsuario(t), ID: cot.ID, Version: cot.Version})
+		if err != nil {
+			return f, nucleo.VerificarVersion(err, "cotizacion", cot.ID)
+		}
+		t.RegistrarCambios("cotizacion", aceptada.ID, map[string]any{"estado": cot.Estado}, map[string]any{"estado": aceptada.Estado, "aceptada_en": aceptada.AceptadaEn})
+		if err := t.Emitir("cotizacion.aceptada", map[string]any{"cotizacion_id": aceptada.ID, "prospecto_id": p.ID, "numero": aceptada.Numero}); err != nil {
+			return f, err
+		}
+	}
+	if _, err := guardar(ctx, t, q, p, p); err != nil {
+		return f, err
+	}
+	if err := historial(ctx, t, q, p.ID, "contrato_firmado", nil, nil, nil, map[string]any{
+		"contrato_id": f.ID, "numero": f.Numero, "pdf_sha256": in.sha, "orden_id": orden,
+	}); err != nil {
+		return f, err
+	}
+	return f, t.Emitir("contrato.firmado", map[string]any{
+		"contrato_id": f.ID, "prospecto_id": p.ID, "numero": f.Numero, "adjunto_id": in.adjunto, "sha256": in.sha, "orden_id": orden,
+	})
+}
+
+// --- Firma del contrato regenerado en la orden (B20) --------------------------------------------
+
+// La firma del titular es la del contrato regenerado a su nombre, en la orden (contrato argosisp.md
+// 0.10.0 §3.4.8, ajuste e de §10.5): el técnico la toma en sitio con la operación del lote
+// orden.firmar_contrato (campo.ContratosEnOrden), sin señal como la firma de la orden. Comercial
+// arma y guarda el PDF firmado fuera de la transacción (PrepararFirmaEnOrden) y marca el contrato
+// firmado en la transacción de la operación (FirmarEnOrdenEnTx).
+
+func (m *Modulo) nuevoPrepararFirmaEnOrden() *auditoria.Caso[campo.EntradaFirmaContratoSync, datosContratoPDF] {
+	return auditoria.Nuevo(auditoria.Caso[campo.EntradaFirmaContratoSync, datosContratoPDF]{
+		Accion: "ordenes.firmar_contrato", Permiso: nucleo.PermOrdenesCambiarTitular, AuditarExito: soloLecturas[datosContratoPDF],
+		Logica: func(ctx context.Context, t *auditoria.Tx, in campo.EntradaFirmaContratoSync) (datosContratoPDF, error) {
+			q := comercialbd.New(t)
+			c, _, err := contratoDeOrden(ctx, t, q, in.OrdenID, in.ContratoID, false)
+			if err != nil {
+				return datosContratoPDF{}, err
+			}
+			nombre, documento, svg, err := validarFirma(in.FirmanteNombre, in.FirmanteDocumento, in.SVG, in.Lat, in.Lon)
+			if err != nil {
+				return datosContratoPDF{}, err
+			}
+			d, err := datosContrato(c)
+			if err != nil {
+				return d, err
+			}
+			d.Firma = &firmaPDF{Nombre: nombre, Documento: deref(documento), SVG: svg, En: m.ahora()}
+			return d, nil
+		},
+	})
+}
+
+// contratoDeOrden: el contrato regenerado de esa orden, del técnico asignado (404 si no), firmable.
+// candado: con el prospecto y el contrato tomados (en la transacción de la operación).
+func contratoDeOrden(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, orden, contrato int64, candado bool) (comercialbd.ComercialContrato, comercialbd.ComercialProspecto, error) {
+	var c comercialbd.ComercialContrato
+	var p comercialbd.ComercialProspecto
+	o, err := q.OrdenParaFirmarContrato(ctx, orden)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c, p, nucleo.NoEncontrado("El contrato no existe")
+	}
+	if err != nil {
+		return c, p, err
+	}
+	a := contexto.ActorDe(ctx)
+	if !a.EsUsuario() || o.TecnicoID == nil || *o.TecnicoID != a.ID || !enEmpresa(ctx, o.EmpresaID) {
+		return c, p, nucleo.NoEncontrado("El contrato no existe")
+	}
+	if candado {
+		c, err = q.ContratoPorIDParaActualizar(ctx, contrato)
+	} else {
+		c, err = q.ContratoPorID(ctx, contrato)
+	}
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (ordenDeContrato(c) == nil || *ordenDeContrato(c) != orden)) {
+		return c, p, nucleo.NoEncontrado("El contrato no existe")
+	}
+	if err != nil {
+		return c, p, err
+	}
+	if candado {
+		p, err = q.ProspectoPorIDParaActualizar(ctx, c.ProspectoID)
+	} else {
+		p, err = q.ProspectoPorID(ctx, c.ProspectoID)
+	}
+	if err != nil {
+		return c, p, err
+	}
+	t.FijarEntidad("contrato", c.ID)
+	t.FijarEmpresa(deref(p.EmpresaID))
+	if o.Estado != "en_sitio" {
+		return c, p, transicionInvalida("El contrato regenerado se firma con la orden en sitio")
+	}
+	return c, p, nil
+}
+
+// validarFirma: nombre, documento, coordenadas y el SVG normalizado (mismas reglas que /firmar).
+func validarFirma(nombre string, documento *string, svg string, lat, lon *float64) (string, *string, string, error) {
+	n, err := texto("firmanteNombre", nombre, 1, 200)
+	if err != nil {
+		return "", nil, "", err
+	}
+	d, err := textoOpcional("firmanteDocumento", documento, 40)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if err := validarCoordenadas(lat, lon); err != nil {
+		return "", nil, "", err
+	}
+	s := strings.TrimSpace(svg)
+	if strings.ContainsRune(s, 0) || len(s) > 200_000 {
+		return "", nil, "", campoInvalido("svg", "Firma inválida", "svg")
+	}
+	s, err = normalizarFirma(s)
+	if err != nil {
+		return "", nil, "", nucleo.Validacion(nucleo.ErrorCampo{Field: "svg", Rule: "firma",
+			Message: "La firma debe ser un SVG con width y height (0–10000) y trazos <path d> (M, L, C, Q, H, V, Z): " + err.Error()})
+	}
+	return n, d, s, nil
+}
+
+// PrepararFirmaEnOrden valida la firma del contrato regenerado de la orden, arma el PDF firmado y
+// lo guarda (fuera de la transacción de la operación; implementa campo.ContratosEnOrden).
+func (m *Modulo) PrepararFirmaEnOrden(ctx context.Context, in campo.EntradaFirmaContratoSync) (campo.FirmaContratoPreparada, error) {
+	d, err := m.prepararFirmaEnOrden.Ejecutar(ctx, in)
+	if err != nil {
+		return campo.FirmaContratoPreparada{}, err
+	}
+	if m.cfg.Documentos == nil {
+		return campo.FirmaContratoPreparada{}, nucleo.NoDisponible("No hay almacenamiento de documentos configurado: el contrato firmado debe guardarse")
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return campo.FirmaContratoPreparada{}, err
+	}
+	d.AdjuntoID = id.String()
+	contenido, err := m.pdfContrato(d)
+	if err != nil {
+		return campo.FirmaContratoPreparada{}, err
+	}
+	pdf := PDF{ID: id, Entidad: EntidadContrato, EntidadID: idTexto(d.ContratoID), Contenido: contenido}
+	if err := m.guardarPDF(ctx, pdf); err != nil {
+		return campo.FirmaContratoPreparada{}, err
+	}
+	in.SVG = d.Firma.SVG
+	return campo.FirmaContratoPreparada{Entrada: in, AdjuntoID: id, SHA256: pdf.SHA256(), En: d.Firma.En}, nil
+}
+
+// FirmarEnOrdenEnTx marca firmado el contrato regenerado en la transacción de la operación del lote
+// (la orden ya está tomada por campo; implementa campo.ContratosEnOrden).
+func (m *Modulo) FirmarEnOrdenEnTx(ctx context.Context, t *auditoria.Tx, l campo.FirmaContratoPreparada) (int64, error) {
+	q := comercialbd.New(t)
+	c, p, err := contratoDeOrden(ctx, t, q, l.Entrada.OrdenID, l.Entrada.ContratoID, true)
+	if err != nil {
+		return 0, err
+	}
+	if err := m.contratoFirmable(ctx, q, c, p); err != nil {
+		return 0, err
+	}
+	in := entradaFirmaLista{EntradaFirmar: EntradaFirmar{ContratoID: c.ID, Version: c.Version, FirmanteNombre: l.Entrada.FirmanteNombre,
+		FirmanteDocumento: l.Entrada.FirmanteDocumento, SVG: l.Entrada.SVG, Lat: l.Entrada.Lat, Lon: l.Entrada.Lon},
+		adjunto: l.AdjuntoID, sha: l.SHA256, en: l.En}
+	f, err := firmarEnTx(ctx, t, q, c, p, in)
+	if err != nil {
+		return 0, err
+	}
+	return f.ID, nil
 }

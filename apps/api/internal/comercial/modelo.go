@@ -74,12 +74,21 @@ func aProspecto(f comercialbd.ComercialProspecto) Prospecto {
 // vivo y las acciones hacia Argos (pendientes) del alta.
 type ProspectoDetalle struct {
 	Prospecto
-	Factibilidad *Factibilidad       `json:"factibilidad,omitempty" doc:"La última evaluación"`
-	Cotizacion   *Cotizacion         `json:"cotizacion,omitempty" doc:"La vigente o aceptada"`
-	Contrato     *Contrato           `json:"contrato,omitempty" doc:"El borrador o firmado"`
-	Pendientes   []PendienteArgos    `json:"pendientes" doc:"Acciones en Argos del alta (POST /clientes y POST /servicios)"`
-	Telefonos    []TelefonoProspecto `json:"telefonos" doc:"Números del prospecto registrado desde Argos (vacío en los demás: usan telefono)"`
-	Acciones     AccionesDisponible  `json:"acciones" doc:"Qué acción del embudo corresponde ahora (para los botones del panel; el servidor valida igual)"`
+	Factibilidad *Factibilidad `json:"factibilidad,omitempty" doc:"La última evaluación"`
+	Cotizacion   *Cotizacion   `json:"cotizacion,omitempty" doc:"La vigente o aceptada"`
+	Contrato     *Contrato     `json:"contrato,omitempty" doc:"El borrador o firmado (con una revisión de la instalación por firmar, el firmado: sigue vivo hasta que se firma el regenerado)"`
+	// PorFirmarEnOrden: B20, la revisión de la instalación que espera la firma en la orden.
+	PorFirmarEnOrden *RevisionEnOrden    `json:"porFirmarEnOrden,omitempty" doc:"Cambio de plan o de titular aceptado por Argos en la instalación: la cotización nueva (vigente) y el contrato regenerado (borrador) que el titular firma en la orden. Hasta esa firma no se da por aceptado"`
+	Pendientes       []PendienteArgos    `json:"pendientes" doc:"Acciones en Argos del alta (POST /clientes y POST /servicios)"`
+	Telefonos        []TelefonoProspecto `json:"telefonos" doc:"Números del prospecto registrado desde Argos (vacío en los demás: usan telefono)"`
+	Acciones         AccionesDisponible  `json:"acciones" doc:"Qué acción del embudo corresponde ahora (para los botones del panel; el servidor valida igual)"`
+}
+
+// RevisionEnOrden: la revisión de la venta en la instalación por firmar (B20).
+type RevisionEnOrden struct {
+	OrdenID    int64      `json:"ordenId"`
+	Cotizacion Cotizacion `json:"cotizacion"`
+	Contrato   *Contrato  `json:"contrato,omitempty" doc:"El contrato regenerado en borrador (ausente si se anuló)"`
 }
 
 // TelefonoProspecto es un número de un prospecto registrado desde Argos (§3.6).

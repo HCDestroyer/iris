@@ -72,7 +72,7 @@ const tipoInstalacion = "instalacion"
 // esOpTitular: las operaciones del paso (bloque propio del despachador del lote).
 func esOpTitular(tipo string) bool {
 	switch tipo {
-	case OpRegistrarIdentidad, OpCambiarTitular, OpCompletarDatos, OpCambiarPlan:
+	case OpRegistrarIdentidad, OpCambiarTitular, OpCompletarDatos, OpCambiarPlan, OpFirmarContrato:
 		return true
 	}
 	return false
@@ -155,15 +155,21 @@ type EntradaRegistrarIdentidad struct {
 	Sync            *OpSync        `json:"-"`
 }
 
-// TitularNuevo son los datos de quien queda como titular (A39, §3.4.2).
+// TitularNuevo son los datos de quien queda como titular (A39, §3.4.2 y §3.4.4).
+//
+// Titular persona (por defecto): nombre, documento (DPI o pasaporte) y «mayor de edad». Titular
+// empresa (contrato 0.14.1; el plan va aparte): nombre = razón social, «Facturar a» con
+// tipoDocumentoFiscal = nit y su nitCui, sin documento ni «mayor de edad», y el representante con su
+// documento (DPI o pasaporte, decisión del PM): las fotos y la identidad son las del representante.
 type TitularNuevo struct {
-	Nombre          string `json:"nombre" minLength:"2" maxLength:"200" doc:"Como aparece en el documento"`
-	DocumentoTipo   string `json:"documentoTipo" enum:"dpi,pasaporte,nit" doc:"nit solo en una venta empresarial (y ahí es obligatorio): el titular es la empresa y la identidad, la del representante"`
-	DocumentoNumero string `json:"documentoNumero" minLength:"5" maxLength:"20" auditoria:"sensible" doc:"DPI, pasaporte o NIT de la empresa (con verificador, K permitido)"`
-	MayorDeEdad     bool   `json:"mayorDeEdad" doc:"Debe ser true (en empresarial, del representante)"`
-	// Representante: en una venta empresarial, quien firma por la empresa (con DPI; su foto es la
-	// del documento de la operación).
-	Representante       *Representante `json:"representante,omitempty" doc:"Obligatorio en una venta empresarial (y solo ahí)"`
+	Tipo            *string `json:"tipo,omitempty" enum:"persona,empresa" doc:"persona (por defecto) o empresa (contrato 0.14.1; no depende del modo de la venta ni del plan). Con Argos < 0.14.1, 422 titular_empresa_no_disponible"`
+	Nombre          string  `json:"nombre" minLength:"2" maxLength:"200" doc:"Como aparece en el documento; con empresa, la razón social"`
+	DocumentoTipo   *string `json:"documentoTipo,omitempty" enum:"dpi,pasaporte" doc:"Persona: obligatorio. Empresa: no va (la identidad es la del representante)"`
+	DocumentoNumero *string `json:"documentoNumero,omitempty" minLength:"5" maxLength:"20" auditoria:"sensible" doc:"Persona: DPI o pasaporte. Empresa: no va. Nunca se devuelve ni va en eventos, logs ni auditoría"`
+	MayorDeEdad     *bool   `json:"mayorDeEdad,omitempty" doc:"Persona: debe ser true. Empresa: no va (lo marca el representante)"`
+	// Representante: con titular empresa, quien firma por la empresa (su documento es el de las
+	// fotos y la identidad, A41).
+	Representante       *Representante `json:"representante,omitempty" doc:"Obligatorio con titular empresa (y solo ahí). En la auditoría y los pendientes, todo menos documentoTipo sale como ***"`
 	Telefono            string         `json:"telefono" minLength:"8" maxLength:"25" auditoria:"sensible" doc:"8 dígitos de Guatemala (+502 opcional)"`
 	Whatsapp            bool           `json:"whatsapp"`
 	Email               *string        `json:"email,omitempty" maxLength:"254" auditoria:"sensible"`
@@ -172,10 +178,19 @@ type TitularNuevo struct {
 	Relacion            *string        `json:"relacion,omitempty" enum:"titular,familiar,otro" doc:"Relación con quien pidió el servicio"`
 }
 
-// Representante de la empresa titular (modo empresarial, §3.4.2): su DPI es la identidad (A41).
+// Representante de la empresa titular (contrato 0.14.1 §3.4.4): su documento es la identidad (A41).
 type Representante struct {
-	Nombre          string `json:"nombre" minLength:"2" maxLength:"200" doc:"Como aparece en su DPI"`
-	DocumentoNumero string `json:"documentoNumero" minLength:"13" maxLength:"20" auditoria:"sensible" doc:"DPI del representante. Nunca se devuelve ni va en eventos, logs ni auditoría"`
+	Nombre          string `json:"nombre" minLength:"2" maxLength:"200" doc:"Como aparece en su documento"`
+	DocumentoTipo   string `json:"documentoTipo" enum:"dpi,pasaporte" doc:"DPI o pasaporte (decisión del PM)"`
+	DocumentoNumero string `json:"documentoNumero" minLength:"5" maxLength:"20" doc:"Nunca se devuelve ni va en eventos, logs ni auditoría"`
+	MayorDeEdad     bool   `json:"mayorDeEdad" doc:"«El representante es mayor de edad»: debe ser true"`
+}
+
+// MarshalJSON de la auditoría (la entrada del caso de uso se audita así): todo el representante sale
+// como *** salvo documentoTipo. Representante solo es entrada: nunca se manda con esta forma.
+func (r Representante) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]any{"nombre": auditoria.Mascara, "documentoTipo": r.DocumentoTipo,
+		"documentoNumero": auditoria.Mascara, "mayorDeEdad": auditoria.Mascara})
 }
 
 // EntradaCambiarTitular: «Otra persona» (A39, §3.4.4). Datos de orden.cambiar_titular.
@@ -255,19 +270,32 @@ type PasoTitularVista struct {
 
 // EstadoTitular es el paso «Confirmar titular y plan» de una orden.
 type EstadoTitular struct {
-	OrdenID         int64   `json:"ordenId"`
-	QuienFirma      *string `json:"quienFirma" nullable:"true" enum:"misma,otra" doc:"misma: la persona de la venta (A41); otra: cambio de titular (A39)"`
-	DocumentoTipo   *string `json:"documentoTipo" nullable:"true" enum:"dpi,pasaporte,nit" doc:"nit: venta empresarial (la identidad es la del representante, con DPI)"`
-	Modo            string  `json:"modo" enum:"residencial,empresarial" doc:"Modo de la venta (del prospecto; residencial sin prospecto)"`
-	Nombre          *string `json:"nombre" nullable:"true" doc:"Del titular, como en el documento (nunca el número)"`
-	Identidad       string  `json:"identidad" enum:"falta,registrada,validada" doc:"registrada: tomada en sitio y en la cola hacia Argos; validada: un supervisor la validó desde el panel (solo para activar)"`
-	EnRevision      bool    `json:"enRevision" doc:"El titular está en revisión de un supervisor: no se toma otra identidad ni otro titular hasta que la levante (POST /ordenes/{id}/levantar-revision-titular)"`
-	CambiadoEnArgos bool    `json:"cambiadoEnArgos" doc:"La orden se canceló o falló, pero el titular o el plan ya cambiaron en Argos (no se deshace solo)"`
-	Pendiente       bool    `json:"pendienteEnArgos" doc:"Algún paso no llegó a Argos y no saldrá solo: la activación queda bloqueada"`
-	PlanID          *int64  `json:"planId" nullable:"true" doc:"El último plan pedido"`
+	OrdenID       int64   `json:"ordenId"`
+	QuienFirma    *string `json:"quienFirma" nullable:"true" enum:"misma,otra" doc:"misma: la persona de la venta (A41); otra: cambio de titular (A39)"`
+	TipoTitular   *string `json:"tipoTitular" nullable:"true" enum:"persona,empresa" doc:"empresa: la identidad (documentoTipo) es la del representante"`
+	DocumentoTipo *string `json:"documentoTipo" nullable:"true" enum:"dpi,pasaporte" doc:"El documento de la identidad (con empresa, el del representante)"`
+	Modo          string  `json:"modo" enum:"residencial,empresarial" doc:"Modo de la venta (del prospecto; residencial sin prospecto)"`
+	// TitularEmpresaDisponible: Argos acepta el cambio de titular a una empresa (contrato ≥ 0.14.1).
+	TitularEmpresaDisponible bool    `json:"titularEmpresaDisponible" doc:"false: Argos informa un contrato < 0.14.1 y el cambio de titular a una empresa no se ofrece (422 titular_empresa_no_disponible)"`
+	Nombre                   *string `json:"nombre" nullable:"true" doc:"Del titular, como en el documento; con empresa, la razón social (nunca el número)"`
+	Identidad                string  `json:"identidad" enum:"falta,registrada,validada" doc:"registrada: tomada en sitio y en la cola hacia Argos; validada: un supervisor la validó desde el panel (solo para activar)"`
+	EnRevision               bool    `json:"enRevision" doc:"El titular está en revisión de un supervisor: no se toma otra identidad ni otro titular hasta que la levante (POST /ordenes/{id}/levantar-revision-titular)"`
+	CambiadoEnArgos          bool    `json:"cambiadoEnArgos" doc:"La orden se canceló o falló, pero el titular o el plan ya cambiaron en Argos (no se deshace solo)"`
+	Pendiente                bool    `json:"pendienteEnArgos" doc:"Algún paso no llegó a Argos y no saldrá solo: la activación queda bloqueada"`
+	PlanID                   *int64  `json:"planId" nullable:"true" doc:"El último plan pedido"`
+	// ContratoPorFirmar: el contrato regenerado a nombre del titular final (B20), que el titular firma
+	// en la orden con orden.firmar_contrato.
+	ContratoPorFirmar *ContratoPorFirmar `json:"contratoPorFirmar,omitempty" required:"false" doc:"El contrato regenerado en la instalación (cambio de plan o de titular aceptado por Argos), en borrador: se firma en sitio con orden.firmar_contrato. Ausente si no hay"`
 	// Pasos, en el orden en que se encolaron.
 	Pasos   []PasoTitularVista `json:"pasos"`
 	Version int32              `json:"version" doc:"0 si la orden aún no tiene el paso"`
+}
+
+// ContratoPorFirmar: el contrato regenerado de la orden (sin datos del cliente).
+type ContratoPorFirmar struct {
+	ID      int64  `json:"id"`
+	Numero  string `json:"numero"`
+	Version int32  `json:"version"`
 }
 
 // CasosTitular son los casos de uso del paso.
@@ -278,7 +306,9 @@ type CasosTitular struct {
 	CambiarPlan        *auditoria.Caso[EntradaCambiarPlan, Orden]
 	ValidarIdentidad   *auditoria.Caso[EntradaValidarIdentidad, Orden]
 	LevantarRevision   *auditoria.Caso[EntradaLevantarRevision, Orden]
-	Ver                *auditoria.Caso[EntradaVerOrden, EstadoTitular]
+	// FirmarContrato: la firma del contrato regenerado en la orden (firma_contrato.go, B20).
+	FirmarContrato *auditoria.Caso[EntradaFirmarContrato, Orden]
+	Ver            *auditoria.Caso[EntradaVerOrden, EstadoTitular]
 }
 
 func (m *Modulo) nuevosCasosTitular() CasosTitular {
@@ -289,6 +319,7 @@ func (m *Modulo) nuevosCasosTitular() CasosTitular {
 		CambiarPlan:        m.nuevoCambiarPlan(),
 		ValidarIdentidad:   m.nuevoValidarIdentidad(),
 		LevantarRevision:   m.nuevoLevantarRevision(),
+		FirmarContrato:     m.nuevoFirmarContrato(),
 		Ver:                m.nuevoVerTitular(),
 	}
 }
@@ -302,7 +333,6 @@ type paso struct {
 	pasos  []pendientes.PasoDeTitular
 	cuando time.Time
 	actor  int64
-	modo   string
 }
 
 func (p paso) buscar(id *int64) *pendientes.PasoDeTitular {
@@ -386,11 +416,7 @@ func (m *Modulo) abrirPaso(ctx context.Context, t *auditoria.Tx, q *campobd.Quer
 	if err != nil {
 		return paso{}, err
 	}
-	modo, err := modoDeOrden(ctx, q, f)
-	if err != nil {
-		return paso{}, err
-	}
-	return paso{f: f, tit: tit, pasos: pasos, cuando: m.cuandoEn(s, f), actor: a.ID, modo: modo}, nil
+	return paso{f: f, tit: tit, pasos: pasos, cuando: m.cuandoEn(s, f), actor: a.ID}, nil
 }
 
 // sinPanel: la identidad y el cambio de titular solo van en el lote (foto tomada en sitio).
@@ -434,7 +460,7 @@ func guardarTitular(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, an
 		Nombre: despues.Nombre, IdentidadPendienteID: despues.IdentidadPendienteID, UltimoPendienteID: despues.UltimoPendienteID,
 		Tomas: despues.Tomas, CambiosTitular: despues.CambiosTitular, DatosN: despues.DatosN, CambiosPlan: despues.CambiosPlan,
 		PlanID: despues.PlanID, ValidadaPor: despues.ValidadaPor, ValidadaMotivo: despues.ValidadaMotivo, ValidadaEn: despues.ValidadaEn,
-		EnRevision: despues.EnRevision, RevisionDesde: despues.RevisionDesde,
+		EnRevision: despues.EnRevision, RevisionDesde: despues.RevisionDesde, TipoTitular: despues.TipoTitular,
 	})
 	if err != nil {
 		return err
@@ -511,9 +537,7 @@ func (m *Modulo) nuevoRegistrarIdentidad() *auditoria.Caso[EntradaRegistrarIdent
 			if err != nil {
 				return p.f, "", err
 			}
-			if p.modo == argos.ModoEmpresarial && in.DocumentoTipo != "dpi" {
-				return p.f, "", campoInvalido("documentoTipo", "En una venta empresarial la identidad es la del representante, con su DPI", "empresarial")
-			}
+			// Con un cliente empresa, la identidad es la de su representante (DPI o pasaporte).
 			numero, err := documentoValido("documentoNumero", in.DocumentoTipo, in.DocumentoNumero)
 			if err != nil {
 				return p.f, "", err
@@ -556,7 +580,7 @@ func (m *Modulo) nuevoRegistrarIdentidad() *auditoria.Caso[EntradaRegistrarIdent
 			if err := reemplazar(ctx, t, &tit, previo, r.ID, motivoReemplazoToma, &p.actor, m.ahora()); err != nil {
 				return p.f, "", err
 			}
-			tit.QuienFirma, tit.DocumentoTipo, tit.Nombre = ptr("misma"), &in.DocumentoTipo, &nombre
+			tit.QuienFirma, tit.DocumentoTipo, tit.Nombre, tit.TipoTitular = ptr("misma"), &in.DocumentoTipo, &nombre, nil
 			if err := guardarTitular(ctx, t, q, p.tit, tit); err != nil {
 				return p.f, "", err
 			}
@@ -581,47 +605,20 @@ func (m *Modulo) nuevoCambiarTitular() *auditoria.Caso[EntradaCambiarTitular, Or
 				return p.f, "", err
 			}
 			n := in.Titular
-			empresarial := p.modo == argos.ModoEmpresarial
-			switch {
-			case empresarial && n.DocumentoTipo != "nit":
-				return p.f, "", campoInvalido("titular.documentoTipo", "En una venta empresarial el titular es la empresa, con su NIT", "empresarial")
-			case !empresarial && n.DocumentoTipo == "nit":
-				return p.f, "", campoInvalido("titular.documentoTipo", "El NIT es solo para una venta empresarial: aquí, DPI o pasaporte", "residencial")
-			case empresarial && n.Representante == nil:
-				return p.f, "", campoInvalido("titular.representante", "En una venta empresarial falta el representante, con su DPI", "required")
-			case !empresarial && n.Representante != nil:
-				return p.f, "", campoInvalido("titular.representante", "El representante es solo para una venta empresarial", "residencial")
-			}
-			numero, err := documentoValido("titular.documentoNumero", n.DocumentoTipo, n.DocumentoNumero)
+			v, err := validarTitularNuevo(ctx, t, n, in.Coincide)
 			if err != nil {
 				return p.f, "", err
 			}
-			var representante map[string]any
-			var dpiRepresentante string
-			if n.Representante != nil {
-				if dpiRepresentante, err = documentoValido("titular.representante.documentoNumero", "dpi", n.Representante.DocumentoNumero); err != nil {
-					return p.f, "", err
-				}
-				nr, err := nombreValido("titular.representante.nombre", n.Representante.Nombre)
-				if err != nil {
-					return p.f, "", err
-				}
-				representante = map[string]any{"nombre": nr, "documento_tipo": "dpi"}
-			}
-			nombre, err := nombreValido("titular.nombre", n.Nombre)
-			if err != nil {
-				return p.f, "", err
-			}
-			if err := marcasDelTecnico(n.MayorDeEdad, in.Coincide); err != nil {
-				return p.f, "", err
-			}
+			nombre := v.nombre
 			telefono, err := telefonoValido("titular.telefono", n.Telefono)
 			if err != nil {
 				return p.f, "", err
 			}
-			sensible := map[string]any{"cliente.documento_numero": numero, "cliente.telefono": telefono, "cliente.email": nil, "cliente.nit_cui": nil}
-			if dpiRepresentante != "" {
-				sensible["representante.documento_numero"] = dpiRepresentante
+			sensible := map[string]any{"cliente.telefono": telefono, "cliente.email": nil, "cliente.nit_cui": nil}
+			if v.empresa {
+				sensible["representante.documento_numero"] = v.numero
+			} else {
+				sensible["cliente.documento_numero"] = v.numero
 			}
 			if n.Email != nil && strings.TrimSpace(*n.Email) != "" {
 				correo, err := correoValido("titular.email", *n.Email)
@@ -629,6 +626,9 @@ func (m *Modulo) nuevoCambiarTitular() *auditoria.Caso[EntradaCambiarTitular, Or
 					return p.f, "", err
 				}
 				sensible["cliente.email"] = correo
+			}
+			if v.empresa && n.TipoDocumentoFiscal != "nit" {
+				return p.f, "", campoInvalido("titular.tipoDocumentoFiscal", "Una empresa titular factura con su NIT", "empresa")
 			}
 			fiscal, err := fiscalValido("titular", n.TipoDocumentoFiscal, n.NitCui)
 			if err != nil {
@@ -661,8 +661,13 @@ func (m *Modulo) nuevoCambiarTitular() *auditoria.Caso[EntradaCambiarTitular, Or
 			tit := p.tit
 			tit.Tomas++
 			tit.CambiosTitular++
-			cliente := map[string]any{"nombre": nombre, "documento_tipo": n.DocumentoTipo, "mayor_de_edad": true,
-				"whatsapp": n.Whatsapp, "tipo_documento_fiscal": n.TipoDocumentoFiscal}
+			cliente := map[string]any{"nombre": nombre, "whatsapp": n.Whatsapp, "tipo_documento_fiscal": n.TipoDocumentoFiscal}
+			if v.empresa {
+				// 0.14.1: la empresa con su NIT en los campos fiscales, sin documento de identidad.
+				cliente["tipo"] = argos.TitularEmpresa
+			} else {
+				cliente["documento_tipo"], cliente["mayor_de_edad"] = v.documentoTipo, true
+			}
 			if n.Relacion != nil {
 				cliente["relacion"] = *n.Relacion
 			}
@@ -672,9 +677,9 @@ func (m *Modulo) nuevoCambiarTitular() *auditoria.Caso[EntradaCambiarTitular, Or
 				"motivo_codigo": in.MotivoCodigo, "motivo": motivo,
 				"origen_tipo": origenTipoOrden, "origen_id": strconv.FormatInt(p.f.ID, 10),
 			}
-			if representante != nil {
-				// Empresarial (§3.4.2): la empresa con su NIT y el representante con su DPI (la identidad).
-				cuerpo["representante"] = representante
+			if v.empresa {
+				// 0.14.1: el representante con su documento (el de las fotos y la identidad).
+				cuerpo["representante"] = map[string]any{"nombre": v.representante, "documento_tipo": v.documentoTipo, "mayor_de_edad": true}
 			}
 			r, err := m.encolar(ctx, t, p, pendientes.OpCambiarTitular, pendientes.ClaveTitular(p.f.ID, tit.CambiosTitular),
 				"/servicios/"+strconv.FormatInt(*p.f.ServicioID, 10)+"/cambiar-titular", cuerpo,
@@ -685,12 +690,16 @@ func (m *Modulo) nuevoCambiarTitular() *auditoria.Caso[EntradaCambiarTitular, Or
 			if err := reemplazar(ctx, t, &tit, previo, r.ID, motivoReemplazoToma, &p.actor, m.ahora()); err != nil {
 				return p.f, "", err
 			}
-			tit.QuienFirma, tit.DocumentoTipo, tit.Nombre = ptr("otra"), &n.DocumentoTipo, &nombre
+			tipoTitular := argos.TitularPersona
+			if v.empresa {
+				tipoTitular = argos.TitularEmpresa
+			}
+			tit.QuienFirma, tit.DocumentoTipo, tit.Nombre, tit.TipoTitular = ptr("otra"), &v.documentoTipo, &nombre, &tipoTitular
 			if err := guardarTitular(ctx, t, q, p.tit, tit); err != nil {
 				return p.f, "", err
 			}
 			if err := t.Emitir(EventoCambioTitular, map[string]any{
-				"orden_id": p.f.ID, "pendiente_id": r.ID, "cambio": tit.CambiosTitular, "documento_tipo": n.DocumentoTipo,
+				"orden_id": p.f.ID, "pendiente_id": r.ID, "cambio": tit.CambiosTitular, "documento_tipo": v.documentoTipo, "tipo_titular": tipoTitular,
 				"motivo_codigo": in.MotivoCodigo, "reemplaza_id": reemplazaID(previo),
 			}); err != nil {
 				return p.f, "", err
@@ -715,6 +724,13 @@ func (m *Modulo) nuevoCompletarDatos() *auditoria.Caso[EntradaCompletarDatos, Or
 			}
 			if p.tit.DatosN >= maxPasosDatos {
 				return p.f, "", nucleo.ReglaNegocio("demasiados_cambios", "Ya se completaron los datos demasiadas veces en esta orden")
+			}
+			if in.Sync == nil && in.Cliente != nil && in.Cliente.Nombre != nil {
+				// El nombre va ligado a la identidad tomada en sitio (A41 o A39): desde el panel no se
+				// corrige (MEDIA 3 de #280); lo corrige el técnico en sitio, con el documento a la vista.
+				return p.f, "", nucleo.NuevoProblema(http.StatusUnprocessableEntity, "nombre_solo_en_sitio", "El nombre se corrige en sitio",
+					"El nombre del titular va ligado a su documento: lo corrige el técnico en sitio, no el panel",
+					nucleo.ErrorCampo{Field: "cliente.nombre", Message: "Solo en sitio", Rule: "solo_en_sitio"})
 			}
 			cliente, sensible, campos, err := clienteCompletar(in.Cliente)
 			if err != nil {
@@ -974,7 +990,7 @@ func reiniciarTitular(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, 
 		return err
 	}
 	despues := antes
-	despues.QuienFirma, despues.DocumentoTipo, despues.Nombre, despues.PlanID = nil, nil, nil, nil
+	despues.QuienFirma, despues.DocumentoTipo, despues.Nombre, despues.PlanID, despues.TipoTitular = nil, nil, nil, nil, nil
 	despues.IdentidadPendienteID, despues.UltimoPendienteID = nil, nil
 	despues.ValidadaPor, despues.ValidadaMotivo, despues.ValidadaEn = nil, nil, nil
 	return guardarTitular(ctx, t, q, antes, despues)
@@ -1056,13 +1072,21 @@ func (m *Modulo) nuevoVerTitular() *auditoria.Caso[EntradaVerOrden, EstadoTitula
 			if e.Modo, err = modoDeOrden(ctx, q, f); err != nil {
 				return EstadoTitular{}, err
 			}
+			if e.TitularEmpresaDisponible, err = argos.TitularEmpresaDisponible(ctx, t); err != nil {
+				return EstadoTitular{}, err
+			}
+			if c, err := q.ContratoPorFirmarDeOrden(ctx, f.ID); err == nil {
+				e.ContratoPorFirmar = &ContratoPorFirmar{ID: c.ID, Numero: c.Numero, Version: c.Version}
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return EstadoTitular{}, err
+			}
 			return e, nil
 		},
 	})
 }
 
 func estadoTitular(f campobd.CampoOrden, tit campobd.CampoOrdenTitular, pasos []pendientes.PasoDeTitular) EstadoTitular {
-	e := EstadoTitular{OrdenID: tit.OrdenID, QuienFirma: tit.QuienFirma, DocumentoTipo: tit.DocumentoTipo, Nombre: tit.Nombre,
+	e := EstadoTitular{OrdenID: tit.OrdenID, QuienFirma: tit.QuienFirma, TipoTitular: tit.TipoTitular, DocumentoTipo: tit.DocumentoTipo, Nombre: tit.Nombre,
 		Identidad: "falta", PlanID: tit.PlanID, Pasos: make([]PasoTitularVista, 0, len(pasos)), Version: tit.Version,
 		EnRevision: tit.EnRevision}
 	switch {
@@ -1093,7 +1117,7 @@ func estadoTitular(f campobd.CampoOrden, tit campobd.CampoOrdenTitular, pasos []
 		}
 		// Sin oráculo (ALTA 2 de #273): titular_no_coincide nunca se muestra; en revisión, los pasos
 		// de identidad rechazados solo dicen «en revisión».
-		if v.Codigo != nil && *v.Codigo == pendientes.CodigoTitularNoCoincide {
+		if v.Codigo != nil && pendientes.EsCodigoRevisionTitular(*v.Codigo) {
 			v.Codigo = nil
 		}
 		if tit.EnRevision && pendientes.EsPasoIdentidad(p.Operacion) && p.Estado == pendientes.EstadoFallidoNegocio {
@@ -1138,7 +1162,7 @@ func (m *Modulo) exigirIdentidad(ctx context.Context, t *auditoria.Tx, q *campob
 // --- Despacho del lote -------------------------------------------------------------------------
 
 // datosTitularLote: los esquemas de los datos de las operaciones del paso (validación del lote).
-var datosTitularLote = []any{EntradaRegistrarIdentidad{}, EntradaCambiarTitular{}, EntradaCompletarDatos{}, EntradaCambiarPlan{}}
+var datosTitularLote = []any{EntradaRegistrarIdentidad{}, EntradaCambiarTitular{}, EntradaCompletarDatos{}, EntradaCambiarPlan{}, EntradaFirmarContrato{}}
 
 // despacharTitular traduce una operación del paso a su caso de uso.
 func (m *Modulo) despacharTitular(ctx context.Context, s *OpSync, op OperacionLote) (Orden, error) {
@@ -1171,6 +1195,13 @@ func (m *Modulo) despacharTitular(ctx context.Context, s *OpSync, op OperacionLo
 		}
 		e.ID, e.Sync = op.OrdenID, s
 		return m.Titular.CambiarPlan.Ejecutar(ctx, e)
+	case OpFirmarContrato:
+		e, err := datosDe[EntradaFirmarContrato](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		e.ID, e.Sync = op.OrdenID, s
+		return m.FirmarContrato(ctx, e)
 	}
 	return Orden{}, campoInvalido("tipo", "Tipo de operación desconocido", "enum")
 }
@@ -1197,7 +1228,7 @@ var (
 	espacios        = regexp.MustCompile(`\s+`)
 )
 
-// documentoValido normaliza y valida el documento de identidad (§3.4.2).
+// documentoValido normaliza y valida el documento de identidad (§3.4.2): DPI o pasaporte.
 func documentoValido(campo, tipo, numero string) (string, error) {
 	n := strings.ToUpper(strings.NewReplacer(" ", "", "-", "").Replace(strings.TrimSpace(numero)))
 	switch tipo {
@@ -1209,12 +1240,9 @@ func documentoValido(campo, tipo, numero string) (string, error) {
 		if !patronPasaporte.MatchString(n) {
 			return "", campoInvalido(campo, "Pasaporte inválido: de 5 a 20 letras o dígitos", "pasaporte")
 		}
-	case "nit":
-		if !NITValido(n) {
-			return "", campoInvalido(campo, "NIT inválido: dígitos con el verificador (K permitido)", "nit")
-		}
 	default:
-		return "", campoInvalido(campo, "dpi, pasaporte o nit", "enum")
+		// El NIT nunca es un documento de identidad (0.14.1): va en «Facturar a» de la empresa.
+		return "", campoInvalido(campo, "dpi o pasaporte", "enum")
 	}
 	return n, nil
 }
@@ -1464,4 +1492,75 @@ func lugarCompletar(l *LugarServicio) (map[string]any, []string, error) {
 		return nil, nil, campoInvalido("servicio.precisionM", "La precisión va con las coordenadas", "par")
 	}
 	return salida, campos, nil
+}
+
+// titularValidado: el titular nuevo de A39 ya validado. numero va solo al depósito de tránsito.
+type titularValidado struct {
+	empresa bool
+	// nombre: el del titular persona o la razón social de la empresa.
+	nombre string
+	// documentoTipo y numero: los de la identidad (con empresa, los del representante).
+	documentoTipo string
+	numero        string
+	// representante: su nombre, con empresa.
+	representante string
+}
+
+// validarTitularNuevo: persona o empresa (contrato 0.14.1 §3.4.4). El tipo de titular no depende
+// del modo de la venta: cliente.tipo empresa no obliga a un plan empresarial (el plan va aparte,
+// A40; ajuste f de §10.11). Con empresa, Argos debe informar un contrato ≥ 0.14.1 (si no, 422
+// titular_empresa_no_disponible: nunca se manda una empresa a un Argos que no la entiende).
+func validarTitularNuevo(ctx context.Context, t *auditoria.Tx, n TitularNuevo, coincide bool) (titularValidado, error) {
+	v := titularValidado{}
+	tipo := argos.TitularPersona
+	if n.Tipo != nil {
+		tipo = *n.Tipo
+	}
+	if tipo != argos.TitularPersona && tipo != argos.TitularEmpresa {
+		return v, campoInvalido("titular.tipo", "persona o empresa", "enum")
+	}
+	v.empresa = tipo == argos.TitularEmpresa
+	var err error
+	if v.nombre, err = nombreValido("titular.nombre", n.Nombre); err != nil {
+		return v, err
+	}
+	if !v.empresa {
+		if n.Representante != nil {
+			return v, campoInvalido("titular.representante", "El representante es solo para una empresa titular (tipo empresa)", "persona")
+		}
+		if n.DocumentoTipo == nil {
+			return v, campoObligatorio("titular.documentoTipo")
+		}
+		if n.DocumentoNumero == nil {
+			return v, campoObligatorio("titular.documentoNumero")
+		}
+		if v.numero, err = documentoValido("titular.documentoNumero", *n.DocumentoTipo, *n.DocumentoNumero); err != nil {
+			return v, err
+		}
+		v.documentoTipo = *n.DocumentoTipo
+		return v, marcasDelTecnico(n.MayorDeEdad != nil && *n.MayorDeEdad, coincide)
+	}
+	disponible, err := argos.TitularEmpresaDisponible(ctx, t)
+	if err != nil {
+		return v, err
+	}
+	if !disponible {
+		return v, nucleo.ReglaNegocio("titular_empresa_no_disponible",
+			"Argos todavía no acepta el cambio de titular a una empresa (contrato "+argos.ContratoTitularEmpresa+"): el titular sigue siendo el de la venta; si hace falta, se cambia en Argos")
+	}
+	if n.DocumentoTipo != nil || n.DocumentoNumero != nil || n.MayorDeEdad != nil {
+		return v, campoInvalido("titular.documentoTipo", "Una empresa no lleva documento de identidad: va el de su representante", "empresa")
+	}
+	if n.Representante == nil {
+		return v, campoInvalido("titular.representante", "Falta el representante de la empresa, con su DPI o pasaporte", "required")
+	}
+	r := *n.Representante
+	if v.numero, err = documentoValido("titular.representante.documentoNumero", r.DocumentoTipo, r.DocumentoNumero); err != nil {
+		return v, err
+	}
+	if v.representante, err = nombreValido("titular.representante.nombre", r.Nombre); err != nil {
+		return v, err
+	}
+	v.documentoTipo = r.DocumentoTipo
+	return v, marcasDelTecnico(r.MayorDeEdad, coincide)
 }

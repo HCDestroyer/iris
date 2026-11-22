@@ -266,6 +266,8 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
 		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola),
 		Clientes: conectorArgos, URLBase: cfg.BaseURL})
+	// La firma del contrato regenerado en la orden (orden.firmar_contrato, B20) la hace comercial.
+	cmp.ConectarContratos(com)
 	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
 	// (y la anterior, para comparar durante una rotación).
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)

@@ -268,13 +268,32 @@ const (
 // CodigoTitularNoCoincide: Argos encontró el documento en otro cliente con otro nombre (A39, A41).
 const CodigoTitularNoCoincide = "titular_no_coincide"
 
+// CodigoTitularEmpresaEnRevision: Argos encontró el NIT en otra empresa con otra razón social, o
+// dejó en revisión el cambio a una empresa (A39 con titular empresa, contrato 0.14.1). Se trata
+// igual que titular_no_coincide.
+const CodigoTitularEmpresaEnRevision = "titular_empresa_en_revision"
+
+// Errores de A39 con titular empresa (0.14.1): empresa sin representante o sin NIT, o persona con
+// representante. Son de negocio (fallido_negocio): el técnico rehace el cambio de titular.
+const (
+	CodigoRepresentanteRequerido   = "representante_requerido"
+	CodigoNITRequerido             = "nit_requerido"
+	CodigoRepresentanteNoPermitido = "representante_no_permitido"
+)
+
+// EsCodigoRevisionTitular: el rechazo deja la orden en revisión de un supervisor (la marca
+// en_revision no se levanta sola) y nunca se le muestra al técnico (sin oráculo).
+func EsCodigoRevisionTitular(codigo string) bool {
+	return codigo == CodigoTitularNoCoincide || codigo == CodigoTitularEmpresaEnRevision
+}
+
 // EventoPasoTrasCancelar: un paso del titular que estaba saliendo cuando la orden se canceló o
 // falló quedó hecho en Argos: supervisión revisa (no se deshace solo).
 const EventoPasoTrasCancelar = "orden.paso_titular_tras_cancelar"
 
 // despuesDelPasoTitular, en la transacción del resultado de un intento:
-//   - titular_no_coincide (A39 o A41): la orden queda en revisión de un supervisor (marca persistente
-//     en campo.orden_titular);
+//   - titular_no_coincide (A39 o A41) o titular_empresa_en_revision (A39 con empresa, 0.14.1): la
+//     orden queda en revisión de un supervisor (marca persistente en campo.orden_titular);
 //   - hecho con la orden ya cancelada o fallida: avisa a supervisión (lo hecho no se deshace).
 func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, ahora time.Time) error {
 	if !slices.Contains(OperacionesTitular, f.Operacion) || f.Entidad != "orden" {
@@ -286,7 +305,7 @@ func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.
 	}
 	q := pendientesbd.New(t)
 	switch {
-	case f.Estado == EstadoFallidoNegocio && EsPasoIdentidad(f.Operacion) && deref(f.CodigoError) == CodigoTitularNoCoincide:
+	case f.Estado == EstadoFallidoNegocio && EsPasoIdentidad(f.Operacion) && EsCodigoRevisionTitular(deref(f.CodigoError)):
 		n, err := q.MarcarTitularEnRevision(ctx, pendientesbd.MarcarTitularEnRevisionParams{Ahora: ahora, OrdenID: orden})
 		if err != nil || n == 0 {
 			return err

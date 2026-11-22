@@ -135,6 +135,9 @@ type Config struct {
 	// LlamadasDirectas anota llamada.directa del lote (mensajeria.LlamadasDirectas). nil = la
 	// operación se rechaza con 503 no_disponible.
 	LlamadasDirectas LlamadasDirectas
+	// Contratos firma el contrato regenerado en la orden (orden.firmar_contrato; comercial.Modulo,
+	// con ConectarContratos). nil = la operación se rechaza con 503 no_disponible.
+	Contratos ContratosEnOrden
 }
 
 // Modulo reúne los casos de uso de campo.

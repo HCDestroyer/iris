@@ -92,6 +92,8 @@ type EntradaTitularCambiado struct {
 	AClienteID         int64  `json:"a_cliente_id"`
 	DeClienteEliminado bool   `json:"de_cliente_eliminado"`
 	EntranteID         int64  `json:"entrante_id"`
+	// TipoTitular: persona o empresa (contrato 0.14.1; ausente con un Argos anterior).
+	TipoTitular *string `json:"tipo_titular,omitempty"`
 }
 
 func (m *Modulo) nuevoMoverTitular() *auditoria.Caso[EntradaTitularCambiado, ResultadoAlta] {
@@ -107,6 +109,16 @@ func (m *Modulo) nuevoMoverTitular() *auditoria.Caso[EntradaTitularCambiado, Res
 				return r, nil
 			}
 			q := comercialbd.New(t)
+			// Solo si la instantánea sigue diciendo que el servicio es de a_cliente_id (MEDIA 2 de
+			// #280): un aviso atrasado (A→B después de B→C) no devuelve el prospecto a B.
+			actual, err := q.TitularDeServicioArgos(ctx, in.ServicioID)
+			if errors.Is(err, pgx.ErrNoRows) || (err == nil && actual != in.AClienteID) {
+				t.Anotar(map[string]any{"titular": "no_coincide_instantanea", "entrante_id": in.EntranteID})
+				return r, nil
+			}
+			if err != nil {
+				return r, err
+			}
 			ids, err := q.ProspectosDeServicioArgos(ctx, &in.ServicioID)
 			if err != nil {
 				return r, err
@@ -128,7 +140,7 @@ func (m *Modulo) nuevoMoverTitular() *auditoria.Caso[EntradaTitularCambiado, Res
 				}
 				if err := historial(ctx, t, q, f.ID, "titular", nil, nil, nil, map[string]any{
 					"de_cliente_id": antes.ClienteArgosID, "a_cliente_id": in.AClienteID, "servicio_id": in.ServicioID,
-					"de_cliente_eliminado": in.DeClienteEliminado, "entrante_id": in.EntranteID,
+					"de_cliente_eliminado": in.DeClienteEliminado, "tipo_titular": in.TipoTitular, "entrante_id": in.EntranteID,
 				}); err != nil {
 					return r, err
 				}

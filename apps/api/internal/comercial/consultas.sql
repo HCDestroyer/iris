@@ -190,10 +190,23 @@ SELECT * FROM comercial.factibilidades WHERE prospecto_id = @prospecto_id ORDER 
 SELECT (coalesce(max(revision), 0) + 1)::integer AS revision FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id;
 
 -- name: CotizacionVivaParaActualizar :one
-SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado IN ('vigente', 'aceptada') FOR UPDATE;
+-- La vigente o aceptada. Con una revisión de la instalación por firmar (B20), la aceptada.
+SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado IN ('vigente', 'aceptada')
+ORDER BY (estado = 'aceptada') DESC, id DESC LIMIT 1 FOR UPDATE;
 
 -- name: CotizacionViva :one
-SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado IN ('vigente', 'aceptada');
+-- La vigente o aceptada. Con una revisión de la instalación por firmar (B20), la aceptada.
+SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado IN ('vigente', 'aceptada')
+ORDER BY (estado = 'aceptada') DESC, id DESC LIMIT 1;
+
+-- name: RevisionPorFirmar :one
+-- B20: la revisión de la instalación (cambio de plan o de titular hecho en Argos) que espera la
+-- firma del contrato regenerado en la orden.
+SELECT * FROM comercial.cotizaciones
+WHERE prospecto_id = @prospecto_id AND estado = 'vigente' AND idempotencia LIKE 'iris:venta:%';
+
+-- name: CotizacionAceptadaDe :one
+SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado = 'aceptada';
 
 -- name: CotizacionPorIdempotencia :one
 SELECT * FROM comercial.cotizaciones WHERE idempotencia = @idempotencia;
@@ -260,7 +273,17 @@ SELECT * FROM comercial.contratos WHERE id = @id;
 SELECT * FROM comercial.contratos WHERE id = @id FOR UPDATE;
 
 -- name: ContratoVivoDeProspecto :one
-SELECT * FROM comercial.contratos WHERE prospecto_id = @prospecto_id AND estado IN ('borrador', 'firmado');
+-- El borrador o firmado. Con un contrato regenerado en la instalación por firmar (B20), el firmado.
+SELECT * FROM comercial.contratos WHERE prospecto_id = @prospecto_id AND estado IN ('borrador', 'firmado')
+ORDER BY (estado = 'firmado') DESC, id DESC LIMIT 1;
+
+-- name: ContratoPorFirmarEnOrden :one
+-- B20: el contrato regenerado en la instalación, en borrador, que se firma en la orden.
+SELECT * FROM comercial.contratos
+WHERE prospecto_id = @prospecto_id AND estado = 'borrador' AND (contenido->>'ordenId') IS NOT NULL;
+
+-- name: ContratoFirmadoDe :one
+SELECT * FROM comercial.contratos WHERE prospecto_id = @prospecto_id AND estado = 'firmado';
 
 -- name: FirmarContrato :one
 UPDATE comercial.contratos
@@ -388,6 +411,11 @@ SELECT id FROM comercial.prospectos WHERE orden_id = @orden_id AND alta_estado =
 -- nuevo).
 SELECT id FROM comercial.prospectos WHERE servicio_argos_id = @servicio_id AND alta_modo = 'argos' ORDER BY id;
 
+-- name: TitularDeServicioArgos :one
+-- B17 (MEDIA 2 de #280): el titular del servicio en la instantánea de Argos, con candado
+-- compartido: el prospecto solo pasa si sigue siendo el del evento.
+SELECT cliente_id FROM integracion.argos_servicios WHERE id = @id FOR SHARE;
+
 -- name: ProspectoGanadoDeOrden :one
 -- B20: el prospecto ganado de la orden de instalación (si la venta fue en Iris).
 SELECT id FROM comercial.prospectos WHERE orden_id = @orden_id AND estado = 'ganado' ORDER BY id LIMIT 1;
@@ -398,3 +426,7 @@ SELECT nombre FROM campo.orden_titular WHERE orden_id = @orden_id;
 
 -- name: NumeroDeOrden :one
 SELECT numero FROM campo.ordenes WHERE id = @id;
+
+-- name: OrdenParaFirmarContrato :one
+-- B20: la orden donde se firma el contrato regenerado (el técnico asignado, en sitio).
+SELECT id, numero, estado, tecnico_id, prospecto_id, empresa_id FROM campo.ordenes WHERE id = @id;

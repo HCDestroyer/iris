@@ -5865,6 +5865,28 @@
         ],
         "type": "object"
       },
+      "ContratoPorFirmar": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "numero": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "numero",
+          "version"
+        ],
+        "type": "object"
+      },
       "ConversacionChat": {
         "additionalProperties": false,
         "properties": {
@@ -13316,6 +13338,52 @@
         ],
         "type": "object"
       },
+      "EntradaFirmarContrato": {
+        "additionalProperties": false,
+        "properties": {
+          "contratoId": {
+            "description": "El contrato regenerado de la orden (GET /ordenes/{id}/titular, contratoPorFirmar)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "firmanteDocumento": {
+            "description": "Opcional; nunca va en eventos ni en la auditoría",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "firmanteNombre": {
+            "description": "El titular (o el representante de la empresa titular)",
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "lat": {
+            "format": "double",
+            "maximum": 90,
+            "minimum": -90,
+            "type": "number"
+          },
+          "lon": {
+            "format": "double",
+            "maximum": 180,
+            "minimum": -180,
+            "type": "number"
+          },
+          "svg": {
+            "description": "Firma en SVG: \u003csvg width=\"…\" height=\"…\"\u003e con \u003cpath d=\"…\"\u003e (comandos M, L, C, Q, H, V, Z)",
+            "maxLength": 200000,
+            "minLength": 10,
+            "type": "string"
+          }
+        },
+        "required": [
+          "contratoId",
+          "firmanteNombre",
+          "svg"
+        ],
+        "type": "object"
+      },
       "EntradaFusionarTickets": {
         "additionalProperties": false,
         "properties": {
@@ -17047,12 +17115,15 @@
             "description": "La orden se canceló o falló, pero el titular o el plan ya cambiaron en Argos (no se deshace solo)",
             "type": "boolean"
           },
+          "contratoPorFirmar": {
+            "$ref": "#/components/schemas/ContratoPorFirmar",
+            "description": "El contrato regenerado en la instalación (cambio de plan o de titular aceptado por Argos), en borrador: se firma en sitio con orden.firmar_contrato. Ausente si no hay"
+          },
           "documentoTipo": {
-            "description": "nit: venta empresarial (la identidad es la del representante, con DPI)",
+            "description": "El documento de la identidad (con empresa, el del representante)",
             "enum": [
               "dpi",
-              "pasaporte",
-              "nit"
+              "pasaporte"
             ],
             "type": [
               "string",
@@ -17081,7 +17152,7 @@
             "type": "string"
           },
           "nombre": {
-            "description": "Del titular, como en el documento (nunca el número)",
+            "description": "Del titular, como en el documento; con empresa, la razón social (nunca el número)",
             "type": [
               "string",
               "null"
@@ -17123,6 +17194,21 @@
               "null"
             ]
           },
+          "tipoTitular": {
+            "description": "empresa: la identidad (documentoTipo) es la del representante",
+            "enum": [
+              "persona",
+              "empresa"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "titularEmpresaDisponible": {
+            "description": "false: Argos informa un contrato \u003c 0.14.1 y el cambio de titular a una empresa no se ofrece (422 titular_empresa_no_disponible)",
+            "type": "boolean"
+          },
           "version": {
             "description": "0 si la orden aún no tiene el paso",
             "format": "int32",
@@ -17132,8 +17218,10 @@
         "required": [
           "ordenId",
           "quienFirma",
+          "tipoTitular",
           "documentoTipo",
           "modo",
+          "titularEmpresaDisponible",
           "nombre",
           "identidad",
           "enRevision",
@@ -22528,7 +22616,8 @@
               "orden.registrar_identidad",
               "orden.cambiar_titular",
               "orden.completar_datos",
-              "orden.cambiar_plan"
+              "orden.cambiar_plan",
+              "orden.firmar_contrato"
             ],
             "type": "string"
           },
@@ -28913,7 +29002,7 @@
           },
           "contrato": {
             "$ref": "#/components/schemas/Contrato",
-            "description": "El borrador o firmado"
+            "description": "El borrador o firmado (con una revisión de la instalación por firmar, el firmado: sigue vivo hasta que se firma el regenerado)"
           },
           "correo": {
             "type": [
@@ -29068,6 +29157,10 @@
               "string",
               "null"
             ]
+          },
+          "porFirmarEnOrden": {
+            "$ref": "#/components/schemas/RevisionEnOrden",
+            "description": "Cambio de plan o de titular aceptado por Argos en la instalación: la cotización nueva (vigente) y el contrato regenerado (borrador) que el titular firma en la orden. Hasta esa firma no se da por aceptado"
           },
           "telefono": {
             "type": [
@@ -30403,13 +30496,25 @@
         "additionalProperties": false,
         "properties": {
           "documentoNumero": {
-            "description": "DPI del representante. Nunca se devuelve ni va en eventos, logs ni auditoría",
+            "description": "Nunca se devuelve ni va en eventos, logs ni auditoría",
             "maxLength": 20,
-            "minLength": 13,
+            "minLength": 5,
             "type": "string"
           },
+          "documentoTipo": {
+            "description": "DPI o pasaporte (decisión del PM)",
+            "enum": [
+              "dpi",
+              "pasaporte"
+            ],
+            "type": "string"
+          },
+          "mayorDeEdad": {
+            "description": "«El representante es mayor de edad»: debe ser true",
+            "type": "boolean"
+          },
           "nombre": {
-            "description": "Como aparece en su DPI",
+            "description": "Como aparece en su documento",
             "maxLength": 200,
             "minLength": 2,
             "type": "string"
@@ -30417,7 +30522,9 @@
         },
         "required": [
           "nombre",
-          "documentoNumero"
+          "documentoTipo",
+          "documentoNumero",
+          "mayorDeEdad"
         ],
         "type": "object"
       },
@@ -31159,6 +31266,27 @@
         },
         "required": [
           "data"
+        ],
+        "type": "object"
+      },
+      "RevisionEnOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "contrato": {
+            "$ref": "#/components/schemas/Contrato",
+            "description": "El contrato regenerado en borrador (ausente si se anuló)"
+          },
+          "cotizacion": {
+            "$ref": "#/components/schemas/Cotizacion"
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordenId",
+          "cotizacion"
         ],
         "type": "object"
       },
@@ -34539,17 +34667,16 @@
         "additionalProperties": false,
         "properties": {
           "documentoNumero": {
-            "description": "DPI, pasaporte o NIT de la empresa (con verificador, K permitido)",
+            "description": "Persona: DPI o pasaporte. Empresa: no va. Nunca se devuelve ni va en eventos, logs ni auditoría",
             "maxLength": 20,
             "minLength": 5,
             "type": "string"
           },
           "documentoTipo": {
-            "description": "nit solo en una venta empresarial (y ahí es obligatorio): el titular es la empresa y la identidad, la del representante",
+            "description": "Persona: obligatorio. Empresa: no va (la identidad es la del representante)",
             "enum": [
               "dpi",
-              "pasaporte",
-              "nit"
+              "pasaporte"
             ],
             "type": "string"
           },
@@ -34558,7 +34685,7 @@
             "type": "string"
           },
           "mayorDeEdad": {
-            "description": "Debe ser true (en empresarial, del representante)",
+            "description": "Persona: debe ser true. Empresa: no va (lo marca el representante)",
             "type": "boolean"
           },
           "nitCui": {
@@ -34567,7 +34694,7 @@
             "type": "string"
           },
           "nombre": {
-            "description": "Como aparece en el documento",
+            "description": "Como aparece en el documento; con empresa, la razón social",
             "maxLength": 200,
             "minLength": 2,
             "type": "string"
@@ -34583,12 +34710,20 @@
           },
           "representante": {
             "$ref": "#/components/schemas/Representante",
-            "description": "Obligatorio en una venta empresarial (y solo ahí)"
+            "description": "Obligatorio con titular empresa (y solo ahí). En la auditoría y los pendientes, todo menos documentoTipo sale como ***"
           },
           "telefono": {
             "description": "8 dígitos de Guatemala (+502 opcional)",
             "maxLength": 25,
             "minLength": 8,
+            "type": "string"
+          },
+          "tipo": {
+            "description": "persona (por defecto) o empresa (contrato 0.14.1; no depende del modo de la venta ni del plan). Con Argos \u003c 0.14.1, 422 titular_empresa_no_disponible",
+            "enum": [
+              "persona",
+              "empresa"
+            ],
             "type": "string"
           },
           "tipoDocumentoFiscal": {
@@ -34606,9 +34741,6 @@
         },
         "required": [
           "nombre",
-          "documentoTipo",
-          "documentoNumero",
-          "mayorDeEdad",
           "telefono",
           "whatsapp",
           "tipoDocumentoFiscal"
