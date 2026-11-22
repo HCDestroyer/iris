@@ -127,6 +127,22 @@ func (q *Queries) ActualizarSincronizacion(ctx context.Context, arg ActualizarSi
 	return i, err
 }
 
+const agregarServiciosLectura = `-- name: AgregarServiciosLectura :exec
+INSERT INTO integracion.argos_incidente_servicios (entrante_id, servicio_id)
+SELECT $1::bigint, unnest($2::bigint[])
+ON CONFLICT DO NOTHING
+`
+
+type AgregarServiciosLecturaParams struct {
+	EntranteID int64
+	Servicios  []int64
+}
+
+func (q *Queries) AgregarServiciosLectura(ctx context.Context, arg AgregarServiciosLecturaParams) error {
+	_, err := q.db.Exec(ctx, agregarServiciosLectura, arg.EntranteID, arg.Servicios)
+	return err
+}
+
 const anonimizarCopiasDeCliente = `-- name: AnonimizarCopiasDeCliente :exec
 UPDATE integracion.argos_copias
 SET datos = jsonb_build_object('cliente', jsonb_build_object('id', cliente_id), 'anonimizada', true),
@@ -138,6 +154,21 @@ WHERE cliente_id = $1 AND anonimizada_en IS NULL
 // ni IP).
 func (q *Queries) AnonimizarCopiasDeCliente(ctx context.Context, clienteID int64) error {
 	_, err := q.db.Exec(ctx, anonimizarCopiasDeCliente, clienteID)
+	return err
+}
+
+const avanzarLecturaIncidente = `-- name: AvanzarLecturaIncidente :exec
+UPDATE integracion.argos_incidente_lecturas SET cursor = $1, paginar = $2 WHERE entrante_id = $3
+`
+
+type AvanzarLecturaIncidenteParams struct {
+	Cursor     *string
+	Paginar    bool
+	EntranteID int64
+}
+
+func (q *Queries) AvanzarLecturaIncidente(ctx context.Context, arg AvanzarLecturaIncidenteParams) error {
+	_, err := q.db.Exec(ctx, avanzarLecturaIncidente, arg.Cursor, arg.Paginar, arg.EntranteID)
 	return err
 }
 
@@ -690,6 +721,17 @@ func (q *Queries) ClientesEnInstantanea(ctx context.Context, ids []int64) ([]Cli
 	return items, nil
 }
 
+const contarServiciosLectura = `-- name: ContarServiciosLectura :one
+SELECT count(*)::integer FROM integracion.argos_incidente_servicios WHERE entrante_id = $1
+`
+
+func (q *Queries) ContarServiciosLectura(ctx context.Context, entranteID int64) (int32, error) {
+	row := q.db.QueryRow(ctx, contarServiciosLectura, entranteID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const copiaDe = `-- name: CopiaDe :one
 SELECT entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en, copiado_en, anonimizada_en FROM integracion.argos_copias WHERE entidad = $1 AND entidad_id = $2
 `
@@ -728,6 +770,33 @@ type CrearEtapaParams struct {
 
 func (q *Queries) CrearEtapa(ctx context.Context, arg CrearEtapaParams) error {
 	_, err := q.db.Exec(ctx, crearEtapa, arg.SincronizacionID, arg.Recurso, arg.Orden)
+	return err
+}
+
+const crearLecturaIncidente = `-- name: CrearLecturaIncidente :exec
+
+INSERT INTO integracion.argos_incidente_lecturas (entrante_id, conector_id, incidente_id, empresa_id, paginar)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (entrante_id) DO NOTHING
+`
+
+type CrearLecturaIncidenteParams struct {
+	EntranteID  int64
+	ConectorID  int64
+	IncidenteID string
+	EmpresaID   int64
+	Paginar     bool
+}
+
+// Falla general (0.13.0 §3.11): servicios por leer en Argos en un job aparte -------------------------
+func (q *Queries) CrearLecturaIncidente(ctx context.Context, arg CrearLecturaIncidenteParams) error {
+	_, err := q.db.Exec(ctx, crearLecturaIncidente,
+		arg.EntranteID,
+		arg.ConectorID,
+		arg.IncidenteID,
+		arg.EmpresaID,
+		arg.Paginar,
+	)
 	return err
 }
 
@@ -1650,6 +1719,26 @@ func (q *Queries) LecturaCuentasDe(ctx context.Context, empresaID int64) (time.T
 	return leido_en, err
 }
 
+const lecturaIncidente = `-- name: LecturaIncidente :one
+SELECT entrante_id, conector_id, incidente_id, empresa_id, paginar, cursor, terminada_en, created_at FROM integracion.argos_incidente_lecturas WHERE entrante_id = $1
+`
+
+func (q *Queries) LecturaIncidente(ctx context.Context, entranteID int64) (IntegracionArgosIncidenteLectura, error) {
+	row := q.db.QueryRow(ctx, lecturaIncidente, entranteID)
+	var i IntegracionArgosIncidenteLectura
+	err := row.Scan(
+		&i.EntranteID,
+		&i.ConectorID,
+		&i.IncidenteID,
+		&i.EmpresaID,
+		&i.Paginar,
+		&i.Cursor,
+		&i.TerminadaEn,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const marcarFalloCliente = `-- name: MarcarFalloCliente :exec
 UPDATE integracion.argos_clientes SET fallo_en = $1 WHERE id = $2
 `
@@ -1680,6 +1769,28 @@ func (q *Queries) MarcarLecturaCuentas(ctx context.Context, arg MarcarLecturaCue
 	return err
 }
 
+const marcarServicioLectura = `-- name: MarcarServicioLectura :exec
+UPDATE integracion.argos_incidente_servicios SET estado = $1, intentos = $2
+WHERE entrante_id = $3 AND servicio_id = $4
+`
+
+type MarcarServicioLecturaParams struct {
+	Estado     string
+	Intentos   int32
+	EntranteID int64
+	ServicioID int64
+}
+
+func (q *Queries) MarcarServicioLectura(ctx context.Context, arg MarcarServicioLecturaParams) error {
+	_, err := q.db.Exec(ctx, marcarServicioLectura,
+		arg.Estado,
+		arg.Intentos,
+		arg.EntranteID,
+		arg.ServicioID,
+	)
+	return err
+}
+
 const nombreZona = `-- name: NombreZona :one
 
 SELECT nombre FROM integracion.argos_zonas WHERE id = $1
@@ -1691,6 +1802,43 @@ func (q *Queries) NombreZona(ctx context.Context, id int64) (string, error) {
 	var nombre string
 	err := row.Scan(&nombre)
 	return nombre, err
+}
+
+const pendientesLecturaIncidente = `-- name: PendientesLecturaIncidente :many
+SELECT servicio_id, intentos FROM integracion.argos_incidente_servicios
+WHERE entrante_id = $1 AND estado = 'pendiente'
+ORDER BY servicio_id
+LIMIT $2
+`
+
+type PendientesLecturaIncidenteParams struct {
+	EntranteID int64
+	Limite     int32
+}
+
+type PendientesLecturaIncidenteRow struct {
+	ServicioID int64
+	Intentos   int32
+}
+
+func (q *Queries) PendientesLecturaIncidente(ctx context.Context, arg PendientesLecturaIncidenteParams) ([]PendientesLecturaIncidenteRow, error) {
+	rows, err := q.db.Query(ctx, pendientesLecturaIncidente, arg.EntranteID, arg.Limite)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PendientesLecturaIncidenteRow
+	for rows.Next() {
+		var i PendientesLecturaIncidenteRow
+		if err := rows.Scan(&i.ServicioID, &i.Intentos); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const pistaEmpresaAlta = `-- name: PistaEmpresaAlta :one
@@ -2508,6 +2656,15 @@ func (q *Queries) TecnicosVinculadosArgos(ctx context.Context, arg TecnicosVincu
 		return nil, err
 	}
 	return items, nil
+}
+
+const terminarLecturaIncidente = `-- name: TerminarLecturaIncidente :exec
+UPDATE integracion.argos_incidente_lecturas SET terminada_en = now(), paginar = false WHERE entrante_id = $1 AND terminada_en IS NULL
+`
+
+func (q *Queries) TerminarLecturaIncidente(ctx context.Context, entranteID int64) error {
+	_, err := q.db.Exec(ctx, terminarLecturaIncidente, entranteID)
+	return err
 }
 
 const trasladoPorID = `-- name: TrasladoPorID :one

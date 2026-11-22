@@ -181,6 +181,19 @@ func correr() error {
 	// Reconexión temporal (contrato 0.8.0 §7.3): promesa.* de Argos → argos.promesa_cambiada → la
 	// reconexión de la conversación guarda cómo terminó y con qué motivo la guardó Argos.
 	msj.SuscribirPromesas(bus, pool)
+	// Falla general de Argos (contrato 0.13.0 §3.11): soporte.aviso_falla → aviso por WhatsApp con las
+	// reglas de §6.5 (permiso, baja, límite diario, silencio y plantilla). Lo crea aquí y lo manda el
+	// proceso de mensajería (su cola).
+	entMsj, err := mensajeria.EntornoDesdeVariables()
+	if err != nil {
+		return err
+	}
+	msjAvisos := mensajeria.Nuevo(mensajeria.Config{Cifrador: acfg.Cifrador, Contactos: conectorArgos, Simulado: entMsj.Simulado,
+		LimiteDiario: entMsj.LimiteDiario, PorMinuto: entMsj.PorMinuto, Silencio: entMsj.Silencio, MetaURL: entMsj.MetaURL,
+		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+			return integracion.Encolar(cliente)(ctx, tx, args)
+		}})
+	msjAvisos.SuscribirAvisosFalla(bus, pool)
 	// Notificaciones push por FCM (contratos/push.md): suscriptor de chat, menciones, bandeja y
 	// órdenes; un job por envío y la purga de cada hora. Sin IRIS_FCM_* no manda nada.
 	fcm, estPush := notificaciones.ConfigDesdeEntorno()

@@ -218,7 +218,19 @@ func TestFallaGeneral(t *testing.T) {
 		t.Fatalf("texto del aviso: %q %v", texto, err)
 	}
 
-	// Cierre: el general se resuelve; los hijos pasan a «en espera» (verificar con el cliente).
+	// Cada aviso por cliente pidió también el de WhatsApp (§6.5 lo aplica la mensajería).
+	if n := contarSQL(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'soporte.aviso_falla' AND payload->>'tipo' = 'apertura' AND (payload->>'cliente_id')::bigint IN (8201, 8203)"); n != 2 {
+		t.Fatalf("soporte.aviso_falla de apertura: %d", n)
+	}
+	// Un ticket vinculado a mano al general (no lo absorbió el incidente) no se toca al cerrar.
+	ajeno := crear(t, m, ctx, soporte.EntradaCrearTicket{ClienteID: ptr(int64(8202)), ServicioID: ptr(int64(820201)), CategoriaID: &facturacion, TicketPadreID: general})
+	// h1 lo atendió un agente (abierto); h2 sigue nuevo.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE soporte.tickets SET estado = 'abierto' WHERE id = $1", h1.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cierre: el general se resuelve; el hijo abierto pasa a «en espera» (verificar con el cliente) y el
+	// nuevo se queda igual, con una nota.
 	cerrada := f
 	cerrada.EntranteID = nuevoEntrante()
 	aplicarRed(t, m, argos.EventoInternoFallaCerrada, cerrada)
@@ -226,10 +238,14 @@ func TestFallaGeneral(t *testing.T) {
 	if g := ticketsDe(t, "t.id = $1", *general)[0]; g.Estado != "resuelto" {
 		t.Fatalf("general: %s", g.Estado)
 	}
-	for _, h := range []int64{h1.ID, h2.ID} {
-		if e := ticketsDe(t, "t.id = $1", h)[0].Estado; e != "en_espera" {
-			t.Fatalf("hijo %d: %s", h, e)
-		}
+	if e := ticketsDe(t, "t.id = $1", h1.ID)[0].Estado; e != "en_espera" {
+		t.Fatalf("hijo abierto: %s", e)
+	}
+	if e := ticketsDe(t, "t.id = $1", h2.ID)[0].Estado; e != "nuevo" {
+		t.Fatalf("hijo nuevo: %s", e)
+	}
+	if e := ticketsDe(t, "t.id = $1", ajeno.ID)[0].Estado; e != "nuevo" || publicos(t, ajeno.ID) != 0 {
+		t.Fatalf("ajeno: %s %d", e, publicos(t, ajeno.ID))
 	}
 	avisarCierre := func() {
 		for _, a := range jobs.tomar() {
@@ -241,8 +257,8 @@ func TestFallaGeneral(t *testing.T) {
 		}
 	}
 	avisarCierre()
-	if publicos(t, h1.ID) != 2 || publicos(t, h2.ID) != 2 {
-		t.Fatal("un aviso de cierre por cliente")
+	if publicos(t, h1.ID) != 2 || publicos(t, h2.ID) != 2 || publicos(t, ajeno.ID) != 0 {
+		t.Fatal("un aviso de cierre por cliente, solo a los hijos del incidente")
 	}
 
 	// El mismo alcance vuelve antes de 30 min: se reusa el ticket general (reabierto).
@@ -255,12 +271,25 @@ func TestFallaGeneral(t *testing.T) {
 	if g := ticketsDe(t, "t.id = $1", *general)[0]; g.Estado != "abierto" {
 		t.Fatalf("reabierto: %s", g.Estado)
 	}
+	// Un ticket nuevo del mismo cliente en este incidente: el aviso de apertura no se repite antes de 6 h.
+	h3 := crear(t, m, ctx, soporte.EntradaCrearTicket{ClienteID: ptr(int64(8201)), ServicioID: ptr(int64(820101)), CategoriaID: &sinServicio})
+	if h3.TicketPadreID == nil || *h3.TicketPadreID != *general {
+		t.Fatal("nace hijo del reusado")
+	}
+	for _, a := range jobs.tomar() {
+		if _, err := m.AvisarHijos(pruebas.ContextoSistema(pruebas.Pool(t)), a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if publicos(t, h3.ID) != 0 {
+		t.Fatal("máximo un aviso de apertura cada 6 h por cliente")
+	}
 	// Su cierre no repite el aviso de cierre antes de 6 h.
 	c3 := f3
 	c3.EntranteID = nuevoEntrante()
 	aplicarRed(t, m, argos.EventoInternoFallaCerrada, c3)
 	avisarCierre()
-	if publicos(t, h1.ID) != 2 {
+	if publicos(t, h1.ID) != 2 || publicos(t, h3.ID) != 0 {
 		t.Fatal("máximo un aviso de cierre cada 6 h")
 	}
 	// Pasados 30 min sin volver, el general se cierra.
@@ -277,9 +306,43 @@ func TestFallaGeneral(t *testing.T) {
 	if got := exigirRed(t, f4.EntranteID, soporte.RedFallaCreada); *got == *general {
 		t.Fatal("ticket nuevo")
 	}
+	// Un cierre de un incidente que Iris no conoce: queda la marca y su apertura atrasada no abre nada.
 	x := abrir("inc-desconocido", "1", 820201)
 	aplicarRed(t, m, argos.EventoInternoFallaCerrada, x)
-	exigirRed(t, x.EntranteID, soporte.RedSinIncidente)
+	exigirRed(t, x.EntranteID, soporte.RedCierreAntes)
+	x2 := abrir("inc-desconocido", "1", 820201)
+	aplicarRed(t, m, argos.EventoInternoFallaAbierta, x2)
+	if got := exigirRed(t, x2.EntranteID, soporte.RedYaCerrada); got != nil {
+		t.Fatal("no abre")
+	}
+	// Una apertura que ya trae hasta tampoco abre.
+	x3 := abrir("inc-con-hasta", "2", 820201)
+	x3.Hasta = ptr(time.Now().UTC())
+	aplicarRed(t, m, argos.EventoInternoFallaAbierta, x3)
+	exigirRed(t, x3.EntranteID, soporte.RedYaCerrada)
+	if n := len(ticketsDe(t, "t.asunto LIKE 'Falla general en router 1' OR t.asunto LIKE 'Falla general en router 2'")); n != 0 {
+		t.Fatalf("sin ticket: %d", n)
+	}
+
+	// El cliente de h1 no respondió a la verificación: a las 24 h de fábrica vuelve a abierto con aviso.
+	var desdeEspera time.Time
+	if err := pruebas.Pool(t).QueryRow(context.Background(), "SELECT en_espera_desde FROM soporte.tickets WHERE id = $1", h1.ID).Scan(&desdeEspera); err != nil {
+		t.Fatal(err)
+	}
+	venc := soporte.ArgsVencerVerificacion{TicketID: h1.ID, Desde: desdeEspera, Vence: desdeEspera.Add(24 * time.Hour)}
+	if ok, err := m.VencerVerificacion.Ejecutar(pruebas.ContextoSistema(pruebas.Pool(t)), venc); err != nil || ok {
+		t.Fatalf("antes de vencer: %v %v", ok, err)
+	}
+	reloj.avanzar(25 * time.Hour)
+	if ok, err := m.VencerVerificacion.Ejecutar(pruebas.ContextoSistema(pruebas.Pool(t)), venc); err != nil || !ok {
+		t.Fatalf("vencer: %v %v", ok, err)
+	}
+	if e := ticketsDe(t, "t.id = $1", h1.ID)[0].Estado; e != "abierto" {
+		t.Fatalf("vuelve a abierto: %s", e)
+	}
+	if n := contar(eventosDe(t, h1.ID), "soporte.verificacion_vencida"); n != 1 {
+		t.Fatalf("soporte.verificacion_vencida: %d", n)
+	}
 }
 
 // Si Horus ya abrió el maestro del router, ese es el ticket general (no se crea otro).
@@ -300,11 +363,79 @@ func TestFallaGeneralConMaestroDeHorus(t *testing.T) {
 	if n := len(ticketsDe(t, "t.maestro = 'falla_general' AND t.empresa_id = 83")); n != 0 {
 		t.Fatalf("no se crea otro: %d", n)
 	}
-	// Al cerrarse, el maestro de Horus no se resuelve solo.
+	hijo := ticketsDe(t, "t.servicio_id = 830101 AND t.maestro IS NULL")
+	yo := agente(t)
+	asignarEmpresa(t, yo, 83)
+	ctx := comoEnEmpresa(t, yo, 83)
+	sinServicio := categoriaID(t, "sin_servicio")
+	h := crear(t, m, ctx, soporte.EntradaCrearTicket{ClienteID: ptr(int64(8301)), ServicioID: ptr(int64(830101)), CategoriaID: &sinServicio})
+	if h.TicketPadreID == nil || *h.TicketPadreID != *maestro || len(hijo) != 0 {
+		t.Fatalf("nace hijo del maestro: %+v", h.TicketPadreID)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE soporte.tickets SET estado = 'abierto' WHERE id = $1", h.ID); err != nil {
+		t.Fatal(err)
+	}
+	// Al cerrarse, ni el maestro de Horus ni sus hijos cambian, ni hay aviso de cierre: esperan a Horus.
 	c := f
 	c.EntranteID = nuevoEntrante()
 	aplicarRed(t, m, argos.EventoInternoFallaCerrada, c)
 	if g := ticketsDe(t, "t.id = $1", *maestro)[0]; g.Estado != "nuevo" {
 		t.Fatalf("maestro de Horus: %s", g.Estado)
+	}
+	if e := ticketsDe(t, "t.id = $1", h.ID)[0].Estado; e != "abierto" {
+		t.Fatalf("hijo: %s", e)
+	}
+	// Horus confirma que el router volvió: el hijo se resuelve solo, con un mensaje al cliente.
+	_, arriba := router(ptr(int64(83)), 8300, "arriba")
+	aplicarHorus(t, m, eventoHorus(t, "horus.router_estado_cambiado", arriba))
+	if e := ticketsDe(t, "t.id = $1", h.ID)[0].Estado; e != "resuelto" || publicos(t, h.ID) != 1 {
+		t.Fatalf("resuelto por Horus: %s %d", e, publicos(t, h.ID))
+	}
+}
+
+// Los servicios que el conector verificó después de la apertura se suman y absorben sus tickets; un
+// ticket general que el job de los 30 min ya cerró no se reusa: se abre otro.
+func TestFallaGeneralServiciosVerificadosYReusoCerrado(t *testing.T) {
+	registrarEmpresas(t, 84)
+	instantanea(t, 84, 8401, 840101, 8400)
+	instantanea(t, 84, 8402, 840201, 8400)
+	inicio := time.Now().UTC()
+	m, reloj, _ := nuevoModuloConCola(inicio)
+	yo := agente(t)
+	asignarEmpresa(t, yo, 84)
+	ctx := comoEnEmpresa(t, yo, 84)
+	sinServicio := categoriaID(t, "sin_servicio")
+	h := crear(t, m, ctx, soporte.EntradaCrearTicket{ClienteID: ptr(int64(8402)), ServicioID: ptr(int64(840201)), CategoriaID: &sinServicio})
+	desde := inicio.Add(-time.Hour)
+	f := soporte.EntradaFalla{EntranteID: nuevoEntrante(), IncidenteID: "inc-84", EmpresaID: 84, Alcance: "olt", AlcanceID: "olt-1",
+		Servicios: []int64{840101}, PorVerificar: 1, Desde: &desde}
+	aplicarRed(t, m, argos.EventoInternoFallaAbierta, f)
+	general := exigirRed(t, f.EntranteID, soporte.RedFallaCreada)
+	if padre := ticketsDe(t, "t.id = $1", h.ID)[0].Padre; padre != nil {
+		t.Fatal("todavía no estaba verificado")
+	}
+	aplicarRed(t, m, argos.EventoInternoFallaServicios, soporte.EntradaFallaServicios{EntranteID: f.EntranteID, IncidenteID: "inc-84", EmpresaID: 84,
+		Servicios: []int64{840201}, Descartados: 2, NoVerificados: 1})
+	if padre := ticketsDe(t, "t.id = $1", h.ID)[0].Padre; padre == nil || *padre != *general {
+		t.Fatal("absorbe el verificado")
+	}
+	// Cierre, 31 min y el job cierra el general; el mismo alcance vuelve: ticket nuevo.
+	c := f
+	c.EntranteID = nuevoEntrante()
+	aplicarRed(t, m, argos.EventoInternoFallaCerrada, c)
+	reloj.avanzar(31 * time.Minute)
+	if ok, err := m.CerrarFallaGeneral.Ejecutar(pruebas.ContextoSistema(pruebas.Pool(t)), soporte.ArgsCerrarFallaGeneral{TicketID: *general}); err != nil || !ok {
+		t.Fatalf("cerrar: %v %v", ok, err)
+	}
+	// La ventana de reuso se mide con cerrada_en: se fuerza dentro de los 30 min para probar la carrera.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE soporte.incidentes_red SET cerrada_en = $1 WHERE incidente_id = 'inc-84' AND empresa_id = 84",
+		reloj.ahora().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	f2 := soporte.EntradaFalla{EntranteID: nuevoEntrante(), IncidenteID: "inc-84b", EmpresaID: 84, Alcance: "olt", AlcanceID: "olt-1",
+		Servicios: []int64{840101}, Desde: &desde}
+	aplicarRed(t, m, argos.EventoInternoFallaAbierta, f2)
+	if got := exigirRed(t, f2.EntranteID, soporte.RedFallaCreada); *got == *general {
+		t.Fatal("un general cerrado no se reusa")
 	}
 }

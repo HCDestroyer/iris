@@ -8392,7 +8392,7 @@ export interface paths {
         };
         /**
          * Umbrales de caídas repetidas y de posible falla general
-         * @description Permiso: `tickets.ver`. De la empresa activa (contrato con Argos 0.13.0 §3.11). `version` 0 = los de fábrica: 3 caídas en 60 min, y 20 tickets de caídas en 10 min.
+         * @description Permiso: `tickets.ver`. De la empresa activa (contrato con Argos 0.13.0 §3.11). `version` 0 = los de fábrica: 3 caídas en 60 min, 20 tickets de caídas en 10 min y 24 h de espera de la respuesta del cliente tras una falla general.
          */
         get: operations["verAjustesCaidas"];
         put?: never;
@@ -9877,6 +9877,11 @@ export interface components {
             fallaUmbral: number;
             /**
              * Format: int32
+             * @description Horas que un ticket espera la respuesta del cliente tras cerrarse una falla general antes de volver a abierto (de fábrica 24)
+             */
+            verificacionHoras: number;
+            /**
+             * Format: int32
              * @description 0 = de fábrica
              */
             version: number;
@@ -10156,10 +10161,10 @@ export interface components {
              */
             nivel: "info" | "alerta" | "peligro";
             /**
-             * @description posible_falla_general: muchas caídas de servicios de la empresa en pocos minutos; Iris las agrupó en un ticket (contrato con Argos 0.13.0 §3.11; datos: ticket_id, tickets). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
+             * @description verificacion_vencida: el cliente no respondió a la verificación tras cerrarse una falla general y el ticket asignado volvió a abierto (datos: ticket_id, numero). posible_falla_general: muchas caídas de servicios de la empresa en pocos minutos; Iris las agrupó en un ticket (contrato con Argos 0.13.0 §3.11; datos: ticket_id, tickets). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
              * @enum {string}
              */
-            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado" | "posible_falla_general";
+            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado" | "posible_falla_general" | "verificacion_vencida";
             /** @description Texto en español, listo para mostrar */
             titulo: string;
         };

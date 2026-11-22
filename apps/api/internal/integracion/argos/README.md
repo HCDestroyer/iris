@@ -539,11 +539,17 @@ internos que consume soporte:
 
 - `servicio.caidas_repetidas` → `argos.caidas_repetidas`, si la empresa está en el alcance del conector
   y el servicio es de esa empresa (instantánea o `GET /servicios/:id`). Iris decide con su umbral.
-- `red.falla_general_abierta` → `argos.falla_general_abierta` con `servicios[]` ya validados (los de la
-  instantánea de esa empresa; los que Iris no conoce se leen uno por uno con `GET /servicios/:id`: un
-  404 o 403, o de otra empresa, se descarta y el resto sigue) y `descartados`. Hasta 5000 ids en el
-  evento; si `cantidad` es mayor, el resto con `GET /incidentes-red/:id/servicios?empresa_id=&cursor=&limit=1000`
-  (un 404 = fuera del alcance: se sigue con los del evento). Un error de Argos reintenta el job.
+- `red.falla_general_abierta` → `argos.falla_general_abierta` enseguida y **sin leer Argos**: `servicios[]`
+  son los que la instantánea tiene en esa empresa, `descartados` los de otra empresa, `por_verificar` los
+  ids que Iris no conoce y `paginando` si `cantidad` pasa de los ids del evento (hasta 5000).
+- Lo que falta lo lee el job `integracion.argos_verificar_incidente` (`red_verificar.go`, uno por
+  entrante; tablas `integracion.argos_incidente_lecturas` y `argos_incidente_servicios`): el resto con
+  `GET /incidentes-red/:id/servicios?empresa_id=&cursor=&limit=1000` (un 404 = fuera del alcance; un
+  error reintenta solo la página) y cada id desconocido con `GET /servicios/:id`, con un presupuesto de
+  300 lecturas por vuelta y tandas de 100, cada una en su transacción, que salen como
+  `argos.falla_general_servicios` (válidos, `descartados` y `no_verificados`). Un error de Argos con un
+  id cuenta un intento solo para ese id (a los 3, `no_verificado`, aparte de los descartados) y el job
+  vuelve en un minuto.
 - `red.falla_general_cerrada` → `argos.falla_general_cerrada` (sin servicios).
 - Omitidos (quedan en la auditoría): `payload_invalido` (sin `incidente_id`, empresa, `desde`, o con
   un `alcance` fuera de `router|olt|pon|zona`), `empresa_fuera_de_alcance`, `servicio_de_otra_empresa`.

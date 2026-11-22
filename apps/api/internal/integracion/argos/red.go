@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"net/url"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -26,10 +24,11 @@ import (
 //
 //   - servicio.caidas_repetidas → argos.caidas_repetidas, solo si la empresa está en el alcance del
 //     conector y el servicio es de esa empresa (instantánea o GET /servicios/:id).
-//   - red.falla_general_abierta → argos.falla_general_abierta con los servicios afectados ya
-//     validados: los que Iris conoce de esa empresa, y los que no conoce leídos con GET /servicios/:id
-//     (uno por uno: los de otra empresa o que no existen se descartan, el resto sigue). Con más de los
-//     que trae el evento, el resto se pide con GET /incidentes-red/:id/servicios?empresa_id=.
+//   - red.falla_general_abierta → argos.falla_general_abierta enseguida, solo con los servicios que
+//     Iris conoce de esa empresa (la instantánea; los de otra empresa se descartan). Los que no conoce
+//     y el resto de los afectados (GET /incidentes-red/:id/servicios?empresa_id=, paginado) se leen en
+//     el job argos.verificar_incidente, con su propio presupuesto, y salen por tandas como
+//     argos.falla_general_servicios (red_verificar.go). Un error de Argos con un id afecta solo a ese id.
 //   - red.falla_general_cerrada → argos.falla_general_cerrada (sin servicios).
 //
 // El evento nunca trae nombres ni direcciones; Iris tampoco los publica.
@@ -46,10 +45,11 @@ const (
 	EventoInternoCaidas          = "argos.caidas_repetidas"
 	EventoInternoFallaAbierta    = "argos.falla_general_abierta"
 	EventoInternoFallaCerrada    = "argos.falla_general_cerrada"
+	EventoInternoFallaServicios  = "argos.falla_general_servicios"
 	MaxServiciosEventoFalla      = 5000
 	LimiteServiciosIncidente     = 1000
 	maxServiciosIncidente        = 200_000
-	maxLecturasServicioPorEvento = 20_000
+	maxLecturasServicioPorEvento = 1
 )
 
 var (
@@ -91,6 +91,16 @@ type eventoRed struct {
 	evento  string
 	empresa int64
 	payload map[string]any
+	// lectura: lo que queda por leer en Argos (ids desconocidos y la lectura paginada del resto).
+	lectura *lecturaIncidente
+}
+
+type lecturaIncidente struct {
+	conector    int64
+	incidente   string
+	empresa     int64
+	paginar     bool
+	desconocido []int64
 }
 
 // alcanceID lee alcance_id como texto (Argos puede mandar un número o un texto).
@@ -192,44 +202,38 @@ func (p *ProcesarEntrante) leerRed(ctx context.Context, bd conector.DBTX, e cone
 	if len(ids) > MaxServiciosEventoFalla {
 		ids = ids[:MaxServiciosEventoFalla]
 	}
-	if f.ServiciosAfectados.Cantidad > len(ids) {
-		// El resto con GET /incidentes-red/:id/servicios?empresa_id= (solo ids del alcance).
-		if cli == nil {
-			if cli, err = p.clienteArgos(ctx, bd, e.ConectorID); err != nil {
-				return nil, "", err
-			}
-		}
-		resto, err := cli.ServiciosDeIncidente(ctx, f.IncidenteID, *f.EmpresaID)
-		switch {
-		case EsNoEncontrado(err):
-			// Fuera del alcance: Argos responde 404. Se sigue con los del evento.
-		case err != nil:
-			return nil, "", err
-		default:
-			ids = append(ids, resto...)
-		}
-	}
+	// Enseguida, solo con la instantánea: ninguna lectura a Argos en este job.
 	vistos := map[int64]bool{}
 	validos := make([]int64, 0, len(ids))
+	desconocidos := []int64{}
 	descartados := 0
 	for _, id := range ids {
 		if id <= 0 || vistos[id] {
 			continue
 		}
 		vistos[id] = true
-		ok, err := p.servicioDeEmpresa(ctx, q, &cli, e.ConectorID, id, *f.EmpresaID, bd, &lecturas)
-		if err != nil {
+		s, err := q.ServicioPorID(ctx, id)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			desconocidos = append(desconocidos, id)
+		case err != nil:
 			return nil, "", err
-		}
-		if !ok {
+		case s.EmpresaID == *f.EmpresaID:
+			validos = append(validos, id)
+		default:
 			descartados++
-			continue
 		}
-		validos = append(validos, id)
 	}
+	paginar := f.ServiciosAfectados.Cantidad > len(ids)
 	base["servicios"] = validos
 	base["descartados"] = descartados
-	return &eventoRed{evento: EventoInternoFallaAbierta, empresa: *f.EmpresaID, payload: base}, "", nil
+	base["por_verificar"] = len(desconocidos)
+	base["paginando"] = paginar
+	r := &eventoRed{evento: EventoInternoFallaAbierta, empresa: *f.EmpresaID, payload: base}
+	if len(desconocidos) > 0 || paginar {
+		r.lectura = &lecturaIncidente{conector: e.ConectorID, incidente: f.IncidenteID, empresa: *f.EmpresaID, paginar: paginar, desconocido: desconocidos}
+	}
+	return r, "", nil
 }
 
 func fechaRed(t *time.Time) *string {
@@ -240,30 +244,24 @@ func fechaRed(t *time.Time) *string {
 	return &s
 }
 
-func emitirRed(t *auditoria.Tx, r eventoRed) error {
+func emitirRed(ctx context.Context, t *auditoria.Tx, r eventoRed, entrante int64, encolar Encolador) error {
 	t.FijarEmpresa(r.empresa)
-	return t.Emitir(r.evento, r.payload)
-}
-
-// ServiciosDeIncidente: GET /incidentes-red/:incidente_id/servicios?empresa_id=&cursor=&limit= (§3.11),
-// todas las páginas de a 1000.
-func (c *Cliente) ServiciosDeIncidente(ctx context.Context, incidente string, empresa int64) ([]int64, error) {
-	var ids []int64
-	cursor := ""
-	for len(ids) < maxServiciosIncidente {
-		v := url.Values{"empresa_id": {strconv.FormatInt(empresa, 10)}, "limit": {strconv.Itoa(LimiteServiciosIncidente)}}
-		if cursor != "" {
-			v.Set("cursor", cursor)
+	if l := r.lectura; l != nil {
+		q := argosbd.New(t)
+		if err := q.CrearLecturaIncidente(ctx, argosbd.CrearLecturaIncidenteParams{EntranteID: entrante, ConectorID: l.conector,
+			IncidenteID: l.incidente, EmpresaID: l.empresa, Paginar: l.paginar}); err != nil {
+			return err
 		}
-		p, err := conector.ListaDe[int64](ctx, c.Cliente, "/incidentes-red/"+url.PathEscape(incidente)+"/servicios", v)
-		if err != nil {
-			return nil, err
+		if len(l.desconocido) > 0 {
+			if err := q.AgregarServiciosLectura(ctx, argosbd.AgregarServiciosLecturaParams{EntranteID: entrante, Servicios: l.desconocido}); err != nil {
+				return err
+			}
 		}
-		ids = append(ids, p.Data...)
-		if p.NextCursor == "" || len(p.Data) == 0 {
-			break
+		if encolar != nil {
+			if err := encolar(ctx, t.Tx, ArgsVerificarIncidente{EntranteID: entrante}); err != nil {
+				return err
+			}
 		}
-		cursor = p.NextCursor
 	}
-	return ids, nil
+	return t.Emitir(r.evento, r.payload)
 }

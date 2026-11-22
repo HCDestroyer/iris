@@ -12,18 +12,20 @@ import (
 
 const actualizarAjustesRed = `-- name: ActualizarAjustesRed :one
 UPDATE soporte.red_ajustes SET caidas_umbral = $1, caidas_ventana_min = $2, falla_umbral = $3,
-    actualizado_por = $4, version = version + 1, updated_at = now()
-WHERE empresa_id = $5 AND version = $6
-RETURNING empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, version, actualizado_por, updated_at
+    verificacion_horas = $4,
+    actualizado_por = $5, version = version + 1, updated_at = now()
+WHERE empresa_id = $6 AND version = $7
+RETURNING empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, verificacion_horas, version, actualizado_por, updated_at
 `
 
 type ActualizarAjustesRedParams struct {
-	CaidasUmbral     int32
-	CaidasVentanaMin int32
-	FallaUmbral      int32
-	ActualizadoPor   *int64
-	EmpresaID        int64
-	Version          int32
+	CaidasUmbral      int32
+	CaidasVentanaMin  int32
+	FallaUmbral       int32
+	VerificacionHoras int32
+	ActualizadoPor    *int64
+	EmpresaID         int64
+	Version           int32
 }
 
 func (q *Queries) ActualizarAjustesRed(ctx context.Context, arg ActualizarAjustesRedParams) (SoporteRedAjuste, error) {
@@ -31,6 +33,7 @@ func (q *Queries) ActualizarAjustesRed(ctx context.Context, arg ActualizarAjuste
 		arg.CaidasUmbral,
 		arg.CaidasVentanaMin,
 		arg.FallaUmbral,
+		arg.VerificacionHoras,
 		arg.ActualizadoPor,
 		arg.EmpresaID,
 		arg.Version,
@@ -41,6 +44,7 @@ func (q *Queries) ActualizarAjustesRed(ctx context.Context, arg ActualizarAjuste
 		&i.CaidasUmbral,
 		&i.CaidasVentanaMin,
 		&i.FallaUmbral,
+		&i.VerificacionHoras,
 		&i.Version,
 		&i.ActualizadoPor,
 		&i.UpdatedAt,
@@ -68,7 +72,7 @@ func (q *Queries) AgregarServiciosIncidente(ctx context.Context, arg AgregarServ
 }
 
 const ajustesRed = `-- name: AjustesRed :one
-SELECT empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, version, actualizado_por, updated_at FROM soporte.red_ajustes WHERE empresa_id = $1
+SELECT empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, verificacion_horas, version, actualizado_por, updated_at FROM soporte.red_ajustes WHERE empresa_id = $1
 `
 
 func (q *Queries) AjustesRed(ctx context.Context, empresaID int64) (SoporteRedAjuste, error) {
@@ -79,11 +83,37 @@ func (q *Queries) AjustesRed(ctx context.Context, empresaID int64) (SoporteRedAj
 		&i.CaidasUmbral,
 		&i.CaidasVentanaMin,
 		&i.FallaUmbral,
+		&i.VerificacionHoras,
 		&i.Version,
 		&i.ActualizadoPor,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const avisoFallaDesde = `-- name: AvisoFallaDesde :one
+SELECT EXISTS (SELECT 1 FROM soporte.avisos_falla_clientes
+               WHERE cliente_id = $1 AND tipo = $2 AND enviado_en >= $3 AND incidente <> $4::bigint)::boolean
+`
+
+type AvisoFallaDesdeParams struct {
+	ClienteID int64
+	Tipo      string
+	Desde     time.Time
+	Incidente int64
+}
+
+// El cliente recibió un aviso de ese tipo de otra falla desde @desde (máximo uno cada 6 h por tipo).
+func (q *Queries) AvisoFallaDesde(ctx context.Context, arg AvisoFallaDesdeParams) (bool, error) {
+	row := q.db.QueryRow(ctx, avisoFallaDesde,
+		arg.ClienteID,
+		arg.Tipo,
+		arg.Desde,
+		arg.Incidente,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const caidasRecientesSinPadre = `-- name: CaidasRecientesSinPadre :many
@@ -249,25 +279,6 @@ func (q *Queries) CerrarIncidenteRed(ctx context.Context, arg CerrarIncidenteRed
 	return i, err
 }
 
-const cierreAvisadoDesde = `-- name: CierreAvisadoDesde :one
-SELECT EXISTS (SELECT 1 FROM soporte.avisos_falla_clientes
-               WHERE cliente_id = $1 AND tipo = 'cierre' AND enviado_en >= $2 AND incidente <> $3::bigint)::boolean
-`
-
-type CierreAvisadoDesdeParams struct {
-	ClienteID int64
-	Desde     time.Time
-	Incidente int64
-}
-
-// El cliente recibió un aviso de cierre de otra falla desde @desde (máximo uno cada 6 h).
-func (q *Queries) CierreAvisadoDesde(ctx context.Context, arg CierreAvisadoDesdeParams) (bool, error) {
-	row := q.db.QueryRow(ctx, cierreAvisadoDesde, arg.ClienteID, arg.Desde, arg.Incidente)
-	var column_1 bool
-	err := row.Scan(&column_1)
-	return column_1, err
-}
-
 const contarCaidasRecientes = `-- name: ContarCaidasRecientes :one
 SELECT count(*)::integer FROM soporte.tickets
 WHERE empresa_id IS NOT DISTINCT FROM $1 AND categoria_id = $2 AND origen = 'argos'
@@ -333,6 +344,22 @@ func (q *Queries) CrearIncidenteRed(ctx context.Context, arg CrearIncidenteRedPa
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const esHijoDeIncidente = `-- name: EsHijoDeIncidente :one
+SELECT EXISTS (SELECT 1 FROM soporte.incidente_red_hijos WHERE incidente = $1 AND ticket_id = $2)::boolean
+`
+
+type EsHijoDeIncidenteParams struct {
+	Incidente int64
+	TicketID  int64
+}
+
+func (q *Queries) EsHijoDeIncidente(ctx context.Context, arg EsHijoDeIncidenteParams) (bool, error) {
+	row := q.db.QueryRow(ctx, esHijoDeIncidente, arg.Incidente, arg.TicketID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const eventoRed = `-- name: EventoRed :one
@@ -424,20 +451,21 @@ func (q *Queries) FijarPadreTicket(ctx context.Context, arg FijarPadreTicketPara
 }
 
 const guardarAjustesRed = `-- name: GuardarAjustesRed :one
-INSERT INTO soporte.red_ajustes (empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, actualizado_por)
-SELECT $1, $2, $3, $4, $5
-WHERE $6::integer = 0
+INSERT INTO soporte.red_ajustes (empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, verificacion_horas, actualizado_por)
+SELECT $1, $2, $3, $4, $5, $6
+WHERE $7::integer = 0
 ON CONFLICT (empresa_id) DO NOTHING
-RETURNING empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, version, actualizado_por, updated_at
+RETURNING empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, verificacion_horas, version, actualizado_por, updated_at
 `
 
 type GuardarAjustesRedParams struct {
-	EmpresaID        int64
-	CaidasUmbral     int32
-	CaidasVentanaMin int32
-	FallaUmbral      int32
-	ActualizadoPor   *int64
-	Version          int32
+	EmpresaID         int64
+	CaidasUmbral      int32
+	CaidasVentanaMin  int32
+	FallaUmbral       int32
+	VerificacionHoras int32
+	ActualizadoPor    *int64
+	Version           int32
 }
 
 // version 0 = de fábrica (sin fila); si no, la fila debe tener esa versión.
@@ -447,6 +475,7 @@ func (q *Queries) GuardarAjustesRed(ctx context.Context, arg GuardarAjustesRedPa
 		arg.CaidasUmbral,
 		arg.CaidasVentanaMin,
 		arg.FallaUmbral,
+		arg.VerificacionHoras,
 		arg.ActualizadoPor,
 		arg.Version,
 	)
@@ -456,11 +485,28 @@ func (q *Queries) GuardarAjustesRed(ctx context.Context, arg GuardarAjustesRedPa
 		&i.CaidasUmbral,
 		&i.CaidasVentanaMin,
 		&i.FallaUmbral,
+		&i.VerificacionHoras,
 		&i.Version,
 		&i.ActualizadoPor,
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const hayCierreAnticipado = `-- name: HayCierreAnticipado :one
+SELECT EXISTS (SELECT 1 FROM soporte.incidentes_red_cierres WHERE incidente_id = $1 AND empresa_id = $2)::boolean
+`
+
+type HayCierreAnticipadoParams struct {
+	IncidenteID string
+	EmpresaID   int64
+}
+
+func (q *Queries) HayCierreAnticipado(ctx context.Context, arg HayCierreAnticipadoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hayCierreAnticipado, arg.IncidenteID, arg.EmpresaID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const hijosAbiertos = `-- name: HijosAbiertos :many
@@ -535,6 +581,198 @@ func (q *Queries) HijosAbiertos(ctx context.Context, padreID *int64) ([]SoporteT
 		return nil, err
 	}
 	return items, nil
+}
+
+const hijosDeIncidente = `-- name: HijosDeIncidente :many
+SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id FROM soporte.tickets t
+JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id AND h.incidente = $1::bigint
+WHERE t.ticket_padre_id = $2::bigint AND t.estado IN ('nuevo', 'abierto', 'en_espera') AND t.maestro IS NULL
+ORDER BY t.id
+FOR UPDATE OF t
+`
+
+type HijosDeIncidenteParams struct {
+	Incidente int64
+	GeneralID int64
+}
+
+// Los hijos que absorbió este incidente y siguen colgando del ticket general y abiertos.
+func (q *Queries) HijosDeIncidente(ctx context.Context, arg HijosDeIncidenteParams) ([]SoporteTicket, error) {
+	rows, err := q.db.Query(ctx, hijosDeIncidente, arg.Incidente, arg.GeneralID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SoporteTicket
+	for rows.Next() {
+		var i SoporteTicket
+		if err := rows.Scan(
+			&i.ID,
+			&i.Numero,
+			&i.EmpresaID,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.ZonaID,
+			&i.ContactoNombre,
+			&i.ContactoTelefono,
+			&i.ContactoCorreo,
+			&i.CategoriaID,
+			&i.Prioridad,
+			&i.Estado,
+			&i.Origen,
+			&i.Asunto,
+			&i.AsignadoA,
+			&i.CuadrillaID,
+			&i.NivelEscalamiento,
+			&i.SlaID,
+			&i.CalendarioID,
+			&i.SlaInicio,
+			&i.SlaRespuestaMin,
+			&i.SlaResolucionMin,
+			&i.PausaSeg,
+			&i.RiesgoRespuesta,
+			&i.VenceRespuesta,
+			&i.RiesgoResolucion,
+			&i.VenceResolucion,
+			&i.PrimeraRespuestaEn,
+			&i.EnEsperaDesde,
+			&i.ResueltoEn,
+			&i.CerradoEn,
+			&i.TicketPadreID,
+			&i.FusionadoEnID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Idempotencia,
+			&i.ContactoVerificado,
+			&i.Maestro,
+			&i.RouterID,
+			&i.InfraID,
+			&i.IncidenteNombre,
+			&i.HallazgoID,
+			&i.UrlHorus,
+			&i.Propuesta,
+			&i.PropuestaEn,
+			&i.PropuestaMotivo,
+			&i.PropuestaOrigen,
+			&i.PropuestaOrdenID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const hijosVerificandoDeRouter = `-- name: HijosVerificandoDeRouter :many
+SELECT DISTINCT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id FROM soporte.tickets t
+JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id
+JOIN soporte.incidentes_red i ON i.id = h.incidente AND i.estado = 'cerrada'
+JOIN integracion.argos_servicios s ON s.id = t.servicio_id
+WHERE t.empresa_id IS NOT DISTINCT FROM $1 AND s.router_id = $2 AND t.estado IN ('nuevo', 'abierto', 'en_espera')
+  AND t.maestro IS NULL
+ORDER BY t.id
+LIMIT 500
+`
+
+type HijosVerificandoDeRouterParams struct {
+	EmpresaID *int64
+	RouterID  *int64
+}
+
+// Hijos de fallas generales ya cerradas, todavía sin resolver, cuyo servicio está en ese router.
+func (q *Queries) HijosVerificandoDeRouter(ctx context.Context, arg HijosVerificandoDeRouterParams) ([]SoporteTicket, error) {
+	rows, err := q.db.Query(ctx, hijosVerificandoDeRouter, arg.EmpresaID, arg.RouterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SoporteTicket
+	for rows.Next() {
+		var i SoporteTicket
+		if err := rows.Scan(
+			&i.ID,
+			&i.Numero,
+			&i.EmpresaID,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.ZonaID,
+			&i.ContactoNombre,
+			&i.ContactoTelefono,
+			&i.ContactoCorreo,
+			&i.CategoriaID,
+			&i.Prioridad,
+			&i.Estado,
+			&i.Origen,
+			&i.Asunto,
+			&i.AsignadoA,
+			&i.CuadrillaID,
+			&i.NivelEscalamiento,
+			&i.SlaID,
+			&i.CalendarioID,
+			&i.SlaInicio,
+			&i.SlaRespuestaMin,
+			&i.SlaResolucionMin,
+			&i.PausaSeg,
+			&i.RiesgoRespuesta,
+			&i.VenceRespuesta,
+			&i.RiesgoResolucion,
+			&i.VenceResolucion,
+			&i.PrimeraRespuestaEn,
+			&i.EnEsperaDesde,
+			&i.ResueltoEn,
+			&i.CerradoEn,
+			&i.TicketPadreID,
+			&i.FusionadoEnID,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.Idempotencia,
+			&i.ContactoVerificado,
+			&i.Maestro,
+			&i.RouterID,
+			&i.InfraID,
+			&i.IncidenteNombre,
+			&i.HallazgoID,
+			&i.UrlHorus,
+			&i.Propuesta,
+			&i.PropuestaEn,
+			&i.PropuestaMotivo,
+			&i.PropuestaOrigen,
+			&i.PropuestaOrdenID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const horusArribaDeServicio = `-- name: HorusArribaDeServicio :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.argos_servicios s
+    JOIN soporte.horus_estados h ON h.clave IN ('router:' || s.empresa_id || ':' || s.router_id, 'router:0:' || s.router_id)
+    WHERE s.id = $1 AND s.router_id IS NOT NULL AND h.estado = 'arriba' AND h.ocurrido_en >= $2
+)::boolean
+`
+
+type HorusArribaDeServicioParams struct {
+	ServicioID int64
+	Desde      time.Time
+}
+
+// Horus confirmó que el router del servicio (instantánea) está arriba después de @desde.
+func (q *Queries) HorusArribaDeServicio(ctx context.Context, arg HorusArribaDeServicioParams) (bool, error) {
+	row := q.db.QueryRow(ctx, horusArribaDeServicio, arg.ServicioID, arg.Desde)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const incidenteAbiertoDeServicio = `-- name: IncidenteAbiertoDeServicio :one
@@ -878,6 +1116,36 @@ type RegistrarAvisoHijoSinMensajeParams struct {
 
 func (q *Queries) RegistrarAvisoHijoSinMensaje(ctx context.Context, arg RegistrarAvisoHijoSinMensajeParams) error {
 	_, err := q.db.Exec(ctx, registrarAvisoHijoSinMensaje, arg.MaestroID, arg.Aviso, arg.HijoID)
+	return err
+}
+
+const registrarCierreAnticipado = `-- name: RegistrarCierreAnticipado :exec
+INSERT INTO soporte.incidentes_red_cierres (incidente_id, empresa_id, hasta) VALUES ($1, $2, $3)
+ON CONFLICT DO NOTHING
+`
+
+type RegistrarCierreAnticipadoParams struct {
+	IncidenteID string
+	EmpresaID   int64
+	Hasta       *time.Time
+}
+
+func (q *Queries) RegistrarCierreAnticipado(ctx context.Context, arg RegistrarCierreAnticipadoParams) error {
+	_, err := q.db.Exec(ctx, registrarCierreAnticipado, arg.IncidenteID, arg.EmpresaID, arg.Hasta)
+	return err
+}
+
+const registrarHijoIncidente = `-- name: RegistrarHijoIncidente :exec
+INSERT INTO soporte.incidente_red_hijos (incidente, ticket_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+`
+
+type RegistrarHijoIncidenteParams struct {
+	Incidente int64
+	TicketID  int64
+}
+
+func (q *Queries) RegistrarHijoIncidente(ctx context.Context, arg RegistrarHijoIncidenteParams) error {
+	_, err := q.db.Exec(ctx, registrarHijoIncidente, arg.Incidente, arg.TicketID)
 	return err
 }
 

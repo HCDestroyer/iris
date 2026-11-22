@@ -588,3 +588,37 @@ UPDATE integracion.argos_certificados
 SET visto_en = @visto_en, ultimo_visto_en = @visto_en, cambiado = true, anterior_id = @anterior_id
 WHERE id = @id
 RETURNING *;
+
+-- Falla general (0.13.0 §3.11): servicios por leer en Argos en un job aparte -------------------------
+
+-- name: CrearLecturaIncidente :exec
+INSERT INTO integracion.argos_incidente_lecturas (entrante_id, conector_id, incidente_id, empresa_id, paginar)
+VALUES (@entrante_id, @conector_id, @incidente_id, @empresa_id, @paginar)
+ON CONFLICT (entrante_id) DO NOTHING;
+
+-- name: AgregarServiciosLectura :exec
+INSERT INTO integracion.argos_incidente_servicios (entrante_id, servicio_id)
+SELECT @entrante_id::bigint, unnest(@servicios::bigint[])
+ON CONFLICT DO NOTHING;
+
+-- name: LecturaIncidente :one
+SELECT * FROM integracion.argos_incidente_lecturas WHERE entrante_id = @entrante_id;
+
+-- name: AvanzarLecturaIncidente :exec
+UPDATE integracion.argos_incidente_lecturas SET cursor = sqlc.narg(cursor), paginar = @paginar WHERE entrante_id = @entrante_id;
+
+-- name: TerminarLecturaIncidente :exec
+UPDATE integracion.argos_incidente_lecturas SET terminada_en = now(), paginar = false WHERE entrante_id = @entrante_id AND terminada_en IS NULL;
+
+-- name: PendientesLecturaIncidente :many
+SELECT servicio_id, intentos FROM integracion.argos_incidente_servicios
+WHERE entrante_id = @entrante_id AND estado = 'pendiente'
+ORDER BY servicio_id
+LIMIT @limite;
+
+-- name: ContarServiciosLectura :one
+SELECT count(*)::integer FROM integracion.argos_incidente_servicios WHERE entrante_id = @entrante_id;
+
+-- name: MarcarServicioLectura :exec
+UPDATE integracion.argos_incidente_servicios SET estado = @estado, intentos = @intentos
+WHERE entrante_id = @entrante_id AND servicio_id = @servicio_id;

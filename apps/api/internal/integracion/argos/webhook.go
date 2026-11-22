@@ -194,7 +194,7 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		r.Resultado = "aplicado"
 	}
 	if in.red != nil {
-		if err := emitirRed(t, *in.red); err != nil {
+		if err := emitirRed(ctx, t, *in.red, e.ID, p.m.cfg.Encolar); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"

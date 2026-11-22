@@ -92,6 +92,9 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   `soporte.posible_falla_general` y crea el aviso `posible_falla_general` (nivel `peligro`, enlace al
   ticket, datos `ticket_id` y `tickets`) a las personas con `tickets.configurar_caidas` que operan en la
   empresa. Uno por ticket; solo campana (sin correo).
+- **Verificación vencida** (B30): consume `soporte.verificacion_vencida` y avisa en la campana
+  (`verificacion_vencida`, nivel `alerta`, enlace al ticket) a quien tiene el ticket asignado; sin
+  asignado, a nadie.
 
 ## Eventos
 
@@ -100,7 +103,8 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   `notificaciones.correo_enviado` y `notificaciones.correo_fallido` (avisos del panel).
 - **Consume:** `chat.mensaje_enviado`, `chat.mencion` (cuando el chat tenga menciones),
   `conversacion.mencion`, `conversacion.aviso_sin_atender`, `orden.asignada`, `orden.programada` y
-  `asistente.tope_alcanzado` y `soporte.posible_falla_general` (avisos del panel).
+  `asistente.tope_alcanzado`, `soporte.posible_falla_general` y `soporte.verificacion_vencida` (avisos
+  del panel).
 
 ## Tablas (`notificaciones`)
 

@@ -45,7 +45,8 @@ func (m *Modulo) nuevoGuardarAjustesRed() *auditoria.Caso[AjustesRed, AjustesRed
 			if !contexto.PermisosDe(ctx).TieneGlobal(string(nucleo.PermTicketsConfigurarCaidas)) {
 				return AjustesRed{}, nucleo.Prohibido("Cambiar los umbrales exige el permiso sin límite de zona ni cuadrilla")
 			}
-			if in.CaidasUmbral < 1 || in.CaidasUmbral > 100 || in.CaidasVentanaMin < 5 || in.CaidasVentanaMin > 1440 || in.FallaUmbral < 2 || in.FallaUmbral > 1000 {
+			if in.CaidasUmbral < 1 || in.CaidasUmbral > 100 || in.CaidasVentanaMin < 5 || in.CaidasVentanaMin > 1440 || in.FallaUmbral < 2 || in.FallaUmbral > 1000 ||
+				in.VerificacionHoras < 1 || in.VerificacionHoras > 168 {
 				return AjustesRed{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "caidasUmbral", Message: "Fuera de los límites", Rule: "rango"})
 			}
 			empresa, err := empresaDeAjustes(ctx)
@@ -68,10 +69,10 @@ func (m *Modulo) nuevoGuardarAjustesRed() *auditoria.Caso[AjustesRed, AjustesRed
 			var f soportebd.SoporteRedAjuste
 			if in.Version == 0 {
 				f, err = q.GuardarAjustesRed(ctx, soportebd.GuardarAjustesRedParams{EmpresaID: empresa, CaidasUmbral: in.CaidasUmbral,
-					CaidasVentanaMin: in.CaidasVentanaMin, FallaUmbral: in.FallaUmbral, ActualizadoPor: usuario, Version: 0})
+					CaidasVentanaMin: in.CaidasVentanaMin, FallaUmbral: in.FallaUmbral, VerificacionHoras: in.VerificacionHoras, ActualizadoPor: usuario, Version: 0})
 			} else {
 				f, err = q.ActualizarAjustesRed(ctx, soportebd.ActualizarAjustesRedParams{EmpresaID: empresa, CaidasUmbral: in.CaidasUmbral,
-					CaidasVentanaMin: in.CaidasVentanaMin, FallaUmbral: in.FallaUmbral, ActualizadoPor: usuario, Version: in.Version})
+					CaidasVentanaMin: in.CaidasVentanaMin, FallaUmbral: in.FallaUmbral, VerificacionHoras: in.VerificacionHoras, ActualizadoPor: usuario, Version: in.Version})
 			}
 			if errors.Is(err, pgx.ErrNoRows) {
 				return AjustesRed{}, nucleo.ConflictoVersion("ajustes_caidas", empresa)
@@ -79,7 +80,8 @@ func (m *Modulo) nuevoGuardarAjustesRed() *auditoria.Caso[AjustesRed, AjustesRed
 			if err != nil {
 				return AjustesRed{}, err
 			}
-			despues := AjustesRed{CaidasUmbral: f.CaidasUmbral, CaidasVentanaMin: f.CaidasVentanaMin, FallaUmbral: f.FallaUmbral, Version: f.Version}
+			despues := AjustesRed{CaidasUmbral: f.CaidasUmbral, CaidasVentanaMin: f.CaidasVentanaMin, FallaUmbral: f.FallaUmbral,
+				VerificacionHoras: f.VerificacionHoras, Version: f.Version}
 			t.RegistrarCambios("ajustes_caidas", empresa, antes, despues)
 			campos := []string{}
 			if antes.CaidasUmbral != despues.CaidasUmbral {
@@ -91,8 +93,11 @@ func (m *Modulo) nuevoGuardarAjustesRed() *auditoria.Caso[AjustesRed, AjustesRed
 			if antes.FallaUmbral != despues.FallaUmbral {
 				campos = append(campos, "falla_umbral")
 			}
+			if antes.VerificacionHoras != despues.VerificacionHoras {
+				campos = append(campos, "verificacion_horas")
+			}
 			return despues, t.Emitir("soporte.caidas_ajustes_cambiados", map[string]any{"empresa_id": empresa, "campos": campos,
-				"caidas_umbral": despues.CaidasUmbral, "caidas_ventana_min": despues.CaidasVentanaMin, "falla_umbral": despues.FallaUmbral})
+				"caidas_umbral": despues.CaidasUmbral, "caidas_ventana_min": despues.CaidasVentanaMin, "falla_umbral": despues.FallaUmbral, "verificacion_horas": despues.VerificacionHoras})
 		},
 	})
 }
@@ -100,7 +105,7 @@ func (m *Modulo) nuevoGuardarAjustesRed() *auditoria.Caso[AjustesRed, AjustesRed
 func (m *Modulo) registrarAjustesRed(api huma.API) {
 	ver := operacion("verAjustesCaidas", http.MethodGet, "/api/v1/tickets/ajustes-caidas", "Umbrales de caídas repetidas y de posible falla general",
 		nucleo.PermTicketsVer, http.StatusOK)
-	ver.Description += " De la empresa activa (contrato con Argos 0.13.0 §3.11). `version` 0 = los de fábrica: 3 caídas en 60 min, y 20 tickets de caídas en 10 min."
+	ver.Description += " De la empresa activa (contrato con Argos 0.13.0 §3.11). `version` 0 = los de fábrica: 3 caídas en 60 min, 20 tickets de caídas en 10 min y 24 h de espera de la respuesta del cliente tras una falla general."
 	huma.Register(api, ver, func(ctx context.Context, _ *struct{}) (*cuerpo[AjustesRed], error) {
 		return responder(m.VerAjustesRed.Ejecutar(ctx, struct{}{}))
 	})

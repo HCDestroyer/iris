@@ -107,7 +107,7 @@ func (m *Modulo) nuevoAvisarTanda() *auditoria.Caso[ArgsAvisarHijos, int] {
 			avisados := 0
 			for _, h := range hijos {
 				if in.Incidente != 0 {
-					enviar, err := m.avisoFallaPermitido(ctx, q, in, h)
+					enviar, err := m.avisoFallaPermitido(ctx, t, q, in, h)
 					if err != nil {
 						return 0, err
 					}
@@ -174,23 +174,32 @@ func (w *TrabajadorAvisarHijos) Timeout(*river.Job[ArgsAvisarHijos]) time.Durati
 	return 10 * time.Minute
 }
 
-// avisoFallaPermitido: el aviso de una falla general sale solo a hijos con cliente (§3.11: solo a
-// números con cliente), una vez por cliente e incidente y tipo y, el de cierre, como máximo uno cada
-// 6 h por cliente. Registra el aviso del cliente si sale.
-func (m *Modulo) avisoFallaPermitido(ctx context.Context, q *soportebd.Queries, in ArgsAvisarHijos, h soportebd.SoporteTicket) (bool, error) {
-	if h.ClienteID == nil {
+// avisoFallaPermitido: el aviso de una falla general sale solo a los hijos que absorbió ese incidente y
+// tienen cliente (§3.11: solo a números con cliente), una vez por cliente, incidente y tipo, y como
+// máximo uno de cada tipo cada 6 h por cliente (entre incidentes). Si sale, registra el aviso y emite
+// soporte.aviso_falla: la mensajería lo manda por WhatsApp con las reglas de §6.5.
+func (m *Modulo) avisoFallaPermitido(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, in ArgsAvisarHijos, h soportebd.SoporteTicket) (bool, error) {
+	if h.ClienteID == nil || h.EmpresaID == nil {
 		return false, nil
 	}
+	hijo, err := q.EsHijoDeIncidente(ctx, soportebd.EsHijoDeIncidenteParams{Incidente: in.Incidente, TicketID: h.ID})
+	if err != nil || !hijo {
+		return false, err
+	}
 	tipo := "apertura"
-	ahora := m.ahora()
 	if in.Aviso == AvisoFallaCerrada {
 		tipo = "cierre"
-		reciente, err := q.CierreAvisadoDesde(ctx, soportebd.CierreAvisadoDesdeParams{ClienteID: *h.ClienteID, Desde: ahora.Add(-VentanaAvisoCierre), Incidente: in.Incidente})
-		if err != nil || reciente {
-			return false, err
-		}
+	}
+	ahora := m.ahora()
+	reciente, err := q.AvisoFallaDesde(ctx, soportebd.AvisoFallaDesdeParams{ClienteID: *h.ClienteID, Tipo: tipo, Desde: ahora.Add(-VentanaAvisoCierre), Incidente: in.Incidente})
+	if err != nil || reciente {
+		return false, err
 	}
 	n, err := q.RegistrarAvisoFallaCliente(ctx, soportebd.RegistrarAvisoFallaClienteParams{Incidente: in.Incidente, ClienteID: *h.ClienteID, Tipo: tipo,
 		TicketID: h.ID, EnviadoEn: ahora})
-	return n == 1, err
+	if err != nil || n != 1 {
+		return false, err
+	}
+	return true, t.Emitir("soporte.aviso_falla", map[string]any{"incidente": in.Incidente, "empresa_id": *h.EmpresaID, "cliente_id": *h.ClienteID,
+		"tipo": tipo, "ticket_id": h.ID})
 }

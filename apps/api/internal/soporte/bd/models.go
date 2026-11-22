@@ -881,6 +881,24 @@ type IntegracionArgosEliminado struct {
 	CreatedAt     time.Time
 }
 
+type IntegracionArgosIncidenteLectura struct {
+	EntranteID  int64
+	ConectorID  int64
+	IncidenteID string
+	EmpresaID   int64
+	Paginar     bool
+	Cursor      *string
+	TerminadaEn *time.Time
+	CreatedAt   time.Time
+}
+
+type IntegracionArgosIncidenteServicio struct {
+	EntranteID int64
+	ServicioID int64
+	Estado     string
+	Intentos   int32
+}
+
 type IntegracionArgosRouter struct {
 	ID             int64
 	EmpresaID      *int64
@@ -3044,6 +3062,12 @@ type SoporteHorusEvento struct {
 	UpdatedAt  time.Time
 }
 
+type SoporteIncidenteRedHijo struct {
+	Incidente   int64
+	TicketID    int64
+	VinculadoEn time.Time
+}
+
 type SoporteIncidenteRedServicio struct {
 	Incidente  int64
 	ServicioID int64
@@ -3065,14 +3089,22 @@ type SoporteIncidentesRed struct {
 	UpdatedAt   time.Time
 }
 
+type SoporteIncidentesRedCierre struct {
+	IncidenteID string
+	EmpresaID   int64
+	Hasta       *time.Time
+	CerradoEn   time.Time
+}
+
 type SoporteRedAjuste struct {
-	EmpresaID        int64
-	CaidasUmbral     int32
-	CaidasVentanaMin int32
-	FallaUmbral      int32
-	Version          int32
-	ActualizadoPor   *int64
-	UpdatedAt        time.Time
+	EmpresaID         int64
+	CaidasUmbral      int32
+	CaidasVentanaMin  int32
+	FallaUmbral       int32
+	VerificacionHoras int32
+	Version           int32
+	ActualizadoPor    *int64
+	UpdatedAt         time.Time
 }
 
 type SoporteRedEvento struct {

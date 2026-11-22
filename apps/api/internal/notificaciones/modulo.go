@@ -118,6 +118,8 @@ type Modulo struct {
 	AvisarCertificadoArgos *auditoria.Caso[EntradaAvisarCertificadoArgos, ResultadoAvisarTope]
 	// AvisarPosibleFalla: campana de supervisión con una posible falla general (contrato 0.13.0 §3.11).
 	AvisarPosibleFalla *auditoria.Caso[EntradaAvisarPosibleFalla, ResultadoAvisarTope]
+	// AvisarVerificacion: campana del asignado cuando vence la verificación tras una falla general.
+	AvisarVerificacion *auditoria.Caso[EntradaAvisarVerificacion, ResultadoAvisarTope]
 	prepararCorreo     *auditoria.Caso[int64, *correoListo]
 	cerrarCorreo       *auditoria.Caso[ResultadoCorreo, bool]
 	// Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
@@ -167,6 +169,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.AvisarServidorIA = m.nuevoAvisarServidorIA()
 	m.AvisarCertificadoArgos = m.nuevoAvisarCertificadoArgos()
 	m.AvisarPosibleFalla = m.nuevoAvisarPosibleFalla()
+	m.AvisarVerificacion = m.nuevoAvisarVerificacion()
 	m.prepararCorreo = m.nuevoPrepararCorreo()
 	m.cerrarCorreo = m.nuevoCerrarCorreo()
 	m.VerCorreoSistema = m.nuevoVerCorreoSistema()

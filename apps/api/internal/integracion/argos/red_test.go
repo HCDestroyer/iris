@@ -2,10 +2,12 @@ package argos_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
@@ -77,28 +79,93 @@ func TestWebhooksDeRed(t *testing.T) {
 		t.Fatalf("otra empresa: %+v %s", r, e.omitidoDe(r.EntranteID))
 	}
 
-	// Falla general: 5000 como máximo en el evento y el resto con la lectura paginada.
+	// Falla general: la apertura sale enseguida solo con la instantánea, sin leer Argos.
 	falla := map[string]any{"incidente_id": "inc-7", "empresa_id": 1, "alcance": "router", "alcance_id": 33,
 		"servicios_afectados": map[string]any{"cantidad": 7, "ids": []int64{901, 903, 904, 905, 901}}, "desde": "2026-11-21T15:00:00Z", "hasta": nil}
+	antes := e.argos.llamadasA("/api/v1/servicios/903") + e.argos.llamadasA("/api/v1/incidentes-red/inc-7/servicios")
 	r = e.procesarWebhook(id, secreto, argos.EventoFallaGeneralAbierta, falla)
 	if r.Resultado != "aplicado" {
 		t.Fatalf("falla: %+v", r)
 	}
-	p := payloadDe(argos.EventoInternoFallaAbierta)
-	var servicios []int64
-	for _, s := range p["servicios"].([]any) {
-		servicios = append(servicios, int64(s.(float64)))
+	if e.argos.llamadasA("/api/v1/servicios/903")+e.argos.llamadasA("/api/v1/incidentes-red/inc-7/servicios") != antes {
+		t.Fatal("la apertura no lee Argos")
 	}
-	slices.Sort(servicios)
-	if !slices.Equal(servicios, []int64{901, 902}) || p["descartados"] != float64(4) || p["alcance_id"] != "33" || p["incidente_id"] != "inc-7" {
+	p := payloadDe(argos.EventoInternoFallaAbierta)
+	if fmt.Sprint(p["servicios"]) != "[901]" || p["descartados"] != float64(0) || p["por_verificar"] != float64(3) || p["paginando"] != true ||
+		p["alcance_id"] != "33" || p["incidente_id"] != "inc-7" {
 		t.Fatalf("argos.falla_general_abierta: %v", p)
 	}
 	if _, nombre := p["nombre"]; nombre {
 		t.Fatal("sin nombres")
 	}
-	if e.argos.llamadasA("/api/v1/incidentes-red/inc-7/servicios") != 1 {
-		t.Fatal("el resto se lee de Argos")
+	// El job lee la página que falta (un error ahí reintenta solo la lectura paginada) y verifica uno
+	// por uno: 902 es de la empresa; 903 de otra; 904 y 906 no existen; 905 fuera del alcance.
+	e.argos.con(func() { e.argos.caido = true })
+	if _, err := e.mod.VerificarIncidente(ctx, r.EntranteID); err == nil {
+		t.Fatal("la página falló: el job se reintenta")
 	}
+	e.argos.con(func() { e.argos.caido = false })
+	if espera, err := e.mod.VerificarIncidente(ctx, r.EntranteID); err != nil || espera != 0 {
+		t.Fatalf("verificar: %v %v", espera, err)
+	}
+	var servicios []int64
+	descartados, noVerificados := 0, 0
+	filas, err := e.pool.Query(ctx, `SELECT payload FROM integracion.outbox WHERE evento = $1 AND (payload->>'entrante_id')::bigint = $2`,
+		argos.EventoInternoFallaServicios, r.EntranteID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for filas.Next() {
+		var crudo []byte
+		if err := filas.Scan(&crudo); err != nil {
+			t.Fatal(err)
+		}
+		var x struct {
+			Servicios     []int64 `json:"servicios"`
+			Descartados   int     `json:"descartados"`
+			NoVerificados int     `json:"no_verificados"`
+		}
+		_ = json.Unmarshal(crudo, &x)
+		servicios = append(servicios, x.Servicios...)
+		descartados += x.Descartados
+		noVerificados += x.NoVerificados
+	}
+	filas.Close()
+	slices.Sort(servicios)
+	if !slices.Equal(servicios, []int64{902}) || descartados != 4 || noVerificados != 0 {
+		t.Fatalf("verificados: %v %d %d", servicios, descartados, noVerificados)
+	}
+	// Terminó: otra vuelta no lee nada.
+	n := e.argos.llamadasA("/api/v1/servicios/902")
+	if espera, err := e.mod.VerificarIncidente(ctx, r.EntranteID); err != nil || espera != 0 || e.argos.llamadasA("/api/v1/servicios/902") != n {
+		t.Fatalf("terminada: %v %v", espera, err)
+	}
+
+	// Un error de Argos con un id: solo ese id cuenta un intento y el job vuelve en un minuto; a los 3,
+	// no_verificado (aparte de los descartados).
+	f2 := map[string]any{"incidente_id": "inc-8", "empresa_id": 1, "alcance": "zona", "alcance_id": "z-1",
+		"servicios_afectados": map[string]any{"cantidad": 2, "ids": []int64{902, 907}}, "desde": "2026-11-21T15:00:00Z"}
+	r2 := e.procesarWebhook(id, secreto, argos.EventoFallaGeneralAbierta, f2)
+	for i := 0; i < argos.IntentosVerificar; i++ {
+		e.argos.con(func() { e.argos.caido = true })
+		if espera, err := e.mod.VerificarIncidente(ctx, r2.EntranteID); err != nil || espera != time.Minute {
+			t.Fatalf("intento %d: %v %v", i, espera, err)
+		}
+		e.argos.con(func() { e.argos.caido = false })
+	}
+	if espera, err := e.mod.VerificarIncidente(ctx, r2.EntranteID); err != nil || espera != 0 {
+		t.Fatalf("termina: %v %v", espera, err)
+	}
+	// 902 (el primero) falló tres veces: no verificado, contado aparte; 907 se verificó después (no existe).
+	if n := e.contar(`SELECT coalesce(sum((payload->>'no_verificados')::int), 0)::int FROM integracion.outbox WHERE evento = $1
+		AND (payload->>'entrante_id')::bigint = $2`, argos.EventoInternoFallaServicios, r2.EntranteID); n != 1 {
+		t.Fatalf("no verificados: %d", n)
+	}
+	if n := e.contar(`SELECT coalesce(sum((payload->>'descartados')::int), 0)::int FROM integracion.outbox WHERE evento = $1
+		AND (payload->>'entrante_id')::bigint = $2`, argos.EventoInternoFallaServicios, r2.EntranteID); n != 1 {
+		t.Fatalf("descartados: %d", n)
+	}
+
 	falla["hasta"] = "2026-11-21T17:00:00Z"
 	if r := e.procesarWebhook(id, secreto, argos.EventoFallaGeneralCerrada, falla); r.Resultado != "aplicado" {
 		t.Fatalf("cerrada: %+v", r)

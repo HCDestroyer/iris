@@ -51,9 +51,10 @@ const (
 
 // Ajustes de fábrica (§10.9).
 const (
-	CaidasUmbralFabrica     = 3
-	CaidasVentanaMinFabrica = 60
-	FallaUmbralFabrica      = 20
+	CaidasUmbralFabrica      = 3
+	CaidasVentanaMinFabrica  = 60
+	FallaUmbralFabrica       = 20
+	VerificacionHorasFabrica = 24
 )
 
 // Categoría de los tickets de caídas.
@@ -76,6 +77,7 @@ const (
 	RedSinIncidente     = "sin_incidente"
 	RedYaCerrada        = "ya_cerrada"
 	RedEmpresaNoReg     = "empresa_no_registrada"
+	RedCierreAntes      = "cierre_antes_de_apertura"
 )
 
 // Avisos a los hijos de una falla general (avisos_hijos.go).
@@ -105,16 +107,20 @@ type EntradaCaidas struct {
 
 // EntradaFalla es argos.falla_general_abierta / _cerrada.
 type EntradaFalla struct {
-	EntranteID  int64      `json:"entrante_id"`
-	Evento      string     `json:"-"`
-	IncidenteID string     `json:"incidente_id"`
-	EmpresaID   int64      `json:"empresa_id"`
-	Alcance     string     `json:"alcance"`
-	AlcanceID   string     `json:"alcance_id"`
-	Servicios   []int64    `json:"servicios"`
-	Descartados int        `json:"descartados"`
-	Desde       *time.Time `json:"desde"`
-	Hasta       *time.Time `json:"hasta"`
+	EntranteID  int64   `json:"entrante_id"`
+	Evento      string  `json:"-"`
+	IncidenteID string  `json:"incidente_id"`
+	EmpresaID   int64   `json:"empresa_id"`
+	Alcance     string  `json:"alcance"`
+	AlcanceID   string  `json:"alcance_id"`
+	Servicios   []int64 `json:"servicios"`
+	Descartados int     `json:"descartados"`
+	// PorVerificar: ids que Iris no conocía; el conector los lee aparte y llegan por
+	// argos.falla_general_servicios. Paginando: hay más afectados por leer de Argos.
+	PorVerificar int        `json:"por_verificar"`
+	Paginando    bool       `json:"paginando"`
+	Desde        *time.Time `json:"desde"`
+	Hasta        *time.Time `json:"hasta"`
 }
 
 func auditarRed(r ResultadoRed) bool {
@@ -139,21 +145,24 @@ func cerrarRed(ctx context.Context, q *soportebd.Queries, entrante int64, r Resu
 
 // AjustesRed son los umbrales de la empresa (de fábrica si no los cambió).
 type AjustesRed struct {
-	CaidasUmbral     int32 `json:"caidasUmbral" minimum:"1" maximum:"100" doc:"Caídas que abren un ticket (de fábrica 3)"`
-	CaidasVentanaMin int32 `json:"caidasVentanaMin" minimum:"5" maximum:"1440" doc:"En cuántos minutos (de fábrica 60)"`
-	FallaUmbral      int32 `json:"fallaUmbral" minimum:"2" maximum:"1000" doc:"Tickets de caídas en 10 min a partir de los cuales Iris deja de abrirlos y avisa una posible falla general (de fábrica 20)"`
-	Version          int32 `json:"version" doc:"0 = de fábrica"`
+	CaidasUmbral      int32 `json:"caidasUmbral" minimum:"1" maximum:"100" doc:"Caídas que abren un ticket (de fábrica 3)"`
+	CaidasVentanaMin  int32 `json:"caidasVentanaMin" minimum:"5" maximum:"1440" doc:"En cuántos minutos (de fábrica 60)"`
+	FallaUmbral       int32 `json:"fallaUmbral" minimum:"2" maximum:"1000" doc:"Tickets de caídas en 10 min a partir de los cuales Iris deja de abrirlos y avisa una posible falla general (de fábrica 20)"`
+	VerificacionHoras int32 `json:"verificacionHoras" minimum:"1" maximum:"168" doc:"Horas que un ticket espera la respuesta del cliente tras cerrarse una falla general antes de volver a abierto (de fábrica 24)"`
+	Version           int32 `json:"version" doc:"0 = de fábrica"`
 }
 
 func ajustesRed(ctx context.Context, q *soportebd.Queries, empresa int64) (AjustesRed, error) {
 	a, err := q.AjustesRed(ctx, empresa)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return AjustesRed{CaidasUmbral: CaidasUmbralFabrica, CaidasVentanaMin: CaidasVentanaMinFabrica, FallaUmbral: FallaUmbralFabrica}, nil
+		return AjustesRed{CaidasUmbral: CaidasUmbralFabrica, CaidasVentanaMin: CaidasVentanaMinFabrica, FallaUmbral: FallaUmbralFabrica,
+			VerificacionHoras: VerificacionHorasFabrica}, nil
 	}
 	if err != nil {
 		return AjustesRed{}, err
 	}
-	return AjustesRed{CaidasUmbral: a.CaidasUmbral, CaidasVentanaMin: a.CaidasVentanaMin, FallaUmbral: a.FallaUmbral, Version: a.Version}, nil
+	return AjustesRed{CaidasUmbral: a.CaidasUmbral, CaidasVentanaMin: a.CaidasVentanaMin, FallaUmbral: a.FallaUmbral,
+		VerificacionHoras: a.VerificacionHoras, Version: a.Version}, nil
 }
 
 // empresaRed: la empresa del evento debe estar registrada en Iris.
@@ -415,30 +424,52 @@ func (m *Modulo) abrirFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.Q
 	case !errors.Is(err, pgx.ErrNoRows):
 		return ResultadoRed{}, err
 	}
+	// Argos reintenta y puede desordenar: un cierre que llegó antes, o una apertura que ya trae
+	// hasta, no abren nada.
+	cerrada, err := q.HayCierreAnticipado(ctx, soportebd.HayCierreAnticipadoParams{IncidenteID: in.IncidenteID, EmpresaID: empresa})
+	if err != nil {
+		return ResultadoRed{}, err
+	}
+	if cerrada || in.Hasta != nil {
+		if err := q.RegistrarCierreAnticipado(ctx, soportebd.RegistrarCierreAnticipadoParams{IncidenteID: in.IncidenteID, EmpresaID: empresa, Hasta: in.Hasta}); err != nil {
+			return ResultadoRed{}, err
+		}
+		return ResultadoRed{Resultado: RedYaCerrada}, nil
+	}
 	nota := fmt.Sprintf("Argos: falla general %s en %s desde %s. Servicios afectados: %d.", in.IncidenteID, in.que(),
 		in.Desde.UTC().Format(time.RFC3339), len(in.Servicios))
 	if in.Descartados > 0 {
-		nota += fmt.Sprintf(" Se descartaron %d ids que no son de esta empresa o no existen en Argos.", in.Descartados)
+		nota += fmt.Sprintf(" Se descartaron %d ids que no son de esta empresa.", in.Descartados)
+	}
+	if in.PorVerificar > 0 || in.Paginando {
+		nota += fmt.Sprintf(" Quedan %d ids por verificar en Argos (y más por leer: %t); se suman al verificarse.", in.PorVerificar, in.Paginando)
 	}
 	resultado := RedFallaCreada
 	var general soportebd.SoporteTicket
 	var reusa *int64
 	previo, err := q.IncidenteReusable(ctx, soportebd.IncidenteReusableParams{EmpresaID: empresa, Alcance: in.Alcance, AlcanceID: in.AlcanceID,
 		Desde: ptr(ahora.Add(-VentanaReusoFalla))})
-	switch {
-	case err == nil:
-		// El mismo alcance reabre antes de 30 min: se reusa el ticket general.
+	reusable := err == nil
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return ResultadoRed{}, err
+	}
+	if reusable {
+		// El mismo alcance reabre antes de 30 min: se reusa el ticket general, salvo que ya se haya
+		// cerrado (el job de los 30 min ganó la carrera): entonces uno nuevo.
 		g, err := q.TicketPorIDParaActualizar(ctx, previo.TicketID)
 		if err != nil {
 			return ResultadoRed{}, err
 		}
-		if general, err = m.reabrirGeneral(ctx, t, q, g, nota+" Se reusa el ticket de la falla "+previo.IncidenteID+" (cerrada hace menos de 30 min)."); err != nil {
-			return ResultadoRed{}, err
+		if g.Estado == EstadoCerrado {
+			reusable = false
+		} else {
+			if general, err = m.reabrirGeneral(ctx, t, q, g, nota+" Se reusa el ticket de la falla "+previo.IncidenteID+" (cerrada hace menos de 30 min)."); err != nil {
+				return ResultadoRed{}, err
+			}
+			reusa, resultado = &previo.ID, RedFallaReusada
 		}
-		reusa, resultado = &previo.ID, RedFallaReusada
-	case !errors.Is(err, pgx.ErrNoRows):
-		return ResultadoRed{}, err
-	default:
+	}
+	if !reusable {
 		var maestro soportebd.SoporteTicket
 		hayHorus := false
 		if in.Alcance == "router" {
@@ -515,6 +546,9 @@ func (m *Modulo) sumarAfectados(ctx context.Context, t *auditoria.Tx, q *soporte
 		if err := vincularHijo(ctx, q, h, general, "Vinculado a la falla general "+inc.IncidenteID+" ("+general.Numero+"): el servicio está afectado según Argos."); err != nil {
 			return 0, err
 		}
+		if err := q.RegistrarHijoIncidente(ctx, soportebd.RegistrarHijoIncidenteParams{Incidente: inc.ID, TicketID: h.ID}); err != nil {
+			return 0, err
+		}
 	}
 	t.Anotar(map[string]any{"absorbidos": len(hijos)})
 	return len(hijos), m.encolarAvisoFalla(ctx, t, general, inc, AvisoFallaAbierta)
@@ -547,7 +581,12 @@ func (m *Modulo) cerrarFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.
 	ahora := m.ahora()
 	inc, err := q.IncidenteRed(ctx, soportebd.IncidenteRedParams{IncidenteID: in.IncidenteID, EmpresaID: in.EmpresaID})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ResultadoRed{Resultado: RedSinIncidente}, nil
+		// El cierre llegó antes que la apertura: queda la marca y la apertura atrasada no abre nada.
+		if err := q.RegistrarCierreAnticipado(ctx, soportebd.RegistrarCierreAnticipadoParams{IncidenteID: in.IncidenteID, EmpresaID: in.EmpresaID,
+			Hasta: in.Hasta}); err != nil {
+			return ResultadoRed{}, err
+		}
+		return ResultadoRed{Resultado: RedCierreAntes}, nil
 	}
 	if err != nil {
 		return ResultadoRed{}, err
@@ -564,20 +603,26 @@ func (m *Modulo) cerrarFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.
 		return ResultadoRed{}, err
 	}
 	nota := "Argos: la falla general " + inc.IncidenteID + " se cerró."
-	// Los hijos no se cierran solos: pasan a «en espera» para verificar con el cliente.
-	hijos, err := q.HijosAbiertos(ctx, &g.ID)
+	if g.Maestro == nil || *g.Maestro != MaestroFallaGeneral {
+		// El general es el maestro de Horus: sus hijos esperan a que Horus confirme (su «arriba»).
+		_, err := mensajeSistema(ctx, q, g, false, nota+" Los tickets vinculados siguen igual hasta que Horus confirme que el router volvió.")
+		return ResultadoRed{Resultado: RedFallaCerrada, TicketID: &g.ID}, err
+	}
+	aj, err := ajustesRed(ctx, q, in.EmpresaID)
+	if err != nil {
+		return ResultadoRed{}, err
+	}
+	// Solo los hijos que absorbió este incidente; no se cierran solos.
+	hijos, err := q.HijosDeIncidente(ctx, soportebd.HijosDeIncidenteParams{Incidente: inc.ID, GeneralID: g.ID})
 	if err != nil {
 		return ResultadoRed{}, err
 	}
 	for _, h := range hijos {
-		if h.Maestro != nil {
-			continue
-		}
-		if err := m.esperarVerificacion(ctx, t, q, h, ahora); err != nil {
+		if err := m.verificarHijo(ctx, t, q, h, inc, aj, ahora); err != nil {
 			return ResultadoRed{}, err
 		}
 	}
-	if g.Maestro != nil && *g.Maestro == MaestroFallaGeneral && abierto(g.Estado) {
+	if abierto(g.Estado) {
 		cal, err := cargarCalendario(ctx, q, g.CalendarioID)
 		if err != nil {
 			return ResultadoRed{}, err
@@ -602,7 +647,6 @@ func (m *Modulo) cerrarFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.
 		}
 		g = f
 	} else if _, err := mensajeSistema(ctx, q, g, false, nota); err != nil {
-		// Un maestro de Horus lo resuelve una persona (Horus propone cuando el router vuelve).
 		return ResultadoRed{}, err
 	}
 	if err := m.encolarAvisoFalla(ctx, t, g, inc, AvisoFallaCerrada); err != nil {
@@ -611,11 +655,23 @@ func (m *Modulo) cerrarFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.
 	return ResultadoRed{Resultado: RedFallaCerrada, TicketID: &g.ID}, nil
 }
 
-// esperarVerificacion: el hijo pasa a «en espera» (verificar con el cliente); un mensaje del cliente
-// lo reanuda como siempre.
-func (m *Modulo) esperarVerificacion(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, h soportebd.SoporteTicket, ahora time.Time) error {
-	if h.Estado == EstadoEnEspera {
-		_, err := mensajeSistema(ctx, q, h, false, "La falla general se cerró: verificar con el cliente que el servicio funcione.")
+// verificarHijo: al cerrarse la falla, un hijo cuyo router Horus ya confirmó arriba se resuelve; uno
+// abierto pasa a «en espera» para verificar con el cliente (vuelve a abierto si no responde en las
+// horas de la empresa); uno nuevo se queda igual, con una nota.
+func (m *Modulo) verificarHijo(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, h soportebd.SoporteTicket, inc soportebd.SoporteIncidentesRed,
+	aj AjustesRed, ahora time.Time) error {
+	if h.ServicioID != nil {
+		arriba, err := q.HorusArribaDeServicio(ctx, soportebd.HorusArribaDeServicioParams{ServicioID: *h.ServicioID, Desde: inc.Desde})
+		if err != nil {
+			return err
+		}
+		if arriba {
+			return m.resolverHijoConfirmado(ctx, t, q, h, ahora)
+		}
+	}
+	const texto = "La falla general se cerró: verificar con el cliente que el servicio funcione."
+	if h.Estado != EstadoAbierto {
+		_, err := mensajeSistema(ctx, q, h, false, texto)
 		return err
 	}
 	cal, err := cargarCalendario(ctx, q, h.CalendarioID)
@@ -628,10 +684,66 @@ func (m *Modulo) esperarVerificacion(ctx context.Context, t *auditoria.Tx, q *so
 	if err != nil {
 		return err
 	}
-	if _, err := mensajeSistema(ctx, q, f, false, "La falla general se cerró: verificar con el cliente que el servicio funcione."); err != nil {
+	if _, err := mensajeSistema(ctx, q, f, false, texto); err != nil {
 		return err
 	}
-	return cambioDeEstado(ctx, t, q, h, f, ptr("Verificar con el cliente: la falla general se cerró"))
+	if err := cambioDeEstado(ctx, t, q, h, f, ptr("Verificar con el cliente: la falla general se cerró")); err != nil {
+		return err
+	}
+	if m.cfg.Encolar == nil {
+		return nil
+	}
+	return m.cfg.Encolar(ctx, t.Tx, ArgsVencerVerificacion{TicketID: f.ID, Desde: ahora, Vence: ahora.Add(time.Duration(aj.VerificacionHoras) * time.Hour)})
+}
+
+// resolverHijoConfirmado resuelve un hijo cuyo servicio volvió según Horus (su router arriba), con un
+// mensaje al cliente para que confirme.
+func (m *Modulo) resolverHijoConfirmado(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, h soportebd.SoporteTicket, ahora time.Time) error {
+	cal, err := cargarCalendario(ctx, q, h.CalendarioID)
+	if err != nil {
+		return err
+	}
+	despues := h
+	salirDeEspera(&despues, cal, ahora)
+	despues.Estado, despues.ResueltoEn = EstadoResuelto, &ahora
+	f, err := guardar(ctx, t, q, h, despues, cal)
+	if err != nil {
+		return err
+	}
+	msj, err := mensajeSistema(ctx, q, f, true, "Tu servicio volvió a funcionar según el monitoreo de la red. Si todavía tienes problemas, responde a este mensaje.")
+	if err != nil {
+		return err
+	}
+	if err := cambioDeEstado(ctx, t, q, h, f, ptr("Horus confirmó que el servicio volvió")); err != nil {
+		return err
+	}
+	if err := m.generarEncuestaTicket(ctx, t, q, f); err != nil {
+		return err
+	}
+	return t.Emitir("ticket.respondido", map[string]any{"ticket_id": f.ID, "mensaje_id": msj.ID})
+}
+
+// ResolverConfirmadosPorHorus: Horus avisó que un router volvió; los hijos de fallas generales ya
+// cerradas con servicio en ese router se resuelven (los llama el caso de Horus, en su transacción).
+func (m *Modulo) resolverConfirmadosPorHorus(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, empresa *int64, router int64) (int, error) {
+	hijos, err := q.HijosVerificandoDeRouter(ctx, soportebd.HijosVerificandoDeRouterParams{EmpresaID: empresa, RouterID: &router})
+	if err != nil {
+		return 0, err
+	}
+	ahora := m.ahora()
+	for _, h := range hijos {
+		f, err := q.TicketPorIDParaActualizar(ctx, h.ID)
+		if err != nil {
+			return 0, err
+		}
+		if !abierto(f.Estado) {
+			continue
+		}
+		if err := m.resolverHijoConfirmado(ctx, t, q, f, ahora); err != nil {
+			return 0, err
+		}
+	}
+	return len(hijos), nil
 }
 
 func (m *Modulo) encolarAvisoFalla(ctx context.Context, t *auditoria.Tx, g soportebd.SoporteTicket, inc soportebd.SoporteIncidentesRed, aviso string) error {
@@ -666,10 +778,18 @@ func (m *Modulo) nuevoCerrarFallaGeneral() *auditoria.Caso[ArgsCerrarFallaGenera
 				return false, err
 			}
 			q := soportebd.New(t)
-			g, err := q.TicketPorIDParaActualizar(ctx, in.TicketID)
+			previo, err := q.TicketPorID(ctx, in.TicketID)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return false, nil
 			}
+			if err != nil {
+				return false, err
+			}
+			// El mismo candado que la apertura: no compite con el reuso del ticket.
+			if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.red:empresa:%d", deref(previo.EmpresaID))); err != nil {
+				return false, err
+			}
+			g, err := q.TicketPorIDParaActualizar(ctx, in.TicketID)
 			if err != nil {
 				return false, err
 			}
@@ -718,7 +838,7 @@ func (w *TrabajadorCerrarFallaGeneral) Work(ctx context.Context, j *river.Job[Ar
 
 // SuscribirArgosRed: soporte se suscribe a los eventos de red que publica el conector (cmd/worker).
 func (m *Modulo) SuscribirArgosRed(bus *integracion.Bus, bd nucleo.BD) {
-	for _, ev := range []string{argos.EventoInternoCaidas, argos.EventoInternoFallaAbierta, argos.EventoInternoFallaCerrada} {
+	for _, ev := range []string{argos.EventoInternoCaidas, argos.EventoInternoFallaAbierta, argos.EventoInternoFallaCerrada, argos.EventoInternoFallaServicios} {
 		bus.Suscribir("soporte.argos_red", ev, func(ctx context.Context, e integracion.Evento) error {
 			return m.AlEventoArgosRed(nucleo.ConBD(ctx, bd), e)
 		})
@@ -728,6 +848,14 @@ func (m *Modulo) SuscribirArgosRed(bus *integracion.Bus, bd nucleo.BD) {
 // AlEventoArgosRed aplica un evento de red (actor sistema del relay). Un payload ilegible no se
 // reintenta; un error de base sí (el relay).
 func (m *Modulo) AlEventoArgosRed(ctx context.Context, e integracion.Evento) error {
+	if e.Evento == argos.EventoInternoFallaServicios {
+		var in EntradaFallaServicios
+		if json.Unmarshal(e.Payload, &in) != nil || in.IncidenteID == "" {
+			return nil
+		}
+		_, err := m.FallaServicios.Ejecutar(ctx, in)
+		return reglaNoReintenta(err)
+	}
 	if e.Evento == argos.EventoInternoCaidas {
 		var in EntradaCaidas
 		if json.Unmarshal(e.Payload, &in) != nil || in.EntranteID == 0 {
@@ -752,4 +880,137 @@ func reglaNoReintenta(err error) error {
 		return nil
 	}
 	return err
+}
+
+// Vencimiento de la verificación con el cliente ------------------------------------------------------
+
+// ArgsVencerVerificacion: si el cliente no respondió en las horas de la empresa, el hijo vuelve a
+// abierto y se avisa a quien lo tiene asignado.
+type ArgsVencerVerificacion struct {
+	TicketID int64     `json:"ticket_id"`
+	Desde    time.Time `json:"desde"` // en_espera_desde que dejó el cierre de la falla
+	Vence    time.Time `json:"vence"`
+}
+
+// Kind implementa river.JobArgs.
+func (ArgsVencerVerificacion) Kind() string { return "soporte.vencer_verificacion" }
+
+// InsertOpts: programado al vencimiento, único por ticket y espera.
+func (a ArgsVencerVerificacion) InsertOpts() river.InsertOpts {
+	return river.InsertOpts{MaxAttempts: 10, UniqueOpts: unicoMientrasPendiente, ScheduledAt: a.Vence}
+}
+
+func (m *Modulo) nuevoVencerVerificacion() *auditoria.Caso[ArgsVencerVerificacion, bool] {
+	return auditoria.Nuevo(auditoria.Caso[ArgsVencerVerificacion, bool]{
+		Accion: "tickets.vencer_verificacion", Acceso: auditoria.Autenticado, AuditarExito: func(b bool) bool { return b },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in ArgsVencerVerificacion) (bool, error) {
+			if err := esSistema(ctx); err != nil {
+				return false, err
+			}
+			q := soportebd.New(t)
+			h, err := q.TicketPorIDParaActualizar(ctx, in.TicketID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			t.FijarEmpresa(deref(h.EmpresaID))
+			t.FijarEntidad("ticket", h.ID)
+			// Solo si sigue en la misma espera (el cliente no respondió ni nadie lo movió).
+			if h.Estado != EstadoEnEspera || h.EnEsperaDesde == nil || !h.EnEsperaDesde.Equal(in.Desde.UTC().Truncate(time.Microsecond)) {
+				return false, nil
+			}
+			ahora := m.ahora()
+			if ahora.Before(in.Vence) {
+				return false, nil
+			}
+			cal, err := cargarCalendario(ctx, q, h.CalendarioID)
+			if err != nil {
+				return false, err
+			}
+			despues := h
+			salirDeEspera(&despues, cal, ahora)
+			despues.Estado = EstadoAbierto
+			f, err := guardar(ctx, t, q, h, despues, cal)
+			if err != nil {
+				return false, err
+			}
+			if _, err := mensajeSistema(ctx, q, f, false, "El cliente no respondió a la verificación tras la falla general: el ticket vuelve a abierto."); err != nil {
+				return false, err
+			}
+			if err := cambioDeEstado(ctx, t, q, h, f, ptr("Sin respuesta del cliente a la verificación")); err != nil {
+				return false, err
+			}
+			return true, t.Emitir("soporte.verificacion_vencida", map[string]any{"ticket_id": f.ID, "numero": f.Numero, "empresa_id": f.EmpresaID,
+				"asignado_a": f.AsignadoA})
+		},
+	})
+}
+
+// TrabajadorVencerVerificacion corre soporte.vencer_verificacion.
+type TrabajadorVencerVerificacion struct {
+	river.WorkerDefaults[ArgsVencerVerificacion]
+	BD     nucleo.BD
+	Modulo *Modulo
+}
+
+// Work implementa river.Worker.
+func (w *TrabajadorVencerVerificacion) Work(ctx context.Context, j *river.Job[ArgsVencerVerificacion]) error {
+	_, err := w.Modulo.VencerVerificacion.Ejecutar(ctxWorker(ctx, w.BD), j.Args)
+	return err
+}
+
+// Servicios verificados después de la apertura ---------------------------------------------------------
+
+// EntradaFallaServicios es argos.falla_general_servicios: una tanda verificada por el conector.
+type EntradaFallaServicios struct {
+	EntranteID    int64   `json:"entrante_id"`
+	IncidenteID   string  `json:"incidente_id"`
+	EmpresaID     int64   `json:"empresa_id"`
+	Servicios     []int64 `json:"servicios"`
+	Descartados   int     `json:"descartados"`
+	NoVerificados int     `json:"no_verificados"`
+}
+
+func (m *Modulo) nuevoFallaServicios() *auditoria.Caso[EntradaFallaServicios, ResultadoRed] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaFallaServicios, ResultadoRed]{
+		Accion: "tickets.argos_falla_servicios", Acceso: auditoria.Autenticado, AuditarExito: auditarRed,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaFallaServicios) (ResultadoRed, error) {
+			if err := esSistema(ctx); err != nil {
+				return ResultadoRed{}, err
+			}
+			q := soportebd.New(t)
+			t.FijarEmpresa(in.EmpresaID)
+			if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.red:empresa:%d", in.EmpresaID)); err != nil {
+				return ResultadoRed{}, err
+			}
+			inc, err := q.IncidenteRed(ctx, soportebd.IncidenteRedParams{IncidenteID: in.IncidenteID, EmpresaID: in.EmpresaID})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ResultadoRed{Resultado: RedSinIncidente}, nil
+			}
+			if err != nil {
+				return ResultadoRed{}, err
+			}
+			if inc.Estado != "abierta" {
+				return ResultadoRed{Resultado: RedYaCerrada, TicketID: &inc.TicketID}, nil
+			}
+			g, err := q.TicketPorID(ctx, inc.TicketID)
+			if err != nil {
+				return ResultadoRed{}, err
+			}
+			t.FijarEntidad("ticket", g.ID)
+			if in.Descartados > 0 || in.NoVerificados > 0 {
+				if _, err := mensajeSistema(ctx, q, g, false, fmt.Sprintf("Argos: %d servicios más verificados; %d descartados (de otra empresa o inexistentes) y %d sin poder verificar.",
+					len(in.Servicios), in.Descartados, in.NoVerificados)); err != nil {
+					return ResultadoRed{}, err
+				}
+			}
+			if _, err := m.sumarAfectados(ctx, t, q, inc, g, in.Servicios); err != nil {
+				return ResultadoRed{}, err
+			}
+			t.Anotar(map[string]any{"servicios": len(in.Servicios), "descartados": in.Descartados, "no_verificados": in.NoVerificados})
+			return ResultadoRed{Resultado: RedFallaActualizada, TicketID: &g.ID}, nil
+		},
+	})
 }

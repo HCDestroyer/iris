@@ -17,14 +17,15 @@ SELECT * FROM soporte.red_ajustes WHERE empresa_id = @empresa_id;
 
 -- name: GuardarAjustesRed :one
 -- version 0 = de fábrica (sin fila); si no, la fila debe tener esa versión.
-INSERT INTO soporte.red_ajustes (empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, actualizado_por)
-SELECT @empresa_id, @caidas_umbral, @caidas_ventana_min, @falla_umbral, sqlc.narg(actualizado_por)
+INSERT INTO soporte.red_ajustes (empresa_id, caidas_umbral, caidas_ventana_min, falla_umbral, verificacion_horas, actualizado_por)
+SELECT @empresa_id, @caidas_umbral, @caidas_ventana_min, @falla_umbral, @verificacion_horas, sqlc.narg(actualizado_por)
 WHERE @version::integer = 0
 ON CONFLICT (empresa_id) DO NOTHING
 RETURNING *;
 
 -- name: ActualizarAjustesRed :one
 UPDATE soporte.red_ajustes SET caidas_umbral = @caidas_umbral, caidas_ventana_min = @caidas_ventana_min, falla_umbral = @falla_umbral,
+    verificacion_horas = @verificacion_horas,
     actualizado_por = sqlc.narg(actualizado_por), version = version + 1, updated_at = now()
 WHERE empresa_id = @empresa_id AND version = @version
 RETURNING *;
@@ -125,13 +126,53 @@ INSERT INTO soporte.avisos_falla_clientes (incidente, cliente_id, tipo, ticket_i
 VALUES (@incidente, @cliente_id, @tipo, @ticket_id, @enviado_en)
 ON CONFLICT DO NOTHING;
 
--- name: CierreAvisadoDesde :one
--- El cliente recibió un aviso de cierre de otra falla desde @desde (máximo uno cada 6 h).
+-- name: AvisoFallaDesde :one
+-- El cliente recibió un aviso de ese tipo de otra falla desde @desde (máximo uno cada 6 h por tipo).
 SELECT EXISTS (SELECT 1 FROM soporte.avisos_falla_clientes
-               WHERE cliente_id = @cliente_id AND tipo = 'cierre' AND enviado_en >= @desde AND incidente <> @incidente::bigint)::boolean;
+               WHERE cliente_id = @cliente_id AND tipo = @tipo AND enviado_en >= @desde AND incidente <> @incidente::bigint)::boolean;
 
 -- name: RegistrarAvisoHijoSinMensaje :exec
 INSERT INTO soporte.avisos_hijos (maestro_id, aviso, hijo_id, mensaje_id) VALUES (@maestro_id, @aviso, @hijo_id, NULL);
 
 -- name: CategoriaDeTicket :one
 SELECT * FROM soporte.categorias WHERE id = @id;
+
+-- name: RegistrarCierreAnticipado :exec
+INSERT INTO soporte.incidentes_red_cierres (incidente_id, empresa_id, hasta) VALUES (@incidente_id, @empresa_id, sqlc.narg(hasta))
+ON CONFLICT DO NOTHING;
+
+-- name: HayCierreAnticipado :one
+SELECT EXISTS (SELECT 1 FROM soporte.incidentes_red_cierres WHERE incidente_id = @incidente_id AND empresa_id = @empresa_id)::boolean;
+
+-- name: RegistrarHijoIncidente :exec
+INSERT INTO soporte.incidente_red_hijos (incidente, ticket_id) VALUES (@incidente, @ticket_id) ON CONFLICT DO NOTHING;
+
+-- name: EsHijoDeIncidente :one
+SELECT EXISTS (SELECT 1 FROM soporte.incidente_red_hijos WHERE incidente = @incidente AND ticket_id = @ticket_id)::boolean;
+
+-- name: HijosDeIncidente :many
+-- Los hijos que absorbió este incidente y siguen colgando del ticket general y abiertos.
+SELECT t.* FROM soporte.tickets t
+JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id AND h.incidente = @incidente::bigint
+WHERE t.ticket_padre_id = @general_id::bigint AND t.estado IN ('nuevo', 'abierto', 'en_espera') AND t.maestro IS NULL
+ORDER BY t.id
+FOR UPDATE OF t;
+
+-- name: HorusArribaDeServicio :one
+-- Horus confirmó que el router del servicio (instantánea) está arriba después de @desde.
+SELECT EXISTS (
+    SELECT 1 FROM integracion.argos_servicios s
+    JOIN soporte.horus_estados h ON h.clave IN ('router:' || s.empresa_id || ':' || s.router_id, 'router:0:' || s.router_id)
+    WHERE s.id = @servicio_id AND s.router_id IS NOT NULL AND h.estado = 'arriba' AND h.ocurrido_en >= @desde
+)::boolean;
+
+-- name: HijosVerificandoDeRouter :many
+-- Hijos de fallas generales ya cerradas, todavía sin resolver, cuyo servicio está en ese router.
+SELECT DISTINCT t.* FROM soporte.tickets t
+JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id
+JOIN soporte.incidentes_red i ON i.id = h.incidente AND i.estado = 'cerrada'
+JOIN integracion.argos_servicios s ON s.id = t.servicio_id
+WHERE t.empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id) AND s.router_id = @router_id AND t.estado IN ('nuevo', 'abierto', 'en_espera')
+  AND t.maestro IS NULL
+ORDER BY t.id
+LIMIT 500;

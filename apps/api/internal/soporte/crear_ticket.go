@@ -354,6 +354,9 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 			return cero, err
 		}
 		t.Anotar(map[string]any{"vinculado_a": falla.TicketID, "falla_general": falla.IncidenteID})
+		if err := q.RegistrarHijoIncidente(ctx, soportebd.RegistrarHijoIncidenteParams{Incidente: falla.ID, TicketID: f.ID}); err != nil {
+			return cero, err
+		}
 		if f.ClienteID != nil {
 			// El aviso de falla al cliente (uno por cliente e incidente) sale por el job de avisos.
 			g, err := q.TicketPorID(ctx, falla.TicketID)

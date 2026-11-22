@@ -91,4 +91,69 @@ func (m *Modulo) suscribirPosibleFalla(bus *integracion.Bus, bd nucleo.BD) {
 		_, err := m.AvisarPosibleFalla.Ejecutar(nucleo.ConBD(ctx, bd), in)
 		return err
 	})
+	bus.Suscribir("notificaciones.avisos", "soporte.verificacion_vencida", func(ctx context.Context, e integracion.Evento) error {
+		var in EntradaAvisarVerificacion
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return fmt.Errorf("notificaciones: payload de %s: %w", e.Evento, err)
+		}
+		in.EventoID = e.ID
+		_, err := m.AvisarVerificacion.Ejecutar(nucleo.ConBD(ctx, bd), in)
+		return err
+	})
+}
+
+// Verificación vencida (§3.11, B30): el cliente no respondió a la verificación tras cerrarse una falla
+// general y el ticket volvió a abierto; se avisa a quien lo tiene asignado (sin asignado, a nadie).
+
+// TipoAvisoVerificacionVencida: un ticket volvió a abierto sin respuesta del cliente.
+const TipoAvisoVerificacionVencida = "verificacion_vencida"
+
+// EntradaAvisarVerificacion es el payload de soporte.verificacion_vencida.
+type EntradaAvisarVerificacion struct {
+	EventoID  uuid.UUID `json:"-"`
+	TicketID  int64     `json:"ticket_id"`
+	Numero    string    `json:"numero"`
+	EmpresaID *int64    `json:"empresa_id"`
+	AsignadoA *int64    `json:"asignado_a"`
+}
+
+func (m *Modulo) nuevoAvisarVerificacion() *auditoria.Caso[EntradaAvisarVerificacion, ResultadoAvisarTope] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaAvisarVerificacion, ResultadoAvisarTope]{
+		Accion: "avisos.verificacion_vencida", Acceso: auditoria.Autenticado, SinEmpresa: true,
+		AuditarExito: func(r ResultadoAvisarTope) bool { return r.Avisos > 0 },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAvisarVerificacion) (ResultadoAvisarTope, error) {
+			r := ResultadoAvisarTope{}
+			if err := soloSistema(ctx); err != nil {
+				return r, err
+			}
+			if in.TicketID <= 0 || in.AsignadoA == nil {
+				return r, nil
+			}
+			if in.EmpresaID != nil {
+				t.FijarEmpresa(*in.EmpresaID)
+			} else {
+				t.FijarEmpresa(0)
+			}
+			t.FijarEntidad("ticket", in.TicketID)
+			q := notificacionesbd.New(t)
+			clave := fmt.Sprintf("%s:%d:%s", TipoAvisoVerificacionVencida, in.TicketID, in.EventoID)
+			datos, err := json.Marshal(map[string]any{"ticket_id": in.TicketID, "numero": in.Numero})
+			if err != nil {
+				return r, err
+			}
+			enlace := "/tickets/" + strconv.FormatInt(in.TicketID, 10)
+			_, err = q.InsertarAviso(ctx, notificacionesbd.InsertarAvisoParams{UsuarioID: *in.AsignadoA, EmpresaID: in.EmpresaID, Tipo: TipoAvisoVerificacionVencida,
+				Clave: clave, Nivel: "alerta", Titulo: "El cliente no confirmó tras la falla general: " + in.Numero, Enlace: &enlace, Datos: datos,
+				EventoID: pgtype.UUID{Bytes: in.EventoID, Valid: in.EventoID != uuid.Nil}})
+			if esSinFilas(err) {
+				return r, nil
+			}
+			if err != nil {
+				return r, err
+			}
+			r.Avisos = 1
+			return r, t.Emitir("notificaciones.avisos_creados", map[string]any{"tipo": TipoAvisoVerificacionVencida, "clave": clave,
+				"empresa_id": in.EmpresaID, "usuarios": []int64{*in.AsignadoA}, "correo": "omitido"})
+		},
+	})
 }

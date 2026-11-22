@@ -132,6 +132,8 @@ type Modulo struct {
 	CaidasArgos        *auditoria.Caso[EntradaCaidas, ResultadoRed]
 	FallaArgos         *auditoria.Caso[EntradaFalla, ResultadoRed]
 	CerrarFallaGeneral *auditoria.Caso[ArgsCerrarFallaGeneral, bool]
+	VencerVerificacion *auditoria.Caso[ArgsVencerVerificacion, bool]
+	FallaServicios     *auditoria.Caso[EntradaFallaServicios, ResultadoRed]
 	VerAjustesRed      *auditoria.Caso[struct{}, AjustesRed]
 	GuardarAjustesRed  *auditoria.Caso[AjustesRed, AjustesRed]
 
@@ -202,6 +204,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.CaidasArgos = m.nuevoCaidasArgos()
 	m.FallaArgos = m.nuevoFallaArgos()
 	m.CerrarFallaGeneral = m.nuevoCerrarFallaGeneral()
+	m.VencerVerificacion = m.nuevoVencerVerificacion()
+	m.FallaServicios = m.nuevoFallaServicios()
 	m.VerAjustesRed = m.nuevoVerAjustesRed()
 	m.GuardarAjustesRed = m.nuevoGuardarAjustesRed()
 	m.ListarTicketsPortal = m.nuevoListarTicketsPortal()

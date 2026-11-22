@@ -36,6 +36,8 @@ CREATE TABLE soporte.red_ajustes (
     caidas_umbral      integer     NOT NULL DEFAULT 3 CHECK (caidas_umbral BETWEEN 1 AND 100),
     caidas_ventana_min integer     NOT NULL DEFAULT 60 CHECK (caidas_ventana_min BETWEEN 5 AND 1440),
     falla_umbral       integer     NOT NULL DEFAULT 20 CHECK (falla_umbral BETWEEN 2 AND 1000),
+    -- Horas que un hijo espera la respuesta del cliente tras el cierre de la falla antes de volver a abierto.
+    verificacion_horas integer     NOT NULL DEFAULT 24 CHECK (verificacion_horas BETWEEN 1 AND 168),
     version            integer     NOT NULL DEFAULT 1,
     actualizado_por    bigint      REFERENCES nucleo.usuarios (id),
     updated_at         timestamptz NOT NULL DEFAULT now()
@@ -87,7 +89,47 @@ CREATE TABLE soporte.avisos_falla_clientes (
     enviado_en timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (incidente, cliente_id, tipo)
 );
-CREATE INDEX avisos_falla_clientes_cierre_idx ON soporte.avisos_falla_clientes (cliente_id, enviado_en DESC) WHERE tipo = 'cierre';
+CREATE INDEX avisos_falla_clientes_cliente_idx ON soporte.avisos_falla_clientes (cliente_id, tipo, enviado_en DESC);
+
+-- Un cierre que llegó antes que su apertura (Argos reintenta y puede desordenar): la apertura atrasada
+-- ya no abre nada.
+CREATE TABLE soporte.incidentes_red_cierres (
+    incidente_id text        NOT NULL,
+    empresa_id   bigint      NOT NULL,
+    hasta        timestamptz,
+    cerrado_en   timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (incidente_id, empresa_id)
+);
+
+-- Qué incidente absorbió cada hijo: el cierre y los avisos tocan solo esos.
+CREATE TABLE soporte.incidente_red_hijos (
+    incidente    bigint      NOT NULL REFERENCES soporte.incidentes_red (id),
+    ticket_id    bigint      NOT NULL REFERENCES soporte.tickets (id),
+    vinculado_en timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (incidente, ticket_id)
+);
+CREATE INDEX incidente_red_hijos_ticket_idx ON soporte.incidente_red_hijos (ticket_id);
+
+-- Servicios de una falla general que el conector todavía tiene que leer en Argos (los que Iris no conoce
+-- y los de la lectura paginada), en un job aparte y con su propio presupuesto.
+CREATE TABLE integracion.argos_incidente_lecturas (
+    entrante_id  bigint      PRIMARY KEY,
+    conector_id  bigint      NOT NULL,
+    incidente_id text        NOT NULL,
+    empresa_id   bigint      NOT NULL,
+    paginar      boolean     NOT NULL DEFAULT false,
+    cursor       text,
+    terminada_en timestamptz,
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE integracion.argos_incidente_servicios (
+    entrante_id bigint  NOT NULL REFERENCES integracion.argos_incidente_lecturas (entrante_id),
+    servicio_id bigint  NOT NULL CHECK (servicio_id > 0),
+    estado      text    NOT NULL DEFAULT 'pendiente' CHECK (estado IN ('pendiente', 'valido', 'descartado', 'no_verificado')),
+    intentos    integer NOT NULL DEFAULT 0,
+    PRIMARY KEY (entrante_id, servicio_id)
+);
+CREATE INDEX argos_incidente_servicios_pendientes_idx ON integracion.argos_incidente_servicios (entrante_id) WHERE estado = 'pendiente';
 
 -- Un hijo que no recibe el aviso (sin cliente, o el cliente ya lo recibió) queda registrado sin mensaje.
 ALTER TABLE soporte.avisos_hijos ALTER COLUMN mensaje_id DROP NOT NULL;
@@ -96,15 +138,19 @@ ALTER TABLE soporte.avisos_hijos ALTER COLUMN mensaje_id DROP NOT NULL;
 ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
 ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
     CHECK (tipo IN ('asistente_tope', 'servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_certificado',
-                    'posible_falla_general'));
+                    'posible_falla_general', 'verificacion_vencida'));
 
 -- +goose Down
-DELETE FROM notificaciones.avisos WHERE tipo = 'posible_falla_general';
+DELETE FROM notificaciones.avisos WHERE tipo IN ('posible_falla_general', 'verificacion_vencida');
 ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
 ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
     CHECK (tipo IN ('asistente_tope', 'servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_certificado'));
 DELETE FROM soporte.avisos_hijos WHERE mensaje_id IS NULL;
 ALTER TABLE soporte.avisos_hijos ALTER COLUMN mensaje_id SET NOT NULL;
+DROP TABLE integracion.argos_incidente_servicios;
+DROP TABLE integracion.argos_incidente_lecturas;
+DROP TABLE soporte.incidente_red_hijos;
+DROP TABLE soporte.incidentes_red_cierres;
 DROP TABLE soporte.avisos_falla_clientes;
 DROP TABLE soporte.incidente_red_servicios;
 DROP TABLE soporte.incidentes_red;
