@@ -426,7 +426,14 @@ inicial de vínculos (`Config.Vinculos` / `UsarVinculos`). El job `integracion.a
 (cada minuto) cierra la carga con `PUT /integraciones/iris/contrato { contrato, receptor_argos,
 vinculos_cargados }` cuando todos sus vinculados tuvieron el `2xx` (los omitidos no cuentan; uno agotado la
 deja abierta). Columnas: `integracion.conectores.vinculos_carga_id`, `vinculos_carga_n`,
-`vinculos_cargados_en`.
+`vinculos_cargados_en`. Con un vinculado de la carga `agotado`, la carga no se cierra y se emite
+`argos.carga_vinculos_detenida` una vez por episodio (`vinculos_carga_avisada_en`; aviso de campana al
+admin).
+
+**Reconexión (A-1).** Al activar un conector de la misma instancia de Argos que otro (misma `base_url`),
+`migrarVinculos` pasa al nuevo, en la transacción de la activación, los `agenda.tecnicos.argos_conector_id`,
+el `conector_origen` de los webhooks `tecnico.argos_*` y la carga inicial: los vínculos siguen
+entregándose y conciliándose, y las operaciones con `tecnico` siguen saliendo.
 
 ## Contrato 0.7.1 (A24)
 

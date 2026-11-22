@@ -165,9 +165,10 @@ func (m *Modulo) CerrarCargaVinculos(ctx context.Context) (bool, error) {
 	var in ResultadoCargaVinculos
 	var carga uuid.UUID
 	var n int32
-	err := bd.QueryRow(ctx, `SELECT id, vinculos_carga_id, vinculos_carga_n FROM integracion.conectores
+	var avisada *time.Time
+	err := bd.QueryRow(ctx, `SELECT id, vinculos_carga_id, vinculos_carga_n, vinculos_carga_avisada_en FROM integracion.conectores
 		WHERE sistema = $1 AND estado = 'activo' AND vinculos_carga_id IS NOT NULL AND vinculos_cargados_en IS NULL
-		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&in.ConectorID, &carga, &n)
+		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&in.ConectorID, &carga, &n, &avisada)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
@@ -176,13 +177,23 @@ func (m *Modulo) CerrarCargaVinculos(ctx context.Context) (bool, error) {
 	}
 	in.CargaID, in.Vinculos = &carga, &n
 	// Cada vinculado de la carga ya llegó a la cola de webhooks y ninguno espera: el 2xx de todos los
-	// que salieron. Uno agotado deja la carga abierta (Argos sigue con vinculos_en_carga): lo ve una
-	// persona en la cola de webhooks.
-	var total, abiertos int64
+	// que salieron. Uno agotado deja la carga abierta (Argos sigue con vinculos_en_carga) y avisa al
+	// admin una vez por episodio (M-2): lo reenvía con POST …/webhooks-salida/{id}/reenviar.
+	var total, abiertos, agotados int64
 	if err := bd.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE estado = 'entregado'),
-		count(*) FILTER (WHERE estado NOT IN ('entregado', 'omitido'))
-		FROM mensajeria.webhooks_salida WHERE carga_id = $1`, carga).Scan(&total, &in.Entregas, &abiertos); err != nil {
+		count(*) FILTER (WHERE estado NOT IN ('entregado', 'omitido')), count(*) FILTER (WHERE estado = 'agotado')
+		FROM mensajeria.webhooks_salida WHERE carga_id = $1`, carga).Scan(&total, &in.Entregas, &abiertos, &agotados); err != nil {
 		return false, err
+	}
+	switch {
+	case agotados > 0 && avisada == nil:
+		_, err := m.avisarCargaDetenida.Ejecutar(ctx, entradaCargaDetenida{ConectorID: in.ConectorID, CargaID: carga, Agotados: agotados})
+		return false, err
+	case agotados == 0 && avisada != nil:
+		// Se reenviaron: el próximo agotado vuelve a avisar.
+		if _, err := bd.Exec(ctx, `UPDATE integracion.conectores SET vinculos_carga_avisada_en = NULL WHERE id = $1`, in.ConectorID); err != nil {
+			return false, err
+		}
 	}
 	if total < int64(n) || abiertos > 0 {
 		return false, nil
@@ -199,6 +210,62 @@ func (m *Modulo) CerrarCargaVinculos(ctx context.Context) (bool, error) {
 	}
 	r, err := m.marcarCargaCerrada.Ejecutar(ctx, in)
 	return r.Cerrada != nil, err
+}
+
+// EventoCargaDetenida: la carga inicial de vínculos no puede cerrarse porque algún vinculado agotó
+// sus reintentos (avisa al admin; notificaciones).
+const EventoCargaDetenida = "argos.carga_vinculos_detenida"
+
+type entradaCargaDetenida struct {
+	ConectorID int64     `json:"conector_id"`
+	CargaID    uuid.UUID `json:"carga_id"`
+	Agotados   int64     `json:"agotados"`
+}
+
+func nuevoAvisarCargaDetenida(m *Modulo) *auditoria.Caso[entradaCargaDetenida, bool] {
+	return auditoria.Nuevo(auditoria.Caso[entradaCargaDetenida, bool]{
+		Accion: "integraciones.carga_vinculos_detenida", Acceso: auditoria.Autenticado, SinEmpresa: true,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaCargaDetenida) (bool, error) {
+			if contexto.ActorDe(ctx).Tipo != contexto.ActorSistema {
+				return false, nucleo.Prohibido("Solo el sistema avisa de la carga de vínculos")
+			}
+			t.FijarEntidad("conector", in.ConectorID)
+			t.FijarEmpresa(0)
+			ahora := time.Now().UTC()
+			tag, err := t.Exec(ctx, `UPDATE integracion.conectores SET vinculos_carga_avisada_en = $3
+				WHERE id = $1 AND vinculos_carga_id = $2 AND vinculos_carga_avisada_en IS NULL`, in.ConectorID, in.CargaID, ahora)
+			if err != nil || tag.RowsAffected() == 0 {
+				return false, err
+			}
+			t.Anotar(map[string]any{"carga_id": in.CargaID, "agotados": in.Agotados})
+			return true, t.Emitir(EventoCargaDetenida, map[string]any{"conector_id": in.ConectorID, "carga_id": in.CargaID,
+				"agotados": in.Agotados, "episodio": ahora.Unix()})
+		},
+	})
+}
+
+// migrarVinculos (A-1): al activar un conector Argos de la misma instancia que otro (misma base_url,
+// p. ej. una reconexión), los vínculos de técnicos, los webhooks tecnico.argos_* (los entregados
+// también: Argos ya los tiene, y depende_de los cuenta) y la carga inicial de ese otro pasan al nuevo:
+// siguen entregándose y conciliándose sin otra carga.
+func migrarVinculos(ctx context.Context, tx pgx.Tx, nuevo int64) error {
+	const misma = `v.sistema = 'argosisp' AND v.id <> n.id AND rtrim(v.base_url, '/') = rtrim(n.base_url, '/')`
+	if _, err := tx.Exec(ctx, `UPDATE agenda.tecnicos t SET argos_conector_id = n.id
+		FROM integracion.conectores v, integracion.conectores n
+		WHERE n.id = $1 AND v.id = t.argos_conector_id AND `+misma, nuevo); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE mensajeria.webhooks_salida w SET conector_origen = n.id, updated_at = now()
+		FROM integracion.conectores v, integracion.conectores n
+		WHERE n.id = $1 AND v.id = w.conector_origen AND `+misma, nuevo); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE integracion.conectores n SET vinculos_carga_id = v.vinculos_carga_id, vinculos_carga_n = v.vinculos_carga_n,
+		vinculos_cargados_en = v.vinculos_cargados_en, vinculos_carga_avisada_en = v.vinculos_carga_avisada_en
+		FROM (SELECT v.* FROM integracion.conectores v, integracion.conectores n
+		      WHERE n.id = $1 AND v.vinculos_carga_id IS NOT NULL AND `+misma+` ORDER BY v.id DESC LIMIT 1) v
+		WHERE n.id = $1 AND n.vinculos_carga_id IS NULL`, nuevo)
+	return err
 }
 
 // ArgsCerrarCargaVinculos revisa cada minuto si la carga de vínculos ya se puede cerrar.

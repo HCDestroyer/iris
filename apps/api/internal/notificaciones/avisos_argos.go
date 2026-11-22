@@ -112,6 +112,15 @@ func (m *Modulo) suscribirArgos(bus *integracion.Bus, bd nucleo.BD) {
 		_, err := m.AvisarClaveReutilizada.Ejecutar(nucleo.ConBD(ctx, bd), in)
 		return err
 	})
+	bus.Suscribir("notificaciones.avisos", "argos.carga_vinculos_detenida", func(ctx context.Context, e integracion.Evento) error {
+		var in EntradaAvisarCargaVinculos
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return fmt.Errorf("notificaciones: payload de %s: %w", e.Evento, err)
+		}
+		in.EventoID = e.ID
+		_, err := m.AvisarCargaVinculos.Ejecutar(nucleo.ConBD(ctx, bd), in)
+		return err
+	})
 }
 
 // Aviso de clave reutilizada (contrato 0.14.0 §3.1 y §3.10): Argos respondió
@@ -186,6 +195,73 @@ func (m *Modulo) nuevoAvisarClaveReutilizada() *auditoria.Caso[EntradaAvisarClav
 			}
 			t.Anotar(map[string]any{"clave": clave, "avisos": r.Avisos, "seguridad": in.Seguridad})
 			return r, t.EmitirEnEmpresa("notificaciones.avisos_creados", nil, map[string]any{"tipo": TipoAvisoArgosClaveReutilizada, "clave": clave,
+				"empresa_id": nil, "usuarios": usuarios, "correo": "omitido"})
+		},
+	})
+}
+
+// Aviso de carga de vínculos detenida (contrato 0.14.0 §6.6): algún tecnico.argos_vinculado de la
+// carga inicial agotó sus reintentos, así que la carga no se cierra y Argos sigue respondiendo
+// vinculos_en_carga. Uno por episodio (clave con la carga y el momento del aviso).
+
+// TipoAvisoArgosCargaVinculos: la carga inicial de vínculos está detenida.
+const TipoAvisoArgosCargaVinculos = "argos_carga_vinculos"
+
+// TituloArgosCargaVinculos es el texto del aviso.
+const TituloArgosCargaVinculos = "La carga de vínculos con Argos está detenida"
+
+// EntradaAvisarCargaVinculos es el payload de argos.carga_vinculos_detenida.
+type EntradaAvisarCargaVinculos struct {
+	EventoID   uuid.UUID `json:"-"`
+	ConectorID int64     `json:"conector_id"`
+	CargaID    uuid.UUID `json:"carga_id"`
+	Agotados   int64     `json:"agotados"`
+	Episodio   int64     `json:"episodio"`
+}
+
+func (m *Modulo) nuevoAvisarCargaVinculos() *auditoria.Caso[EntradaAvisarCargaVinculos, ResultadoAvisarTope] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaAvisarCargaVinculos, ResultadoAvisarTope]{
+		Accion: "avisos.argos_carga_vinculos", Acceso: auditoria.Autenticado, SinEmpresa: true,
+		AuditarExito: func(r ResultadoAvisarTope) bool { return r.Avisos > 0 },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAvisarCargaVinculos) (ResultadoAvisarTope, error) {
+			r := ResultadoAvisarTope{}
+			if err := soloSistema(ctx); err != nil {
+				return r, err
+			}
+			if in.ConectorID <= 0 || in.EventoID == uuid.Nil || in.CargaID == uuid.Nil {
+				return r, nil
+			}
+			t.FijarEmpresa(0)
+			t.FijarEntidad("conector", in.ConectorID)
+			q := notificacionesbd.New(t)
+			us, err := q.DestinatariosInstalacion(ctx, string(nucleo.PermIntegracionesConectar))
+			if err != nil {
+				return r, err
+			}
+			clave := fmt.Sprintf("%s:%s:%d", TipoAvisoArgosCargaVinculos, in.CargaID, in.Episodio)
+			datos, err := json.Marshal(map[string]any{"conector_id": in.ConectorID, "agotados": in.Agotados})
+			if err != nil {
+				return r, err
+			}
+			enlace := EnlaceEstadoArgos
+			usuarios := []int64{}
+			for _, u := range us {
+				_, err := q.InsertarAviso(ctx, notificacionesbd.InsertarAvisoParams{UsuarioID: u.ID, Tipo: TipoAvisoArgosCargaVinculos, Clave: clave,
+					Nivel: "peligro", Titulo: TituloArgosCargaVinculos, Enlace: &enlace, Datos: datos, EventoID: pgtype.UUID{Bytes: in.EventoID, Valid: true}})
+				if esSinFilas(err) {
+					continue
+				}
+				if err != nil {
+					return r, err
+				}
+				r.Avisos++
+				usuarios = append(usuarios, u.ID)
+			}
+			if r.Avisos == 0 {
+				return r, nil
+			}
+			t.Anotar(map[string]any{"clave": clave, "avisos": r.Avisos})
+			return r, t.EmitirEnEmpresa("notificaciones.avisos_creados", nil, map[string]any{"tipo": TipoAvisoArgosCargaVinculos, "clave": clave,
 				"empresa_id": nil, "usuarios": usuarios, "correo": "omitido"})
 		},
 	})

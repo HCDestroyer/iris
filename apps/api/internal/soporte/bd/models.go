@@ -1043,6 +1043,7 @@ type IntegracionConectore struct {
 	VinculosCargaID             pgtype.UUID
 	VinculosCargaN              *int32
 	VinculosCargadosEn          *time.Time
+	VinculosCargaAvisadaEn      *time.Time
 }
 
 type IntegracionEntrante struct {
@@ -1080,42 +1081,43 @@ type IntegracionOutbox struct {
 }
 
 type IntegracionPendiente struct {
-	ID               int64
-	EmpresaID        *int64
-	Sistema          string
-	Operacion        string
-	IdempotencyKey   string
-	Entidad          string
-	EntidadID        string
-	Metodo           string
-	Ruta             string
-	Payload          []byte
-	DependeDe        []int64
-	DatosIncompletos bool
-	Estado           string
-	Intentos         int32
-	ProximoIntento   time.Time
-	TomadoEn         *time.Time
-	UltimoError      *string
-	UltimoStatus     *int32
-	HechoEn          *time.Time
-	EventoID         pgtype.UUID
-	Version          int32
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	Conflicto        *string
-	ConflictoPayload []byte
-	ConflictoEn      *time.Time
-	Respuesta        []byte
-	Plantilla        []byte
-	PorResolver      bool
-	Verificar        []string
-	TecnicoUsuarioID *int64
-	CodigoError      *string
-	ResueltoMotivo   *string
-	ResueltoPor      *int64
-	ResueltoEn       *time.Time
-	EnviadoAConector *int64
+	ID                    int64
+	EmpresaID             *int64
+	Sistema               string
+	Operacion             string
+	IdempotencyKey        string
+	Entidad               string
+	EntidadID             string
+	Metodo                string
+	Ruta                  string
+	Payload               []byte
+	DependeDe             []int64
+	DatosIncompletos      bool
+	Estado                string
+	Intentos              int32
+	ProximoIntento        time.Time
+	TomadoEn              *time.Time
+	UltimoError           *string
+	UltimoStatus          *int32
+	HechoEn               *time.Time
+	EventoID              pgtype.UUID
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	Conflicto             *string
+	ConflictoPayload      []byte
+	ConflictoEn           *time.Time
+	Respuesta             []byte
+	Plantilla             []byte
+	PorResolver           bool
+	Verificar             []string
+	TecnicoUsuarioID      *int64
+	CodigoError           *string
+	ResueltoMotivo        *string
+	ResueltoPor           *int64
+	ResueltoEn            *time.Time
+	EnviadoAConector      *int64
+	EsperandoVinculoDesde *time.Time
 }
 
 type IntegracionVerificacionesIntento struct {

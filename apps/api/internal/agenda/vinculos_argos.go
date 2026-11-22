@@ -28,8 +28,13 @@ const (
 )
 
 // emitirVinculo emite el evento del vínculo, uno por empresa del usuario (sin empresas, uno sin
-// empresa, que no va a Argos), cada uno con su versión. extra: anterior_id_externo o motivo.
-// Devuelve cuántos van a Argos (los que tienen empresa).
+// empresa, que no va a Argos), todos con la misma versión: un solo contador por técnico, que sube
+// una vez por cambio. extra: anterior_id_externo o motivo. f da el técnico y el conector de destino
+// (el del vínculo que cambia). Devuelve cuántos van a Argos (los que tienen empresa).
+//
+// La ficha se relee con FOR UPDATE antes de armar el evento: un vinculado sale solo si ese
+// id_externo sigue vigente en una ficha activa (una carga o una revisión que corre a la vez que
+// desvincular no reenvía el vínculo viejo con una versión nueva).
 func emitirVinculo(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, f agendabd.AgendaTecnico, evento, idExterno string,
 	extra map[string]any, carga *uuid.UUID) (int, error) {
 	empresas, err := q.EmpresasDelUsuario(ctx, f.UsuarioID)
@@ -42,6 +47,17 @@ func emitirVinculo(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, f 
 // emitirVinculoEn: como emitirVinculo, solo para estas empresas (la asignada o la quitada).
 func emitirVinculoEn(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, f agendabd.AgendaTecnico, evento, idExterno string,
 	extra map[string]any, carga *uuid.UUID, empresas []int64) (int, error) {
+	vigente, err := q.TecnicoParaVinculo(ctx, f.ID)
+	if err != nil {
+		return 0, err
+	}
+	if evento == EventoVinculado && (vigente.ArgosIDExterno == nil || *vigente.ArgosIDExterno != idExterno || !vigente.Activo) {
+		return 0, nil // el vínculo ya cambió: lo que salga lo dice el evento de ese cambio
+	}
+	version, err := q.SubirVersionVinculo(ctx, f.ID)
+	if err != nil {
+		return 0, err
+	}
 	destinos := make([]*int64, 0, len(empresas))
 	for i := range empresas {
 		destinos = append(destinos, &empresas[i])
@@ -50,10 +66,6 @@ func emitirVinculoEn(ctx context.Context, t *auditoria.Tx, q *agendabd.Queries, 
 		destinos = append(destinos, nil)
 	}
 	for _, empresa := range destinos {
-		version, err := q.SubirVersionVinculo(ctx, f.ID)
-		if err != nil {
-			return 0, err
-		}
 		p := map[string]any{"tecnico_id": f.ID, "usuario_id": f.UsuarioID, "empresa_id": empresa, "version": version,
 			"id_externo": idExterno, "conector_id": f.ArgosConectorID}
 		for k, v := range extra {

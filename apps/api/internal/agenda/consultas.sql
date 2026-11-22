@@ -597,8 +597,13 @@ ORDER BY tecnico_id, inicio;
 
 -- Vínculo con Argos de cada técnico (contrato 0.14.0 §6.6) ---------------------------------
 
+-- name: TecnicoParaVinculo :one
+-- La ficha vigente, tomada para armar un tecnico.argos_* (M-1: nada de contenido viejo).
+SELECT * FROM agenda.tecnicos WHERE id = @id FOR UPDATE;
+
 -- name: SubirVersionVinculo :one
--- Cada tecnico.argos_* sube la versión del vínculo (entera y creciente por técnico).
+-- Cada cambio del vínculo sube la versión una vez (entera y creciente por técnico; la misma en los
+-- eventos de todas sus empresas).
 UPDATE agenda.tecnicos SET version_vinculo = version_vinculo + 1 WHERE id = @id RETURNING version_vinculo;
 
 -- name: FijarConectorVinculo :one

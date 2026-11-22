@@ -179,7 +179,7 @@ Una tarea está terminada solo si:
 | `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id, empresa_id, version, miembros[] (usuario_id, id_externo o null), jefe_usuario_id (o null); nombre, zonas[] (creada); campos[], activa (actualizada); van también a Argos |
 | `tecnico.creado` / `tecnico.actualizado` | agenda | tecnico_id (ficha), usuario_id; cuadrilla_id (creado); campos[], activo (actualizado) |
 | `tecnico.ausencia_registrada` / `tecnico.ausencia_anulada` | agenda | tecnico_id, usuario_id, ausencia_id; inicio, fin, motivo, citas_en_conflicto (registrada); motivo (anulada) |
-| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, empresa_id, version, id_externo, conector_id (o null), carga_id (o null); anterior_id_externo (vinculado); motivo (o null; desactivado) (desvinculado); uno por empresa; van a Argos ≥ 0.14.0 (§6.6), sin conector_id ni carga_id |
+| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, empresa_id, version, id_externo, conector_id (o null), carga_id (o null); anterior_id_externo (vinculado); motivo (o null; desactivado) (desvinculado); uno por empresa, todos con la misma version (un contador por técnico, uno por cambio); al cambiar el id_externo, primero el desvinculado del anterior; van a Argos ≥ 0.14.0 (§6.6), sin conector_id ni carga_id |
 | `tarea.creada` / `tarea.completada` / `tarea.anulada` | agenda | tarea_id, empresa_id, tecnico_id; creada_por, inicio, fin, duracion_min, orden_id (o null), cliente_id (o null), origen, solapa_con (creada); completada_por, completada_en (completada); anulada_por, motivo (o null) (anulada) |
 | `ruta.propuesta` / `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[], motor, degradada; modo, motivo_motor (propuesta); reemplaza_id, version (publicada) |
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
@@ -222,6 +222,8 @@ Una tarea está terminada solo si:
 | `integracion.pendiente_corregido` / `integracion.pendiente_conflicto` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key; estado, motivo, payload_anterior, payload_nuevo (conflicto) |
 | `integracion.pendiente_bloqueado` / `integracion.pendiente_desbloqueado` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, depende_de; motivo (bloqueado) |
 | `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null) |
+| `integracion.webhook_reenviado` | mensajeria (webhooks a Argos) | webhook_id, evento, empresa_id (o null), intentos_anteriores |
+| `argos.carga_vinculos_detenida` | integracion (argos, carga de vínculos 0.14.0) | conector_id, carga_id, agotados, episodio; uno por episodio |
 | `integracion.pendiente_clave_reutilizada` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, empresa_id (o null), seguridad (cambio o intento); nunca la clave ni los cuerpos |
 | `aviso.creado` | mensajeria | aviso_id, empresa_id, cliente_id, servicio_id (o null), plantilla, estado (en_cola \| bloqueado), motivo (o null), origen (argos \| iris), prioridad, programado_en (o null) |
 | `aviso.enviado` / `aviso.leido` | mensajeria | aviso_id, origen; canal, canal_id (o null) (enviado); leido_en (leido) |

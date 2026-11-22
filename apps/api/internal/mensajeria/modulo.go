@@ -186,7 +186,9 @@ type Modulo struct {
 	// ServidorIA: el servidor de IA de la instalación (contratos/voz.md §4).
 	ServidorIA *CasosServidorIA
 
-	EnviarAviso             *EnviarAviso
+	EnviarAviso *EnviarAviso
+	// ReenviarWebhook vuelve a la cola un webhook agotado hacia Argos (0.14.0 §6.6).
+	ReenviarWebhook         *auditoria.Caso[EntradaReenviarWebhook, WebhookSalida]
 	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
 	RegistrarConsentimiento *RegistrarConsentimiento
 	ListarPlantillas        *auditoria.Caso[EntradaPlantillas, ListaPlantillas]
@@ -388,6 +390,7 @@ func Nuevo(cfg Config) *Modulo {
 	m := &Modulo{cfg: cfg, difusor: nuevoDifusor(), difusorConv: nuevoDifusor(), lecturas: make(chan struct{}, cfg.ChatLecturas),
 		resumenes: nuevoCacheResumen(vigenciaResumen)}
 	m.EnviarAviso = nuevoEnviarAviso(m)
+	m.ReenviarWebhook = nuevoReenviarWebhook(m)
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
 	m.ListarPlantillas = nuevoListarPlantillas(m)

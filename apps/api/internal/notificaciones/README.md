@@ -92,6 +92,9 @@ Aviso `argos_clave_reutilizada` (contrato con Argos 0.14.0 §3.10): con `integra
 a quien tiene `integraciones.conectar` con todas las empresas; uno por pendiente, `peligro` en un cambio o un
 intento de recuperación. Solo campana; se ve con cualquier empresa activa.
 
+Aviso `argos_carga_vinculos` (0.14.0 §6.6): con `argos.carga_vinculos_detenida`, a los mismos destinatarios,
+`peligro`, uno por episodio; se ve con cualquier empresa activa.
+
 ## Eventos
 
 - **Emite:** `dispositivo.registrado`, `dispositivo.quitado`, `notificaciones.preferencias_cambiadas`

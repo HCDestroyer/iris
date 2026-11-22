@@ -40,7 +40,8 @@ func vinculosDe(t *testing.T, tecnico int64) []map[string]any {
 }
 
 // Contrato 0.14.0 §6.6: el vínculo de cada técnico va a Argos con tecnico.argos_vinculado y
-// tecnico.argos_desvinculado, uno por empresa del usuario, cada uno con una version nueva y el
+// tecnico.argos_desvinculado, uno por empresa del usuario, con la misma version (un contador por
+// técnico que sube una vez por cambio) y el
 // conector del que salió el id_externo; desactivar la ficha manda el desvinculado con motivo
 // desactivado; la carga inicial marca los vinculados con su carga; y GET …/tecnicos/{usuario_id}
 // solo responde al conector del vínculo, dentro de su alcance (si no, el mismo 404).
@@ -83,7 +84,8 @@ func TestVinculosDelTecnicoHaciaArgos(t *testing.T) {
 	sufijo := pruebas.Unico()
 	ext := "u-vinc-" + sufijo
 	falso := &argosTecnicosFalso{tecnicos: map[string]agenda.TecnicoArgosVerificado{
-		ext: {IDExterno: ext, Nombre: "Técnico", Bodegas: []agenda.BodegaArgosVerificada{{ID: 41, EmpresaID: 7201, Activa: true}}},
+		ext:        {IDExterno: ext, Nombre: "Técnico", Bodegas: []agenda.BodegaArgosVerificada{{ID: 41, EmpresaID: 7201, Activa: true}}},
+		ext + "-b": {IDExterno: ext + "-b", Nombre: "Técnico", Bodegas: []agenda.BodegaArgosVerificada{{ID: 42, EmpresaID: 7201, Activa: true}}},
 	}}
 	ag := agenda.Nuevo(agenda.Config{Reloj: func() time.Time { return gt(2, 9, 0) }, Argos: falso})
 	ca := contexto.ConEmpresas(como(t, usuarioCon(t, rol("admin")), "admin"),
@@ -100,7 +102,7 @@ func TestVinculosDelTecnicoHaciaArgos(t *testing.T) {
 		t.Fatalf("un vinculado por empresa: %v", vs)
 	}
 	for i, p := range vs {
-		if p["evento"] != agenda.EventoVinculado || fmt.Sprint(p["version"]) != fmt.Sprint(i+1) || p["id_externo"] != ext ||
+		if p["evento"] != agenda.EventoVinculado || fmt.Sprint(p["version"]) != "1" || p["id_externo"] != ext ||
 			fmt.Sprint(p["conector_id"]) != fmt.Sprint(conector) || fmt.Sprint(p["usuario_id"]) != fmt.Sprint(tec) {
 			t.Fatalf("vinculado %d: %v", i, p)
 		}
@@ -113,11 +115,11 @@ func TestVinculosDelTecnicoHaciaArgos(t *testing.T) {
 	// el vinculado. La versión sigue creciendo.
 	d := deber(ag.DesactivarTecnico.Ejecutar(ca, agenda.EntradaVersion{ID: f.ID, Version: v.Version}))(t)
 	vs = vinculosDe(t, f.ID)
-	if len(vs) != 4 || vs[2]["evento"] != agenda.EventoDesvinculado || vs[2]["motivo"] != agenda.MotivoDesactivado || fmt.Sprint(vs[3]["version"]) != "4" {
+	if len(vs) != 4 || vs[2]["evento"] != agenda.EventoDesvinculado || vs[2]["motivo"] != agenda.MotivoDesactivado || fmt.Sprint(vs[2]["version"]) != "2" || fmt.Sprint(vs[3]["version"]) != "2" {
 		t.Fatalf("desactivado: %v", vs[2:])
 	}
 	a := deber(ag.ActivarTecnico.Ejecutar(ca, agenda.EntradaVersion{ID: f.ID, Version: d.Version}))(t)
-	if vs = vinculosDe(t, f.ID); len(vs) != 6 || vs[5]["evento"] != agenda.EventoVinculado || fmt.Sprint(vs[5]["version"]) != "6" {
+	if vs = vinculosDe(t, f.ID); len(vs) != 6 || vs[5]["evento"] != agenda.EventoVinculado || fmt.Sprint(vs[5]["version"]) != "3" {
 		t.Fatalf("reactivado: %v", vs[4:])
 	}
 
@@ -149,7 +151,7 @@ func TestVinculosDelTecnicoHaciaArgos(t *testing.T) {
 		return contexto.ConEmpresas(c, contexto.Empresas{Estado: contexto.EmpresaPorElegir, Disponibles: disponibles})
 	}
 	r := deber(ag.TecnicoArgos.Ejecutar(conToken(token, e1, e2), agenda.EntradaTecnicoArgos{UsuarioID: tec, EmpresaID: e2}))(t)
-	if r.TecnicoID != f.ID || r.EmpresaID != e2 || r.IDExterno == nil || *r.IDExterno != ext || r.Version != 8 || !r.Activo {
+	if r.TecnicoID != f.ID || r.EmpresaID != e2 || r.IDExterno == nil || *r.IDExterno != ext || r.Version != 4 || !r.Activo {
 		t.Fatalf("conciliar: %+v", r)
 	}
 	for _, caso := range []struct {
@@ -174,10 +176,95 @@ func TestVinculosDelTecnicoHaciaArgos(t *testing.T) {
 	problema(t, err, http.StatusForbidden, "prohibido")
 
 	// Desvincular: activo false y sin id_externo; empresa quitada → desvinculado solo en ella.
-	deber(ag.DesvincularArgos.Ejecutar(ca, agenda.EntradaDesvincularArgos{ID: f.ID, Version: a.Version}))(t)
+	dv := deber(ag.DesvincularArgos.Ejecutar(ca, agenda.EntradaDesvincularArgos{ID: f.ID, Version: a.Version}))(t)
 	r = deber(ag.TecnicoArgos.Ejecutar(conToken(token, e1, e2), agenda.EntradaTecnicoArgos{UsuarioID: tec, EmpresaID: e1}))(t)
-	if r.Activo || r.IDExterno != nil || r.Version != 10 {
+	if r.Activo || r.IDExterno != nil || r.Version != 5 {
 		t.Fatalf("desvinculado: %+v", r)
+	}
+
+	// M-3: cambiar el id_externo (A → B) manda primero el desvinculado de A y después el vinculado de
+	// B (con anterior A), con versiones crecientes; mensajeria hace esperar a B el 2xx de A.
+	v2 := deber(ag.VincularArgos.Ejecutar(ca, agenda.EntradaVincularArgos{ID: f.ID, Version: dv.Version, IDExterno: ext}))(t)
+	deber(ag.VincularArgos.Ejecutar(ca, agenda.EntradaVincularArgos{ID: f.ID, Version: v2.Version, IDExterno: ext + "-b"}))(t)
+	vs = vinculosDe(t, f.ID)
+	ultimos := vs[len(vs)-4:]
+	for i, p := range ultimos {
+		quiere, idExt, version := agenda.EventoDesvinculado, ext, "7"
+		if i >= 2 {
+			quiere, idExt, version = agenda.EventoVinculado, ext+"-b", "8"
+		}
+		if p["evento"] != quiere || p["id_externo"] != idExt || fmt.Sprint(p["version"]) != version {
+			t.Fatalf("cambio de id_externo, evento %d: %v", i, p)
+		}
+	}
+	if ultimos[3]["anterior_id_externo"] != ext {
+		t.Fatalf("anterior_id_externo: %v", ultimos[3])
+	}
+}
+
+// M-1: desvincular mientras corre la carga inicial: la carga relee la ficha con FOR UPDATE y no
+// reenvía el vinculado con el id_externo viejo (ni con una versión nueva).
+func TestCargaNoReenviaVinculoViejo(t *testing.T) {
+	ctx := context.Background()
+	pool := pruebas.Pool(t)
+	var conector int64
+	if err := pool.QueryRow(ctx, `INSERT INTO integracion.conectores (sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, estado)
+		VALUES ('argosisp', 'http://argos.carga', 'enlace_remoto', '\x00', '\x00', 'apagado') RETURNING id`).Scan(&conector); err != nil {
+		t.Fatal(err)
+	}
+	tec := usuarioCon(t, rol("tecnico"))
+	var ficha int64
+	if err := pool.QueryRow(ctx, `INSERT INTO agenda.tecnicos (usuario_id, argos_id_externo, argos_vinculado_en, argos_conector_id)
+		VALUES ($1, $2, now(), $3) RETURNING id`, tec, "u-carga-"+pruebas.Unico(), conector).Scan(&ficha); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `UPDATE agenda.tecnicos SET argos_conector_id = NULL WHERE argos_conector_id = $1`, conector)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM integracion.conectores WHERE id = $1`, conector)
+	})
+	// Otra transacción desvincula y tiene la ficha tomada mientras arranca la carga.
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(ctx, `UPDATE agenda.tecnicos SET argos_id_externo = NULL, argos_vinculado_en = NULL WHERE id = $1`, ficha); err != nil {
+		t.Fatal(err)
+	}
+	ag := agenda.Nuevo(agenda.Config{})
+	carga := uuid.Must(uuid.NewV7())
+	type res struct {
+		n   int
+		err error
+	}
+	fin := make(chan res, 1)
+	go func() {
+		n, err := ag.CargarVinculos(sistema(t), conector, carga)
+		fin <- res{n, err}
+	}()
+	// La carga ya vio el vínculo y espera la ficha tomada.
+	esperando := false
+	for i := 0; i < 200 && !esperando; i++ {
+		esperando = contar(t, `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE%'`) > 0
+		if !esperando {
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	if !esperando {
+		t.Fatal("la carga debía esperar la ficha tomada")
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	r := <-fin
+	if r.err != nil || r.n != 0 {
+		t.Fatalf("carga: %d %v", r.n, r.err)
+	}
+	if c := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento LIKE 'tecnico.argos_%' AND (payload->>'tecnico_id')::bigint = $1`, ficha); c != 0 {
+		t.Fatalf("no sale el vínculo viejo: %d", c)
+	}
+	if v := contar(t, `SELECT version_vinculo FROM agenda.tecnicos WHERE id = $1`, ficha); v != 0 {
+		t.Fatalf("sin versión nueva: %d", v)
 	}
 }
 

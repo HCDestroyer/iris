@@ -237,7 +237,7 @@ RETURNING id;
 -- servidor de IA son de la instalación: se ven con cualquier empresa activa, y también sin empresa
 -- elegida (@solo_instalacion: entonces solo esos).
 SELECT * FROM notificaciones.avisos
-WHERE usuario_id = @usuario_id AND ((NOT @solo_instalacion::boolean AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada'))
+WHERE usuario_id = @usuario_id AND ((NOT @solo_instalacion::boolean AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada', 'argos_carga_vinculos'))
   AND (NOT @solo_no_leidos::boolean OR leido_en IS NULL)
   AND (@antes_de::bigint = 0 OR id < @antes_de::bigint)
 ORDER BY id DESC
@@ -245,17 +245,17 @@ LIMIT @limite;
 
 -- name: ContarAvisosNoLeidos :one
 SELECT count(*)::integer FROM notificaciones.avisos
-WHERE usuario_id = @usuario_id AND ((NOT @solo_instalacion::boolean AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada')) AND leido_en IS NULL;
+WHERE usuario_id = @usuario_id AND ((NOT @solo_instalacion::boolean AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada', 'argos_carga_vinculos')) AND leido_en IS NULL;
 
 -- name: LeerAviso :one
 -- Marca leído (si ya lo estaba, lo deja igual).
 UPDATE notificaciones.avisos SET leido_en = coalesce(leido_en, @ahora)
-WHERE id = @id AND usuario_id = @usuario_id AND ((NOT @solo_instalacion::boolean AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada'))
+WHERE id = @id AND usuario_id = @usuario_id AND ((NOT @solo_instalacion::boolean AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada', 'argos_carga_vinculos'))
 RETURNING *;
 
 -- name: LeerTodosLosAvisos :execrows
 UPDATE notificaciones.avisos SET leido_en = @ahora
-WHERE usuario_id = @usuario_id AND ((NOT @solo_instalacion::boolean AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada')) AND leido_en IS NULL;
+WHERE usuario_id = @usuario_id AND ((NOT @solo_instalacion::boolean AND coalesce(empresa_id, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)) OR tipo IN ('servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_clave_reutilizada', 'argos_carga_vinculos')) AND leido_en IS NULL;
 
 -- Correos del sistema ----------------------------------------------------------------------------
 

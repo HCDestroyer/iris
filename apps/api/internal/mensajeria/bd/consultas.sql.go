@@ -732,20 +732,30 @@ func (q *Queries) ContarIntento(ctx context.Context, id uuid.UUID) error {
 const desvinculadoAnteriorSinEntregar = `-- name: DesvinculadoAnteriorSinEntregar :one
 SELECT EXISTS (
     SELECT 1 FROM mensajeria.webhooks_salida d
-    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.payload->>'id_externo' = $1::text
-      AND d.estado IN ('pendiente', 'agotado') AND d.created_at < $2
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado IN ('pendiente', 'agotado')
+      AND ((d.payload->>'id_externo' = $1::text AND d.created_at < $2)
+        OR ((d.payload->>'usuario_id')::bigint = $3::bigint AND (d.payload->>'version')::int < $4::int))
 )::boolean
 `
 
 type DesvinculadoAnteriorSinEntregarParams struct {
 	IDExterno string
 	Antes     time.Time
+	UsuarioID int64
+	Version   int32
 }
 
 // 0.14.0 §6.6: el vinculado de un técnico no sale hasta el 2xx del desvinculado anterior del mismo
-// id_externo (el que lo liberó), aunque haya agotado sus reintentos.
+// id_externo (el que lo liberó, de otro técnico) ni del desvinculado anterior del mismo técnico
+// (M-3: cambió su id_externo; mismo cambio, versión menor), aunque haya agotado sus reintentos
+// (POST …/webhooks-salida/{id}/reenviar lo vuelve a mandar).
 func (q *Queries) DesvinculadoAnteriorSinEntregar(ctx context.Context, arg DesvinculadoAnteriorSinEntregarParams) (bool, error) {
-	row := q.db.QueryRow(ctx, desvinculadoAnteriorSinEntregar, arg.IDExterno, arg.Antes)
+	row := q.db.QueryRow(ctx, desvinculadoAnteriorSinEntregar,
+		arg.IDExterno,
+		arg.Antes,
+		arg.UsuarioID,
+		arg.Version,
+	)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -1582,6 +1592,42 @@ func (q *Queries) PostergarWebhook(ctx context.Context, arg PostergarWebhookPara
 	return err
 }
 
+const reenviarWebhookSalida = `-- name: ReenviarWebhookSalida :one
+UPDATE mensajeria.webhooks_salida
+SET estado = 'pendiente', intentos = 0, proximo_intento = $1, ultimo_error = NULL, updated_at = now()
+WHERE id = $2 AND estado = 'agotado'
+RETURNING id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id
+`
+
+type ReenviarWebhookSalidaParams struct {
+	ProximoIntento time.Time
+	ID             uuid.UUID
+}
+
+// Un agotado vuelve a la cola con sus intentos en cero (acción de una persona, auditada).
+func (q *Queries) ReenviarWebhookSalida(ctx context.Context, arg ReenviarWebhookSalidaParams) (MensajeriaWebhooksSalida, error) {
+	row := q.db.QueryRow(ctx, reenviarWebhookSalida, arg.ProximoIntento, arg.ID)
+	var i MensajeriaWebhooksSalida
+	err := row.Scan(
+		&i.ID,
+		&i.Evento,
+		&i.EmpresaID,
+		&i.Payload,
+		&i.OcurridoEn,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.UltimoError,
+		&i.ConectorID,
+		&i.EntregadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
+	)
+	return i, err
+}
+
 const registrarPruebaCanal = `-- name: RegistrarPruebaCanal :one
 UPDATE mensajeria.canales
 SET ultima_prueba_en = $1, ultimo_estado = $2, ultimo_detalle = $3, rechazado_por_envio = false
@@ -1723,6 +1769,33 @@ SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_i
 
 func (q *Queries) WebhookParaEnviar(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
 	row := q.db.QueryRow(ctx, webhookParaEnviar, id)
+	var i MensajeriaWebhooksSalida
+	err := row.Scan(
+		&i.ID,
+		&i.Evento,
+		&i.EmpresaID,
+		&i.Payload,
+		&i.OcurridoEn,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.UltimoError,
+		&i.ConectorID,
+		&i.EntregadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
+	)
+	return i, err
+}
+
+const webhookParaReenviar = `-- name: WebhookParaReenviar :one
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id FROM mensajeria.webhooks_salida WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) WebhookParaReenviar(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
+	row := q.db.QueryRow(ctx, webhookParaReenviar, id)
 	var i MensajeriaWebhooksSalida
 	err := row.Scan(
 		&i.ID,

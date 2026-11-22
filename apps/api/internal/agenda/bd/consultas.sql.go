@@ -2992,12 +2992,11 @@ func (q *Queries) Solapes(ctx context.Context, arg SolapesParams) ([]SolapesRow,
 }
 
 const subirVersionVinculo = `-- name: SubirVersionVinculo :one
-
 UPDATE agenda.tecnicos SET version_vinculo = version_vinculo + 1 WHERE id = $1 RETURNING version_vinculo
 `
 
-// Vínculo con Argos de cada técnico (contrato 0.14.0 §6.6) ---------------------------------
-// Cada tecnico.argos_* sube la versión del vínculo (entera y creciente por técnico).
+// Cada cambio del vínculo sube la versión una vez (entera y creciente por técnico; la misma en los
+// eventos de todas sus empresas).
 func (q *Queries) SubirVersionVinculo(ctx context.Context, id int64) (int32, error) {
 	row := q.db.QueryRow(ctx, subirVersionVinculo, id)
 	var version_vinculo int32
@@ -3173,6 +3172,40 @@ func (q *Queries) TareasDelTecnico(ctx context.Context, arg TareasDelTecnicoPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const tecnicoParaVinculo = `-- name: TecnicoParaVinculo :one
+
+SELECT id, usuario_id, cuadrilla_id, bodega_id, habilidades, base_lat, base_lon, activo, version, created_at, updated_at, telefono, argos_id_externo, argos_correo, argos_nombre, argos_vinculado_en, argos_vinculado_por, version_vinculo, argos_conector_id FROM agenda.tecnicos WHERE id = $1 FOR UPDATE
+`
+
+// Vínculo con Argos de cada técnico (contrato 0.14.0 §6.6) ---------------------------------
+// La ficha vigente, tomada para armar un tecnico.argos_* (M-1: nada de contenido viejo).
+func (q *Queries) TecnicoParaVinculo(ctx context.Context, id int64) (AgendaTecnico, error) {
+	row := q.db.QueryRow(ctx, tecnicoParaVinculo, id)
+	var i AgendaTecnico
+	err := row.Scan(
+		&i.ID,
+		&i.UsuarioID,
+		&i.CuadrillaID,
+		&i.BodegaID,
+		&i.Habilidades,
+		&i.BaseLat,
+		&i.BaseLon,
+		&i.Activo,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Telefono,
+		&i.ArgosIDExterno,
+		&i.ArgosCorreo,
+		&i.ArgosNombre,
+		&i.ArgosVinculadoEn,
+		&i.ArgosVinculadoPor,
+		&i.VersionVinculo,
+		&i.ArgosConectorID,
+	)
+	return i, err
 }
 
 const tecnicoPorArgos = `-- name: TecnicoPorArgos :one

@@ -23,13 +23,21 @@ func (e *entorno) con014() *pendientes.Modulo {
 	return pendientes.Nuevo(pendientes.Config{Argos: am, Reloj: func() time.Time { return e.reloj }})
 }
 
-// vinculado: un tecnico.argos_vinculado del técnico hacia el conector, con ese estado.
-func (e *entorno) vinculado(usuario int64, version int, estado string) uuid.UUID {
+// vinculado: un tecnico.argos_* del técnico en la empresa 1 (en el outbox, ya publicado) y su
+// webhook hacia el conector con ese estado ("" = aún sin programar).
+func (e *entorno) vinculado(evento string, usuario int64, idExterno string, version int, estado string) uuid.UUID {
 	e.t.Helper()
 	id := uuid.Must(uuid.NewV7())
-	crudo, _ := json.Marshal(map[string]any{"usuario_id": usuario, "version": version})
-	e.exec(`INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, estado, conector_origen)
-		VALUES ($1, 'tecnico.argos_vinculado', 1, $2, now(), $3, $4)`, id, crudo, estado, e.conID)
+	var ficha int64
+	if err := e.pool.QueryRow(context.Background(), `SELECT id FROM agenda.tecnicos WHERE usuario_id = $1`, usuario).Scan(&ficha); err != nil {
+		e.t.Fatal(err)
+	}
+	crudo, _ := json.Marshal(map[string]any{"tecnico_id": ficha, "usuario_id": usuario, "empresa_id": 1, "version": version, "id_externo": idExterno})
+	e.exec(`INSERT INTO integracion.outbox (id, evento, empresa_id, payload, publicado_en) VALUES ($1, $2, 1, $3, now())`, id, evento, crudo)
+	if estado != "" {
+		e.exec(`INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, estado, conector_origen)
+			VALUES ($1, $2, 1, $3, now(), $4, $5)`, id, evento, crudo, estado, e.conID)
+	}
 	return id
 }
 
@@ -42,38 +50,43 @@ func (e *entorno) estadoPendiente(id int64) (estado, codigo string, intentos int
 	return estado, codigo, intentos
 }
 
+func (e *entorno) opConTecnico(tec int64, n string) pendientes.Registro {
+	e.t.Helper()
+	return e.encolar(pendientes.Accion{Operacion: "consumir_material", IdempotencyKey: "iris:prueba:vinculo:" + n + ":" + uuid.NewString(),
+		Ruta: "/servicios/59/consumos", TecnicoUsuarioID: &tec,
+		Cuerpo: cuerpo(e.t, map[string]any{"lineas": []map[string]any{{"producto_id": 1, "cantidad": 1, "tecnico": "x"}}})})
+}
+
+func procesarCon(t *testing.T, e *entorno, m *pendientes.Modulo) {
+	t.Helper()
+	if _, err := m.Procesar(e.ctx()); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Contrato 0.14.0 §6.6: con Iris y Argos en 0.14.0, una operación que lleva `tecnico` no sale antes
-// del 2xx del último tecnico.argos_vinculado de su técnico hacia ese conector (depende_de): espera
-// sin gastar intentos. Una sin `tecnico` sale; con Iris informando una versión anterior, tampoco espera.
+// del 2xx del tecnico.argos_vinculado VIGENTE de su técnico (el último emitido para esa empresa, con
+// el id_externo de la ficha; M-3) hacia ese conector: espera sin gastar intentos. Una sin `tecnico`
+// sale; con Iris informando una versión anterior, tampoco espera.
 func TestOperacionConTecnicoEsperaSuVinculado(t *testing.T) {
 	e := nuevoEntorno(t)
 	e.argos16()
 	e.contrato("0.14.0")
-	tec := e.tecnico("u-81")
-	conTecnico := func(n string) pendientes.Registro {
-		return e.encolar(pendientes.Accion{Operacion: "consumir_material", IdempotencyKey: "iris:prueba:vinculo:" + n + ":" + uuid.NewString(),
-			Ruta: "/servicios/59/consumos", TecnicoUsuarioID: &tec,
-			Cuerpo: cuerpo(t, map[string]any{"lineas": []map[string]any{{"producto_id": 1, "cantidad": 1, "tecnico": "u-81"}}})})
-	}
+	ext := "u-81-" + uuid.NewString()[:8]
+	tec := e.tecnico(ext)
 
 	// Iris informa 0.8.1 (la de esta versión): sale sin mirar el vínculo.
-	antes := conTecnico("antes")
+	antes := e.opConTecnico(tec, "antes")
 	e.procesar()
 	if estado, _, _ := e.estadoPendiente(antes.ID); estado != pendientes.EstadoHecho {
 		t.Fatalf("sin 0.14.0 informado no espera: %s", estado)
 	}
 
 	m := e.con014()
-	procesar := func() {
-		t.Helper()
-		if _, err := m.Procesar(e.ctx()); err != nil {
-			t.Fatal(err)
-		}
-	}
-	op := conTecnico("espera")
+	op := e.opConTecnico(tec, "espera")
 	sinTecnico := e.encolar(pendientes.Accion{Operacion: "devolver_equipo", IdempotencyKey: "iris:prueba:vinculo:sin:" + uuid.NewString(),
 		Ruta: "/servicios/59/equipos/1/devolver", TecnicoUsuarioID: &tec, Cuerpo: cuerpo(t, map[string]any{"motivo": "retiro"})})
-	procesar()
+	procesarCon(t, e, m)
 	if estado, codigo, intentos := e.estadoPendiente(op.ID); estado != pendientes.EstadoPendiente || codigo != pendientes.CodigoDependeDeVinculado || intentos != 0 {
 		t.Fatalf("sin vinculado espera: %s %s %d", estado, codigo, intentos)
 	}
@@ -81,27 +94,111 @@ func TestOperacionConTecnicoEsperaSuVinculado(t *testing.T) {
 		t.Fatalf("sin tecnico sale: %s", estado)
 	}
 
-	// Vinculado aún pendiente: sigue esperando, también al vencer la espera.
-	w := e.vinculado(tec, 1, "pendiente")
+	// Vinculado en el outbox (sin programar) y luego pendiente: sigue esperando.
+	w := e.vinculado("tecnico.argos_vinculado", tec, ext, 1, "pendiente")
 	e.reloj = e.reloj.Add(2 * pendientes.EsperaVinculo)
-	procesar()
+	procesarCon(t, e, m)
 	if estado, codigo, intentos := e.estadoPendiente(op.ID); estado != pendientes.EstadoPendiente || codigo != pendientes.CodigoDependeDeVinculado || intentos != 0 {
 		t.Fatalf("vinculado sin 2xx: %s %s %d", estado, codigo, intentos)
 	}
 	// Con el 2xx, sale.
 	e.exec(`UPDATE mensajeria.webhooks_salida SET estado = 'entregado' WHERE id = $1`, w)
 	e.reloj = e.reloj.Add(2 * pendientes.EsperaVinculo)
-	procesar()
+	procesarCon(t, e, m)
 	if estado, _, intentos := e.estadoPendiente(op.ID); estado != pendientes.EstadoHecho || intentos != 1 {
 		t.Fatalf("con el 2xx del vinculado: %s %d", estado, intentos)
 	}
 
-	// Un vinculado más nuevo (otro id_externo) sin 2xx: la siguiente operación vuelve a esperar.
-	e.vinculado(tec, 2, "pendiente")
-	otra := conTecnico("nuevo")
-	procesar()
+	// M-3: la ficha cambió de id_externo y su evento aún no se emitió: la fila entregada (del id
+	// viejo) no cuenta; espera el vinculado del vigente.
+	nuevo := ext + "-b"
+	e.exec(`UPDATE agenda.tecnicos SET argos_id_externo = $2 WHERE usuario_id = $1`, tec, nuevo)
+	otra := e.opConTecnico(tec, "vigente")
+	procesarCon(t, e, m)
 	if estado, codigo, _ := e.estadoPendiente(otra.ID); estado != pendientes.EstadoPendiente || codigo != pendientes.CodigoDependeDeVinculado {
-		t.Fatalf("el último vinculado manda: %s %s", estado, codigo)
+		t.Fatalf("la versión vigente manda: %s %s", estado, codigo)
+	}
+	e.vinculado("tecnico.argos_desvinculado", tec, ext, 2, "entregado")
+	w2 := e.vinculado("tecnico.argos_vinculado", tec, nuevo, 3, "entregado")
+	e.reloj = e.reloj.Add(2 * pendientes.EsperaVinculo)
+	procesarCon(t, e, m)
+	if estado, _, _ := e.estadoPendiente(otra.ID); estado != pendientes.EstadoHecho {
+		t.Fatalf("con el vinculado vigente entregado: %s", estado)
+	}
+
+	// A-1: reconectar la misma instancia de Argos: el vínculo y sus webhooks pasan al conector nuevo
+	// y las operaciones siguen saliendo.
+	c, err := e.am.Conectar.Ejecutar(e.ctx(), argos.EntradaConectar{Enlace: e.argos.srv.URL + "/conectar#codigo-de-reconexion-456"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.am.ActivarConector.Ejecutar(e.ctx(), argos.EntradaActivarConector{ID: c.ID, Version: c.Version}); err != nil {
+		t.Fatal(err)
+	}
+	e.exec(`UPDATE integracion.conectores SET contrato_remoto = '0.14.0', version_remota = (SELECT version_remota FROM integracion.conectores WHERE id = $2) WHERE id = $1`, c.ID, e.conID)
+	if e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE id = $1 AND conector_origen = $2`, w2, c.ID) != 1 {
+		t.Fatal("el webhook del vínculo pasa al conector nuevo")
+	}
+	tras := e.opConTecnico(tec, "reconexion")
+	procesarCon(t, e, m)
+	if estado, _, _ := e.estadoPendiente(tras.ID); estado != pendientes.EstadoHecho {
+		t.Fatalf("tras reconectar sale: %s", estado)
+	}
+}
+
+// depende_de con salida: agotado → bloqueado a la vista (integracion.pendiente_bloqueado) hasta el
+// 2xx; 24 h esperando → bloqueado; omitido (empresa fuera del alcance) → fallido_negocio con
+// empresa_no_permitida.
+func TestVinculoAgotadoTopeYOmitido(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	e.contrato("0.14.0")
+	m := e.con014()
+	bloqueados := func(id int64) int {
+		return e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = $1 AND (payload->>'pendiente_id')::bigint = $2`, pendientes.EventoBloqueado, id)
+	}
+
+	// Agotado: bloqueado ya; al reenviarse y entregarse, vuelve a la cola y sale.
+	ext := "u-82-" + uuid.NewString()[:8]
+	tec := e.tecnico(ext)
+	w := e.vinculado("tecnico.argos_vinculado", tec, ext, 1, "agotado")
+	op := e.opConTecnico(tec, "agotado")
+	procesarCon(t, e, m)
+	if estado, codigo, intentos := e.estadoPendiente(op.ID); estado != pendientes.EstadoBloqueado || codigo != pendientes.CodigoDependeDeVinculado || intentos != 0 || bloqueados(op.ID) != 1 {
+		t.Fatalf("agotado: %s %s %d %d", estado, codigo, intentos, bloqueados(op.ID))
+	}
+	e.exec(`UPDATE mensajeria.webhooks_salida SET estado = 'entregado' WHERE id = $1`, w)
+	procesarCon(t, e, m)
+	if estado, _, _ := e.estadoPendiente(op.ID); estado != pendientes.EstadoHecho {
+		t.Fatalf("con el 2xx se desbloquea y sale: %s", estado)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = $1 AND (payload->>'pendiente_id')::bigint = $2`, pendientes.EventoDesbloqueado, op.ID); n != 1 {
+		t.Fatalf("desbloqueado: %d", n)
+	}
+
+	// Tope: 24 h esperando un vinculado sin 2xx → bloqueado.
+	ext2 := "u-83-" + uuid.NewString()[:8]
+	tec2 := e.tecnico(ext2)
+	e.vinculado("tecnico.argos_vinculado", tec2, ext2, 1, "pendiente")
+	larga := e.opConTecnico(tec2, "tope")
+	procesarCon(t, e, m)
+	if estado, _, _ := e.estadoPendiente(larga.ID); estado != pendientes.EstadoPendiente {
+		t.Fatalf("antes del tope espera: %s", estado)
+	}
+	e.reloj = e.reloj.Add(pendientes.TopeEsperaVinculo + time.Minute)
+	procesarCon(t, e, m)
+	if estado, codigo, _ := e.estadoPendiente(larga.ID); estado != pendientes.EstadoBloqueado || codigo != pendientes.CodigoDependeDeVinculado || bloqueados(larga.ID) != 1 {
+		t.Fatalf("al tope, bloqueado: %s %s", estado, codigo)
+	}
+
+	// Omitido: fallido de negocio con empresa_no_permitida (para una persona).
+	ext3 := "u-84-" + uuid.NewString()[:8]
+	tec3 := e.tecnico(ext3)
+	e.vinculado("tecnico.argos_vinculado", tec3, ext3, 1, "omitido")
+	om := e.opConTecnico(tec3, "omitido")
+	procesarCon(t, e, m)
+	if estado, codigo, _ := e.estadoPendiente(om.ID); estado != pendientes.EstadoFallidoNegocio || codigo != pendientes.CodigoEmpresaNoPermitida {
+		t.Fatalf("omitido: %s %s", estado, codigo)
 	}
 }
 

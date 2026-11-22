@@ -262,12 +262,25 @@ FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo';
 
 -- name: DesvinculadoAnteriorSinEntregar :one
 -- 0.14.0 §6.6: el vinculado de un técnico no sale hasta el 2xx del desvinculado anterior del mismo
--- id_externo (el que lo liberó), aunque haya agotado sus reintentos.
+-- id_externo (el que lo liberó, de otro técnico) ni del desvinculado anterior del mismo técnico
+-- (M-3: cambió su id_externo; mismo cambio, versión menor), aunque haya agotado sus reintentos
+-- (POST …/webhooks-salida/{id}/reenviar lo vuelve a mandar).
 SELECT EXISTS (
     SELECT 1 FROM mensajeria.webhooks_salida d
-    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.payload->>'id_externo' = @id_externo::text
-      AND d.estado IN ('pendiente', 'agotado') AND d.created_at < @antes
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado IN ('pendiente', 'agotado')
+      AND ((d.payload->>'id_externo' = @id_externo::text AND d.created_at < @antes)
+        OR ((d.payload->>'usuario_id')::bigint = @usuario_id::bigint AND (d.payload->>'version')::int < @version::int))
 )::boolean;
+
+-- name: WebhookParaReenviar :one
+SELECT * FROM mensajeria.webhooks_salida WHERE id = $1 FOR UPDATE;
+
+-- name: ReenviarWebhookSalida :one
+-- Un agotado vuelve a la cola con sus intentos en cero (acción de una persona, auditada).
+UPDATE mensajeria.webhooks_salida
+SET estado = 'pendiente', intentos = 0, proximo_intento = @proximo_intento, ultimo_error = NULL, updated_at = now()
+WHERE id = @id AND estado = 'agotado'
+RETURNING *;
 
 -- name: PostergarWebhook :exec
 -- Espera sin gastar un intento (otro webhook del que depende aún no tuvo su 2xx).

@@ -319,18 +319,48 @@ SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = 
 WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
 RETURNING *;
 
--- name: VinculadoEntregado :one
--- 0.14.0 §6.6: el último tecnico.argos_vinculado del técnico en la empresa, hacia este conector, ya
--- tuvo el 2xx de Argos (sin ninguno, o con uno sin entregar, la operación con `tecnico` espera).
+-- name: EstadoVinculo :one
+-- 0.14.0 §6.6: el estado del vínculo VIGENTE del técnico en la empresa (M-3: el último
+-- tecnico.argos_* emitido para esa empresa, comparado con el id_externo de la ficha, no la última
+-- fila de webhook) y de su webhook hacia este conector. Estados: entregado, pendiente, agotado,
+-- omitido (de su webhook); sin_programar (aún en el outbox); otro_conector; sin_vinculo.
 SELECT coalesce((
-    SELECT w.estado = 'entregado' FROM mensajeria.webhooks_salida w
-    WHERE w.evento = 'tecnico.argos_vinculado' AND (w.payload->>'usuario_id')::bigint = @usuario_id::bigint
-      AND w.empresa_id = @empresa_id::bigint AND w.conector_origen = @conector_id::bigint
-    ORDER BY (w.payload->>'version')::int DESC LIMIT 1), false)::boolean;
+    SELECT CASE
+        WHEN o.evento <> 'tecnico.argos_vinculado' OR t.argos_id_externo IS NULL OR o.payload->>'id_externo' <> t.argos_id_externo THEN 'sin_vinculo'
+        WHEN w.id IS NULL THEN 'sin_programar'
+        WHEN w.conector_origen IS DISTINCT FROM @conector_id::bigint THEN 'otro_conector'
+        ELSE w.estado END
+    FROM integracion.outbox o LEFT JOIN mensajeria.webhooks_salida w ON w.id = o.id
+    WHERE o.evento IN ('tecnico.argos_vinculado', 'tecnico.argos_desvinculado')
+      AND (o.payload->>'tecnico_id')::bigint = t.id AND (o.payload->>'empresa_id')::bigint = @empresa_id::bigint
+    ORDER BY (o.payload->>'version')::int DESC, o.id DESC LIMIT 1), 'sin_vinculo')::text AS estado
+FROM agenda.tecnicos t WHERE t.usuario_id = @usuario_id::bigint;
 
--- name: PostergarPendiente :exec
+-- name: PostergarPendiente :one
 -- Espera una dependencia que no es otro pendiente (el vinculado del técnico): vuelve a pendiente sin
--- gastar un intento.
+-- gastar un intento. esperando_vinculo_desde guarda el comienzo de la espera (tope de 24 h).
 UPDATE integracion.pendientes SET estado = 'pendiente', proximo_intento = @proximo_intento, tomado_en = NULL,
-    ultimo_error = @ultimo_error, codigo_error = @codigo_error, updated_at = now()
-WHERE id = @id AND estado = 'en_curso';
+    ultimo_error = @ultimo_error, codigo_error = @codigo_error, updated_at = now(),
+    esperando_vinculo_desde = coalesce(esperando_vinculo_desde, @ahora)
+WHERE id = @id AND estado = 'en_curso'
+RETURNING esperando_vinculo_desde::timestamptz;
+
+-- name: BloquearPorVinculo :one
+-- El vinculado agotó sus reintentos o la espera llegó al tope: bloqueado a la vista, sin depende_de.
+UPDATE integracion.pendientes SET estado = 'bloqueado', tomado_en = NULL, ultimo_error = @ultimo_error,
+    codigo_error = 'depende_de_vinculado', version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('en_curso', 'pendiente')
+RETURNING *;
+
+-- name: BloqueadosPorVinculo :many
+SELECT * FROM integracion.pendientes WHERE estado = 'bloqueado' AND codigo_error = 'depende_de_vinculado' ORDER BY id LIMIT 500;
+
+-- name: DesbloquearPorVinculo :one
+-- El vinculado tuvo su 2xx: vuelve a la cola, con la espera en cero.
+UPDATE integracion.pendientes SET estado = 'pendiente', proximo_intento = @ahora, ultimo_error = NULL, codigo_error = NULL,
+    esperando_vinculo_desde = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'bloqueado' AND codigo_error = 'depende_de_vinculado'
+RETURNING *;
+
+-- name: TerminarEsperaVinculo :exec
+UPDATE integracion.pendientes SET esperando_vinculo_desde = NULL WHERE id = @id;

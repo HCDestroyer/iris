@@ -274,10 +274,12 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 		// El vinculado espera el 2xx del desvinculado anterior del mismo id_externo (§6.6).
 		var p struct {
 			IDExterno string `json:"id_externo"`
+			UsuarioID int64  `json:"usuario_id"`
+			Version   int32  `json:"version"`
 		}
 		_ = json.Unmarshal(w.Payload, &p)
 		espera, err := mensajeriabd.New(bd).DesvinculadoAnteriorSinEntregar(ctx, mensajeriabd.DesvinculadoAnteriorSinEntregarParams{
-			IDExterno: p.IDExterno, Antes: w.CreatedAt})
+			IDExterno: p.IDExterno, Antes: w.CreatedAt, UsuarioID: p.UsuarioID, Version: p.Version})
 		if err != nil {
 			return err
 		}

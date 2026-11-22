@@ -118,8 +118,10 @@ type Modulo struct {
 	AvisarCertificadoArgos *auditoria.Caso[EntradaAvisarCertificadoArgos, ResultadoAvisarTope]
 	// AvisarClaveReutilizada: campana cuando Argos responde idempotency_key_reutilizada (0.14.0 §3.10).
 	AvisarClaveReutilizada *auditoria.Caso[EntradaAvisarClaveReutilizada, ResultadoAvisarTope]
-	prepararCorreo         *auditoria.Caso[int64, *correoListo]
-	cerrarCorreo           *auditoria.Caso[ResultadoCorreo, bool]
+	// AvisarCargaVinculos: campana cuando la carga de vínculos con Argos queda detenida (0.14.0 §6.6).
+	AvisarCargaVinculos *auditoria.Caso[EntradaAvisarCargaVinculos, ResultadoAvisarTope]
+	prepararCorreo      *auditoria.Caso[int64, *correoListo]
+	cerrarCorreo        *auditoria.Caso[ResultadoCorreo, bool]
 	// Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
 	VerCorreoSistema        *auditoria.Caso[EntradaVerCorreo, CorreoSistema]
 	GuardarCorreoSistema    *auditoria.Caso[EntradaGuardarCorreo, CorreoSistema]
@@ -167,6 +169,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.AvisarServidorIA = m.nuevoAvisarServidorIA()
 	m.AvisarCertificadoArgos = m.nuevoAvisarCertificadoArgos()
 	m.AvisarClaveReutilizada = m.nuevoAvisarClaveReutilizada()
+	m.AvisarCargaVinculos = m.nuevoAvisarCargaVinculos()
 	m.prepararCorreo = m.nuevoPrepararCorreo()
 	m.cerrarCorreo = m.nuevoCerrarCorreo()
 	m.VerCorreoSistema = m.nuevoVerCorreoSistema()

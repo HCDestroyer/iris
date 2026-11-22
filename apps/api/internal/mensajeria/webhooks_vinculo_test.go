@@ -3,6 +3,7 @@ package mensajeria_test
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"testing"
 	"time"
 
@@ -118,5 +119,86 @@ func TestWebhooksVinculoTecnico(t *testing.T) {
 	}
 	if pd := d[0].Cuerpo["payload"].(map[string]any); pd["motivo"] != nil || pd["id_externo"] != "u-76" {
 		t.Fatalf("payload del desvinculado: %v", pd)
+	}
+}
+
+// M-3: el mismo técnico cambia de id_externo (A → B) en un solo cambio: el vinculado de B (versión
+// mayor) espera el 2xx del desvinculado de A, aunque los dos lleguen juntos a la cola.
+func TestVinculadoEsperaElDesvinculadoDelMismoTecnico(t *testing.T) {
+	e := nuevoEntorno(t, nil)
+	if _, err := e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET contrato_remoto = '0.14.0', alcance_global = true WHERE id = $1`, e.conector); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET contrato_remoto = '0.6.0', alcance_global = NULL WHERE id = $1`, e.conector)
+	})
+	emitir := func(evento string, payload map[string]any) string {
+		t.Helper()
+		id := uuid.Must(uuid.NewV7())
+		crudo, _ := json.Marshal(payload)
+		if _, err := e.bd.Exec(e.ctx, `INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES ($1, $2, 1, $3)`, id, evento, crudo); err != nil {
+			t.Fatal(err)
+		}
+		return id.String()
+	}
+	estado := func(id string) string {
+		t.Helper()
+		var s string
+		if err := e.bd.QueryRow(e.ctx, `SELECT estado FROM mensajeria.webhooks_salida WHERE id = $1`, id).Scan(&s); err != nil {
+			t.Fatal(err)
+		}
+		return s
+	}
+	e.receptor.fallar.Store(1)
+	des := emitir("tecnico.argos_desvinculado", map[string]any{"tecnico_id": 7101, "usuario_id": 781, "empresa_id": 1, "version": 7,
+		"id_externo": "u-781-a", "motivo": nil, "conector_id": e.conector})
+	vin := emitir("tecnico.argos_vinculado", map[string]any{"tecnico_id": 7101, "usuario_id": 781, "empresa_id": 1, "version": 8,
+		"id_externo": "u-781-b", "anterior_id_externo": "u-781-a", "conector_id": e.conector})
+	e.publicar()
+	if estado(des) != "pendiente" || estado(vin) != "pendiente" || len(e.receptor.de("tecnico.argos_vinculado", "tecnico_id", 7101)) != 0 {
+		t.Fatalf("B espera el 2xx de A: %s %s", estado(des), estado(vin))
+	}
+	e.relojMu.Lock()
+	*e.reloj = e.reloj.Add(time.Hour)
+	e.relojMu.Unlock()
+	e.publicar()
+	if estado(des) != "entregado" || estado(vin) != "entregado" {
+		t.Fatalf("con el 2xx de A sale B: %s %s", estado(des), estado(vin))
+	}
+}
+
+// M-2: un webhook agotado vuelve a la cola con integraciones.reenviar_webhook (auditado, con su
+// evento); otro estado, 422; sin el permiso, 403.
+func TestReenviarWebhookAgotado(t *testing.T) {
+	e := nuevoEntorno(t, nil)
+	id := uuid.Must(uuid.NewV7())
+	if _, err := e.bd.Exec(e.ctx, `INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, estado, intentos, ultimo_error)
+		VALUES ($1, 'tecnico.argos_vinculado', 1, '{}', now(), 'agotado', 6, 'Argos no respondió')`, id); err != nil {
+		t.Fatal(err)
+	}
+	admin := e.persona([]int64{1}, rolBase("admin"))
+	sup := e.persona([]int64{1}, rolBase("supervisor"))
+	ruta := "/api/v1/mensajeria/webhooks-salida/" + id.String() + "/reenviar"
+	if r := e.pedir(http.MethodPost, ruta, sup.token, uuid.NewString(), nil); r.status != http.StatusForbidden {
+		t.Fatalf("sin el permiso: %d %v", r.status, r.cuerpo)
+	}
+	r := e.pedir(http.MethodPost, ruta, admin.token, uuid.NewString(), nil)
+	if r.status != http.StatusOK || r.cuerpo["estado"] != "pendiente" || fmt.Sprint(r.cuerpo["intentos"]) != "0" {
+		t.Fatalf("reenviar: %d %v", r.status, r.cuerpo)
+	}
+	if n := e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE id = $1 AND estado = 'pendiente' AND intentos = 0 AND ultimo_error IS NULL`, id); n != 1 {
+		t.Fatal("de vuelta en la cola")
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.reenviar_webhook' AND resultado = 'ok' AND entidad_id = $1`, id.String()); n != 1 {
+		t.Fatalf("auditoría: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'integracion.webhook_reenviado' AND payload->>'webhook_id' = $1`, id.String()); n != 1 {
+		t.Fatalf("evento: %d", n)
+	}
+	if r := e.pedir(http.MethodPost, ruta, admin.token, uuid.NewString(), nil); r.status != http.StatusUnprocessableEntity {
+		t.Fatalf("ya no está agotado: %d %v", r.status, r.cuerpo)
+	}
+	if r := e.pedir(http.MethodPost, "/api/v1/mensajeria/webhooks-salida/"+uuid.NewString()+"/reenviar", admin.token, uuid.NewString(), nil); r.status != http.StatusNotFound {
+		t.Fatalf("no existe: %d", r.status)
 	}
 }

@@ -174,7 +174,14 @@ func (m *Modulo) nuevoVincularArgos() *VincularArgos {
 				return TecnicoDetalle{}, nucleo.VerificarVersion(err, "tecnico", antes.ID)
 			}
 			t.RegistrarCambios("tecnico", f.ID, vinculoAuditable(antes), vinculoAuditable(f))
-			// 0.14.0 §6.6: el vínculo sale del conector Argos activo; solo a él va el webhook.
+			// 0.14.0 §6.6 (M-3): si cambia el id_externo, primero el desvinculado del anterior (a su
+			// conector); el vinculado del nuevo espera su 2xx (mensajeria).
+			if antes.ArgosIDExterno != nil {
+				if _, err := emitirVinculo(ctx, t, q, antes, EventoDesvinculado, *antes.ArgosIDExterno, map[string]any{"motivo": nil}, nil); err != nil {
+					return TecnicoDetalle{}, err
+				}
+			}
+			// El vínculo sale del conector Argos activo; solo a él va el webhook.
 			if f.ArgosConectorID, err = q.FijarConectorVinculo(ctx, f.ID); err != nil {
 				return TecnicoDetalle{}, err
 			}

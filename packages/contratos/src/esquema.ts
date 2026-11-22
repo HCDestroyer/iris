@@ -6421,6 +6421,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/webhooks-salida/{id}/reenviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reenviar a Argos un webhook agotado
+         * @description Permiso: `integraciones.reenviar_webhook`. Vuelve a la cola un webhook de Iris hacia Argos que agotó sus reintentos (intentos en cero). Otro estado: 422 `webhook_no_agotado`. Auditada; evento `integracion.webhook_reenviado`.
+         */
+        post: operations["reenviarWebhookSalida"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes": {
         parameters: {
             query?: never;
@@ -10150,10 +10170,10 @@ export interface components {
              */
             nivel: "info" | "alerta" | "peligro";
             /**
-             * @description argos_clave_reutilizada: Argos respondió idempotency_key_reutilizada a una acción de Iris, que quedó sin hacer para una persona (contrato 0.14.0 §3.10; datos: pendiente_id, operacion, entidad, entidad_id, empresa_id y seguridad; peligro si es un cambio o un intento de recuperación). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
+             * @description argos_carga_vinculos: la carga inicial de vínculos con Argos está detenida porque algún vinculado agotó sus reintentos (contrato 0.14.0 §6.6; datos: conector_id y agotados; se reenvía desde la cola de webhooks). argos_clave_reutilizada: Argos respondió idempotency_key_reutilizada a una acción de Iris, que quedó sin hacer para una persona (contrato 0.14.0 §3.10; datos: pendiente_id, operacion, entidad, entidad_id, empresa_id y seguridad; peligro si es un cambio o un intento de recuperación). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
              * @enum {string}
              */
-            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado" | "argos_clave_reutilizada";
+            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado" | "argos_clave_reutilizada" | "argos_carga_vinculos";
             /** @description Texto en español, listo para mostrar */
             titulo: string;
         };
@@ -18479,7 +18499,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "adjuntos.verificar_integracion" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "cuadrillas.asignar_jefe" | "cuadrillas.leer_integracion" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.declarar_perdida" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "adjuntos.verificar_integracion" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "cuadrillas.asignar_jefe" | "cuadrillas.leer_integracion" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reenviar_webhook" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.declarar_perdida" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -21618,6 +21638,18 @@ export interface components {
             duplicado: boolean;
             /** Format: int64 */
             entranteId: number;
+        };
+        WebhookSalida: {
+            /** Format: int64 */
+            empresaId: number | null;
+            /** @enum {string} */
+            estado: "pendiente" | "entregado" | "agotado" | "omitido";
+            evento: string;
+            id: string;
+            /** Format: int32 */
+            intentos: number;
+            /** Format: date-time */
+            proximoIntento: string;
         };
         Yo: {
             /**
@@ -47203,6 +47235,77 @@ export interface operations {
             };
             /** @description Bad Gateway */
             502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reenviarWebhookSalida: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                /** @description Id del webhook (el del evento, X-Webhook-Id) */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WebhookSalida"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

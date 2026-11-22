@@ -54,6 +54,9 @@ describe("aviso de clave reutilizada en Argos", () => {
         expect(detalleAvisoPanel(clave(false))).toContain("no la reintenta");
         expect(detalleAvisoPanel(clave(false))).not.toContain("ajeno");
         expect(tonoAvisoPanel(clave(true).nivel)).toBe("error");
+        const carga = aviso({ tipo: "argos_carga_vinculos", nivel: "peligro", enlace: "/administracion/integraciones/argos", datos: { conector_id: 3, agotados: 1 }, empresaId: null });
+        expect(iconoAvisoPanel(carga.tipo)).not.toBe(iconoAvisoPanel("argos_clave_reutilizada"));
+        expect(detalleAvisoPanel(carga)).toContain("Reenvíalo");
     });
 });
 

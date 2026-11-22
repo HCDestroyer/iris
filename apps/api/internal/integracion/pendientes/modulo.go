@@ -93,6 +93,8 @@ type Modulo struct {
 	Reintentar         *auditoria.Caso[EntradaReintentar, Pendiente]
 	ResolverManual     *auditoria.Caso[EntradaResolverManual, Pendiente]
 	EncolarCierreOrden *auditoria.Caso[OrdenCerrada, ResultadoCierre]
+	bloquearPorVinculo *auditoria.Caso[entradaBloqueoVinculo, bool]
+	desbloquearVinculo *auditoria.Caso[entradaDesbloqueoVinculo, bool]
 	resolver           *auditoria.Caso[resultadoIntento, Pendiente]
 	resolverListos     *auditoria.Caso[time.Time, int]
 	armarIntento       *auditoria.Caso[entradaArmarIntento, string]
@@ -113,6 +115,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.ResolverManual = nuevoResolverManual(m)
 	m.EncolarCierreOrden = nuevoEncolarCierreOrden(m)
 	m.resolver = nuevoResolver(m)
+	m.bloquearPorVinculo, m.desbloquearVinculo = nuevoBloquearPorVinculo(), nuevoDesbloquearPorVinculo()
 	m.armarIntento = m.nuevoArmarIntento()
 	m.verificarIntento = m.nuevoVerificarIntento()
 	m.resolverListos = auditoria.Nuevo(auditoria.Caso[time.Time, int]{

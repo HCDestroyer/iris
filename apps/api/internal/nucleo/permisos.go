@@ -245,6 +245,9 @@ const (
 	// PermIntegracionesSincronizar: reanudar o volver a lanzar la primera sincronización con Argos
 	// (contrato 0.8.0 §2.5).
 	PermIntegracionesSincronizar Permiso = "integraciones.sincronizar"
+	// PermIntegracionesReenviarWebhook: volver a mandar a Argos un webhook de Iris que agotó sus
+	// reintentos (POST /mensajeria/webhooks-salida/{id}/reenviar; contrato 0.14.0 §6.6).
+	PermIntegracionesReenviarWebhook Permiso = "integraciones.reenviar_webhook"
 )
 
 // Adjuntos (fotos, firmas, documentos de órdenes y tickets) y cola de pendientes hacia Argos.
@@ -452,7 +455,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermUsuariosAsignarRol: true, PermUsuariosQuitarRol: true, PermUsuariosCerrarSesiones: true,
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
-	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true,
+	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true, PermIntegracionesReenviarWebhook: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermPlantillasWhatsAppCrear: true, PermPlantillasWhatsAppEditar: true, PermPlantillasWhatsAppBorrar: true,
@@ -585,6 +588,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesEliminar, "Eliminar un conector apagado que ya no se usa (queda en la auditoría; sus credenciales se borran)"},
+	{PermIntegracionesReenviarWebhook, "Volver a mandar a Argos un aviso de Iris (webhook) que agotó sus reintentos, p. ej. el vínculo de un técnico"},
 	{PermIntegracionesReintentar, "Reintentar a mano una acción pendiente hacia Argos (fallida o agotada)"},
 	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
 	{PermIntegracionesRevisarVersion, "Releer ya la versión de Argos en un conector (diagnóstico: la URL base y el status de la última lectura)"},

@@ -10,6 +10,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -135,5 +136,113 @@ func TestCargaDeVinculosAlInformar014(t *testing.T) {
 	}
 	if cerrar() {
 		t.Fatal("una carga cerrada no se vuelve a cerrar")
+	}
+}
+
+// A-1: reconectar la misma instancia de Argos (misma base_url) pasa al conector nuevo los vínculos
+// de los técnicos, los webhooks tecnico.argos_* (entregados o no) y la carga inicial: siguen
+// entregándose y conciliándose, sin otra carga. Lo de otros webhooks no cambia.
+func TestReconexionConservaLosVinculos(t *testing.T) {
+	e := nuevoEntorno(t)
+	admin, viejo, _ := e.conectado()
+	ctx := pruebas.ContextoSistema(e.pool)
+	u, err := e.ident.CrearUsuario.Ejecutar(ctx, identidad.EntradaCrearUsuario{Nombre: "Técnico", Correo: pruebas.Correo("vinc"), Contrasena: contrasena})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ficha int64
+	if err := e.pool.QueryRow(ctx, `INSERT INTO agenda.tecnicos (usuario_id, argos_id_externo, argos_vinculado_en, argos_conector_id)
+		VALUES ($1, $2, now(), $3) RETURNING id`, u.ID, "u-recon-"+pruebas.Unico(), viejo).Scan(&ficha); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _, _ = e.pool.Exec(context.Background(), `DELETE FROM agenda.tecnicos WHERE id = $1`, ficha) })
+	carga := uuid.Must(uuid.NewV7())
+	if _, err := e.pool.Exec(ctx, `UPDATE integracion.conectores SET vinculos_carga_id = $2, vinculos_carga_n = 2 WHERE id = $1`, viejo, carga); err != nil {
+		t.Fatal(err)
+	}
+	webhook := func(evento, estado string) uuid.UUID {
+		id := uuid.Must(uuid.NewV7())
+		if _, err := e.pool.Exec(ctx, `INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, estado, conector_origen)
+			VALUES ($1, $2, 1, '{}', now(), $3, $4)`, id, evento, estado, viejo); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	entregado, pendiente := webhook("tecnico.argos_vinculado", "entregado"), webhook("tecnico.argos_vinculado", "pendiente")
+
+	nuevo := e.reconectar(admin, false)
+	if nuevo == viejo {
+		t.Fatal("la reconexión crea otro conector")
+	}
+	if e.contar(`SELECT count(*) FROM agenda.tecnicos WHERE id = $1 AND argos_conector_id = $2`, ficha, nuevo) != 1 {
+		t.Fatal("el vínculo pasa al conector nuevo")
+	}
+	if e.contar(`SELECT count(*) FROM mensajeria.webhooks_salida WHERE id = ANY($1) AND conector_origen = $2`, []uuid.UUID{entregado, pendiente}, nuevo) != 2 {
+		t.Fatal("los webhooks del vínculo pasan al conector nuevo")
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND vinculos_carga_id = $2 AND vinculos_carga_n = 2`, nuevo, carga) != 1 {
+		t.Fatal("la carga sigue en el conector nuevo")
+	}
+
+	// Otra instancia (otra base_url) no se lleva nada.
+	if _, err := e.pool.Exec(ctx, `UPDATE integracion.conectores SET base_url = 'https://otro-argos.prueba' WHERE id = $1`, nuevo); err != nil {
+		t.Fatal(err)
+	}
+	otro := e.reconectar(admin, false)
+	if e.contar(`SELECT count(*) FROM agenda.tecnicos WHERE id = $1 AND argos_conector_id = $2`, ficha, nuevo) != 1 || otro == nuevo {
+		t.Fatal("otra instancia de Argos no se lleva el vínculo")
+	}
+}
+
+// M-2: con un vinculado de la carga agotado, la carga no se cierra y el admin recibe un aviso (un
+// evento argos.carga_vinculos_detenida por episodio); reenviado y entregado, se cierra.
+func TestCargaDetenidaAvisa(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos.con(func() { e.argos.version, e.argos.contratoMax = "1.30.0", "0.14.0" })
+	_, id, _ := e.conectado()
+	ctx := pruebas.ContextoSistema(e.pool)
+	cfg := e.cfg
+	cfg.ContratoIris = "0.14.0"
+	cfg.Vinculos = func(context.Context, int64, uuid.UUID) (int, error) { return 1, nil }
+	mod := argos.Nuevo(cfg)
+	mod.Nucleo().FijarTokens(e.ident)
+	if _, err := mod.InformarContrato.Ejecutar(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	var carga uuid.UUID
+	if err := e.pool.QueryRow(ctx, `SELECT vinculos_carga_id FROM integracion.conectores WHERE id = $1`, id).Scan(&carga); err != nil {
+		t.Fatal(err)
+	}
+	w := uuid.Must(uuid.NewV7())
+	if _, err := e.pool.Exec(ctx, `INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, estado, conector_origen, carga_id)
+		VALUES ($1, 'tecnico.argos_vinculado', 1, '{}', now(), 'agotado', $2, $3)`, w, id, carga); err != nil {
+		t.Fatal(err)
+	}
+	avisos := func() int {
+		return e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = $1 AND payload->>'carga_id' = $2`, argos.EventoCargaDetenida, carga.String())
+	}
+	for range 2 {
+		if ok, err := mod.CerrarCargaVinculos(ctx); err != nil || ok {
+			t.Fatalf("con un agotado no se cierra: %v %v", ok, err)
+		}
+	}
+	if avisos() != 1 {
+		t.Fatalf("un aviso por episodio: %d", avisos())
+	}
+	// Reenviado (vuelve a pendiente): el episodio termina; entregado, se cierra.
+	if _, err := e.pool.Exec(ctx, `UPDATE mensajeria.webhooks_salida SET estado = 'pendiente' WHERE id = $1`, w); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := mod.CerrarCargaVinculos(ctx); err != nil || ok {
+		t.Fatalf("pendiente: %v %v", ok, err)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.conectores WHERE id = $1 AND vinculos_carga_avisada_en IS NULL`, id) != 1 {
+		t.Fatal("el episodio terminó")
+	}
+	if _, err := e.pool.Exec(ctx, `UPDATE mensajeria.webhooks_salida SET estado = 'entregado' WHERE id = $1`, w); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := mod.CerrarCargaVinculos(ctx); err != nil || !ok {
+		t.Fatalf("entregado: %v %v", ok, err)
 	}
 }

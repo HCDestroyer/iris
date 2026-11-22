@@ -102,9 +102,10 @@ type Modulo struct {
 	cfg                       Config
 	nucleo                    *conector.Nucleo
 	// Carga inicial de vínculos (0.14.0 §6.6).
-	iniciarCarga       *auditoria.Caso[int64, ResultadoCargaVinculos]
-	marcarCargaCerrada *auditoria.Caso[ResultadoCargaVinculos, ResultadoCargaVinculos]
-	conexion           *conector.Conexion
+	iniciarCarga        *auditoria.Caso[int64, ResultadoCargaVinculos]
+	marcarCargaCerrada  *auditoria.Caso[ResultadoCargaVinculos, ResultadoCargaVinculos]
+	avisarCargaDetenida *auditoria.Caso[entradaCargaDetenida, bool]
+	conexion            *conector.Conexion
 
 	Conectar        *conector.Conectar
 	Previsualizar   *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
@@ -165,6 +166,7 @@ func Nuevo(cfg Config) *Modulo {
 	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones(), refrescos: nuevosRefrescos(), guardarFichaInterna: nuevoGuardarFichaInterna(),
 		guardarTrasladoLeido: nuevoGuardarTrasladoLeido(), guardarCuentas: nuevoGuardarCuentas()}
 	m.iniciarCarga, m.marcarCargaCerrada = nuevoIniciarCargaVinculos(m), nuevoMarcarCargaCerrada(m)
+	m.avisarCargaDetenida = nuevoAvisarCargaDetenida(m)
 	m.nucleo = conector.Nuevo(conector.Config{
 		Cifrador: cfg.Cifrador, BaseURL: cfg.BaseURL, VentanaWebhook: cfg.VentanaWebhook, VigenciaEnlace: cfg.VigenciaEnlace,
 		PermitirHTTP: cfg.PermitirHTTP, Encolar: cfg.Encolar, Version: cfg.Version,
@@ -177,6 +179,10 @@ func Nuevo(cfg Config) *Modulo {
 		// Primera carga de zonas y routers e informe del contrato (0.5.0), en la transacción de la
 		// activación (también al reconectar: el conector nuevo se activa).
 		AlActivar: func(ctx context.Context, tx pgx.Tx, conectorID int64) error {
+			// 0.14.0 §6.6 (A-1): los vínculos de la misma instancia de Argos pasan al conector nuevo.
+			if err := migrarVinculos(ctx, tx, conectorID); err != nil {
+				return err
+			}
 			if cfg.Encolar == nil {
 				return nil
 			}

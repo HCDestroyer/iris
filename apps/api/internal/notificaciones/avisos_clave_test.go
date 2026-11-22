@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
@@ -55,5 +56,34 @@ func TestAvisoClaveReutilizada(t *testing.T) {
 	}
 	if n := x.contar(`SELECT count(*) FROM notificaciones.correos WHERE tipo = $1`, notificaciones.TipoAvisoArgosClaveReutilizada); n != 0 {
 		t.Fatalf("solo campana: %d correos", n)
+	}
+}
+
+// Contrato 0.14.0 §6.6 (M-2): argos.carga_vinculos_detenida avisa en la campana (peligro) a quien
+// administra las integraciones, una vez por episodio.
+func TestAvisoCargaVinculosDetenida(t *testing.T) {
+	x := nuevoEntornoAvisos(t, false)
+	admin := x.persona([]int64{1}, "admin")
+	sup := x.persona([]int64{1}, "supervisor")
+	x.notif.SuscribirAvisos(x.relay.Bus, x.bd)
+	carga := uuid.Must(uuid.NewV7())
+	for _, episodio := range []int64{100, 100, 200} {
+		if err := nucleo.EnTx(x.ctx, func(ctx context.Context, tx pgx.Tx) error {
+			_, err := integracion.Insertar(ctx, tx, "argos.carga_vinculos_detenida", nil, "", map[string]any{"conector_id": 5,
+				"carga_id": carga, "agotados": 1, "episodio": episodio})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := x.relay.Ejecutar(x.ctx); err != nil {
+		t.Fatal(err)
+	}
+	avisos := x.avisosDe(admin, notificaciones.TipoAvisoArgosCargaVinculos)
+	if len(avisos) != 2 || avisos[0]["nivel"] != "peligro" || avisos[0]["titulo"] != notificaciones.TituloArgosCargaVinculos {
+		t.Fatalf("uno por episodio: %v", avisos)
+	}
+	if d := x.avisosDe(sup, notificaciones.TipoAvisoArgosCargaVinculos); len(d) != 0 {
+		t.Fatalf("el supervisor no lo recibe: %v", d)
 	}
 }
