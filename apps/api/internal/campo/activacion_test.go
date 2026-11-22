@@ -414,8 +414,11 @@ func TestEquipoYWifiDesdeLaOrden(t *testing.T) {
 			l = &x
 		}
 	}
+	if l == nil {
+		t.Fatal("no llegó el POST /wifi")
+	}
 	ver, _ := l.JSON["verificacion"].(map[string]any)
-	if l == nil || l.JSON["clave"] != claveWifiPrueba || ver["metodo"] != "presencial" || ver["cliente_id"] != 990.0 {
+	if l.JSON["clave"] != claveWifiPrueba || ver["metodo"] != "presencial" || ver["cliente_id"] != 990.0 {
 		t.Fatalf("POST /wifi: %+v", l)
 	}
 	lista := deber(e.m.CambiosWifi.Ejecutar(e.cs, campo.EntradaEquipoOrden{ID: o.ID}))(t)
@@ -486,8 +489,11 @@ func TestCobroDeLaInstalacion(t *testing.T) {
 	e.procesar()
 	clave := "iris:cargo:" + orden + ":" + c.ID.String()
 	l := e.falso.porClave(clave)
+	if l == nil {
+		t.Fatal("no llegó el cargo-unico")
+	}
 	lineas, _ := l.JSON["lineas"].([]any)
-	if l == nil || l.Actor != "usuario:"+strconv.FormatInt(desp, 10) || len(lineas) != 1 || l.JSON["monto"] != nil {
+	if l.Actor != "usuario:"+strconv.FormatInt(desp, 10) || len(lineas) != 1 || l.JSON["monto"] != nil {
 		t.Fatalf("cargo-unico: %+v", l)
 	}
 	if ln := lineas[0].(map[string]any); ln["concepto_id"] != 5.0 || ln["precio_unitario"] != "350.00" {

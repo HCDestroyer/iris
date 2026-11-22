@@ -60,7 +60,7 @@ async function filasCrudas(nombre: string): Promise<{ operaciones: unknown[]; ll
 describe("AlmacenDexie: datos sensibles cifrados", () => {
     it("las cuatro operaciones del titular son las cifradas", () => {
         expect([...TIPOS_CIFRADOS].sort()).toEqual(
-            ["orden.cambiar_plan", "orden.cambiar_titular", "orden.completar_datos", "orden.registrar_identidad"].sort(),
+            ["orden.activar_servicio", "orden.cambiar_plan", "orden.cambiar_titular", "orden.completar_datos", "orden.registrar_identidad"].sort(),
         );
     });
 

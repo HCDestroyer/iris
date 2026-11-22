@@ -373,16 +373,6 @@ func moneda(s *string) *string {
 	return &v
 }
 
-// es090 dice si el evento es un webhook de la 0.9.0.
-func es090(evento string) bool {
-	switch evento {
-	case EventoInstalacionAprovisionada, EventoInstalacionFallida, EventoWifiResuelto, EventoBienvenidaCambiada,
-		EventoFacturaEmitida, EventoFacturaAnulada, EventoPagoRegistrado, EventoPagoAnulado:
-		return true
-	}
-	return false
-}
-
 // emitir090 deja el evento interno del webhook.
 func emitir090(t *auditoria.Tx, ev evento090) error {
 	if ev.empresa != nil && *ev.empresa != 0 {

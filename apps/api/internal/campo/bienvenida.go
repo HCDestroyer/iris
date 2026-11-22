@@ -344,7 +344,7 @@ func (m *Modulo) nuevoBienvenidasSinEnviar() *auditoria.Caso[EntradaBienvenidasS
 				return r, err
 			}
 			for i, f := range filas {
-				if int32(i) == limite {
+				if i == int(limite) {
 					c := strconv.FormatInt(filas[i-1].ID, 10)
 					r.NextCursor = &c
 					break
