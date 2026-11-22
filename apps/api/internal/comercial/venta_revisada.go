@@ -168,6 +168,18 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 				t.RegistrarCambios("cotizacion", pendiente.ID, map[string]any{"estado": pendiente.Estado}, map[string]any{"estado": "reemplazada"})
 				reemplaza = &pendiente.ID
 			}
+			// Con la orden cerrada, un regenerado que seguía sin firmar se anula avisando a supervisión.
+			if o.Estado == "cerrada" {
+				if c, err := q.ContratoPorFirmarEnOrden(ctx, p.ID); err == nil {
+					if orden := ordenDeContrato(c); orden != nil && *orden == in.OrdenID {
+						if _, err := anularSinFirma(ctx, t, q, p, c, o, MotivoCambioTrasCierre); err != nil {
+							return r, err
+						}
+					}
+				} else if !errors.Is(err, pgx.ErrNoRows) {
+					return r, err
+				}
+			}
 			if err := anularPorFirmarEnOrden(ctx, t, q, p.ID, "Reemplazado por otra revisión en la instalación "+numeroOrden); err != nil {
 				return r, err
 			}

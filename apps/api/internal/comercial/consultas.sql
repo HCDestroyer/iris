@@ -443,3 +443,10 @@ SELECT id, numero, estado FROM campo.ordenes WHERE id = @id FOR SHARE;
 UPDATE comercial.cotizaciones SET vigente_hasta = @vigente_hasta, pdf_adjunto_id = sqlc.narg(pdf_adjunto_id),
     version = version + 1, updated_at = now()
 WHERE id = @id RETURNING *;
+
+-- name: AnularBorrador :one
+-- B20: anula el contrato solo si sigue en borrador (sin fila si ya se firmó o se anuló).
+UPDATE comercial.contratos
+SET estado = 'anulado', motivo_anulacion = @motivo, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'borrador'
+RETURNING *;

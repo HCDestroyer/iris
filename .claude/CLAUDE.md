@@ -217,6 +217,7 @@ Una tarea está terminada solo si:
 | `orden.titular_movido` | campo (B17) | orden_id, numero, servicio_id, de_cliente_id (o null), a_cliente_id, tipo_titular (o null), entrante_id |
 | `orden.identidad_registrada` / `orden.cambio_titular_registrado` | campo (paso «Confirmar titular y plan», §3.4) | orden_id, pendiente_id, documento_tipo (dpi, pasaporte), reemplaza_id (o null); toma, metodo (identidad); cambio, tipo_titular (persona, empresa), motivo_codigo (cambio); nunca el número, el nombre ni la foto |
 | `orden.revision_titular_levantada` | campo (panel, §3.4.8) | orden_id, usuario_id; nunca el motivo |
+| `orden.contrato_sin_firma` | comercial (B20: orden cerrada con el contrato regenerado sin firmar) | orden_id, prospecto_id, empresa_id, contrato_id, operacion (cambiar_plan, cambiar_titular o null), motivo (cierre_sin_firma, cambio_tras_cierre) |
 | `orden.paso_titular_tras_cancelar` | integracion (pendientes) | orden_id, pendiente_id, operacion, estado_orden (cancelada, fallida; cerrada solo en cambiar_plan y cambiar_titular) |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |

@@ -145,6 +145,49 @@ func (q *Queries) AnotarRegistroArgos(ctx context.Context, arg AnotarRegistroArg
 	return err
 }
 
+const anularBorrador = `-- name: AnularBorrador :one
+UPDATE comercial.contratos
+SET estado = 'anulado', motivo_anulacion = $1, version = version + 1, updated_at = now()
+WHERE id = $2 AND estado = 'borrador'
+RETURNING id, numero, empresa_id, prospecto_id, cotizacion_id, plantilla, estado, contenido, pdf_adjunto_id, firmante_nombre, firmante_documento, firma_svg, firma_lat, firma_lon, firmado_en, firmado_por, pdf_firmado_id, pdf_firmado_sha256, motivo_anulacion, version, created_at, updated_at
+`
+
+type AnularBorradorParams struct {
+	Motivo *string
+	ID     int64
+}
+
+// B20: anula el contrato solo si sigue en borrador (sin fila si ya se firmó o se anuló).
+func (q *Queries) AnularBorrador(ctx context.Context, arg AnularBorradorParams) (ComercialContrato, error) {
+	row := q.db.QueryRow(ctx, anularBorrador, arg.Motivo, arg.ID)
+	var i ComercialContrato
+	err := row.Scan(
+		&i.ID,
+		&i.Numero,
+		&i.EmpresaID,
+		&i.ProspectoID,
+		&i.CotizacionID,
+		&i.Plantilla,
+		&i.Estado,
+		&i.Contenido,
+		&i.PdfAdjuntoID,
+		&i.FirmanteNombre,
+		&i.FirmanteDocumento,
+		&i.FirmaSvg,
+		&i.FirmaLat,
+		&i.FirmaLon,
+		&i.FirmadoEn,
+		&i.FirmadoPor,
+		&i.PdfFirmadoID,
+		&i.PdfFirmadoSha256,
+		&i.MotivoAnulacion,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const anularContrato = `-- name: AnularContrato :one
 UPDATE comercial.contratos
 SET estado = 'anulado', motivo_anulacion = $1, version = version + 1, updated_at = now()

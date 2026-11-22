@@ -24,10 +24,48 @@ type EntradaCerrarOrden struct {
 	Resultado string   `json:"resultado,omitempty" enum:"exitosa,parcial" doc:"exitosa por defecto. Solo una instalación exitosa activa el servicio en Argos"`
 	Lat       *float64 `json:"lat,omitempty" minimum:"-90" maximum:"90"`
 	Lon       *float64 `json:"lon,omitempty" minimum:"-180" maximum:"180"`
-	Sync      *OpSync  `json:"-"`
+	// MotivoSinContratoFirmado: un supervisor cierra una instalación con el contrato regenerado sin firmar.
+	MotivoSinContratoFirmado *string `json:"motivoSinContratoFirmado,omitempty" minLength:"10" maxLength:"500" doc:"Solo desde el panel y con ordenes.validar_identidad (supervisor) sobre la orden: cierra la instalación aunque el titular no haya firmado el contrato regenerado (B20). Queda en la auditoría y avisa a supervisión (orden.contrato_sin_firma)"`
+	Sync                     *OpSync `json:"-"`
 }
 
 func (e EntradaCerrarOrden) ordenID() int64 { return e.ID }
+
+// exigirContratoFirmado (B20, verificación de #280): una instalación con el contrato regenerado
+// en la orden sin firmar no cierra (422 contrato_por_firmar), salvo que un supervisor la cierre
+// desde el panel con motivo (motivoSinContratoFirmado, con ordenes.validar_identidad sobre la orden, como
+// la validación de la identidad sin foto). Argos ya tiene el plan o el titular nuevo: sin la firma,
+// la subida de precio no queda aceptada (B6).
+func exigirContratoFirmado(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, tipo string, in EntradaCerrarOrden) error {
+	if tipo != tipoInstalacion {
+		if in.MotivoSinContratoFirmado != nil {
+			return campoInvalido("motivoSinContratoFirmado", "Solo para una instalación con el contrato regenerado sin firmar", "instalacion")
+		}
+		return nil
+	}
+	_, err := q.ContratoPorFirmarDeOrden(ctx, f.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if in.MotivoSinContratoFirmado != nil {
+			return campoInvalido("motivoSinContratoFirmado", "Esta orden no tiene un contrato por firmar", "sin_contrato")
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if in.MotivoSinContratoFirmado == nil {
+		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "contrato_por_firmar", "Falta la firma del contrato nuevo",
+			"El titular debe firmar en sitio el contrato regenerado (cambio de plan o de titular) antes de cerrar; un supervisor puede cerrar sin la firma desde el panel, con motivo",
+			nucleo.ErrorCampo{Field: "contrato", Message: "Falta la firma del contrato nuevo", Rule: "firma"})
+	}
+	if in.Sync != nil || !cubre(ctx, nucleo.PermOrdenesValidarIdentidad, f) {
+		return nucleo.Prohibido("Solo un supervisor cierra sin la firma del contrato nuevo, desde el panel")
+	}
+	if _, err := texto("motivoSinContratoFirmado", *in.MotivoSinContratoFirmado, 10, 500); err != nil {
+		return err
+	}
+	return nil
+}
 
 // cierreIncompleto: faltan requisitos de la plantilla o del tipo (422 con la lista).
 func cierreIncompleto(errores []nucleo.ErrorCampo) *nucleo.Problema {
@@ -89,6 +127,13 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			// Instalación de una venta: la identidad del titular registrada o validada (§3.4.8).
 			if err := m.exigirIdentidad(ctx, t, q, antes, tipo.Codigo, resultado); err != nil {
 				return antes, "", err
+			}
+			// Y el contrato regenerado en la orden, firmado (o un supervisor cierra sin la firma).
+			if err := exigirContratoFirmado(ctx, q, antes, tipo.Codigo, in); err != nil {
+				return antes, "", err
+			}
+			if in.MotivoSinContratoFirmado != nil {
+				t.Anotar(map[string]any{"cierre_sin_contrato_firmado": true})
 			}
 			faltan, err := m.cfg.Adjuntos.Faltantes(ctx, antes.ID, requisitosAdjuntos(d))
 			if err != nil {

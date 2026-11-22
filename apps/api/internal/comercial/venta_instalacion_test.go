@@ -16,6 +16,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
+	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -313,19 +314,77 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 		t.Fatal("renovar la vigencia sin el PDF nuevo en el diff")
 	}
 
-	// Orden cerrada: un regenerado sin firmar ya no se ofrece por firmar (se anula), y un cambio
-	// que Argos acepta tarde crea la revisión sin contrato.
+	// Orden cerrada (verificación de #280). Con un regenerado sin firmar, el cierre se rechaza con
+	// 422 contrato_por_firmar (en el lote y en el panel); un supervisor cierra igual desde el panel
+	// con motivo: el regenerado se anula (solo si sigue en borrador), sale orden.contrato_sin_firma
+	// y llega a la campana de los supervisores de la orden. La revisión aceptada y el firmado siguen.
+	notif := notificaciones.Nuevo(notificaciones.Config{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	notif.SuscribirAvisos(e.bus, pruebas.Pool(t))
+	// Lo demás del cierre (checklist y equipo) no es lo que se prueba aquí.
+	for _, sql := range []string{"DELETE FROM campo.orden_formularios WHERE orden_id = $1", "UPDATE campo.tipos_orden SET exige_instalar = false WHERE codigo = 'instalacion' AND $1 > 0"} {
+		if _, err := pruebas.Pool(t).Exec(context.Background(), sql, orden); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.tipos_orden SET exige_instalar = true WHERE codigo = 'instalacion'")
+	})
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.orden_titular SET validada_en = now(), validada_por = $2, validada_motivo = 'Validada para la prueba' WHERE orden_id = $1", orden, sup); err != nil {
+		t.Fatal(err)
+	}
 	r5 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
 		PlanID: ptr(int64(300)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":4"}))(t)
 	if r5.ContratoID == nil {
 		t.Fatalf("revisión en sitio: %+v", r5)
 	}
-	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'cerrada', finalizada_en = now(), resultado = 'exitosa' WHERE id = $1", orden); err != nil {
+	idCierre, _ := uuid.NewV7()
+	lc, err := e.cmp.Lote(ct, campo.EntradaLote{DispositivoID: "tel-cierre-" + pruebas.Unico(), Operaciones: []campo.OperacionLote{
+		{ID: idCierre.String(), Tipo: campo.OpCerrar, OrdenID: orden}}})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if rc := deber(e.com.OrdenTerminada(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "cerrada", De: "en_sitio"}))(t); rc.ContratoID == nil || *rc.ContratoID != *r5.ContratoID {
-		t.Fatalf("orden cerrada con un regenerado sin firmar: %+v", rc)
+	if res := lc.Resultados[0]; res.Estado != "rechazada" || res.Error == nil || res.Error.Codigo() != "contrato_por_firmar" {
+		t.Fatalf("cierre sin firma en el lote: %+v", res)
 	}
+	_, err = e.cmp.CerrarOrden.Ejecutar(ct, campo.EntradaCerrarOrden{ID: orden, Version: version()})
+	problema(t, err, 422, "contrato_por_firmar")
+	// El técnico no cierra sin la firma ni con motivo.
+	_, err = e.cmp.CerrarOrden.Ejecutar(ct, campo.EntradaCerrarOrden{ID: orden, Version: version(), MotivoSinContratoFirmado: ptr("El cliente no quiso firmar hoy")})
+	problema(t, err, 403, "prohibido")
+	deber(e.cmp.CerrarOrden.Ejecutar(cs, campo.EntradaCerrarOrden{ID: orden, Version: version(), MotivoSinContratoFirmado: ptr("El titular no estaba; firma en la oficina")}))(t)
+	if n := contar(t, `SELECT count(*) FROM auditoria.acciones WHERE accion = 'ordenes.cerrar' AND entidad_id = $1 AND resultado = 'ok'
+		AND entrada->>'motivoSinContratoFirmado' = 'El titular no estaba; firma en la oficina'`, strconv.FormatInt(orden, 10)); n != 1 {
+		t.Fatal("el cierre sin firma sin el motivo en la auditoría")
+	}
+	e.relay()
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'anulado'", *r5.ContratoID); n != 1 {
+		t.Fatal("el regenerado no se anuló al cerrar")
+	}
+	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.contrato_sin_firma' AND (payload->>'orden_id')::bigint = $1
+		AND (payload->>'contrato_id')::bigint = $2 AND payload->>'operacion' = 'cambiar_plan' AND payload->>'motivo' = 'cierre_sin_firma'`, orden, *r5.ContratoID); n != 1 {
+		t.Fatal("sin orden.contrato_sin_firma")
+	}
+	clave := "contrato_sin_firma:" + strconv.FormatInt(*r5.ContratoID, 10)
+	if n := contar(t, "SELECT count(*) FROM notificaciones.avisos WHERE usuario_id = $1 AND tipo = 'contrato_sin_firma' AND clave = $2", sup, clave); n != 1 {
+		t.Fatal("la campana del supervisor no recibió el cierre sin firma")
+	}
+	if n := contar(t, "SELECT count(*) FROM notificaciones.avisos WHERE usuario_id = $1 AND clave = $2", tec, clave); n != 0 {
+		t.Fatal("el aviso de supervisión le llegó al técnico")
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'firmado'", reprogramado); n != 1 {
+		t.Fatal("el contrato firmado no sigue vivo al cerrar")
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND estado = 'aceptada'", *r4.CotizacionID); n != 1 {
+		t.Fatal("la revisión aceptada no sigue viva al cerrar")
+	}
+	// Un segundo OrdenTerminada con la orden cerrada no hace nada; tampoco anula un firmado.
+	if rc := deber(e.com.OrdenTerminada(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "cerrada", De: "en_sitio"}))(t); rc.ContratoID != nil {
+		t.Fatalf("segundo OrdenTerminada: %+v", rc)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.contrato_sin_firma' AND (payload->>'orden_id')::bigint = $1", orden); n != 1 {
+		t.Fatal("orden.contrato_sin_firma repetido")
+	}
+	// Argos acepta tarde otro cambio de plan con la orden cerrada: revisión sin contrato, nada por firmar.
 	r6 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
 		PlanID: ptr(int64(301)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":5"}))(t)
 	if r6.CotizacionID == nil || r6.ContratoID != nil {
@@ -336,6 +395,21 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 	}
 	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'prospecto.venta_revisada' AND (payload->>'cotizacion_id')::bigint = $1 AND payload->'contrato_id' = 'null'::jsonb", *r6.CotizacionID); n != 1 {
 		t.Fatal("venta_revisada sin contrato con la orden cerrada")
+	}
+	// orden.paso_titular_tras_cancelar llega a la campana de supervisión una sola vez (el relay
+	// entrega el evento dos veces).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.outbox (id, evento, empresa_id, payload)
+		VALUES (gen_random_uuid(), 'orden.paso_titular_tras_cancelar', 1, $1)`,
+		`{"orden_id":`+strconv.FormatInt(orden, 10)+`,"pendiente_id":987654,"operacion":"cambiar_plan","estado_orden":"cerrada"}`); err != nil {
+		t.Fatal(err)
+	}
+	e.relay()
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.outbox SET publicado_en = NULL WHERE evento = 'orden.paso_titular_tras_cancelar' AND payload->>'pendiente_id' = '987654'"); err != nil {
+		t.Fatal(err)
+	}
+	e.relay()
+	if n := contar(t, "SELECT count(*) FROM notificaciones.avisos WHERE tipo = 'paso_titular' AND clave = 'paso_titular:987654'"); n != 1 {
+		t.Fatalf("avisos de paso_titular: %d (uno por supervisor, una vez)", n)
 	}
 	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', finalizada_en = NULL, resultado = NULL WHERE id = $1", orden); err != nil {
 		t.Fatal(err)

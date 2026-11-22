@@ -102,6 +102,7 @@ const PROBLEMAS: Record<string, string> = {
     bloqueada_por_rechazo: "Quedó detenida por un rechazo anterior de la misma orden.",
     faltan_adjuntos: "Faltan fotos o la firma por terminar de subir.",
     cierre_incompleto: "Falta completar el trabajo antes de cerrar.",
+    contrato_por_firmar: "Falta la firma del contrato nuevo.",
     validacion: "Algún dato no es válido.",
     tarea_anulada: "Tu supervisor anuló la tarea.",
     tarea_completada: "La tarea ya estaba hecha.",

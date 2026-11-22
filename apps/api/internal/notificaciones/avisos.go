@@ -49,7 +49,7 @@ const (
 // AvisoPanel es un aviso de la campana.
 type AvisoPanel struct {
 	ID        int64          `json:"id"`
-	Tipo      string         `json:"tipo" enum:"asistente_tope,servidor_ia_caido,servidor_ia_incompatible,servidor_ia_umbral,argos_certificado,venta_revisada" doc:"venta_revisada: la instalación cambió el plan o el titular de una venta del vendedor (B20; datos: prospecto_id, orden_id, motivo plan|titular, cotizacion_id). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)"`
+	Tipo      string         `json:"tipo" enum:"asistente_tope,servidor_ia_caido,servidor_ia_incompatible,servidor_ia_umbral,argos_certificado,venta_revisada,paso_titular,contrato_sin_firma" doc:"paso_titular: un paso del titular quedó hecho en Argos con la orden ya cancelada, fallida o cerrada (datos: orden_id, pendiente_id, operacion, estado_orden); a los supervisores de la orden. contrato_sin_firma: la orden se cerró con el contrato regenerado sin firmar (datos: orden_id, contrato_id, prospecto_id, operacion, motivo cierre_sin_firma|cambio_tras_cierre); a los supervisores de la orden. venta_revisada: la instalación cambió el plan o el titular de una venta del vendedor (B20; datos: prospecto_id, orden_id, motivo plan|titular, cotizacion_id). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)"`
 	Nivel     string         `json:"nivel" enum:"info,alerta,peligro" doc:"alerta al 80 %, peligro al 100 % (el asistente se pausó)"`
 	Titulo    string         `json:"titulo" doc:"Texto en español, listo para mostrar"`
 	Enlace    *string        `json:"enlace" nullable:"true" doc:"Ruta del panel a la que lleva (p. ej. /administracion/asistente)"`
@@ -354,6 +354,7 @@ func (m *Modulo) SuscribirAvisos(bus *integracion.Bus, bd nucleo.BD) {
 	m.suscribirServidorIA(bus, bd)
 	m.suscribirArgos(bus, bd)
 	m.suscribirVentas(bus, bd)
+	m.suscribirSupervision(bus, bd)
 	bus.Suscribir("notificaciones.avisos", "asistente.tope_alcanzado", func(ctx context.Context, e integracion.Evento) error {
 		var in EntradaAvisarTope
 		if err := json.Unmarshal(e.Payload, &in); err != nil {

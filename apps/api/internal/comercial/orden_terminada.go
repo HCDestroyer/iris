@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -95,14 +96,63 @@ func (m *Modulo) nuevoOrdenTerminada() *auditoria.Caso[EntradaOrdenTerminada, Re
 			}
 			t.FijarEntidad("contrato", c.ID)
 			t.FijarEmpresa(deref(p.EmpresaID))
-			motivo := "La orden " + o.Numero + " quedó " + o.Estado + ": el contrato regenerado ya no se firma en sitio"
-			if err := anular(ctx, t, q, c, p.ID, motivo); err != nil {
+			anulado, err := anularSinFirma(ctx, t, q, p, c, o, MotivoCierreSinFirma)
+			if err != nil || !anulado {
 				return r, err
 			}
 			r.ContratoID = &c.ID
-			return r, historial(ctx, t, q, p.ID, "contrato_anulado", nil, nil, &motivo, map[string]any{"contrato_id": c.ID, "orden_id": in.OrdenID})
+			return r, nil
 		},
 	})
+}
+
+// EventoContratoSinFirma: la orden quedó cerrada con el contrato regenerado sin firmar (un
+// supervisor la cerró sin la firma, o Argos aceptó un cambio tarde): Argos tiene el plan o el
+// titular nuevo sin la firma de B6. Va a la campana de los supervisores de la orden.
+const EventoContratoSinFirma = "orden.contrato_sin_firma"
+
+// Motivos de orden.contrato_sin_firma.
+const (
+	MotivoCierreSinFirma   = "cierre_sin_firma"   // un supervisor cerró la orden sin la firma
+	MotivoCambioTrasCierre = "cambio_tras_cierre" // Argos aceptó el cambio con la orden ya cerrada
+)
+
+// anularSinFirma anula el contrato regenerado solo si sigue en borrador (false si ya se firmó o se
+// anuló: nada que hacer). Con la orden cerrada, emite orden.contrato_sin_firma en la misma
+// transacción.
+func anularSinFirma(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, p comercialbd.ComercialProspecto,
+	c comercialbd.ComercialContrato, o comercialbd.OrdenEstadoCompartidoRow, motivoCodigo string) (bool, error) {
+	motivo := "La orden " + o.Numero + " quedó " + o.Estado + ": el contrato regenerado ya no se firma en sitio"
+	f, err := q.AnularBorrador(ctx, comercialbd.AnularBorradorParams{Motivo: &motivo, ID: c.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	t.RegistrarCambios("contrato", f.ID, map[string]any{"estado": c.Estado}, map[string]any{"estado": f.Estado, "motivo_anulacion": motivo})
+	if err := t.Emitir("contrato.anulado", map[string]any{"contrato_id": f.ID, "prospecto_id": p.ID, "de": c.Estado, "motivo": motivo}); err != nil {
+		return false, err
+	}
+	if err := historial(ctx, t, q, p.ID, "contrato_anulado", nil, nil, &motivo, map[string]any{"contrato_id": c.ID, "orden_id": o.ID}); err != nil {
+		return false, err
+	}
+	if o.Estado != "cerrada" {
+		return true, nil
+	}
+	var operacion *string
+	if cot, err := q.CotizacionPorID(ctx, c.CotizacionID); err != nil {
+		return false, err
+	} else if cot.Idempotencia != nil {
+		switch {
+		case strings.HasPrefix(*cot.Idempotencia, claveRevision("iris:plan:")):
+			operacion = ptr("cambiar_plan")
+		case strings.HasPrefix(*cot.Idempotencia, claveRevision("iris:titular:")):
+			operacion = ptr("cambiar_titular")
+		}
+	}
+	return true, t.Emitir(EventoContratoSinFirma, map[string]any{"orden_id": o.ID, "prospecto_id": p.ID, "empresa_id": p.EmpresaID,
+		"contrato_id": c.ID, "operacion": operacion, "motivo": motivoCodigo})
 }
 
 // ResultadoOrdenReabierta: el contrato regenerado de nuevo (nil si no hacía falta).
