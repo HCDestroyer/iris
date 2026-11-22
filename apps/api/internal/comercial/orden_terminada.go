@@ -140,19 +140,33 @@ func anularSinFirma(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries
 	if o.Estado != "cerrada" {
 		return true, nil
 	}
-	var operacion *string
-	if cot, err := q.CotizacionPorID(ctx, c.CotizacionID); err != nil {
+	cot, err := q.CotizacionPorID(ctx, c.CotizacionID)
+	if err != nil {
 		return false, err
-	} else if cot.Idempotencia != nil {
-		switch {
-		case strings.HasPrefix(*cot.Idempotencia, claveRevision("iris:plan:")):
-			operacion = ptr("cambiar_plan")
-		case strings.HasPrefix(*cot.Idempotencia, claveRevision("iris:titular:")):
-			operacion = ptr("cambiar_titular")
-		}
 	}
-	return true, t.Emitir(EventoContratoSinFirma, map[string]any{"orden_id": o.ID, "prospecto_id": p.ID, "empresa_id": p.EmpresaID,
-		"contrato_id": c.ID, "operacion": operacion, "motivo": motivoCodigo})
+	operacion := operacionDeRevision(cot.Idempotencia)
+	return true, emitirContratoSinFirma(t, o.ID, p, &c.ID, c.CotizacionID, operacion, motivoCodigo)
+}
+
+// emitirContratoSinFirma: orden.contrato_sin_firma (contrato_id null si la revisión se creó sin
+// contrato, con la orden ya cerrada).
+func emitirContratoSinFirma(t *auditoria.Tx, orden int64, p comercialbd.ComercialProspecto, contrato *int64, cotizacion int64,
+	operacion *string, motivo string) error {
+	return t.Emitir(EventoContratoSinFirma, map[string]any{"orden_id": orden, "prospecto_id": p.ID, "empresa_id": p.EmpresaID,
+		"contrato_id": contrato, "cotizacion_id": cotizacion, "operacion": operacion, "motivo": motivo})
+}
+
+// operacionDeRevision: cambiar_plan o cambiar_titular según la clave de la revisión (nil si no).
+func operacionDeRevision(idem *string) *string {
+	switch {
+	case idem == nil:
+		return nil
+	case strings.HasPrefix(*idem, claveRevision("iris:plan:")):
+		return ptr("cambiar_plan")
+	case strings.HasPrefix(*idem, claveRevision("iris:titular:")):
+		return ptr("cambiar_titular")
+	}
+	return nil
 }
 
 // ResultadoOrdenReabierta: el contrato regenerado de nuevo (nil si no hacía falta).

@@ -23,7 +23,11 @@ import (
 //     (un cambio de plan o de titular) cerrada (orden.paso_titular_tras_cancelar). Clave
 //     paso_titular:<pendiente_id>;
 //   - contrato_sin_firma: la orden quedó cerrada con el contrato regenerado sin firmar
-//     (orden.contrato_sin_firma). Clave contrato_sin_firma:<contrato_id>.
+//     (orden.contrato_sin_firma). Clave contrato_sin_firma:<contrato_id>, o
+//     contrato_sin_firma:cotizacion:<cotizacion_id> si la revisión se creó sin contrato.
+//
+// Destinatarios (DestinatariosDeOrden): con la orden sin empresa (empresa_id null, sin conector),
+// todos los que tienen el permiso con alcance sobre la orden, sin filtro de empresa.
 //
 // Solo campana (informativo; lo hecho en Argos no se deshace solo). Uno por usuario y clave.
 
@@ -40,10 +44,12 @@ type EntradaAvisarSupervision struct {
 	OrdenID     int64     `json:"orden_id"`
 	PendienteID int64     `json:"pendiente_id"`
 	ContratoID  int64     `json:"contrato_id"`
-	ProspectoID *int64    `json:"prospecto_id"`
-	Operacion   *string   `json:"operacion"`
-	EstadoOrden string    `json:"estado_orden"`
-	Motivo      string    `json:"motivo"`
+	// CotizacionID: la revisión (contrato_sin_firma sin contrato: la clave va por ella).
+	CotizacionID int64   `json:"cotizacion_id"`
+	ProspectoID  *int64  `json:"prospecto_id"`
+	Operacion    *string `json:"operacion"`
+	EstadoOrden  string  `json:"estado_orden"`
+	Motivo       string  `json:"motivo"`
 }
 
 // cambioDe: «el plan», «el titular» o «el paso del titular».
@@ -80,10 +86,15 @@ func (m *Modulo) nuevoAvisarSupervision() *auditoria.Caso[EntradaAvisarSupervisi
 				clave = fmt.Sprintf("%s:%d", TipoAvisoPasoTitular, in.PendienteID)
 				nivel = "alerta"
 			case TipoAvisoContratoSinFirma:
-				if in.ContratoID <= 0 {
+				switch {
+				case in.ContratoID > 0:
+					clave = fmt.Sprintf("%s:%d", TipoAvisoContratoSinFirma, in.ContratoID)
+				case in.CotizacionID > 0:
+					// Revisión creada sin contrato (Argos aceptó con la orden ya cerrada).
+					clave = fmt.Sprintf("%s:cotizacion:%d", TipoAvisoContratoSinFirma, in.CotizacionID)
+				default:
 					return r, nil
 				}
-				clave = fmt.Sprintf("%s:%d", TipoAvisoContratoSinFirma, in.ContratoID)
 				nivel = "alerta"
 			default:
 				return r, nil
@@ -109,7 +120,8 @@ func (m *Modulo) nuevoAvisarSupervision() *auditoria.Caso[EntradaAvisarSupervisi
 				titulo = fmt.Sprintf("La orden %s se cerró sin la firma del contrato nuevo (%s)", o.Numero, cambioDe(in.Operacion))
 			}
 			datos, err := json.Marshal(map[string]any{"orden_id": o.ID, "pendiente_id": nulo(in.PendienteID), "contrato_id": nulo(in.ContratoID),
-				"prospecto_id": in.ProspectoID, "operacion": in.Operacion, "estado_orden": in.EstadoOrden, "motivo": in.Motivo})
+				"cotizacion_id": nulo(in.CotizacionID),
+				"prospecto_id":  in.ProspectoID, "operacion": in.Operacion, "estado_orden": in.EstadoOrden, "motivo": in.Motivo})
 			if err != nil {
 				return r, err
 			}

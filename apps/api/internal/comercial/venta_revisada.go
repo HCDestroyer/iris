@@ -169,10 +169,11 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 				reemplaza = &pendiente.ID
 			}
 			// Con la orden cerrada, un regenerado que seguía sin firmar se anula avisando a supervisión.
+			avisado := false
 			if o.Estado == "cerrada" {
 				if c, err := q.ContratoPorFirmarEnOrden(ctx, p.ID); err == nil {
 					if orden := ordenDeContrato(c); orden != nil && *orden == in.OrdenID {
-						if _, err := anularSinFirma(ctx, t, q, p, c, o, MotivoCambioTrasCierre); err != nil {
+						if avisado, err = anularSinFirma(ctx, t, q, p, c, o, MotivoCambioTrasCierre); err != nil {
 							return r, err
 						}
 					}
@@ -248,6 +249,12 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 				"motivo": in.Motivo, "cotizacion_id": cot.ID, "contrato_id": contrato,
 			}); err != nil {
 				return r, err
+			}
+			// Cerrada sin contrato: Argos ya aplicó el cambio sin la firma; avisa a supervisión.
+			if o.Estado == "cerrada" && !avisado {
+				if err := emitirContratoSinFirma(t, in.OrdenID, p, nil, cot.ID, operacionDeRevision(&idem), MotivoCambioTrasCierre); err != nil {
+					return r, err
+				}
 			}
 			r.ProspectoID, r.CotizacionID, r.ContratoID = &p.ID, &cot.ID, contrato
 			return r, nil

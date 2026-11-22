@@ -314,7 +314,9 @@ func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.
 		}
 		t.RegistrarCambios("orden_titular", orden, map[string]any{"en_revision": false}, map[string]any{"en_revision": true})
 	case f.Estado == EstadoHecho:
-		estado, err := q.EstadoDeOrden(ctx, orden)
+		// Con candado compartido: el cierre de la orden (FOR UPDATE) espera a este paso o este paso
+		// ve la orden ya cerrada y avisa.
+		estado, err := q.EstadoDeOrdenCompartido(ctx, orden)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}

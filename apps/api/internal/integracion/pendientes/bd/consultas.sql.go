@@ -697,6 +697,19 @@ func (q *Queries) EstadoDeOrden(ctx context.Context, id int64) (string, error) {
 	return estado, err
 }
 
+const estadoDeOrdenCompartido = `-- name: EstadoDeOrdenCompartido :one
+SELECT estado FROM campo.ordenes WHERE id = $1::bigint FOR SHARE
+`
+
+// El estado de la orden con candado compartido (verificación de #280): un paso del titular hecho no
+// se cruza con el cierre de la orden, que la toma FOR UPDATE.
+func (q *Queries) EstadoDeOrdenCompartido(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, estadoDeOrdenCompartido, id)
+	var estado string
+	err := row.Scan(&estado)
+	return estado, err
+}
+
 const fallarEsperando = `-- name: FallarEsperando :one
 UPDATE integracion.pendientes
 SET estado = 'fallido_negocio', ultimo_error = $1::text, codigo_error = $2::text, version = version + 1, updated_at = now()

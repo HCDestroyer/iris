@@ -17,6 +17,8 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -396,6 +398,64 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'prospecto.venta_revisada' AND (payload->>'cotizacion_id')::bigint = $1 AND payload->'contrato_id' = 'null'::jsonb", *r6.CotizacionID); n != 1 {
 		t.Fatal("venta_revisada sin contrato con la orden cerrada")
 	}
+	// La revisión de Argos tardía de r6 avisa a supervisión aunque no haya contrato que anular.
+	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.contrato_sin_firma' AND (payload->>'cotizacion_id')::bigint = $1
+		AND payload->'contrato_id' = 'null'::jsonb AND payload->>'motivo' = 'cambio_tras_cierre'`, *r6.CotizacionID); n != 1 {
+		t.Fatal("sin orden.contrato_sin_firma de la revisión tardía")
+	}
+	e.relay()
+	if n := contar(t, "SELECT count(*) FROM notificaciones.avisos WHERE usuario_id = $1 AND clave = $2", sup,
+		"contrato_sin_firma:cotizacion:"+strconv.FormatInt(*r6.CotizacionID, 10)); n != 1 {
+		t.Fatal("la campana no recibió la revisión tardía")
+	}
+
+	// Carrera (verificación de #280): el cambio de plan sigue en la cola de Argos, o ya está hecho
+	// pero el relay todavía no creó la revisión: tampoco cierra sin la firma.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', finalizada_en = NULL, resultado = NULL WHERE id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+	clave7 := "iris:plan:" + strconv.FormatInt(orden, 10) + ":7"
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.pendientes (operacion, idempotency_key, entidad, entidad_id, metodo, ruta, estado)
+		VALUES ('cambiar_plan', $1, 'orden', $2, 'POST', '/servicios/1/cambiar-plan', 'pendiente')`, clave7, strconv.FormatInt(orden, 10)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.cmp.CerrarOrden.Ejecutar(ct, campo.EntradaCerrarOrden{ID: orden, Version: version()})
+	problema(t, err, 422, "contrato_por_firmar")
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.pendientes SET estado = 'hecho' WHERE idempotency_key = $1", clave7); err != nil {
+		t.Fatal(err)
+	}
+	_, err = e.cmp.CerrarOrden.Ejecutar(ct, campo.EntradaCerrarOrden{ID: orden, Version: version()})
+	problema(t, err, 422, "contrato_por_firmar")
+	// El técnico asignado no se autoriza a sí mismo, aunque tenga el permiso; un token de API tampoco.
+	motivo7 := "Argos ya tiene el plan; el titular firma en la oficina"
+	tecSup := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), tec, 1, append(permisosDe("tecnico"), nucleo.PermOrdenesValidarIdentidad)...)
+	_, err = e.cmp.CerrarOrden.Ejecutar(tecSup, campo.EntradaCerrarOrden{ID: orden, Version: version(), MotivoSinContratoFirmado: &motivo7})
+	problema(t, err, 403, "prohibido")
+	_, err = e.cmp.CerrarOrden.Ejecutar(contexto.ConCanal(cs, contexto.CanalAPI), campo.EntradaCerrarOrden{ID: orden, Version: version(), MotivoSinContratoFirmado: &motivo7})
+	problema(t, err, 403, "prohibido")
+	deber(e.cmp.CerrarOrden.Ejecutar(cs, campo.EntradaCerrarOrden{ID: orden, Version: version(), MotivoSinContratoFirmado: &motivo7}))(t)
+	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'ordenes.cerrar' AND resultado = 'ok' AND entrada::text LIKE '%' || $1 || '%'", motivo7); n != 1 {
+		t.Fatal("el motivo del supervisor no está en la entrada auditada")
+	}
+	e.relay()
+	// Llega la revisión (relay del pendiente hecho): sin contrato, y la campana de supervisión.
+	r7 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
+		PlanID: ptr(int64(300)), Clave: clave7}))(t)
+	if r7.CotizacionID == nil || r7.ContratoID != nil {
+		t.Fatalf("revisión tras el cierre: %+v", r7)
+	}
+	e.relay()
+	if n := contar(t, "SELECT count(*) FROM notificaciones.avisos WHERE usuario_id = $1 AND tipo = 'contrato_sin_firma' AND clave = $2", sup,
+		"contrato_sin_firma:cotizacion:"+strconv.FormatInt(*r7.CotizacionID, 10)); n != 1 {
+		t.Fatal("la campana no recibió el cambio aplicado tras el cierre")
+	}
+	if pf := porFirmar(); pf != nil {
+		t.Fatalf("por firmar tras el cierre: %+v", pf)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', finalizada_en = NULL, resultado = NULL WHERE id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+
 	// orden.paso_titular_tras_cancelar llega a la campana de supervisión una sola vez (el relay
 	// entrega el evento dos veces).
 	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.outbox (id, evento, empresa_id, payload)

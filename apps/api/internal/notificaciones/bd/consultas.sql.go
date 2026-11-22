@@ -604,7 +604,9 @@ type DestinatariosDeOrdenRow struct {
 }
 
 // Personas activas con el permiso por un rol cuyo alcance cubre la orden (global, su zona o su
-// cuadrilla) y que operan en su empresa (asignada o empresas.todas sin límite).
+// cuadrilla) y que operan en su empresa (asignada o empresas.todas sin límite). Con la orden sin
+// empresa (empresa_id null, sin conector), no se filtra por empresa: avisa a todos los que tienen
+// el permiso con alcance sobre la orden (los globales incluidos).
 func (q *Queries) DestinatariosDeOrden(ctx context.Context, arg DestinatariosDeOrdenParams) ([]DestinatariosDeOrdenRow, error) {
 	rows, err := q.db.Query(ctx, destinatariosDeOrden, arg.Permiso, arg.OrdenID)
 	if err != nil {

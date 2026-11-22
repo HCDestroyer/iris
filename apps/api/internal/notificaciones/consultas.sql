@@ -359,7 +359,9 @@ DELETE FROM notificaciones.correo_pruebas WHERE creado_en < @antes;
 
 -- name: DestinatariosDeOrden :many
 -- Personas activas con el permiso por un rol cuyo alcance cubre la orden (global, su zona o su
--- cuadrilla) y que operan en su empresa (asignada o empresas.todas sin límite).
+-- cuadrilla) y que operan en su empresa (asignada o empresas.todas sin límite). Con la orden sin
+-- empresa (empresa_id null, sin conector), no se filtra por empresa: avisa a todos los que tienen
+-- el permiso con alcance sobre la orden (los globales incluidos).
 SELECT DISTINCT u.id, u.correo, u.nombre
 FROM nucleo.usuarios u
 JOIN nucleo.usuarios_roles ur ON ur.usuario_id = u.id

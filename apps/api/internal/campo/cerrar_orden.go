@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
 
@@ -32,10 +34,13 @@ type EntradaCerrarOrden struct {
 func (e EntradaCerrarOrden) ordenID() int64 { return e.ID }
 
 // exigirContratoFirmado (B20, verificación de #280): una instalación con el contrato regenerado
-// en la orden sin firmar no cierra (422 contrato_por_firmar), salvo que un supervisor la cierre
-// desde el panel con motivo (motivoSinContratoFirmado, con ordenes.validar_identidad sobre la orden, como
-// la validación de la identidad sin foto). Argos ya tiene el plan o el titular nuevo: sin la firma,
-// la subida de precio no queda aceptada (B6).
+// en la orden sin firmar no cierra (422 contrato_por_firmar). Tampoco mientras el cambio de plan o
+// de titular que lo va a regenerar sigue sin revisión: en la cola de Argos, o hecho sin que el relay
+// haya creado la revisión en comercial (CambioSinRevisionDeOrden). Un supervisor la cierra igual
+// desde el panel con motivo (motivoSinContratoFirmado): ordenes.validar_identidad con alcance de su
+// rol sobre la orden (global, zona o cuadrilla; nunca por ser el técnico asignado), canal panel.
+// Argos ya tiene (o va a tener) el plan o el titular nuevo: sin la firma, la subida de precio no
+// queda aceptada (B6).
 func exigirContratoFirmado(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, tipo string, in EntradaCerrarOrden) error {
 	if tipo != tipoInstalacion {
 		if in.MotivoSinContratoFirmado != nil {
@@ -43,28 +48,53 @@ func exigirContratoFirmado(ctx context.Context, q *campobd.Queries, f campobd.Ca
 		}
 		return nil
 	}
-	_, err := q.ContratoPorFirmarDeOrden(ctx, f.ID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	detalle := ""
+	if _, err := q.ContratoPorFirmarDeOrden(ctx, f.ID); err == nil {
+		detalle = "El titular debe firmar en sitio el contrato regenerado (cambio de plan o de titular) antes de cerrar"
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	} else if c, err := q.CambioSinRevisionDeOrden(ctx, f.ID); err == nil {
+		cambio := "de plan"
+		if c.Operacion == "cambiar_titular" {
+			cambio = "de titular"
+		}
+		detalle = "El cambio " + cambio + " sigue en curso con Argos; espera el contrato nuevo y la firma del titular antes de cerrar"
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if detalle == "" {
 		if in.MotivoSinContratoFirmado != nil {
 			return campoInvalido("motivoSinContratoFirmado", "Esta orden no tiene un contrato por firmar", "sin_contrato")
 		}
 		return nil
 	}
-	if err != nil {
-		return err
-	}
 	if in.MotivoSinContratoFirmado == nil {
 		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "contrato_por_firmar", "Falta la firma del contrato nuevo",
-			"El titular debe firmar en sitio el contrato regenerado (cambio de plan o de titular) antes de cerrar; un supervisor puede cerrar sin la firma desde el panel, con motivo",
+			detalle+"; un supervisor puede cerrar sin la firma desde el panel, con motivo",
 			nucleo.ErrorCampo{Field: "contrato", Message: "Falta la firma del contrato nuevo", Rule: "firma"})
 	}
-	if in.Sync != nil || !cubre(ctx, nucleo.PermOrdenesValidarIdentidad, f) {
+	if in.Sync != nil || contexto.CanalDe(ctx) != contexto.CanalPanel || !supervisaOrden(ctx, f) {
 		return nucleo.Prohibido("Solo un supervisor cierra sin la firma del contrato nuevo, desde el panel")
 	}
 	if _, err := texto("motivoSinContratoFirmado", *in.MotivoSinContratoFirmado, 10, 500); err != nil {
 		return err
 	}
 	return nil
+}
+
+// supervisaOrden: ordenes.validar_identidad con el alcance de su rol sobre la orden (global, su
+// zona o su cuadrilla). Sin «propia»: el técnico asignado nunca se autoriza a sí mismo.
+func supervisaOrden(ctx context.Context, f campobd.CampoOrden) bool {
+	a := contexto.ActorDe(ctx)
+	if !a.EsUsuario() || (f.TecnicoID != nil && *f.TecnicoID == a.ID) {
+		return false
+	}
+	p := contexto.PermisosDe(ctx)
+	if !p.Tiene(string(nucleo.PermOrdenesValidarIdentidad)) {
+		return false
+	}
+	global, zonas, cuadrillas := p.Alcances(string(nucleo.PermOrdenesValidarIdentidad))
+	return global || (f.ZonaID != nil && slices.Contains(zonas, *f.ZonaID)) || (f.CuadrillaID != nil && slices.Contains(cuadrillas, *f.CuadrillaID))
 }
 
 // cierreIncompleto: faltan requisitos de la plantilla o del tipo (422 con la lista).
