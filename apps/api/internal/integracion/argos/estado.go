@@ -204,6 +204,21 @@ type EstadoConexionArgos struct {
 	Empresas          []EmpresaAlcance   `json:"empresas" doc:"Empresas del alcance del token (lo que informó el canje)"`
 	AlcanceGlobal     *bool              `json:"alcanceGlobal" nullable:"true" doc:"true: también las empresas que se creen después en Argos; null = Argos no lo informó"`
 	Certificado       *CertificadoArgos  `json:"certificado,omitempty" required:"false" doc:"Certificado TLS de la API de Argos; ausente = no se ha visto (sin llamadas por HTTPS todavía)"`
+	// Capacidades (contrato 0.9.0 §4.3): lo que Iris ofrece al portal de Argos.
+	Capacidades CapacidadesIris `json:"capacidades" doc:"Contrato 0.9.0 §4.3: las secciones del portal de Argos que Iris atiende (Argos muestra cada una solo con su marca en true)"`
+}
+
+// CapacidadesIris son las marcas de §4.3 (nombres del contrato, en snake_case).
+type CapacidadesIris struct {
+	PortalArgos         bool `json:"portal_argos" doc:"Tickets del cliente en el portal de Argos (§11.3–§11.6)"`
+	SolicitudesServicio bool `json:"solicitudes_servicio" doc:"Solicitudes de servicio (§11.7)"`
+	AdjuntosTicket      bool `json:"adjuntos_ticket" doc:"Adjuntos en los tickets del portal (§11.6)"`
+}
+
+// CapacidadesDeIris: con un Iris que habla el contrato 0.9.0, las tres.
+func CapacidadesDeIris() CapacidadesIris {
+	si := SoportaPortal(&contratoIris)
+	return CapacidadesIris{PortalArgos: si, SolicitudesServicio: si, AdjuntosTicket: si}
 }
 
 // FuncionesApagadas: lo que Iris deja de hacer con este Argos (§4.1, §3.3, §4.2).
@@ -245,7 +260,7 @@ func nuevoEstadoConexion(m *Modulo) *auditoria.Caso[struct{}, EstadoConexionArgo
 		AuditarExito: func(EstadoConexionArgos) bool { return false },
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (EstadoConexionArgos, error) {
 			t.FijarEmpresa(0)
-			r := EstadoConexionArgos{ContratoIris: ContratoIris, FuncionesApagadas: []FuncionApagada{}, Instantaneas: []InstantaneaArgos{},
+			r := EstadoConexionArgos{ContratoIris: ContratoIris, Capacidades: CapacidadesDeIris(), FuncionesApagadas: []FuncionApagada{}, Instantaneas: []InstantaneaArgos{},
 				Empresas: []EmpresaAlcance{}, Fallos: FallosArgos{Pendientes: []PendientesPorEstado{}, WebhooksRechazados: m.RechazosSinAuditar()}}
 			q := argosbd.New(t)
 			var f conectorbd.IntegracionConectore

@@ -25,7 +25,7 @@ var origenes = []string{"panel", "web", "referido", "argos", "otro"}
 type EntradaListarProspectos struct {
 	nucleo.ParamsPagina
 	Estado         string `query:"estado" maxLength:"200" doc:"Uno o varios separados por coma: nuevo, contactado, factibilidad, cotizado, contrato, ganado, perdido"`
-	Origen         string `query:"origen" enum:"panel,web,referido,argos,argos_panel,otro,"`
+	Origen         string `query:"origen" enum:"panel,web,referido,argos,argos_panel,portal_argos,otro,"`
 	VendedorID     int64  `query:"vendedorId" minimum:"0"`
 	SinVendedor    bool   `query:"sinVendedor"`
 	ZonaID         int64  `query:"zonaId" minimum:"0"`

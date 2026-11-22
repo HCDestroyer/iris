@@ -442,6 +442,24 @@ const (
 	PermSSOEmitir Permiso = "sso.emitir"
 )
 
+// Portal del cliente de Argos (contrato argosisp.md 0.9.0 §11, B8): solo el token_portal de un
+// conector Argos (§1.2), del rol integracion_argos. Ningún rol de persona los recibe y, aunque un
+// admin los tenga (todos), las rutas de §11 exigen ese token (403 solo_integracion_argos).
+const (
+	PermPortalArgosVerTickets        Permiso = "portal_argos.ver_tickets"
+	PermPortalArgosCrearTicket       Permiso = "portal_argos.crear_ticket"
+	PermPortalArgosResponderTicket   Permiso = "portal_argos.responder_ticket"
+	PermPortalArgosConfirmarSolucion Permiso = "portal_argos.confirmar_solucion"
+	PermPortalArgosSolicitarServicio Permiso = "portal_argos.solicitar_servicio"
+	PermPortalArgosVerSolicitudes    Permiso = "portal_argos.ver_solicitudes"
+)
+
+// PermisosPortalArgos son los del token_portal (§1.2), en este orden.
+func PermisosPortalArgos() []Permiso {
+	return []Permiso{PermPortalArgosVerTickets, PermPortalArgosCrearTicket, PermPortalArgosResponderTicket,
+		PermPortalArgosConfirmarSolucion, PermPortalArgosSolicitarServicio, PermPortalArgosVerSolicitudes}
+}
+
 // PermisosSensibles son los de administración (usuarios, tokens, empresas, buzones,
 // integraciones, plantillas, configuración comercial y emisión de accesos), no los de ver ni los
 // operativos. Una sola fuente para el autologin desde Argos: quien tiene alguno (o
@@ -644,6 +662,12 @@ var Catalogo = []DefPermiso{
 	{PermPlantillasWhatsAppSincronizar, "Sincronizar con Meta las plantillas de WhatsApp de una cuenta"},
 	{PermPlantillasWhatsAppVer, "Ver las plantillas de WhatsApp de las cuentas de la empresa, su estado en Meta y su historial"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
+	{PermPortalArgosConfirmarSolucion, "Portal de Argos: el cliente confirma la solución de su ticket (solo el token_portal de Argos)"},
+	{PermPortalArgosCrearTicket, "Portal de Argos: el cliente abre un ticket (solo el token_portal de Argos)"},
+	{PermPortalArgosResponderTicket, "Portal de Argos: el cliente escribe en su ticket (solo el token_portal de Argos)"},
+	{PermPortalArgosSolicitarServicio, "Portal de Argos: el cliente pide un servicio, que llega a ventas como prospecto (solo el token_portal de Argos)"},
+	{PermPortalArgosVerSolicitudes, "Portal de Argos: el cliente ve sus solicitudes de servicio (solo el token_portal de Argos)"},
+	{PermPortalArgosVerTickets, "Portal de Argos: el cliente ve sus tickets y categorías (solo el token_portal de Argos)"},
 	{PermProspectosAsignar, "Asignar un prospecto a un vendedor"},
 	{PermProspectosContactar, "Marcar un prospecto como contactado"},
 	{PermProspectosCrear, "Registrar prospectos (panel, web, referidos…)"},
@@ -831,7 +855,10 @@ var RolesBase = []DefRol{
 			// Mensajería (contrato 0.6.0 §1.2 y §6): avisos, permisos de contacto y plantillas.
 			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer,
 			// Prospectos registrados desde Argos (contrato 0.10.0 §3.6, A44): solo registrar.
-			PermProspectosRegistrarIntegracion}},
+			PermProspectosRegistrarIntegracion,
+			// Portal del cliente de Argos (0.9.0 §11): solo los usa el token_portal, recortado a estos.
+			PermPortalArgosVerTickets, PermPortalArgosCrearTicket, PermPortalArgosResponderTicket,
+			PermPortalArgosConfirmarSolucion, PermPortalArgosSolicitarServicio, PermPortalArgosVerSolicitudes}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }
@@ -900,7 +927,7 @@ var modulosPermiso = map[string][2]string{
 	"cotizaciones": {"comercial", "Comercial"}, "contratos": {"comercial", "Comercial"},
 	"reportes": {"reportes", "Reportes"},
 	"clientes": {"integraciones", "Argos e integraciones"}, "integraciones": {"integraciones", "Argos e integraciones"},
-	"portal": {"integraciones", "Argos e integraciones"}, "sso": {"integraciones", "Argos e integraciones"},
+	"portal": {"integraciones", "Argos e integraciones"}, "portal_argos": {"integraciones", "Argos e integraciones"}, "sso": {"integraciones", "Argos e integraciones"},
 	"servidor_ia": {"integraciones", "Argos e integraciones"},
 	"usuarios":    {"usuarios", "Usuarios y accesos"}, "accesos": {"usuarios", "Usuarios y accesos"},
 	"tokens": {"usuarios", "Usuarios y accesos"},

@@ -109,6 +109,8 @@ func correr() error {
 	}
 	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg,
 		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL},
+		// Conciliación de clientes de los tickets del portal de Argos (contrato 0.9.0 §11.2).
+		PortalArgos: conectorArgos,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
@@ -168,6 +170,8 @@ func correr() error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	com.SuscribirAltas(bus, pool, log)
+	// Solicitudes del portal de Argos (0.9.0 §11.7): completada al cerrarse su orden.
+	com.SuscribirSolicitudes(bus, pool)
 	// Mensajería (contrato 0.6.0 §6.6): aviso.entregado, aviso.fallido y contacto.baja → webhooks hacia
 	// Argos (mensajeria.webhooks_salida); los entrega el proceso de mensajería.
 	msj := mensajeria.Nuevo(mensajeria.Config{})
@@ -225,7 +229,7 @@ func correr() error {
 			com.RegistrarTrabajos(pool)(w)
 			notif.RegistrarTrabajos(pool)(w)
 		},
-		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
+		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute), soporte.TrabajoPeriodicoConciliar(),
 			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), pendientes.TrabajoPurgaTransito(), inventario.TrabajoPeriodico(5*time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
 			agenda.TrabajoPeriodicoZonas(10*time.Minute),

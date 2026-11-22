@@ -72,7 +72,7 @@ func (m *Modulo) nuevoResponderTicket() *auditoria.Caso[EntradaResponderTicket, 
 			if err := cambioDeEstado(ctx, t, q, antes, f, ptr("respondido")); err != nil {
 				return TicketConMensaje{}, err
 			}
-			if err := t.Emitir("ticket.respondido", map[string]any{"ticket_id": f.ID, "mensaje_id": msj.ID}); err != nil {
+			if err := t.Emitir("ticket.respondido", eventoRespondido(f, msj, false)); err != nil {
 				return TicketConMensaje{}, err
 			}
 			return TicketConMensaje{Ticket: aTicket(f, ahora), Mensaje: aMensaje(msj)}, nil

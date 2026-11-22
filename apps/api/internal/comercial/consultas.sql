@@ -377,3 +377,61 @@ SELECT contrato_remoto FROM integracion.conectores
 WHERE sistema = 'argosisp' AND eliminado_en IS NULL
 ORDER BY (estado = 'activo') DESC, id DESC
 LIMIT 1;
+
+-- Solicitudes de servicio del portal de Argos (contrato 0.9.0 §11.7) -------------------------
+
+-- name: CrearSolicitudPortal :one
+INSERT INTO comercial.prospectos (
+    empresa_id, origen, nombre, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, vendedor_id, notas,
+    cliente_existente_id, cliente_validado, idempotencia, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente
+) VALUES (
+    @empresa_id, 'portal_argos', @nombre, sqlc.narg(telefono), sqlc.narg(correo), @direccion, sqlc.narg(lat), sqlc.narg(lon),
+    sqlc.narg(zona_id), sqlc.narg(plan_interes_id), sqlc.narg(vendedor_id), '', @cliente_id, true, sqlc.narg(idempotencia),
+    @solicitud_tipo, sqlc.narg(solicitud_servicio_id), sqlc.narg(solicitud_comentario), 'recibida'
+)
+RETURNING *;
+
+-- name: SolicitudAbierta :one
+-- La solicitud abierta del cliente del mismo tipo y servicio (alta: del mismo tipo).
+SELECT id FROM comercial.prospectos
+WHERE empresa_id = @empresa_id::bigint AND cliente_existente_id = @cliente_id::bigint AND solicitud_tipo = @solicitud_tipo::text
+  AND coalesce(solicitud_servicio_id, 0) = @servicio_id::bigint
+  AND estado_cliente IN ('recibida', 'en_revision', 'cotizada', 'en_proceso')
+ORDER BY id DESC
+LIMIT 1;
+
+-- name: SolicitudesUltimoDia :one
+SELECT count(*)::bigint FROM comercial.prospectos
+WHERE empresa_id = @empresa_id::bigint AND cliente_existente_id = @cliente_id::bigint AND solicitud_tipo IS NOT NULL
+  AND created_at > now() - interval '1 day';
+
+-- name: PrimeraSolicitudUltimoDia :one
+-- Desde cuándo cuenta el tope diario (Retry-After).
+SELECT min(created_at)::timestamptz FROM comercial.prospectos
+WHERE empresa_id = @empresa_id::bigint AND cliente_existente_id = @cliente_id::bigint AND solicitud_tipo IS NOT NULL
+  AND created_at > now() - interval '1 day';
+
+-- name: SolicitudPorIdempotencia :one
+SELECT * FROM comercial.prospectos WHERE idempotencia = @idempotencia AND solicitud_tipo IS NOT NULL;
+
+-- name: ListarSolicitudesCliente :many
+SELECT * FROM comercial.prospectos
+WHERE empresa_id = @empresa_id::bigint AND cliente_existente_id = @cliente_id::bigint AND solicitud_tipo IS NOT NULL
+  AND (sqlc.narg(antes_de)::bigint IS NULL OR id < sqlc.narg(antes_de))
+  AND (cardinality(@estados::text[]) = 0 OR estado_cliente = ANY(@estados::text[]))
+ORDER BY id DESC
+LIMIT @limite;
+
+-- name: FijarEstadoCliente :exec
+UPDATE comercial.prospectos SET estado_cliente = @estado_cliente WHERE id = @id;
+
+-- name: SolicitudDeOrden :one
+SELECT * FROM comercial.prospectos WHERE orden_id = @orden_id AND solicitud_tipo IS NOT NULL;
+
+-- name: FichaClienteSolicitud :one
+-- Nombre, teléfono y correo de la ficha de Argos (instantánea) del cliente de la solicitud.
+SELECT nombre, telefono, movil, correo, direccion, lat, lon, zona_id FROM integracion.argos_clientes WHERE id = @id;
+
+-- name: ServicioDeClienteSolicitud :one
+SELECT id, direccion, lat, lon, zona_id FROM integracion.argos_servicios
+WHERE id = @id AND cliente_id = @cliente_id AND empresa_id = @empresa_id;

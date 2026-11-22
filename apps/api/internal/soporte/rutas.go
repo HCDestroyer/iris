@@ -174,5 +174,6 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	m.registrarBuzones(api)
 	m.registrarPortal(api)
+	m.registrarPortalArgos(api)
 	m.registrarEncuestas(api)
 }

@@ -61,13 +61,17 @@ type argosFalso struct {
 	lecturaCaida bool
 	actores      map[string]string // Idempotency-Key → X-Iris-Actor recibido
 	serviciosDe  map[string]string // cliente_id → servicios (JSON) de GET /servicios?cliente_id=
+	// contactosDe: cliente_id → contactos (JSON) de GET /clientes/{id}/contactos (§3.5); lecturasContactos las cuenta.
+	contactosDe       map[string]string
+	lecturasContactos int
 }
 
 // Argos 1.2 (lo que respondió su equipo): huella del cuerpo crudo, repetición con el 2xx original
 // y Idempotent-Replayed, misma clave con otro cuerpo → 422 idempotency_key_reutilizada.
 func nuevoArgos(t *testing.T) *argosFalso {
 	a := &argosFalso{altas: map[string]int64{}, huellas: map[string]string{}, crudos: map[string][][]byte{},
-		porID: map[string]map[string]any{}, siguiente: 9000, serviciosDe: map[string]string{}, actores: map[string]string{}}
+		porID: map[string]map[string]any{}, siguiente: 9000, serviciosDe: map[string]string{}, actores: map[string]string{},
+		contactosDe: map[string]string{}}
 	json200 := func(w http.ResponseWriter, v string) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(v))
@@ -192,6 +196,16 @@ func nuevoArgos(t *testing.T) *argosFalso {
 		json200(w, string(b))
 	}
 	mux.HandleFunc("GET /api/v1/clientes/{id}", leer)
+	mux.HandleFunc("GET /api/v1/clientes/{id}/contactos", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.lecturaCaida || r.Header.Get("X-Iris-Actor") == "" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		a.lecturasContactos++
+		json200(w, `{"data":[`+a.contactosDe[r.PathValue("id")]+`],"nextCursor":null}`)
+	})
 	// Servicios de un cliente de Argos (para validar su empresa): los fijados en serviciosDe.
 	mux.HandleFunc("GET /api/v1/servicios", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()

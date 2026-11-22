@@ -588,3 +588,58 @@ UPDATE integracion.argos_certificados
 SET visto_en = @visto_en, ultimo_visto_en = @visto_en, cambiado = true, anterior_id = @anterior_id
 WHERE id = @id
 RETURNING *;
+
+-- Portal del cliente de Argos (0.9.0 §11) -------------------------------------------------
+
+-- name: ConectorDeTokenPortal :one
+-- El conector Argos del token_portal: el token es hijo del iris_pat_ que se entregó en el canje de
+-- ese conector (o del que una reconexión sin confirmar todavía reemplaza).
+SELECT c.id, c.estado, c.contrato_remoto
+FROM nucleo.tokens_api t
+JOIN integracion.conectores c ON c.sistema = 'argosisp' AND c.eliminado_en IS NULL
+     AND (t.token_padre_id = c.token_entregado_id OR t.token_padre_id = c.reemplaza_token_id)
+WHERE t.id = @token_id AND t.token_padre_id IS NOT NULL
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1;
+
+-- name: ContarPeticionPortal :one
+-- Tope del conector (§11.2): una petición más en el minuto en curso.
+INSERT INTO integracion.portal_argos_minutos (conector_id, minuto, peticiones)
+VALUES (@conector_id, date_trunc('minute', now()), 1)
+ON CONFLICT (conector_id, minuto) DO UPDATE SET peticiones = integracion.portal_argos_minutos.peticiones + 1
+RETURNING peticiones;
+
+-- name: PurgarPeticionesPortal :exec
+DELETE FROM integracion.portal_argos_minutos WHERE minuto < now() - interval '10 minutes';
+
+-- name: ClienteEnInstantanea :one
+SELECT id, empresa_id, empresas, sin_servicios FROM integracion.argos_clientes WHERE id = @id;
+
+-- name: ContactoEnCache :one
+SELECT * FROM integracion.argos_contactos WHERE contacto_id = @contacto_id;
+
+-- name: GuardarContacto :exec
+-- Nunca baja la versión: una lectura vieja que llega tarde no pisa una más nueva.
+INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, servicios, consultar, reportar, version, quitado, leido_en)
+VALUES (@contacto_id, @cliente_id, @empresa_id, @nombre, @servicios, @consultar, @reportar, @version, false, now())
+ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = excluded.cliente_id, empresa_id = excluded.empresa_id,
+    nombre = excluded.nombre, servicios = excluded.servicios, consultar = excluded.consultar, reportar = excluded.reportar,
+    version = excluded.version, quitado = false, leido_en = now(), updated_at = now()
+WHERE excluded.version >= integracion.argos_contactos.version;
+
+-- name: QuitarContactosAusentes :execrows
+-- Los contactos del cliente que Argos ya no devuelve: quitados (dejan de ver sus tickets).
+UPDATE integracion.argos_contactos SET quitado = true, updated_at = now()
+WHERE cliente_id = @cliente_id AND NOT quitado AND NOT (contacto_id = ANY(@vigentes::bigint[]));
+
+-- name: QuitarContacto :execrows
+UPDATE integracion.argos_contactos SET quitado = true, updated_at = now()
+WHERE contacto_id = @contacto_id AND cliente_id = @cliente_id AND NOT quitado;
+
+-- name: HayContactosDeCliente :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_contactos WHERE cliente_id = @cliente_id)::boolean;
+
+-- name: TokenPortalVigente :one
+-- El iris_pat_ entregado ya tiene un token_portal vigente (hijo sin revocar ni eliminar).
+SELECT EXISTS (SELECT 1 FROM nucleo.tokens_api WHERE token_padre_id = @padre_id
+    AND revocado_en IS NULL AND eliminado_en IS NULL)::boolean;

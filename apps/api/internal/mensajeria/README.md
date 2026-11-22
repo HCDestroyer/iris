@@ -67,6 +67,10 @@ Consume: `aviso.entregado`, `aviso.fallido` (solo los de origen `argos`) y `cont
 el secreto que Argos entregó en el canje, reintentos a 1 min, 5 min, 30 min, 2 h y 12 h, y solo al
 conector Argos activo con contrato ≥ 0.6.0 (si no, `omitido`). Cada aviso emite un solo webhook final.
 
+Webhooks Iris → Argos de 0.9.0 (§6.6, B9): `ticket.estado_cambiado`, `ticket.respondido` y
+`solicitud_servicio.estado_cambiado`, solo a conectores con contrato ≥ 0.9.0, solo con `cliente_id` y
+con la empresa en el alcance del conector (si no, `omitido`), sin cuerpo, notas ni motivos escritos.
+
 ## Plantillas de WhatsApp por cuenta (`plantillas_wa_*.go`, `plantillas_whatsapp.sql`)
 
 Contrato: `.claude/integration/contratos/plantillas-whatsapp.md`. Las plantillas viven por cuenta

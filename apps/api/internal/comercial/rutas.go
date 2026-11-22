@@ -118,6 +118,7 @@ func (m *Modulo) registrarRutaArgos(api huma.API) {
 // Registrar publica las rutas de comercial.
 func (m *Modulo) Registrar(api huma.API) {
 	m.registrarRutaArgos(api)
+	m.registrarSolicitudesPortal(api)
 	ver := nucleo.PermProspectosVer
 
 	// Prospectos.

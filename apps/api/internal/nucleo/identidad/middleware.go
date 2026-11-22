@@ -177,6 +177,11 @@ func autenticarBearer(ctx context.Context, q *identidadbd.Queries, auth string) 
 		slog.ErrorContext(ctx, "identidad: cargar permisos del token", "err", err)
 		return ctx, nucleo.ErrorInterno()
 	}
+	if t.TokenPadreID == nil {
+		// portal_argos.* solo valen en el token_portal (contrato con Argos 0.9.0 §1.2): el iris_pat_ del
+		// panel de Argos no los tiene aunque los traiga el rol integracion_argos.
+		permisos = permisos.SinPrefijo("portal_argos.")
+	}
 	tipo, canal := contexto.ActorToken, contexto.CanalAPI
 	if u.Tipo == "integracion" {
 		tipo, canal = contexto.ActorIntegracion, contexto.CanalIntegracion

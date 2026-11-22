@@ -229,6 +229,29 @@ Lógica común con el panel en funciones internas: `crearTicket` (también la us
 `reactivarPorCliente` (también el correo), `tomar`, `cerrar`. Las claves de idempotencia del
 cliente son `cliente:<empresa>:<cliente>|<clave>`.
 
+## Portal del cliente de Argos (`portal_argos.go`, `rutas_portal_argos.go`, `adjuntos_portal.go`)
+
+Contrato con Argos 0.9.0 §11 (B8, B13) y §11.10 de 0.12.1 (B28). Argos llama servidor a servidor con
+el `token_portal` bajo `/api/v1/integraciones/argosisp/portal/clientes/{cliente_id}`: `GET /categorias`,
+`GET /tickets`, `GET /tickets/{ticket_id}`, `…/mensajes`, `…/adjuntos/{adjunto_id}`, `POST /tickets`,
+`POST …/responder` y `POST …/confirmar-solucion` (permisos `portal_argos.*`).
+
+- La sesión la resuelve `argos.SesionPortal` (token, `X-Iris-Empresa`, `X-Argos-Portal-Sesion`,
+  `X-Iris-Contacto`, tope del conector, cliente por la instantánea o por Argos, caché de contactos).
+  Cada acción audita `en_nombre_de { cliente_id, empresa_id, metodo, sesion }` con el actor «Argos
+  (portal) · cliente `<id>`».
+- Vista del ticket en `snake_case`: `completa` o `reducida` (sesión `ip`, o ticket del servicio que
+  no abrió el contacto de la sesión: sin asunto ni mensajes). El agente sale con su nombre de pila.
+- Origen `portal_argos`; el primer mensaje y las respuestas son del cliente con canal `portal_argos`.
+  Los topes son los de `/soporte` (compartidos) y, con un contacto, además los suyos.
+- Adjuntos por `multipart/form-data` (parte `datos` y hasta 3 `archivos` de 10 MB): JPEG y PNG se
+  recodifican (sin EXIF ni otros metadatos, tope de 40 MP), WebP se reescribe sin EXIF ni XMP, PDF tal
+  cual; HEIC todavía no se acepta (422 `mime_no_permitido`). Descarga con `nosniff`, `sandbox` y el
+  nombre saneado en `filename*`.
+- Si Iris no conocía al cliente y Argos no respondía, el ticket se crea con `cliente_revision =
+  pendiente`; el job `soporte.conciliar_clientes_portal` (cada 5 min) lo valida al volver Argos y, si
+  no era de la empresa, lo marca `no_coincide` con una nota interna para revisión.
+
 ## Encuesta de satisfacción (`encuestas.go`, `rutas_encuestas.go`)
 
 - **Cuándo:** al pasar un ticket a `resuelto` (salvo el maestro de un incidente de red, sin

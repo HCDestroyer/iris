@@ -14,7 +14,7 @@ type Prospecto struct {
 	ID                int64      `json:"id"`
 	Numero            string     `json:"numero" doc:"PR-000001"`
 	EmpresaID         *int64     `json:"empresaId" nullable:"true" doc:"Empresa en Argos (null sin conector)"`
-	Origen            string     `json:"origen" enum:"panel,web,referido,argos,argos_panel,otro" doc:"argos_panel: lo registró una persona en el panel de Argos (contrato §3.6)"`
+	Origen            string     `json:"origen" enum:"panel,web,referido,argos,argos_panel,portal_argos,otro" doc:"argos_panel: lo registró una persona en el panel de Argos (contrato §3.6); portal_argos: solicitud de servicio del cliente desde el portal de Argos (§11.7)"`
 	Modo              *string    `json:"modo" nullable:"true" enum:"residencial,empresarial" doc:"Solo los registrados desde Argos"`
 	ClienteExistente  *int64     `json:"clienteExistenteId" nullable:"true" doc:"Cliente de Argos que eligió quien lo registró en Argos: al ganar, Iris no lo crea ni lo edita"`
 	ClienteValidado   *bool      `json:"clienteValidado" nullable:"true" doc:"false: Argos no respondió al registrarlo (se confirma después)"`

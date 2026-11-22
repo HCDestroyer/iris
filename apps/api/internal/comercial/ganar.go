@@ -195,7 +195,12 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 			d.Estado, d.GanadoEn, d.ObraConfirmada = EstadoGanado, &ahora, r.factibilidad.Resultado == FactibleRequiereObra
 			evento := map[string]any{"prospecto_id": antes.ID, "empresa_id": antes.EmpresaID, "contrato_id": r.contrato.ID,
 				"cotizacion_id": r.cotizacion.ID, "plan_id": r.cotizacion.PlanID, "obra_confirmada": d.ObraConfirmada}
-			if conector == "" {
+			if antes.SolicitudTipo != nil && *antes.SolicitudTipo != SolicitudAlta {
+				// Solicitud del portal de Argos (0.9.0 §11.7) de cambio de plan, traslado u otro: nada por API
+				// en Argos (una persona lo aplica allá hasta A34) y la orden, si hace falta, la decide el asesor.
+				evento["modo"], evento["orden_id"], evento["pendientes"], evento["solicitud_tipo"] = "solicitud", nil, []int64{}, *antes.SolicitudTipo
+				d.GanadoPor = actorUsuario(t)
+			} else if conector == "" {
 				// Modo sin conector: la orden con los datos capturados, ya.
 				o, err := m.crearOrdenInstalacion(ctx, antes, r, nil, nil)
 				if err != nil {

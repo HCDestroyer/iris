@@ -119,7 +119,7 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			}
 			fila, err := q.CrearToken(ctx, identidadbd.CrearTokenParams{
 				UsuarioID: dueno, Nombre: nombre, Prefijo: prefijoVisible(valor), Hash: Hash256(valor),
-				Permisos: limite, ExpiraEn: expira, CreadoPor: creadoPor, Via: via,
+				Permisos: limite, ExpiraEn: expira, CreadoPor: creadoPor, Via: via, TokenPadreID: tokenPadreDe(ctx),
 			})
 			if err != nil {
 				return TokenCreado{}, err

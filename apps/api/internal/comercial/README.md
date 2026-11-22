@@ -93,6 +93,22 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
   actividad y cotización además la guardan (clave retomada = lo ya creado). Las acciones llevan
   `version` (409 `conflicto_version`).
 
+## Solicitudes de servicio del portal de Argos (`solicitudes_portal.go`, `rutas_solicitudes.go`)
+
+Contrato con Argos 0.9.0 §11.7 (B10). `GET/POST /api/v1/integraciones/argosisp/portal/clientes/{cliente_id}/solicitudes`
+y `GET …/solicitudes/{solicitud_id}` (permisos `portal_argos.solicitar_servicio` y `portal_argos.ver_solicitudes`,
+solo el titular con sesión de documento). Una solicitud es un prospecto con origen `portal_argos`, el
+cliente de Argos conocido (`cliente_existente_id`) y su `solicitud_tipo` (`alta`, `cambio_plan`,
+`traslado`, `otro`); nombre, correo y teléfono de la ficha; sin vendedor o el de su zona.
+
+- Una abierta por cliente, tipo y servicio (409 `solicitud_abierta` con `solicitud_id`); 5 por día
+  (429 `demasiadas_solicitudes`).
+- `estado_cliente` (`recibida`, `en_revision`, `cotizada`, `en_proceso`, `completada`, `no_procede`) se
+  deriva del estado del prospecto y del cierre de su orden; cada cambio emite
+  `solicitud_servicio.estado_cambiado` (va a Argos por §6.6).
+- Ganar: una `alta` solo pide `POST /servicios` con el cliente conocido; `cambio_plan`, `traslado` y
+  `otro` no llaman a Argos (modo `solicitud`; una persona lo aplica allá) y quedan `completada`.
+
 ## Eventos
 
 Emite `prospecto.creado`, `prospecto.actualizado`, `prospecto.asignado`, `prospecto.estado_cambiado`,

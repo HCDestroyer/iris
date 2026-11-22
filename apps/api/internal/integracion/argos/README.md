@@ -531,3 +531,23 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
   (`ServiciosClienteAsistente` no lo lee).
 - `codigo` ya se guardaba. Con el formato de A45 (`S-000412`) el asistente lo usa en la etiqueta corta
   (`<codigo> · «plan» · «zona»`, §10.5 ajuste ag); con otra forma sigue «Servicio n».
+
+## Contrato 0.9.0, bloque P: portal del cliente de Argos (`portal.go`, B8 y B28)
+
+- `SesionPortal` resuelve cada petición de §11: solo el `token_portal` de un conector Argos (403
+  `solo_integracion_argos`; 409 `argos_apagado`), `X-Iris-Empresa` y `X-Argos-Portal-Sesion` (400
+  `cabecera_requerida`), `X-Iris-Contacto` con contrato ≥ 0.12.1 (400 `cabecera_iris_requerida`), tope de
+  600 peticiones por minuto por conector (`integracion.portal_argos_minutos`, 429 `demasiadas_peticiones`)
+  y el cliente por la instantánea o con `GET /clientes/:id` (422 `cliente_no_existe` / `empresa_no_coincide`;
+  si Argos no responde, la sesión queda sin validar y solo `POST …/tickets` la acepta).
+- `token_portal` (§1.2): un `iris_pat_` hijo del entregado en el canje (`nucleo.tokens_api.token_padre_id`),
+  recortado a `portal_argos.*`; vale mientras vale su padre, así que vence, se confirma, se revoca y se
+  elimina con él. Se entrega en el canje (`token_portal`) y, a un conector ya conectado sin uno vigente, en
+  `PUT /integraciones/iris/contrato`; las dos solo cuando `ContratoIris` ≥ 0.9.0. Los `iris_pat_` que no
+  son hijos pierden `portal_argos.*` aunque los dé el rol.
+- Caché de contactos (`integracion.argos_contactos`, §11.10): sin números; se relee con
+  `GET /clientes/:id/contactos` (con `X-Iris-Actor: usuario:sistema`) si falta o si
+  `X-Iris-Contacto-Version` es mayor (503 si Argos no responde) y con `cliente.contactos_cambiados`
+  (`quitado` marca enseguida, sin leer Argos).
+- `GET /integraciones/argosisp/estado` suma `capacidades { portal_argos, solicitudes_servicio,
+  adjuntos_ticket }` (§4.3).

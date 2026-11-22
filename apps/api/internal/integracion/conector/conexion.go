@@ -404,6 +404,13 @@ func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[
 		}
 	}()
 	g.secreto, g.tokenEntregado = secreto, tokenID
+	// token_portal (0.9.0 §1.2): hijo del iris_pat_ de arriba, así que muere con él si el canje falla.
+	var tokenPortal string
+	if c.s.TokenPortal {
+		if _, tokenPortal, err = c.n.EmitirTokenPortal(ctx, tokenID); err != nil {
+			return Conector{}, err
+		}
+	}
 	cli := c.clienteHacia(g.Base, "")
 	// receptor_argos (0.6.2): la petición sale antes de conocer el receptor del otro sistema (llega
 	// en la respuesta), pero esta versión de Iris lo exige y lo guarda o rechaza el canje: true.
@@ -416,7 +423,7 @@ func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[
 	g.errRemoto = cli.Pedir(ctx, http.MethodPost, c.s.RutaCanje, nil, PeticionCanje{
 		Codigo: codigo, Sistema: "iris", BaseURL: c.n.cfg.BaseURL, Token: valor,
 		Webhook:      WebhookCanje{URL: c.n.URLWebhook(c.s.Nombre, g.ConectorID), Secreto: secreto},
-		CodeVerifier: verificador, Contrato: c.s.Contrato, ReceptorArgos: receptor,
+		CodeVerifier: verificador, Contrato: c.s.Contrato, ReceptorArgos: receptor, TokenPortal: tokenPortal,
 	}, false, &Recurso{Destino: &g.respuesta})
 	if g.errRemoto != nil && mapear != nil {
 		g.errRemoto = mapear(g.errRemoto)

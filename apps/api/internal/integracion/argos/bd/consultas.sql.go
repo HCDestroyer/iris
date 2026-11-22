@@ -625,6 +625,29 @@ func (q *Queries) ClienteConfirmadoDesde(ctx context.Context, arg ClienteConfirm
 	return confirmado, err
 }
 
+const clienteEnInstantanea = `-- name: ClienteEnInstantanea :one
+SELECT id, empresa_id, empresas, sin_servicios FROM integracion.argos_clientes WHERE id = $1
+`
+
+type ClienteEnInstantaneaRow struct {
+	ID           int64
+	EmpresaID    int64
+	Empresas     []int64
+	SinServicios bool
+}
+
+func (q *Queries) ClienteEnInstantanea(ctx context.Context, id int64) (ClienteEnInstantaneaRow, error) {
+	row := q.db.QueryRow(ctx, clienteEnInstantanea, id)
+	var i ClienteEnInstantaneaRow
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Empresas,
+		&i.SinServicios,
+	)
+	return i, err
+}
+
 const clientePorID = `-- name: ClientePorID :one
 SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en, referencia FROM integracion.argos_clientes WHERE id = $1
 `
@@ -688,6 +711,72 @@ func (q *Queries) ClientesEnInstantanea(ctx context.Context, ids []int64) ([]Cli
 		return nil, err
 	}
 	return items, nil
+}
+
+const conectorDeTokenPortal = `-- name: ConectorDeTokenPortal :one
+
+SELECT c.id, c.estado, c.contrato_remoto
+FROM nucleo.tokens_api t
+JOIN integracion.conectores c ON c.sistema = 'argosisp' AND c.eliminado_en IS NULL
+     AND (t.token_padre_id = c.token_entregado_id OR t.token_padre_id = c.reemplaza_token_id)
+WHERE t.id = $1 AND t.token_padre_id IS NOT NULL
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1
+`
+
+type ConectorDeTokenPortalRow struct {
+	ID             int64
+	Estado         string
+	ContratoRemoto *string
+}
+
+// Portal del cliente de Argos (0.9.0 §11) -------------------------------------------------
+// El conector Argos del token_portal: el token es hijo del iris_pat_ que se entregó en el canje de
+// ese conector (o del que una reconexión sin confirmar todavía reemplaza).
+func (q *Queries) ConectorDeTokenPortal(ctx context.Context, tokenID int64) (ConectorDeTokenPortalRow, error) {
+	row := q.db.QueryRow(ctx, conectorDeTokenPortal, tokenID)
+	var i ConectorDeTokenPortalRow
+	err := row.Scan(&i.ID, &i.Estado, &i.ContratoRemoto)
+	return i, err
+}
+
+const contactoEnCache = `-- name: ContactoEnCache :one
+SELECT contacto_id, cliente_id, empresa_id, nombre, servicios, consultar, reportar, version, quitado, leido_en, created_at, updated_at FROM integracion.argos_contactos WHERE contacto_id = $1
+`
+
+func (q *Queries) ContactoEnCache(ctx context.Context, contactoID int64) (IntegracionArgosContacto, error) {
+	row := q.db.QueryRow(ctx, contactoEnCache, contactoID)
+	var i IntegracionArgosContacto
+	err := row.Scan(
+		&i.ContactoID,
+		&i.ClienteID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Servicios,
+		&i.Consultar,
+		&i.Reportar,
+		&i.Version,
+		&i.Quitado,
+		&i.LeidoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const contarPeticionPortal = `-- name: ContarPeticionPortal :one
+INSERT INTO integracion.portal_argos_minutos (conector_id, minuto, peticiones)
+VALUES ($1, date_trunc('minute', now()), 1)
+ON CONFLICT (conector_id, minuto) DO UPDATE SET peticiones = integracion.portal_argos_minutos.peticiones + 1
+RETURNING peticiones
+`
+
+// Tope del conector (§11.2): una petición más en el minuto en curso.
+func (q *Queries) ContarPeticionPortal(ctx context.Context, conectorID int64) (int32, error) {
+	row := q.db.QueryRow(ctx, contarPeticionPortal, conectorID)
+	var peticiones int32
+	err := row.Scan(&peticiones)
+	return peticiones, err
 }
 
 const copiaDe = `-- name: CopiaDe :one
@@ -1292,6 +1381,41 @@ func (q *Queries) GuardarClienteLista(ctx context.Context, arg GuardarClienteLis
 	return err
 }
 
+const guardarContacto = `-- name: GuardarContacto :exec
+INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, servicios, consultar, reportar, version, quitado, leido_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, now())
+ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = excluded.cliente_id, empresa_id = excluded.empresa_id,
+    nombre = excluded.nombre, servicios = excluded.servicios, consultar = excluded.consultar, reportar = excluded.reportar,
+    version = excluded.version, quitado = false, leido_en = now(), updated_at = now()
+WHERE excluded.version >= integracion.argos_contactos.version
+`
+
+type GuardarContactoParams struct {
+	ContactoID int64
+	ClienteID  int64
+	EmpresaID  *int64
+	Nombre     string
+	Servicios  []int64
+	Consultar  bool
+	Reportar   bool
+	Version    int32
+}
+
+// Nunca baja la versión: una lectura vieja que llega tarde no pisa una más nueva.
+func (q *Queries) GuardarContacto(ctx context.Context, arg GuardarContactoParams) error {
+	_, err := q.db.Exec(ctx, guardarContacto,
+		arg.ContactoID,
+		arg.ClienteID,
+		arg.EmpresaID,
+		arg.Nombre,
+		arg.Servicios,
+		arg.Consultar,
+		arg.Reportar,
+		arg.Version,
+	)
+	return err
+}
+
 const guardarCopia = `-- name: GuardarCopia :exec
 
 INSERT INTO integracion.argos_copias (entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en)
@@ -1610,6 +1734,17 @@ func (q *Queries) GuardarZona(ctx context.Context, arg GuardarZonaParams) error 
 	return err
 }
 
+const hayContactosDeCliente = `-- name: HayContactosDeCliente :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_contactos WHERE cliente_id = $1)::boolean
+`
+
+func (q *Queries) HayContactosDeCliente(ctx context.Context, clienteID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, hayContactosDeCliente, clienteID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const iDsExternosVinculados = `-- name: IDsExternosVinculados :many
 SELECT argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo IS NOT NULL
 `
@@ -1709,6 +1844,52 @@ func (q *Queries) PistaEmpresaAlta(ctx context.Context, clienteID int64) (int64,
 	var empresa_id int64
 	err := row.Scan(&empresa_id)
 	return empresa_id, err
+}
+
+const purgarPeticionesPortal = `-- name: PurgarPeticionesPortal :exec
+DELETE FROM integracion.portal_argos_minutos WHERE minuto < now() - interval '10 minutes'
+`
+
+func (q *Queries) PurgarPeticionesPortal(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, purgarPeticionesPortal)
+	return err
+}
+
+const quitarContacto = `-- name: QuitarContacto :execrows
+UPDATE integracion.argos_contactos SET quitado = true, updated_at = now()
+WHERE contacto_id = $1 AND cliente_id = $2 AND NOT quitado
+`
+
+type QuitarContactoParams struct {
+	ContactoID int64
+	ClienteID  int64
+}
+
+func (q *Queries) QuitarContacto(ctx context.Context, arg QuitarContactoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, quitarContacto, arg.ContactoID, arg.ClienteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const quitarContactosAusentes = `-- name: QuitarContactosAusentes :execrows
+UPDATE integracion.argos_contactos SET quitado = true, updated_at = now()
+WHERE cliente_id = $1 AND NOT quitado AND NOT (contacto_id = ANY($2::bigint[]))
+`
+
+type QuitarContactosAusentesParams struct {
+	ClienteID int64
+	Vigentes  []int64
+}
+
+// Los contactos del cliente que Argos ya no devuelve: quitados (dejan de ver sus tickets).
+func (q *Queries) QuitarContactosAusentes(ctx context.Context, arg QuitarContactosAusentesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, quitarContactosAusentes, arg.ClienteID, arg.Vigentes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const reabrirEtapas = `-- name: ReabrirEtapas :exec
@@ -2508,6 +2689,19 @@ func (q *Queries) TecnicosVinculadosArgos(ctx context.Context, arg TecnicosVincu
 		return nil, err
 	}
 	return items, nil
+}
+
+const tokenPortalVigente = `-- name: TokenPortalVigente :one
+SELECT EXISTS (SELECT 1 FROM nucleo.tokens_api WHERE token_padre_id = $1
+    AND revocado_en IS NULL AND eliminado_en IS NULL)::boolean
+`
+
+// El iris_pat_ entregado ya tiene un token_portal vigente (hijo sin revocar ni eliminar).
+func (q *Queries) TokenPortalVigente(ctx context.Context, padreID *int64) (bool, error) {
+	row := q.db.QueryRow(ctx, tokenPortalVigente, padreID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const trasladoPorID = `-- name: TrasladoPorID :one

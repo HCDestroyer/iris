@@ -190,22 +190,28 @@ WHERE usuario_id = @usuario_id AND revocada_en IS NULL;
 -- Tokens de API --------------------------------------------------------------
 
 -- name: CrearToken :one
-INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por, via)
-VALUES (@usuario_id, @nombre, @prefijo, @hash, @permisos, @expira_en, @creado_por, sqlc.narg('via')::text)
+INSERT INTO nucleo.tokens_api (usuario_id, nombre, prefijo, hash, permisos, expira_en, creado_por, via, token_padre_id)
+VALUES (@usuario_id, @nombre, @prefijo, @hash, @permisos, @expira_en, @creado_por, sqlc.narg('via')::text, sqlc.narg('token_padre_id')::bigint)
 RETURNING *;
 
 -- name: TokenVigentePorHash :one
 SELECT sqlc.embed(t), sqlc.embed(u)
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
-WHERE t.hash = @hash AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
+WHERE t.hash = @hash AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo
+  -- Un token derivado (token_portal, contrato con Argos 0.9.0 §1.2) vale mientras valga su padre.
+  AND (t.token_padre_id IS NULL OR EXISTS (SELECT 1 FROM nucleo.tokens_api p WHERE p.id = t.token_padre_id
+       AND p.eliminado_en IS NULL AND p.revocado_en IS NULL AND (p.expira_en IS NULL OR p.expira_en > now())));
 
 -- name: TokenVigentePorID :one
 -- Revalidar un flujo largo (SSE del chat) autenticado con este token.
 SELECT t.permisos, u.id AS usuario_id
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
-WHERE t.id = @id AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo;
+WHERE t.id = @id AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo
+  -- Un token derivado (token_portal, contrato con Argos 0.9.0 §1.2) vale mientras valga su padre.
+  AND (t.token_padre_id IS NULL OR EXISTS (SELECT 1 FROM nucleo.tokens_api p WHERE p.id = t.token_padre_id
+       AND p.eliminado_en IS NULL AND p.revocado_en IS NULL AND (p.expira_en IS NULL OR p.expira_en > now())));
 
 -- name: SesionVigentePorID :one
 -- Revalidar un flujo largo (SSE del chat) autenticado con esta sesión del panel.

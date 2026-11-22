@@ -224,13 +224,15 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola),
-		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL}})
-	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	almacen, err := almacenAdjuntos(cfg)
 	if err != nil {
 		return err
 	}
+	// Portal del cliente de Argos (contrato 0.9.0 §11): la sesión la resuelve el conector y los
+	// adjuntos van al mismo almacenamiento.
+	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola),
+		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL}, PortalArgos: conectorArgos, Almacen: almacen})
+	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	// La orden acepta adjuntos (campo decide quién ve y sube); el cierre cuenta los completos.
 	campo.RegistrarAdjuntos()
 	adj := adjuntos.Nuevo(configAdjuntos(cfg, almacen))
@@ -265,7 +267,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	mensajeria.RegistrarAdjuntos()
 	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
 		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola),
-		Clientes: conectorArgos, URLBase: cfg.BaseURL})
+		Clientes: conectorArgos, URLBase: cfg.BaseURL, PortalArgos: conectorArgos})
 	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
 	// (y la anterior, para comparar durante una rotación).
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
@@ -302,7 +304,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		NotificacionesPush: func() string { return estPush.Estado },
-		Idempotencia:       nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem, Regla: comercial.ReglaIdempotenciaArgos},
+		Idempotencia:       nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem, Regla: nucleo.PrimeraRegla(comercial.ReglaIdempotenciaArgos, argos.ReglaIdempotenciaPortal)},
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,

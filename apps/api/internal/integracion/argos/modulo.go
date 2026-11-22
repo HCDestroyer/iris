@@ -94,9 +94,12 @@ type Modulo struct {
 	guardarCuentas *auditoria.Caso[lecturaCuentas, ResultadoCuentas]
 	// cargaCuentas y cargaBancos: la instantánea de cuentas y bancos (B5); nil = solo contar.
 	cargaCuentas, cargaBancos CargaCatalogoBancario
-	cfg                       Config
-	nucleo                    *conector.Nucleo
-	conexion                  *conector.Conexion
+	// Portal del cliente de Argos (0.9.0 §11): la sesión de cada petición (portal.go).
+	prepararPortal *auditoria.Caso[CabecerasPortal, previoPortal]
+	cerrarPortal   *auditoria.Caso[entradaCerrarPortal, SesionPortal]
+	cfg            Config
+	nucleo         *conector.Nucleo
+	conexion       *conector.Conexion
 
 	Conectar        *conector.Conectar
 	Previsualizar   *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
@@ -183,6 +186,8 @@ func Nuevo(cfg Config) *Modulo {
 		Contrato: ContratoIris, Capacidades: capacidades,
 		// 0.6.2: el canje exige el receptor de Argos (§1.3) y manda receptor_argos: true.
 		ExigirReceptor: true,
+		// 0.9.0 §1.2: el canje entrega además el token_portal (cuando Iris habla un contrato ≥ 0.9.0).
+		TokenPortal: SoportaPortal(&contratoIris),
 		// 0.6.3: el atk_ de un canje que Iris no completa se revoca en Argos (job).
 		RutaRevocarCanje: "/integraciones/iris/conexion/revocar",
 		// 0.6.3: al reconectar, el iris_pat_ del conector anterior vive hasta que el atk_ nuevo responda.
@@ -216,6 +221,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.InformarSincronizacion = nuevoInformarSincronizacion(m)
 	m.Sincronizar = nuevoSincronizar(m)
 	m.EstadoConexion = nuevoEstadoConexion(m)
+	m.prepararPortal, m.cerrarPortal = nuevoPrepararPortal(m), nuevoCerrarPortal(m)
 	m.RegistrarCertificado = nuevoRegistrarCertificado()
 	return m
 }
