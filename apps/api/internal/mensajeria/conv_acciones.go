@@ -65,7 +65,22 @@ func (m *Modulo) asegurarCliente(ctx context.Context, previo *auditoria.Caso[Ent
 		if servicio == nil {
 			servicio = l.conv.ServicioID
 		}
-		if err := m.cfg.Argos.AsegurarInstantanea(ctx, *l.conv.ClienteID, servicio); err != nil {
+		cliente := *l.conv.ClienteID
+		if servicio != nil {
+			// Un servicio a cargo de quien escribe (§3.8) es de otro cliente: se asegura ese.
+			if bd := nucleo.BDDe(ctx); bd != nil {
+				if s, err := mensajeriabd.New(bd).ServicioInstantaneaPorID(ctx, *servicio); err == nil && s.ClienteID != cliente {
+					if rol, err := rolDeConversacion(ctx, mensajeriabd.New(bd), l.conv); err == nil {
+						for _, k := range rol.ACargo {
+							if k.ClienteID == s.ClienteID {
+								cliente = s.ClienteID
+							}
+						}
+					}
+				}
+			}
+		}
+		if err := m.cfg.Argos.AsegurarInstantanea(ctx, cliente, servicio); err != nil {
 			return l, err
 		}
 	}
@@ -111,7 +126,7 @@ func nuevoCrearTicketConv(m *Modulo) *CrearTicketConv {
 		Accion: "conversaciones.crear_ticket", Permiso: nucleo.PermTicketsCrear,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaTicketConv) (VinculoCreado, error) {
 			var v VinculoConversacion
-			d, err := m.accionConvDe(ctx, t, "conversaciones.crear_ticket", in.ID, 0, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			d, err := m.accionConvDe(ctx, t, "conversaciones.crear_ticket", in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				if m.cfg.Soporte == nil {
 					return noDisponible("Crear tickets")
 				}
@@ -119,6 +134,18 @@ func nuevoCrearTicketConv(m *Modulo) *CrearTicketConv {
 					Prioridad: in.Prioridad, Asunto: in.Asunto, Descripcion: in.Descripcion, ClaveIdempotencia: in.Clave}
 				if in.ServicioID != nil {
 					e.ServicioID = in.ServicioID
+				}
+				if c.ClienteID != nil {
+					// Un contacto reporta solo con «reportar» y sobre un servicio suyo (o a su cargo:
+					// el ticket es del dueño del servicio), §3.5 y §3.8.
+					acc, err := accesoAServicio(ctx, q, *c, e.ServicioID, PermisoContactoReportar)
+					if err != nil {
+						return err
+					}
+					e.ClienteID = &acc.ClienteID
+					if acc.ServicioID != nil {
+						e.ServicioID = acc.ServicioID
+					}
 				}
 				if c.ClienteID == nil {
 					nombre := c.Numero
@@ -376,7 +403,17 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				if in.ServicioID != nil {
 					servicio = in.ServicioID
 				}
-				if err := clienteEnEmpresa(ctx, q, empresaDeConv(*c), *c.ClienteID, servicio, false); err != nil {
+				// Quién paga (§3.5, §3.8): el titular, o un contacto con «pagar» sobre un servicio suyo
+				// (también uno que tiene a cargo). La boleta queda a nombre del dueño del servicio.
+				acc, err := accesoAServicio(ctx, q, *c, servicio, PermisoContactoPagar)
+				if err != nil {
+					return err
+				}
+				servicio = acc.ServicioID
+				if servicio == nil && in.ServicioID == nil {
+					servicio = c.ServicioID
+				}
+				if err := clienteEnEmpresa(ctx, q, empresaDeConv(*c), acc.ClienteID, servicio, false); err != nil {
 					return err
 				}
 				// La cuenta es de la empresa de la conversación y está activa (Argos también lo valida).
@@ -392,15 +429,20 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				if err != nil {
 					return err
 				}
-				f, err := q.InsertarBoleta(ctx, mensajeriabd.InsertarBoletaParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
+				f, err := q.InsertarBoleta(ctx, mensajeriabd.InsertarBoletaParams{ID: id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: acc.ClienteID,
 					ServicioID: servicio, AdjuntoID: in.AdjuntoID, Metodo: in.Metodo, CuentaBancariaID: in.CuentaBancariaID, BancoOrigenID: in.BancoOrigenID,
 					Referencia: in.Referencia, Monto: monto, FechaDeposito: pgtype.Date{Time: fecha, Valid: true}, Nota: in.Nota,
 					RegistradaPor: a.usuarioPtr(), ProximoIntento: m.ahora(), PorAsistente: a.asistente, CuentaValidacion: &cuenta})
 				if err != nil {
 					return err
 				}
+				// X-Iris-Contacto con que saldrá a Argos (la misma en cada reintento: va en la huella).
+				if err := q.FijarContactoBoleta(ctx, mensajeriabd.FijarContactoBoletaParams{ID: f.ID, ContactoArgos: &acc.Contacto}); err != nil {
+					return err
+				}
+				f.ContactoArgos = &acc.Contacto
 				b = aBoleta(f)
-				t.RegistrarCambios("boleta", f.ID, nil, map[string]any{"cliente_id": f.ClienteID, "servicio_id": f.ServicioID, "metodo": f.Metodo,
+				t.RegistrarCambios("boleta", f.ID, nil, map[string]any{"cliente_id": f.ClienteID, "servicio_id": f.ServicioID, "metodo": f.Metodo, "contacto_argos": acc.Contacto,
 					"referencia": f.Referencia, "monto": in.Monto, "adjunto_id": f.AdjuntoID, "cuenta_bancaria_id": f.CuentaBancariaID, "cuenta_validacion": cuenta})
 				if err := m.vincular(ctx, t, c, a, "boleta", f.ID.String(), "Boleta "+f.Referencia, "boleta_registrada"); err != nil {
 					return err
@@ -483,7 +525,11 @@ func nuevoPrepararBoleta(m *Modulo) *auditoria.Caso[uuid.UUID, boletaPorEnviar] 
 			if !f.PorAsistente && f.RegistradaPor != nil {
 				quien = alcanceConv{usuario: *f.RegistradaPor, empresa: empresa}
 			}
-			return boletaPorEnviar{ID: id, f: f, datos: datos, mime: adj.Mime, a: atencionDe(quien, f.ConversacionID)}, nil
+			a := atencionDe(quien, f.ConversacionID)
+			if f.ContactoArgos != nil {
+				a.Contacto = *f.ContactoArgos
+			}
+			return boletaPorEnviar{ID: id, f: f, datos: datos, mime: adj.Mime, a: a}, nil
 		},
 	})
 }
@@ -775,6 +821,8 @@ type previaPromesa struct {
 }
 
 type entradaFinalPromesa struct {
+	// dueno: el cliente dueño del servicio (el de la conversación o uno a cargo, §3.8).
+	dueno int64
 	EntradaPromesa
 	// cliente: el de la conversación cuando se pidió a Argos.
 	cliente int64
@@ -852,7 +900,11 @@ func nuevasPromesas(m *Modulo) *Promesas {
 				if estado != "activa" && estado != "rechazada" && estado != "pendiente_aprobacion" {
 					estado = "pendiente_aprobacion"
 				}
-				params := mensajeriabd.InsertarPromesaParams{ID: in.id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
+				dueno := *c.ClienteID
+				if in.dueno != 0 {
+					dueno = in.dueno
+				}
+				params := mensajeriabd.InsertarPromesaParams{ID: in.id, EmpresaID: c.EmpresaID, ConversacionID: c.ID, ClienteID: dueno,
 					ServicioID: in.ServicioID, VenceEl: pgtype.Date{Time: in.vence, Valid: true}, Estado: estado, SolicitadaPor: a.usuarioPtr(), HashPeticion: in.hash}
 				if in.r.ID != 0 {
 					params.PromesaArgosID = &in.r.ID
@@ -922,11 +974,16 @@ func (k *Promesas) Simular(ctx context.Context, in EntradaSimularPromesa) (Simul
 	if !l.conv.ClienteVerificado {
 		return SimulacionPromesaConv{}, clienteSinConfirmar()
 	}
-	// El servicio debe ser del cliente de la conversación en la empresa (como al crearla).
-	if err := k.m.cfg.Argos.AsegurarInstantanea(ctx, *l.conv.ClienteID, &in.ServicioID); err != nil {
+	// Quién la pide (§3.5, §3.8): el titular, o un contacto con «pagar» sobre ese servicio.
+	acc, err := accesoAServicio(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), l.conv, &in.ServicioID, PermisoContactoPagar)
+	if err != nil {
 		return SimulacionPromesaConv{}, err
 	}
-	if err := clienteEnEmpresa(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), l.alcance.empresa, *l.conv.ClienteID, &in.ServicioID, false); err != nil {
+	// El servicio debe ser del cliente (el de la conversación o el que tiene a cargo) en la empresa.
+	if err := k.m.cfg.Argos.AsegurarInstantanea(ctx, acc.ClienteID, &in.ServicioID); err != nil {
+		return SimulacionPromesaConv{}, err
+	}
+	if err := clienteEnEmpresa(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), l.alcance.empresa, acc.ClienteID, &in.ServicioID, false); err != nil {
 		return SimulacionPromesaConv{}, err
 	}
 	var vence *time.Time
@@ -937,7 +994,9 @@ func (k *Promesas) Simular(ctx context.Context, in EntradaSimularPromesa) (Simul
 		}
 		vence = &v
 	}
-	r, err := k.m.cfg.Argos.SimularPromesa(ctx, atencionDe(l.alcance, l.ID), in.ServicioID, vence)
+	at := atencionDe(l.alcance, l.ID)
+	at.Contacto = acc.Contacto
+	r, err := k.m.cfg.Argos.SimularPromesa(ctx, at, in.ServicioID, vence)
 	if err != nil {
 		return SimulacionPromesaConv{}, rechazoPromesaArgos(err)
 	}
@@ -962,12 +1021,18 @@ func (k *Promesas) Crear(ctx context.Context, in EntradaPromesa) (PromesaConv, e
 	if pre.repetida != nil {
 		return *pre.repetida, nil
 	}
+	// Quién la pide (§3.5, §3.8): el titular, o un contacto con «pagar» sobre ese servicio (también
+	// uno que tiene a cargo: la promesa es del dueño del servicio, con X-Iris-Contacto).
+	acc, err := accesoAServicio(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), pre.conv, &in.ServicioID, PermisoContactoPagar)
+	if err != nil {
+		return PromesaConv{}, err
+	}
 	if k.m.cfg.Argos != nil {
-		if err := k.m.cfg.Argos.AsegurarInstantanea(ctx, *pre.conv.ClienteID, &in.ServicioID); err != nil {
+		if err := k.m.cfg.Argos.AsegurarInstantanea(ctx, acc.ClienteID, &in.ServicioID); err != nil {
 			return PromesaConv{}, err
 		}
 	}
-	if err := clienteEnEmpresa(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), pre.a.empresa, *pre.conv.ClienteID, &in.ServicioID, false); err != nil {
+	if err := clienteEnEmpresa(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), pre.a.empresa, acc.ClienteID, &in.ServicioID, false); err != nil {
 		return PromesaConv{}, err
 	}
 	// Con la misma Idempotency-Key, el mismo id (y la misma clave hacia Argos) en cada reintento.
@@ -981,11 +1046,13 @@ func (k *Promesas) Crear(ctx context.Context, in EntradaPromesa) (PromesaConv, e
 			id = idPromesaAsistente(in.ID, in.Clave)
 		}
 	}
-	r, err := k.m.cfg.Argos.CrearPromesa(ctx, atencionDe(pre.a, in.ID), in.ServicioID, vence, "iris:promesa:"+id.String())
+	at := atencionDe(pre.a, in.ID)
+	at.Contacto = acc.Contacto
+	r, err := k.m.cfg.Argos.CrearPromesa(ctx, at, in.ServicioID, vence, "iris:promesa:"+id.String())
 	if err != nil {
 		return PromesaConv{}, rechazoPromesaArgos(err)
 	}
-	return k.final.Ejecutar(ctx, entradaFinalPromesa{EntradaPromesa: in, cliente: *pre.conv.ClienteID, id: id, hash: h[:], r: r, vence: dia})
+	return k.final.Ejecutar(ctx, entradaFinalPromesa{EntradaPromesa: in, cliente: *pre.conv.ClienteID, dueno: acc.ClienteID, id: id, hash: h[:], r: r, vence: dia})
 }
 
 // Rechazos de Argos a una promesa (POST /promesas y /promesas/simular, Argos 1.17.0) -------------------

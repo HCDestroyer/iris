@@ -4285,6 +4285,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/conversaciones/{id}/elegir-cliente": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Elegir entre varios clientes con el mismo número por su número de servicio
+         * @description Permiso: `conversaciones.elegir_cliente`. Solo cuando el número está en varios clientes (contacto.varios). Compara la referencia (el código del servicio, S-000412) solo contra los clientes que comparten el número y nunca devuelve sus datos: si coincide con uno, la conversación queda asociada (no verificada, §7.5). 3 intentos fallidos por conversación y 5 por número al día (429 `demasiados_intentos`). La referencia no se guarda ni se audita.
+         */
+        post: operations["elegirClienteConversacion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/conversaciones/{id}/empresas-destino": {
         parameters: {
             query?: never;
@@ -4360,7 +4380,7 @@ export interface paths {
         put?: never;
         /**
          * Registrar en Argos una gestión de cobro (contrato con Argos 0.13.0 §3.12)
-         * @description Permiso: `conversaciones.registrar_gestion_cobro`. Solo informativa: nunca cambia estados, cortes ni promesas en Argos. Sin texto libre, montos ni teléfonos. Solo con el cliente confirmado (422 `sin_cliente`, `cliente_sin_confirmar`). `ocurridoEn` entre ahora − 7 días y ahora + 5 min (422 `validacion`, regla `ventana`). Sale a Argos por la cola de pendientes (`iris:gestion:<id>`, X-Iris-Actor y, con `contactoId`, X-Iris-Contacto). 409 `argos_apagado` y `argos_sin_gestiones` (Argos con contrato anterior a 0.13.0). Con el asistente de IA, `promete_pagar` y `pago_informado` exigen una promesa o un comprobante en la conversación (422 `sin_respaldo`). Idempotency-Key opcional.
+         * @description Permiso: `conversaciones.registrar_gestion_cobro`. Solo informativa: nunca cambia estados, cortes ni promesas en Argos. Sin texto libre, montos ni teléfonos. Solo con el cliente confirmado (422 `sin_cliente`, `cliente_sin_confirmar`). `ocurridoEn` entre ahora − 7 días y ahora + 5 min (422 `validacion`, regla `ventana`). Sale a Argos por la cola de pendientes (`iris:gestion:<id>`, X-Iris-Actor y, si quien habla es un contacto del cliente según su número, X-Iris-Contacto). 409 `argos_apagado` y `argos_sin_gestiones` (Argos con contrato anterior a 0.13.0). Con el asistente de IA, `promete_pagar` y `pago_informado` exigen una promesa o un comprobante en la conversación (422 `sin_respaldo`). Idempotency-Key opcional.
          */
         post: operations["registrarGestionCobroConversacion"];
         delete?: never;
@@ -9448,6 +9468,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ACargoConv: {
+            /**
+             * Format: int64
+             * @description El contacto de Argos de quien habla en ese cliente (X-Iris-Contacto)
+             */
+            contactoId: number;
+            permisos: components["schemas"]["PermisosContactoConv"];
+            /** @description Solo código y nombre: nunca el nombre del cliente ni otros datos */
+            servicios: components["schemas"]["ServicioContacto"][] | null;
+        };
         Acceso: {
             /** @description X-Iris-App tal cual */
             app: string | null;
@@ -11636,6 +11666,8 @@ export interface components {
             reabiertaEn: string | null;
             /** @description §16.4: la conversación tiene un resumen del asistente guardado (el texto: GET …/resumen). Ausente si nadie lo ha pedido */
             resumen?: components["schemas"]["ResumenGuardadoRef"];
+            /** @description Quién habla respecto del cliente (contrato con Argos §3.5 y §3.8): titular o contacto, sus permisos, sus servicios y los que tiene a cargo. Sin cliente, solo si el número está en varios clientes (varios). Ausente sin cliente ni varios */
+            rolContacto?: components["schemas"]["RolContactoConv"];
             sla: components["schemas"]["SLAConversacion"];
             /** @description true: el número ya no está compartido con tu empresa (préstamo revocado, §15.3) y solo se puede leer. Ausente = false */
             soloLectura?: boolean;
@@ -12306,6 +12338,11 @@ export interface components {
             tono: "info" | "error" | "ok" | "aviso" | "neutro";
             /** Format: int64 */
             total: number;
+        };
+        EleccionCliente: {
+            coincide: boolean;
+            conversacion: components["schemas"]["ConversacionClienteDetalle"];
+            intentos: components["schemas"]["IntentosEleccionConv"];
         };
         Empresa: {
             /** Format: date-time */
@@ -13920,6 +13957,15 @@ export interface components {
              */
             version: number;
         };
+        EntradaElegirCliente: {
+            /** @description El número de servicio que da el cliente (S-000412) */
+            referencia: string;
+            /**
+             * Format: int32
+             * @description 0 = sin control de versión (el asistente)
+             */
+            version?: number;
+        };
         EntradaEliminarConector: {
             /** @description Nota libre (opcional); va en la auditoría */
             motivo?: string;
@@ -14166,8 +14212,6 @@ export interface components {
             version: number;
         };
         EntradaGestionCobro: {
-            /** @description Id del contacto del cliente en Argos que habló (va como X-Iris-Contacto); sin él, el titular */
-            contactoId?: string;
             /**
              * Format: date-time
              * @description Cuándo ocurrió (entre ahora − 7 días y ahora + 5 min)
@@ -16232,6 +16276,7 @@ export interface components {
             clienteId: number;
             /** @description El tipo de error de Argos cuando falló */
             codigoError: string | null;
+            /** @description El contacto del cliente en Argos que habla en la conversación (salió como X-Iris-Contacto); null = el titular */
             contactoId: string | null;
             /** Format: int64 */
             conversacionId: number;
@@ -16365,6 +16410,18 @@ export interface components {
             recurso: "clientes" | "servicios" | "zonas" | "routers";
             /** Format: date-time */
             ultimoSincronizadoEn: string | null;
+        };
+        IntentosEleccionConv: {
+            /**
+             * Format: int64
+             * @description De 3 por conversación
+             */
+            conversacion: number;
+            /**
+             * Format: int64
+             * @description De 5 por número al día
+             */
+            numero: number;
         };
         ItemChecklist: {
             codigo: string;
@@ -18526,7 +18583,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_gestion_cobro" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cambiar_plan" | "ordenes.cambiar_titular" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.completar_datos" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.validar_identidad" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.registrar_integracion" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.elegir_cliente" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_gestion_cobro" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cambiar_plan" | "ordenes.cambiar_titular" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.completar_datos" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.validar_identidad" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.registrar_integracion" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -18569,6 +18626,16 @@ export interface components {
              * @description Con temporal: hasta cuándo vale
              */
             venceEn?: string;
+        };
+        PermisosContactoConv: {
+            /** @description Recibe avisos de cobro */
+            avisos: boolean;
+            /** @description Saldo, estado del servicio y facturas */
+            consultar: boolean;
+            /** @description Boletas y promesas */
+            pagar: boolean;
+            /** @description Tickets y fallas */
+            reportar: boolean;
         };
         PersonaCentralita: {
             extension: string;
@@ -19998,6 +20065,31 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        RolContactoConv: {
+            /** @description «Los que tiene a cargo»: servicios de otros clientes (A46) */
+            aCargo: components["schemas"]["ACargoConv"][] | null;
+            /** Format: int64 */
+            contactoId: number | null;
+            /** @description Con varios: los intentos que quedan */
+            elegir?: components["schemas"]["IntentosEleccionConv"];
+            /** @description Nombre del contacto en Argos */
+            nombre: string | null;
+            /** @description Con rol titular, todos (siguen valiendo las reglas de verificación) */
+            permisos: components["schemas"]["PermisosContactoConv"];
+            /** @enum {string|null} */
+            relacion: "titular" | "familiar" | "inquilino" | "empleado" | "otro" | null;
+            /** @description Lo que solo pide el titular, con su identidad (A41): cambiar titular, plan, Wi-Fi, traspaso y baja */
+            reservado: string;
+            /**
+             * @description titular: el número es del titular (o la asociación no tiene contacto conocido); contacto: un contacto del cliente en Argos
+             * @enum {string}
+             */
+            rol: "titular" | "contacto";
+            /** @description «Sus servicios»: los del cliente a los que aplica el rol */
+            servicios: components["schemas"]["ServicioContacto"][] | null;
+            /** @description Sin cliente asociado: el número está en varios clientes. Se pide el número de servicio (elegir-cliente), sin mostrar datos de ninguno */
+            varios: boolean;
+        };
         RouterCobertura: {
             /** Format: int64 */
             id: number;
@@ -20377,6 +20469,14 @@ export interface components {
             sincronizadoEn: string;
             /** @description Nombre de la zona del servicio */
             zona?: string;
+        };
+        ServicioContacto: {
+            /** @description Código del servicio en Argos (S-000412) */
+            codigo: string;
+            /** Format: int64 */
+            id: number;
+            /** @description Nombre que eligió el cliente («Casa»); texto del cliente: mostrarlo escapado */
+            nombre: string;
         };
         ServicioDeLlamada: {
             codigo: string;
@@ -38712,6 +38812,89 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversacionClienteDetalle"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    elegirClienteConversacion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaElegirCliente"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EleccionCliente"];
                 };
             };
             /** @description Unauthorized */

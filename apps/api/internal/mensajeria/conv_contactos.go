@@ -305,6 +305,17 @@ func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int6
 			return true, nil
 		}
 	}
+	// El número de un contacto del cliente en Argos (§3.5): identifica igual que el del titular
+	// (WhatsApp desde ese número basta para consultar, reportar y pagar con sus permisos).
+	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: soloDigitos(numero), Empresa: empresa})
+	if err != nil {
+		return false, err
+	}
+	for _, x := range ks {
+		if x.ClienteID == cliente || (x.PersonaClienteID != nil && *x.PersonaClienteID == cliente) {
+			return true, nil
+		}
+	}
 	return false, nil
 }
 
@@ -597,8 +608,13 @@ func nuevoUnirContacto(m *Modulo) *UnirContacto {
 				}
 			}
 			t.RegistrarCambios("contacto_iris", f.ID, map[string]any{"cliente_id": antes.ClienteID}, map[string]any{"cliente_id": f.ClienteID})
+			// Con Argos ≥ 0.10.0 el contacto se crea también en Argos (§3.5, B22), por la cola de pendientes.
+			pendiente, err := m.crearContactoEnArgos(ctx, t, a, f, in.ClienteID)
+			if err != nil {
+				return ContactoIris{}, err
+			}
 			return aContactoIris(f), t.Emitir("contacto_iris.unido", map[string]any{"contacto_iris_id": f.ID, "empresa_id": f.EmpresaID,
-				"cliente_id": in.ClienteID, "conversaciones": convs})
+				"cliente_id": in.ClienteID, "conversaciones": convs, "pendiente_id": pendiente})
 		},
 	})
 	return k

@@ -531,3 +531,19 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
   (`ServiciosClienteAsistente` no lo lee).
 - `codigo` ya se guardaba. Con el formato de A45 (`S-000412`) el asistente lo usa en la etiqueta corta
   (`<codigo> · «plan» · «zona»`, §10.5 ajuste ag); con otra forma sigue «Servicio n».
+
+## Contratos 0.10.0 y 0.10.1: contactos del cliente (A42, A46 / B22, B25)
+
+- **Caché de lectura** (`contactos.go`): `integracion.argos_contactos` (rol, `servicios[]`, permisos,
+  `persona_cliente_id`, `version`), `argos_contacto_telefonos` (solo números E.164, con sus dígitos para
+  buscar) y `argos_contactos_leidos` (cuándo se leyeron completos). Argos es el dueño: nada se edita a mano.
+- `RefrescarContactos` lee `GET /clientes/:id/contactos` si la caché tiene más de 24 h (auditado como
+  `clientes.sincronizar_contactos`); `BuscarContactos` llama `GET /contactos/buscar?telefono=`. Las dos
+  exigen `X-Iris-Actor` de quien atiende; con Argos < 0.10.0 no llaman a nada.
+- **Webhook `cliente.contactos_cambiados`:** solo de clientes que Iris conoce. Con `quitado`, el contacto
+  sale al momento; si no, Iris relee con `X-Iris-Actor: sistema` (0.14.2: solo en esa ruta, nunca con
+  `X-Iris-Conversacion` ni `X-Iris-Contacto`). Si Argos no lo acepta (anterior a 0.14.2), la caché del
+  cliente se olvida y la relee la próxima persona. Emite `argos.contactos_cambiados`, sin números ni nombres.
+- **`X-Iris-Contacto` (§7.1):** con Argos ≥ 0.10.1 va en toda ruta de §7 con `X-Iris-Conversacion`:
+  `titular` o el `contacto_id` (`AtencionIris.Contacto`). Con uno anterior no se manda. El estado de
+  cuenta acepta `?servicio_id=` (`EstadoCuentaServicio`) para un contacto con servicios acotados.

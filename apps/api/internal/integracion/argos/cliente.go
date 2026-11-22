@@ -16,6 +16,9 @@ import (
 // como *ErrorArgos. El token nunca aparece en errores ni logs.
 type Cliente struct {
 	*conector.Cliente
+	// contrato: el contrato que informa el conector (nil si el cliente no salió de un conector).
+	// Decide cabeceras de §7.1 como X-Iris-Contacto (0.10.1).
+	contrato *string
 }
 
 // OpcionesCliente configuran el cliente.
@@ -118,12 +121,23 @@ func (c *Cliente) ServiciosDeClienteCompletos(ctx context.Context, clienteID int
 // empresa (≠ 0), solo la de esa empresa (?empresa_id= y X-Empresa-Id; multiempresa.md de Argos);
 // con 0, el consolidado.
 func (c *Cliente) EstadoCuenta(ctx context.Context, clienteID, empresa int64) (EstadoCuentaArgos, error) {
+	return c.estadoCuenta(ctx, clienteID, empresa, nil)
+}
+
+// estadoCuenta: con servicioID, ?servicio_id= (§2.1, 0.10.0: solo ese servicio).
+func (c *Cliente) estadoCuenta(ctx context.Context, clienteID, empresa int64, servicioID *int64) (EstadoCuentaArgos, error) {
 	var e EstadoCuentaArgos
 	cli := c.Cliente
-	var v url.Values
+	v := url.Values{}
 	if empresa != 0 {
-		v = url.Values{"empresa_id": {strconv.FormatInt(empresa, 10)}}
+		v.Set("empresa_id", strconv.FormatInt(empresa, 10))
 		cli = cli.ConCabecera(CabeceraEmpresaArgos, strconv.FormatInt(empresa, 10))
+	}
+	if servicioID != nil {
+		v.Set("servicio_id", strconv.FormatInt(*servicioID, 10))
+	}
+	if len(v) == 0 {
+		v = nil
 	}
 	err := cli.Pedir(ctx, http.MethodGet, "/clientes/"+strconv.FormatInt(clienteID, 10)+"/estado-cuenta", v, nil, true, &conector.Recurso{Destino: &e})
 	return e, err

@@ -192,6 +192,48 @@ func (q *Queries) BorrarCliente(ctx context.Context, id int64) error {
 	return err
 }
 
+const borrarContactoArgos = `-- name: BorrarContactoArgos :execrows
+DELETE FROM integracion.argos_contactos WHERE contacto_id = $1
+`
+
+func (q *Queries) BorrarContactoArgos(ctx context.Context, contactoID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarContactoArgos, contactoID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const borrarContactosAusentes = `-- name: BorrarContactosAusentes :execrows
+DELETE FROM integracion.argos_contactos WHERE cliente_id = $1 AND NOT (contacto_id = ANY ($2::bigint[]))
+`
+
+type BorrarContactosAusentesParams struct {
+	ClienteID int64
+	Vigentes  []int64
+}
+
+// Los contactos del cliente que Argos ya no devuelve.
+func (q *Queries) BorrarContactosAusentes(ctx context.Context, arg BorrarContactosAusentesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarContactosAusentes, arg.ClienteID, arg.Vigentes)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const borrarContactosDeCliente = `-- name: BorrarContactosDeCliente :execrows
+DELETE FROM integracion.argos_contactos WHERE cliente_id = $1
+`
+
+func (q *Queries) BorrarContactosDeCliente(ctx context.Context, clienteID int64) (int64, error) {
+	result, err := q.db.Exec(ctx, borrarContactosDeCliente, clienteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const borrarCuentaBancaria = `-- name: BorrarCuentaBancaria :execrows
 DELETE FROM integracion.argos_cuentas_bancarias WHERE id = $1 AND sincronizado_en <= $2
 `
@@ -254,6 +296,15 @@ type BorrarServiciosAusentesParams struct {
 // Servicios que Argos ya no devuelve para el cliente (y que no se leyeron después).
 func (q *Queries) BorrarServiciosAusentes(ctx context.Context, arg BorrarServiciosAusentesParams) error {
 	_, err := q.db.Exec(ctx, borrarServiciosAusentes, arg.ClienteID, arg.Vigentes, arg.SincronizadoEn)
+	return err
+}
+
+const borrarTelefonosContactoArgos = `-- name: BorrarTelefonosContactoArgos :exec
+DELETE FROM integracion.argos_contacto_telefonos WHERE contacto_id = $1
+`
+
+func (q *Queries) BorrarTelefonosContactoArgos(ctx context.Context, contactoID int64) error {
+	_, err := q.db.Exec(ctx, borrarTelefonosContactoArgos, contactoID)
 	return err
 }
 
@@ -688,6 +739,82 @@ func (q *Queries) ClientesEnInstantanea(ctx context.Context, ids []int64) ([]Cli
 		return nil, err
 	}
 	return items, nil
+}
+
+const contactoArgosPorID = `-- name: ContactoArgosPorID :one
+SELECT contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios, consultar, reportar, pagar, avisos, persona_cliente_id, version, sincronizado_en FROM integracion.argos_contactos WHERE contacto_id = $1
+`
+
+func (q *Queries) ContactoArgosPorID(ctx context.Context, contactoID int64) (IntegracionArgosContacto, error) {
+	row := q.db.QueryRow(ctx, contactoArgosPorID, contactoID)
+	var i IntegracionArgosContacto
+	err := row.Scan(
+		&i.ContactoID,
+		&i.ClienteID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Relacion,
+		&i.EsTitular,
+		&i.Servicios,
+		&i.Consultar,
+		&i.Reportar,
+		&i.Pagar,
+		&i.Avisos,
+		&i.PersonaClienteID,
+		&i.Version,
+		&i.SincronizadoEn,
+	)
+	return i, err
+}
+
+const contactosDeClienteCache = `-- name: ContactosDeClienteCache :many
+SELECT contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios, consultar, reportar, pagar, avisos, persona_cliente_id, version, sincronizado_en FROM integracion.argos_contactos WHERE cliente_id = $1 ORDER BY contacto_id
+`
+
+func (q *Queries) ContactosDeClienteCache(ctx context.Context, clienteID int64) ([]IntegracionArgosContacto, error) {
+	rows, err := q.db.Query(ctx, contactosDeClienteCache, clienteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosContacto
+	for rows.Next() {
+		var i IntegracionArgosContacto
+		if err := rows.Scan(
+			&i.ContactoID,
+			&i.ClienteID,
+			&i.EmpresaID,
+			&i.Nombre,
+			&i.Relacion,
+			&i.EsTitular,
+			&i.Servicios,
+			&i.Consultar,
+			&i.Reportar,
+			&i.Pagar,
+			&i.Avisos,
+			&i.PersonaClienteID,
+			&i.Version,
+			&i.SincronizadoEn,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const contactosLeidosEn = `-- name: ContactosLeidosEn :one
+SELECT sincronizado_en FROM integracion.argos_contactos_leidos WHERE cliente_id = $1
+`
+
+func (q *Queries) ContactosLeidosEn(ctx context.Context, clienteID int64) (time.Time, error) {
+	row := q.db.QueryRow(ctx, contactosLeidosEn, clienteID)
+	var sincronizado_en time.Time
+	err := row.Scan(&sincronizado_en)
+	return sincronizado_en, err
 }
 
 const copiaDe = `-- name: CopiaDe :one
@@ -1292,6 +1419,56 @@ func (q *Queries) GuardarClienteLista(ctx context.Context, arg GuardarClienteLis
 	return err
 }
 
+const guardarContactoArgos = `-- name: GuardarContactoArgos :exec
+
+INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios,
+    consultar, reportar, pagar, avisos, persona_cliente_id, version, sincronizado_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7::bigint[],
+    $8, $9, $10, $11, $12, $13, $14)
+ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = EXCLUDED.cliente_id, empresa_id = EXCLUDED.empresa_id, nombre = EXCLUDED.nombre,
+    relacion = EXCLUDED.relacion, es_titular = EXCLUDED.es_titular, servicios = EXCLUDED.servicios, consultar = EXCLUDED.consultar,
+    reportar = EXCLUDED.reportar, pagar = EXCLUDED.pagar, avisos = EXCLUDED.avisos, persona_cliente_id = EXCLUDED.persona_cliente_id,
+    version = EXCLUDED.version, sincronizado_en = EXCLUDED.sincronizado_en
+`
+
+type GuardarContactoArgosParams struct {
+	ContactoID       int64
+	ClienteID        int64
+	EmpresaID        *int64
+	Nombre           string
+	Relacion         string
+	EsTitular        bool
+	Servicios        []int64
+	Consultar        bool
+	Reportar         bool
+	Pagar            bool
+	Avisos           bool
+	PersonaClienteID *int64
+	Version          int32
+	SincronizadoEn   time.Time
+}
+
+// Contactos del cliente (contrato 0.10.0 §3.5, A42; 0.10.1 §3.8, A46) -------------------------
+func (q *Queries) GuardarContactoArgos(ctx context.Context, arg GuardarContactoArgosParams) error {
+	_, err := q.db.Exec(ctx, guardarContactoArgos,
+		arg.ContactoID,
+		arg.ClienteID,
+		arg.EmpresaID,
+		arg.Nombre,
+		arg.Relacion,
+		arg.EsTitular,
+		arg.Servicios,
+		arg.Consultar,
+		arg.Reportar,
+		arg.Pagar,
+		arg.Avisos,
+		arg.PersonaClienteID,
+		arg.Version,
+		arg.SincronizadoEn,
+	)
+	return err
+}
+
 const guardarCopia = `-- name: GuardarCopia :exec
 
 INSERT INTO integracion.argos_copias (entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en)
@@ -1493,6 +1670,31 @@ func (q *Queries) GuardarServicio(ctx context.Context, arg GuardarServicioParams
 	return err
 }
 
+const guardarTelefonoContactoArgos = `-- name: GuardarTelefonoContactoArgos :exec
+INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos, whatsapp, principal)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (contacto_id, numero) DO UPDATE SET digitos = EXCLUDED.digitos, whatsapp = EXCLUDED.whatsapp, principal = EXCLUDED.principal
+`
+
+type GuardarTelefonoContactoArgosParams struct {
+	ContactoID int64
+	Numero     string
+	Digitos    string
+	Whatsapp   bool
+	Principal  bool
+}
+
+func (q *Queries) GuardarTelefonoContactoArgos(ctx context.Context, arg GuardarTelefonoContactoArgosParams) error {
+	_, err := q.db.Exec(ctx, guardarTelefonoContactoArgos,
+		arg.ContactoID,
+		arg.Numero,
+		arg.Digitos,
+		arg.Whatsapp,
+		arg.Principal,
+	)
+	return err
+}
+
 const guardarTraslado = `-- name: GuardarTraslado :one
 
 INSERT INTO integracion.argos_traslados (
@@ -1650,6 +1852,21 @@ func (q *Queries) LecturaCuentasDe(ctx context.Context, empresaID int64) (time.T
 	return leido_en, err
 }
 
+const marcarContactosLeidos = `-- name: MarcarContactosLeidos :exec
+INSERT INTO integracion.argos_contactos_leidos (cliente_id, sincronizado_en) VALUES ($1, $2)
+ON CONFLICT (cliente_id) DO UPDATE SET sincronizado_en = EXCLUDED.sincronizado_en
+`
+
+type MarcarContactosLeidosParams struct {
+	ClienteID      int64
+	SincronizadoEn time.Time
+}
+
+func (q *Queries) MarcarContactosLeidos(ctx context.Context, arg MarcarContactosLeidosParams) error {
+	_, err := q.db.Exec(ctx, marcarContactosLeidos, arg.ClienteID, arg.SincronizadoEn)
+	return err
+}
+
 const marcarFalloCliente = `-- name: MarcarFalloCliente :exec
 UPDATE integracion.argos_clientes SET fallo_en = $1 WHERE id = $2
 `
@@ -1691,6 +1908,16 @@ func (q *Queries) NombreZona(ctx context.Context, id int64) (string, error) {
 	var nombre string
 	err := row.Scan(&nombre)
 	return nombre, err
+}
+
+const olvidarContactosLeidos = `-- name: OlvidarContactosLeidos :exec
+DELETE FROM integracion.argos_contactos_leidos WHERE cliente_id = $1
+`
+
+// Invalida la caché del cliente: se vuelve a leer de Argos cuando una persona la necesite.
+func (q *Queries) OlvidarContactosLeidos(ctx context.Context, clienteID int64) error {
+	_, err := q.db.Exec(ctx, olvidarContactosLeidos, clienteID)
+	return err
 }
 
 const pistaEmpresaAlta = `-- name: PistaEmpresaAlta :one
@@ -2500,6 +2727,36 @@ func (q *Queries) TecnicosVinculadosArgos(ctx context.Context, arg TecnicosVincu
 	for rows.Next() {
 		var i TecnicosVinculadosArgosRow
 		if err := rows.Scan(&i.ID, &i.UsuarioID, &i.IDExterno); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const telefonosDeContactoArgos = `-- name: TelefonosDeContactoArgos :many
+SELECT contacto_id, numero, digitos, whatsapp, principal FROM integracion.argos_contacto_telefonos WHERE contacto_id = $1 ORDER BY principal DESC, numero
+`
+
+func (q *Queries) TelefonosDeContactoArgos(ctx context.Context, contactoID int64) ([]IntegracionArgosContactoTelefono, error) {
+	rows, err := q.db.Query(ctx, telefonosDeContactoArgos, contactoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosContactoTelefono
+	for rows.Next() {
+		var i IntegracionArgosContactoTelefono
+		if err := rows.Scan(
+			&i.ContactoID,
+			&i.Numero,
+			&i.Digitos,
+			&i.Whatsapp,
+			&i.Principal,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

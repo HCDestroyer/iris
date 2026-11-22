@@ -588,3 +588,53 @@ UPDATE integracion.argos_certificados
 SET visto_en = @visto_en, ultimo_visto_en = @visto_en, cambiado = true, anterior_id = @anterior_id
 WHERE id = @id
 RETURNING *;
+
+-- Contactos del cliente (contrato 0.10.0 §3.5, A42; 0.10.1 §3.8, A46) -------------------------
+
+-- name: GuardarContactoArgos :exec
+INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios,
+    consultar, reportar, pagar, avisos, persona_cliente_id, version, sincronizado_en)
+VALUES (@contacto_id, @cliente_id, sqlc.narg('empresa_id'), @nombre, @relacion, @es_titular, sqlc.narg('servicios')::bigint[],
+    @consultar, @reportar, @pagar, @avisos, sqlc.narg('persona_cliente_id'), @version, @sincronizado_en)
+ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = EXCLUDED.cliente_id, empresa_id = EXCLUDED.empresa_id, nombre = EXCLUDED.nombre,
+    relacion = EXCLUDED.relacion, es_titular = EXCLUDED.es_titular, servicios = EXCLUDED.servicios, consultar = EXCLUDED.consultar,
+    reportar = EXCLUDED.reportar, pagar = EXCLUDED.pagar, avisos = EXCLUDED.avisos, persona_cliente_id = EXCLUDED.persona_cliente_id,
+    version = EXCLUDED.version, sincronizado_en = EXCLUDED.sincronizado_en;
+
+-- name: BorrarTelefonosContactoArgos :exec
+DELETE FROM integracion.argos_contacto_telefonos WHERE contacto_id = @contacto_id;
+
+-- name: GuardarTelefonoContactoArgos :exec
+INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos, whatsapp, principal)
+VALUES (@contacto_id, @numero, @digitos, @whatsapp, @principal)
+ON CONFLICT (contacto_id, numero) DO UPDATE SET digitos = EXCLUDED.digitos, whatsapp = EXCLUDED.whatsapp, principal = EXCLUDED.principal;
+
+-- name: BorrarContactosAusentes :execrows
+-- Los contactos del cliente que Argos ya no devuelve.
+DELETE FROM integracion.argos_contactos WHERE cliente_id = @cliente_id AND NOT (contacto_id = ANY (@vigentes::bigint[]));
+
+-- name: BorrarContactoArgos :execrows
+DELETE FROM integracion.argos_contactos WHERE contacto_id = @contacto_id;
+
+-- name: BorrarContactosDeCliente :execrows
+DELETE FROM integracion.argos_contactos WHERE cliente_id = @cliente_id;
+
+-- name: OlvidarContactosLeidos :exec
+-- Invalida la caché del cliente: se vuelve a leer de Argos cuando una persona la necesite.
+DELETE FROM integracion.argos_contactos_leidos WHERE cliente_id = @cliente_id;
+
+-- name: MarcarContactosLeidos :exec
+INSERT INTO integracion.argos_contactos_leidos (cliente_id, sincronizado_en) VALUES (@cliente_id, @sincronizado_en)
+ON CONFLICT (cliente_id) DO UPDATE SET sincronizado_en = EXCLUDED.sincronizado_en;
+
+-- name: ContactosLeidosEn :one
+SELECT sincronizado_en FROM integracion.argos_contactos_leidos WHERE cliente_id = @cliente_id;
+
+-- name: ContactosDeClienteCache :many
+SELECT * FROM integracion.argos_contactos WHERE cliente_id = @cliente_id ORDER BY contacto_id;
+
+-- name: ContactoArgosPorID :one
+SELECT * FROM integracion.argos_contactos WHERE contacto_id = @contacto_id;
+
+-- name: TelefonosDeContactoArgos :many
+SELECT * FROM integracion.argos_contacto_telefonos WHERE contacto_id = @contacto_id ORDER BY principal DESC, numero;

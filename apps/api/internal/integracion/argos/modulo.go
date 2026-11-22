@@ -92,6 +92,8 @@ type Modulo struct {
 	guardarTrasladoLeido *auditoria.Caso[argosbd.GuardarTrasladoParams, struct{}]
 	// guardarCuentas: la instantánea de cuentas bancarias (0.8.0 §7.8).
 	guardarCuentas *auditoria.Caso[lecturaCuentas, ResultadoCuentas]
+	// guardarContactos guarda en la caché los contactos leídos de Argos (§3.5).
+	guardarContactos *auditoria.Caso[entradaGuardarContactos, int]
 	// cargaCuentas y cargaBancos: la instantánea de cuentas y bancos (B5); nil = solo contar.
 	cargaCuentas, cargaBancos CargaCatalogoBancario
 	cfg                       Config
@@ -155,7 +157,8 @@ func Nuevo(cfg Config) *Modulo {
 		cfg.VigenciaInstantanea = 24 * time.Hour
 	}
 	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones(), refrescos: nuevosRefrescos(), guardarFichaInterna: nuevoGuardarFichaInterna(),
-		guardarTrasladoLeido: nuevoGuardarTrasladoLeido(), guardarCuentas: nuevoGuardarCuentas()}
+		guardarTrasladoLeido: nuevoGuardarTrasladoLeido(), guardarCuentas: nuevoGuardarCuentas(),
+		guardarContactos: nuevoGuardarContactos()}
 	m.nucleo = conector.Nuevo(conector.Config{
 		Cifrador: cfg.Cifrador, BaseURL: cfg.BaseURL, VentanaWebhook: cfg.VentanaWebhook, VigenciaEnlace: cfg.VigenciaEnlace,
 		PermitirHTTP: cfg.PermitirHTTP, Encolar: cfg.Encolar, Version: cfg.Version,
@@ -228,7 +231,7 @@ func (m *Modulo) Nucleo() *conector.Nucleo { return m.nucleo }
 
 // clienteDe arma el cliente HTTP de Argos de un conector leído (token descifrado).
 func (m *Modulo) clienteDe(c conector.Leido) *Cliente {
-	return &Cliente{Cliente: m.conexion.Cliente(c)}
+	return &Cliente{Cliente: m.conexion.Cliente(c), contrato: c.ContratoRemoto}
 }
 
 // conectorActivo devuelve el conector Argos activo o 503 conector_apagado.

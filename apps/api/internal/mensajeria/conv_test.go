@@ -83,6 +83,11 @@ type argosFalso struct {
 	caja *cajaFalsa
 	// promesas: el Argos falso (httptest) de POST /promesas y /promesas/simular (promesas_argos_test.go).
 	promesas *promesasFalsas
+	// contactos: los contactos que «Argos» devuelve al buscar y al leer (conv_contactos_argos_test.go);
+	// nil = un Argos anterior a 0.10.0 (sin contactos).
+	contactos *contactosArgosFalsos
+	// simulaciones: las cabeceras de §7.1 de cada POST /promesas/simular.
+	simulaciones []argos.AtencionIris
 }
 
 // VerificarIdentidad: el desafío de identidad (mensajeria.ArgosIdentidad). Coincide si el valor es el
@@ -255,6 +260,9 @@ func (f *argosFalso) Bancos(context.Context, argos.AtencionIris) ([]argos.BancoA
 }
 
 func (f *argosFalso) SimularPromesa(ctx context.Context, a argos.AtencionIris, servicio int64, vence *time.Time) (argos.SimulacionPromesa, error) {
+	f.mu.Lock()
+	f.simulaciones = append(f.simulaciones, a)
+	f.mu.Unlock()
 	if p := f.promesasDe(); p != nil {
 		return p.cliente().SimularPromesa(ctx, a, servicio, vence)
 	}

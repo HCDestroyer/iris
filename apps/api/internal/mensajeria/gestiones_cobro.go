@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"regexp"
 	"slices"
 	"strconv"
 	"time"
@@ -51,8 +50,6 @@ var (
 // la conversación (§3.12; lo valida Iris antes de mandarla).
 var resultadosConRespaldo = map[string]bool{"promete_pagar": true, "pago_informado": true}
 
-var reContactoArgos = regexp.MustCompile(`^[1-9][0-9]{0,17}$`)
-
 // EntradaGestionCobro es POST /conversaciones/{id}/gestiones-cobro.
 type EntradaGestionCobro struct {
 	ID         int64     `json:"-"`
@@ -60,9 +57,7 @@ type EntradaGestionCobro struct {
 	Resultado  string    `json:"resultado" enum:"contesto,no_contesto,numero_equivocado,promete_pagar,rechaza,pago_informado,visita_sin_contacto"`
 	OcurridoEn time.Time `json:"ocurridoEn" doc:"Cuándo ocurrió (entre ahora − 7 días y ahora + 5 min)"`
 	ServicioID *int64    `json:"servicioId,omitempty" minimum:"1" doc:"Servicio del cliente (opcional)"`
-	// ContactoID: el contacto de Argos que habló (X-Iris-Contacto); vacío = el titular.
-	ContactoID *string `json:"contactoId,omitempty" pattern:"^[1-9][0-9]{0,17}$" doc:"Id del contacto del cliente en Argos que habló (va como X-Iris-Contacto); sin él, el titular"`
-	Clave      string  `json:"-"`
+	Clave      string    `json:"-"`
 }
 
 // GestionCobro es una gestión registrada y cómo va su envío a Argos.
@@ -71,7 +66,7 @@ type GestionCobro struct {
 	ConversacionID int64     `json:"conversacionId"`
 	ClienteID      int64     `json:"clienteId"`
 	ServicioID     *int64    `json:"servicioId" nullable:"true"`
-	ContactoID     *string   `json:"contactoId" nullable:"true"`
+	ContactoID     *string   `json:"contactoId" nullable:"true" doc:"El contacto del cliente en Argos que habla en la conversación (salió como X-Iris-Contacto); null = el titular"`
 	Tipo           string    `json:"tipo" enum:"llamada,mensaje,visita,promesa"`
 	Resultado      string    `json:"resultado" enum:"contesto,no_contesto,numero_equivocado,promete_pagar,rechaza,pago_informado,visita_sin_contacto"`
 	OcurridoEn     time.Time `json:"ocurridoEn"`
@@ -95,7 +90,7 @@ type entradaGestionInterna struct {
 // MarshalJSON: lo auditado (sin nada que no esté en el cuerpo).
 func (e entradaGestionInterna) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"conversacion_id": e.ID, "tipo": e.Tipo, "resultado": e.Resultado, "ocurrido_en": e.OcurridoEn,
-		"servicio_id": e.ServicioID, "contacto_id": e.ContactoID})
+		"servicio_id": e.ServicioID})
 }
 
 func envioDe(estado, codigo *string) (string, *string) {
@@ -134,9 +129,6 @@ func validarGestion(in EntradaGestionCobro, ahora time.Time) error {
 	}
 	if in.OcurridoEn.IsZero() || in.OcurridoEn.Before(ahora.Add(-GestionAtrasMaximo)) || in.OcurridoEn.After(ahora.Add(GestionAdelanteMaximo)) {
 		errs = append(errs, nucleo.ErrorCampo{Field: "ocurridoEn", Message: "Debe estar entre hace 7 días y dentro de 5 minutos", Rule: "ventana"})
-	}
-	if in.ContactoID != nil && !reContactoArgos.MatchString(*in.ContactoID) {
-		errs = append(errs, nucleo.ErrorCampo{Field: "contactoId", Message: "Id de contacto de Argos (entero positivo)", Rule: "pattern"})
 	}
 	if len(errs) > 0 {
 		return nucleo.Validacion(errs...)
@@ -199,6 +191,11 @@ func (m *Modulo) nuevoRegistrarGestionCobro() *auditoria.Caso[entradaGestionInte
 				return GestionCobro{}, nucleo.Conflicto("argos_sin_gestiones",
 					"El Argos conectado todavía no recibe gestiones de cobro (necesita el contrato "+ContratoGestionesCobro+" o posterior)")
 			}
+			// Quién habla sale de la conversación (su número), nunca del cuerpo (§3.12, §7.1).
+			contacto, err := contactoDeGestion(ctx, q, c, in.ServicioID)
+			if err != nil {
+				return GestionCobro{}, err
+			}
 			if in.ServicioID != nil {
 				ok, err := q.ServicioDelClienteInstantanea(ctx, mensajeriabd.ServicioDelClienteInstantaneaParams{ServicioID: *in.ServicioID, ClienteID: *c.ClienteID})
 				if err != nil {
@@ -222,14 +219,6 @@ func (m *Modulo) nuevoRegistrarGestionCobro() *auditoria.Caso[entradaGestionInte
 			id, err := uuid.NewV7()
 			if err != nil {
 				return GestionCobro{}, err
-			}
-			var contacto *int64
-			if in.ContactoID != nil {
-				v, err := strconv.ParseInt(*in.ContactoID, 10, 64)
-				if err != nil {
-					return GestionCobro{}, campoConv("contactoId", "Id de contacto de Argos (entero positivo)", "pattern")
-				}
-				contacto = &v
 			}
 			params := mensajeriabd.InsertarGestionCobroParams{ID: id, EmpresaID: *c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
 				ServicioID: in.ServicioID, ContactoID: contacto, Tipo: in.Tipo, Resultado: in.Resultado, OcurridoEn: in.OcurridoEn.UTC(),
@@ -256,8 +245,9 @@ func (m *Modulo) nuevoRegistrarGestionCobro() *auditoria.Caso[entradaGestionInte
 			accion := pendientes.Accion{EmpresaID: c.EmpresaID, Operacion: OpGestionCobro, IdempotencyKey: "iris:gestion:" + f.ID.String(),
 				Entidad: "gestion_cobro", EntidadID: f.ID.String(), Ruta: "/clientes/" + strconv.FormatInt(f.ClienteID, 10) + "/gestiones-cobro",
 				Cuerpo: crudo, Actor: actorGestion(a)}
-			if in.ContactoID != nil {
-				accion.Contacto = *in.ContactoID
+			if contacto != nil {
+				// Solo si quien habla es un contacto conocido; el titular va sin la cabecera.
+				accion.Contacto = strconv.FormatInt(*contacto, 10)
 			}
 			var aviso pendientes.Encolador
 			if m.cfg.Encolar != nil {
@@ -352,7 +342,7 @@ func (m *Modulo) registrarRutasGestionesCobro(api huma.API, base string) {
 		http.StatusCreated, http.StatusNotFound, http.StatusConflict)
 	reg.Description += " Solo informativa: nunca cambia estados, cortes ni promesas en Argos. Sin texto libre, montos ni teléfonos. " +
 		"Solo con el cliente confirmado (422 `sin_cliente`, `cliente_sin_confirmar`). `ocurridoEn` entre ahora − 7 días y ahora + 5 min " +
-		"(422 `validacion`, regla `ventana`). Sale a Argos por la cola de pendientes (`iris:gestion:<id>`, X-Iris-Actor y, con `contactoId`, " +
+		"(422 `validacion`, regla `ventana`). Sale a Argos por la cola de pendientes (`iris:gestion:<id>`, X-Iris-Actor y, si quien habla es un contacto del cliente según su número, " +
 		"X-Iris-Contacto). 409 `argos_apagado` y `argos_sin_gestiones` (Argos con contrato anterior a 0.13.0). Con el asistente de IA, " +
 		"`promete_pagar` y `pago_informado` exigen una promesa o un comprobante en la conversación (422 `sin_respaldo`). Idempotency-Key opcional."
 	huma.Register(api, reg, func(ctx context.Context, in *idCuerpoHTTP[EntradaGestionCobro]) (*cuerpo[GestionCobro], error) {
@@ -365,4 +355,36 @@ func (m *Modulo) registrarRutasGestionesCobro(api huma.API, base string) {
 	huma.Register(api, ver, func(ctx context.Context, in *idHTTP) (*cuerpo[ListaGestionesCobro], error) {
 		return responder(m.GestionesCobro.Listar.Ejecutar(ctx, EntradaConversacion{ID: in.ID}))
 	})
+}
+
+// contactoDeGestion: quién habla en la conversación respecto de su cliente, por el número (B22):
+// nil = el titular (su teléfono o móvil, o un contacto marcado titular); el contacto_id de Argos si es
+// un contacto suyo. Si el número no es del titular ni de un contacto conocido, 422
+// contacto_desconocido: la gestión nunca sale a nombre del titular. Un contacto solo registra sobre
+// sus servicios (403 servicio_fuera_del_contacto).
+func contactoDeGestion(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, servicio *int64) (*int64, error) {
+	empresa := empresaDeConv(c)
+	titular, err := numeroTitularDe(ctx, q, empresa, c.Numero, *c.ClienteID)
+	if err != nil || titular {
+		return nil, err
+	}
+	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: soloDigitos(c.Numero), Empresa: empresa})
+	if err != nil {
+		return nil, err
+	}
+	for _, x := range ks {
+		if x.ClienteID != *c.ClienteID {
+			continue
+		}
+		r := rolDeFila(x)
+		if r.esTitular() {
+			return nil, nil
+		}
+		if servicio != nil && !r.cubre(*servicio) {
+			return nil, servicioFueraDelContacto()
+		}
+		return r.ContactoID, nil
+	}
+	return nil, reglaConv("contacto_desconocido", "El número de la conversación no es del titular ni de un contacto conocido del cliente: "+
+		"la gestión no se manda a nombre del titular")
 }

@@ -104,11 +104,9 @@ func TestGestionesCobro(t *testing.T) {
 		t.Fatalf("clave reutilizada: %d %v", r.status, r.cuerpo)
 	}
 
-	// Un contacto que habló: X-Iris-Contacto.
-	r = b.api(b.supervisor, http.MethodPost, ruta, map[string]any{"tipo": "mensaje", "resultado": "contesto", "ocurridoEn": ahora, "contactoId": "77"})
-	b.exigir(r, http.StatusCreated, "contactoId", "77")
-	if p := b.pendienteDeGestion(fmt.Sprint(r.cuerpo["id"])); p.contacto == nil || *p.contacto != "77" || p.cuerpo["servicio_id"] != nil {
-		t.Fatalf("contacto: %+v", p)
+	// contactoId en el cuerpo: no existe (el contacto sale de la conversación, nunca de quien la registra).
+	if r := b.api(b.supervisor, http.MethodPost, ruta, map[string]any{"tipo": "mensaje", "resultado": "contesto", "ocurridoEn": ahora, "contactoId": "77"}); r.status != http.StatusUnprocessableEntity {
+		t.Fatalf("contactoId en el cuerpo: %d %v", r.status, r.cuerpo)
 	}
 
 	// ocurrido_en fuera de la ventana (ahora − 7 días a ahora + 5 min) y listas cerradas.
@@ -118,7 +116,6 @@ func TestGestionesCobro(t *testing.T) {
 		{"tipo": "correo", "resultado": "contesto", "ocurridoEn": ahora},
 		{"tipo": "llamada", "resultado": "pago 250", "ocurridoEn": ahora},
 		{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "nota": "texto libre"},
-		{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "contactoId": "+50255550000"},
 	} {
 		if r := b.api(b.supervisor, http.MethodPost, ruta, c); r.status != http.StatusUnprocessableEntity {
 			t.Fatalf("%v: %d %v", c, r.status, r.cuerpo)
@@ -132,7 +129,7 @@ func TestGestionesCobro(t *testing.T) {
 	b.exigir(b.api(b.lectura, http.MethodPost, ruta, cuerpo2), http.StatusForbidden)
 	l := b.api(b.supervisor, http.MethodGet, ruta, nil)
 	b.exigir(l, http.StatusOK)
-	if len(l.cuerpo["data"].([]any)) != 2 {
+	if len(l.cuerpo["data"].([]any)) != 1 {
 		t.Fatalf("lista: %v", l.cuerpo)
 	}
 
@@ -194,5 +191,65 @@ func TestGestionesCobroAsistente(t *testing.T) {
 	// Sin el permiso (el rol asistente_ia de fábrica), 403.
 	if _, err := b.m.RegistrarGestionCobro(mensajeria.CtxAsistenteIA(b.ctx, 1), mensajeria.EntradaGestionCobro{ID: id, Tipo: "mensaje", Resultado: "contesto", OcurridoEn: ahora}); err == nil {
 		t.Fatal("el rol asistente_ia de fábrica no registra gestiones")
+	}
+}
+
+// El contacto sale del número de la conversación (B22): un contacto conocido va con X-Iris-Contacto
+// (solo sobre sus servicios); un número que no es del titular ni de un contacto conocido, 422
+// contacto_desconocido (nunca a nombre del titular).
+func TestGestionesCobroContacto(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	b.contratoArgos("0.13.0")
+	cliente := siguienteCliente.Add(1)
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, movil, codigo, sincronizado_en, empresas)
+		VALUES ($1, 1, 'Marta Pérez', '+502 5999-0000', 'C-2', now(), '{1}')`, cliente); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []int64{cliente * 10, cliente*10 + 1} {
+		if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_nombre, sincronizado_en)
+			VALUES ($1, 1, $2, 'S-1', 'Fibra', 'activo', 'Zona 1', now())`, s, cliente); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// El hijo de Marta: contacto 4400 de su cliente, solo del primer servicio.
+	num := numeroCliente()
+	contacto := cliente*100 + 1
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, servicios)
+		VALUES ($1, $2, 1, 'José', 'familiar', $3)`, contacto, cliente, []int64{cliente * 10}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos) VALUES ($1, $2, $3)`,
+		contacto, "+"+num, num); err != nil {
+		t.Fatal(err)
+	}
+	b.texto(num, fmt.Sprintf("wamid.k%d", cliente), "Hola")
+	conv := cid(b.conv(num))
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, cliente_verificado = true, asociacion = 'manual' WHERE id = $1`,
+		conv, cliente); err != nil {
+		t.Fatal(err)
+	}
+	ruta := "/conversaciones/" + conv + "/gestiones-cobro"
+	ahora := *b.reloj
+	r := b.api(b.supervisor, http.MethodPost, ruta, map[string]any{"tipo": "llamada", "resultado": "promete_pagar", "ocurridoEn": ahora, "servicioId": cliente * 10})
+	b.exigir(r, http.StatusCreated, "contactoId", fmt.Sprint(contacto))
+	if p := b.pendienteDeGestion(fmt.Sprint(r.cuerpo["id"])); p.contacto == nil || *p.contacto != fmt.Sprint(contacto) {
+		t.Fatalf("X-Iris-Contacto: %+v", p)
+	}
+	// Un servicio del cliente que no es del contacto: 403.
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": cliente*10 + 1}),
+		http.StatusForbidden, "type", "urn:iris:problema:servicio_fuera_del_contacto")
+
+	// Otro número asociado a mano al mismo cliente, sin ser su teléfono ni un contacto: 422.
+	otro := numeroCliente()
+	b.texto(otro, fmt.Sprintf("wamid.d%d", cliente), "Hola")
+	conv2 := cid(b.conv(otro))
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, cliente_verificado = true, asociacion = 'manual' WHERE id = $1`,
+		conv2, cliente); err != nil {
+		t.Fatal(err)
+	}
+	b.exigir(b.api(b.supervisor, http.MethodPost, "/conversaciones/"+conv2+"/gestiones-cobro", map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora}),
+		http.StatusUnprocessableEntity, "type", "urn:iris:problema:contacto_desconocido")
+	if n := b.contar(`SELECT count(*) FROM mensajeria.gestiones_cobro WHERE conversacion_id = $1`, conv2); n != 0 {
+		t.Fatalf("no se registra: %d", n)
 	}
 }

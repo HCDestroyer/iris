@@ -113,6 +113,8 @@ type entradaAplicar struct {
 	promesa *promesaCambiada
 	// cuenta: cuenta_bancaria.cambiada (0.8.0 §7.8): la cuenta releída de Argos para la instantánea.
 	cuenta *lecturaCuentas
+	// contactos: cliente.contactos_cambiados (0.10.0 §3.5): la caché de contactos del cliente.
+	contactos *cambioContactos
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -187,6 +189,12 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 	}
 	if in.promesa != nil {
 		if err := emitirPromesa(t, e, *in.promesa); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
+	}
+	if in.contactos != nil {
+		if err := aplicarContactos(ctx, t, q, e, *in.contactos); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"
@@ -314,6 +322,10 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 			return ResultadoEntrante{}, err
 		}
 		in.promesa, in.omitido = promesaDe(e, con)
+	case EventoContactosCambiados:
+		// Se releen los contactos del cliente en Argos (nunca el payload, que no trae números).
+		in.contactos, in.omitido, in.errArgos = p.leerContactosWebhook(ctx, bd, e)
+		return p.aplicar.Ejecutar(ctx, in)
 	case EventoCuentaBancariaCambiada:
 		// Se relee la cuenta en Argos y se guarda lo que diga Argos, nunca el payload (§7.8).
 		in.cuenta, in.omitido, in.errArgos = p.leerCuentaWebhook(ctx, bd, e)
