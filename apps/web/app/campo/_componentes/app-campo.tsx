@@ -1,10 +1,11 @@
 "use client";
 
-import { Aviso, Boton, Cargando, EstadoVacio, MarcaIris } from "@iris/ui";
+import { Aviso, avisar, Boton, Cargando, EstadoVacio, MarcaIris } from "@iris/ui";
 import { Building2, KeyRound, LogOut, RefreshCw, UserRoundX, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ErrorApi } from "@/lib/api/errores";
 import { abrirMotor, type MotorAbierto } from "@/lib/campo/motor";
+import { olvidarAlCerrarSesion, vigilarSesionPerdida } from "@/lib/campo/sensibles";
 import { dependenciasNavegador, olvidarTurno, RastreadorUbicacion } from "@/lib/campo/ubicacion";
 import {
     cerrarSesionApi,
@@ -20,11 +21,13 @@ import {
     recordarUsuario,
     sesionDesdeYo,
     sesionGuardada,
+    sensiblesAOlvidar,
     usableSinSenal,
     CODIGO_CAMBIO_CONTRASENA,
     type SesionCampo,
 } from "@/lib/campo/sesion";
-import { avisoSinConexion } from "@iris/sync/campo";
+import { avisoSinConexion, TEXTO_SENSIBLES_BORRADAS } from "@iris/sync/campo";
+import { AlmacenDexie } from "@iris/sync/dexie";
 import { ProveedorHistorial } from "./acciones-orden";
 import { ProveedorAgenda } from "./agenda-datos";
 import { ProveedorChat } from "./chat-datos";
@@ -137,6 +140,16 @@ export function AppCampo() {
             vivo = false;
         };
     }, [intento]);
+
+    // Los datos del titular de la cola no se quedan sin la sesión de su técnico (§3.4.8): sin sesión
+    // (401, revocada o sin entrar) se olvidan de todas las bases; al entrar, de las de otras personas.
+    const usuarioLista = arranque.fase === "lista" ? arranque.sesion.usuarioId : undefined;
+    useEffect(() => {
+        const olvidar = sensiblesAOlvidar(arranque.fase, usuarioLista, arranque.fase === "conectate" ? arranque.motivo : undefined);
+        if (olvidar) {
+            void AlmacenDexie.olvidarSensiblesDeTodas(olvidar).catch(() => undefined);
+        }
+    }, [arranque, usuarioLista]);
 
     // En la entrada «Sin conexión»: al volver la señal se intenta de nuevo solo.
     const sinSenal = arranque.fase === "conectate" && arranque.motivo === "sin_verificar";
@@ -329,6 +342,9 @@ function ConMotor({
         abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, ajena, { flujoChat: sesion.empresas.length <= 1 })
             .then((m) => {
                 actual = m;
+                if (vivo && m.almacen.borradasPorSeguridad() > 0) {
+                    avisar({ tono: "warning", titulo: TEXTO_SENSIBLES_BORRADAS, duracion: 0 });
+                }
                 if (vivo) {
                     setAbierto(m);
                 } else {
@@ -366,6 +382,17 @@ function ConMotor({
         }
     }, [rastreador, registrarFinTurno]);
 
+    // Un 401 con la app abierta (sesión vencida o revocada): lo sensible se olvida en el momento.
+    useEffect(() => {
+        if (!abierto) {
+            return undefined;
+        }
+        return vigilarSesionPerdida(abierto.motor, {
+            propias: () => abierto.almacen.olvidarSensibles(),
+            todas: () => AlmacenDexie.olvidarSensiblesDeTodas({}),
+        });
+    }, [abierto]);
+
     const cerrarSesion = useCallback<CerrarSesion>(
         async ({ conservarPendientes }) => {
             if (!abierto) {
@@ -384,12 +411,16 @@ function ConMotor({
             if (conservarPendientes) {
                 // Solo la cola, los adjuntos y las ubicaciones pendientes; nada que se pueda ver sin entrar.
                 await motor.olvidarDatosDelServidor();
+                // Los datos del titular (documento, contacto y fotos) nunca quedan sin sesión (§3.4.8).
+                await almacen.olvidarSensibles();
                 // La caché del chat se borra; lo que quedó por enviar sale al volver a entrar.
                 await chat.olvidarCache();
             } else {
                 await almacen.borrar();
             }
             olvidarSesion(sesion.usuarioId);
+            // Con o sin señal: lo sensible de todas las bases de campo de este navegador (§3.4.8).
+            await olvidarAlCerrarSesion({ todas: () => AlmacenDexie.olvidarSensiblesDeTodas({}) });
             try {
                 await cerrarSesionApi();
                 alCerrarSesion(false);

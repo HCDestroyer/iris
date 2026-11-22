@@ -5,12 +5,12 @@
 INSERT INTO integracion.pendientes (
     empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload,
     depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar,
-    tecnico_usuario_id, actor
+    tecnico_usuario_id, actor, transito_id
 ) VALUES (
     sqlc.narg(empresa_id), @sistema, @operacion, @idempotency_key, @entidad, @entidad_id, @metodo, @ruta, @payload,
     @depende_de, @datos_incompletos, @estado, sqlc.narg(ultimo_error), @proximo_intento, sqlc.narg(evento_id),
     sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}'), sqlc.narg(tecnico_usuario_id),
-    sqlc.narg(actor)
+    sqlc.narg(actor), sqlc.narg(transito_id)
 )
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING *;
@@ -219,7 +219,7 @@ SELECT bodega_id FROM campo.ordenes WHERE id = @id::bigint;
 -- nunca vuelve a salir hacia Argos.
 UPDATE integracion.pendientes
 SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = sqlc.narg(resuelto_por), resuelto_en = @ahora::timestamptz,
-    tomado_en = NULL, version = version + 1, updated_at = now()
+    resuelto_como = 'manual', resuelto_cliente_id = sqlc.narg(resuelto_cliente_id), tomado_en = NULL, version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version AND estado = 'fallido_negocio'
 RETURNING *;
 
@@ -248,3 +248,97 @@ SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = 
     tomado_en = NULL, version = version + 1, updated_at = now()
 WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
 RETURNING *;
+
+-- --- Depósito de tránsito (contrato 0.10.0 §3.4.8) --------------------------------------------
+
+-- name: GuardarTransito :exec
+INSERT INTO integracion.datos_transito (id, empresa_id, orden_id, cifrado, llave_cifrada, tomado_en)
+VALUES (@id, sqlc.narg(empresa_id), @orden_id, @cifrado, @llave_cifrada, @tomado_en);
+
+-- name: LeerTransito :one
+SELECT * FROM integracion.datos_transito WHERE id = @id;
+
+-- name: BorrarTransito :exec
+-- Se destruye la llave de datos con el contenido.
+UPDATE integracion.datos_transito SET cifrado = NULL, llave_cifrada = NULL, borrado_en = @ahora, motivo_borrado = @motivo
+WHERE id = @id AND cifrado IS NOT NULL;
+
+-- name: PurgarTransito :execrows
+-- A los 7 días de tomado se borra lo que no se entregó (rechazado, agotado o en espera).
+UPDATE integracion.datos_transito SET cifrado = NULL, llave_cifrada = NULL, borrado_en = @ahora, motivo_borrado = 'vencido'
+WHERE cifrado IS NOT NULL AND tomado_en < @antes;
+
+-- name: PasosTitularDeOrden :many
+-- Los pendientes del paso «Confirmar titular y plan» de la orden (A41, A39, A43, A40), en orden:
+-- la activación y el cobro de la instalación dependen de todos (§3.4, «Orden»). Los reemplazados
+-- (resuelto_manual) cuentan como hechos.
+SELECT * FROM integracion.pendientes
+WHERE entidad = 'orden' AND entidad_id = @orden_id::text
+    AND operacion IN ('registrar_identidad', 'cambiar_titular', 'completar_datos', 'cambiar_plan')
+ORDER BY id;
+
+-- name: TransitoVigente :one
+-- El depósito sigue con sus datos (no se entregó, no se borró ni venció).
+SELECT (cifrado IS NOT NULL)::boolean AS vigente FROM integracion.datos_transito WHERE id = @id;
+
+-- name: RedirigirDependientes :many
+-- Un paso del titular rechazado se reemplaza por otra toma: lo que esperaba al viejo (los pasos
+-- siguientes, la activación, el cobro) pasa a esperar al nuevo, en la misma posición (los
+-- marcadores apuntan al nuevo).
+UPDATE integracion.pendientes
+SET depende_de = array_replace(depende_de, @viejo::bigint, @nuevo::bigint), version = version + 1, updated_at = now()
+WHERE @viejo::bigint = ANY (depende_de) AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: ReemplazarPendiente :one
+-- El paso que Argos rechazó (fallido_negocio; lo agotado se reintenta con su clave) queda
+-- resuelto_manual: lo reemplaza otra toma o lo valida un supervisor (@como). Nunca vuelve a salir.
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = sqlc.narg(resuelto_por),
+    resuelto_como = @como::text, resuelto_en = @ahora::timestamptz, tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: DetenerPasosTitular :many
+-- La orden se canceló o falló: sus pasos del titular que no salieron (ni están saliendo) quedan
+-- resuelto_manual con el motivo. Lo en_curso termina; lo hecho no se deshace.
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_como = @motivo::text, resuelto_por = sqlc.narg(resuelto_por),
+    resuelto_en = @ahora::timestamptz, tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE entidad = 'orden' AND entidad_id = @orden_id::text
+    AND operacion IN ('registrar_identidad', 'cambiar_titular', 'completar_datos', 'cambiar_plan')
+    AND estado IN ('pendiente', 'bloqueado', 'fallido_negocio', 'agotado')
+RETURNING *;
+
+-- name: DetenerEnCurso :one
+-- Un paso del titular en_curso de una orden ya cancelada o fallida que no salió bien: detenido.
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_como = @motivo::text,
+    resuelto_en = @ahora::timestamptz, tomado_en = NULL, intentos = intentos + 1, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'en_curso'
+RETURNING *;
+
+-- name: FallarPorTitularAMano :one
+-- El cambio de titular se resolvió a mano sin decir el cliente final: el consumo y el cobro no
+-- salen solos (incompletos, para resolverlos también a mano o confirmar el cliente).
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, ultimo_error = @motivo::text,
+    codigo_error = 'titular_resuelto_a_mano', tomado_en = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: FijarClienteCargo :one
+-- El cambio de titular se resolvió a mano con el cliente final: el cobro va a su nombre.
+UPDATE integracion.pendientes
+SET payload = @payload, por_resolver = false, proximo_intento = @ahora::timestamptz, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: MarcarTitularEnRevision :execrows
+-- Argos respondió titular_no_coincide: la orden queda en revisión de un supervisor (persistente).
+UPDATE campo.orden_titular
+SET en_revision = true, revision_desde = coalesce(revision_desde, @ahora::timestamptz), version = version + 1, updated_at = now()
+WHERE orden_id = @orden_id::bigint AND NOT en_revision;
+
+-- name: EstadoDeOrden :one
+SELECT estado FROM campo.ordenes WHERE id = @id::bigint;
