@@ -3,6 +3,7 @@
 import { AlertTriangle, FileText, Film, RotateCw, X } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { cn } from "../utilidades";
+import { BarraProgreso } from "./barra-progreso";
 import { Boton } from "./boton";
 import { Dialogo, DialogoContenido } from "./dialogo";
 
@@ -98,16 +99,7 @@ export function VistaPreviaArchivos({ etiqueta, archivos, alQuitar, alReintentar
                             ) : ocupado ? (
                                 <>
                                     <span className="sr-only">{a.estado === "enviando" ? "Enviando…" : `Subiendo… ${porciento} %`}</span>
-                                    <span
-                                        role="progressbar"
-                                        aria-label={`Subida de ${a.nombre}`}
-                                        aria-valuemin={0}
-                                        aria-valuemax={100}
-                                        aria-valuenow={valor}
-                                        className="absolute inset-x-1 bottom-1 h-1 overflow-hidden rounded-full bg-black/35"
-                                    >
-                                        <span className="block h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none" style={{ width: `${valor}%` }} />
-                                    </span>
+                                    <BarraProgreso valor={valor} etiqueta={`Subida de ${a.nombre}`} className="absolute inset-x-1 bottom-1 w-auto" claseRiel="h-1 bg-black/35" />
                                 </>
                             ) : (
                                 <span className="sr-only">Listo · {a.detalle}</span>

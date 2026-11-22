@@ -59,7 +59,7 @@ test("por la empresa: sin REGISTER, sonando, en curso con teclado, colgar y qued
     await expect(slot(page, "indicador-telefono")).toHaveAttribute("data-estado", "listo");
     await captura(page, "23-orden");
     const hoja = await abrirHoja(page);
-    await expect(hoja.getByRole("radio", { name: /Contacto en sitio/ })).toHaveAttribute("aria-checked", "true");
+    await expect(hoja.getByRole("radio", { name: /Contacto en sitio/ })).toBeChecked();
     await expect(hoja.getByText("El cliente verá")).toBeVisible();
     await captura(page, "24-hoja");
 

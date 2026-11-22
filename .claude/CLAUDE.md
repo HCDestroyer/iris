@@ -113,7 +113,8 @@ Cada agente es dueño de las carpetas que indica su brief y no toca las de otro.
 ### 10. Frontend
 
 - Componentes de HeroUI v3 (React Aria) envueltos en `packages/ui` con los tokens de la identidad Horus (`docs/marca/horus-tokens.css`): un solo color de marca (teal) y estados con icono + texto + color. Las pantallas importan de `@iris/ui`, nunca de `@heroui/react`. Íconos solo de Lucide. Guía y mapa de componentes: `docs/ui/guia.md`.
-- Nada de `<button>` o `<input>` crudos fuera de `packages/ui`.
+- **HeroUI primero:** toda pieza de interfaz es un componente de HeroUI envuelto en `@iris/ui`; un control propio solo si HeroUI no lo trae, con su motivo escrito en `docs/ui/guia.md` (ESLint prohíbe importar `@heroui/*` fuera de `packages/ui`).
+- Nada de `<button>`, `<input>`, `<select>`, `<textarea>`, `<table>` ni `<dialog>` crudos fuera de `packages/ui`.
 - Indentación de 4 espacios. TypeScript estricto, sin `any`.
 - Tipos y cliente HTTP desde `packages/contratos`; nada de interfaces duplicadas a mano.
 - Formularios con `react-hook-form` + `zod`, espejo del validador del backend.

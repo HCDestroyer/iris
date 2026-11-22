@@ -362,3 +362,28 @@ export function VisorEscaner({ objetivo, ayuda, detectados, pausado = false, alD
     );
     return montado ? createPortal(contenido, document.body) : null;
 }
+
+export type PropsHojaEscaner = {
+    /** Nombre para lectores de pantalla («Códigos detectados»). */
+    etiqueta: string;
+    children: ReactNode;
+};
+
+/**
+ * Hoja sobre el video del escáner (los códigos detectados, para confirmar o elegir). Es parte del
+ * visor, que ya es la capa modal con el foco atrapado: por eso no es un `Drawer` de HeroUI (otro
+ * modal encima, con su telón, taparía el video que sigue a la vista) sino una sección con
+ * `role="dialog"` dentro de `VisorEscaner`.
+ */
+export function HojaEscaner({ etiqueta, children }: PropsHojaEscaner) {
+    return (
+        <section
+            role="dialog"
+            aria-label={etiqueta}
+            data-slot="hoja-escaner"
+            className="absolute inset-x-0 bottom-0 z-20 mx-auto grid max-h-[80%] max-w-xl gap-3 overflow-y-auto rounded-t-2xl border-t border-border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-foreground shadow-2xl"
+        >
+            {children}
+        </section>
+    );
+}
