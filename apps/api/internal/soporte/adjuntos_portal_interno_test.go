@@ -33,7 +33,7 @@ func pngCabecera(ancho, alto uint32, profundidad, tipo byte) []byte {
 	datos := append([]byte("IHDR"), binary.BigEndian.AppendUint32(binary.BigEndian.AppendUint32(nil, ancho), alto)...)
 	datos = append(datos, profundidad, tipo, 0, 0, 0)
 	b := []byte("\x89PNG\r\n\x1a\n")
-	b = binary.BigEndian.AppendUint32(b, uint32(len(datos)-4)) //nolint:gosec // prueba
+	b = binary.BigEndian.AppendUint32(b, uint32(len(datos)-4))
 	b = append(b, datos...)
 	return binary.BigEndian.AppendUint32(b, crc32.ChecksumIEEE(datos))
 }
