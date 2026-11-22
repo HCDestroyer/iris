@@ -34,8 +34,8 @@ type AjustesCampo struct {
 	// Activación desde la orden (contrato 0.9.0 §12.2) y bienvenida (§12.5).
 	ActivacionModo        string `json:"activacionModo" enum:"al_cerrar,exigir_lista,pendiente_agente" doc:"Cómo se activa el servicio de una instalación: al cerrar (de fábrica), exigir la activación lista para cerrar (salvo un supervisor con motivo) o cerrar con la activación pendiente para un agente. Solo aplica si Argos puede aprovisionar en la empresa; la plantilla puede cambiarlo"`
 	CierreExigeBienvenida bool   `json:"cierreExigeBienvenida" doc:"Con «exigir la activación lista», el cierre exige además la bienvenida enviada (o no enviada porque el cliente no acepta avisos). Apagado de fábrica"`
-	PorDefecto          bool   `json:"porDefecto" doc:"La empresa no los ha fijado: son los de Iris (todo apagado)"`
-	Version             int32  `json:"version" doc:"Versión de los de la empresa (0 si son los por defecto)"`
+	PorDefecto            bool   `json:"porDefecto" doc:"La empresa no los ha fijado: son los de Iris (todo apagado)"`
+	Version               int32  `json:"version" doc:"Versión de los de la empresa (0 si son los por defecto)"`
 }
 
 // EntradaFijarAjustes fija los ajustes de la empresa activa.
