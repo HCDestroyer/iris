@@ -346,6 +346,15 @@ func TestPortalArgosContactos(t *testing.T) {
 	// Escribir en el del titular: 403; las solicitudes: solo el titular.
 	p.pedir(http.MethodPost, clientePortal, "/tickets/"+strconv.FormatInt(int64(propio["id"].(float64)), 10)+"/responder", map[string]any{"cuerpo": "x"}, jose...).
 		problema(t, http.StatusForbidden, "permiso_de_contacto")
+	// Revisión M1: la foto no se decodifica antes del permiso. Este JPEG pasa el encabezado pero no se
+	// puede recodificar (422 mime_no_permitido); como el contacto no puede escribir ahí, responde 403.
+	jpegSinDatos := []byte{0xff, 0xd8, 0xff, 0xc2, 0, 17, 8, 0x0b, 0xb8, 0x0f, 0xa0, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1,
+		0xff, 0xda, 0, 12, 3, 1, 0, 2, 0x11, 3, 0x11, 0, 0x3f, 0}
+	ruta := "/tickets/" + strconv.FormatInt(int64(propio["id"].(float64)), 10) + "/responder"
+	p.multipart(clientePortal, ruta, map[string]any{"cuerpo": "x"}, map[string][]byte{"f.jpg": jpegSinDatos}, jose...).
+		problema(t, http.StatusForbidden, "permiso_de_contacto")
+	p.multipart(clientePortal, ruta, map[string]any{"cuerpo": "x"}, map[string][]byte{"f.jpg": jpegSinDatos}).
+		problema(t, http.StatusUnprocessableEntity, "mime_no_permitido")
 	p.pedir(http.MethodGet, clientePortal, "/solicitudes", nil, jose...).problema(t, http.StatusForbidden, "solo_titular")
 	// El titular lo ve abierto por su contacto.
 	v := p.pedir(http.MethodGet, clientePortal, "/tickets/"+strconv.FormatInt(int64(suyo["id"].(float64)), 10), nil).ok(t, http.StatusOK)

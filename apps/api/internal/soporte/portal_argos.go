@@ -657,7 +657,12 @@ func (m *Modulo) nuevoCrearTicketPortalArgos() *auditoria.Caso[EntradaCrearTicke
 				return cero, err
 			}
 			if !repetida {
-				adj, err := m.guardarArchivos(ctx, t, f, in.archivos)
+				// Las fotos se decodifican solo ahora: después del permiso, los topes y la validación (M1).
+				archivos, err := recodificarArchivos(in.archivos)
+				if err != nil {
+					return cero, err
+				}
+				adj, err := m.guardarArchivos(ctx, t, f, archivos)
 				if err != nil {
 					return cero, err
 				}
@@ -741,11 +746,17 @@ func (m *Modulo) nuevoResponderPortalArgos() *auditoria.Caso[EntradaResponderArg
 			if err := exigirEstado(antes, "responder", EstadoNuevo, EstadoAbierto, EstadoEnEspera, EstadoResuelto); err != nil {
 				return cero, err
 			}
+			// Las fotos se decodifican solo ahora: ticket visible, permiso, versión, topes y estado ya
+			// pasaron (M1).
+			archivos, err := recodificarArchivos(in.archivos)
+			if err != nil {
+				return cero, err
+			}
 			f, motivo, err := m.reactivarPorCliente(ctx, t, q, antes, "el portal de Argos")
 			if err != nil {
 				return cero, err
 			}
-			adj, err := m.guardarArchivos(ctx, t, f, in.archivos)
+			adj, err := m.guardarArchivos(ctx, t, f, archivos)
 			if err != nil {
 				return cero, err
 			}

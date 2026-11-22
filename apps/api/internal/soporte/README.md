@@ -244,10 +244,12 @@ el `token_portal` bajo `/api/v1/integraciones/argosisp/portal/clientes/{cliente_
   no abrió el contacto de la sesión: sin asunto ni mensajes). El agente sale con su nombre de pila.
 - Origen `portal_argos`; el primer mensaje y las respuestas son del cliente con canal `portal_argos`.
   Los topes son los de `/soporte` (compartidos) y, con un contacto, además los suyos.
-- Adjuntos por `multipart/form-data` (parte `datos` y hasta 3 `archivos` de 10 MB): JPEG y PNG se
-  recodifican (sin EXIF ni otros metadatos, tope de 40 MP), WebP se reescribe sin EXIF ni XMP, PDF tal
-  cual; HEIC todavía no se acepta (422 `mime_no_permitido`). Descarga con `nosniff`, `sandbox` y el
-  nombre saneado en `filename*`.
+- Adjuntos por `multipart/form-data` (parte `datos` y hasta 3 `archivos` de 10 MB), solo JPEG, PNG y
+  PDF (0.14.2: HEIC y WebP, 422 `mime_no_permitido`). Al leer el cuerpo solo se mira el encabezado:
+  40 MP y unos 200 MB decodificada (`422 imagen_demasiado_grande`). La recodificación (sin ningún
+  metadato del original) corre dentro del caso de uso, después del ticket, el permiso y los topes, con
+  2 a la vez en el proceso como máximo (lleno: `503 recodificacion_ocupada` con `Retry-After`). PDF tal
+  cual. Descarga con `nosniff`, `sandbox` y el nombre saneado en `filename*`.
 - Si Iris no conocía al cliente y Argos no respondía, el ticket se crea con `cliente_revision =
   pendiente`; el job `soporte.conciliar_clientes_portal` (cada 5 min) lo valida al volver Argos y, si
   no era de la empresa, lo marca `no_coincide` con una nota interna para revisión.

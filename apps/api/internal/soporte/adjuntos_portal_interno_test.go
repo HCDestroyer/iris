@@ -3,46 +3,117 @@ package soporte
 import (
 	"bytes"
 	"encoding/binary"
+	"hash/crc32"
 	"image"
+	"image/color"
 	"image/jpeg"
+	"image/png"
 	"strings"
 	"testing"
+
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
-// Adjuntos del portal de Argos (contrato 0.9.0 §11.6): tipo por el contenido, metadatos fuera y
-// nombre saneado.
+// Adjuntos del portal de Argos (contrato 0.9.0 §11.6, 0.14.2 y revisión de seguridad M1): tipo por el
+// contenido, dimensiones y memoria desde el encabezado antes de decodificar, recodificación limitada
+// y nombre saneado.
 
-func bloqueRIFF(id string, datos []byte) []byte {
-	b := append([]byte(id), binary.LittleEndian.AppendUint32(nil, uint32(len(datos)))...)
-	b = append(b, datos...)
-	if len(datos)%2 == 1 {
-		b = append(b, 0)
+func codigoDe(t *testing.T, err error) string {
+	t.Helper()
+	p, _ := nucleo.AProblema(err)
+	if p == nil {
+		t.Fatalf("sin problema: %v", err)
 	}
-	return b
+	return p.Codigo()
 }
 
-func TestWebPSinMetadatos(t *testing.T) {
-	vp8x := make([]byte, 10)
-	vp8x[0] = 0x08 | 0x04     // EXIF y XMP
-	vp8x[4], vp8x[7] = 99, 49 // 100 × 50
-	cuerpo := append(bloqueRIFF("VP8X", vp8x), bloqueRIFF("EXIF", []byte("GPS secreto"))...)
-	cuerpo = append(cuerpo, bloqueRIFF("VP8L", []byte{0x2f, 0, 0, 0, 0})...)
-	cuerpo = append(cuerpo, bloqueRIFF("XMP ", []byte("<x:autor>Ana</x:autor>"))...)
-	riff := append([]byte("RIFF"), binary.LittleEndian.AppendUint32(nil, uint32(len(cuerpo)+4))...)
-	riff = append(append(riff, []byte("WEBP")...), cuerpo...)
+// pngCabecera: un PNG con solo la firma y el IHDR (DecodeConfig no lee más). profundidad 16 y tipo 6
+// = RGBA de 16 bits con alfa.
+func pngCabecera(ancho, alto uint32, profundidad, tipo byte) []byte {
+	datos := append([]byte("IHDR"), binary.BigEndian.AppendUint32(binary.BigEndian.AppendUint32(nil, ancho), alto)...)
+	datos = append(datos, profundidad, tipo, 0, 0, 0)
+	b := []byte("\x89PNG\r\n\x1a\n")
+	b = binary.BigEndian.AppendUint32(b, uint32(len(datos)-4)) //nolint:gosec // prueba
+	b = append(b, datos...)
+	return binary.BigEndian.AppendUint32(b, crc32.ChecksumIEEE(datos))
+}
 
-	a, err := sanearArchivo("foto.webp", riff)
+// jpegProgresivo: SOI, un SOF2 (progresivo) con las dimensiones y el SOS, sin datos de imagen:
+// DecodeConfig no lee más.
+func jpegProgresivo(ancho, alto uint16) []byte {
+	sof := []byte{0xff, 0xc2, 0, 17, 8}
+	sof = binary.BigEndian.AppendUint16(sof, alto)
+	sof = binary.BigEndian.AppendUint16(sof, ancho)
+	sof = append(sof, 3, 1, 0x22, 0, 2, 0x11, 1, 3, 0x11, 1)
+	sos := []byte{0xff, 0xda, 0, 12, 3, 1, 0, 2, 0x11, 3, 0x11, 0, 0x3f, 0}
+	return append(append([]byte{0xff, 0xd8}, sof...), sos...)
+}
+
+func TestAdjuntoGrandeSeRechazaSinDecodificar(t *testing.T) {
+	// PNG de 16 bits con alfa: 27 MP (menos de 40) pero 216 MB decodificada.
+	if _, err := comprobarArchivo("a.png", pngCabecera(5200, 5200, 16, 6)); codigoDe(t, err) != "imagen_demasiado_grande" {
+		t.Fatalf("png 16 bits: %v", err)
+	}
+	// El mismo tamaño en 8 bits (108 MB) pasa la comprobación del encabezado.
+	if _, err := comprobarArchivo("a.png", pngCabecera(5200, 5200, 8, 6)); err != nil {
+		t.Fatalf("png 8 bits: %v", err)
+	}
+	// JPEG progresivo de 49 MP: más de 40 MP.
+	if _, err := comprobarArchivo("a.jpg", jpegProgresivo(7000, 7000)); codigoDe(t, err) != "imagen_demasiado_grande" {
+		t.Fatalf("jpeg progresivo: %v", err)
+	}
+	// Uno progresivo de 4000 × 3000 pasa el encabezado; no se puede recodificar (no trae datos): 422.
+	a, err := comprobarArchivo("a.jpg", jpegProgresivo(4000, 3000))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Mime != "image/webp" || bytes.Contains(a.Datos, []byte("secreto")) || bytes.Contains(a.Datos, []byte("Ana")) {
-		t.Fatalf("webp: %s %q", a.Mime, a.Datos)
+	if _, err := recodificarArchivos([]archivoPortal{a}); codigoDe(t, err) != "mime_no_permitido" {
+		t.Fatalf("jpeg sin datos: %v", err)
 	}
-	if a.Datos[20]&(0x08|0x04) != 0 {
-		t.Fatal("las marcas de EXIF y XMP siguen en VP8X")
+}
+
+func TestPNG16BitsConAlfaSeRecodifica(t *testing.T) {
+	img := image.NewNRGBA64(image.Rect(0, 0, 8, 8))
+	img.Set(2, 3, color.NRGBA64{R: 0xffff, A: 0x8000})
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
+		t.Fatal(err)
 	}
-	if int(binary.LittleEndian.Uint32(a.Datos[4:8])) != len(a.Datos)-8 {
-		t.Fatal("tamaño del RIFF")
+	a, err := comprobarArchivo("foto.png", b.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := recodificarArchivos([]archivoPortal{a})
+	if err != nil || len(r) != 1 || r[0].Mime != "image/png" {
+		t.Fatalf("recodificar: %v %v", r, err)
+	}
+	if _, err := png.Decode(bytes.NewReader(r[0].Datos)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRecodificacionesLimitadas(t *testing.T) {
+	var b bytes.Buffer
+	if err := jpeg.Encode(&b, image.NewGray(image.Rect(0, 0, 3, 3)), nil); err != nil {
+		t.Fatal(err)
+	}
+	a, err := comprobarArchivo("x.jpg", b.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range MaxRecodificaciones {
+		recodificaciones <- struct{}{}
+	}
+	_, err = recodificarArchivos([]archivoPortal{a})
+	for range MaxRecodificaciones {
+		<-recodificaciones
+	}
+	p, _ := nucleo.AProblema(err)
+	if p == nil || p.Status != 503 || p.GetHeaders().Get("Retry-After") == "" {
+		t.Fatalf("lleno: %v", err)
+	}
+	if _, err := recodificarArchivos([]archivoPortal{a}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -51,15 +122,20 @@ func TestArchivoPortal(t *testing.T) {
 	if err := jpeg.Encode(&b, image.NewGray(image.Rect(0, 0, 3, 3)), nil); err != nil {
 		t.Fatal(err)
 	}
-	a, err := sanearArchivo("C:\\fotos\\mi \"casa\"\r\n.png", b.Bytes())
+	a, err := comprobarArchivo("C:\\fotos\\mi \"casa\"\r\n.png", b.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a.Mime != "image/jpeg" || a.Nombre != "mi casa.jpg" {
 		t.Fatalf("jpeg: %s %q", a.Mime, a.Nombre)
 	}
-	if _, err := sanearArchivo("x.png", []byte("<html><script>alert(1)</script></html>")); err == nil {
-		t.Fatal("un HTML no es una foto")
+	// HTML, WebP y HEIC: fuera (0.14.2).
+	webp := append([]byte("RIFF\x10\x00\x00\x00WEBPVP8L"), make([]byte, 8)...)
+	heic := append([]byte("\x00\x00\x00\x18ftypheic"), make([]byte, 16)...)
+	for nombre, datos := range map[string][]byte{"x.html": []byte("<html><script>alert(1)</script></html>"), "x.webp": webp, "x.heic": heic} {
+		if _, err := comprobarArchivo(nombre, datos); codigoDe(t, err) != "mime_no_permitido" {
+			t.Fatalf("%s: %v", nombre, err)
+		}
 	}
 	if n := nombreSaneado(strings.Repeat("á", 200)+".pdf", "application/pdf"); len([]rune(n)) != 120 || !strings.HasSuffix(n, ".pdf") {
 		t.Fatalf("largo: %d %q", len([]rune(n)), n)

@@ -80,7 +80,7 @@ func cuerpoConArchivos(api huma.API, op *huma.Operation, tipo reflect.Type, nomb
 		"application/json": {Schema: esquema},
 		"multipart/form-data": {Schema: &huma.Schema{Type: huma.TypeObject, Required: []string{"datos"}, Properties: map[string]*huma.Schema{
 			"datos": {Type: huma.TypeString, Description: "El mismo JSON que en application/json"},
-			"archivos": {Type: huma.TypeArray, MaxItems: ptr(MaxAdjuntosPortal), Description: "Hasta 3 archivos de 10 MB (JPEG, PNG, WebP o PDF; se comprueban por el contenido)",
+			"archivos": {Type: huma.TypeArray, MaxItems: ptr(MaxAdjuntosPortal), Description: "Hasta 3 archivos de 10 MB (JPEG, PNG o PDF; se comprueban por el contenido; HEIC y WebP, 422 mime_no_permitido)",
 				Items: &huma.Schema{Type: huma.TypeString, Format: "binary"}},
 		}}},
 	}}

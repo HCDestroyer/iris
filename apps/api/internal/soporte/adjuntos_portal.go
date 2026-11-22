@@ -2,10 +2,10 @@ package soporte
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -20,24 +20,30 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
-// Adjuntos del portal del cliente de Argos (contrato 0.9.0 §11.6). Argos sube los bytes dentro de
-// POST …/tickets y POST …/responder (multipart/form-data: la parte «datos» con el JSON y hasta 3
-// partes «archivos»); nadie descarga URLs del otro. El tipo se comprueba por el contenido, nunca
-// por el nombre, y antes de guardar Iris quita los metadatos:
+// Adjuntos del portal del cliente de Argos (contrato 0.9.0 §11.6; 0.14.2). Argos sube los bytes
+// dentro de POST …/tickets y POST …/responder (multipart/form-data: la parte «datos» con el JSON y
+// hasta 3 partes «archivos»); nadie descarga URLs del otro. Solo JPEG, PNG y PDF, comprobados por el
+// contenido (HEIC y WebP: 422 mime_no_permitido; el portal de Argos los convierte a JPEG).
 //
-//   - JPEG y PNG se decodifican y se vuelven a codificar (se pierden EXIF, XMP e ICC), con un tope de
-//     píxeles;
-//   - WebP se reescribe sin los bloques EXIF y XMP (Go no trae codificador de WebP y el repositorio no
-//     suma dependencias sin acuerdo), con el mismo tope de píxeles según su cabecera;
-//   - PDF se guarda tal cual (no es una foto);
-//   - HEIC no se acepta todavía: quitarle los metadatos exige un decodificador que Iris no tiene
-//     (422 mime_no_permitido; anotado en el informe de la PR).
+// En dos pasos, para no gastar memoria en peticiones que se van a rechazar (revisión de seguridad M1):
+//
+//  1. al leer el cuerpo (comprobarArchivo): tipo por el contenido, tamaño y dimensiones desde el
+//     encabezado (SOF, IHDR) con DecodeConfig, sin decodificar: 40 MP y unos 200 MB decodificada
+//     (ancho × alto × bytes por píxel según el modelo de color) → 422 imagen_demasiado_grande;
+//  2. dentro del caso de uso, después de comprobar el ticket, los topes y el permiso del contacto
+//     (recodificarArchivos): JPEG y PNG se decodifican y se vuelven a codificar sin ningún metadato
+//     ni bloque del original, con a lo sumo MaxRecodificaciones a la vez en el proceso (lleno: 503
+//     con Retry-After); PDF se guarda tal cual.
 
 // Límites de §11.6.
 const (
 	MaxAdjuntosPortal       = 3
 	MaxTamanoAdjuntoPortal  = 10 << 20
 	MaxPixelesAdjuntoPortal = 40_000_000
+	// MaxBytesDecodificada: la imagen decodificada en memoria (ancho × alto × bytes por píxel).
+	MaxBytesDecodificada = 200 << 20
+	// MaxRecodificaciones: decodificaciones a la vez en el proceso.
+	MaxRecodificaciones = 2
 	// MaxCuerpoPortal: 3 archivos de 10 MB más el JSON y las cabeceras de cada parte.
 	MaxCuerpoPortal = MaxAdjuntosPortal*MaxTamanoAdjuntoPortal + 1<<20
 )
@@ -56,7 +62,7 @@ func tamanoExcedido() *nucleo.Problema {
 }
 
 func mimeNoPermitido() *nucleo.Problema {
-	return nucleo.ReglaNegocio("mime_no_permitido", "Solo se aceptan fotos JPEG, PNG o WebP y documentos PDF")
+	return nucleo.ReglaNegocio("mime_no_permitido", "Solo se aceptan fotos JPEG o PNG y documentos PDF")
 }
 
 // cuerpoPortal separa el JSON y los archivos de un cuerpo JSON o multipart/form-data.
@@ -115,7 +121,7 @@ func cuerpoPortal(contentType string, crudo []byte, destino any, sinArchivos boo
 			if len(b) > MaxTamanoAdjuntoPortal {
 				return nil, tamanoExcedido()
 			}
-			a, err := sanearArchivo(p.FileName(), b)
+			a, err := comprobarArchivo(p.FileName(), b)
 			if err != nil {
 				return nil, err
 			}
@@ -141,44 +147,93 @@ func decodificarJSONPortal(crudo []byte, destino any) error {
 	return nil
 }
 
-// sanearArchivo comprueba el tipo por el contenido y quita los metadatos (ver el comentario del
-// archivo). El nombre queda saneado para Content-Disposition.
-func sanearArchivo(nombre string, datos []byte) (archivoPortal, error) {
+func imagenDemasiadoGrande() *nucleo.Problema {
+	return nucleo.ReglaNegocio("imagen_demasiado_grande", "La foto es demasiado grande (máximo 40 MP)")
+}
+
+// bytesPorPixel: lo que ocupa un píxel de la imagen decodificada según su modelo de color.
+func bytesPorPixel(m color.Model) int64 {
+	switch m {
+	case color.GrayModel, color.AlphaModel:
+		return 1
+	case color.Gray16Model, color.Alpha16Model:
+		return 2
+	case color.YCbCrModel, color.NYCbCrAModel:
+		return 4
+	case color.RGBA64Model, color.NRGBA64Model:
+		return 8
+	}
+	if _, ok := m.(color.Palette); ok {
+		return 1
+	}
+	return 4 // RGBA, NRGBA, CMYK
+}
+
+// comprobarArchivo: tipo por el contenido y dimensiones desde el encabezado, sin decodificar. El
+// archivo queda con sus bytes crudos (se recodifica después, en el caso de uso).
+func comprobarArchivo(nombre string, datos []byte) (archivoPortal, error) {
 	if len(datos) == 0 {
 		return archivoPortal{}, mimeNoPermitido()
 	}
 	tipo := http.DetectContentType(datos)
-	a := archivoPortal{Mime: tipo, Tipo: "foto"}
-	var err error
+	a := archivoPortal{Mime: tipo, Tipo: "foto", Datos: datos, Nombre: nombreSaneado(nombre, tipo)}
 	switch tipo {
 	case "image/jpeg", "image/png":
-		a.Datos, err = recodificar(datos, tipo)
-	case "image/webp":
-		a.Datos, err = webpSinMetadatos(datos)
+		cfg, _, err := image.DecodeConfig(bytes.NewReader(datos))
+		if err != nil || cfg.Width <= 0 || cfg.Height <= 0 {
+			return archivoPortal{}, mimeNoPermitido()
+		}
+		pixeles := int64(cfg.Width) * int64(cfg.Height)
+		if pixeles > MaxPixelesAdjuntoPortal || pixeles*bytesPorPixel(cfg.ColorModel) > MaxBytesDecodificada {
+			return archivoPortal{}, imagenDemasiadoGrande()
+		}
 	case "application/pdf":
-		a.Datos, a.Tipo = datos, "documento"
+		a.Tipo = "documento"
 	default:
 		return archivoPortal{}, mimeNoPermitido()
 	}
-	if err != nil {
-		return archivoPortal{}, err
-	}
-	if len(a.Datos) > MaxTamanoAdjuntoPortal {
-		return archivoPortal{}, tamanoExcedido()
-	}
-	a.Nombre = nombreSaneado(nombre, tipo)
 	return a, nil
 }
 
-// recodificar decodifica y vuelve a codificar la imagen: el archivo nuevo no lleva metadatos.
+// recodificaciones limita las decodificaciones a la vez en el proceso.
+var recodificaciones = make(chan struct{}, MaxRecodificaciones)
+
+func ocupadoRecodificando() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusServiceUnavailable, "recodificacion_ocupada", "Ocupado",
+		"Iris está procesando otras fotos; intenta de nuevo en unos segundos").ConCabecera("Retry-After", "5")
+}
+
+// recodificarArchivos recodifica las fotos ya comprobadas (sin metadatos). Si ya hay
+// MaxRecodificaciones en curso, 503 con Retry-After (sin esperar: la petición se reintenta).
+func recodificarArchivos(archivos []archivoPortal) ([]archivoPortal, error) {
+	salida := make([]archivoPortal, 0, len(archivos))
+	for _, a := range archivos {
+		if a.Tipo != "foto" {
+			salida = append(salida, a)
+			continue
+		}
+		select {
+		case recodificaciones <- struct{}{}:
+		default:
+			return nil, ocupadoRecodificando()
+		}
+		datos, err := recodificar(a.Datos, a.Mime)
+		<-recodificaciones
+		if err != nil {
+			return nil, err
+		}
+		if len(datos) > MaxTamanoAdjuntoPortal {
+			return nil, tamanoExcedido()
+		}
+		a.Datos = datos
+		salida = append(salida, a)
+	}
+	return salida, nil
+}
+
+// recodificar decodifica y vuelve a codificar la imagen: el archivo nuevo no lleva metadatos. Las
+// dimensiones ya se comprobaron (comprobarArchivo).
 func recodificar(datos []byte, tipo string) ([]byte, error) {
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(datos))
-	if err != nil {
-		return nil, mimeNoPermitido()
-	}
-	if int64(cfg.Width)*int64(cfg.Height) > MaxPixelesAdjuntoPortal {
-		return nil, nucleo.ReglaNegocio("imagen_demasiado_grande", "La foto tiene demasiados píxeles (máximo 40 MP)")
-	}
 	img, _, err := image.Decode(bytes.NewReader(datos))
 	if err != nil {
 		return nil, mimeNoPermitido()
@@ -193,69 +248,6 @@ func recodificar(datos []byte, tipo string) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
-}
-
-// webpSinMetadatos reescribe el RIFF sin los bloques EXIF y XMP y apaga sus marcas en VP8X. Comprueba
-// el tope de píxeles con las dimensiones de la cabecera.
-func webpSinMetadatos(datos []byte) ([]byte, error) {
-	if len(datos) < 12 || string(datos[0:4]) != "RIFF" || string(datos[8:12]) != "WEBP" {
-		return nil, mimeNoPermitido()
-	}
-	out := bytes.NewBuffer(make([]byte, 0, len(datos)))
-	out.Write([]byte("RIFF\x00\x00\x00\x00WEBP"))
-	ancho, alto := 0, 0
-	for i := 12; i < len(datos); {
-		if i+8 > len(datos) {
-			return nil, mimeNoPermitido()
-		}
-		id := string(datos[i : i+4])
-		n := int(binary.LittleEndian.Uint32(datos[i+4 : i+8]))
-		fin := i + 8 + n
-		if n < 0 || fin > len(datos) {
-			return nil, mimeNoPermitido()
-		}
-		relleno := n % 2
-		bloque := datos[i:fin]
-		switch id {
-		case "EXIF", "XMP ":
-			// fuera
-		case "VP8X":
-			if n >= 10 {
-				b := append([]byte(nil), bloque...)
-				b[8] &^= 0x08 | 0x04 // EXIF y XMP
-				ancho = 1 + int(uint32(b[12])|uint32(b[13])<<8|uint32(b[14])<<16)
-				alto = 1 + int(uint32(b[15])|uint32(b[16])<<8|uint32(b[17])<<16)
-				bloque = b
-			}
-			out.Write(bloque)
-			if relleno == 1 {
-				out.WriteByte(0)
-			}
-		default:
-			if id == "VP8 " && ancho == 0 && n >= 10 {
-				ancho = int(binary.LittleEndian.Uint16(datos[i+14:i+16]) & 0x3fff)
-				alto = int(binary.LittleEndian.Uint16(datos[i+16:i+18]) & 0x3fff)
-			}
-			if id == "VP8L" && ancho == 0 && n >= 5 {
-				v := binary.LittleEndian.Uint32(datos[i+9 : i+13])
-				ancho, alto = int(v&0x3fff)+1, int((v>>14)&0x3fff)+1
-			}
-			out.Write(bloque)
-			if relleno == 1 {
-				out.WriteByte(0)
-			}
-		}
-		i = fin + relleno
-	}
-	if ancho == 0 || alto == 0 {
-		return nil, mimeNoPermitido()
-	}
-	if int64(ancho)*int64(alto) > MaxPixelesAdjuntoPortal {
-		return nil, nucleo.ReglaNegocio("imagen_demasiado_grande", "La foto tiene demasiados píxeles (máximo 40 MP)")
-	}
-	b := out.Bytes()
-	binary.LittleEndian.PutUint32(b[4:8], uint32(len(b)-8)) //nolint:gosec // ≤ 10 MB
-	return b, nil
 }
 
 // nombreSaneado: sin rutas, sin /, \, ", CR ni LF, ni caracteres de control; hasta 120 caracteres,
@@ -276,7 +268,7 @@ func nombreSaneado(nombre, tipo string) string {
 	if base == "" || base == "." || base == ".." {
 		base = "adjunto"
 	}
-	ext := map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "application/pdf": ".pdf"}[tipo]
+	ext := map[string]string{"image/jpeg": ".jpg", "image/png": ".png", "application/pdf": ".pdf"}[tipo]
 	if r := []rune(base); len(r)+len(ext) > 120 {
 		base = string(r[:120-len(ext)])
 	}
