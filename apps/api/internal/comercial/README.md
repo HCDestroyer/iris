@@ -98,12 +98,26 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
 Emite `prospecto.creado`, `prospecto.actualizado`, `prospecto.asignado`, `prospecto.estado_cambiado`,
 `prospecto.actividad_registrada`, `prospecto.perdido`, `prospecto.ganado`,
 `prospecto.alta_actualizada`, `factibilidad.evaluada`, `factibilidad.umbrales_cambiados`,
-`cotizacion.creada`, `cotizacion.aceptada`, `contrato.creado`, `contrato.firmado` y
-`contrato.anulado` (detalle en `.claude/integration/contratos/eventos.md`, «Comercial»). Ganar y el
+`cotizacion.creada`, `cotizacion.aceptada`, `contrato.creado`, `contrato.firmado`,
+`contrato.anulado` y `prospecto.venta_revisada` (detalle en `.claude/integration/contratos/eventos.md`, «Comercial»). Ganar y el
 alta emiten además, por sus casos de uso, `orden.creada` (campo), `adjunto.*` (los PDF) y los de la
 cola de pendientes.
 
 Consume `integracion.pendiente_hecho` (entidad `prospecto`) para avanzar el alta en Argos.
+
+De la venta a la instalación (contrato argosisp.md 0.10.0 §3.4.8):
+
+- **B17, alta pendiente hasta activar** (`alta_activacion.go`): con el servicio creado, el alta queda
+  `esperando_activacion` («ganado, alta pendiente»), ligada al cliente y al servicio; pasa a
+  `completa` con `integracion.pendiente_hecho` de `activar_instalacion` de su orden (o en el barrido
+  periódico). `argos.titular_cambiado` (webhook `servicio.titular_cambiado` confirmado) la pasa al
+  cliente nuevo. Ambos emiten `prospecto.alta_actualizada`.
+- **B20, cotización y contrato al cambiar** (`venta_revisada.go`): `integracion.pendiente_hecho` de
+  `cambiar_plan` o `cambiar_titular` (entidad `orden`) crea una revisión nueva de la cotización, ya
+  aceptada, con el plan nuevo y su precio de Argos (si Argos no publica el precio, conserva el
+  anterior) y a nombre del titular confirmado en la orden; anula el contrato vivo y lo regenera en
+  borrador (`contenido.ordenId`: se firma en la orden); emite `prospecto.venta_revisada`, que
+  notificaciones pone en la campana del vendedor. Idempotente por la clave del pendiente.
 
 ## Pruebas
 

@@ -90,7 +90,7 @@ SELECT * FROM comercial.prospecto_eventos WHERE prospecto_id = @prospecto_id ORD
 -- name: ProspectosConAltaPendiente :many
 -- Ganados con el alta en Argos sin terminar (barrido del worker).
 SELECT id FROM comercial.prospectos
-WHERE alta_estado IN ('esperando_cliente', 'esperando_servicio') AND alta_error IS NULL AND id > @despues_de
+WHERE alta_estado IN ('esperando_cliente', 'esperando_servicio', 'esperando_activacion') AND alta_error IS NULL AND id > @despues_de
 ORDER BY id
 LIMIT @limite;
 
@@ -377,3 +377,24 @@ SELECT contrato_remoto FROM integracion.conectores
 WHERE sistema = 'argosisp' AND eliminado_en IS NULL
 ORDER BY (estado = 'activo') DESC, id DESC
 LIMIT 1;
+
+-- name: ProspectosEsperandoActivacion :many
+-- B17: los prospectos «ganado, alta pendiente» de una orden de instalación (la activación llegó a
+-- Argos).
+SELECT id FROM comercial.prospectos WHERE orden_id = @orden_id AND alta_estado = 'esperando_activacion' ORDER BY id;
+
+-- name: ProspectosDeServicioArgos :many
+-- B17: los prospectos ligados a un servicio de Argos (servicio.titular_cambiado los pasa al cliente
+-- nuevo).
+SELECT id FROM comercial.prospectos WHERE servicio_argos_id = @servicio_id AND alta_modo = 'argos' ORDER BY id;
+
+-- name: ProspectoGanadoDeOrden :one
+-- B20: el prospecto ganado de la orden de instalación (si la venta fue en Iris).
+SELECT id FROM comercial.prospectos WHERE orden_id = @orden_id AND estado = 'ganado' ORDER BY id LIMIT 1;
+
+-- name: NombreTitularDeOrden :one
+-- B20: el nombre del titular confirmado en la orden (campo.orden_titular; nunca el documento).
+SELECT nombre FROM campo.orden_titular WHERE orden_id = @orden_id;
+
+-- name: NumeroDeOrden :one
+SELECT numero FROM campo.ordenes WHERE id = @id;

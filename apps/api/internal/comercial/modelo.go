@@ -45,7 +45,7 @@ type Prospecto struct {
 // Alta es el resultado de ganar.
 type Alta struct {
 	Modo            string  `json:"modo" enum:"local,argos" doc:"local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes"`
-	Estado          string  `json:"estado" enum:"esperando_cliente,esperando_servicio,completa"`
+	Estado          string  `json:"estado" enum:"esperando_cliente,esperando_servicio,esperando_activacion,completa" doc:"esperando_activacion: «ganado, alta pendiente»: el servicio existe en Argos y falta activarlo en la instalación"`
 	ClienteArgosID  *int64  `json:"clienteArgosId" nullable:"true"`
 	ServicioArgosID *int64  `json:"servicioArgosId" nullable:"true"`
 	OrdenID         *int64  `json:"ordenId" nullable:"true" doc:"Orden de instalación (al completarse el alta)"`

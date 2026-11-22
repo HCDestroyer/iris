@@ -113,6 +113,9 @@ type entradaAplicar struct {
 	promesa *promesaCambiada
 	// cuenta: cuenta_bancaria.cambiada (0.8.0 §7.8): la cuenta releída de Argos para la instantánea.
 	cuenta *lecturaCuentas
+	// titular: servicio.titular_cambiado (0.10.0 §3.4.4): se emite el evento interno si la ficha
+	// releída del titular nuevo lo confirma.
+	titular *titularCambiado
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -248,6 +251,15 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 			}
 		}
 	}
+	if in.titular != nil && in.errArgos == nil && in.omitido == "" {
+		emitido, err := emitirTitularCambiado(t, in)
+		if err != nil {
+			return r, err
+		}
+		if emitido {
+			r.Resultado = "aplicado"
+		}
+	}
 	if e.Evento == EventoServicioEstadoCambiado && strings.EqualFold(leerPayload(e.Payload).A, "retirado") {
 		s := in.retiro
 		if s == nil || !strings.EqualFold(strings.TrimSpace(s.Estado), "retirado") {
@@ -320,6 +332,13 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoServicioDatosCambiados:
 		in.datosServicio = datos.servicio()
+	case EventoServicioTitularCambiado:
+		omitido, err := p.leerTitularCambiado(ctx, bd, e, &in)
+		if err != nil {
+			return ResultadoEntrante{}, err
+		}
+		in.omitido = omitido
+		return p.aplicar.Ejecutar(ctx, in)
 	}
 	switch e.Evento {
 	case EventoServicioEliminado, EventoRouterEliminado:

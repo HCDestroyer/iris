@@ -760,3 +760,17 @@ RETURNING *;
 -- name: EstadoServicioArgos :one
 -- Estado del servicio en la instantánea de Argos ('' si no lo trae).
 SELECT estado FROM integracion.argos_servicios WHERE id = @id;
+
+-- name: ModosDeProspectos :many
+-- Modo (residencial o empresarial) de los prospectos de las órdenes: filtra los planes permitidos
+-- del paquete del día (§3.4.5) y decide el modo del titular (§3.4.2). Sin modo, residencial.
+SELECT id, coalesce(modo, 'residencial')::text AS modo FROM comercial.prospectos WHERE id = ANY(@ids::bigint[]);
+
+-- name: MoverOrdenesAlTitular :many
+-- B17: servicio.titular_cambiado de Argos pasa las órdenes abiertas del servicio al titular nuevo
+-- (las cerradas conservan el cliente con que se cerraron). Idempotente.
+UPDATE campo.ordenes
+SET cliente_id = @cliente_id, updated_at = now()
+WHERE servicio_id = @servicio_id AND estado NOT IN ('cerrada', 'fallida', 'cancelada')
+  AND cliente_id IS DISTINCT FROM @cliente_id
+RETURNING id, numero, empresa_id;

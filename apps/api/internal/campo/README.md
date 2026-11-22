@@ -313,6 +313,16 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   `image.DecodeConfig` (hasta 8000 × 8000); `GET /titular` se audita y nunca muestra
   `titular_no_coincide`.
 - Configuración: `campo.Config.Titular` (cifrador, conector de Argos y aviso a la cola).
+- **Modo empresarial** (§3.4.2): con el prospecto en `empresarial`, la identidad (A41) es la del
+  representante (solo DPI) y el cambio de titular (A39) va con el NIT de la empresa y
+  `representante` (nombre y DPI, este solo al depósito de tránsito); en residencial, `nit` se rechaza.
+- **Desde el panel**: `POST /ordenes/{id}/completar-datos` y `POST /ordenes/{id}/cambiar-plan`
+  (despacho y supervisor, con `version`), en una orden no terminada; mismas reglas y cola.
+- **B21, planes permitidos** (`planes_orden.go`): el paquete y los cambios traen `planes` en cada
+  instalación con el servicio `pendiente_instalacion` (`campo.Config.Planes` =
+  `argos.Modulo.PlanesPermitidos`, `GET /planes?router_id=&modo=`; uno por router y modo).
+- **B17** (`titular_argos.go`): `argos.titular_cambiado` pasa las órdenes abiertas del servicio al
+  titular nuevo y emite `orden.titular_movido`.
 
 ## Desarrollo
 

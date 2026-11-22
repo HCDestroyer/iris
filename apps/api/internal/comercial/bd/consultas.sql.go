@@ -1779,6 +1779,29 @@ func (q *Queries) MarcarReemplazada(ctx context.Context, id int64) error {
 	return err
 }
 
+const nombreTitularDeOrden = `-- name: NombreTitularDeOrden :one
+SELECT nombre FROM campo.orden_titular WHERE orden_id = $1
+`
+
+// B20: el nombre del titular confirmado en la orden (campo.orden_titular; nunca el documento).
+func (q *Queries) NombreTitularDeOrden(ctx context.Context, ordenID int64) (*string, error) {
+	row := q.db.QueryRow(ctx, nombreTitularDeOrden, ordenID)
+	var nombre *string
+	err := row.Scan(&nombre)
+	return nombre, err
+}
+
+const numeroDeOrden = `-- name: NumeroDeOrden :one
+SELECT numero FROM campo.ordenes WHERE id = $1
+`
+
+func (q *Queries) NumeroDeOrden(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, numeroDeOrden, id)
+	var numero string
+	err := row.Scan(&numero)
+	return numero, err
+}
+
 const numerosRegistradosArgos = `-- name: NumerosRegistradosArgos :one
 SELECT
     coalesce(sum(numeros) FILTER (WHERE actor = $1), 0)::bigint AS por_actor,
@@ -1870,6 +1893,18 @@ func (q *Queries) ProspectoAbiertoConNumeros(ctx context.Context, arg ProspectoA
 		&i.GanadoPor,
 	)
 	return i, err
+}
+
+const prospectoGanadoDeOrden = `-- name: ProspectoGanadoDeOrden :one
+SELECT id FROM comercial.prospectos WHERE orden_id = $1 AND estado = 'ganado' ORDER BY id LIMIT 1
+`
+
+// B20: el prospecto ganado de la orden de instalación (si la venta fue en Iris).
+func (q *Queries) ProspectoGanadoDeOrden(ctx context.Context, ordenID *int64) (int64, error) {
+	row := q.db.QueryRow(ctx, prospectoGanadoDeOrden, ordenID)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const prospectoPorID = `-- name: ProspectoPorID :one
@@ -2027,7 +2062,7 @@ func (q *Queries) ProspectoPorIdempotencia(ctx context.Context, idempotencia *st
 
 const prospectosConAltaPendiente = `-- name: ProspectosConAltaPendiente :many
 SELECT id FROM comercial.prospectos
-WHERE alta_estado IN ('esperando_cliente', 'esperando_servicio') AND alta_error IS NULL AND id > $1
+WHERE alta_estado IN ('esperando_cliente', 'esperando_servicio', 'esperando_activacion') AND alta_error IS NULL AND id > $1
 ORDER BY id
 LIMIT $2
 `
@@ -2040,6 +2075,58 @@ type ProspectosConAltaPendienteParams struct {
 // Ganados con el alta en Argos sin terminar (barrido del worker).
 func (q *Queries) ProspectosConAltaPendiente(ctx context.Context, arg ProspectosConAltaPendienteParams) ([]int64, error) {
 	rows, err := q.db.Query(ctx, prospectosConAltaPendiente, arg.DespuesDe, arg.Limite)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const prospectosDeServicioArgos = `-- name: ProspectosDeServicioArgos :many
+SELECT id FROM comercial.prospectos WHERE servicio_argos_id = $1 AND alta_modo = 'argos' ORDER BY id
+`
+
+// B17: los prospectos ligados a un servicio de Argos (servicio.titular_cambiado los pasa al cliente
+// nuevo).
+func (q *Queries) ProspectosDeServicioArgos(ctx context.Context, servicioID *int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, prospectosDeServicioArgos, servicioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const prospectosEsperandoActivacion = `-- name: ProspectosEsperandoActivacion :many
+SELECT id FROM comercial.prospectos WHERE orden_id = $1 AND alta_estado = 'esperando_activacion' ORDER BY id
+`
+
+// B17: los prospectos «ganado, alta pendiente» de una orden de instalación (la activación llegó a
+// Argos).
+func (q *Queries) ProspectosEsperandoActivacion(ctx context.Context, ordenID *int64) ([]int64, error) {
+	rows, err := q.db.Query(ctx, prospectosEsperandoActivacion, ordenID)
 	if err != nil {
 		return nil, err
 	}

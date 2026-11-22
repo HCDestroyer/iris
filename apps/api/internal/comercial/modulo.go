@@ -108,6 +108,9 @@ type Modulo struct {
 	firmar               *auditoria.Caso[entradaFirmaLista, Contrato]
 	registrarCliente     *auditoria.Caso[entradaAltaArgos, Prospecto]
 	completarAlta        *auditoria.Caso[entradaAltaArgos, Prospecto]
+	altaActivada         *auditoria.Caso[EntradaAltaActivada, ResultadoAlta]
+	moverTitular         *auditoria.Caso[EntradaTitularCambiado, ResultadoAlta]
+	revisarVenta         *auditoria.Caso[EntradaRevisarVenta, ResultadoRevisarVenta]
 	marcarErrorAlta      *auditoria.Caso[entradaErrorAlta, Prospecto]
 
 	prepararRegistroArgos *auditoria.Caso[EntradaRegistrarArgos, previoRegistroArgos]
@@ -167,6 +170,9 @@ func Nuevo(cfg Config) *Modulo {
 	m.firmar = m.nuevoFirmar()
 	m.registrarCliente = m.nuevoRegistrarCliente()
 	m.completarAlta = m.nuevoCompletarAlta()
+	m.altaActivada = m.nuevoAltaActivada()
+	m.moverTitular = m.nuevoMoverTitular()
+	m.revisarVenta = m.nuevoRevisarVenta()
 	m.marcarErrorAlta = m.nuevoMarcarErrorAlta()
 	m.prepararRegistroArgos = m.nuevoPrepararRegistroArgos()
 	m.registrarArgos = m.nuevoRegistrarArgos()

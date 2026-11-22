@@ -2790,6 +2790,78 @@ func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]C
 	return items, nil
 }
 
+const modosDeProspectos = `-- name: ModosDeProspectos :many
+SELECT id, coalesce(modo, 'residencial')::text AS modo FROM comercial.prospectos WHERE id = ANY($1::bigint[])
+`
+
+type ModosDeProspectosRow struct {
+	ID   int64
+	Modo string
+}
+
+// Modo (residencial o empresarial) de los prospectos de las órdenes: filtra los planes permitidos
+// del paquete del día (§3.4.5) y decide el modo del titular (§3.4.2). Sin modo, residencial.
+func (q *Queries) ModosDeProspectos(ctx context.Context, ids []int64) ([]ModosDeProspectosRow, error) {
+	rows, err := q.db.Query(ctx, modosDeProspectos, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ModosDeProspectosRow
+	for rows.Next() {
+		var i ModosDeProspectosRow
+		if err := rows.Scan(&i.ID, &i.Modo); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const moverOrdenesAlTitular = `-- name: MoverOrdenesAlTitular :many
+UPDATE campo.ordenes
+SET cliente_id = $1, updated_at = now()
+WHERE servicio_id = $2 AND estado NOT IN ('cerrada', 'fallida', 'cancelada')
+  AND cliente_id IS DISTINCT FROM $1
+RETURNING id, numero, empresa_id
+`
+
+type MoverOrdenesAlTitularParams struct {
+	ClienteID  *int64
+	ServicioID *int64
+}
+
+type MoverOrdenesAlTitularRow struct {
+	ID        int64
+	Numero    string
+	EmpresaID *int64
+}
+
+// B17: servicio.titular_cambiado de Argos pasa las órdenes abiertas del servicio al titular nuevo
+// (las cerradas conservan el cliente con que se cerraron). Idempotente.
+func (q *Queries) MoverOrdenesAlTitular(ctx context.Context, arg MoverOrdenesAlTitularParams) ([]MoverOrdenesAlTitularRow, error) {
+	rows, err := q.db.Query(ctx, moverOrdenesAlTitular, arg.ClienteID, arg.ServicioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MoverOrdenesAlTitularRow
+	for rows.Next() {
+		var i MoverOrdenesAlTitularRow
+		if err := rows.Scan(&i.ID, &i.Numero, &i.EmpresaID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nombreDeUsuario = `-- name: NombreDeUsuario :one
 SELECT nombre FROM nucleo.usuarios WHERE id = $1
 `

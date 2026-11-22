@@ -6465,6 +6465,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/cambiar-plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cambiar el plan de una instalación desde el panel
+         * @description Permiso: `ordenes.cambiar_plan`. Despacho o supervisor con `ordenes.cambiar_plan` y alcance sobre la orden, en una instalación no terminada con el servicio pendiente en Argos; con `version` (409 si cambió) e `Idempotency-Key`. Uno de los planes permitidos (Argos lo vuelve a comprobar: `plan_no_permitido`), con motivo. Encola A40 en orden, como `orden.cambiar_plan` del lote; al quedar hecho, la venta (si es de Iris) tiene una cotización nueva y un contrato regenerado, y el vendedor recibe aviso. Emite `orden.cambio_plan_registrado`.
+         */
+        post: operations["cambiarPlanOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/cancelar": {
         parameters: {
             query?: never;
@@ -6519,6 +6539,26 @@ export interface paths {
          * @description Permiso: `ordenes.registrar`. Gana la marca más reciente (por hora del hecho); la otra queda en el historial (`aviso: checklist_no_vigente`).
          */
         post: operations["marcarChecklistOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/completar-datos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Completar los datos del titular y del lugar desde el panel
+         * @description Permiso: `ordenes.completar_datos`. Despacho o supervisor con `ordenes.completar_datos` y alcance sobre la orden, en una instalación no terminada con el servicio pendiente en Argos; con `version` (409 si cambió) e `Idempotency-Key`. Encola A43 detrás de la identidad o del cambio de titular, como `orden.completar_datos` del lote. Teléfono, correo y NIT/CUI van solo al depósito de tránsito (`***` en la auditoría). 422 `orden_no_es_instalacion`, `argos_sin_conector`, `transicion_invalida`. Emite `orden.datos_completados`.
+         */
+        post: operations["completarDatosOrden"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9887,8 +9927,11 @@ export interface components {
             clienteArgosId: number | null;
             /** @description El alta no pudo avanzar y necesita revisión manual (no se reintenta sola) */
             error: string | null;
-            /** @enum {string} */
-            estado: "esperando_cliente" | "esperando_servicio" | "completa";
+            /**
+             * @description esperando_activacion: «ganado, alta pendiente»: el servicio existe en Argos y falta activarlo en la instalación
+             * @enum {string}
+             */
+            estado: "esperando_cliente" | "esperando_servicio" | "esperando_activacion" | "completa";
             /**
              * @description local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes
              * @enum {string}
@@ -10110,10 +10153,10 @@ export interface components {
              */
             nivel: "info" | "alerta" | "peligro";
             /**
-             * @description argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
+             * @description venta_revisada: la instalación cambió el plan o el titular de una venta del vendedor (B20; datos: prospecto_id, orden_id, motivo plan|titular, cotizacion_id). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
              * @enum {string}
              */
-            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado";
+            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado" | "venta_revisada";
             /** @description Texto en español, listo para mostrar */
             titulo: string;
         };
@@ -12918,6 +12961,11 @@ export interface components {
              * @description Uno de los planes permitidos (mismo modo y router); Argos lo vuelve a comprobar (plan_no_permitido)
              */
             planId: number;
+            /**
+             * Format: int32
+             * @description Desde el panel (POST /ordenes/{id}/cambiar-plan): versión leída de la orden, obligatoria (409 si cambió). En el lote no se usa
+             */
+            version?: number;
         };
         EntradaCambiarTitular: {
             /** @description «Coincide con el titular»: debe ser true */
@@ -13077,6 +13125,11 @@ export interface components {
         EntradaCompletarDatos: {
             cliente?: components["schemas"]["ClienteCompletar"];
             servicio?: components["schemas"]["LugarServicio"];
+            /**
+             * Format: int32
+             * @description Desde el panel (POST /ordenes/{id}/completar-datos): versión leída de la orden, obligatoria (409 si cambió). En el lote no se usa
+             */
+            version?: number;
         };
         EntradaCompletarTarea: {
             /**
@@ -15436,8 +15489,11 @@ export interface components {
         EstadoTitular: {
             /** @description La orden se canceló o falló, pero el titular o el plan ya cambiaron en Argos (no se deshace solo) */
             cambiadoEnArgos: boolean;
-            /** @enum {string|null} */
-            documentoTipo: "dpi" | "pasaporte" | null;
+            /**
+             * @description nit: venta empresarial (la identidad es la del representante, con DPI)
+             * @enum {string|null}
+             */
+            documentoTipo: "dpi" | "pasaporte" | "nit" | null;
             /** @description El titular está en revisión de un supervisor: no se toma otra identidad ni otro titular hasta que la levante (POST /ordenes/{id}/levantar-revision-titular) */
             enRevision: boolean;
             /**
@@ -15445,6 +15501,11 @@ export interface components {
              * @enum {string}
              */
             identidad: "falta" | "registrada" | "validada";
+            /**
+             * @description Modo de la venta (del prospecto; residencial sin prospecto)
+             * @enum {string}
+             */
+            modo: "residencial" | "empresarial";
             /** @description Del titular, como en el documento (nunca el número) */
             nombre: string | null;
             /** Format: int64 */
@@ -17462,6 +17523,8 @@ export interface components {
             pausadaEn?: string;
             /** @description Pausas de la orden (la en curso, con fin null) */
             pausas?: components["schemas"]["PausaOrden"][] | null;
+            /** @description Planes permitidos (GET /planes?router_id=&modo= de Argos) para orden.cambiar_plan; solo en una instalación con el servicio pendiente_instalacion */
+            planes?: components["schemas"]["PlanesOrden"];
             /**
              * Format: int64
              * @description Plantilla de checklist
@@ -18528,12 +18591,31 @@ export interface components {
             /** @description Mensualidad (decimal, 2 cifras); null si Argos no la publica */
             precio: string | null;
         };
+        PlanOrden: {
+            /** Format: int64 */
+            id: number;
+            moneda: string | null;
+            nombre: string;
+            /** @description Precio mensual como lo da Argos (texto decimal); la orden lo muestra antes de confirmar */
+            precio: string | null;
+        };
         PlanesDisponibles: {
             data: components["schemas"]["PlanComercial"][] | null;
             /** @description false = sin conector (cotizar con descripción y precio a mano) o Argos no disponible (motivo) */
             disponible: boolean;
             /** @description sin_conector, conector_apagado, argos_no_disponible… */
             motivo: string | null;
+        };
+        PlanesOrden: {
+            data: components["schemas"]["PlanOrden"][] | null;
+            disponible: boolean;
+            /**
+             * @description Modo de la venta: el de los planes y el del titular (empresarial: NIT de la empresa y representante con DPI)
+             * @enum {string}
+             */
+            modo: "residencial" | "empresarial";
+            /** @enum {string|null} */
+            motivo: "sin_conector" | "argos_no_disponible" | "sin_router" | null;
         };
         Planta: {
             caja: string | null;
@@ -19639,6 +19721,12 @@ export interface components {
             data: components["schemas"]["FilaTecnico"][] | null;
             periodo: components["schemas"]["Periodo"];
             total: components["schemas"]["FilaTecnico"];
+        };
+        Representante: {
+            /** @description DPI del representante. Nunca se devuelve ni va en eventos, logs ni auditoría */
+            documentoNumero: string;
+            /** @description Como aparece en su DPI */
+            nombre: string;
         };
         RequisitoLlamadas: {
             aviso: boolean;
@@ -21103,11 +21191,15 @@ export interface components {
             orden: boolean;
         };
         TitularNuevo: {
+            /** @description DPI, pasaporte o NIT de la empresa (con verificador, K permitido) */
             documentoNumero: string;
-            /** @enum {string} */
-            documentoTipo: "dpi" | "pasaporte";
+            /**
+             * @description nit solo en una venta empresarial (y ahí es obligatorio): el titular es la empresa y la identidad, la del representante
+             * @enum {string}
+             */
+            documentoTipo: "dpi" | "pasaporte" | "nit";
             email?: string;
-            /** @description Debe ser true */
+            /** @description Debe ser true (en empresarial, del representante) */
             mayorDeEdad: boolean;
             /** @description NIT (con verificador, K permitido) o CUI; vacío con cf */
             nitCui?: string;
@@ -21118,6 +21210,8 @@ export interface components {
              * @enum {string}
              */
             relacion?: "titular" | "familiar" | "otro";
+            /** @description Obligatorio en una venta empresarial (y solo ahí) */
+            representante?: components["schemas"]["Representante"];
             /** @description 8 dígitos de Guatemala (+502 opcional) */
             telefono: string;
             /**
@@ -47502,6 +47596,89 @@ export interface operations {
             };
         };
     };
+    cambiarPlanOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambiarPlan"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     cancelarOrden: {
         parameters: {
             query?: never;
@@ -47683,6 +47860,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaMarcarChecklist"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    completarDatosOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCompletarDatos"];
             };
         };
         responses: {

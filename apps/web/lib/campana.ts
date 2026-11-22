@@ -1,5 +1,5 @@
 import type { Schema } from "@iris/contratos";
-import { Bell, Gauge, RefreshCw, Server, ShieldAlert, Sparkles, type LucideIcon } from "lucide-react";
+import { Bell, BriefcaseBusiness, Gauge, RefreshCw, Server, ShieldAlert, Sparkles, type LucideIcon } from "lucide-react";
 import { textoPausado } from "./asistente/presentacion";
 
 /*
@@ -7,7 +7,8 @@ import { textoPausado } from "./asistente/presentacion";
  * `asistente_tope`: el asistente de IA llegó al 80 % (`alerta`) o al 100 % (`peligro`, se pausó) del
  * tope del mes. `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral`
  * (contratos/voz.md §4.12): uno por episodio, a quien administra la instalación. `argos_certificado`
- * (contrato con Argos 0.8.0 §1.5): cambió el certificado de la API de Argos; solo informa. El texto
+ * (contrato con Argos 0.8.0 §1.5): cambió el certificado de la API de Argos; solo informa. `venta_revisada`
+ * (0.10.0 §3.4.8, B20): la instalación cambió el plan o el titular de una venta del vendedor. El texto
  * (`titulo`) lo arma el servidor; aquí solo cómo se pinta.
  */
 
@@ -18,7 +19,7 @@ export function tonoAvisoPanel(nivel: AvisoPanel["nivel"]): "info" | "warning" |
     return nivel === "peligro" ? "error" : nivel === "alerta" ? "warning" : "info";
 }
 
-const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert };
+const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert, venta_revisada: BriefcaseBusiness };
 
 /** El icono del tipo; uno que este panel aún no conoce (o un nombre heredado como «constructor») lleva la campana. */
 export function iconoAvisoPanel(tipo: AvisoPanel["tipo"]): LucideIcon {

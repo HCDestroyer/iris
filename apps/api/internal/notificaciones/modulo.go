@@ -116,8 +116,10 @@ type Modulo struct {
 	AvisarServidorIA *auditoria.Caso[EntradaAvisarServidorIA, ResultadoAvisarTope]
 	// AvisarCertificadoArgos: campana cuando cambia el certificado TLS de Argos (contrato 0.8.0 §1.5).
 	AvisarCertificadoArgos *auditoria.Caso[EntradaAvisarCertificadoArgos, ResultadoAvisarTope]
-	prepararCorreo         *auditoria.Caso[int64, *correoListo]
-	cerrarCorreo           *auditoria.Caso[ResultadoCorreo, bool]
+	// AvisarVentaRevisada: campana del vendedor cuando la instalación cambia su venta (B20).
+	AvisarVentaRevisada *auditoria.Caso[EntradaAvisarVentaRevisada, ResultadoAvisarTope]
+	prepararCorreo      *auditoria.Caso[int64, *correoListo]
+	cerrarCorreo        *auditoria.Caso[ResultadoCorreo, bool]
 	// Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
 	VerCorreoSistema        *auditoria.Caso[EntradaVerCorreo, CorreoSistema]
 	GuardarCorreoSistema    *auditoria.Caso[EntradaGuardarCorreo, CorreoSistema]
@@ -164,6 +166,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.AvisarTope = m.nuevoAvisarTope()
 	m.AvisarServidorIA = m.nuevoAvisarServidorIA()
 	m.AvisarCertificadoArgos = m.nuevoAvisarCertificadoArgos()
+	m.AvisarVentaRevisada = m.nuevoAvisarVentaRevisada()
 	m.prepararCorreo = m.nuevoPrepararCorreo()
 	m.cerrarCorreo = m.nuevoCerrarCorreo()
 	m.VerCorreoSistema = m.nuevoVerCorreoSistema()
