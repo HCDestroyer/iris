@@ -185,6 +185,7 @@ Una tarea está terminada solo si:
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id, solicitud_tipo (portal_argos) (creado); modo (local, argos, solicitud), contrato_id (o null), cotizacion_id, orden_id (o null), pendientes[], tarea_argos (solicitud) (ganado); motivo (perdido) |
 | `prospecto.tarea_argos_completada` | comercial (portal de Argos) | prospecto_id, empresa_id, solicitud_tipo |
+| `solicitudes.ajustes_cambiados` | comercial (portal de Argos) | empresa_id, cambio_plan_exige_contrato, version |
 | `solicitud_servicio.estado_cambiado` | comercial (portal de Argos) | solicitud_id, numero, empresa_id, cliente_id, tipo, servicio_id (o null), de, a (estado_cliente); va a Argos (§6.6, 0.9.0) |
 | `prospecto.actualizado` / `prospecto.asignado` / `prospecto.estado_cambiado` / `prospecto.actividad_registrada` | comercial | prospecto_id; campos[] (actualizado); vendedor_id, vendedor_anterior_id (asignado); de, a, motivo (estado); actividad_id, tipo (actividad) |
 | `prospecto.alta_actualizada` | comercial (alta en Argos) | prospecto_id, estado (esperando_servicio, completa), cliente_id, servicio_id (o null), orden_id (o null) |

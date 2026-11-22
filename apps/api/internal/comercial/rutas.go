@@ -176,6 +176,21 @@ func (m *Modulo) Registrar(api huma.API) {
 		"Notas de al menos 20 caracteres; routerId de la empresa del prospecto. Si una automática dio no_viable en las mismas coordenadas, "+
 			"un resultado distinto exige motivoAnulacion (queda auditada como «anula automática»). Emite `factibilidad.evaluada`.", nucleo.PermFactibilidadRegistrarManual),
 		m.FactibilidadManual.Ejecutar, func(e *EntradaFactibilidadManual, id int64, _ string) { e.ProspectoID = id })
+	lectura(api, operacion("verAjustesSolicitudes", http.MethodGet, "/api/v1/comercial/ajustes-solicitudes",
+		"Ajustes de las solicitudes del portal de Argos de la empresa", ver, http.StatusOK),
+		func(ctx context.Context, _ struct{}) (AjustesSolicitudes, error) {
+			return m.VerAjustesSolicitudes.Ejecutar(ctx, struct{}{})
+		})
+	huma.Register(api, con(operacion("cambiarAjustesSolicitudes", http.MethodPost, "/api/v1/comercial/ajustes-solicitudes",
+		"Cambiar los ajustes de las solicitudes del portal de Argos", nucleo.PermProspectosConfigurarSolicitudes, http.StatusOK, http.StatusConflict),
+		"§10.4 punto 10 del contrato con Argos: exigir contrato firmado para ganar un cambio de plan (de fábrica, no). `version` la leída (0 sin "+
+			"guardar); vieja, 409. Emite `solicitudes.ajustes_cambiados`."),
+		func(ctx context.Context, in *struct {
+			nucleo.ConIdempotencia
+			Body EntradaAjustesSolicitudes
+		}) (*cuerpo[AjustesSolicitudes], error) {
+			return responder(m.CambiarAjustesSolicitudes.Ejecutar(ctx, in.Body))
+		})
 	lectura(api, operacion("verUmbrales", http.MethodGet, "/api/v1/comercial/umbrales", "Umbrales de la factibilidad de la empresa", ver, http.StatusOK),
 		func(ctx context.Context, _ struct{}) (Umbrales, error) {
 			return m.VerUmbrales.Ejecutar(ctx, struct{}{})

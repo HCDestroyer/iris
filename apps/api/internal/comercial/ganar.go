@@ -129,6 +129,9 @@ type EntradaGanar struct {
 	Version       int32  `json:"version" minimum:"1"`
 	ConfirmarObra bool   `json:"confirmarObra,omitempty" doc:"Obligatorio (true) si la factibilidad es requiere_obra"`
 	RouterID      *int64 `json:"routerId,omitempty" minimum:"1" doc:"Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido"`
+	// MotivoPlan: cambio de plan del portal de Argos cuyo plan cotizado no es el que pidió el cliente
+	// (plan_interes_id): obligatorio, queda como actividad del prospecto (revisión H3).
+	MotivoPlan *string `json:"motivoPlan,omitempty" maxLength:"1000" doc:"Cambio de plan del portal de Argos con otro plan que el pedido: por qué (422 validacion si falta)"`
 }
 
 // requisitos de ganar: contrato firmado, su cotización aceptada y la factibilidad al día.
@@ -171,7 +174,23 @@ func exigirRequisitos(ctx context.Context, q *comercialbd.Queries, p comercialbd
 // requisitosCambioPlan: el prospecto cotizado (o con contrato) y su cotización aceptada.
 func requisitosCambioPlan(ctx context.Context, q *comercialbd.Queries, p comercialbd.ComercialProspecto) (requisitos, error) {
 	var r requisitos
-	if err := exigirEstado(p, "ganar", EstadoCotizado, EstadoContrato); err != nil {
+	ajustes, err := ajustesSolicitudes(ctx, q, deref(p.EmpresaID))
+	if err != nil {
+		return r, err
+	}
+	if ajustes.CambioPlanExigeContrato {
+		// La empresa exige contrato (§10.4 punto 10): contrato firmado y su cotización aceptada.
+		if err := exigirEstado(p, "ganar", EstadoContrato); err != nil {
+			return r, err
+		}
+		r.contrato, err = q.ContratoVivoDeProspecto(ctx, p.ID)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && r.contrato.Estado != "firmado") {
+			return r, nucleo.ReglaNegocio("contrato_no_firmado", "La empresa exige el contrato firmado para ganar un cambio de plan")
+		}
+		if err != nil {
+			return r, err
+		}
+	} else if err := exigirEstado(p, "ganar", EstadoCotizado, EstadoContrato); err != nil {
 		return r, err
 	}
 	c, err := q.CotizacionViva(ctx, p.ID)
@@ -180,6 +199,35 @@ func requisitosCambioPlan(ctx context.Context, q *comercialbd.Queries, p comerci
 	}
 	r.cotizacion = c
 	return r, err
+}
+
+// planDeLaSolicitud: el plan de la cotización aceptada es el que pidió el cliente; si es otro (o no
+// pidió uno), hace falta un motivo, que queda como actividad del prospecto.
+func planDeLaSolicitud(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, p comercialbd.ComercialProspecto, r requisitos, motivo *string, ahora time.Time) error {
+	if r.cotizacion.PlanID != nil && p.PlanInteresID != nil && *r.cotizacion.PlanID == *p.PlanInteresID {
+		return nil
+	}
+	texto := ""
+	if motivo != nil {
+		texto = strings.TrimSpace(*motivo)
+	}
+	if texto == "" {
+		return nucleo.Validacion(nucleo.ErrorCampo{Field: "motivoPlan", Rule: "plan_distinto",
+			Message: "El plan cotizado no es el que pidió el cliente en su solicitud: indica el motivo"})
+	}
+	pedido := "ninguno"
+	if p.PlanInteresID != nil {
+		pedido = strconv.FormatInt(*p.PlanInteresID, 10)
+	}
+	cotizado := "ninguno"
+	if r.cotizacion.PlanID != nil {
+		cotizado = strconv.FormatInt(*r.cotizacion.PlanID, 10)
+	}
+	t.Anotar(map[string]any{"plan_pedido": p.PlanInteresID, "plan_cotizado": r.cotizacion.PlanID})
+	_, err := q.CrearActividad(ctx, comercialbd.CrearActividadParams{EmpresaID: p.EmpresaID, ProspectoID: p.ID, Tipo: "nota",
+		Descripcion: "Cambio de plan con otro plan que el pedido (pedido: " + pedido + ", cotizado: " + cotizado + "). Motivo: " + texto,
+		OcurridaEn:  ahora, AutorID: actorUsuario(t)})
+	return err
 }
 
 func mismaCoordenada(a, b *float64) bool {
@@ -200,6 +248,9 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 				// Cambio de plan del portal de Argos (§10.4 punto 10): basta la cotización aceptada, sin
 				// contrato ni factibilidad (el servicio ya existe).
 				if r, err = requisitosCambioPlan(ctx, q, antes); err != nil {
+					return Prospecto{}, err
+				}
+				if err := planDeLaSolicitud(ctx, t, q, antes, r, in.MotivoPlan, m.ahora()); err != nil {
 					return Prospecto{}, err
 				}
 			} else {

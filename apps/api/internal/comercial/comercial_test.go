@@ -64,6 +64,8 @@ type argosFalso struct {
 	// contactosDe: cliente_id → contactos (JSON) de GET /clientes/{id}/contactos (§3.5); lecturasContactos las cuenta.
 	contactosDe       map[string]string
 	lecturasContactos int
+	// planesCaidos: GET /planes responde 503.
+	planesCaidos bool
 }
 
 // Argos 1.2 (lo que respondió su equipo): huella del cuerpo crudo, repetición con el 2xx original
@@ -100,7 +102,12 @@ func nuevoArgos(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/planes", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		a.consultas = append(a.consultas, r.URL.RawQuery)
+		caidos := a.planesCaidos
 		a.mu.Unlock()
+		if caidos {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		planes := []string{`{"id":300,"nombre":"Fibra 100","precio":"250.00","activo":true}`,
 			`{"id":301,"nombre":"Fibra 200 (sin precio)","precio":null,"activo":true}`}
 		if r.URL.Query().Get("router_id") == "52" {

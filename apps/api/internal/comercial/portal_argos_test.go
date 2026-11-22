@@ -499,7 +499,22 @@ func TestPortalArgosSolicitudGanada(t *testing.T) {
 		d = deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
 		c := deber(p.e.com.CrearCotizacion(ctx, comercial.EntradaCrearCotizacion{ProspectoID: id, Version: d.Version,
 			Lineas: []comercial.EntradaLinea{{Tipo: "plan", PlanID: ptr(int64(300))}}}))(t)
-		deber(p.e.com.AceptarCotizacion.Ejecutar(ctx, comercial.EntradaAceptarCotizacion{ID: c.ID, Version: c.Version}))(t)
+		// Solicitud del portal: la evidencia de aceptación del cliente es obligatoria (H3).
+		_, err := p.e.com.AceptarCotizacion.Ejecutar(ctx, comercial.EntradaAceptarCotizacion{ID: c.ID, Version: c.Version})
+		problema(t, err, 422, "validacion")
+		_, err = p.e.com.AceptarCotizacion.Ejecutar(ctx, comercial.EntradaAceptarCotizacion{ID: c.ID, Version: c.Version,
+			EvidenciaCliente: &comercial.EvidenciaAceptacion{Canal: "whatsapp", Fecha: time.Now().Add(time.Hour)}})
+		problema(t, err, 422, "validacion")
+		deber(p.e.com.AceptarCotizacion.Ejecutar(ctx, comercial.EntradaAceptarCotizacion{ID: c.ID, Version: c.Version,
+			EvidenciaCliente: &comercial.EvidenciaAceptacion{Canal: "whatsapp", Fecha: time.Now().Add(-time.Minute)}}))(t)
+		if n := contar(t, `SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND aceptacion_canal = 'whatsapp'
+			AND aceptacion_cliente_en IS NOT NULL AND aceptacion_registrada_por = $2`, c.ID, v); n != 1 {
+			t.Fatalf("evidencia: %d", n)
+		}
+		if n := contar(t, `SELECT count(*) FROM auditoria.acciones WHERE accion = 'cotizaciones.aceptar' AND resultado = 'ok'
+			AND entrada->'auditoria'->'evidencia_cliente'->>'canal' = 'whatsapp'`); n < 1 {
+			t.Fatal("evidencia sin auditar")
+		}
 		return deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
 	}
 	// El traslado sigue exigiendo el contrato firmado.
@@ -512,6 +527,18 @@ func TestPortalArgosSolicitudGanada(t *testing.T) {
 	if d.Estado != comercial.EstadoCotizado {
 		t.Fatalf("estado: %s", d.Estado)
 	}
+	// Con el ajuste «exigir contrato en cambio de plan» encendido, desde cotizado no se gana.
+	sup := conRol(ctx, "supervisor")
+	aj := deber(p.e.com.VerAjustesSolicitudes.Ejecutar(sup, struct{}{}))(t)
+	if aj.CambioPlanExigeContrato || aj.Version != 0 {
+		t.Fatalf("de fábrica: %+v", aj)
+	}
+	aj = deber(p.e.com.CambiarAjustesSolicitudes.Ejecutar(sup, comercial.EntradaAjustesSolicitudes{CambioPlanExigeContrato: true, Version: 0}))(t)
+	_, err = p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: d.Version})
+	problema(t, err, 422, "transicion_invalida")
+	_, err = p.e.com.CambiarAjustesSolicitudes.Ejecutar(ctx, comercial.EntradaAjustesSolicitudes{Version: aj.Version})
+	problema(t, err, 403, "prohibido") // ventas no configura
+	deber(p.e.com.CambiarAjustesSolicitudes.Ejecutar(sup, comercial.EntradaAjustesSolicitudes{CambioPlanExigeContrato: false, Version: aj.Version}))(t)
 	g := deber(p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: d.Version}))(t)
 	if g.Estado != comercial.EstadoGanado || g.TareaArgos == nil || *g.TareaArgos != "pendiente" || g.EstadoCliente == nil || *g.EstadoCliente != "en_proceso" {
 		t.Fatalf("ganado: %+v", g)
@@ -531,5 +558,47 @@ func TestPortalArgosSolicitudGanada(t *testing.T) {
 	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'solicitud_servicio.estado_cambiado'
 		AND payload->>'solicitud_id' = $1 AND payload->>'a' = 'completada'`, strconv.FormatInt(id, 10)); n != 1 {
 		t.Fatalf("evento completada: %d", n)
+	}
+}
+
+// H3: un cambio de plan con otro plan que el pedido exige motivo (queda como actividad); y con Argos
+// caído al validar el plan, la solicitud se guarda sin plan y con la nota «plan no validado».
+func TestPortalArgosCambioPlanOtroPlanYPlanNoValidado(t *testing.T) {
+	p := nuevoPortalArgos(t)
+	bd := pruebas.Pool(t)
+	p.e.falso.fijar(func(a *argosFalso) { a.planesCaidos = true })
+	s := p.pedir(http.MethodPost, clientePortal, "/solicitudes", map[string]any{"tipo": "cambio_plan", "servicio_id": 4410, "plan_interes_id": 300}).
+		ok(t, http.StatusCreated)
+	p.e.falso.fijar(func(a *argosFalso) { a.planesCaidos = false })
+	id := int64(s["id"].(float64))
+	var plan *int64
+	var notas string
+	if err := bd.QueryRow(context.Background(), `SELECT plan_interes_id, notas FROM comercial.prospectos WHERE id = $1`, id).Scan(&plan, &notas); err != nil {
+		t.Fatal(err)
+	}
+	if plan != nil || !strings.Contains(notas, "Plan no validado") || !strings.Contains(notas, "300") {
+		t.Fatalf("plan no validado: %v %q", plan, notas)
+	}
+	v := usuarioCon(t, rol("ventas"))
+	asignarEmpresa(t, v, 1)
+	ctx := enEmpresa(t, v, 1, "ventas")
+	d := deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	deber(p.e.com.Contactar.Ejecutar(ctx, comercial.EntradaTransicion{ID: id, Version: d.Version}))(t)
+	manual(t, p.e.com, ctx, id, "viable", nil)
+	d = deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	c := deber(p.e.com.CrearCotizacion(ctx, comercial.EntradaCrearCotizacion{ProspectoID: id, Version: d.Version,
+		Lineas: []comercial.EntradaLinea{{Tipo: "plan", PlanID: ptr(int64(300))}}}))(t)
+	deber(p.e.com.AceptarCotizacion.Ejecutar(ctx, comercial.EntradaAceptarCotizacion{ID: c.ID, Version: c.Version,
+		EvidenciaCliente: &comercial.EvidenciaAceptacion{Canal: "telefono", Fecha: time.Now().Add(-time.Minute)}}))(t)
+	d = deber(p.e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: id}))(t)
+	// La solicitud quedó sin plan: el cotizado es «otro», así que hace falta el motivo.
+	_, err := p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: d.Version})
+	problema(t, err, 422, "validacion")
+	g := deber(p.e.com.GanarProspecto(ctx, comercial.EntradaGanar{ID: id, Version: d.Version, MotivoPlan: ptr("El cliente confirmó Fibra 100 por teléfono")}))(t)
+	if g.Estado != comercial.EstadoGanado {
+		t.Fatalf("ganado: %+v", g)
+	}
+	if n := contar(t, `SELECT count(*) FROM comercial.actividades WHERE prospecto_id = $1 AND tipo = 'nota' AND descripcion LIKE '%Fibra 100 por teléfono%'`, id); n != 1 {
+		t.Fatalf("actividad del motivo: %d", n)
 	}
 }

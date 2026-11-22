@@ -386,7 +386,7 @@ INSERT INTO comercial.prospectos (
     cliente_existente_id, cliente_validado, idempotencia, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente
 ) VALUES (
     @empresa_id, 'portal_argos', @nombre, sqlc.narg(telefono), sqlc.narg(correo), @direccion, sqlc.narg(lat), sqlc.narg(lon),
-    sqlc.narg(zona_id), sqlc.narg(plan_interes_id), sqlc.narg(vendedor_id), '', @cliente_id, true, sqlc.narg(idempotencia),
+    sqlc.narg(zona_id), sqlc.narg(plan_interes_id), sqlc.narg(vendedor_id), @notas, @cliente_id, true, sqlc.narg(idempotencia),
     @solicitud_tipo, sqlc.narg(solicitud_servicio_id), sqlc.narg(solicitud_comentario), 'recibida'
 )
 RETURNING *;
@@ -442,4 +442,21 @@ UPDATE comercial.prospectos
 SET tarea_argos = @tarea_argos, tarea_argos_hecha_en = sqlc.narg(hecha_en), tarea_argos_hecha_por = sqlc.narg(hecha_por),
     version = version + 1, updated_at = now()
 WHERE id = @id
+RETURNING *;
+
+-- name: RegistrarEvidenciaAceptacion :exec
+UPDATE comercial.cotizaciones
+SET aceptacion_canal = @canal, aceptacion_cliente_en = @cliente_en, aceptacion_registrada_por = sqlc.narg(registrada_por)
+WHERE id = @id;
+
+-- name: AjustesSolicitudes :one
+SELECT * FROM comercial.ajustes_solicitudes WHERE empresa_id = @empresa_id;
+
+-- name: GuardarAjustesSolicitudes :one
+-- Control de versión: con version (la leída) que no coincide, ninguna fila. Sin fila previa, version 0.
+INSERT INTO comercial.ajustes_solicitudes (empresa_id, cambio_plan_exige_contrato)
+VALUES (@empresa_id, @cambio_plan_exige_contrato)
+ON CONFLICT (empresa_id) DO UPDATE SET cambio_plan_exige_contrato = excluded.cambio_plan_exige_contrato,
+    version = comercial.ajustes_solicitudes.version + 1, updated_at = now()
+WHERE comercial.ajustes_solicitudes.version = @version::integer
 RETURNING *;

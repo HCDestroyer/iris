@@ -123,8 +123,11 @@ type Modulo struct {
 	ordenDeSolicitud  *auditoria.Caso[entradaOrdenSolicitud, struct{}]
 	// CompletarTareaArgos: una persona aplicó en Argos la solicitud ganada (§11.7).
 	CompletarTareaArgos *auditoria.Caso[EntradaCompletarTareaArgos, Prospecto]
-	contarRegistroArgos *auditoria.Caso[entradaRegistroArgos, struct{}]
-	confirmarCliente    *auditoria.Caso[entradaConfirmarCliente, struct{}]
+	// Ajustes de las solicitudes por empresa (§10.4 punto 10).
+	VerAjustesSolicitudes     *auditoria.Caso[struct{}, AjustesSolicitudes]
+	CambiarAjustesSolicitudes *auditoria.Caso[EntradaAjustesSolicitudes, AjustesSolicitudes]
+	contarRegistroArgos       *auditoria.Caso[entradaRegistroArgos, struct{}]
+	confirmarCliente          *auditoria.Caso[entradaConfirmarCliente, struct{}]
 }
 
 // Nuevo arma el módulo.
@@ -184,6 +187,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.crearSolicitud, m.ListarSolicitudes, m.VerSolicitud = m.nuevoCrearSolicitud(), m.nuevoListarSolicitudes(), m.nuevoVerSolicitud()
 	m.ordenDeSolicitud = m.nuevoOrdenDeSolicitud()
 	m.CompletarTareaArgos = m.nuevoCompletarTareaArgos()
+	m.VerAjustesSolicitudes, m.CambiarAjustesSolicitudes = m.nuevoVerAjustesSolicitudes(), m.nuevoCambiarAjustesSolicitudes()
 	m.contarRegistroArgos = m.nuevoContarRegistroArgos()
 	m.confirmarCliente = m.nuevoConfirmarCliente()
 	return m

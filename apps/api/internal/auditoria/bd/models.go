@@ -613,6 +613,14 @@ type ComercialActividade struct {
 	CreatedAt     time.Time
 }
 
+type ComercialAjustesSolicitude struct {
+	EmpresaID               int64
+	CambioPlanExigeContrato bool
+	Version                 int32
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
 type ComercialContrato struct {
 	ID                int64
 	Numero            string
@@ -653,28 +661,31 @@ type ComercialCotizacionLinea struct {
 }
 
 type ComercialCotizacione struct {
-	ID             int64
-	Numero         string
-	EmpresaID      *int64
-	ProspectoID    int64
-	Revision       int32
-	Estado         string
-	Moneda         string
-	TotalMensual   pgtype.Numeric
-	TotalUnico     pgtype.Numeric
-	VigenteHasta   time.Time
-	PlanID         *int64
-	Notas          string
-	Cliente        []byte
-	PdfAdjuntoID   pgtype.UUID
-	ReemplazadaPor *int64
-	AceptadaEn     *time.Time
-	AceptadaPor    *int64
-	CreadoPor      *int64
-	Idempotencia   *string
-	Version        int32
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                      int64
+	Numero                  string
+	EmpresaID               *int64
+	ProspectoID             int64
+	Revision                int32
+	Estado                  string
+	Moneda                  string
+	TotalMensual            pgtype.Numeric
+	TotalUnico              pgtype.Numeric
+	VigenteHasta            time.Time
+	PlanID                  *int64
+	Notas                   string
+	Cliente                 []byte
+	PdfAdjuntoID            pgtype.UUID
+	ReemplazadaPor          *int64
+	AceptadaEn              *time.Time
+	AceptadaPor             *int64
+	CreadoPor               *int64
+	Idempotencia            *string
+	Version                 int32
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	AceptacionCanal         *string
+	AceptacionClienteEn     *time.Time
+	AceptacionRegistradaPor *int64
 }
 
 type ComercialFactibilidade struct {

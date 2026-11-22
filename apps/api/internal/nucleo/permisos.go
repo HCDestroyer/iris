@@ -191,6 +191,9 @@ const (
 	// PermProspectosCompletarTareaArgos: marcar hecha la tarea «Abrir en Argos» de una solicitud del
 	// portal de Argos ganada (contrato 0.9.0 §11.7): una persona ya la aplicó en Argos.
 	PermProspectosCompletarTareaArgos Permiso = "prospectos.completar_tarea_argos"
+	// PermProspectosConfigurarSolicitudes: los ajustes de las solicitudes del portal de Argos por empresa
+	// (§10.4 punto 10: exigir contrato en un cambio de plan). Administración: admin y supervisor.
+	PermProspectosConfigurarSolicitudes Permiso = "prospectos.configurar_solicitudes"
 	// PermProspectosRegistrarIntegracion: registrar un prospecto desde Argos (contrato 0.10.0 §3.6,
 	// A44). Solo del rol integracion_argos: no lee, no lista ni edita prospectos.
 	PermProspectosRegistrarIntegracion Permiso = "prospectos.registrar_integracion"
@@ -482,7 +485,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
-	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
+	PermFactibilidadConfigurar: true, PermProspectosConfigurarSolicitudes: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermPlantillasWhatsAppCrear: true, PermPlantillasWhatsAppEditar: true, PermPlantillasWhatsAppBorrar: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
@@ -677,6 +680,7 @@ var Catalogo = []DefPermiso{
 	{PermPortalArgosVerTickets, "Portal de Argos: el cliente ve sus tickets y categorías (solo el token_portal de Argos)"},
 	{PermProspectosAsignar, "Asignar un prospecto a un vendedor"},
 	{PermProspectosCompletarTareaArgos, "Marcar hecha la tarea «Abrir en Argos» de una solicitud del portal de Argos ganada (cambio de plan, traslado u otro)"},
+	{PermProspectosConfigurarSolicitudes, "Configurar las solicitudes del portal de Argos de la empresa (exigir contrato para ganar un cambio de plan)"},
 	{PermProspectosContactar, "Marcar un prospecto como contactado"},
 	{PermProspectosCrear, "Registrar prospectos (panel, web, referidos…)"},
 	{PermProspectosEditar, "Editar los datos de un prospecto"},
@@ -805,7 +809,7 @@ var RolesBase = []DefRol{
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
-				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
+				[]Permiso{PermFactibilidadConfigurar, PermProspectosConfigurarSolicitudes, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
 					PermOrdenesValidarIdentidad})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,

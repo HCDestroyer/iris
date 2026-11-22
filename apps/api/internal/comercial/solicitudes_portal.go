@@ -79,13 +79,16 @@ type EntradaCrearSolicitud struct {
 	CuerpoSolicitud
 	ClaveIdempotencia string `json:"-"`
 	lat, lon          *float64
+	// planNoValidado: el plan que pidió el cliente cuando Argos no respondió (5xx) al validarlo: la
+	// solicitud se guarda sin plan y con la nota «plan no validado».
+	planNoValidado *int64
 }
 
 // MarshalJSON de la auditoría: sin dirección, comentario ni teléfono.
 func (e EntradaCrearSolicitud) MarshalJSON() ([]byte, error) {
 	return json.Marshal(map[string]any{"tipo": e.Tipo, "servicio_id": e.ServicioID, "plan_interes_id": e.PlanInteresID,
 		"con_direccion": e.Direccion != nil, "con_coordenadas": e.Coordenadas != nil, "con_comentario": e.Comentario != nil,
-		"con_telefono": e.TelefonoContacto != nil})
+		"con_telefono": e.TelefonoContacto != nil, "plan_no_validado": e.planNoValidado})
 }
 
 // EntradaSolicitudes: GET …/solicitudes.
@@ -195,6 +198,11 @@ func (m *Modulo) nuevoCrearSolicitud() *auditoria.Caso[EntradaCrearSolicitud, So
 			}
 			d := comercialbd.CrearSolicitudPortalParams{EmpresaID: &s.EmpresaID, ClienteID: &s.ClienteID, SolicitudTipo: &in.Tipo,
 				Idempotencia: idem, Lat: in.lat, Lon: in.lon, PlanInteresID: in.PlanInteresID}
+			if in.planNoValidado != nil {
+				d.Notas = "Plan no validado: el cliente pidió el plan " + strconv.FormatInt(*in.planNoValidado, 10) +
+					" de Argos y Argos no respondió al validarlo; confírmalo al cotizar."
+				t.Anotar(map[string]any{"plan_no_validado": *in.planNoValidado})
+			}
 			d.Nombre = strings.TrimSpace(ficha.Nombre)
 			if d.Nombre == "" {
 				d.Nombre = "Cliente " + strconv.FormatInt(s.ClienteID, 10)
@@ -295,7 +303,7 @@ func (m *Modulo) nuevoCrearSolicitud() *auditoria.Caso[EntradaCrearSolicitud, So
 			}
 			t.FijarEntidad("prospecto", f.ID)
 			t.RegistrarCambios("prospecto", f.ID, nil, f)
-			if err := historial(ctx, t, q, f.ID, "creado", nil, &f.Estado, nil, map[string]any{"origen": f.Origen, "solicitud": in.Tipo}); err != nil {
+			if err := historial(ctx, t, q, f.ID, "creado", nil, &f.Estado, nil, map[string]any{"origen": f.Origen, "solicitud": in.Tipo, "plan_no_validado": in.planNoValidado}); err != nil {
 				return SolicitudServicio{}, err
 			}
 			if err := t.Emitir("prospecto.creado", map[string]any{"prospecto_id": f.ID, "numero": f.Numero, "empresa_id": f.EmpresaID,
@@ -357,7 +365,9 @@ func (m *Modulo) validarCuerpoSolicitud(ctx context.Context, in *EntradaCrearSol
 		var pr *nucleo.Problema
 		switch {
 		case errors.As(err, &pr) && pr.Status >= 500:
-			// Argos no responde: el plan queda como vino; el asesor lo revisa al cotizar.
+			// Argos no responde: la solicitud se guarda sin plan y con la nota «plan no validado» (el
+			// asesor lo revisa al cotizar); nunca un plan sin validar.
+			in.planNoValidado, in.PlanInteresID = in.PlanInteresID, nil
 		case err != nil:
 			return err
 		case !slices.ContainsFunc(ps, func(p PlanComercial) bool { return p.ID == *in.PlanInteresID }):
@@ -523,6 +533,88 @@ func (m *Modulo) nuevoCompletarTareaArgos() *auditoria.Caso[EntradaCompletarTare
 			}
 			f, err = q.ProspectoPorID(ctx, f.ID)
 			return aProspecto(f), err
+		},
+	})
+}
+
+// Ajustes de las solicitudes por empresa (§10.4 punto 10) --------------------------------------
+
+// AjustesSolicitudes son los ajustes de las solicitudes del portal de Argos de la empresa activa.
+type AjustesSolicitudes struct {
+	EmpresaID               int64 `json:"empresaId"`
+	CambioPlanExigeContrato bool  `json:"cambioPlanExigeContrato" doc:"Ganar un cambio de plan exige el contrato firmado (de fábrica, false: basta la cotización aceptada)"`
+	Version                 int32 `json:"version" doc:"0 = nunca se guardaron (valores de fábrica)"`
+}
+
+// EntradaAjustesSolicitudes cambia los ajustes de la empresa activa.
+type EntradaAjustesSolicitudes struct {
+	CambioPlanExigeContrato bool  `json:"cambioPlanExigeContrato"`
+	Version                 int32 `json:"version" minimum:"0" doc:"La leída (0 si nunca se guardaron)"`
+}
+
+// ajustesSolicitudes lee los de la empresa (los de fábrica si no hay fila).
+func ajustesSolicitudes(ctx context.Context, q *comercialbd.Queries, empresa int64) (AjustesSolicitudes, error) {
+	f, err := q.AjustesSolicitudes(ctx, empresa)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return AjustesSolicitudes{EmpresaID: empresa}, nil
+	}
+	if err != nil {
+		return AjustesSolicitudes{}, err
+	}
+	return AjustesSolicitudes{EmpresaID: empresa, CambioPlanExigeContrato: f.CambioPlanExigeContrato, Version: f.Version}, nil
+}
+
+func empresaDeAjustes(ctx context.Context) (int64, error) {
+	_, id := filtroEmpresa(ctx)
+	if id == nil || *id == 0 {
+		return 0, nucleo.EmpresaRequerida()
+	}
+	return *id, nil
+}
+
+func (m *Modulo) nuevoVerAjustesSolicitudes() *auditoria.Caso[struct{}, AjustesSolicitudes] {
+	return auditoria.Nuevo(auditoria.Caso[struct{}, AjustesSolicitudes]{
+		Accion: "prospectos.ver", Permiso: nucleo.PermProspectosVer, AuditarExito: soloLecturas[AjustesSolicitudes],
+		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (AjustesSolicitudes, error) {
+			empresa, err := empresaDeAjustes(ctx)
+			if err != nil {
+				return AjustesSolicitudes{}, err
+			}
+			return ajustesSolicitudes(ctx, comercialbd.New(t), empresa)
+		},
+	})
+}
+
+func (m *Modulo) nuevoCambiarAjustesSolicitudes() *auditoria.Caso[EntradaAjustesSolicitudes, AjustesSolicitudes] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaAjustesSolicitudes, AjustesSolicitudes]{
+		Accion: "prospectos.configurar_solicitudes", Permiso: nucleo.PermProspectosConfigurarSolicitudes,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAjustesSolicitudes) (AjustesSolicitudes, error) {
+			empresa, err := empresaDeAjustes(ctx)
+			if err != nil {
+				return AjustesSolicitudes{}, err
+			}
+			t.FijarEmpresa(empresa)
+			t.FijarEntidad("ajustes_solicitudes", empresa)
+			q := comercialbd.New(t)
+			antes, err := ajustesSolicitudes(ctx, q, empresa)
+			if err != nil {
+				return AjustesSolicitudes{}, err
+			}
+			if in.Version != antes.Version {
+				return AjustesSolicitudes{}, nucleo.ConflictoVersion("ajustes_solicitudes", empresa)
+			}
+			f, err := q.GuardarAjustesSolicitudes(ctx, comercialbd.GuardarAjustesSolicitudesParams{EmpresaID: empresa,
+				CambioPlanExigeContrato: in.CambioPlanExigeContrato, Version: in.Version})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return AjustesSolicitudes{}, nucleo.ConflictoVersion("ajustes_solicitudes", empresa)
+			}
+			if err != nil {
+				return AjustesSolicitudes{}, err
+			}
+			despues := AjustesSolicitudes{EmpresaID: empresa, CambioPlanExigeContrato: f.CambioPlanExigeContrato, Version: f.Version}
+			t.RegistrarCambios("ajustes_solicitudes", empresa, antes, despues)
+			return despues, t.Emitir("solicitudes.ajustes_cambiados", map[string]any{"empresa_id": empresa,
+				"cambio_plan_exige_contrato": f.CambioPlanExigeContrato, "version": f.Version})
 		},
 	})
 }

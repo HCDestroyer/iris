@@ -17,7 +17,7 @@ const aceptarCotizacion = `-- name: AceptarCotizacion :one
 UPDATE comercial.cotizaciones
 SET estado = 'aceptada', aceptada_en = $1, aceptada_por = $2, version = version + 1, updated_at = now()
 WHERE id = $3 AND version = $4 AND estado = 'vigente'
-RETURNING id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at
+RETURNING id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at, aceptacion_canal, aceptacion_cliente_en, aceptacion_registrada_por
 `
 
 type AceptarCotizacionParams struct {
@@ -58,6 +58,9 @@ func (q *Queries) AceptarCotizacion(ctx context.Context, arg AceptarCotizacionPa
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AceptacionCanal,
+		&i.AceptacionClienteEn,
+		&i.AceptacionRegistradaPor,
 	)
 	return i, err
 }
@@ -82,6 +85,23 @@ func (q *Queries) ActividadPorIdempotencia(ctx context.Context, idempotencia *st
 		&i.AutorID,
 		&i.Idempotencia,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const ajustesSolicitudes = `-- name: AjustesSolicitudes :one
+SELECT empresa_id, cambio_plan_exige_contrato, version, created_at, updated_at FROM comercial.ajustes_solicitudes WHERE empresa_id = $1
+`
+
+func (q *Queries) AjustesSolicitudes(ctx context.Context, empresaID int64) (ComercialAjustesSolicitude, error) {
+	row := q.db.QueryRow(ctx, ajustesSolicitudes, empresaID)
+	var i ComercialAjustesSolicitude
+	err := row.Scan(
+		&i.EmpresaID,
+		&i.CambioPlanExigeContrato,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
 	)
 	return i, err
 }
@@ -353,7 +373,7 @@ func (q *Queries) ContratoVivoDeProspecto(ctx context.Context, prospectoID int64
 }
 
 const cotizacionPorID = `-- name: CotizacionPorID :one
-SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at FROM comercial.cotizaciones WHERE id = $1
+SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at, aceptacion_canal, aceptacion_cliente_en, aceptacion_registrada_por FROM comercial.cotizaciones WHERE id = $1
 `
 
 func (q *Queries) CotizacionPorID(ctx context.Context, id int64) (ComercialCotizacion, error) {
@@ -382,12 +402,15 @@ func (q *Queries) CotizacionPorID(ctx context.Context, id int64) (ComercialCotiz
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AceptacionCanal,
+		&i.AceptacionClienteEn,
+		&i.AceptacionRegistradaPor,
 	)
 	return i, err
 }
 
 const cotizacionPorIDParaActualizar = `-- name: CotizacionPorIDParaActualizar :one
-SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at FROM comercial.cotizaciones WHERE id = $1 FOR UPDATE
+SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at, aceptacion_canal, aceptacion_cliente_en, aceptacion_registrada_por FROM comercial.cotizaciones WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) CotizacionPorIDParaActualizar(ctx context.Context, id int64) (ComercialCotizacion, error) {
@@ -416,12 +439,15 @@ func (q *Queries) CotizacionPorIDParaActualizar(ctx context.Context, id int64) (
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AceptacionCanal,
+		&i.AceptacionClienteEn,
+		&i.AceptacionRegistradaPor,
 	)
 	return i, err
 }
 
 const cotizacionPorIdempotencia = `-- name: CotizacionPorIdempotencia :one
-SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at FROM comercial.cotizaciones WHERE idempotencia = $1
+SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at, aceptacion_canal, aceptacion_cliente_en, aceptacion_registrada_por FROM comercial.cotizaciones WHERE idempotencia = $1
 `
 
 func (q *Queries) CotizacionPorIdempotencia(ctx context.Context, idempotencia *string) (ComercialCotizacion, error) {
@@ -450,12 +476,15 @@ func (q *Queries) CotizacionPorIdempotencia(ctx context.Context, idempotencia *s
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AceptacionCanal,
+		&i.AceptacionClienteEn,
+		&i.AceptacionRegistradaPor,
 	)
 	return i, err
 }
 
 const cotizacionViva = `-- name: CotizacionViva :one
-SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at FROM comercial.cotizaciones WHERE prospecto_id = $1 AND estado IN ('vigente', 'aceptada')
+SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at, aceptacion_canal, aceptacion_cliente_en, aceptacion_registrada_por FROM comercial.cotizaciones WHERE prospecto_id = $1 AND estado IN ('vigente', 'aceptada')
 `
 
 func (q *Queries) CotizacionViva(ctx context.Context, prospectoID int64) (ComercialCotizacion, error) {
@@ -484,12 +513,15 @@ func (q *Queries) CotizacionViva(ctx context.Context, prospectoID int64) (Comerc
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AceptacionCanal,
+		&i.AceptacionClienteEn,
+		&i.AceptacionRegistradaPor,
 	)
 	return i, err
 }
 
 const cotizacionVivaParaActualizar = `-- name: CotizacionVivaParaActualizar :one
-SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at FROM comercial.cotizaciones WHERE prospecto_id = $1 AND estado IN ('vigente', 'aceptada') FOR UPDATE
+SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at, aceptacion_canal, aceptacion_cliente_en, aceptacion_registrada_por FROM comercial.cotizaciones WHERE prospecto_id = $1 AND estado IN ('vigente', 'aceptada') FOR UPDATE
 `
 
 func (q *Queries) CotizacionVivaParaActualizar(ctx context.Context, prospectoID int64) (ComercialCotizacion, error) {
@@ -518,12 +550,15 @@ func (q *Queries) CotizacionVivaParaActualizar(ctx context.Context, prospectoID 
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AceptacionCanal,
+		&i.AceptacionClienteEn,
+		&i.AceptacionRegistradaPor,
 	)
 	return i, err
 }
 
 const cotizacionesDeProspecto = `-- name: CotizacionesDeProspecto :many
-SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at FROM comercial.cotizaciones WHERE prospecto_id = $1 ORDER BY revision DESC
+SELECT id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at, aceptacion_canal, aceptacion_cliente_en, aceptacion_registrada_por FROM comercial.cotizaciones WHERE prospecto_id = $1 ORDER BY revision DESC
 `
 
 func (q *Queries) CotizacionesDeProspecto(ctx context.Context, prospectoID int64) ([]ComercialCotizacion, error) {
@@ -558,6 +593,9 @@ func (q *Queries) CotizacionesDeProspecto(ctx context.Context, prospectoID int64
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.AceptacionCanal,
+			&i.AceptacionClienteEn,
+			&i.AceptacionRegistradaPor,
 		); err != nil {
 			return nil, err
 		}
@@ -687,7 +725,7 @@ INSERT INTO comercial.cotizaciones (
     $1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, $13
 )
-RETURNING id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at
+RETURNING id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at, aceptacion_canal, aceptacion_cliente_en, aceptacion_registrada_por
 `
 
 type CrearCotizacionParams struct {
@@ -746,6 +784,9 @@ func (q *Queries) CrearCotizacion(ctx context.Context, arg CrearCotizacionParams
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AceptacionCanal,
+		&i.AceptacionClienteEn,
+		&i.AceptacionRegistradaPor,
 	)
 	return i, err
 }
@@ -1099,8 +1140,8 @@ INSERT INTO comercial.prospectos (
     cliente_existente_id, cliente_validado, idempotencia, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente
 ) VALUES (
     $1, 'portal_argos', $2, $3, $4, $5, $6, $7,
-    $8, $9, $10, '', $11, true, $12,
-    $13, $14, $15, 'recibida'
+    $8, $9, $10, $11, $12, true, $13,
+    $14, $15, $16, 'recibida'
 )
 RETURNING id, numero, empresa_id, origen, origen_detalle, nombre, documento, telefono, correo, direccion, lat, lon, zona_id, plan_interes_id, plan_interes_nombre, vendedor_id, estado, notas, motivo_perdida, perdido_en, ganado_en, obra_confirmada, alta_modo, alta_estado, cliente_argos_id, servicio_argos_id, orden_id, creado_por, idempotencia, version, created_at, updated_at, router_id, alta_error, modo, registrado_por_argos, cliente_existente_id, cliente_validado, ganado_por, solicitud_tipo, solicitud_servicio_id, solicitud_comentario, estado_cliente, tarea_argos, tarea_argos_hecha_en, tarea_argos_hecha_por
 `
@@ -1116,6 +1157,7 @@ type CrearSolicitudPortalParams struct {
 	ZonaID              *int64
 	PlanInteresID       *int64
 	VendedorID          *int64
+	Notas               string
 	ClienteID           *int64
 	Idempotencia        *string
 	SolicitudTipo       *string
@@ -1136,6 +1178,7 @@ func (q *Queries) CrearSolicitudPortal(ctx context.Context, arg CrearSolicitudPo
 		arg.ZonaID,
 		arg.PlanInteresID,
 		arg.VendedorID,
+		arg.Notas,
 		arg.ClienteID,
 		arg.Idempotencia,
 		arg.SolicitudTipo,
@@ -1580,6 +1623,35 @@ func (q *Queries) FirmarContrato(ctx context.Context, arg FirmarContratoParams) 
 		&i.PdfFirmadoID,
 		&i.PdfFirmadoSha256,
 		&i.MotivoAnulacion,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const guardarAjustesSolicitudes = `-- name: GuardarAjustesSolicitudes :one
+INSERT INTO comercial.ajustes_solicitudes (empresa_id, cambio_plan_exige_contrato)
+VALUES ($1, $2)
+ON CONFLICT (empresa_id) DO UPDATE SET cambio_plan_exige_contrato = excluded.cambio_plan_exige_contrato,
+    version = comercial.ajustes_solicitudes.version + 1, updated_at = now()
+WHERE comercial.ajustes_solicitudes.version = $3::integer
+RETURNING empresa_id, cambio_plan_exige_contrato, version, created_at, updated_at
+`
+
+type GuardarAjustesSolicitudesParams struct {
+	EmpresaID               int64
+	CambioPlanExigeContrato bool
+	Version                 int32
+}
+
+// Control de versión: con version (la leída) que no coincide, ninguna fila. Sin fila previa, version 0.
+func (q *Queries) GuardarAjustesSolicitudes(ctx context.Context, arg GuardarAjustesSolicitudesParams) (ComercialAjustesSolicitude, error) {
+	row := q.db.QueryRow(ctx, guardarAjustesSolicitudes, arg.EmpresaID, arg.CambioPlanExigeContrato, arg.Version)
+	var i ComercialAjustesSolicitude
+	err := row.Scan(
+		&i.EmpresaID,
+		&i.CambioPlanExigeContrato,
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
@@ -2452,6 +2524,29 @@ DELETE FROM comercial.registros_argos WHERE created_at < $1
 
 func (q *Queries) PurgarRegistrosArgos(ctx context.Context, antes time.Time) error {
 	_, err := q.db.Exec(ctx, purgarRegistrosArgos, antes)
+	return err
+}
+
+const registrarEvidenciaAceptacion = `-- name: RegistrarEvidenciaAceptacion :exec
+UPDATE comercial.cotizaciones
+SET aceptacion_canal = $1, aceptacion_cliente_en = $2, aceptacion_registrada_por = $3
+WHERE id = $4
+`
+
+type RegistrarEvidenciaAceptacionParams struct {
+	Canal         *string
+	ClienteEn     *time.Time
+	RegistradaPor *int64
+	ID            int64
+}
+
+func (q *Queries) RegistrarEvidenciaAceptacion(ctx context.Context, arg RegistrarEvidenciaAceptacionParams) error {
+	_, err := q.db.Exec(ctx, registrarEvidenciaAceptacion,
+		arg.Canal,
+		arg.ClienteEn,
+		arg.RegistradaPor,
+		arg.ID,
+	)
 	return err
 }
 
