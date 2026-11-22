@@ -185,6 +185,8 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 			n := a.n
 			a.mu.Unlock()
 			json200(w, 202, `{"solicitud_id":`+strconv.Itoa(8000+n)+`,"estado":"en_proceso"}`)
+		case strings.HasSuffix(ruta, "/facturas/cargo-unico"):
+			json200(w, 201, `{"factura":{"id":555,"numero":"A-0001","estado":"emitida","total":"350.00","moneda":"GTQ","saldo":"350.00"}}`)
 		case strings.HasSuffix(ruta, "/identidad"):
 			json200(w, 201, `{"identidad_id":501,"version":1}`)
 		case strings.HasSuffix(ruta, "/cambiar-titular"):

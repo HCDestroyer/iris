@@ -16,6 +16,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/equipos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -427,4 +428,145 @@ func TestEquipoYWifiDesdeLaOrden(t *testing.T) {
 	_, err = e.m.CambiarWifi.Ejecutar(ct, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Casa 3")})
 	problema(t, err, 429, "demasiados_cambios_wifi")
 	sinClaveWifi(t)
+}
+
+// eventoArgos deja un evento interno de Argos en el outbox (como lo deja el procesador del webhook).
+func (e *entornoActivacion) eventoArgos(evento string, payload map[string]any) {
+	e.t.Helper()
+	crudo, _ := json.Marshal(payload)
+	if _, err := pruebas.Pool(e.t).Exec(context.Background(), "INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES (gen_random_uuid(), $1, 1, $2)",
+		evento, crudo); err != nil {
+		e.t.Fatal(err)
+	}
+	e.relay()
+}
+
+func TestCobroDeLaInstalacion(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	e.m.SuscribirCobros(e.bus, pruebas.Pool(t))
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	orden := strconv.FormatInt(o.ID, 10)
+	// La plantilla trae el concepto y el precio del cobro, y además cobra al cerrar (el de antes).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE campo.plantillas_checklist SET cobro_concepto_id = 5, cobro_precio = 350,
+		cobrar = true, cargo_monto = 100 WHERE id = (SELECT plantilla_id FROM campo.ordenes WHERE id = $1)`, o.ID); err != nil {
+		t.Fatal(err)
+	}
+	// El técnico no registra cobros; despacho no cambia el precio sin el permiso.
+	_, err := e.m.RegistrarCobro.Ejecutar(ct, campo.EntradaRegistrarCobro{ID: o.ID})
+	problema(t, err, 403, "prohibido")
+	desp := usuarioCon(t, identidad.AsignacionRol{Rol: "despacho"})
+	asignarEmpresa(t, desp, 1)
+	cd := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), desp, 1, permisosDe("despacho")...)
+	_, err = e.m.RegistrarCobro.Ejecutar(cd, campo.EntradaRegistrarCobro{ID: o.ID, PrecioUnitario: ptr("300.00"), MotivoPrecio: ptr("Descuento por promoción del mes")})
+	problema(t, err, 403, "fuera_de_alcance")
+	// Nunca Q0.
+	_, err = e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID, PrecioUnitario: ptr("0"), MotivoPrecio: ptr("Instalación de cortesía")})
+	problema(t, err, 422, "validacion")
+	c := deber(e.m.RegistrarCobro.Ejecutar(cd, campo.EntradaRegistrarCobro{ID: o.ID}))(t)
+	if c.PrecioUnitario != "350.00" || c.ConceptoID != 5 || c.PrecioEditado || c.Estado != campo.CobroPendiente {
+		t.Fatalf("cobro con el precio de la plantilla: %+v", c)
+	}
+	_, err = e.m.RegistrarCobro.Ejecutar(cd, campo.EntradaRegistrarCobro{ID: o.ID})
+	problema(t, err, 409, "cobro_registrado")
+	// Sale en el momento, con el cuerpo real de Argos y el actor.
+	e.procesar()
+	clave := "iris:cargo:" + orden + ":" + c.ID.String()
+	l := e.falso.porClave(clave)
+	lineas, _ := l.JSON["lineas"].([]any)
+	if l == nil || l.Actor != "usuario:"+strconv.FormatInt(desp, 10) || len(lineas) != 1 || l.JSON["monto"] != nil {
+		t.Fatalf("cargo-unico: %+v", l)
+	}
+	if ln := lineas[0].(map[string]any); ln["concepto_id"] != 5.0 || ln["precio_unitario"] != "350.00" {
+		t.Fatalf("línea: %+v", ln)
+	}
+	e.relay()
+	cs := deber(e.m.VerCobros.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t)
+	if cs[0].Estado != campo.CobroFacturado || cs[0].FacturaID == nil || *cs[0].FacturaID != 555 || cs[0].Numero == nil {
+		t.Fatalf("facturado: %+v", cs[0])
+	}
+	// La orden sigue la factura (pago.registrado, dos veces: una sola transición).
+	pago := map[string]any{"webhook": "pago.registrado", "factura_id": 555, "origen_id": orden, "empresa_id": 1}
+	e.eventoArgos("argos.factura_cambiada", pago)
+	e.eventoArgos("argos.factura_cambiada", pago)
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.cobro_cambiado' AND payload->>'orden_id' = $1 AND payload->>'a' = 'pagado'", orden); n != 1 {
+		t.Fatalf("orden.cobro_cambiado a pagado: %d", n)
+	}
+	// El cierre no manda el cargo de instalación de la plantilla.
+	esperar(t, e.lote(ct, trabajoDeInstalacion(o.ID)[2:]...), repetir(len(trabajoDeInstalacion(o.ID))-2, "aplicada")...)
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.cerrada' AND payload->>'orden_id' = $1 AND payload->'cargo' = 'null'::jsonb", orden); n != 1 {
+		t.Fatalf("orden.cerrada sin cargo: %d", n)
+	}
+	e.relay()
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE idempotency_key = $1", "iris:cargo:"+orden); n != 0 {
+		t.Fatalf("cargo de la plantilla al cerrar: %d", n)
+	}
+	// Anulada en Argos: se puede cobrar otra vez, con otro cargo_id y el precio cambiado (supervisor).
+	e.eventoArgos("argos.factura_cambiada", map[string]any{"webhook": "factura.anulada", "factura_id": 555, "origen_id": orden, "empresa_id": 1})
+	c2 := deber(e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID, PrecioUnitario: ptr("300"), MotivoPrecio: ptr("Descuento autorizado por gerencia")}))(t)
+	if c2.ID == c.ID || c2.PrecioUnitario != "300.00" || !c2.PrecioEditado {
+		t.Fatalf("segundo cobro: %+v", c2)
+	}
+}
+
+func TestBienvenidaEnLaOrden(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoExigirLista)
+	e.m.SuscribirBienvenidas(e.bus, pruebas.Pool(t))
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ajustes SET cierre_exige_bienvenida = true WHERE empresa_id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	orden := strconv.FormatInt(o.ID, 10)
+	// Sin servicio activo, no se reenvía.
+	_, err := e.m.ReenviarBienvenida.Ejecutar(e.cs, campo.EntradaReenviarBienvenida{ID: o.ID})
+	problema(t, err, 409, "servicio_no_activo")
+	esperar(t, e.lote(ct, op(campo.OpActivarServicio, o.ID, datosActivacion(false))), "aplicada")
+	e.procesar()
+	e.relay()
+	clave := pendientes.ClaveAprovisionar(o.ID, 1)
+	deber(e.m.Activacion.Resolver.Ejecutar(sistema(t), campo.EntradaResolverActivacion{Fuente: campo.FuenteWebhook, IdempotencyKey: &clave,
+		Estado: campo.ActivacionLista}))(t)
+	// Bandeja: activa y sin bienvenida.
+	enBandeja := func() bool {
+		pag := deber(e.m.BienvenidasSinEnviar.Ejecutar(e.cs, campo.EntradaBienvenidasSinEnviar{Limit: 100}))(t)
+		for _, f := range pag.Data {
+			if f.OrdenID == o.ID {
+				return true
+			}
+		}
+		return false
+	}
+	if !enBandeja() {
+		t.Fatal("la instalación activa sin bienvenida no está en la bandeja")
+	}
+	// Cierre con «exigir lista» y la bienvenida exigida: aún no salió.
+	trabajo := trabajoDeInstalacion(o.ID)[2:]
+	r := e.lote(ct, trabajo...)
+	if fin := r.Resultados[len(r.Resultados)-1]; fin.Error == nil || fin.Error.Codigo() != "bienvenida_requerida" {
+		t.Fatalf("cierre sin bienvenida: %+v", fin)
+	}
+	// Reenviar: sale por la cola con la clave del contrato y el origen.
+	b := deber(e.m.ReenviarBienvenida.Ejecutar(e.cs, campo.EntradaReenviarBienvenida{ID: o.ID, Canales: []string{"whatsapp"}}))(t)
+	if b.Reenvios != 1 || b.Reenvio == nil {
+		t.Fatalf("reenvío: %+v", b)
+	}
+	e.procesar()
+	l := e.falso.porClave(pendientes.ClaveBienvenida(o.ID, 1))
+	if l == nil || l.Ruta != "/servicios/"+strconv.FormatInt(*o.ServicioID, 10)+"/bienvenida/reenviar" || l.JSON["origen_id"] != orden {
+		t.Fatalf("reenviar: %+v", l)
+	}
+	// Argos avisa por canal: correo fallido, WhatsApp enviada (dos webhooks, mezclados por canal).
+	e.eventoArgos("argos.bienvenida_cambiada", map[string]any{"servicio_id": *o.ServicioID, "empresa_id": 1, "origen_tipo": "iris_orden",
+		"origen_id": orden, "canales": []any{map[string]any{"canal": "correo", "estado": "fallida", "motivo": "sin_contacto"}}})
+	e.eventoArgos("argos.bienvenida_cambiada", map[string]any{"servicio_id": *o.ServicioID, "empresa_id": 1, "origen_tipo": nil,
+		"origen_id": nil, "canales": []any{map[string]any{"canal": "whatsapp", "estado": "enviada"}}})
+	b = deber(e.m.VerBienvenida.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t)
+	if !b.Cumplida || len(b.Canales) != 2 {
+		t.Fatalf("bienvenida: %+v", b)
+	}
+	if enBandeja() {
+		t.Fatal("la bienvenida enviada sigue en la bandeja")
+	}
+	esperar(t, e.lote(ct, op(campo.OpCerrar, o.ID, map[string]any{"resultado": "exitosa"})), "aplicada")
 }

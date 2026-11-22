@@ -58,7 +58,7 @@ type EntradaAviso struct {
 	CanalPreferido string            `json:"canal_preferido,omitempty" enum:"whatsapp,telegram,correo" default:"whatsapp" doc:"Fase 1: solo whatsapp; otro medio queda bloqueado con canal_no_disponible"`
 	Prioridad      string            `json:"prioridad,omitempty" enum:"normal,urgente" default:"normal" doc:"urgente (solo corte_programado) salta el límite diario, nunca el horario de silencio ni la falta de permiso"`
 	// Origen (0.9.0 §12.5): solo con bienvenida_servicio, la orden de Iris desde la que se activó.
-	Origen         *OrigenAviso `json:"origen,omitempty" nullable:"true" doc:"Solo con bienvenida_servicio: { tipo: iris_orden, id } cuando la activación vino de una orden de Iris de ese servicio; null o ausente si fue desde el panel de Argos. Fuera de forma: 422 origen_invalido"`
+	Origen         *OrigenAviso `json:"origen,omitempty" doc:"Solo con bienvenida_servicio: { tipo: iris_orden, id } cuando la activación vino de una orden de Iris de ese servicio; null o ausente si fue desde el panel de Argos. Fuera de forma: 422 origen_invalido"`
 	IdempotencyKey string       `json:"-"`
 }
 

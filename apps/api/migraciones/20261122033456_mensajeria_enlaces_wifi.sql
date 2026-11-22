@@ -22,5 +22,13 @@ CREATE TABLE mensajeria.enlaces_wifi (
 );
 CREATE INDEX enlaces_wifi_conv_idx ON mensajeria.enlaces_wifi (conversacion_id, created_at);
 
+-- El cambio desde el enlace sale a Argos con X-Iris-Actor: asistente_ia (§7.1 y §12.4).
+ALTER TABLE integracion.pendientes DROP CONSTRAINT pendientes_actor_check,
+    ADD CONSTRAINT pendientes_actor_check CHECK (actor IS NULL OR actor ~ '^usuario:[A-Za-z0-9_-]{1,64}$' OR actor = 'asistente_ia');
+
 -- +goose Down
+DELETE FROM integracion.pendientes WHERE actor = 'asistente_ia' AND estado <> 'hecho';
+UPDATE integracion.pendientes SET actor = NULL WHERE actor = 'asistente_ia';
+ALTER TABLE integracion.pendientes DROP CONSTRAINT pendientes_actor_check,
+    ADD CONSTRAINT pendientes_actor_check CHECK (actor IS NULL OR actor ~ '^usuario:[A-Za-z0-9_-]{1,64}$');
 DROP TABLE mensajeria.enlaces_wifi;
