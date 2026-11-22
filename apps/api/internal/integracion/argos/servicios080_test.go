@@ -32,6 +32,8 @@ func (e *entorno) sembrar080(cliente int64) (conPrecio, sinPrecio int64) {
 				"prefijo_enlace_v6": "2001:db8:10::/64", "prefijo_delegado_v6": nil,
 				"direccion": "3a calle 4-56 zona 1", "referencia": "Portón negro", "coordenadas": "14.634900,-90.506900",
 				"precio_mensual": "250.00", "moneda": "GTQ",
+				// A45 (0.10.0): el nombre del servicio, con un salto de línea y más de 60 caracteres.
+				"nombre": "Casa\n de mamá " + strings.Repeat("x", 80),
 				"planta": map[string]any{"caja": "C-014", "puerto": "3", "olt": nil, "slot": nil, "pon": nil, "potencia_dbm": "-19.40"},
 				// Fuera de la lista blanca: nunca se guardan ni salen.
 				"mac": "AA:BB:CC:DD:EE:FF", "costo_override": "199.99", "ipv6_duid": "DUID-SECRETO", "ipv6_modo": "slaac",
@@ -142,6 +144,9 @@ func TestServicios080ListaBlancaPrecioYPermisos(t *testing.T) {
 	if n := e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = $1 AND precio_mensual = 250.00 AND moneda = 'GTQ'
 		AND planta->>'potenciaDbm' = '-19.40'`, con); n != 1 {
 		t.Fatal("la instantánea no guardó el precio ni la planta")
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = $1 AND nombre LIKE 'Casa de mamá x%' AND length(nombre) = 60`, con); n != 1 {
+		t.Fatal("la instantánea guarda el nombre del servicio en una línea y hasta 60 caracteres")
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = $1 AND precio_mensual IS NULL AND moneda IS NULL`, sin); n != 1 {
 		t.Fatal("sin precio en Argos, la instantánea debía quedar sin precio")

@@ -19,7 +19,7 @@ export async function cargarJssip(): Promise<(c: ConfigUa) => UaSip> {
             uri: c.uri,
             contact_uri: c.contacto,
             display_name: c.nombre || undefined,
-            register: true,
+            register: c.registrar,
             register_expires: 300,
             session_timers: false,
             no_answer_timeout: 90,

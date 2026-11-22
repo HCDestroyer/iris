@@ -41,20 +41,30 @@ const ContratoWebhooks = "0.6.0"
 // cuadrilla.actualizada (0.11.0 §3.9 y §6.6, bodega de cuadrilla).
 const ContratoCuadrillas = "0.11.0"
 
-// contratoMinimo: la versión del contrato de Argos desde la que se le manda el evento.
-func contratoMinimo(evento string) string {
-	switch evento {
-	case "cuadrilla.creada", "cuadrilla.actualizada":
-		return ContratoCuadrillas
-	}
-	return ContratoWebhooks
-}
-
 // EsperasWebhook son las esperas entre intentos (§1.3).
 var EsperasWebhook = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 12 * time.Hour}
 
 // EventosWebhook son los eventos del outbox que van a Argos.
-var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "cuadrilla.creada", "cuadrilla.actualizada"}
+var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "prospecto.estado_cambiado",
+	"cuadrilla.creada", "cuadrilla.actualizada"}
+
+// contratoMinimoEvento: los eventos que Argos solo recibe con un contrato más nuevo que
+// ContratoWebhooks (§6.6). Con uno anterior, el webhook queda omitido.
+var contratoMinimoEvento = map[string]string{
+	// 0.10.0 §3.6: solo de prospectos registrados desde el panel de Argos, sin datos personales.
+	"prospecto.estado_cambiado": "0.10.0",
+	// 0.11.0 §3.9 y §6.6: bodega de cuadrilla.
+	"cuadrilla.creada":      ContratoCuadrillas,
+	"cuadrilla.actualizada": ContratoCuadrillas,
+}
+
+// ContratoMinimo devuelve la versión del contrato con que Argos recibe el evento.
+func ContratoMinimo(evento string) string {
+	if v, ok := contratoMinimoEvento[evento]; ok {
+		return v
+	}
+	return ContratoWebhooks
+}
 
 // payloadArgos arma el payload del contrato (solo sus campos) desde el del outbox. ok = false si no
 // va a Argos.
@@ -67,6 +77,9 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		"aviso.entregado": {"aviso_id", "idempotency_key", "empresa_id", "canal", "entregado_en", "leido_en"},
 		"aviso.fallido":   {"aviso_id", "idempotency_key", "empresa_id", "canal", "motivo", "detalle"},
 		"contacto.baja":   {"cliente_id", "empresa_id", "canal", "ocurrido_en", "origen"},
+		// motivo_codigo: Iris no tiene códigos de motivo en el embudo (el motivo es texto de una
+		// persona y nunca viaja): siempre null.
+		"prospecto.estado_cambiado": {"prospecto_id", "empresa_id", "de", "a", "motivo_codigo"},
 		// 0.11.0 §6.6: uno por empresa, con los miembros completos (id_externo null sin vínculo I1).
 		"cuadrilla.creada":      {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
 		"cuadrilla.actualizada": {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
@@ -75,13 +88,18 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		return nil, false
 	}
 	switch evento {
-	case "aviso.entregado", "aviso.fallido":
-		if p["origen"] != "argos" {
+	case "contacto.baja":
+	case "prospecto.estado_cambiado":
+		if p["origen"] != "argos_panel" {
 			return nil, false
 		}
 	case "cuadrilla.creada", "cuadrilla.actualizada":
 		// Sin empresa (modo sin conector) no hay bodega de cuadrilla en Argos.
 		if p["empresa_id"] == nil {
+			return nil, false
+		}
+	default:
+		if p["origen"] != "argos" {
 			return nil, false
 		}
 	}
@@ -215,9 +233,9 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 		in.Estado, in.Error = "pendiente", texto("sin conector Argos activo")
 	case err != nil:
 		return err
-	case !conector.VersionAlMenos(c.ContratoRemoto, contratoMinimo(w.Evento)) || c.WebhookSalidaUrl == nil:
+	case !conector.VersionAlMenos(c.ContratoRemoto, ContratoMinimo(w.Evento)) || c.WebhookSalidaUrl == nil:
 		in.Estado, in.ConectorID = "omitido", &c.ID
-		in.Error = texto("el conector Argos no habla el contrato " + contratoMinimo(w.Evento) + " o no informó su receptor de webhooks")
+		in.Error = texto("el conector Argos no habla el contrato " + ContratoMinimo(w.Evento) + " o no informó su receptor de webhooks")
 	default:
 		in.ConectorID = &c.ID
 		if err := m.enviarWebhook(ctx, c, w); err != nil {

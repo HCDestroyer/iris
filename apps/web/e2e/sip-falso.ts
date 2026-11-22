@@ -271,6 +271,20 @@ export class SipFalso {
         return true;
     }
 
+    /** La saliente pendiente termina sin contestar (486 ocupado, 480 no disponible…). */
+    rechazarSaliente(codigo: number, razon: string): boolean {
+        const [callId, inv] = [...this.pendientes.entries()].at(-1) ?? [];
+        if (!callId || !inv) return false;
+        this.pendientes.delete(callId);
+        this.responder(inv, codigo, razon, [], "", this.etiquetaDe(callId));
+        return true;
+    }
+
+    /** ¿Hay una saliente sonando (INVITE sin respuesta final)? */
+    sonando(): boolean {
+        return this.pendientes.size > 0;
+    }
+
     /** La primera línea de cada mensaje recibido (para revisar el orden). */
     lineas(): string[] {
         return this.recibidos.map((t) => t.split(CRLF)[0] ?? "");
