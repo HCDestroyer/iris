@@ -128,6 +128,10 @@ CREATE INDEX cambios_wifi_solicitud_idx ON integracion.cambios_wifi (solicitud_i
 -- +goose Down
 DROP TABLE integracion.cambios_wifi;
 ALTER TABLE integracion.conectores DROP COLUMN capacidades_aprovisionamiento;
+UPDATE integracion.pendientes SET transito_id = NULL
+WHERE transito_id IN (SELECT id FROM integracion.datos_transito WHERE entidad <> 'orden');
+DELETE FROM integracion.datos_transito WHERE entidad <> 'orden';
+UPDATE integracion.datos_transito SET motivo_borrado = 'vencido' WHERE motivo_borrado = 'rechazado';
 ALTER TABLE integracion.datos_transito DROP CONSTRAINT datos_transito_motivo_borrado_check;
 ALTER TABLE integracion.datos_transito ADD CONSTRAINT datos_transito_motivo_borrado_check
     CHECK (motivo_borrado IN ('entregado', 'vencido', 'resuelto_manual', 'cancelado'));
