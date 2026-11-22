@@ -199,7 +199,12 @@ func nuevoArgos(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/clientes/{id}/contactos", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
-		if a.lecturaCaida || r.Header.Get("X-Iris-Actor") == "" {
+		// 0.14.2 §7.1: X-Iris-Actor: sistema, sin X-Iris-Conversacion ni X-Iris-Contacto.
+		if r.Header.Get("X-Iris-Actor") != "sistema" || r.Header.Get("X-Iris-Conversacion") != "" || r.Header.Get("X-Iris-Contacto") != "" {
+			problema(w, http.StatusForbidden, "actor_no_permitido")
+			return
+		}
+		if a.lecturaCaida {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}

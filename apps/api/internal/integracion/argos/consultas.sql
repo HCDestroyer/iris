@@ -643,3 +643,11 @@ SELECT EXISTS (SELECT 1 FROM integracion.argos_contactos WHERE cliente_id = @cli
 -- El iris_pat_ entregado ya tiene un token_portal vigente (hijo sin revocar ni eliminar).
 SELECT EXISTS (SELECT 1 FROM nucleo.tokens_api WHERE token_padre_id = @padre_id
     AND revocado_en IS NULL AND eliminado_en IS NULL)::boolean;
+
+-- name: ConectorDeTokenPanel :one
+-- El conector Argos al que pertenece el iris_pat_ del panel (el entregado en su canje o el que una
+-- reconexión sin confirmar todavía reemplaza).
+SELECT c.id, c.estado FROM integracion.conectores c
+WHERE c.sistema = 'argosisp' AND c.eliminado_en IS NULL AND (c.token_entregado_id = @token_id OR c.reemplaza_token_id = @token_id)
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1;

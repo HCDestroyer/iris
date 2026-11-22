@@ -243,6 +243,9 @@ const (
 	// PermIntegracionesEliminar: borrado lógico de un conector apagado (POST /integraciones/conectores/{id}/eliminar).
 	PermIntegracionesEliminar Permiso = "integraciones.eliminar"
 	PermIntegracionesVer      Permiso = "integraciones.ver"
+	// PermIntegracionesVerCapacidades: GET /integraciones/argosisp/capacidades (contrato con Argos
+	// 0.14.2 §4.3): solo el token del panel de Argos lee las capacidades de su conector.
+	PermIntegracionesVerCapacidades Permiso = "integraciones.ver_capacidades"
 	// PermIntegracionesRevisarVersion: releer ya la versión del otro sistema (diagnóstico del
 	// conector; POST /integraciones/conectores/{id}/revisar-version).
 	PermIntegracionesRevisarVersion Permiso = "integraciones.revisar_version"
@@ -605,6 +608,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesRevisarVersion, "Releer ya la versión de Argos en un conector (diagnóstico: la URL base y el status de la última lectura)"},
 	{PermIntegracionesSincronizar, "Reanudar o volver a lanzar la primera sincronización con Argos (solo lee de Argos: zonas, planes, routers, cuentas, clientes y servicios)"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
+	{PermIntegracionesVerCapacidades, "Leer las capacidades de Iris del conector del token (lo usa Argos con el token de su panel)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
 	{PermLlamadasAnotar, "Dejar la nota y el resultado de una llamada que atendiste (o de cualquiera, si supervisas)"},
 	{PermLlamadasColgar, "Terminar la llamada que tienes (o cualquiera, si supervisas)"},
@@ -856,6 +860,8 @@ var RolesBase = []DefRol{
 			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer,
 			// Prospectos registrados desde Argos (contrato 0.10.0 §3.6, A44): solo registrar.
 			PermProspectosRegistrarIntegracion,
+			// Capacidades de su conector (0.14.2 §4.3); nunca integraciones.ver.
+			PermIntegracionesVerCapacidades,
 			// Portal del cliente de Argos (0.9.0 §11): solo los usa el token_portal, recortado a estos.
 			PermPortalArgosVerTickets, PermPortalArgosCrearTicket, PermPortalArgosResponderTicket,
 			PermPortalArgosConfirmarSolucion, PermPortalArgosSolicitarServicio, PermPortalArgosVerSolicitudes}},

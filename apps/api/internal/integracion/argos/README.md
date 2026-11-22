@@ -546,8 +546,11 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
   `PUT /integraciones/iris/contrato`; las dos solo cuando `ContratoIris` ≥ 0.9.0. Los `iris_pat_` que no
   son hijos pierden `portal_argos.*` aunque los dé el rol.
 - Caché de contactos (`integracion.argos_contactos`, §11.10): sin números; se relee con
-  `GET /clientes/:id/contactos` (con `X-Iris-Actor: usuario:sistema`) si falta o si
+  `GET /clientes/:id/contactos` (con `X-Iris-Actor: sistema`, 0.14.2 §7.1, sin `X-Iris-Conversacion` ni `X-Iris-Contacto`) si falta o si
   `X-Iris-Contacto-Version` es mayor (503 si Argos no responde) y con `cliente.contactos_cambiados`
   (`quitado` marca enseguida, sin leer Argos).
 - `GET /integraciones/argosisp/estado` suma `capacidades { portal_argos, solicitudes_servicio,
-  adjuntos_ticket }` (§4.3).
+  adjuntos_ticket }` (§4.3) y sigue siendo solo para personas. Argos las lee con
+  `GET /integraciones/argosisp/capacidades` (0.14.2, `capacidades.go`): permiso
+  `integraciones.ver_capacidades` del rol `integracion_argos`, solo `{ contrato_iris, capacidades }` del
+  conector del token; otro conector o uno apagado, 404; el `token_portal`, 403.

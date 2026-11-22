@@ -713,6 +713,27 @@ func (q *Queries) ClientesEnInstantanea(ctx context.Context, ids []int64) ([]Cli
 	return items, nil
 }
 
+const conectorDeTokenPanel = `-- name: ConectorDeTokenPanel :one
+SELECT c.id, c.estado FROM integracion.conectores c
+WHERE c.sistema = 'argosisp' AND c.eliminado_en IS NULL AND (c.token_entregado_id = $1 OR c.reemplaza_token_id = $1)
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1
+`
+
+type ConectorDeTokenPanelRow struct {
+	ID     int64
+	Estado string
+}
+
+// El conector Argos al que pertenece el iris_pat_ del panel (el entregado en su canje o el que una
+// reconexión sin confirmar todavía reemplaza).
+func (q *Queries) ConectorDeTokenPanel(ctx context.Context, tokenID *int64) (ConectorDeTokenPanelRow, error) {
+	row := q.db.QueryRow(ctx, conectorDeTokenPanel, tokenID)
+	var i ConectorDeTokenPanelRow
+	err := row.Scan(&i.ID, &i.Estado)
+	return i, err
+}
+
 const conectorDeTokenPortal = `-- name: ConectorDeTokenPortal :one
 
 SELECT c.id, c.estado, c.contrato_remoto

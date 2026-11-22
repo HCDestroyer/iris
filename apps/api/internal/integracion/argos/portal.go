@@ -62,8 +62,9 @@ const (
 const ContactoTitular = "titular"
 
 // ActorLecturaContactos es el X-Iris-Actor con que Iris lee GET /clientes/:id/contactos para su
-// caché (§3.5 lo exige). No es una persona: el contrato no define un actor de sistema.
-const ActorLecturaContactos = "usuario:sistema"
+// caché (0.14.2 §7.1: «sistema», solo en esa lectura, en /cuentas-bancarias y en /bancos, y nunca con
+// X-Iris-Conversacion ni X-Iris-Contacto).
+const ActorLecturaContactos = "sistema"
 
 var (
 	patronPortalSesion = regexp.MustCompile(`^(documento|ip):([A-Za-z0-9_-]{8,64})$`)

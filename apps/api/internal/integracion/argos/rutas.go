@@ -23,6 +23,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	// conexión y webhook de Argos. Las de Horus las publica horus.Modulo.Registrar.
 	m.nucleo.Registrar(api)
 	m.conexion.Registrar(api)
+	m.registrarCapacidades(api)
 	m.registrarRevisarVersion(api)
 	m.registrarAbrirArgos(api)
 	m.registrarEstado(api)

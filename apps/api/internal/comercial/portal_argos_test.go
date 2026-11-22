@@ -46,6 +46,7 @@ type portalArgos struct {
 	base   string
 	portal string // token_portal
 	panel  string // el iris_pat_ del canje (panel de Argos)
+	otro   string // un iris_pat_ del mismo usuario que no es el del conector
 }
 
 func nuevoPortalArgos(t *testing.T) *portalArgos {
@@ -106,11 +107,15 @@ func nuevoPortalArgos(t *testing.T) *portalArgos {
 	h, _ := servidor.Nuevo(servidor.Deps{
 		BD: bd, Identidad: ident, Version: "prueba", Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Idempotencia: nucleo.OpcionesIdempotencia{Regla: nucleo.PrimeraRegla(comercial.ReglaIdempotenciaArgos, argos.ReglaIdempotenciaPortal)},
-		Modulos:      []func(huma.API){sop.Registrar, com.Registrar},
+		Modulos:      []func(huma.API){sop.Registrar, com.Registrar, e.am.Registrar},
 	})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return &portalArgos{t: t, e: e, base: srv.URL, portal: portal, panel: panel.Valor}
+	otro, err := ident.CrearToken.Ejecutar(ctx, identidad.EntradaCrearToken{UsuarioID: u.ID, Nombre: "otro conector"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &portalArgos{t: t, e: e, base: srv.URL, portal: portal, panel: panel.Valor, otro: otro.Valor}
 }
 
 func rutaPortal(cliente int64, resto string) string {
@@ -449,4 +454,25 @@ func TestPortalArgosSolicitudes(t *testing.T) {
 			t.Errorf("%s/%s: %s, quería %s", c.estado, c.tipo, got, c.quiere)
 		}
 	}
+}
+
+// Contrato 0.14.2 §4.3: GET /integraciones/argosisp/capacidades, solo con el token del panel de Argos.
+func TestCapacidadesParaArgos(t *testing.T) {
+	p := nuevoPortalArgos(t)
+	c := &clienteHTTP{t: t, base: p.base, http: http.DefaultClient}
+	pedir := func(token string) respuesta {
+		return c.pedir(http.MethodGet, argos.RutaCapacidades, nil, "Authorization", "Bearer "+token)
+	}
+	r := pedir(p.panel).ok(t, http.StatusOK)
+	caps, ok := r["capacidades"].(map[string]any)
+	if r["contrato_iris"] != argos.ContratoIris || !ok || len(r) != 2 || caps["portal_argos"] != false {
+		t.Fatalf("capacidades: %v", r)
+	}
+	pedir(p.portal).problema(t, http.StatusForbidden, "prohibido")
+	pedir(p.otro).problema(t, http.StatusNotFound, "no_encontrado")
+	// El rol no recibe integraciones.ver: el estado sigue siendo solo para personas.
+	c.pedir(http.MethodGet, "/api/v1/integraciones/argosisp/estado", nil, "Authorization", "Bearer "+p.panel).problema(t, http.StatusForbidden, "prohibido")
+	p.e.apagar()
+	pedir(p.panel).problema(t, http.StatusNotFound, "no_encontrado")
+	p.e.encender()
 }
