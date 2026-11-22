@@ -2,8 +2,11 @@ package comercial_test
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -167,88 +170,131 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 		t.Fatalf("firmado dos veces: %+v", res)
 	}
 
-	// La orden se cancela con una revisión por firmar: el regenerado queda anulado, la revisión sin
-	// aceptar y el contrato firmado, vivo. Una revisión que llega después no regenera nada.
+	// Ciclo de la orden con las acciones reales de campo y los eventos por el bus (como en
+	// cmd/worker): la anulación y la regeneración del contrato por firmar.
+	e.com.SuscribirRevisionVenta(e.bus, pruebas.Pool(t), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	sup := usuarioCon(t, rol("supervisor"))
+	asignarEmpresa(t, sup, 1)
+	cs := enEmpresa(t, sup, 1, "supervisor")
+	version := func() int32 {
+		t.Helper()
+		return deber(e.cmp.VerOrden.Ejecutar(cs, campo.EntradaVerOrden{ID: orden}))(t).Version
+	}
+	auditada := func(accion string, contrato int64) {
+		t.Helper()
+		if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = $1 AND entidad = 'contrato' AND entidad_id = $2 AND resultado = 'ok'",
+			accion, strconv.FormatInt(contrato, 10)); n != 1 {
+			t.Fatalf("sin auditoría de %s del contrato %d", accion, contrato)
+		}
+	}
+	creado := func(contrato int64) {
+		t.Helper()
+		if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'contrato.creado' AND (payload->>'contrato_id')::bigint = $1", contrato); n != 1 {
+			t.Fatalf("sin contrato.creado del %d", contrato)
+		}
+	}
+	porFirmar := func() *comercial.RevisionEnOrden {
+		t.Helper()
+		return deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: prospecto}))(t).PorFirmarEnOrden
+	}
+
+	// Cancelar la orden (ordenes.cancelar) con una revisión por firmar anula el regenerado; la
+	// revisión queda sin aceptar y el firmado, vivo.
 	r3 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
 		PlanID: ptr(int64(300)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":2"}))(t)
 	if r3.ContratoID == nil {
 		t.Fatalf("tercera revisión: %+v", r3)
 	}
-	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'cancelada', finalizada_en = now(), resultado = 'cancelada' WHERE id = $1", orden); err != nil {
-		t.Fatal(err)
+	deber(e.cmp.CancelarOrden.Ejecutar(cs, campo.EntradaMotivo{ID: orden, Version: version(), Motivo: "El cliente pidió posponer"}))(t)
+	e.relay()
+	auditada("prospectos.revision_sin_firma", *r3.ContratoID)
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE (id = $1 AND estado = 'anulado') OR (id = $2 AND estado = 'firmado')", *r3.ContratoID, *rt.ContratoID); n != 2 {
+		t.Fatal("cancelar no anuló el regenerado o tocó el firmado")
+	}
+	if pf := porFirmar(); pf != nil {
+		t.Fatalf("por firmar con la orden cancelada: %+v", pf)
 	}
 	if _, err := e.com.OrdenTerminada(ctx, comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "cancelada"}); err == nil {
 		t.Fatal("un usuario anuló el regenerado")
 	}
-	if rc := deber(e.com.OrdenTerminada(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "cancelada"}))(t); rc.ContratoID == nil || *rc.ContratoID != *r3.ContratoID {
-		t.Fatalf("orden cancelada: %+v", rc)
-	}
-	if rc := deber(e.com.OrdenTerminada(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "cancelada"}))(t); rc.ContratoID != nil {
-		t.Fatalf("repetido: %+v", rc)
-	}
-	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'anulado'", *r3.ContratoID); n != 1 {
-		t.Fatal("el regenerado no quedó anulado con la orden cancelada")
-	}
-	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'firmado'", *rt.ContratoID); n != 1 {
-		t.Fatal("el contrato firmado no sigue vivo")
-	}
-	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND estado = 'vigente'", *r3.CotizacionID); n != 1 {
-		t.Fatal("la revisión se aceptó (o se perdió) con la orden cancelada")
-	}
-	v = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: prospecto}))(t)
-	if v.PorFirmarEnOrden != nil || v.Contrato == nil || v.Contrato.ID != *rt.ContratoID || v.Cotizacion == nil || v.Cotizacion.ID != *rt.CotizacionID {
-		t.Fatalf("tras cancelar: %+v %+v %+v", v.PorFirmarEnOrden, v.Contrato, v.Cotizacion)
-	}
-	if r4 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
-		PlanID: ptr(int64(301)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":3"}))(t); r4.CotizacionID != nil {
+
+	// Argos acepta otro cambio de plan con la orden ya cancelada: la revisión se crea igual
+	// (reemplaza a la anterior), sin contrato.
+	r4 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
+		PlanID: ptr(int64(301)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":3"}))(t)
+	if r4.CotizacionID == nil || r4.ContratoID != nil {
 		t.Fatalf("revisión con la orden cancelada: %+v", r4)
 	}
-	// Reabierta (cancelada → pendiente): Argos ya tiene el plan nuevo, así que el contrato se
-	// regenera para esa orden con la revisión sin aceptar (con vigencia nueva: venció mientras
-	// tanto) y se firma en sitio. El firmado sigue vivo hasta esa firma.
-	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET vigente_hasta = now() - interval '1 day' WHERE id = $1", *r3.CotizacionID); err != nil {
-		t.Fatal(err)
+	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND estado = 'reemplazada' AND reemplazada_por = $2", *r3.CotizacionID, *r4.CotizacionID); n != 1 {
+		t.Fatal("la revisión anterior no quedó reemplazada")
 	}
-	if rr := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t); rr.ContratoID != nil {
-		t.Fatalf("regenerado con la orden todavía cancelada: %+v", rr)
-	}
-	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'pendiente', finalizada_en = NULL, resultado = NULL WHERE id = $1", orden); err != nil {
+	// Vence mientras la orden está cancelada: al reabrir recibe vigencia nueva.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET vigente_hasta = now() - interval '1 day' WHERE id = $1", *r4.CotizacionID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.com.OrdenReabierta(ctx, comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}); err == nil {
 		t.Fatal("un usuario regeneró el contrato")
 	}
-	rr := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t)
-	if rr.ContratoID == nil || *rr.ContratoID == *r3.ContratoID {
-		t.Fatalf("reabierta: %+v", rr)
+
+	// Reabrir (ordenes.reabrir): el contrato se regenera con la última revisión (plan 301).
+	deber(e.cmp.ReabrirOrden.Ejecutar(cs, campo.EntradaMotivo{ID: orden, Version: version(), Motivo: "El cliente ya puede recibirnos"}))(t)
+	e.relay()
+	pf = porFirmar()
+	if pf == nil || pf.Cotizacion.ID != *r4.CotizacionID || pf.Cotizacion.PlanID == nil || *pf.Cotizacion.PlanID != 301 || pf.Cotizacion.Vencida ||
+		pf.Contrato.Estado != "borrador" || pf.Contrato.CotizacionID != *r4.CotizacionID {
+		t.Fatalf("por firmar tras reabrir: %+v", pf)
 	}
-	if r2 := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t); r2.ContratoID != nil {
-		t.Fatalf("reabierta repetida: %+v", r2)
-	}
-	if n := contar(t, `SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'borrador' AND cotizacion_id = $2
-		AND (contenido->>'ordenId')::bigint = $3`, *rr.ContratoID, *r3.CotizacionID, orden); n != 1 {
-		t.Fatal("el contrato regenerado no es de la revisión y la orden")
-	}
-	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND estado = 'vigente' AND vigente_hasta > now()", *r3.CotizacionID); n != 1 {
-		t.Fatal("la revisión no volvió a tener vigencia")
+	reabierto := pf.Contrato.ID
+	auditada("prospectos.revision_por_firmar", reabierto)
+	creado(reabierto)
+	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND pdf_adjunto_id IS NOT NULL AND vigente_hasta > now()", *r4.CotizacionID); n != 1 {
+		t.Fatal("la revisión renovada sin vigencia o sin PDF")
 	}
 	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'firmado'", *rt.ContratoID); n != 1 {
 		t.Fatal("el firmado no sigue vivo mientras se espera la firma")
 	}
-	v = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: prospecto}))(t)
-	if v.PorFirmarEnOrden == nil || v.PorFirmarEnOrden.Contrato.ID != *rr.ContratoID {
-		t.Fatalf("por firmar tras reabrir: %+v", v.PorFirmarEnOrden)
+	// El evento repetido no crea otro.
+	if r2 := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t); r2.ContratoID != nil {
+		t.Fatalf("reabierta repetida: %+v", r2)
 	}
-	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio' WHERE id = $1", orden); err != nil {
+
+	// Fallida → reprogramada (ordenes.fallar y ordenes.reprogramar): se anula y se regenera igual.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', en_sitio_en = now(), programada_inicio = now() WHERE id = $1", orden); err != nil {
 		t.Fatal(err)
 	}
-	if res := firmar(ct, *rr.ContratoID); res.Estado != "aplicada" {
-		t.Fatalf("firma tras reabrir: %+v", res)
+	deber(e.cmp.FallarOrden.Ejecutar(ct, campo.EntradaFallarOrden{ID: orden, Version: version(), MotivoFalla: "cliente_ausente"}))(t)
+	e.relay()
+	auditada("prospectos.revision_sin_firma", reabierto)
+	// Reprogramar pide la ficha del técnico en la agenda, con turno.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `
+		WITH f AS (INSERT INTO agenda.tecnicos (usuario_id) VALUES ($1) RETURNING id)
+		INSERT INTO agenda.turnos (tecnico_id, dia, inicio, fin) SELECT f.id, d, '00:00', '24:00' FROM f, generate_series(1, 7) d`, tec); err != nil {
+		t.Fatal(err)
 	}
-	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE (id = $1 AND estado = 'firmado') OR (id = $2 AND estado = 'anulado')", *rr.ContratoID, *rt.ContratoID); n != 2 {
-		t.Fatal("la firma tras reabrir no hizo el cambio de contrato")
+	gt := time.FixedZone("America/Guatemala", -6*3600)
+	pasado := time.Now().In(gt).AddDate(0, 0, 2)
+	inicio := time.Date(pasado.Year(), pasado.Month(), pasado.Day(), 10, 0, 0, 0, gt).UTC()
+	deber(e.cmp.ReprogramarOrden.Ejecutar(cs, campo.EntradaProgramarOrden{ID: orden, Version: version(), Inicio: inicio, Motivo: ptr("Vuelve el cliente el jueves")}))(t)
+	e.relay()
+	pf = porFirmar()
+	if pf == nil || pf.Contrato.ID == reabierto || pf.Cotizacion.ID != *r4.CotizacionID {
+		t.Fatalf("por firmar tras reprogramar: %+v", pf)
 	}
-	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND estado = 'aceptada'", *r3.CotizacionID); n != 1 {
+	reprogramado := pf.Contrato.ID
+	auditada("prospectos.revision_por_firmar", reprogramado)
+	creado(reprogramado)
+
+	// Se firma en sitio: el cambio de contrato y la revisión aceptada.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', en_sitio_en = now() WHERE id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+	if res := firmar(ct, reprogramado); res.Estado != "aplicada" {
+		t.Fatalf("firma tras reprogramar: %+v", res)
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE (id = $1 AND estado = 'firmado') OR (id = $2 AND estado = 'anulado')", reprogramado, *rt.ContratoID); n != 2 {
+		t.Fatal("la firma tras reprogramar no hizo el cambio de contrato")
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND estado = 'aceptada'", *r4.CotizacionID); n != 1 {
 		t.Fatal("la revisión no quedó aceptada con la firma")
 	}
 

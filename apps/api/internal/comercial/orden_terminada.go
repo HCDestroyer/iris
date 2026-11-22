@@ -20,9 +20,11 @@ import (
 // aceptar y el contrato firmado de la venta sigue vivo. Se dispara con orden.estado_cambiada
 // (a = cancelada o fallida); idempotente.
 //
-// Orden reabierta (de cancelada o fallida a pendiente): Argos ya tiene el plan o el titular nuevo,
-// así que el contrato se regenera en borrador para esa orden con la revisión vigente sin aceptar
-// (con vigencia nueva si venció): la subida de precio vuelve a esperar la firma en sitio.
+// Orden reabierta o reprogramada (de cancelada o fallida a otro estado abierto): Argos ya tiene el
+// plan o el titular nuevo, así que el contrato se regenera en borrador para esa orden con la última
+// revisión vigente sin aceptar (con vigencia nueva si venció, y su PDF de nuevo): la subida de
+// precio vuelve a esperar la firma en sitio. La revisión puede no tener contrato todavía: Argos
+// pudo aceptar el cambio con la orden ya terminada (RevisarVenta la crea sin contrato).
 //
 // Los dos leen el estado de la orden con candado compartido antes de tomar el prospecto (como
 // RevisarVenta): no se cruzan con cancelar ni reabrir.
@@ -100,6 +102,8 @@ func (m *Modulo) nuevoOrdenTerminada() *auditoria.Caso[EntradaOrdenTerminada, Re
 // ResultadoOrdenReabierta: el contrato regenerado de nuevo (nil si no hacía falta).
 type ResultadoOrdenReabierta struct {
 	ContratoID *int64 `json:"contrato_id"`
+	// Renovada: la revisión a la que se le dio vigencia nueva (su PDF se vuelve a armar).
+	Renovada *int64 `json:"renovada,omitempty"`
 }
 
 func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, ResultadoOrdenReabierta] {
@@ -140,7 +144,9 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return r, err
 			}
-			rev, err := q.RevisionDeOrden(ctx, comercialbd.RevisionDeOrdenParams{ProspectoID: p.ID, OrdenID: in.OrdenID})
+			// La última revisión de la instalación vigente (sin aceptar), tenga contrato de esta orden
+			// o no (la que Argos aceptó con la orden terminada no lo tiene).
+			rev, err := q.RevisionPorFirmar(ctx, p.ID)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return r, nil
 			}
@@ -149,11 +155,16 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 			}
 			if !rev.VigenteHasta.After(m.ahora()) {
 				antes := rev.VigenteHasta
+				pdfID, err := m.nuevoPDFID()
+				if err != nil {
+					return r, err
+				}
 				if rev, err = q.RenovarVigencia(ctx, comercialbd.RenovarVigenciaParams{
-					VigenteHasta: m.ahora().Add(m.cfg.VigenciaCotizacion).UTC().Truncate(time.Microsecond), ID: rev.ID}); err != nil {
+					VigenteHasta: m.ahora().Add(m.cfg.VigenciaCotizacion).UTC().Truncate(time.Microsecond), PdfAdjuntoID: pdfID, ID: rev.ID}); err != nil {
 					return r, err
 				}
 				t.RegistrarCambios("cotizacion", rev.ID, map[string]any{"vigente_hasta": antes}, map[string]any{"vigente_hasta": rev.VigenteHasta})
+				r.Renovada = &rev.ID
 			}
 			var cliente clientePDF
 			if err := json.Unmarshal(rev.Cliente, &cliente); err != nil {
@@ -164,6 +175,7 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 			if err != nil {
 				return r, err
 			}
+			t.FijarEntidad("contrato", ct.ID)
 			r.ContratoID = &ct.ID
 			return r, historial(ctx, t, q, p.ID, "contrato_regenerado", nil, nil, nil, map[string]any{
 				"contrato_id": ct.ID, "cotizacion_id": rev.ID, "orden_id": in.OrdenID})
@@ -177,6 +189,11 @@ func (m *Modulo) OrdenReabierta(ctx context.Context, in EntradaOrdenTerminada) (
 	r, err := m.ordenReabierta.Ejecutar(ctx, in)
 	if err != nil || r.ContratoID == nil {
 		return r, err
+	}
+	if r.Renovada != nil {
+		if cot, err := m.VerCotizacion.Ejecutar(ctx, EntradaVerCotizacion{ID: *r.Renovada}); err == nil {
+			m.conPDFCotizacion(ctx, cot)
+		}
 	}
 	if ct, err := m.VerContrato.Ejecutar(ctx, EntradaVerContrato{ID: *r.ContratoID}); err == nil {
 		m.conPDFBorrador(ctx, ct)
@@ -205,7 +222,8 @@ func (m *Modulo) suscribirOrdenTerminada(bus *integracion.Bus, bd nucleo.BD, log
 		case ordenTerminal(in.Estado):
 			_, err := m.OrdenTerminada(nucleo.ConBD(ctx, bd), in)
 			return err
-		case in.Estado == "pendiente" && ordenTerminal(in.De):
+		case ordenTerminal(in.De) && !ordenTerminal(in.Estado):
+			// Reabierta (→ pendiente) o reprogramada (fallida → programada).
 			_, err := m.OrdenReabierta(nucleo.ConBD(ctx, bd), in)
 			return err
 		}

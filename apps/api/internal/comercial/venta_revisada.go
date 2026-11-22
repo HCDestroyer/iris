@@ -83,13 +83,14 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			if err != nil {
 				return r, err
 			}
-			// Con la orden cancelada o fallida ya no hay firma en sitio: no se regenera nada (al
-			// reabrirla, OrdenReabierta regenera el contrato). Candado compartido de la orden.
-			if o, err := q.OrdenEstadoCompartido(ctx, in.OrdenID); err != nil {
+			// Con la orden cancelada o fallida no hay firma en sitio: la revisión se crea igual (Argos
+			// ya tiene el cambio), pero sin contrato; al reabrirla o reprogramarla, OrdenReabierta lo
+			// regenera con la última revisión. Candado compartido de la orden.
+			o, err := q.OrdenEstadoCompartido(ctx, in.OrdenID)
+			if err != nil {
 				return r, err
-			} else if ordenTerminal(o.Estado) {
-				return r, nil
 			}
+			terminada := ordenTerminal(o.Estado)
 			idem := claveRevision(in.Clave)
 			if _, err := q.CotizacionPorIdempotencia(ctx, &idem); err == nil {
 				return r, nil // ya revisada (el evento llegó dos veces)
@@ -177,12 +178,19 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 				return r, err
 			}
 			notas := fmt.Sprintf("Revisión por cambio de %s en la instalación %s: se acepta al firmar el contrato regenerado en la orden", in.Motivo, numeroOrden)
+			if terminada {
+				notas += " (la orden está " + o.Estado + ": el contrato se regenera al reabrirla)"
+			}
 			// Vigencia nueva: la de la venta puede haber vencido (el prospecto está ganado).
 			vence := m.ahora().Add(m.cfg.VigenciaCotizacion).UTC().Truncate(time.Microsecond)
+			pdfID, err := m.nuevoPDFID()
+			if err != nil {
+				return r, err
+			}
 			cot, err := q.CrearCotizacion(ctx, comercialbd.CrearCotizacionParams{
 				EmpresaID: p.EmpresaID, ProspectoID: p.ID, Revision: revision, Moneda: base.Moneda,
 				TotalMensual: aNumeric(mensual), TotalUnico: aNumeric(unico), VigenteHasta: vence, PlanID: planID,
-				Notas: notas, Cliente: crudoCliente, Idempotencia: &idem,
+				Notas: notas, Cliente: crudoCliente, Idempotencia: &idem, PdfAdjuntoID: pdfID,
 			})
 			if err != nil {
 				return r, err
@@ -207,26 +215,44 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			}); err != nil {
 				return r, err
 			}
-			// Contrato regenerado a nombre del titular, para firmar en la orden.
-			ct, err := m.regenerarContrato(ctx, t, q, p, cot, cliente, in.OrdenID)
-			if err != nil {
-				return r, err
+			// Contrato regenerado a nombre del titular, para firmar en la orden (con la orden
+			// terminada, al reabrirla).
+			var contrato *int64
+			if !terminada {
+				ct, err := m.regenerarContrato(ctx, t, q, p, cot, cliente, in.OrdenID)
+				if err != nil {
+					return r, err
+				}
+				contrato = &ct.ID
 			}
 			if err := historial(ctx, t, q, p.ID, "venta_revisada", nil, nil, nil, map[string]any{
-				"orden_id": in.OrdenID, "motivo": in.Motivo, "cotizacion_id": cot.ID, "base_id": base.ID, "reemplaza_id": reemplaza, "contrato_id": ct.ID,
+				"orden_id": in.OrdenID, "motivo": in.Motivo, "cotizacion_id": cot.ID, "base_id": base.ID, "reemplaza_id": reemplaza, "contrato_id": contrato,
 			}); err != nil {
 				return r, err
 			}
 			if err := t.Emitir(EventoVentaRevisada, map[string]any{
 				"prospecto_id": p.ID, "empresa_id": p.EmpresaID, "vendedor_id": p.VendedorID, "orden_id": in.OrdenID,
-				"motivo": in.Motivo, "cotizacion_id": cot.ID, "contrato_id": ct.ID,
+				"motivo": in.Motivo, "cotizacion_id": cot.ID, "contrato_id": contrato,
 			}); err != nil {
 				return r, err
 			}
-			r.ProspectoID, r.CotizacionID, r.ContratoID = &p.ID, &cot.ID, &ct.ID
+			r.ProspectoID, r.CotizacionID, r.ContratoID = &p.ID, &cot.ID, contrato
 			return r, nil
 		},
 	})
+}
+
+// nuevoPDFID: el id del adjunto del PDF de una revisión (nil sin almacenamiento de documentos); el
+// PDF se arma fuera de la transacción (conPDFCotizacion).
+func (m *Modulo) nuevoPDFID() (*uuid.UUID, error) {
+	if m.cfg.Documentos == nil {
+		return nil, nil
+	}
+	id, err := uuid.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	return &id, nil
 }
 
 // regenerarContrato crea el contrato en borrador con la cotización nueva (a firmar en la orden).
@@ -305,6 +331,9 @@ func (m *Modulo) RevisarVenta(ctx context.Context, in EntradaRevisarVenta) (Resu
 	}
 	if cot, err := m.VerCotizacion.Ejecutar(ctx, EntradaVerCotizacion{ID: *r.CotizacionID}); err == nil {
 		m.conPDFCotizacion(ctx, cot)
+	}
+	if r.ContratoID == nil {
+		return r, nil
 	}
 	if ct, err := m.VerContrato.Ejecutar(ctx, EntradaVerContrato{ID: *r.ContratoID}); err == nil {
 		m.conPDFBorrador(ctx, ct)

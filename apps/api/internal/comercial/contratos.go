@@ -570,11 +570,7 @@ func contratoDeOrden(ctx context.Context, t *auditoria.Tx, q *comercialbd.Querie
 	if !a.EsUsuario() || o.TecnicoID == nil || *o.TecnicoID != a.ID || !enEmpresa(ctx, o.EmpresaID) {
 		return c, p, nucleo.NoEncontrado("El contrato no existe")
 	}
-	if candado {
-		c, err = q.ContratoPorIDParaActualizar(ctx, contrato)
-	} else {
-		c, err = q.ContratoPorID(ctx, contrato)
-	}
+	c, err = q.ContratoPorID(ctx, contrato)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (ordenDeContrato(c) == nil || *ordenDeContrato(c) != orden)) {
 		return c, p, nucleo.NoEncontrado("El contrato no existe")
 	}
@@ -582,11 +578,14 @@ func contratoDeOrden(ctx context.Context, t *auditoria.Tx, q *comercialbd.Querie
 		return c, p, err
 	}
 	if candado {
-		p, err = q.ProspectoPorIDParaActualizar(ctx, c.ProspectoID)
-	} else {
-		p, err = q.ProspectoPorID(ctx, c.ProspectoID)
-	}
-	if err != nil {
+		// Como /firmar: primero el prospecto y después el contrato (mismo orden de bloqueo).
+		if p, err = q.ProspectoPorIDParaActualizar(ctx, c.ProspectoID); err != nil {
+			return c, p, err
+		}
+		if c, err = q.ContratoPorIDParaActualizar(ctx, contrato); err != nil {
+			return c, p, err
+		}
+	} else if p, err = q.ProspectoPorID(ctx, c.ProspectoID); err != nil {
 		return c, p, err
 	}
 	t.FijarEntidad("contrato", c.ID)
