@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { GraficaSerie, Medidor, topeRedondo, tramosSinDatos, ultimoConDato } from "./componentes/grafica-serie";
+import { BarraProgreso, Medidor } from "./componentes/barra-progreso";
+import { GraficaSerie, topeRedondo, tramosSinDatos, ultimoConDato } from "./componentes/grafica-serie";
 
 const base = { instantes: ["10:00", "10:01", "10:02", "10:03"], marcas: ["hace 3 min", "hace 1 min", "ahora"] as const, formato: (v: number) => `${Math.round(v)} %` };
 
@@ -60,11 +61,39 @@ describe("GraficaSerie", () => {
 describe("Medidor", () => {
     it("es un `meter` con su texto; sin dato no dibuja relleno ni inventa un cero", () => {
         const html = renderToStaticMarkup(<Medidor parte={0.546} etiqueta="Memoria de video" texto="13.1 de 24 GB" />);
-        expect(html).toContain('role="meter"');
+        // El `Meter` de HeroUI (React Aria) agrega `progressbar` de respaldo para lectores viejos.
+        expect(html).toMatch(/role="meter( progressbar)?"/);
+        expect(html).toContain('class="meter ');
         expect(html).toContain('aria-valuenow="55"');
         expect(html).toContain('aria-valuetext="13.1 de 24 GB"');
         const sin = renderToStaticMarkup(<Medidor parte={null} etiqueta="Memoria de video" texto="Sin datos" />);
+        expect(sin).toContain('role="meter"');
         expect(sin).not.toContain("aria-valuenow");
         expect(sin).not.toContain("width:");
+    });
+});
+
+describe("BarraProgreso", () => {
+    it("es el `ProgressBar` de HeroUI con su nombre y su texto", () => {
+        const html = renderToStaticMarkup(<BarraProgreso valor={3} maximo={4} etiqueta="Avance de la orden" textoValor="3 de 4 pasos listos" />);
+        expect(html).toContain('role="progressbar"');
+        expect(html).toContain('class="progress-bar ');
+        expect(html).toContain('aria-label="Avance de la orden"');
+        expect(html).toContain('aria-valuenow="3"');
+        expect(html).toContain('aria-valuemax="4"');
+        expect(html).toContain('aria-valuetext="3 de 4 pasos listos"');
+        expect(html).toContain("width:75%");
+    });
+
+    it("por pasos dibuja un segmento por paso, marcados los hechos", () => {
+        const html = renderToStaticMarkup(<BarraProgreso pasos valor={2} maximo={4} etiqueta="Avance" />);
+        expect(html.match(/data-hecho="true"/g)).toHaveLength(2);
+        expect(html.match(/h-1\.5 rounded-full/g)).toHaveLength(4);
+    });
+
+    it("sin rango no divide por cero: barra vacía", () => {
+        const html = renderToStaticMarkup(<BarraProgreso valor={0} maximo={0} etiqueta="Avance" textoValor="—" />);
+        expect(html).toContain('aria-valuenow="0"');
+        expect(html).not.toContain("NaN");
     });
 });

@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { avisar, Aviso, Boton, Campo, CampoSelector, Casilla, cn, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, BarraProgreso, Boton, Campo, CampoSelector, Casilla, cn, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { Clock, Contact, History, MessageCircle, QrCode, RotateCw, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -352,9 +352,7 @@ function FilaSincronizacion({
             </div>
             <p className="text-sm text-muted-foreground">{texto}</p>
             {progreso !== null ? (
-                <div role="progressbar" aria-label={`Progreso de ${titulo.toLowerCase()}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={progreso} className="h-1.5 overflow-hidden rounded-full bg-background-secondary">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${Math.max(0, Math.min(100, progreso))}%` }} />
-                </div>
+                <BarraProgreso valor={progreso} etiqueta={`Progreso de ${titulo.toLowerCase()}`} claseRiel="bg-background-secondary" />
             ) : null}
             {pie ? <p className="text-sm text-muted-foreground">{pie}</p> : null}
             {detalle ? <p className="text-sm text-error">{detalle}</p> : null}

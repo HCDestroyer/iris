@@ -66,3 +66,14 @@ body:has([data-slot="barra-llamada"]) {
         inset-inline-end: calc(23.75rem + 1.5rem);
     }
 }
+
+/*
+ * Formularios en pantalla propia: «Guardar» y «Cancelar» van en una barra fija al pie
+ * (`BarraGuardar`, unos 65 px; más alta si su nota baja de línea). En escritorio los avisos
+ * emergentes van abajo a la derecha y la tapaban: el aviso de la acción anterior («Factibilidad
+ * evaluada») quedaba encima de «Cancelar» durante sus segundos de vida. Con la barra en pantalla,
+ * los avisos suben por encima de ella. En el teléfono los avisos van arriba y no se cruzan.
+ */
+body:has([data-slot="barra-guardar"]) [data-region="avisos-emergentes"][data-ubicacion="bottom end"] {
+    bottom: 6.5rem;
+}
