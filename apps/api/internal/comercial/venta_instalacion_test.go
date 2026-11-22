@@ -500,6 +500,9 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 		"contrato_sin_firma:cotizacion:"+strconv.FormatInt(*r8.CotizacionID, 10)); n != 1 {
 		t.Fatal("la campana no recibió la orden cerrada antes de regenerar")
 	}
+	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'prospectos.revision_por_firmar' AND resultado = 'ok' AND entrada->'auditoria'->>'aviso' = 'sin_regenerar'"); n != 1 {
+		t.Fatalf("auditoría de sin_regenerar: %d", n)
+	}
 	quitarPendiente(clave8)
 	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET estado = 'reemplazada' WHERE id = $1", *r8.CotizacionID); err != nil {
 		t.Fatal(err)
@@ -554,13 +557,22 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 	// Bajo: un cambio de plan hecho sin plan_id no tiene revisión posible: la campana lo explica.
 	clave11 := "iris:plan:" + ordenTxt + ":11"
 	pendienteDe(clave11, "hecho", `{}`)
-	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.outbox (id, evento, empresa_id, payload)
-		VALUES (gen_random_uuid(), 'integracion.pendiente_hecho', 1, jsonb_build_object('pendiente_id', 1, 'operacion', 'cambiar_plan',
-			'entidad', 'orden', 'entidad_id', $1::text, 'idempotency_key', $2::text))`, ordenTxt, clave11); err != nil {
-		t.Fatal(err)
+	// El evento llega dos veces (reintento del relay): un solo aviso y una sola acción auditada.
+	for range 2 {
+		if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.outbox (id, evento, empresa_id, payload)
+			VALUES (gen_random_uuid(), 'integracion.pendiente_hecho', 1, jsonb_build_object('pendiente_id', 1, 'operacion', 'cambiar_plan',
+				'entidad', 'orden', 'entidad_id', $1::text, 'idempotency_key', $2::text))`, ordenTxt, clave11); err != nil {
+			t.Fatal(err)
+		}
+		e.relay()
 	}
 	e.relay()
-	e.relay()
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.contrato_sin_firma' AND payload->>'clave' = $1 AND payload->>'motivo' = 'sin_plan'", clave11); n != 1 {
+		t.Fatalf("sin_plan repetido: %d", n)
+	}
+	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'prospectos.revision_imposible' AND resultado = 'ok' AND entrada->>'clave' = $1", clave11); n != 1 {
+		t.Fatalf("auditoría de sin_plan: %d", n)
+	}
 	if n := contar(t, "SELECT count(*) FROM notificaciones.avisos WHERE usuario_id = $1 AND tipo = 'contrato_sin_firma' AND clave = $2 AND datos->>'motivo' = 'sin_plan'", sup,
 		"contrato_sin_firma:pendiente:"+clave11); n != 1 {
 		t.Fatal("la campana no explica el cambio sin revisión")
@@ -568,6 +580,79 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 	_, err = e.cmp.CerrarOrden.Ejecutar(ct, campo.EntradaCerrarOrden{ID: orden, Version: version()})
 	problema(t, err, 422, "contrato_por_firmar")
 	quitarPendiente(clave11)
+
+	// Sin cotización de la venta (aquí, la aceptada pasa por un momento a reemplazada): avisa con
+	// sin_cotizacion_viva, auditado, una sola vez.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET estado = 'reemplazada', aceptada_en = NULL WHERE idempotencia = $1", "iris:venta:"+clave9); err != nil {
+		t.Fatal(err)
+	}
+	clave13 := "iris:plan:" + ordenTxt + ":13"
+	for i := range 2 {
+		r13 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan, PlanID: ptr(int64(301)), Clave: clave13}))(t)
+		if r13.CotizacionID != nil || (i == 0) != (r13.Aviso != nil) {
+			t.Fatalf("sin cotización viva (%d): %+v", i, r13)
+		}
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.contrato_sin_firma' AND payload->>'clave' = $1 AND payload->>'motivo' = 'sin_cotizacion_viva'", clave13); n != 1 {
+		t.Fatalf("sin_cotizacion_viva: %d", n)
+	}
+	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'prospectos.venta_revisada' AND resultado = 'ok' AND entrada->'auditoria'->>'aviso' = 'sin_cotizacion_viva'"); n != 1 {
+		t.Fatalf("auditoría de sin_cotizacion_viva: %d", n)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET estado = 'aceptada', aceptada_en = now() WHERE idempotencia = $1", "iris:venta:"+clave9); err != nil {
+		t.Fatal(err)
+	}
+
+	// El supervisor cierra con el cambio todavía en la cola de Argos: el aviso sale al cerrar, con
+	// la clave del pendiente.
+	clave12 := "iris:plan:" + ordenTxt + ":12"
+	pendienteDe(clave12, "pendiente", `{"plan_id": 301}`)
+	deber(e.cmp.CerrarOrden.Ejecutar(cs, campo.EntradaCerrarOrden{ID: orden, Version: version(), MotivoSinContratoFirmado: ptr("Argos sigue sin responder; firma luego")}))(t)
+	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.contrato_sin_firma' AND payload->>'clave' = $1
+		AND payload->>'motivo' = 'cierre_sin_firma' AND payload->'contrato_id' = 'null'::jsonb AND payload->>'operacion' = 'cambiar_plan'`, clave12); n != 1 {
+		t.Fatal("el cierre con el cambio en la cola no avisó")
+	}
+	e.relay()
+	if n := contar(t, "SELECT count(*) FROM notificaciones.avisos WHERE usuario_id = $1 AND clave = $2", sup, "contrato_sin_firma:pendiente:"+clave12); n != 1 {
+		t.Fatal("la campana no recibió el cierre con el cambio en la cola")
+	}
+	quitarPendiente(clave12)
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', finalizada_en = NULL, resultado = NULL WHERE id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cambio de titular resuelto a mano con el cliente final indicado: el contrato va a su nombre
+	// (el de la instantánea de Argos).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.argos_clientes (id, empresa_id, empresas, nombre, codigo, telefono, direccion, sincronizado_en)
+		VALUES (888, 1, '{1}', 'Titular Resuelto, S. A.', 'C-888', '5555-0000', 'Zona 1', now()) ON CONFLICT (id) DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), "DELETE FROM integracion.argos_clientes WHERE id = 888")
+	})
+	clave14 := "iris:titular:" + ordenTxt + ":14"
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.pendientes (operacion, idempotency_key, entidad, entidad_id, metodo, ruta,
+		estado, resuelto_como, resuelto_cliente_id, resuelto_motivo, resuelto_en)
+		VALUES ('cambiar_titular', $1, 'orden', $2, 'POST', '/servicios/1/cambiar-titular', 'resuelto_manual', 'manual', 888, 'Corregido en Argos', now())`, clave14, ordenTxt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.outbox (id, evento, empresa_id, payload)
+		VALUES (gen_random_uuid(), 'integracion.pendiente_resuelto_manual', 1, jsonb_build_object('pendiente_id', 1, 'operacion', 'cambiar_titular',
+			'entidad', 'orden', 'entidad_id', $1::text, 'idempotency_key', $2::text, 'de', 'fallido_negocio', 'motivo', 'Corregido en Argos'))`, ordenTxt, clave14); err != nil {
+		t.Fatal(err)
+	}
+	e.relay()
+	pf = porFirmar()
+	if pf == nil {
+		t.Fatal("sin contrato por firmar del titular resuelto a mano")
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND contenido->'cliente'->>'nombre' = 'Titular Resuelto, S. A.'", pf.Contrato.ID); n != 1 {
+		t.Fatal("el contrato no va a nombre del cliente que indicó el supervisor")
+	}
+	if res := firmar(ct, pf.Contrato.ID); res.Estado != "aplicada" {
+		t.Fatalf("firma del titular resuelto a mano: %+v", res)
+	}
+	quitarPendiente(clave14)
 
 	// orden.paso_titular_tras_cancelar llega a la campana de supervisión una sola vez (el relay
 	// entrega el evento dos veces).

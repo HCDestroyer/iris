@@ -41,7 +41,7 @@ func (e EntradaCerrarOrden) ordenID() int64 { return e.ID }
 // rol sobre la orden (global, zona o cuadrilla; nunca por ser el técnico asignado), canal panel.
 // Argos ya tiene (o va a tener) el plan o el titular nuevo: sin la firma, la subida de precio no
 // queda aceptada (B6).
-func exigirContratoFirmado(ctx context.Context, q *campobd.Queries, f campobd.CampoOrden, tipo string, in EntradaCerrarOrden) error {
+func exigirContratoFirmado(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f campobd.CampoOrden, tipo string, in EntradaCerrarOrden) error {
 	if tipo != tipoInstalacion {
 		if in.MotivoSinContratoFirmado != nil {
 			return campoInvalido("motivoSinContratoFirmado", "Solo para una instalación con el contrato regenerado sin firmar", "instalacion")
@@ -49,6 +49,7 @@ func exigirContratoFirmado(ctx context.Context, q *campobd.Queries, f campobd.Ca
 		return nil
 	}
 	detalle := ""
+	var enCola *campobd.CambioSinRevisionDeOrdenRow
 	if _, err := q.ContratoPorFirmarDeOrden(ctx, f.ID); err == nil {
 		detalle = "El titular debe firmar en sitio el contrato regenerado (cambio de plan o de titular) antes de cerrar"
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -59,6 +60,9 @@ func exigirContratoFirmado(ctx context.Context, q *campobd.Queries, f campobd.Ca
 			cambio = "de titular"
 		}
 		detalle = "El cambio " + cambio + " todavía no tiene el contrato nuevo firmado (sigue en curso con Argos o espera el contrato); espera la firma del titular antes de cerrar"
+		if slices.Contains([]string{"pendiente", "en_curso", "bloqueado", "agotado"}, c.Estado) {
+			enCola = &c
+		}
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
@@ -79,8 +83,18 @@ func exigirContratoFirmado(ctx context.Context, q *campobd.Queries, f campobd.Ca
 	if _, err := texto("motivoSinContratoFirmado", *in.MotivoSinContratoFirmado, 10, 500); err != nil {
 		return err
 	}
+	// Lo único que bloqueaba era un cambio todavía en la cola de Argos: no hay contrato ni revisión
+	// que anular después, así que el aviso a supervisión sale aquí, en la misma transacción.
+	if enCola != nil {
+		return t.Emitir(eventoContratoSinFirma, map[string]any{"orden_id": f.ID, "prospecto_id": enCola.ProspectoID, "empresa_id": f.EmpresaID,
+			"contrato_id": nil, "cotizacion_id": nil, "operacion": enCola.Operacion, "motivo": "cierre_sin_firma", "clave": enCola.IdempotencyKey})
+	}
 	return nil
 }
+
+// eventoContratoSinFirma: el aviso a supervisión de comercial (comercial.EventoContratoSinFirma;
+// campo no importa comercial). Aquí, un supervisor cerró con el cambio todavía en la cola.
+const eventoContratoSinFirma = "orden.contrato_sin_firma"
 
 // supervisaOrden: ordenes.validar_identidad con el alcance de su rol sobre la orden (global, su
 // zona o su cuadrilla). Sin «propia»: el técnico asignado nunca se autoriza a sí mismo.
@@ -159,7 +173,7 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 				return antes, "", err
 			}
 			// Y el contrato regenerado en la orden, firmado (o un supervisor cierra sin la firma).
-			if err := exigirContratoFirmado(ctx, q, antes, tipo.Codigo, in); err != nil {
+			if err := exigirContratoFirmado(ctx, t, q, antes, tipo.Codigo, in); err != nil {
 				return antes, "", err
 			}
 			if in.MotivoSinContratoFirmado != nil {

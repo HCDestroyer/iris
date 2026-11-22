@@ -19,12 +19,13 @@ import (
 // supervisores con alcance sobre la orden (ordenes.validar_identidad: global, su zona o su
 // cuadrilla) cuando
 //
-//   - paso_titular: un paso del titular quedó hecho en Argos con la orden ya cancelada, fallida o
-//     (un cambio de plan o de titular) cerrada (orden.paso_titular_tras_cancelar). Clave
-//     paso_titular:<pendiente_id>;
-//   - contrato_sin_firma: la orden quedó cerrada con el contrato regenerado sin firmar
-//     (orden.contrato_sin_firma). Clave contrato_sin_firma:<contrato_id>, o
-//     contrato_sin_firma:cotizacion:<cotizacion_id> si la revisión se creó sin contrato.
+//   - paso_titular: un paso del titular quedó hecho en Argos con la orden ya cancelada o fallida
+//     (orden.paso_titular_tras_cancelar). Clave paso_titular:<pendiente_id>. Con la orden cerrada,
+//     un cambio de plan o de titular no llega por aquí: lo avisa contrato_sin_firma;
+//   - contrato_sin_firma: un cambio de plan o de titular quedó sin la firma del contrato nuevo
+//     (orden.contrato_sin_firma: cierre del supervisor, cambio tras el cierre, orden cerrada antes de
+//     regenerar, o revisión imposible con su motivo). Clave contrato_sin_firma:<contrato_id>, si no
+//     contrato_sin_firma:cotizacion:<cotizacion_id> y, sin revisión, contrato_sin_firma:pendiente:<clave>.
 //
 // Destinatarios (DestinatariosDeOrden): con la orden sin empresa (empresa_id null, sin conector),
 // todos los que tienen el permiso con alcance sobre la orden, sin filtro de empresa.

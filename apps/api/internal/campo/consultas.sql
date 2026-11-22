@@ -796,7 +796,9 @@ SELECT cliente_id FROM integracion.argos_servicios WHERE id = @id FOR SHARE;
 -- falta la revisión (llega por el relay), o falta regenerar o firmar su contrato. Con él, la
 -- instalación no cierra sin la firma (solo un supervisor, con motivo). Las órdenes sin prospecto
 -- ganado quedan fuera: B6 de una venta hecha en Argos es de Argos.
-SELECT p.operacion, p.estado FROM integracion.pendientes p
+SELECT p.operacion, p.estado, p.idempotency_key,
+       (SELECT pr.id FROM comercial.prospectos pr WHERE pr.orden_id = @orden_id::bigint AND pr.estado = 'ganado' ORDER BY pr.id LIMIT 1)::bigint AS prospecto_id
+FROM integracion.pendientes p
 WHERE p.entidad = 'orden' AND p.entidad_id = (@orden_id::bigint)::text
   AND p.operacion IN ('cambiar_plan', 'cambiar_titular')
   AND EXISTS (SELECT 1 FROM comercial.prospectos pr WHERE pr.orden_id = @orden_id::bigint AND pr.estado = 'ganado')

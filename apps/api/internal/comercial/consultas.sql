@@ -450,3 +450,18 @@ UPDATE comercial.contratos
 SET estado = 'anulado', motivo_anulacion = @motivo, version = version + 1, updated_at = now()
 WHERE id = @id AND estado = 'borrador'
 RETURNING *;
+
+-- name: AvisoSinFirmaPrevio :one
+-- B20: ¿ya salió orden.contrato_sin_firma con ese motivo para esa clave de pendiente o esa
+-- cotización? (los reintentos del relay no repiten el aviso ni la auditoría).
+SELECT EXISTS (
+    SELECT 1 FROM integracion.outbox
+    WHERE evento = 'orden.contrato_sin_firma' AND payload->>'motivo' = @motivo::text
+      AND ((@clave::text <> '' AND payload->>'clave' = @clave::text)
+           OR (@cotizacion_id::bigint > 0 AND (payload->>'cotizacion_id')::bigint = @cotizacion_id::bigint))
+)::boolean;
+
+-- name: NombreClienteArgos :one
+-- B20: el nombre del cliente de Argos en la instantánea (el titular final de un cambio de titular
+-- resuelto a mano con resuelto_cliente_id).
+SELECT nombre FROM integracion.argos_clientes WHERE id = @id;

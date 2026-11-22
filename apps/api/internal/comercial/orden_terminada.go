@@ -191,10 +191,10 @@ func operacionDeClave(clave string) *string {
 
 // EntradaSinRevision: un cambio hecho en Argos cuya revisión no se pudo crear (motivo diagnóstico).
 type EntradaSinRevision struct {
-	OrdenID int64
-	Clave   string
-	Motivo  string
-	Detalle *string
+	OrdenID int64   `json:"orden_id"`
+	Clave   string  `json:"clave"`
+	Motivo  string  `json:"motivo"`
+	Detalle *string `json:"detalle,omitempty"`
 }
 
 func (m *Modulo) nuevoSinRevision() *auditoria.Caso[EntradaSinRevision, bool] {
@@ -215,6 +215,10 @@ func (m *Modulo) nuevoSinRevision() *auditoria.Caso[EntradaSinRevision, bool] {
 			}
 			p, err := q.ProspectoPorID(ctx, id)
 			if err != nil {
+				return false, err
+			}
+			// Una vez por clave y motivo: un reintento del relay no repite el aviso ni la auditoría.
+			if previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: in.Motivo, Clave: in.Clave}); err != nil || previo {
 				return false, err
 			}
 			t.FijarEntidad("prospecto", p.ID)
@@ -249,12 +253,14 @@ type ResultadoOrdenReabierta struct {
 	ContratoID *int64 `json:"contrato_id"`
 	// Renovada: la revisión a la que se le dio vigencia nueva (su PDF se vuelve a armar).
 	Renovada *int64 `json:"renovada,omitempty"`
+	// Aviso: sin_regenerar, si la orden ya estaba cerrada (aviso a supervisión).
+	Aviso *string `json:"aviso,omitempty"`
 }
 
 func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, ResultadoOrdenReabierta] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaOrdenTerminada, ResultadoOrdenReabierta]{
 		Accion: "prospectos.revision_por_firmar", Acceso: auditoria.Autenticado,
-		AuditarExito: func(r ResultadoOrdenReabierta) bool { return r.ContratoID != nil },
+		AuditarExito: func(r ResultadoOrdenReabierta) bool { return r.ContratoID != nil || r.Aviso != nil },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaOrdenTerminada) (ResultadoOrdenReabierta, error) {
 			r := ResultadoOrdenReabierta{}
 			if err := exigirSistema(ctx); err != nil {
@@ -271,7 +277,11 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 			// Con el estado leído de la orden: sigue abierta (no cancelada, fallida ni cerrada). Si ya
 			// se cerró (un supervisor, sin la firma) con una revisión de esta orden por firmar, avisa.
 			if o.Estado == "cerrada" {
-				return r, avisarCerradaSinRegenerar(ctx, t, q, in.OrdenID)
+				avisado, err := avisarCerradaSinRegenerar(ctx, t, q, in.OrdenID)
+				if avisado {
+					r.Aviso = ptr(MotivoSinRegenerar)
+				}
+				return r, err
 			}
 			if sinFirmaEnSitio(o.Estado) {
 				return r, nil
@@ -385,31 +395,37 @@ func (m *Modulo) suscribirOrdenTerminada(bus *integracion.Bus, bd nucleo.BD, log
 // avisarCerradaSinRegenerar: la orden reabierta se cerró antes de regenerar el contrato; si el
 // prospecto tiene una revisión de esta orden por firmar, emite orden.contrato_sin_firma (la campana
 // es una por revisión).
-func avisarCerradaSinRegenerar(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, orden int64) error {
+func avisarCerradaSinRegenerar(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, orden int64) (bool, error) {
 	id, err := q.ProspectoGanadoDeOrden(ctx, &orden)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	p, err := q.ProspectoPorID(ctx, id)
 	if err != nil {
-		return err
+		return false, err
 	}
 	rev, err := q.RevisionPorFirmar(ctx, p.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	ord := strconv.FormatInt(orden, 10)
 	if rev.Idempotencia == nil || (!strings.HasPrefix(*rev.Idempotencia, claveRevision("iris:plan:"+ord+":")) &&
 		!strings.HasPrefix(*rev.Idempotencia, claveRevision("iris:titular:"+ord+":"))) {
-		return nil
+		return false, nil
 	}
+	// Una vez por revisión (un reintento del relay no repite el aviso ni la auditoría).
+	if previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: MotivoSinRegenerar, CotizacionID: rev.ID}); err != nil || previo {
+		return false, err
+	}
+	t.FijarEntidad("prospecto", p.ID)
 	t.FijarEmpresa(deref(p.EmpresaID))
-	return emitirContratoSinFirma(t, sinFirma{orden: orden, p: p, cotizacion: &rev.ID, operacion: operacionDeRevision(rev.Idempotencia),
+	t.Anotar(map[string]any{"aviso": MotivoSinRegenerar, "cotizacion_id": rev.ID})
+	return true, emitirContratoSinFirma(t, sinFirma{orden: orden, p: p, cotizacion: &rev.ID, operacion: operacionDeRevision(rev.Idempotencia),
 		motivo: MotivoSinRegenerar})
 }

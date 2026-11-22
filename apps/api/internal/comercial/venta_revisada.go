@@ -54,6 +54,8 @@ type EntradaRevisarVenta struct {
 	PlanID  *int64 `json:"plan_id,omitempty"`
 	// Clave del pendiente (idempotencia de la revisión).
 	Clave string `json:"clave"`
+	// ClienteArgosID: el titular final de un cambio de titular resuelto a mano (resuelto_cliente_id).
+	ClienteArgosID *int64 `json:"cliente_argos_id,omitempty"`
 	// plan: el plan nuevo leído de Argos (fuera de la transacción).
 	plan *PlanComercial
 }
@@ -63,6 +65,8 @@ type ResultadoRevisarVenta struct {
 	ProspectoID  *int64 `json:"prospecto_id"`
 	CotizacionID *int64 `json:"cotizacion_id"`
 	ContratoID   *int64 `json:"contrato_id"`
+	// Aviso: el motivo diagnóstico avisado a supervisión cuando no se pudo crear la revisión.
+	Aviso *string `json:"aviso,omitempty"`
 }
 
 // claveRevision: idempotencia de la cotización nueva.
@@ -71,7 +75,7 @@ func claveRevision(clave string) string { return "iris:venta:" + clave }
 func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, ResultadoRevisarVenta] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaRevisarVenta, ResultadoRevisarVenta]{
 		Accion: "prospectos.venta_revisada", Acceso: auditoria.Autenticado,
-		AuditarExito: func(r ResultadoRevisarVenta) bool { return r.CotizacionID != nil },
+		AuditarExito: func(r ResultadoRevisarVenta) bool { return r.CotizacionID != nil || r.Aviso != nil },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaRevisarVenta) (ResultadoRevisarVenta, error) {
 			r := ResultadoRevisarVenta{}
 			if err := exigirSistema(ctx); err != nil {
@@ -113,7 +117,13 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			if !hayPendiente {
 				if base, err = q.CotizacionViva(ctx, p.ID); errors.Is(err, pgx.ErrNoRows) {
 					// Sin cotización de la venta no hay revisión ni contrato: la orden no cerraría sin
-					// un supervisor; se le avisa por qué.
+					// un supervisor; se le avisa por qué (una vez por pendiente).
+					if previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: MotivoSinCotizacionViva, Clave: in.Clave}); err != nil || previo {
+						return r, err
+					}
+					r.Aviso = ptr(MotivoSinCotizacionViva)
+					t.FijarEntidad("prospecto", p.ID)
+					t.Anotar(map[string]any{"aviso": MotivoSinCotizacionViva, "clave": in.Clave})
 					return r, emitirContratoSinFirma(t, sinFirma{orden: in.OrdenID, p: p, operacion: operacionDeClave(in.Clave),
 						motivo: MotivoSinCotizacionViva, clave: in.Clave})
 				} else if err != nil {
@@ -149,7 +159,14 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 				}
 			}
 			cliente := clienteDe(p)
-			if nombre, err := q.NombreTitularDeOrden(ctx, in.OrdenID); err == nil && nombre != nil && *nombre != "" {
+			// Cambio de titular resuelto a mano con el cliente final indicado: su nombre en la instantánea.
+			if in.Motivo == RevisionPorTitular && in.ClienteArgosID != nil {
+				if nombre, err := q.NombreClienteArgos(ctx, *in.ClienteArgosID); err == nil && nombre != "" {
+					cliente.Nombre, cliente.Documento = nombre, ""
+				} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return r, err
+				}
+			} else if nombre, err := q.NombreTitularDeOrden(ctx, in.OrdenID); err == nil && nombre != nil && *nombre != "" {
 				if *nombre != cliente.Nombre {
 					// Titular nuevo: su documento vive solo en Argos (A41), nunca en el contrato de Iris.
 					cliente.Nombre, cliente.Documento = *nombre, ""
@@ -369,7 +386,9 @@ func (m *Modulo) RevisarVenta(ctx context.Context, in EntradaRevisarVenta) (Resu
 func (m *Modulo) SuscribirRevisionVenta(bus *integracion.Bus, bd nucleo.BD, log *slog.Logger) {
 	// La orden cancelada o fallida anula el contrato regenerado que esperaba la firma en sitio.
 	m.suscribirOrdenTerminada(bus, bd, log)
-	revisar := func(ctx context.Context, e integracion.Evento) error {
+	var revisarCon func(ctx context.Context, e integracion.Evento, cliente *int64) error
+	revisar := func(ctx context.Context, e integracion.Evento) error { return revisarCon(ctx, e, nil) }
+	revisarCon = func(ctx context.Context, e integracion.Evento, cliente *int64) error {
 		var p eventoPendienteOrden
 		if err := json.Unmarshal(e.Payload, &p); err != nil || p.Entidad != "orden" {
 			return nil
@@ -388,7 +407,7 @@ func (m *Modulo) SuscribirRevisionVenta(bus *integracion.Bus, bd nucleo.BD, log 
 			return nil
 		}
 		ctx = nucleo.ConBD(ctx, bd)
-		in := EntradaRevisarVenta{OrdenID: orden, Motivo: motivo, Clave: p.Clave}
+		in := EntradaRevisarVenta{OrdenID: orden, Motivo: motivo, Clave: p.Clave, ClienteArgosID: cliente}
 		if motivo == RevisionPorPlan {
 			reg, err := pendientes.PorClave(ctx, bd, p.Clave)
 			if err != nil {
@@ -430,6 +449,8 @@ func (m *Modulo) SuscribirRevisionVenta(bus *integracion.Bus, bd nucleo.BD, log 
 		if reg.Estado != pendientes.EstadoResueltoManual || reg.ResueltoComo == nil || *reg.ResueltoComo != pendientes.ComoManual {
 			return nil
 		}
-		return revisar(ctx, e)
+		// Resolver a mano un cambio de plan o de titular significa «el cambio se aplicó en Argos»;
+		// en un cambio de titular, el cliente final que indicó el supervisor (si lo indicó).
+		return revisarCon(ctx, e, reg.ResueltoClienteID)
 	})
 }

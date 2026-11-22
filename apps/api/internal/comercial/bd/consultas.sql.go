@@ -230,6 +230,30 @@ func (q *Queries) AnularContrato(ctx context.Context, arg AnularContratoParams) 
 	return i, err
 }
 
+const avisoSinFirmaPrevio = `-- name: AvisoSinFirmaPrevio :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.outbox
+    WHERE evento = 'orden.contrato_sin_firma' AND payload->>'motivo' = $1::text
+      AND (($2::text <> '' AND payload->>'clave' = $2::text)
+           OR ($3::bigint > 0 AND (payload->>'cotizacion_id')::bigint = $3::bigint))
+)::boolean
+`
+
+type AvisoSinFirmaPrevioParams struct {
+	Motivo       string
+	Clave        string
+	CotizacionID int64
+}
+
+// B20: ¿ya salió orden.contrato_sin_firma con ese motivo para esa clave de pendiente o esa
+// cotización? (los reintentos del relay no repiten el aviso ni la auditoría).
+func (q *Queries) AvisoSinFirmaPrevio(ctx context.Context, arg AvisoSinFirmaPrevioParams) (bool, error) {
+	row := q.db.QueryRow(ctx, avisoSinFirmaPrevio, arg.Motivo, arg.Clave, arg.CotizacionID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const bloquearRegistrosArgos = `-- name: BloquearRegistrosArgos :exec
 SELECT pg_advisory_xact_lock(hashtextextended('comercial.registro_argos:' || $1::bigint, 0))
 `
@@ -1930,6 +1954,19 @@ WHERE id = $1
 func (q *Queries) MarcarReemplazada(ctx context.Context, id int64) error {
 	_, err := q.db.Exec(ctx, marcarReemplazada, id)
 	return err
+}
+
+const nombreClienteArgos = `-- name: NombreClienteArgos :one
+SELECT nombre FROM integracion.argos_clientes WHERE id = $1
+`
+
+// B20: el nombre del cliente de Argos en la instantánea (el titular final de un cambio de titular
+// resuelto a mano con resuelto_cliente_id).
+func (q *Queries) NombreClienteArgos(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, nombreClienteArgos, id)
+	var nombre string
+	err := row.Scan(&nombre)
+	return nombre, err
 }
 
 const nombreTitularDeOrden = `-- name: NombreTitularDeOrden :one

@@ -270,7 +270,9 @@ func (q *Queries) BorrarItemsDeVersion(ctx context.Context, versionID int64) err
 }
 
 const cambioSinRevisionDeOrden = `-- name: CambioSinRevisionDeOrden :one
-SELECT p.operacion, p.estado FROM integracion.pendientes p
+SELECT p.operacion, p.estado, p.idempotency_key,
+       (SELECT pr.id FROM comercial.prospectos pr WHERE pr.orden_id = $1::bigint AND pr.estado = 'ganado' ORDER BY pr.id LIMIT 1)::bigint AS prospecto_id
+FROM integracion.pendientes p
 WHERE p.entidad = 'orden' AND p.entidad_id = ($1::bigint)::text
   AND p.operacion IN ('cambiar_plan', 'cambiar_titular')
   AND EXISTS (SELECT 1 FROM comercial.prospectos pr WHERE pr.orden_id = $1::bigint AND pr.estado = 'ganado')
@@ -282,8 +284,10 @@ ORDER BY p.id DESC LIMIT 1
 `
 
 type CambioSinRevisionDeOrdenRow struct {
-	Operacion string
-	Estado    string
+	Operacion      string
+	Estado         string
+	IdempotencyKey string
+	ProspectoID    int64
 }
 
 // B20 (verificación de #280): un cambio de plan o de titular de una orden de una venta de Iris cuya
@@ -296,7 +300,12 @@ type CambioSinRevisionDeOrdenRow struct {
 func (q *Queries) CambioSinRevisionDeOrden(ctx context.Context, ordenID int64) (CambioSinRevisionDeOrdenRow, error) {
 	row := q.db.QueryRow(ctx, cambioSinRevisionDeOrden, ordenID)
 	var i CambioSinRevisionDeOrdenRow
-	err := row.Scan(&i.Operacion, &i.Estado)
+	err := row.Scan(
+		&i.Operacion,
+		&i.Estado,
+		&i.IdempotencyKey,
+		&i.ProspectoID,
+	)
 	return i, err
 }
 
