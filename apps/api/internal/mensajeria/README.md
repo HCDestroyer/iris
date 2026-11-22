@@ -828,3 +828,30 @@ AMI adopta la fila de una saliente del puente.
 - **Pruebas:** `sippuente/puente_test.go` (puente, Digest, CSeq y branch, rechazos, corte) contra el Asterisk
   falso de `sippuente/sipfalso`, y `telefono_test.go` de punta a punta contra Postgres y el mismo falso.
 - Guía para preparar Issabel y el servidor: `docs/runbooks/centralita-issabel.md` §9.
+
+## Contactos del cliente en la atención (contrato con Argos §3.5 y §3.8, B22 y B25)
+
+- **Quién escribe** (`conv_contactos_argos.go`): al llegar un mensaje, el número se busca en la
+  instantánea (teléfono y móvil del titular) y en la caché de contactos de Argos. Con una sola persona,
+  la conversación se asocia sola con el rol del contacto; un contacto con `persona_cliente_id` cuenta
+  como esa persona (José), y el servicio de su mamá aparece «a su cargo». Al abrir la conversación (y
+  antes de un turno del asistente), `PrepararContactosConv` relee los contactos del cliente si tienen
+  más de 24 h o, sin cliente, busca el número en Argos (una vez al día por número, tabla
+  `mensajeria.contactos_buscados`) y, si queda una sola persona, la asocia
+  (`conversaciones.asociar_por_contacto`, `conversacion.cliente_asociado` con `origen: contacto`).
+- **El rol decide:** `rolContacto` en el detalle de la conversación (rol, permisos, «sus servicios» y
+  «los que tiene a cargo», solo código y nombre). Boletas, promesas, tickets y el saldo pasan por
+  `accesoAServicio`: un contacto solo con su permiso (`pagar`, `reportar`, `consultar`) y sobre sus
+  servicios (`403 servicio_fuera_del_contacto`, `403 permiso_de_contacto`); lo reservado al titular nunca
+  lo abre un contacto. Las acciones van a Argos con `X-Iris-Contacto` (la boleta la guarda en
+  `boletas.contacto_argos` para que reintentos y reconexión manden la misma).
+- **Varios clientes con el mismo número:** no se asocia ni se muestra ningún dato.
+  `POST /conversaciones/{id}/elegir-cliente` (`conversaciones.elegir_cliente`, también el asistente con
+  la herramienta `elegir_cliente`) compara el número de servicio que da el cliente solo contra los que
+  comparten el número; 3 fallos por conversación y 5 por número al día (`mensajeria.elecciones_cliente`,
+  sin la referencia); acertar asocia (`conversacion.cliente_asociado` con `origen: referencia`).
+- **Contacto de Iris unido a un cliente:** con Argos ≥ 0.10.0 se crea en Argos por la cola de pendientes
+  (`POST /clientes/:id/contactos`, `iris:contacto:<cliente_id>:<contacto_iris_id>`), relación `otro`, con
+  todos los permisos (decisión 7 del PM) y `X-Iris-Actor` del agente; nunca desde el asistente.
+- **Asistente:** recibe quién escribe (rol, permisos y códigos de servicio, nunca el nombre del servicio)
+  y no ofrece lo que el contacto no puede; un contacto sin `consultar` no recibe saldo.

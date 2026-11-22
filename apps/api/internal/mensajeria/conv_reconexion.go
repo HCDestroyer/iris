@@ -289,7 +289,12 @@ func (k *PedirReconexion) pedirAArgos(ctx context.Context, rec ArgosReconexion, 
 	fin := finalReconexion{ID: f.ConversacionID, fila: f, estado: "aceptada"}
 	_ = mensajeriabd.New(nucleo.BDDe(ctx)).ContarIntentoReconexion(ctx, f.ID)
 	var err error
-	fin.promesa, fin.hasta, err = rec.PedirReconexionTemporal(ctx, atencionDe(a, f.ConversacionID), f.ComprobanteID, f.ServicioID, f.Motivo,
+	// El mismo X-Iris-Contacto que la boleta (§7.1): quien pagó es quien pide la reconexión.
+	at := atencionDe(a, f.ConversacionID)
+	if b, errB := mensajeriabd.New(nucleo.BDDe(ctx)).BoletaPorID(ctx, f.BoletaID); errB == nil && b.ContactoArgos != nil {
+		at.Contacto = *b.ContactoArgos
+	}
+	fin.promesa, fin.hasta, err = rec.PedirReconexionTemporal(ctx, at, f.ComprobanteID, f.ServicioID, f.Motivo,
 		"iris:reconexion:"+strconv.FormatInt(f.ComprobanteID, 10))
 	if err != nil {
 		var er *conector.ErrorRemoto

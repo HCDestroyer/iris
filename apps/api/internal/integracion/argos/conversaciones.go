@@ -33,6 +33,9 @@ type AtencionIris struct {
 	Conversacion string
 	// EmpresaID: la empresa activa en Argos (X-Empresa-Id; 0 = sin cabecera).
 	EmpresaID int64
+	// Contacto: X-Iris-Contacto (§7.1, 0.10.1): «titular» o el contacto_id de Argos de quien habla.
+	// Vacío = titular. Solo se manda a un Argos con contrato ≥ 0.10.1, donde es obligatoria.
+	Contacto string
 }
 
 // Forma exacta de las cabeceras de §7.1 (contrato 0.7.1). Fuera de formato Argos responde 400
@@ -45,9 +48,12 @@ var (
 // ErrCabecerasIris: el actor o la conversación no tienen la forma de §7.1 (un error de Iris, no de Argos).
 var ErrCabecerasIris = errors.New("argos: X-Iris-Actor o X-Iris-Conversacion fuera del formato del contrato (§7.1)")
 
-// validar: el actor y la conversación tienen la forma de §7.1.
+// validar: el actor, la conversación y el contacto tienen la forma de §7.1.
 func (a AtencionIris) validar() error {
 	if !reCabeceraActor.MatchString(a.Actor) || !reCabeceraConversacion.MatchString(a.Conversacion) {
+		return ErrCabecerasIris
+	}
+	if a.Contacto != "" && !reCabeceraContacto.MatchString(a.Contacto) {
 		return ErrCabecerasIris
 	}
 	return nil
@@ -61,15 +67,11 @@ func (m *Modulo) clienteAtencion(ctx context.Context, a AtencionIris) (*Cliente,
 	if bd == nil {
 		return nil, nucleo.ErrSinBD
 	}
-	cli, err := m.ClienteActivo(ctx, bd)
+	con, err := m.conectorActivo(ctx, bd)
 	if err != nil {
 		return nil, err
 	}
-	c := cli.Cliente.ConCabecera(CabeceraActor, a.Actor).ConCabecera(CabeceraConversacion, a.Conversacion)
-	if a.EmpresaID != 0 {
-		c = c.ConCabecera(CabeceraEmpresaArgos, strconv.FormatInt(a.EmpresaID, 10))
-	}
-	return &Cliente{Cliente: c}, nil
+	return &Cliente{Cliente: m.clienteDe(con).conAtencion(a), contrato: con.ContratoRemoto}, nil
 }
 
 // ClienteTelefono es un cliente de GET /clientes?telefono= con dónde coincide el número.
@@ -311,11 +313,19 @@ func (c *Cliente) crearPromesa(ctx context.Context, servicioID int64, venceEn ti
 // vivo y sin guardar, para el asistente de IA (contratos/conversaciones.md §16.10). Solo el saldo,
 // la cantidad de facturas vencidas y el monto vencido. Nunca va al log.
 func (m *Modulo) EstadoCuentaCliente(ctx context.Context, a AtencionIris, clienteID int64) (EstadoCuenta, error) {
+	return m.EstadoCuentaServicio(ctx, a, clienteID, nil)
+}
+
+// EstadoCuentaServicio: como EstadoCuentaCliente, con ?servicio_id= cuando quien pregunta es un
+// contacto con servicios acotados (§3.5, decisión 11 del PM): solo el estado de ese servicio, sin
+// el desglose de los demás. Con <contacto_id> en X-Iris-Contacto, Argos valida que el servicio sea
+// del contacto (403 servicio_fuera_del_contacto) y su permiso consultar (403 permiso_de_contacto).
+func (m *Modulo) EstadoCuentaServicio(ctx context.Context, a AtencionIris, clienteID int64, servicioID *int64) (EstadoCuenta, error) {
 	cli, err := m.clienteAtencion(ctx, a)
 	if err != nil {
 		return EstadoCuenta{}, err
 	}
-	e, err := cli.EstadoCuenta(ctx, clienteID, a.EmpresaID)
+	e, err := cli.estadoCuenta(ctx, clienteID, a.EmpresaID, servicioID)
 	if err != nil {
 		return EstadoCuenta{}, err
 	}

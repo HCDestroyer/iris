@@ -41,6 +41,10 @@ type argosFalso struct {
 	sinPermiso bool
 	// rutaExtra atiende GET /cuentas-bancarias (cuentas_bancarias_test.go).
 	rutaExtra http.HandlerFunc
+	// rutaContactos atiende GET /clientes/:id/contactos y GET /contactos/buscar (contactos_test.go).
+	rutaContactos http.HandlerFunc
+	// ultimoContacto: X-Iris-Contacto del último GET /clientes/:id/estado-cuenta.
+	ultimoContacto string
 	// empresaPedida: X-Empresa-Id de la última búsqueda.
 	empresaPedida string
 	// buscarRed: buscar_red de cada GET /clientes, tal como llegó ("" = no vino; contrato 0.8.1 §2.1).
@@ -150,6 +154,15 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		a.rutaExtra(w, r)
 	}))
 	mux.HandleFunc("GET /api/v1/clientes/{id}", a.conToken(a.cliente))
+	contactos := a.conToken(func(w http.ResponseWriter, r *http.Request) {
+		if a.rutaContactos == nil {
+			http.NotFound(w, r)
+			return
+		}
+		a.rutaContactos(w, r)
+	})
+	mux.HandleFunc("GET /api/v1/clientes/{id}/contactos", contactos)
+	mux.HandleFunc("GET /api/v1/contactos/buscar", contactos)
 	mux.HandleFunc("GET /api/v1/clientes/{id}/estado-cuenta", a.conToken(a.estadoCuenta))
 	mux.HandleFunc("GET /api/v1/servicios", a.conToken(a.serviciosDe))
 	mux.HandleFunc("GET /api/v1/servicios/{id}", a.conToken(a.servicio))
@@ -527,6 +540,8 @@ func (a *argosFalso) cliente(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *argosFalso) estadoCuenta(w http.ResponseWriter, r *http.Request) {
+	// conToken ya tiene a.mu.
+	a.ultimoContacto = r.Header.Get("X-Iris-Contacto")
 	a.estadoPedido = r.URL.Query().Get("empresa_id")
 	e, ok := a.estados[idDe(r)]
 	if !ok {

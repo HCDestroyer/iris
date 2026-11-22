@@ -264,28 +264,12 @@ func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mens
 	if empresa != derefEmpresa(canal.EmpresaID) {
 		empresaConv = &empresa
 	}
-	// Una sola coincidencia exacta del número en la instantánea de Argos de la empresa: se asocia sola.
-	var cliente *int64
-	var asociacion *string
-	digitos := soloDigitos(numero)
-	cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: digitos, Empresa: empresa})
+	// Una sola persona con ese número en la empresa (titular por la instantánea de Argos o contacto
+	// por la caché de contactos, §3.5; un contacto a cargo cuenta como su persona, §3.8): se asocia
+	// sola, con el rol del contacto. Con varias, nadie: se pide el número de servicio (elegir-cliente).
+	cliente, asociacion, err := clienteUnicoDelNumero(ctx, q, empresa, numero)
 	if err != nil {
 		return c, false, err
-	}
-	titulares := 0
-	for _, x := range cs {
-		if x.PorTelefono || x.PorMovil {
-			titulares++
-			if titulares == 1 {
-				id := x.ID
-				cliente = &id
-			}
-		}
-	}
-	if titulares == 1 {
-		asociacion = nombrePtr("automatica")
-	} else {
-		cliente = nil
 	}
 	var perfilNombre *string
 	if perfil != "" {

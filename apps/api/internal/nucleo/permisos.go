@@ -415,6 +415,10 @@ const (
 	PermConversacionesResolver Permiso = "conversaciones.resolver"
 	// PermConversacionesAsociar: asociar a un cliente de Argos y administrar contactos de Iris.
 	PermConversacionesAsociar Permiso = "conversaciones.asociar"
+	// PermConversacionesElegirCliente: con un número que está en varios clientes, comparar la
+	// referencia que da el cliente (su número de servicio) y asociar el que coincida, sin ver los
+	// datos de ninguno (contrato argosisp.md §3.5, B22).
+	PermConversacionesElegirCliente Permiso = "conversaciones.elegir_cliente"
 	// PermConversacionesRegistrarBoleta: mandar a Argos la boleta que envió el cliente (§7.2).
 	PermConversacionesRegistrarBoleta Permiso = "conversaciones.registrar_boleta"
 	// PermConversacionesRegistrarPromesa: simular y pedir a Argos una promesa de pago (§7.4).
@@ -547,6 +551,7 @@ var Catalogo = []DefPermiso{
 	{PermConversacionesAsociar, "Asociar una conversación a un cliente de Argos y administrar los contactos propios de Iris"},
 	{PermConversacionesCategorizar, "Corregir la categoría de mensajes de una conversación (la que puso el asistente de IA)"},
 	{PermConversacionesConfigurar, "Administrar las etiquetas y las respuestas rápidas de las conversaciones de la empresa"},
+	{PermConversacionesElegirCliente, "Con un número que está en varios clientes, escribir el número de servicio que da el cliente para asociar el que coincida (sin ver los datos de ninguno)"},
 	{PermConversacionesEtiquetar, "Poner y quitar etiquetas a una conversación"},
 	{PermConversacionesIniciar, "Escribir primero por WhatsApp, con una plantilla aprobada, a un cliente o contacto con permiso de contacto desde un número de tus colas"},
 	{PermConversacionesPasar, "Pasar la conversación que tienes a un compañero de la misma cola, con una nota interna"},
@@ -746,6 +751,7 @@ var permisosRutas = []Permiso{PermRutasVer, PermRutasProponer, PermRutasPublicar
 // supervisor); cada rol suma los suyos (contratos/conversaciones.md §4).
 var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesResponder, PermConversacionesTomar, PermConversacionesPasar,
 	PermConversacionesEtiquetar, PermConversacionesCategorizar, PermConversacionesPausarAsistente, PermConversacionesResolver, PermManualesVer, PermConversacionesSugerencias, PermIntegracionesAbrirArgos,
+	PermConversacionesElegirCliente,
 	// Llamadas de WhatsApp en el panel (contratos/voz.md §8.2).
 	PermLlamadasVer, PermLlamadasContestar, PermLlamadasRechazar, PermLlamadasColgar, PermLlamadasAnotar}
 
@@ -941,5 +947,5 @@ func PermisosAsistenteVisitas() []Permiso {
 
 func PermisosAsistenteIA() []Permiso {
 	return []Permiso{PermConversacionesResponder, PermTicketsCrear, PermConversacionesRegistrarBoleta,
-		PermConversacionesRegistrarPromesa, PermConversacionesPedirReconexion}
+		PermConversacionesRegistrarPromesa, PermConversacionesPedirReconexion, PermConversacionesElegirCliente}
 }

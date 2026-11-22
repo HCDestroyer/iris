@@ -833,6 +833,36 @@ type IntegracionArgosCliente struct {
 	Referencia          string
 }
 
+type IntegracionArgosContacto struct {
+	ContactoID       int64
+	ClienteID        int64
+	EmpresaID        *int64
+	Nombre           string
+	Relacion         string
+	EsTitular        bool
+	Servicios        []int64
+	Consultar        bool
+	Reportar         bool
+	Pagar            bool
+	Avisos           bool
+	PersonaClienteID *int64
+	Version          int32
+	SincronizadoEn   time.Time
+}
+
+type IntegracionArgosContactoTelefono struct {
+	ContactoID int64
+	Numero     string
+	Digitos    string
+	Whatsapp   bool
+	Principal  bool
+}
+
+type IntegracionArgosContactosLeido struct {
+	ClienteID      int64
+	SincronizadoEn time.Time
+}
+
 type IntegracionArgosCopia struct {
 	Entidad        string
 	EntidadID      int64
@@ -1373,6 +1403,7 @@ type MensajeriaBoleta struct {
 	ResolucionAgotadaEn *time.Time
 	PorAsistente        bool
 	CuentaValidacion    *string
+	ContactoArgos       *string
 }
 
 type MensajeriaCanalPrestamo struct {
@@ -1674,6 +1705,12 @@ type MensajeriaConsentimientosNumero struct {
 	CreatedAt     time.Time
 }
 
+type MensajeriaContactosBuscado struct {
+	Empresa   int64
+	Digitos   string
+	BuscadoEn time.Time
+}
+
 type MensajeriaContactosIri struct {
 	ID        int64
 	EmpresaID *int64
@@ -1866,6 +1903,17 @@ type MensajeriaDisponibilidad struct {
 	HorarioHasta    *time.Time
 	Version         int32
 	UpdatedAt       time.Time
+}
+
+type MensajeriaEleccionesCliente struct {
+	ID             int64
+	EmpresaID      *int64
+	ConversacionID int64
+	Numero         string
+	Acierto        bool
+	ClienteID      *int64
+	UsuarioID      *int64
+	CreadoEn       time.Time
 }
 
 type MensajeriaEntrante struct {

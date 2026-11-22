@@ -52,6 +52,7 @@ type casosConv struct {
 	Reabrir      *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]
 	Coincidencia *BuscarCoincidencias
 	Asociar      *AsociarCliente
+	ElegirClient *auditoria.Caso[EntradaElegirCliente, EleccionCliente]
 	Desasociar   *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]
 	ContactoIris *auditoria.Caso[EntradaContactoIrisConv, ConversacionClienteDetalle]
 	Confirmar    *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]
@@ -96,6 +97,7 @@ func nuevosCasosConv(m *Modulo) casosConv {
 		Responder: nuevoResponder(m), Anotar: nuevoAnotar(m), Tomar: nuevoTomarConv(m), Asignar: nuevoAsignarConv(m),
 		Transferir: nuevoTransferirConv(m), Etiquetar: nuevoEtiquetarConv(m), Resolver: nuevoResolverConv(m), Reabrir: nuevoReabrirConv(m),
 		Coincidencia: nuevoBuscarCoincidencias(m), Asociar: nuevoAsociarCliente(m), Desasociar: nuevoDesasociar(m),
+		ElegirClient: nuevoElegirCliente(m),
 		ContactoIris: nuevoContactoIrisConv(m), Confirmar: nuevoConfirmarCliente(m), ConsentNum: nuevoConsentimientoNumero(m), EditarContac: nuevoActualizarContactoIris(m), UnirContacto: nuevoUnirContacto(m),
 		Contactos: nuevoBuscarContactos(m), CrearTicket: nuevoCrearTicketConv(m), CrearOrden: nuevoCrearOrdenConv(m),
 		CrearProspec: nuevoCrearProspectoConv(m), Boleta: nuevoRegistrarBoleta(m), Promesas: nuevasPromesas(m), Reconexion: nuevoPedirReconexion(m), Cambios: nuevoCambiosConv(m),
@@ -375,7 +377,13 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 	m.registrarBandeja11(api)
 	huma.Register(api, op("verConversacionCliente", http.MethodGet, base+"/{id}", "Una conversación con vínculos, participantes y el resumen del cliente",
 		ver, http.StatusOK, http.StatusNotFound), func(ctx context.Context, in *EntradaConversacion) (*cuerpo[ConversacionClienteDetalle], error) {
-		return responder(k.Ver.Ejecutar(ctx, *in))
+		d, err := k.Ver.Ejecutar(ctx, *in)
+		// Ya se sabe que la ve: Iris lee los contactos del número en Argos si hace falta (B22) y, si
+		// eso cambió algo (la asoció o hay contactos nuevos), la vuelve a leer.
+		if err == nil && m.PrepararContactosConv(ctx, in.ID, actorAtencion(ctx)) {
+			d, err = k.Ver.Ejecutar(ctx, *in)
+		}
+		return responder(d, err)
 	})
 	huma.Register(api, op("plantillasConversacion", http.MethodGet, base+"/{id}/plantillas", "Plantillas aprobadas en el número de la conversación",
 		resp, http.StatusOK, http.StatusNotFound), func(ctx context.Context, in *EntradaConversacion) (*cuerpo[ListaPlantillasConv], error) {
@@ -469,6 +477,15 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 			in.Body.ID = in.ID
 			return responder(k.Asociar.Ejecutar(ctx, in.Body))
 		})
+	elegir := accion("elegirClienteConversacion", "elegir-cliente", "Elegir entre varios clientes con el mismo número por su número de servicio",
+		nucleo.PermConversacionesElegirCliente)
+	elegir.Description += " Solo cuando el número está en varios clientes (contacto.varios). Compara la referencia (el código del servicio, S-000412) solo contra" +
+		" los clientes que comparten el número y nunca devuelve sus datos: si coincide con uno, la conversación queda asociada (no verificada, §7.5)." +
+		" 3 intentos fallidos por conversación y 5 por número al día (429 `demasiados_intentos`). La referencia no se guarda ni se audita."
+	huma.Register(api, elegir, func(ctx context.Context, in *idCuerpoHTTP[EntradaElegirCliente]) (*cuerpo[EleccionCliente], error) {
+		in.Body.ID = in.ID
+		return responder(k.ElegirClient.Ejecutar(ctx, in.Body))
+	})
 	confCli := accion("confirmarClienteConversacion", "confirmar-cliente", "Confirmar el cliente asociado a mano (el número no coincide en Argos)",
 		nucleo.PermConversacionesSupervisar)
 	confCli.Description += " Solo supervisión. Hasta confirmarlo no hay plantillas fuera de la ventana, boletas ni promesas a su nombre (422 `cliente_sin_confirmar`)."

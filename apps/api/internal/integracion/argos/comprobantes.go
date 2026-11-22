@@ -93,6 +93,15 @@ func EsEnCurso(err error) bool {
 // conAtencion agrega las cabeceras de §7.1 (y la empresa activa).
 func (c *Cliente) conAtencion(a AtencionIris) *conector.Cliente {
 	cli := c.ConCabecera(CabeceraActor, a.Actor).ConCabecera(CabeceraConversacion, a.Conversacion)
+	// 0.10.1 (§7.1, ajuste ak): X-Iris-Contacto es obligatoria en las rutas de §7 con
+	// X-Iris-Conversacion: <contacto_id> si habla un contacto, «titular» si no.
+	if conector.VersionAlMenos(c.contrato, ContratoContactoACargo) {
+		contacto := a.Contacto
+		if contacto == "" {
+			contacto = ContactoTitular
+		}
+		cli = cli.ConCabecera(CabeceraContacto, contacto)
+	}
 	if a.EmpresaID != 0 {
 		cli = cli.ConCabecera(CabeceraEmpresaArgos, strconv.FormatInt(a.EmpresaID, 10))
 	}
