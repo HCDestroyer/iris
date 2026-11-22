@@ -543,28 +543,33 @@ func porAnularAnulada(in EntradaConfirmarCobro, id int64) error {
 	return nil
 }
 
-// CargoDelCierreConInstalacion dice si el cargo del cierre de la orden (iris:cargo:<orden_id>) está
-// vigente con la línea de instalación (concepto). Vigente: todo menos fallido (salvo «por confirmar»);
-// uno resuelto a mano cuenta (pudo cobrarse en Argos). Con el concepto desconocido (0) o un cargo de la
-// forma anterior a la 0.14.3, cuenta como si la llevara (lo más estricto).
-func CargoDelCierreConInstalacion(ctx context.Context, q pendientesbd.DBTX, orden string, concepto int64) (bool, error) {
-	f, err := pendientesbd.New(q).PendientePorClave(ctx, "iris:cargo:"+orden)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
+// CargoConInstalacionVigente dice si algún cargo de la orden (el del cierre, uno de A36 —también uno
+// reintentado—, un reemplazo resuelto a mano…), sin contar el de la clave excluir, está vigente con la
+// línea de instalación (concepto). Con el concepto desconocido (0) o un cargo de la forma anterior,
+// cuenta como si la llevara (lo más estricto).
+// Devuelve la clave de ese cargo ("" si no hay).
+func CargoConInstalacionVigente(ctx context.Context, q pendientesbd.DBTX, orden string, concepto int64, excluir string) (string, error) {
+	cargos, err := pendientesbd.New(q).CargosDeOrden(ctx, orden)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	if !cargoVigente(f) {
-		return false, nil
+	for _, c := range cargos {
+		if c.IdempotencyKey == excluir || !cargoVigente(c) {
+			continue
+		}
+		if llevaInstalacion(c.Payload, concepto) {
+			return c.IdempotencyKey, nil
+		}
 	}
-	return llevaInstalacion(f.Payload, concepto), nil
+	return "", nil
 }
 
-// cargoVigente: un cargo cuenta como vigente salvo fallido (sin «por confirmar»); resuelto a mano,
-// también (pudo cobrarse en Argos), salvo que no haya salido porque Argos lo cobró con el consumo.
+// cargoVigente: un cargo cuenta como vigente salvo fallido (sin «por confirmar»), con su factura anulada
+// en Argos, en espera del consumo (nunca sale), por resolver (marcadores) o resuelto porque Argos lo
+// cobró con el consumo. Uno resuelto a mano sí cuenta (pudo cobrarse en Argos).
 func cargoVigente(f pendientesbd.IntegracionPendiente) bool {
-	if f.Estado == EstadoFallidoNegocio && !f.PorConfirmar {
+	switch {
+	case f.Estado == EstadoFallidoNegocio && !f.PorConfirmar, f.FacturaAnulada, f.EsperaConsumo, f.PorResolver:
 		return false
 	}
 	return f.Estado != EstadoResueltoManual || f.ResueltoComo == nil || *f.ResueltoComo != "cobrado_con_consumo"
@@ -631,28 +636,25 @@ func otraInstalacionVigente(ctx context.Context, q *pendientesbd.Queries, f pend
 	if otro {
 		return true, nil
 	}
-	cierre := "iris:cargo:" + f.EntidadID
-	if f.IdempotencyKey == cierre {
-		return false, nil
-	}
-	c, err := q.PendientePorClave(ctx, cierre)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
+	cargos, err := q.CargosDeOrden(ctx, f.EntidadID)
 	if err != nil {
 		return false, err
 	}
-	if !cargoVigente(c) {
-		return false, nil
+	for _, c := range cargos {
+		if c.ID == f.ID || !cargoVigente(c) {
+			continue
+		}
+		_, lineas, ok := lineasDe(c.Payload)
+		switch {
+		case !ok:
+			if tipo == TipoInstalacion {
+				return true, nil
+			}
+		case len(conocidos) == 0, len(SinLineaInstalacion(lineas, conocidos)) != len(lineas):
+			return true, nil
+		}
 	}
-	if _, _, ok := lineasDe(c.Payload); !ok {
-		return tipo == TipoInstalacion, nil
-	}
-	if len(conocidos) == 0 {
-		return true, nil
-	}
-	_, lineas, _ := lineasDe(c.Payload)
-	return len(SinLineaInstalacion(lineas, conocidos)) != len(lineas), nil
+	return false, nil
 }
 
 // conflictoInstalacion: 409 cargo_instalacion_vigente.

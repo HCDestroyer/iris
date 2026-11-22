@@ -23,6 +23,15 @@ ALTER TABLE integracion.pendientes DROP CONSTRAINT pendientes_resuelto_como_chec
 CREATE UNIQUE INDEX pendientes_factura_por_anular_uq ON integracion.pendientes (factura_por_anular_id) WHERE factura_por_anular_id IS NOT NULL;
 
 -- +goose Down
+-- Un cargo que espera al consumo o con factura por anular dejaría de estar protegido (cobro doble).
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM integracion.pendientes WHERE espera_consumo OR factura_por_anular_id IS NOT NULL) THEN
+        RAISE EXCEPTION 'hay cargos que esperan al consumo o con factura por anular: no se puede bajar esta migración';
+    END IF;
+END $$;
+-- +goose StatementEnd
 UPDATE integracion.pendientes SET resuelto_como = 'manual' WHERE resuelto_como = 'cobrado_con_consumo';
 ALTER TABLE integracion.pendientes DROP CONSTRAINT pendientes_resuelto_como_check,
     ADD CONSTRAINT pendientes_resuelto_como_check CHECK (resuelto_como IN ('manual', 'reemplazado', 'orden_cancelada', 'orden_fallida',

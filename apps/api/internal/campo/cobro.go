@@ -240,12 +240,15 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 				} else if !ok {
 					return Cobro{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "El cobro de la instalación no está disponible para esta empresa")
 				}
-				// El cargo del cierre (iris:cargo:<orden>) vigente con la línea de instalación: otro cobro sería
-				// una segunda factura. Solo si Argos lo rechazó (sin «por confirmar») o se resolvió a mano.
-				if con, err := pendientes.CargoDelCierreConInstalacion(ctx, t, strconv.FormatInt(f.ID, 10), instalacion); err != nil {
+				// Otro cargo de la orden vigente con la línea de instalación (el del cierre, un A36 reintentado o un
+				// reemplazo resuelto a mano): otro cobro sería una segunda factura.
+				orden := strconv.FormatInt(f.ID, 10)
+				if clave, err := pendientes.CargoConInstalacionVigente(ctx, t, orden, instalacion, ""); err != nil {
 					return Cobro{}, err
-				} else if con {
+				} else if clave == "iris:cargo:"+orden {
 					return Cobro{}, nucleo.Conflicto("cobro_al_cerrar", "El cierre de la orden ya pidió el cobro de la instalación a Argos")
+				} else if clave != "" {
+					return Cobro{}, nucleo.Conflicto("cargo_instalacion_vigente", "La orden ya tiene otro cobro vigente con la línea de instalación")
 				}
 			}
 			descripcion := textoLimpio(in.Descripcion)
@@ -640,7 +643,8 @@ func (m *Modulo) otroCobroVigente(ctx context.Context, t *auditoria.Tx, q *campo
 	if !c.EsInstalacion {
 		return false, nil
 	}
-	return pendientes.CargoDelCierreConInstalacion(ctx, t, strconv.FormatInt(c.OrdenID, 10), 0)
+	clave, err := pendientes.CargoConInstalacionVigente(ctx, t, strconv.FormatInt(c.OrdenID, 10), 0, c.IdempotencyKey)
+	return clave != "", err
 }
 
 type avisoFacturaEntrada struct {

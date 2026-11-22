@@ -413,8 +413,10 @@ SELECT EXISTS (SELECT 1 FROM integracion.pendientes
     WHERE (factura_id = @factura_id::bigint OR factura_por_anular_id = @factura_id::bigint) AND id <> @id)::boolean;
 
 -- name: FijarFacturaPorAnular :one
+-- Una vez indicada una factura por anular, «no existe» exige que alguna se lea anulada (exige_por_anular).
 UPDATE integracion.pendientes
-SET factura_por_anular_id = sqlc.narg(factura_id), factura_por_anular_motivo = sqlc.narg(motivo), version = version + 1, updated_at = now()
+SET factura_por_anular_id = sqlc.narg(factura_id), factura_por_anular_motivo = sqlc.narg(motivo),
+    exige_por_anular = exige_por_anular OR sqlc.narg(factura_id)::bigint IS NOT NULL, version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version AND por_confirmar AND estado = 'fallido_negocio'
 RETURNING *;
 
@@ -456,3 +458,29 @@ UPDATE integracion.pendientes SET espera_consumo = true, estado = 'bloqueado',
     ultimo_error = 'consumible_cobro: lo cobra Argos con el consumo; queda resuelto al confirmarse', version = version + 1, updated_at = now()
 WHERE id = @id
 RETURNING *;
+
+-- name: CargosDeOrden :many
+SELECT * FROM integracion.pendientes WHERE entidad = 'orden' AND entidad_id = @orden::text AND operacion = 'cargo' ORDER BY id;
+
+-- name: OtroCobroVivo :one
+-- Otro cobro de A36 vivo de la orden (cobros_vivo_uq), sin contar el de esa clave.
+SELECT EXISTS (SELECT 1 FROM campo.cobros WHERE orden_id = @orden_id::bigint AND idempotency_key <> @clave::text
+    AND estado IN ('pendiente', 'facturado', 'pagado', 'por_confirmar'))::boolean;
+
+-- name: RevivirCobroA36 :execrows
+-- Reintentar el cargo de un cobro de A36 fallido lo vuelve a pendiente (vivo), en la misma transacción.
+UPDATE campo.cobros SET estado = 'pendiente', detalle = NULL, version = version + 1, updated_at = now()
+WHERE idempotency_key = @clave::text AND estado = 'fallido';
+
+-- name: MarcarFacturaAnulada :execrows
+UPDATE integracion.pendientes SET factura_anulada = true, version = version + 1, updated_at = now()
+WHERE factura_id = @factura_id::bigint AND NOT factura_anulada;
+
+-- name: MarcarFacturaAnuladaPorClave :execrows
+UPDATE integracion.pendientes SET factura_anulada = true, version = version + 1, updated_at = now()
+WHERE idempotency_key = @clave::text AND NOT factura_anulada;
+
+-- name: AvisosDeFactura :many
+-- Avisos factura.* / pago.* que llegaron antes de ligar esa factura (historial de la orden), en orden.
+SELECT datos->>'webhook' AS webhook FROM campo.orden_eventos
+WHERE orden_id = @orden_id::bigint AND tipo = 'cobro' AND datos->>'factura_id' = @factura::text ORDER BY id;

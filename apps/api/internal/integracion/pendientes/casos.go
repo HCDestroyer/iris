@@ -303,6 +303,9 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 				// 0.14.3 §3: revivirlo dejaría dos cobros vigentes con la línea de instalación.
 				return Pendiente{}, conflictoInstalacion()
 			}
+			if err := revivirCobroA36(ctx, t, q, f); err != nil {
+				return Pendiente{}, err
+			}
 			if corregido, ok, err := m.corregirTecnico(ctx, t, f, in.Version); err != nil || ok {
 				return corregido, err
 			}
@@ -721,4 +724,37 @@ func (m *Modulo) bodegaDe(ctx context.Context, q *pendientesbd.Queries, f pendie
 		return 0, err
 	}
 	return *b, nil
+}
+
+// revivirCobroA36: reintentar el cargo de un cobro de A36 fallido lo vuelve a pendiente en la misma
+// transacción (con la orden bloqueada), para que cobros_vivo_uq lo cubra y no se registre otro (0.14.3
+// §3). Si la orden ya tiene otro cobro vivo, 409.
+func revivirCobroA36(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries, f pendientesbd.IntegracionPendiente) error {
+	if f.Operacion != OpCargo || f.Entidad != "orden" {
+		return nil
+	}
+	orden, err := strconv.ParseInt(f.EntidadID, 10, 64)
+	if err != nil {
+		return nil
+	}
+	var fallido bool
+	if err := t.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM campo.cobros WHERE idempotency_key = $1 AND estado = 'fallido')`,
+		f.IdempotencyKey).Scan(&fallido); err != nil {
+		return err
+	}
+	if !fallido {
+		return nil
+	}
+	otro, err := q.OtroCobroVivo(ctx, pendientesbd.OtroCobroVivoParams{OrdenID: orden, Clave: f.IdempotencyKey})
+	if err != nil {
+		return err
+	}
+	if otro {
+		return nucleo.Conflicto("cobro_vigente", "La orden ya tiene otro cobro vigente: este no se puede reintentar")
+	}
+	if _, err := q.RevivirCobroA36(ctx, f.IdempotencyKey); err != nil {
+		return err
+	}
+	t.RegistrarCambios("cobro", f.IdempotencyKey, map[string]any{"estado": "fallido"}, map[string]any{"estado": "pendiente"})
+	return nil
 }

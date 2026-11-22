@@ -1262,6 +1262,8 @@ type IntegracionPendiente struct {
 	EsperaConsumo          bool
 	FacturaPorAnularID     *int64
 	FacturaPorAnularMotivo *string
+	ExigePorAnular         bool
+	FacturaAnulada         bool
 }
 
 type MensajeriaAjustesBandeja struct {

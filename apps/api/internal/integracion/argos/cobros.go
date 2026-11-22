@@ -109,14 +109,15 @@ type FacturaArgos struct {
 	SinConcepto bool
 }
 
-// ConPagos: saldo < total (la factura tiene pagos).
+// ConPagos: saldo < total (la factura tiene pagos). Falla cerrado: si el saldo o el total no se
+// conocen, cuenta como con pagos.
 func (f FacturaArgos) ConPagos() bool {
 	if f.Total == nil || f.Saldo == nil {
-		return false
+		return true
 	}
 	t, err1 := strconv.ParseFloat(*f.Total, 64)
 	s, err2 := strconv.ParseFloat(*f.Saldo, 64)
-	return err1 == nil && err2 == nil && s < t
+	return err1 != nil || err2 != nil || s < t
 }
 
 // ErrFacturaNoEncontrada: 404 factura_no_encontrada (o 422 validacion) de GET /facturas/origen-iris.
