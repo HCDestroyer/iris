@@ -128,6 +128,12 @@ type Modulo struct {
 	HallazgoResuelto *auditoria.Caso[horus.HallazgoResuelto, ResultadoHorus]
 	DescartarHorus   *auditoria.Caso[EntradaDescartarHorus, ResultadoHorus]
 	AvisarTanda      *auditoria.Caso[ArgsAvisarHijos, int]
+	// Caídas repetidas y falla general desde Argos (contrato 0.13.0 §3.11; B29 y B30).
+	CaidasArgos        *auditoria.Caso[EntradaCaidas, ResultadoRed]
+	FallaArgos         *auditoria.Caso[EntradaFalla, ResultadoRed]
+	CerrarFallaGeneral *auditoria.Caso[ArgsCerrarFallaGeneral, bool]
+	VerAjustesRed      *auditoria.Caso[struct{}, AjustesRed]
+	GuardarAjustesRed  *auditoria.Caso[AjustesRed, AjustesRed]
 
 	// Portal del cliente (actor cliente): portal.go.
 	ListarTicketsPortal     *auditoria.Caso[EntradaListarTicketsPortal, nucleo.Pagina[TicketPortal]]
@@ -193,6 +199,11 @@ func Nuevo(cfg Config) *Modulo {
 	m.HallazgoResuelto = m.nuevoHallazgoResuelto()
 	m.DescartarHorus = m.nuevoDescartarHorus()
 	m.AvisarTanda = m.nuevoAvisarTanda()
+	m.CaidasArgos = m.nuevoCaidasArgos()
+	m.FallaArgos = m.nuevoFallaArgos()
+	m.CerrarFallaGeneral = m.nuevoCerrarFallaGeneral()
+	m.VerAjustesRed = m.nuevoVerAjustesRed()
+	m.GuardarAjustesRed = m.nuevoGuardarAjustesRed()
 	m.ListarTicketsPortal = m.nuevoListarTicketsPortal()
 	m.VerTicketPortal = m.nuevoVerTicketPortal()
 	m.ListarMensajesPortal = m.nuevoListarMensajesPortal()

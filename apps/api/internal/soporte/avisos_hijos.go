@@ -37,6 +37,9 @@ type ArgsAvisarHijos struct {
 	Aviso     string `json:"aviso"`
 	Version   int32  `json:"version"` // versión del maestro tras el cambio (distingue avisos)
 	Texto     string `json:"texto"`   // solución (resuelto)
+	// Incidente: la falla general de Argos (soporte.incidentes_red.id) de los avisos falla_abierta y
+	// falla_cerrada: un aviso de cada tipo por cliente e incidente (§3.11), solo a hijos con cliente.
+	Incidente int64 `json:"incidente,omitempty"`
 }
 
 // Kind implementa river.JobArgs.
@@ -57,6 +60,14 @@ func (m *Modulo) encolarAviso(ctx context.Context, t *auditoria.Tx, maestro sopo
 }
 
 func cuerpoAviso(a ArgsAvisarHijos) string {
+	switch a.Aviso {
+	case AvisoFallaAbierta:
+		// Sin servicio ni dirección (§3.11).
+		return "Detectamos una falla en la red de tu zona que puede afectar tu servicio. Ya estamos trabajando para resolverla; " +
+			"te avisaremos cuando se resuelva."
+	case AvisoFallaCerrada:
+		return "La falla de red de tu zona se resolvió. Si tu servicio todavía no funciona, responde a este mensaje."
+	}
 	if a.Aviso == AvisoReabierto {
 		return "Detectamos de nuevo la falla de red que afecta tu servicio. Nuestro equipo ya está trabajando en ella; " +
 			"te avisaremos cuando se resuelva."
@@ -85,17 +96,34 @@ func (m *Modulo) nuevoAvisarTanda() *auditoria.Caso[ArgsAvisarHijos, int] {
 			}
 			t.FijarEmpresa(deref(maestro.EmpresaID))
 			clave := fmt.Sprintf("%s:%d", in.Aviso, in.Version)
+			if in.Incidente != 0 {
+				clave = fmt.Sprintf("%s:i%d", in.Aviso, in.Incidente)
+			}
 			hijos, err := q.HijosSinAviso(ctx, soportebd.HijosSinAvisoParams{MaestroID: in.MaestroID, Aviso: clave, Limite: TandaAvisos})
 			if err != nil {
 				return 0, err
 			}
 			cuerpo := cuerpoAviso(in)
+			avisados := 0
 			for _, h := range hijos {
+				if in.Incidente != 0 {
+					enviar, err := m.avisoFallaPermitido(ctx, q, in, h)
+					if err != nil {
+						return 0, err
+					}
+					if !enviar {
+						if err := q.RegistrarAvisoHijoSinMensaje(ctx, soportebd.RegistrarAvisoHijoSinMensajeParams{MaestroID: in.MaestroID, Aviso: clave, HijoID: h.ID}); err != nil {
+							return 0, err
+						}
+						continue
+					}
+				}
+				avisados++
 				msj, err := mensajeSistema(ctx, q, h, true, cuerpo)
 				if err != nil {
 					return 0, err
 				}
-				if err := q.RegistrarAvisoHijo(ctx, soportebd.RegistrarAvisoHijoParams{MaestroID: in.MaestroID, Aviso: clave, HijoID: h.ID, MensajeID: msj.ID}); err != nil {
+				if err := q.RegistrarAvisoHijo(ctx, soportebd.RegistrarAvisoHijoParams{MaestroID: in.MaestroID, Aviso: clave, HijoID: h.ID, MensajeID: &msj.ID}); err != nil {
 					return 0, err
 				}
 				tocado, err := q.TocarTicket(ctx, h.ID)
@@ -110,7 +138,7 @@ func (m *Modulo) nuevoAvisarTanda() *auditoria.Caso[ArgsAvisarHijos, int] {
 					return 0, err
 				}
 			}
-			t.Anotar(map[string]any{"aviso": clave, "hijos": len(hijos)})
+			t.Anotar(map[string]any{"aviso": clave, "hijos": len(hijos), "avisados": avisados})
 			return len(hijos), nil
 		},
 	})
@@ -144,4 +172,25 @@ func (w *TrabajadorAvisarHijos) Work(ctx context.Context, j *river.Job[ArgsAvisa
 // Timeout del job.
 func (w *TrabajadorAvisarHijos) Timeout(*river.Job[ArgsAvisarHijos]) time.Duration {
 	return 10 * time.Minute
+}
+
+// avisoFallaPermitido: el aviso de una falla general sale solo a hijos con cliente (§3.11: solo a
+// números con cliente), una vez por cliente e incidente y tipo y, el de cierre, como máximo uno cada
+// 6 h por cliente. Registra el aviso del cliente si sale.
+func (m *Modulo) avisoFallaPermitido(ctx context.Context, q *soportebd.Queries, in ArgsAvisarHijos, h soportebd.SoporteTicket) (bool, error) {
+	if h.ClienteID == nil {
+		return false, nil
+	}
+	tipo := "apertura"
+	ahora := m.ahora()
+	if in.Aviso == AvisoFallaCerrada {
+		tipo = "cierre"
+		reciente, err := q.CierreAvisadoDesde(ctx, soportebd.CierreAvisadoDesdeParams{ClienteID: *h.ClienteID, Desde: ahora.Add(-VentanaAvisoCierre), Incidente: in.Incidente})
+		if err != nil || reciente {
+			return false, err
+		}
+	}
+	n, err := q.RegistrarAvisoFallaCliente(ctx, soportebd.RegistrarAvisoFallaClienteParams{Incidente: in.Incidente, ClienteID: *h.ClienteID, Tipo: tipo,
+		TicketID: h.ID, EnviadoEn: ahora})
+	return n == 1, err
 }

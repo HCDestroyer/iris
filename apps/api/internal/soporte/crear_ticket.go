@@ -263,6 +263,24 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 		}
 	}
 	var maestro *soportebd.SoporteTicket
+	var falla *soportebd.SoporteIncidentesRed
+	if padreID == nil && op.incidente == nil && origen != "horus" && empresa != nil && in.ServicioID != nil && categoria != nil && categoria.Conectividad {
+		// Falla general de Argos abierta con el servicio (contrato 0.13.0 §3.11): un ticket de
+		// conectividad nace hijo del ticket general.
+		inc, err := q.IncidenteAbiertoDeServicio(ctx, soportebd.IncidenteAbiertoDeServicioParams{EmpresaID: *empresa, ServicioID: *in.ServicioID})
+		switch {
+		case err == nil:
+			g, err := q.TicketPorIDCompartido(ctx, inc.TicketID)
+			if err != nil {
+				return cero, err
+			}
+			if g.Estado != EstadoCerrado {
+				padreID, falla = &g.ID, &inc
+			}
+		case !errors.Is(err, pgx.ErrNoRows):
+			return cero, err
+		}
+	}
 	if padreID == nil && op.incidente == nil && origen != "horus" {
 		if maestro, err = vincularMaestro(ctx, q, empresa, in.ClienteID, in.ServicioID); err != nil {
 			return cero, err
@@ -328,6 +346,23 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 	if op.nota != "" {
 		if _, err := mensajeSistema(ctx, q, f, false, op.nota); err != nil {
 			return cero, err
+		}
+	}
+	if falla != nil {
+		if _, err := mensajeSistema(ctx, q, f, false, "Vinculado automáticamente a la falla general "+falla.IncidenteID+
+			": el servicio está afectado según Argos."); err != nil {
+			return cero, err
+		}
+		t.Anotar(map[string]any{"vinculado_a": falla.TicketID, "falla_general": falla.IncidenteID})
+		if f.ClienteID != nil {
+			// El aviso de falla al cliente (uno por cliente e incidente) sale por el job de avisos.
+			g, err := q.TicketPorID(ctx, falla.TicketID)
+			if err != nil {
+				return cero, err
+			}
+			if err := m.encolarAvisoFalla(ctx, t, g, *falla, AvisoFallaAbierta); err != nil {
+				return cero, err
+			}
 		}
 	}
 	if maestro != nil {

@@ -118,6 +118,8 @@ func correr() error {
 	// Tickets desde Horus: incidentes maestros por router o servicio de infraestructura y
 	// tickets por hallazgo (eventos internos horus.* del conector).
 	sop.SuscribirHorus(bus, pool)
+	// Caídas repetidas y falla general de Argos (contrato 0.13.0 §3.11): eventos internos argos.* del conector.
+	sop.SuscribirArgosRed(bus, pool)
 	// Acciones en Argos al cerrar una orden (contrato §3): suscriptor de orden.cerrada y cola de
 	// pendientes con reintentos (1 min, 5 min, 30 min, 2 h, 12 h).
 	// Cifrador: abre el depósito de tránsito del paso del titular (contrato 0.10.0 §3.4.8).

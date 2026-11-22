@@ -88,6 +88,11 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   `usuarios[]` (quien tiene la conversación y quienes supervisan la cola) con el tipo `bandeja`
   (respeta ese interruptor y el «no molestar»), título «Llamada perdida» y `llamada_perdida: true`.
 
+- **Posible falla general** (contrato con Argos 0.13.0 §3.11, B29, `avisos_posible_falla.go`): consume
+  `soporte.posible_falla_general` y crea el aviso `posible_falla_general` (nivel `peligro`, enlace al
+  ticket, datos `ticket_id` y `tickets`) a las personas con `tickets.configurar_caidas` que operan en la
+  empresa. Uno por ticket; solo campana (sin correo).
+
 ## Eventos
 
 - **Emite:** `dispositivo.registrado`, `dispositivo.quitado`, `notificaciones.preferencias_cambiadas`
@@ -95,7 +100,7 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   `notificaciones.correo_enviado` y `notificaciones.correo_fallido` (avisos del panel).
 - **Consume:** `chat.mensaje_enviado`, `chat.mencion` (cuando el chat tenga menciones),
   `conversacion.mencion`, `conversacion.aviso_sin_atender`, `orden.asignada`, `orden.programada` y
-  `asistente.tope_alcanzado` (avisos del panel).
+  `asistente.tope_alcanzado` y `soporte.posible_falla_general` (avisos del panel).
 
 ## Tablas (`notificaciones`)
 

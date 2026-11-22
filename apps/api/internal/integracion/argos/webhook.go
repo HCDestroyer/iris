@@ -113,6 +113,8 @@ type entradaAplicar struct {
 	promesa *promesaCambiada
 	// cuenta: cuenta_bancaria.cambiada (0.8.0 §7.8): la cuenta releída de Argos para la instantánea.
 	cuenta *lecturaCuentas
+	// red: caídas repetidas y falla general (0.13.0 §3.11), validadas: se emite el evento interno.
+	red *eventoRed
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -187,6 +189,12 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 	}
 	if in.promesa != nil {
 		if err := emitirPromesa(t, e, *in.promesa); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
+	}
+	if in.red != nil {
+		if err := emitirRed(t, *in.red); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"
@@ -314,6 +322,11 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 			return ResultadoEntrante{}, err
 		}
 		in.promesa, in.omitido = promesaDe(e, con)
+	case EventoCaidasRepetidas, EventoFallaGeneralAbierta, EventoFallaGeneralCerrada:
+		// Solo por el webhook firmado; la empresa y cada servicio se validan (lee Argos fuera de la
+		// transacción los que Iris no conoce).
+		in.red, in.omitido, in.errArgos = p.leerRed(ctx, bd, e)
+		return p.aplicar.Ejecutar(ctx, in)
 	case EventoCuentaBancariaCambiada:
 		// Se relee la cuenta en Argos y se guarda lo que diga Argos, nunca el payload (§7.8).
 		in.cuenta, in.omitido, in.errArgos = p.leerCuentaWebhook(ctx, bd, e)

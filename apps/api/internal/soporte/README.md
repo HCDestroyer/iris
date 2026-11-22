@@ -197,6 +197,48 @@ el conector (I1): `horus.router_estado_cambiado`, `horus.servicio_infra_cambiado
   Una regla de negocio que impide crear (p. ej. la categoría de la regla está inactiva) queda como
   `error` con la misma alerta, sin reintentos; un error de base se reintenta (relay).
 
+## Caídas repetidas y falla general desde Argos (`red_argos.go`, `red_ajustes.go`, contrato con Argos 0.13.0 §3.11, B29 y B30)
+
+Suscriptor `soporte.argos_red` (en `cmd/worker`, `SuscribirArgosRed`) de los eventos internos que
+publica el conector ya validados: `argos.caidas_repetidas`, `argos.falla_general_abierta` y
+`argos.falla_general_cerrada`. Casos de actor sistema (`tickets.argos_caidas`,
+`tickets.argos_falla_general`); idempotentes por `soporte.red_eventos` (una fila por `entrante_id`) y
+serializados por empresa con un advisory lock. Un evento de una empresa que Iris no tiene no hace nada
+(`empresa_no_registrada`).
+
+- **Umbrales por empresa** (`soporte.red_ajustes`; sin fila = de fábrica): `GET /tickets/ajustes-caidas`
+  (`tickets.ver`) y `POST` (`tickets.configurar_caidas`, admin y supervisor, sin límite de zona; con
+  `version`, 0 = de fábrica; emite `soporte.caidas_ajustes_cambiados`). De fábrica: 3 caídas en 60 min
+  y 20 tickets de caídas en 10 min.
+- **Caídas (B29)**, en este orden: bajo el umbral (menos sesiones o ventana de Argos más larga que la de
+  la empresa) no hace nada; si el servicio está en una falla general abierta, nota en el ticket
+  general; si hay un ticket de caídas abierto del servicio, nota en él; si hay una «posible falla
+  general» abierta en la empresa, nota en ella; si la empresa ya tiene N tickets de caídas de Argos en
+  los últimos 10 min, no abre otro: abre la posible falla general (`maestro = posible_falla`, una
+  abierta por empresa), le agrupa como hijos los de esos 10 min y emite `soporte.posible_falla_general`
+  (la campana de supervisión); si no, abre el ticket de caídas (categoría `caidas_repetidas`, prioridad
+  media, origen `argos`), que se vincula como cualquier otro.
+- **Falla general (B30)**, por incidente y empresa (`soporte.incidentes_red`, `incidente_red_servicios`):
+  - Abierta: un ticket general por `incidente_id` (`maestro = falla_general`, `incidente_red`, alta);
+    otro webhook del mismo incidente suma servicios. Si el mismo alcance se cerró hace menos de 30 min,
+    se reusa (y reabre) su ticket. Si el alcance es un router con maestro de Horus abierto, ese maestro
+    es el ticket general. Absorbe como hijos los tickets **de conectividad** (`categorias.conectividad`:
+    `sin_servicio`, `intermitencia`, `lentitud`, `caidas_repetidas`) abiertos de los servicios
+    afectados creados después de `desde`, también los hijos de la posible falla (que pasa a ser hija); y
+    mientras siga abierta, los tickets nuevos de conectividad de esos servicios nacen hijos.
+  - Aviso de falla (job `soporte.avisar_hijos` con `incidente`): mensaje público «hay una falla en la
+    red de tu zona», sin servicio ni dirección, solo a hijos con cliente y uno por cliente e incidente
+    (`soporte.avisos_falla_clientes`).
+  - Cerrada: el ticket general se resuelve y el job `soporte.cerrar_falla_general` lo cierra a los 30 min
+    si no se reusó (un maestro de Horus no se toca: solo la nota). Los hijos no se cierran: pasan a
+    `en_espera` para verificar con el cliente (su respuesta los reanuda). Un aviso de cierre por
+    cliente e incidente y como máximo uno cada 6 h por cliente.
+  - La bandeja trata un servicio del cliente en una falla general abierta como «falla masiva» para la
+    guardia fuera de horario (`RouterCaidoDelCliente`).
+- **No hecho todavía:** resolver solos los hijos cuando Horus o la sesión PPP confirman que el servicio
+  está arriba; el aviso por WhatsApp con las reglas de §6.5 (hoy el aviso es un mensaje público del
+  ticket, que sale por el portal o el correo del ticket y por `ticket.respondido`).
+
 ## Portal del cliente (`portal.go`, `rutas_portal.go`)
 
 Casos con `Acceso: auditoria.Cliente` (actor cliente de la sesión `iris_portal`, canal `portal`),
@@ -285,14 +327,16 @@ cliente son `cliente:<empresa>:<cliente>|<clave>`.
 `ticket.escalado`, `ticket.fusionado`, `ticket.sla_en_riesgo`, `ticket.sla_vencido`,
 `ticket.resolucion_propuesta`, `ticket.mensaje_cliente`, `soporte.horus_descartado`,
 `correo.recibido`, `buzon.creado`, `buzon.actualizado`, `buzon.activado`, `buzon.desactivado`,
-`encuesta.enviada`, `encuesta.respondida`, `encuesta.anulada`.
+`encuesta.enviada`, `encuesta.respondida`, `encuesta.anulada`, `soporte.posible_falla_general`,
+`soporte.caidas_ajustes_cambiados`.
 Payloads en `.claude/integration/contratos/eventos.md`.
 
 ## Eventos que consume
 
 `ticket.respondido` (salida por correo; idempotente por mensaje) y `horus.router_estado_cambiado`,
 `horus.servicio_infra_cambiado`, `horus.hallazgo_abierto`, `horus.hallazgo_resuelto` (tickets desde
-Horus; idempotentes por `entrante_id`).
+Horus; idempotentes por `entrante_id`), `argos.caidas_repetidas`, `argos.falla_general_abierta` y
+`argos.falla_general_cerrada` (caídas y falla general; idempotentes por `entrante_id`).
 
 ## Pruebas
 

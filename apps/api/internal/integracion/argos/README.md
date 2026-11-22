@@ -531,3 +531,20 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
   (`ServiciosClienteAsistente` no lo lee).
 - `codigo` ya se guardaba. Con el formato de A45 (`S-000412`) el asistente lo usa en la etiqueta corta
   (`<codigo> · «plan» · «zona»`, §10.5 ajuste ag); con otra forma sigue «Servicio n».
+
+## Contrato 0.13.0: caídas repetidas y falla general (§3.11, A49/A50; B29/B30)
+
+`red.go`. Solo por el webhook firmado (§2.3); se procesan en el job de entrantes y salen como eventos
+internos que consume soporte:
+
+- `servicio.caidas_repetidas` → `argos.caidas_repetidas`, si la empresa está en el alcance del conector
+  y el servicio es de esa empresa (instantánea o `GET /servicios/:id`). Iris decide con su umbral.
+- `red.falla_general_abierta` → `argos.falla_general_abierta` con `servicios[]` ya validados (los de la
+  instantánea de esa empresa; los que Iris no conoce se leen uno por uno con `GET /servicios/:id`: un
+  404 o 403, o de otra empresa, se descarta y el resto sigue) y `descartados`. Hasta 5000 ids en el
+  evento; si `cantidad` es mayor, el resto con `GET /incidentes-red/:id/servicios?empresa_id=&cursor=&limit=1000`
+  (un 404 = fuera del alcance: se sigue con los del evento). Un error de Argos reintenta el job.
+- `red.falla_general_cerrada` → `argos.falla_general_cerrada` (sin servicios).
+- Omitidos (quedan en la auditoría): `payload_invalido` (sin `incidente_id`, empresa, `desde`, o con
+  un `alcance` fuera de `router|olt|pon|zona`), `empresa_fuera_de_alcance`, `servicio_de_otra_empresa`.
+- El conector necesita el permiso `incidentes_red.leer` en Argos (§1.1) para la lectura paginada.
