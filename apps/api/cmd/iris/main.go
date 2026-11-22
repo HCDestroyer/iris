@@ -256,7 +256,9 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		Titular: campo.ConfigTitular{Cifrador: acfg.Cifrador, Conector: campo.ConectorDeArgos(conectorArgos), Encolar: integracion.Encolar(cola)},
 		// llamada.directa del lote: la anota la mensajería (fila y evento) en la transacción de la operación.
 		LlamadasDirectas: mensajeria.LlamadasDirectas{},
-		Agenda:           agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
+		// Activación desde la orden, equipo y Wi-Fi del cliente (contrato 0.9.0 §12).
+		Equipos: campo.EquiposDeArgos(conectorArgos),
+		Agenda:  agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
 	// (pendientes hacia Argos y orden de instalación en campo).
 	comercial.RegistrarAdjuntos()

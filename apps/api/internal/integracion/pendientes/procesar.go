@@ -125,9 +125,18 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		// La persona que actúa (contrato §3.4, §3.5 y §7.1): Argos audita con ella.
 		cli = cli.ConCabecera(CabeceraActorIris, *f.Actor)
 	}
+	if f.Operacion == OpCambiarWifi && f.Entidad == EntidadTransitoConversacion {
+		// El cambio de Wi-Fi desde una conversación lleva su id (§7.1 y §12.4).
+		cli = cli.ConCabecera(CabeceraConversacionIris, f.EntidadID)
+	}
 	var partes []conector.Parte
 	if f.TransitoID.Valid {
 		d, err := m.leerTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f)
+		if errors.Is(err, errVencido) && conClaveWifi(f.Operacion) {
+			// La clave Wi-Fi ya se descartó (rechazo o 7 días): se pide otra vez (otro intento).
+			r.Negocio, r.Codigo, r.Error = true, CodigoClaveDescartada, "la clave Wi-Fi ya se descartó: pide el cambio otra vez"
+			return r
+		}
 		if errors.Is(err, errVencido) {
 			// Se borró a los 7 días (o al resolverse): no se manda nada; hay que tomarlo otra vez.
 			r.Negocio, r.Codigo, r.Error = true, CodigoFotoVencida, "los datos del titular se borraron (7 días): hay que tomarlos otra vez"
@@ -181,6 +190,12 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	if bodegaRequerida(er, f.Payload) {
 		// Argos 1.5.x no entiende tecnico (contrato 0.5.0 §3.3): «bodega_id required».
 		r.Codigo = CodigoBodegaRequerida
+	}
+	if er.Status == http.StatusConflict && f.Operacion == OpActivarInstalacion && r.Codigo == CodigoServicioNoPendiente &&
+		activacionLista(ctx, nucleo.BDDe(ctx), f) {
+		// La orden tiene una activación lista (§12.2): Argos ya activó el servicio; no es error (§3).
+		r.Exito, r.Conciliado = true, r.Codigo
+		return r
 	}
 	if er.Status == http.StatusConflict && conciliable(f.Operacion, r.Codigo) {
 		// Argos ya lo tiene hecho (contrato 0.5.0 §3.3): cuenta como hecho, con la nota.
@@ -479,6 +494,10 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				}
 			case EstadoFallidoNegocio, EstadoAgotado:
 				if err := bloquearDependientes(ctx, t, f.ID, f.Estado); err != nil {
+					return Pendiente{}, err
+				}
+				// La clave Wi-Fi rechazada por Argos se descarta ya (§12.1, «Secretos»).
+				if err := descartarClave(ctx, t, f, in.ahora); err != nil {
 					return Pendiente{}, err
 				}
 			}

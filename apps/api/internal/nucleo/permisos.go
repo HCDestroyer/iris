@@ -111,6 +111,22 @@ const (
 	PermOrdenesCambiarPlan      Permiso = "ordenes.cambiar_plan"
 	PermOrdenesValidarIdentidad Permiso = "ordenes.validar_identidad"
 
+	// Equipos del cliente y activación desde la orden (contrato argosisp.md 0.9.0 §12, B12, B15 y
+	// B16). ordenes.activar_servicio: pedir a Argos que aprovisione y active (el técnico solo en sus
+	// órdenes en curso; con la orden cerrada, solo un agente); ordenes.cerrar_sin_activacion: un
+	// supervisor cierra con motivo una instalación sin la activación lista (modo «exigir lista»);
+	// servicios.ver_equipo y servicios.cambiar_wifi: el estado del equipo y el cambio de Wi-Fi desde
+	// la orden o el ticket (también asignables al rol del asistente, B14); ordenes.reenviar_bienvenida:
+	// reenviar la bienvenida del servicio; ordenes.registrar_cobro: registrar el cobro de la
+	// instalación (factura única en Argos) y ordenes.cobro_editar_monto: cambiar su precio, con motivo.
+	PermOrdenesActivarServicio     Permiso = "ordenes.activar_servicio"
+	PermOrdenesCerrarSinActivacion Permiso = "ordenes.cerrar_sin_activacion"
+	PermServiciosVerEquipo         Permiso = "servicios.ver_equipo"
+	PermServiciosCambiarWifi       Permiso = "servicios.cambiar_wifi"
+	PermOrdenesReenviarBienvenida  Permiso = "ordenes.reenviar_bienvenida"
+	PermOrdenesRegistrarCobro      Permiso = "ordenes.registrar_cobro"
+	PermOrdenesCobroEditarMonto    Permiso = "ordenes.cobro_editar_monto"
+
 	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
 	// asignarla (y programarla) en un paso; exige además ordenes.crear, ordenes.asignar y, con
 	// fecha, ordenes.programar. ordenes.igualar_asignacion: copiar la asignación del ticket a su
@@ -607,6 +623,13 @@ var Catalogo = []DefPermiso{
 	{PermMensajeriaEnviar, "Pedir avisos por la mensajería de Iris y consultar su estado (lo usa Argos con su token de integración)"},
 	{PermMensajeriaRegistrarConsentimiento, "Registrar el permiso de contacto (acepta o baja) de un cliente de Argos por un canal"},
 	{PermMensajeriaVer, "Ver las plantillas de mensajería vigentes y en qué canales están aprobadas"},
+	{PermOrdenesActivarServicio, "Pedir a Argos que aprovisione y active el servicio de una instalación (FTTH o wireless; el técnico solo en sus órdenes en curso; con la orden cerrada, solo un agente)"},
+	{PermOrdenesCerrarSinActivacion, "Cerrar con motivo una instalación sin la activación lista cuando la empresa la exige (supervisor)"},
+	{PermOrdenesCobroEditarMonto, "Cambiar el precio del cobro de la instalación que trae la plantilla, con motivo auditado"},
+	{PermOrdenesReenviarBienvenida, "Reenviar el mensaje de bienvenida del servicio desde la orden"},
+	{PermOrdenesRegistrarCobro, "Registrar el cobro de la instalación desde la orden (factura única en Argos, nunca Q0)"},
+	{PermServiciosCambiarWifi, "Cambiar el nombre o la clave del Wi-Fi del equipo del cliente desde la orden o el ticket (el técnico solo en sus órdenes en curso; la clave nunca se guarda)"},
+	{PermServiciosVerEquipo, "Ver el estado del equipo del cliente (en línea, señal) desde la orden, el ticket o la conversación"},
 	{PermOrdenesAplicarDatosArgos, "Aplicar a una orden abierta los datos nuevos de Argos (dirección, coordenadas, referencia y contacto) tras el aviso «Dato de Argos cambió»"},
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
 	{PermOrdenesAsignarForm, "Agregar formularios (plantillas) a una orden o quitarlos mientras no tengan respuestas"},
@@ -725,6 +748,8 @@ var permisosOrdenes = []Permiso{
 	PermOrdenesCerrar, PermOrdenesFallar, PermOrdenesCancelar, PermOrdenesReabrir, PermCampoSincronizar,
 	PermOrdenesAsignarForm, PermOrdenesPausar, PermOrdenesReanudar, PermPlantillasVer,
 	PermTicketsCrearOrden, PermOrdenesIgualarAsignacion, PermOrdenesAplicarDatosArgos, PermOrdenesDescartarDatosArgos,
+	// 0.9.0 §12 (B12, B15, B16): activar, equipo, Wi-Fi, bienvenida y cobro de la instalación.
+	PermOrdenesActivarServicio, PermServiciosVerEquipo, PermServiciosCambiarWifi, PermOrdenesReenviarBienvenida, PermOrdenesRegistrarCobro,
 }
 
 // permisosPlantillas son los de administrar plantillas de formulario (supervisor).
@@ -774,7 +799,7 @@ var RolesBase = []DefRol{
 			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
-					PermOrdenesValidarIdentidad})...)},
+					PermOrdenesValidarIdentidad, PermOrdenesCerrarSinActivacion, PermOrdenesCobroEditarMonto})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
@@ -795,13 +820,17 @@ var RolesBase = []DefRol{
 			// El técnico llama por la empresa o desde su celular (E4c); no transfiere.
 			PermCentralitaLlamar,
 			// Paso «Confirmar titular y plan» (0.10.0 §3.4): solo en sus órdenes en sitio.
-			PermOrdenesCambiarTitular, PermOrdenesCompletarDatos, PermOrdenesCambiarPlan}},
+			PermOrdenesCambiarTitular, PermOrdenesCompletarDatos, PermOrdenesCambiarPlan,
+			// Activación, equipo y Wi-Fi (0.9.0 §12): solo en sus órdenes en curso.
+			PermOrdenesActivarServicio, PermServiciosVerEquipo, PermServiciosCambiarWifi}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
 			PermChatVer, PermChatEnviar, PermConversacionesTransferir, PermConversacionesAsociar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesIniciar, PermCentralitaLlamar, PermCentralitaTransferir,
-			PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
+			PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar,
+			// Equipo y Wi-Fi del cliente desde el ticket (0.9.0 §12.3 y §12.4).
+			PermServiciosVerEquipo, PermServiciosCambiarWifi},
 			slices.Concat(permisosTickets, permisosAtencion)...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
 		Permisos: append([]Permiso{PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerUbicacion, PermAdjuntosVer, PermAdjuntosSubir, PermAgendaVer,

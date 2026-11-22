@@ -1077,13 +1077,14 @@ func (q *Queries) FijarCuerpoResuelto(ctx context.Context, arg FijarCuerpoResuel
 
 const guardarTransito = `-- name: GuardarTransito :exec
 
-INSERT INTO integracion.datos_transito (id, empresa_id, orden_id, cifrado, llave_cifrada, tomado_en)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO integracion.datos_transito (id, empresa_id, entidad, orden_id, cifrado, llave_cifrada, tomado_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 `
 
 type GuardarTransitoParams struct {
 	ID           uuid.UUID
 	EmpresaID    *int64
+	Entidad      string
 	OrdenID      int64
 	Cifrado      []byte
 	LlaveCifrada []byte
@@ -1095,6 +1096,7 @@ func (q *Queries) GuardarTransito(ctx context.Context, arg GuardarTransitoParams
 	_, err := q.db.Exec(ctx, guardarTransito,
 		arg.ID,
 		arg.EmpresaID,
+		arg.Entidad,
 		arg.OrdenID,
 		arg.Cifrado,
 		arg.LlaveCifrada,
@@ -1215,7 +1217,7 @@ func (q *Queries) InsertarPendiente(ctx context.Context, arg InsertarPendientePa
 }
 
 const leerTransito = `-- name: LeerTransito :one
-SELECT id, empresa_id, orden_id, cifrado, tomado_en, borrado_en, motivo_borrado, created_at, llave_cifrada FROM integracion.datos_transito WHERE id = $1
+SELECT id, empresa_id, orden_id, cifrado, tomado_en, borrado_en, motivo_borrado, created_at, llave_cifrada, entidad FROM integracion.datos_transito WHERE id = $1
 `
 
 func (q *Queries) LeerTransito(ctx context.Context, id uuid.UUID) (IntegracionDatosTransito, error) {
@@ -1231,6 +1233,7 @@ func (q *Queries) LeerTransito(ctx context.Context, id uuid.UUID) (IntegracionDa
 		&i.MotivoBorrado,
 		&i.CreatedAt,
 		&i.LlaveCifrada,
+		&i.Entidad,
 	)
 	return i, err
 }

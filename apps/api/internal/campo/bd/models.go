@@ -218,13 +218,49 @@ type AuditoriaCambio struct {
 	CreatedAt time.Time
 }
 
-type CampoAjuste struct {
-	ID                  int64
+type CampoActivacione struct {
+	ID                  uuid.UUID
+	OrdenID             int64
 	EmpresaID           *int64
-	TecnicosTomanLibres bool
+	ServicioID          int64
+	Intento             int32
+	IdempotencyKey      string
+	Origen              string
+	PedidoPor           *int64
+	Estado              string
+	EquipoTipo          string
+	EquipoSerie         *string
+	EquipoMac           *string
+	EquipoUnidadID      *int64
+	EquipoModelo        *string
+	Planta              []byte
+	Wireless            []byte
+	WifiSsid            *string
+	ConClaveWifi        bool
+	PendienteID         *int64
+	AprovisionamientoID *int64
+	Causa               *string
+	Reintentable        *bool
+	Detalle             *string
+	Pasos               []byte
+	ServicioEstado      *string
+	ConsultadoEn        *time.Time
+	ResueltoEn          *time.Time
+	EntranteID          *int64
 	Version             int32
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+}
+
+type CampoAjuste struct {
+	ID                    int64
+	EmpresaID             *int64
+	TecnicosTomanLibres   bool
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ActivacionModo        string
+	CierreExigeBienvenida bool
 }
 
 type CampoDispositivo struct {
@@ -311,6 +347,20 @@ type CampoOrden struct {
 	DatosArgosCampos      []string
 	Referencia            *string
 	DatosArgosEntranteID  *int64
+}
+
+type CampoOrdenActivacion struct {
+	OrdenID             int64
+	EmpresaID           *int64
+	Intentos            int32
+	SinActivacionMotivo *string
+	SinActivacionPor    *int64
+	BienvenidaCanales   []byte
+	BienvenidaEn        *time.Time
+	BienvenidaReenvios  int32
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type CampoOrdenAdjunto struct {
@@ -523,24 +573,26 @@ type CampoPlantillaVersion struct {
 }
 
 type CampoPlantillasChecklist struct {
-	ID               int64
-	Codigo           string
-	Nombre           string
-	TipoCodigo       *string
-	RequiereFirma    bool
-	Activa           bool
-	Version          int32
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	Cobrar           *bool
-	CargoProductoID  *int64
-	CargoMonto       pgtype.Numeric
-	CargoDescripcion string
-	EmpresaID        *int64
-	Descripcion      string
-	CreadoPor        *int64
-	VersionActualID  int64
-	AlgunaVezActiva  bool
+	ID                    int64
+	Codigo                string
+	Nombre                string
+	TipoCodigo            *string
+	RequiereFirma         bool
+	Activa                bool
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	Cobrar                *bool
+	CargoProductoID       *int64
+	CargoMonto            pgtype.Numeric
+	CargoDescripcion      string
+	EmpresaID             *int64
+	Descripcion           string
+	CreadoPor             *int64
+	VersionActualID       int64
+	AlgunaVezActiva       bool
+	ActivacionModo        *string
+	CierreExigeBienvenida *bool
 }
 
 type CampoPosicion struct {
@@ -1003,6 +1055,30 @@ type IntegracionAutorizacione struct {
 	UpdatedAt          time.Time
 }
 
+type IntegracionCambiosWifi struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ServicioID     int64
+	ClienteID      int64
+	OrigenTipo     string
+	OrigenID       string
+	Actor          string
+	UsuarioID      *int64
+	Metodo         string
+	VerificadoEn   time.Time
+	ConSsid        bool
+	ConClave       bool
+	IdempotencyKey string
+	PendienteID    *int64
+	SolicitudID    *int64
+	Estado         string
+	Causa          *string
+	Detalle        *string
+	EntranteID     *int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type IntegracionCodigosConexion struct {
 	ID         int64
 	Sistema    string
@@ -1016,38 +1092,39 @@ type IntegracionCodigosConexion struct {
 }
 
 type IntegracionConectore struct {
-	ID                          int64
-	Sistema                     string
-	BaseUrl                     string
-	Origen                      string
-	TokenCifrado                []byte
-	SecretoWebhookCifrado       []byte
-	RemotoID                    *string
-	Empresas                    []int64
-	Estado                      string
-	CreadoPor                   *int64
-	ActivadoEn                  *time.Time
-	ActivadoPor                 *int64
-	UltimoWebhookEn             *time.Time
-	Version                     int32
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
-	UrlPublica                  *string
-	TokenEntregadoID            *int64
-	AlcanceGlobal               *bool
-	PanelUrl                    *string
-	VersionRemota               *string
-	ContratoRemoto              *string
-	ContratoInformado           *string
-	VersionConsultadaEn         *time.Time
-	WebhookSalidaUrl            *string
-	WebhookSalidaSecretoCifrado []byte
-	ReemplazaConectorID         *int64
-	ReemplazaTokenID            *int64
-	VersionEstado               *string
-	VersionDetalle              *string
-	EliminadoEn                 *time.Time
-	EliminadoPor                *int64
+	ID                           int64
+	Sistema                      string
+	BaseUrl                      string
+	Origen                       string
+	TokenCifrado                 []byte
+	SecretoWebhookCifrado        []byte
+	RemotoID                     *string
+	Empresas                     []int64
+	Estado                       string
+	CreadoPor                    *int64
+	ActivadoEn                   *time.Time
+	ActivadoPor                  *int64
+	UltimoWebhookEn              *time.Time
+	Version                      int32
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	UrlPublica                   *string
+	TokenEntregadoID             *int64
+	AlcanceGlobal                *bool
+	PanelUrl                     *string
+	VersionRemota                *string
+	ContratoRemoto               *string
+	ContratoInformado            *string
+	VersionConsultadaEn          *time.Time
+	WebhookSalidaUrl             *string
+	WebhookSalidaSecretoCifrado  []byte
+	ReemplazaConectorID          *int64
+	ReemplazaTokenID             *int64
+	VersionEstado                *string
+	VersionDetalle               *string
+	EliminadoEn                  *time.Time
+	EliminadoPor                 *int64
+	CapacidadesAprovisionamiento []byte
 }
 
 type IntegracionDatosTransito struct {
@@ -1060,6 +1137,7 @@ type IntegracionDatosTransito struct {
 	MotivoBorrado *string
 	CreatedAt     time.Time
 	LlaveCifrada  []byte
+	Entidad       string
 }
 
 type IntegracionEntrante struct {

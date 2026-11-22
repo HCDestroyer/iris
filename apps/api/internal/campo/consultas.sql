@@ -661,11 +661,13 @@ SELECT * FROM campo.ajustes WHERE coalesce(empresa_id, 0) = coalesce(sqlc.narg(e
 SELECT * FROM campo.ajustes WHERE coalesce(empresa_id, 0) = coalesce(sqlc.narg(empresa_id)::bigint, 0) FOR UPDATE;
 
 -- name: CrearAjustes :one
-INSERT INTO campo.ajustes (empresa_id, tecnicos_toman_libres) VALUES (sqlc.narg(empresa_id), @tecnicos_toman_libres)
+INSERT INTO campo.ajustes (empresa_id, tecnicos_toman_libres, activacion_modo, cierre_exige_bienvenida)
+VALUES (sqlc.narg(empresa_id), @tecnicos_toman_libres, @activacion_modo, @cierre_exige_bienvenida)
 RETURNING *;
 
 -- name: GuardarAjustes :one
-UPDATE campo.ajustes SET tecnicos_toman_libres = @tecnicos_toman_libres, version = version + 1, updated_at = now()
+UPDATE campo.ajustes SET tecnicos_toman_libres = @tecnicos_toman_libres, activacion_modo = @activacion_modo,
+    cierre_exige_bienvenida = @cierre_exige_bienvenida, version = version + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
 

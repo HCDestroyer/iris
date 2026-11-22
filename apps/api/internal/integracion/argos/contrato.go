@@ -2,6 +2,7 @@ package argos
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -119,6 +120,8 @@ func (m *Modulo) InventarioPorTecnico(ctx context.Context, q conector.DBTX) (boo
 type EstadoIris struct {
 	VersionArgos string `json:"version_argos"`
 	Contrato     string `json:"contrato"`
+	// Capacidades (0.9.0 §4.3): lo que Argos puede aprovisionar por empresa y tecnología.
+	Capacidades *capacidadesEstado `json:"capacidades"`
 }
 
 // ArgsInformarContrato informa el contrato de Iris a un conector activo y lee su versión.
@@ -178,6 +181,10 @@ type entradaGuardarContrato struct {
 	// Diagnóstico de esta lectura (siempre se guarda, cambie o no la versión).
 	Estado  string `json:"version_estado"`
 	Detalle string `json:"version_detalle"`
+	// Capacidades leídas de GET …/estado (0.9.0 §4.3); ConCapacidades: se leyó y se guarda (sin la
+	// marca, null: Iris activa al cerrar).
+	Capacidades    *capacidadesEstado `json:"capacidades,omitempty"`
+	ConCapacidades bool               `json:"con_capacidades,omitempty"`
 }
 
 // InformarContrato: PUT /integraciones/iris/contrato y GET /integraciones/iris/estado fuera de
@@ -211,6 +218,23 @@ func nuevoInformarContrato(m *Modulo) *InformarContrato {
 			r := ResultadoContrato{ConectorID: despues.ID, VersionRemota: despues.VersionRemota, ContratoRemoto: despues.ContratoRemoto,
 				ContratoInformado: despues.ContratoInformado, Estado: in.Estado}
 			campos := []string{}
+			if in.ConCapacidades {
+				// 0.9.0 §4.3: capacidades.aprovisionamiento (sin la marca, null).
+				var antesCaps []byte
+				if err := t.QueryRow(ctx, `SELECT capacidades_aprovisionamiento FROM integracion.conectores WHERE id = $1`, in.ConectorID).Scan(&antesCaps); err != nil {
+					return ResultadoContrato{}, err
+				}
+				if err := guardarCapacidades(ctx, t, in.ConectorID, in.Capacidades); err != nil {
+					return ResultadoContrato{}, err
+				}
+				var ahoraCaps []byte
+				if err := t.QueryRow(ctx, `SELECT capacidades_aprovisionamiento FROM integracion.conectores WHERE id = $1`, in.ConectorID).Scan(&ahoraCaps); err != nil {
+					return ResultadoContrato{}, err
+				}
+				if !mismoJSONCrudo(antesCaps, ahoraCaps) {
+					campos = append(campos, "capacidades_aprovisionamiento")
+				}
+			}
 			if !mismoTexto(antes.VersionRemota, despues.VersionRemota) {
 				campos = append(campos, "version_remota")
 			}
@@ -235,6 +259,20 @@ func nuevoInformarContrato(m *Modulo) *InformarContrato {
 		},
 	})
 	return k
+}
+
+// mismoJSONCrudo compara dos jsonb leídos de la base (null = vacío).
+func mismoJSONCrudo(a, b []byte) bool {
+	if len(a) == 0 || len(b) == 0 {
+		return len(a) == len(b)
+	}
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	ja, _ := json.Marshal(x)
+	jb, _ := json.Marshal(y)
+	return string(ja) == string(jb)
 }
 
 func mismoTexto(a, b *string) bool {
@@ -341,6 +379,7 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	var estado EstadoIris
 	errGet := cli.Pedir(ctx, http.MethodGet, rutaEstado, nil, nil, true, &conector.Recurso{Destino: &estado})
 	if errGet == nil {
+		in.Capacidades, in.ConCapacidades = estado.Capacidades, true
 		if v := conector.TextoVersion(estado.VersionArgos, 40); v != nil {
 			in.Version = v
 		}

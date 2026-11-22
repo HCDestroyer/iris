@@ -15,7 +15,10 @@ import (
 // CamposRespuesta: los únicos campos que se guardan de una respuesta (y sus formas camelCase).
 var CamposRespuesta = []string{"id", "codigo", "codigo_externo", "cliente_id", "servicio_id", "estado", "empresa_id", "factura_id",
 	// Contrato 0.10.0 §3.4: la identidad registrada (A41, A39) la usa completar-datos (A43).
-	"identidad_id", "posible_duplicado", "de_cliente_id", "de_cliente_eliminado"}
+	"identidad_id", "posible_duplicado", "de_cliente_id", "de_cliente_eliminado",
+	// Contrato 0.9.0 §12: el aprovisionamiento (A32), la solicitud de Wi-Fi (A35) y el estado final de
+	// un aprovisionamiento ya terminado (reintento con la misma clave: 200 con causa y reintentable).
+	"aprovisionamiento_id", "solicitud_id", "causa", "reintentable", "numero", "total", "moneda"}
 
 // Listas que también se guardan (contrato 0.5.0 §3.3): los cargos que Argos emitió al consumir
 // productos consumible_cobro, cada uno solo con sus campos escalares permitidos.

@@ -252,8 +252,8 @@ RETURNING *;
 -- --- Depósito de tránsito (contrato 0.10.0 §3.4.8) --------------------------------------------
 
 -- name: GuardarTransito :exec
-INSERT INTO integracion.datos_transito (id, empresa_id, orden_id, cifrado, llave_cifrada, tomado_en)
-VALUES (@id, sqlc.narg(empresa_id), @orden_id, @cifrado, @llave_cifrada, @tomado_en);
+INSERT INTO integracion.datos_transito (id, empresa_id, entidad, orden_id, cifrado, llave_cifrada, tomado_en)
+VALUES (@id, sqlc.narg(empresa_id), @entidad, @orden_id, @cifrado, @llave_cifrada, @tomado_en);
 
 -- name: LeerTransito :one
 SELECT * FROM integracion.datos_transito WHERE id = @id;

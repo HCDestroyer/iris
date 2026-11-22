@@ -24,7 +24,10 @@ type EntradaCerrarOrden struct {
 	Resultado string   `json:"resultado,omitempty" enum:"exitosa,parcial" doc:"exitosa por defecto. Solo una instalación exitosa activa el servicio en Argos"`
 	Lat       *float64 `json:"lat,omitempty" minimum:"-90" maximum:"90"`
 	Lon       *float64 `json:"lon,omitempty" minimum:"-180" maximum:"180"`
-	Sync      *OpSync  `json:"-"`
+	// SinActivacionMotivo: un supervisor (ordenes.cerrar_sin_activacion) cierra una instalación
+	// exitosa sin la activación lista cuando la empresa la exige (contrato 0.9.0 §12.2).
+	SinActivacionMotivo *string `json:"sinActivacionMotivo,omitempty" minLength:"10" maxLength:"500" doc:"Solo con el modo «exigir la activación lista»: un supervisor (ordenes.cerrar_sin_activacion) cierra sin ella; un agente la termina desde el panel"`
+	Sync                *OpSync `json:"-"`
 }
 
 func (e EntradaCerrarOrden) ordenID() int64 { return e.ID }
@@ -90,6 +93,12 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			if err := m.exigirIdentidad(ctx, t, q, antes, tipo.Codigo, resultado); err != nil {
 				return antes, "", err
 			}
+			// Activación desde la orden (0.9.0 §12.2): con «exigir lista», la activación lista (o un
+			// supervisor con motivo); en cualquier modo, lo que el cierre le dice a la cola.
+			act, err := m.activacionAlCerrar(ctx, t, q, antes, tipo.Codigo, resultado, in.SinActivacionMotivo)
+			if err != nil {
+				return antes, "", err
+			}
 			faltan, err := m.cfg.Adjuntos.Faltantes(ctx, antes.ID, requisitosAdjuntos(d))
 			if err != nil {
 				return antes, "", err
@@ -108,6 +117,7 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 				return f, "", err
 			}
 			payload := payloadCerrada(f, tipo.Codigo, d)
+			act.alPayload(payload)
 			var plantilla *campobd.CampoPlantillasChecklist
 			if f.PlantillaID != nil {
 				p, err := q.PlantillaPorID(ctx, *f.PlantillaID)

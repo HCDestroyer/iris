@@ -278,6 +278,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	m.registrarTicketOrden(api)
 	m.registrarPlantillas(api)
 	m.registrarTitular(api)
+	m.registrarEquipos(api)
 	// Datos de operaciones del lote que no son el cuerpo de una acción del panel: se publican
 	// como componentes para que packages/sync los tome del contrato.
 	for _, v := range []any{EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{}, EntradaEditarNotaCampo{}, EntradaEliminarNotaCampo{}} {

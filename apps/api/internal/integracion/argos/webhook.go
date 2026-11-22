@@ -113,6 +113,9 @@ type entradaAplicar struct {
 	promesa *promesaCambiada
 	// cuenta: cuenta_bancaria.cambiada (0.8.0 §7.8): la cuenta releída de Argos para la instantánea.
 	cuenta *lecturaCuentas
+	// e090: webhook de la 0.9.0 (instalacion.*, equipo.wifi_resuelto, servicio.bienvenida_cambiada,
+	// factura.*, pago.*): se emite su evento interno.
+	e090 *evento090
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -187,6 +190,12 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 	}
 	if in.promesa != nil {
 		if err := emitirPromesa(t, e, *in.promesa); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
+	}
+	if in.e090 != nil {
+		if err := emitir090(t, *in.e090); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"
@@ -314,6 +323,16 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 			return ResultadoEntrante{}, err
 		}
 		in.promesa, in.omitido = promesaDe(e, con)
+	case EventoInstalacionAprovisionada, EventoInstalacionFallida, EventoWifiResuelto, EventoBienvenidaCambiada,
+		EventoFacturaEmitida, EventoFacturaAnulada, EventoPagoRegistrado, EventoPagoAnulado:
+		// 0.9.0: el payload firmado trae lo que Iris guarda (lista blanca); la empresa debe estar en el
+		// alcance del conector.
+		con, err := conectorbd.New(bd).ConectorPorID(ctx, e.ConectorID)
+		if err != nil {
+			return ResultadoEntrante{}, err
+		}
+		in.e090, in.omitido = de090(e, con)
+		return p.aplicar.Ejecutar(ctx, in)
 	case EventoCuentaBancariaCambiada:
 		// Se relee la cuenta en Argos y se guarda lo que diga Argos, nunca el payload (§7.8).
 		in.cuenta, in.omitido, in.errArgos = p.leerCuentaWebhook(ctx, bd, e)

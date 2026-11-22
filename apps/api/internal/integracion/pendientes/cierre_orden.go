@@ -105,6 +105,30 @@ type Equipo struct {
 	MAC       string   `json:"mac"`
 	Condicion string   `json:"condicion"` // al retirar: bueno, danado… o perdido (no se recuperó)
 	BodegaID  *IDArgos `json:"bodega_id"` // bodega a la que se devuelve (si no, la de la orden)
+	// Aprovisionado (0.9.0 §12.2): es el equipo de un intento de activación vivo; Argos lo asigna en
+	// comodato al aprovisionar, así que el cierre no manda su POST /servicios/:id/equipos.
+	Aprovisionado bool `json:"aprovisionado"`
+}
+
+// ActivacionCerrada es orden.cerrada.activacion (0.9.0 §12.2).
+type ActivacionCerrada struct {
+	Modo                       string   `json:"modo"`
+	Estado                     string   `json:"estado"`
+	AprovisionamientoID        *IDArgos `json:"aprovisionamiento_id"`
+	CerradaSinActivacionMotivo *string  `json:"cerrada_sin_activacion_motivo"`
+}
+
+// porAprovisionar: la activación de esta orden va (o fue) por aprovisionar, no por
+// activar-instalacion: el modo no es «al cerrar» o hay un intento vivo. Sin el campo (un cierre
+// anterior a la 0.9.0), como siempre.
+func (a *ActivacionCerrada) porAprovisionar() bool {
+	if a == nil {
+		return false
+	}
+	if a.Modo != "" && a.Modo != "al_cerrar" {
+		return true
+	}
+	return a.Estado == "pendiente" || a.Estado == "en_proceso" || a.Estado == "listo"
 }
 
 // Cargo único que la orden indica cobrar.
@@ -130,6 +154,8 @@ type OrdenCerrada struct {
 	Materiales      []Material    `json:"materiales"`
 	Equipos         []Equipo      `json:"equipos"`
 	Cargo           *Cargo        `json:"cargo"`
+	// Activacion (0.9.0 §12.2): modo y estado de la activación desde la orden; null en otros tipos.
+	Activacion *ActivacionCerrada `json:"activacion"`
 
 	// EventoID del outbox (no viene en el payload).
 	EventoID uuid.UUID `json:"-"`
@@ -339,7 +365,8 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 	// Equipos instalados (comodato): instalación y segundo paso del cambio de equipo.
 	instalados := func(depende []int) {
 		for _, e := range o.Equipos {
-			if e.Accion != AccionInstalar {
+			if e.Accion != AccionInstalar || e.Aprovisionado {
+				// El equipo aprovisionado ya lo asignó Argos en comodato (0.9.0 §12.2): no se repite.
 				continue
 			}
 			p := plan{
@@ -365,10 +392,14 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 	if o.Resultado == ResultadoExitosa {
 		switch o.Tipo {
 		case TipoInstalacion:
-			agregar(faltaServicio(plan{
-				operacion: OpActivarInstalacion, clave: "iris:instalacion:" + orden,
-				ruta: "/servicios/" + sid + "/activar-instalacion", payload: origen(orden),
-			}))
+			// Con la activación desde la orden (0.9.0 §12.2) el cierre no manda activar-instalacion:
+			// Argos activa al aprovisionar (o lo hará un agente desde el panel).
+			if !o.Activacion.porAprovisionar() {
+				agregar(faltaServicio(plan{
+					operacion: OpActivarInstalacion, clave: "iris:instalacion:" + orden,
+					ruta: "/servicios/" + sid + "/activar-instalacion", payload: origen(orden),
+				}))
+			}
 			instalados(nil)
 		case TipoRetiro:
 			retirados()

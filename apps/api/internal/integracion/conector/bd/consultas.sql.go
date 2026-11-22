@@ -95,7 +95,7 @@ SET estado       = $1,
     version      = version + 1,
     updated_at   = now()
 WHERE id = $3 AND version = $4
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento
 `
 
 type CambiarEstadoConectorParams struct {
@@ -146,6 +146,7 @@ func (q *Queries) CambiarEstadoConector(ctx context.Context, arg CambiarEstadoCo
 		&i.VersionDetalle,
 		&i.EliminadoEn,
 		&i.EliminadoPor,
+		&i.CapacidadesAprovisionamiento,
 	)
 	return i, err
 }
@@ -154,7 +155,7 @@ const cambiarURLPublicaConector = `-- name: CambiarURLPublicaConector :one
 UPDATE integracion.conectores
 SET url_publica = $1, version = version + 1, updated_at = now()
 WHERE id = $2 AND version = $3
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento
 `
 
 type CambiarURLPublicaConectorParams struct {
@@ -199,6 +200,7 @@ func (q *Queries) CambiarURLPublicaConector(ctx context.Context, arg CambiarURLP
 		&i.VersionDetalle,
 		&i.EliminadoEn,
 		&i.EliminadoPor,
+		&i.CapacidadesAprovisionamiento,
 	)
 	return i, err
 }
@@ -235,7 +237,7 @@ func (q *Queries) CompletarEmpresaCanje(ctx context.Context, arg CompletarEmpres
 }
 
 const conectorActivo = `-- name: ConectorActivo :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 `
 
 func (q *Queries) ConectorActivo(ctx context.Context, sistema string) (IntegracionConectore, error) {
@@ -274,12 +276,13 @@ func (q *Queries) ConectorActivo(ctx context.Context, sistema string) (Integraci
 		&i.VersionDetalle,
 		&i.EliminadoEn,
 		&i.EliminadoPor,
+		&i.CapacidadesAprovisionamiento,
 	)
 	return i, err
 }
 
 const conectorPorID = `-- name: ConectorPorID :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por FROM integracion.conectores WHERE id = $1
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento FROM integracion.conectores WHERE id = $1
 `
 
 func (q *Queries) ConectorPorID(ctx context.Context, id int64) (IntegracionConectore, error) {
@@ -318,12 +321,13 @@ func (q *Queries) ConectorPorID(ctx context.Context, id int64) (IntegracionConec
 		&i.VersionDetalle,
 		&i.EliminadoEn,
 		&i.EliminadoPor,
+		&i.CapacidadesAprovisionamiento,
 	)
 	return i, err
 }
 
 const conectorPorIDParaActualizar = `-- name: ConectorPorIDParaActualizar :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por FROM integracion.conectores WHERE id = $1 FOR UPDATE
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento FROM integracion.conectores WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) ConectorPorIDParaActualizar(ctx context.Context, id int64) (IntegracionConectore, error) {
@@ -362,12 +366,13 @@ func (q *Queries) ConectorPorIDParaActualizar(ctx context.Context, id int64) (In
 		&i.VersionDetalle,
 		&i.EliminadoEn,
 		&i.EliminadoPor,
+		&i.CapacidadesAprovisionamiento,
 	)
 	return i, err
 }
 
 const conectorQueReemplaza = `-- name: ConectorQueReemplaza :one
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo' AND reemplaza_conector_id = $2
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo' AND reemplaza_conector_id = $2
 `
 
 type ConectorQueReemplazaParams struct {
@@ -413,6 +418,7 @@ func (q *Queries) ConectorQueReemplaza(ctx context.Context, arg ConectorQueReemp
 		&i.VersionDetalle,
 		&i.EliminadoEn,
 		&i.EliminadoPor,
+		&i.CapacidadesAprovisionamiento,
 	)
 	return i, err
 }
@@ -431,7 +437,7 @@ func (q *Queries) ConectorReemplazadoPorActivo(ctx context.Context, id int64) (b
 }
 
 const conectoresActivos = `-- name: ConectoresActivos :many
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por FROM integracion.conectores WHERE estado = 'activo' ORDER BY sistema
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento FROM integracion.conectores WHERE estado = 'activo' ORDER BY sistema
 `
 
 func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore, error) {
@@ -476,6 +482,7 @@ func (q *Queries) ConectoresActivos(ctx context.Context) ([]IntegracionConectore
 			&i.VersionDetalle,
 			&i.EliminadoEn,
 			&i.EliminadoPor,
+			&i.CapacidadesAprovisionamiento,
 		); err != nil {
 			return nil, err
 		}
@@ -609,7 +616,7 @@ UPDATE integracion.conectores
 SET eliminado_en = now(), eliminado_por = $1, token_cifrado = NULL, secreto_webhook_cifrado = NULL,
     webhook_salida_url = NULL, webhook_salida_secreto_cifrado = NULL, version = version + 1, updated_at = now()
 WHERE id = $2 AND estado = 'apagado' AND eliminado_en IS NULL
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento
 `
 
 type EliminarConectorParams struct {
@@ -654,6 +661,7 @@ func (q *Queries) EliminarConector(ctx context.Context, arg EliminarConectorPara
 		&i.VersionDetalle,
 		&i.EliminadoEn,
 		&i.EliminadoPor,
+		&i.CapacidadesAprovisionamiento,
 	)
 	return i, err
 }
@@ -811,7 +819,7 @@ SET version_remota = CASE WHEN $1::boolean THEN NULL ELSE coalesce($2, version_r
     version_estado = $6::text, version_detalle = $7,
     version_consultada_en = now(), updated_at = now()
 WHERE id = $8
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento
 `
 
 type FijarVersionConectorParams struct {
@@ -876,6 +884,7 @@ func (q *Queries) FijarVersionConector(ctx context.Context, arg FijarVersionCone
 		&i.VersionDetalle,
 		&i.EliminadoEn,
 		&i.EliminadoPor,
+		&i.CapacidadesAprovisionamiento,
 	)
 	return i, err
 }
@@ -992,7 +1001,7 @@ INSERT INTO integracion.conectores (
     $14, $15,
     CASE WHEN $13::text IS NULL AND $14::text IS NULL THEN NULL ELSE now() END
 )
-RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por
+RETURNING id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento
 `
 
 type InsertarConectorParams struct {
@@ -1065,6 +1074,7 @@ func (q *Queries) InsertarConector(ctx context.Context, arg InsertarConectorPara
 		&i.VersionDetalle,
 		&i.EliminadoEn,
 		&i.EliminadoPor,
+		&i.CapacidadesAprovisionamiento,
 	)
 	return i, err
 }
@@ -1121,7 +1131,7 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 }
 
 const listarConectores = `-- name: ListarConectores :many
-SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por FROM integracion.conectores
+SELECT id, sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado, remoto_id, empresas, estado, creado_por, activado_en, activado_por, ultimo_webhook_en, version, created_at, updated_at, url_publica, token_entregado_id, alcance_global, panel_url, version_remota, contrato_remoto, contrato_informado, version_consultada_en, webhook_salida_url, webhook_salida_secreto_cifrado, reemplaza_conector_id, reemplaza_token_id, version_estado, version_detalle, eliminado_en, eliminado_por, capacidades_aprovisionamiento FROM integracion.conectores
 WHERE id > $1 AND eliminado_en IS NULL
 ORDER BY id
 LIMIT $2
@@ -1175,6 +1185,7 @@ func (q *Queries) ListarConectores(ctx context.Context, arg ListarConectoresPara
 			&i.VersionDetalle,
 			&i.EliminadoEn,
 			&i.EliminadoPor,
+			&i.CapacidadesAprovisionamiento,
 		); err != nil {
 			return nil, err
 		}

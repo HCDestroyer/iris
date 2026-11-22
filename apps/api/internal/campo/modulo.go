@@ -19,6 +19,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/equipos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
@@ -133,6 +134,10 @@ type Config struct {
 	// LlamadasDirectas anota llamada.directa del lote (mensajeria.LlamadasDirectas). nil = la
 	// operación se rechaza con 503 no_disponible.
 	LlamadasDirectas LlamadasDirectas
+	// Equipos: activación desde la orden y equipo del cliente con Argos (activacion.go; contrato
+	// 0.9.0 §12). Vacío = Iris activa al cerrar (§4.3) y no muestra el equipo. La cola de pendientes
+	// usa el cifrador y el aviso de Titular.
+	Equipos ConfigEquipos
 }
 
 // Modulo reúne los casos de uso de campo.
@@ -216,6 +221,12 @@ type Modulo struct {
 
 	// Titular: paso «Confirmar titular y plan» de la instalación (titular.go).
 	Titular CasosTitular
+	// Activacion: activar el servicio desde la orden (activacion.go; contrato 0.9.0 §12.2).
+	Activacion CasosActivacion
+	// Equipo y Wi-Fi del cliente desde la orden (equipo.go; §12.3 y §12.4).
+	autorizarEquipo *auditoria.Caso[EntradaEquipoOrden, int64]
+	CambiarWifi     *auditoria.Caso[EntradaWifiOrden, equipos.CambioWifi]
+	CambiosWifi     *auditoria.Caso[EntradaEquipoOrden, []equipos.CambioWifi]
 }
 
 // Nuevo arma el módulo.
@@ -307,6 +318,10 @@ func Nuevo(cfg Config) *Modulo {
 	m.VerAjustes = m.nuevoVerAjustes()
 	m.FijarAjustes = m.nuevoFijarAjustes()
 	m.Titular = m.nuevosCasosTitular()
+	m.Activacion = m.nuevosCasosActivacion()
+	m.autorizarEquipo = m.nuevoAutorizarEquipo()
+	m.CambiarWifi = m.nuevoCambiarWifi()
+	m.CambiosWifi = m.nuevoCambiosWifi()
 	// Las tareas de agenda se ligan a órdenes que el actor ve (reglas de campo).
 	cfg.Agenda.UsarOrdenes(m)
 	return m

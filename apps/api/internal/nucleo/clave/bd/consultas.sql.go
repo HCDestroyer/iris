@@ -584,7 +584,7 @@ func (q *Queries) TOTPCifrados(ctx context.Context) ([]TOTPCifradosRow, error) {
 }
 
 const transitoCifrado = `-- name: TransitoCifrado :many
-SELECT id, orden_id, empresa_id, llave_cifrada FROM integracion.datos_transito
+SELECT id, entidad, orden_id, empresa_id, llave_cifrada FROM integracion.datos_transito
 WHERE llave_cifrada IS NOT NULL
 ORDER BY id
 FOR UPDATE
@@ -592,6 +592,7 @@ FOR UPDATE
 
 type TransitoCifradoRow struct {
 	ID           uuid.UUID
+	Entidad      string
 	OrdenID      int64
 	EmpresaID    *int64
 	LlaveCifrada []byte
@@ -611,6 +612,7 @@ func (q *Queries) TransitoCifrado(ctx context.Context) ([]TransitoCifradoRow, er
 		var i TransitoCifradoRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.Entidad,
 			&i.OrdenID,
 			&i.EmpresaID,
 			&i.LlaveCifrada,
