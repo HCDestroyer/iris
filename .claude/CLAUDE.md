@@ -212,6 +212,8 @@ Una tarea está terminada solo si:
 | `argos.promesa_cambiada` | integracion (argos, webhooks promesa.*) | promesa_id, estado, tipo, empresa_id, cliente_id, servicio_id, comprobante_id (o null), canal, vence, motivo_reconexion (o null), motivo (cancelada), entrante_id; nunca el monto |
 | `argos.cuenta_bancaria_cambiada` | integracion (argos, webhook de Argos y relecturas) | cuenta_bancaria_id, empresa_id, campos[], activa, creada, entrante_id (o null); nunca el número de cuenta ni el titular |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
+| `orden.revision_titular_levantada` | campo (panel, §3.4.8) | orden_id, usuario_id; nunca el motivo |
+| `orden.paso_titular_tras_cancelar` | integracion (pendientes) | orden_id, pendiente_id, operacion, estado_orden (cancelada, fallida) |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |
 | `empresa.creada` / `empresa.actualizada` | identidad (núcleo) | empresa_id; origen (creada), campos[] (actualizada) |

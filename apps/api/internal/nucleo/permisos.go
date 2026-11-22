@@ -99,6 +99,18 @@ const (
 	// admin (todos) o de un usuario con un rol a medida que lo incluya.
 	PermOrdenesListarTodos Permiso = "ordenes.listar_todos"
 
+	// Paso «Confirmar titular y plan» de la orden de instalación (contrato argosisp.md 0.10.0 §3.4,
+	// B18). Solo el técnico, en sus órdenes en curso (asignadas a él y en sitio): no hay acciones
+	// del paso desde el panel (despacho no los tiene).
+	// ordenes.cambiar_titular: registrar la identidad del titular (A41) o cambiarlo (A39);
+	// ordenes.completar_datos: lo que falte del titular y del lugar (A43); ordenes.cambiar_plan: el
+	// plan antes de activar (A40); ordenes.validar_identidad: un supervisor deja activar sin la
+	// identidad registrada (o la manda revisada desde el panel): nunca cambia el titular.
+	PermOrdenesCambiarTitular   Permiso = "ordenes.cambiar_titular"
+	PermOrdenesCompletarDatos   Permiso = "ordenes.completar_datos"
+	PermOrdenesCambiarPlan      Permiso = "ordenes.cambiar_plan"
+	PermOrdenesValidarIdentidad Permiso = "ordenes.validar_identidad"
+
 	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
 	// asignarla (y programarla) en un paso; exige además ordenes.crear, ordenes.asignar y, con
 	// fecha, ordenes.programar. ordenes.igualar_asignacion: copiar la asignación del ticket a su
@@ -176,8 +188,11 @@ const (
 	PermProspectosPerder             Permiso = "prospectos.perder"
 	PermProspectosReabrir            Permiso = "prospectos.reabrir"
 	PermProspectosGanar              Permiso = "prospectos.ganar"
-	PermFactibilidadEvaluar          Permiso = "factibilidad.evaluar"
-	PermFactibilidadConfigurar       Permiso = "factibilidad.configurar"
+	// PermProspectosRegistrarIntegracion: registrar un prospecto desde Argos (contrato 0.10.0 §3.6,
+	// A44). Solo del rol integracion_argos: no lee, no lista ni edita prospectos.
+	PermProspectosRegistrarIntegracion Permiso = "prospectos.registrar_integracion"
+	PermFactibilidadEvaluar            Permiso = "factibilidad.evaluar"
+	PermFactibilidadConfigurar         Permiso = "factibilidad.configurar"
 	// factibilidad.registrar_manual: el resultado de una visita técnica (supervisor, técnico).
 	PermFactibilidadRegistrarManual Permiso = "factibilidad.registrar_manual"
 	PermCotizacionesCrear           Permiso = "cotizaciones.crear"
@@ -595,8 +610,11 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesAplicarDatosArgos, "Aplicar a una orden abierta los datos nuevos de Argos (dirección, coordenadas, referencia y contacto) tras el aviso «Dato de Argos cambió»"},
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
 	{PermOrdenesAsignarForm, "Agregar formularios (plantillas) a una orden o quitarlos mientras no tengan respuestas"},
+	{PermOrdenesCambiarPlan, "Cambiar el plan de una instalación antes de activarla (entre los permitidos, con motivo; el técnico solo en sus órdenes en sitio)"},
+	{PermOrdenesCambiarTitular, "Registrar la identidad del titular de una instalación o cambiar el titular antes de activar (con la foto del documento; el técnico solo en sus órdenes en sitio)"},
 	{PermOrdenesCancelar, "Cancelar órdenes de trabajo"},
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
+	{PermOrdenesCompletarDatos, "Completar los datos que falten del titular y del lugar de una instalación antes de activarla (el técnico solo en sus órdenes en sitio)"},
 	{PermOrdenesCrear, "Crear órdenes de trabajo (también desde un ticket)"},
 	{PermOrdenesDescartarDatosArgos, "Descartar el aviso «Dato de Argos cambió» de una orden sin cambiar sus datos"},
 	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
@@ -611,6 +629,7 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesRegistrar, "Registrar el trabajo de una orden: checklist, notas, materiales, equipos, firma y adjuntos"},
 	{PermOrdenesReprogramar, "Reprogramar órdenes (nueva fecha o técnico)"},
 	{PermOrdenesTomar, "Tomar para ti una orden libre (sin técnico) de tu zona o cuadrilla, si la empresa lo permite"},
+	{PermOrdenesValidarIdentidad, "Validar desde el panel la identidad del titular de una instalación (supervisor, con motivo): solo permite activar, nunca cambia el titular"},
 	{PermOrdenesVer, "Ver órdenes de trabajo (según el alcance) y su historial"},
 	{PermOrdenesVerPropias, "Ver solo las órdenes de trabajo asignadas a uno mismo (técnico)"},
 	{PermPermisosVer, "Ver el catálogo de permisos"},
@@ -633,6 +652,7 @@ var Catalogo = []DefPermiso{
 	{PermProspectosPerder, "Marcar un prospecto como perdido, con motivo"},
 	{PermProspectosReabrir, "Reabrir un prospecto perdido"},
 	{PermProspectosRegistrarActividad, "Registrar llamadas, visitas y notas de un prospecto"},
+	{PermProspectosRegistrarIntegracion, "Registrar prospectos desde Argos (lo usa Argos con su token de integración; no lee ni edita prospectos)"},
 	{PermProspectosVer, "Ver prospectos, su embudo, actividades, cotizaciones y contratos (según el alcance)"},
 	{PermReportesVer, "Ver los reportes de SLA, resolución, órdenes por técnico, primera visita y reincidencias (según el alcance; también en CSV)"},
 	{PermRolesActivar, "Volver a activar un rol propio desactivado"},
@@ -753,7 +773,8 @@ var RolesBase = []DefRol{
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
-				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir})...)},
+				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
+					PermOrdenesValidarIdentidad})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
@@ -772,7 +793,9 @@ var RolesBase = []DefRol{
 			PermCampoVerBodega, PermCampoRecibirTraslado, PermChatVer, PermChatEnviar,
 			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea, PermOrdenesTomar,
 			// El técnico llama por la empresa o desde su celular (E4c); no transfiere.
-			PermCentralitaLlamar}},
+			PermCentralitaLlamar,
+			// Paso «Confirmar titular y plan» (0.10.0 §3.4): solo en sus órdenes en sitio.
+			PermOrdenesCambiarTitular, PermOrdenesCompletarDatos, PermOrdenesCambiarPlan}},
 	{Codigo: "soporte", Nombre: "Soporte", Descripcion: "Atiende tickets",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
@@ -806,7 +829,9 @@ var RolesBase = []DefRol{
 	{Codigo: "integracion_argos", Nombre: "Integración Argos", Descripcion: "Token de ArgosISP en Iris (contrato §1.2 y pedido A9 propuesto)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear, PermOrdenesVer, PermPortalEmitir, PermSSOEmitir,
 			// Mensajería (contrato 0.6.0 §1.2 y §6): avisos, permisos de contacto y plantillas.
-			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer}},
+			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer,
+			// Prospectos registrados desde Argos (contrato 0.10.0 §3.6, A44): solo registrar.
+			PermProspectosRegistrarIntegracion}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }

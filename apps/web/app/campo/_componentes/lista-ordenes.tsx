@@ -3,17 +3,17 @@
 import type { OrdenVista, RutaCampo } from "@iris/sync";
 import { accionPrincipal, anilloAvance, intercalarTareas, mosaicoPorRecibir, mosaicoRuta, nombreCliente, resumenHoy, tareasDelDia } from "@iris/sync/campo";
 import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, cn } from "@iris/ui";
-import { CalendarX, ChevronRight, Clock, CloudUpload, ListChecks, MapPin, Phone, Play, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react";
+import { CalendarX, ChevronRight, Clock, CloudUpload, ListChecks, MapPin, Play, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { horaCorta, hoyEnGuatemala, ventanaCita } from "@/lib/campo/fechas";
 import { enlaceComoLlegar } from "@/lib/campo/gps";
 import { TIPOS_ORDEN } from "@/lib/campo/textos";
-import { enlaceTel, principal, telefonos } from "@/lib/datos/telefono";
 import { urlDeVista, useCampo } from "./contexto";
 import { InsigniaOrden } from "./insignias";
 import { useCargarAlAbrir } from "./inventario";
 import { useInventario } from "./inventario-datos";
 import { TarjetaTarea } from "./tareas";
+import { BotonLlamarOrden } from "./telefono";
 import type { CargaPaquete } from "./pantallas";
 
 /**
@@ -172,14 +172,6 @@ function useAbrir(orden: OrdenVista) {
     };
 }
 
-/** Teléfono para «Llamar»: primero el contacto en sitio de la orden, luego el de Argos. */
-function telefonoDe(orden: OrdenVista): string | null {
-    const deArgos = orden.cliente ? (orden.cliente.telefonos ?? telefonos("telefono", orden.cliente.telefono)) : [];
-    const lista = [...telefonos("telefono", orden.contacto.telefono), ...deArgos];
-    const t = orden.contacto.telefono ? (lista[0] ?? null) : principal(lista);
-    return t ? enlaceTel(t) : null;
-}
-
 /** La siguiente orden en grande: tarjeta de 28 px con el anillo de avance y sus tres botones. */
 function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posicion: number | null; parada: Parada | null }) {
     const { navegar } = useCampo();
@@ -188,7 +180,6 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
     const hora = horaCorta(orden.cita?.inicio ?? orden.programadaInicio);
     const anillo = anilloAvance(orden);
     const principalAccion = accionPrincipal(orden);
-    const llamar = telefonoDe(orden);
     const comoLlegar = enlaceComoLlegar(orden.lat ?? orden.cliente?.lat ?? null, orden.lon ?? orden.cliente?.lon ?? null, orden.direccion);
     const IconoAccion = principalAccion.texto === "Empezar trabajo" ? Play : principalAccion.texto === "Continuar trabajo" ? ListChecks : ChevronRight;
     return (
@@ -245,13 +236,8 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
                         </a>
                     </BotonRedondo>
                 ) : null}
-                {llamar ? (
-                    <BotonRedondo etiqueta="Llamar al cliente">
-                        <a href={llamar}>
-                            <Phone aria-hidden />
-                        </a>
-                    </BotonRedondo>
-                ) : null}
+                {/* «Llamar» abre la hoja: por la empresa o desde mi celular (E4c fase 3). */}
+                <BotonLlamarOrden orden={orden} etiqueta="Llamar al cliente" className="size-[3.25rem] shrink-0 rounded-full bg-[var(--campo-panel-2)] p-0 md:size-[3.25rem] [&_svg]:size-5" />
             </div>
         </section>
     );

@@ -263,7 +263,13 @@ func elegirTelefono(pedido *string, orden []string, tels map[string]string) (str
 }
 
 func (m *Modulo) telefonosCliente(ctx context.Context, q *mensajeriabd.Queries, cliente int64, servicio *int64) (map[string]string, error) {
-	c, err := q.ClienteInstantaneaEnEmpresa(ctx, mensajeriabd.ClienteInstantaneaEnEmpresaParams{ID: cliente, Empresa: empresaDeCtx(ctx)})
+	return telefonosDeCliente(ctx, q, empresaDeCtx(ctx), cliente, servicio)
+}
+
+// telefonosDeCliente: principal y móvil del cliente y el contacto en sitio del servicio (o del
+// primero que lo tenga), de la instantánea de Argos en la empresa.
+func telefonosDeCliente(ctx context.Context, q *mensajeriabd.Queries, empresa, cliente int64, servicio *int64) (map[string]string, error) {
+	c, err := q.ClienteInstantaneaEnEmpresa(ctx, mensajeriabd.ClienteInstantaneaEnEmpresaParams{ID: cliente, Empresa: empresa})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nucleo.NoEncontrado("El cliente no existe")
 	}
@@ -609,29 +615,16 @@ func (m *Modulo) nuevosCasosTelefonoPersona(k *casosTelefono) {
 			if err != nil {
 				return LlamadaDirecta{}, err
 			}
-			d := soloDigitos(num)
-			if len(d) < 8 || len(d) > 15 {
-				return LlamadaDirecta{}, nucleo.ReglaNegocio("sin_contacto", "La orden no tiene un teléfono válido")
-			}
-			e164 := "+" + d
-			if g := nacionalGT(num); g != "" {
-				e164 = "+502" + g
-			}
 			id, err := uuid.NewV7()
 			if err != nil {
 				return LlamadaDirecta{}, err
 			}
-			usuario := contexto.ActorDe(ctx).ID
-			l, err := q.InsertarLlamadaDirecta(ctx, mensajeriabd.InsertarLlamadaDirectaParams{ID: id, IDExterno: "celular:" + id.String(), EmpresaID: o.EmpresaID,
-				Numero: e164, ClienteID: o.ClienteID, ServicioID: o.ServicioID, UsuarioID: usuario, Ahora: m.ahora(), OrdenID: o.ID})
+			l, e164, err := anotarDirecta(ctx, t, q, directa{id: id, empresa: o.EmpresaID, orden: o.ID, cliente: o.ClienteID, servicio: o.ServicioID,
+				numero: num, usuario: contexto.ActorDe(ctx).ID, en: m.ahora()})
 			if err != nil {
 				return LlamadaDirecta{}, err
 			}
 			t.FijarEntidad("centralita_llamada", l.ID)
-			if err := t.Emitir("llamada.directa_registrada", map[string]any{"llamada_id": l.ID, "empresa_id": l.EmpresaID, "orden_id": o.ID,
-				"cliente_id": o.ClienteID, "servicio_id": o.ServicioID, "usuario_id": usuario, "origen": "celular"}); err != nil {
-				return LlamadaDirecta{}, err
-			}
 			v, err := m.unaLlamada(ctx, q, l, false)
 			if err != nil {
 				return LlamadaDirecta{}, err

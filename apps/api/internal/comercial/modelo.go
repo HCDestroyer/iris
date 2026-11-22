@@ -14,7 +14,10 @@ type Prospecto struct {
 	ID                int64      `json:"id"`
 	Numero            string     `json:"numero" doc:"PR-000001"`
 	EmpresaID         *int64     `json:"empresaId" nullable:"true" doc:"Empresa en Argos (null sin conector)"`
-	Origen            string     `json:"origen" enum:"panel,web,referido,argos,otro"`
+	Origen            string     `json:"origen" enum:"panel,web,referido,argos,argos_panel,otro" doc:"argos_panel: lo registró una persona en el panel de Argos (contrato §3.6)"`
+	Modo              *string    `json:"modo" nullable:"true" enum:"residencial,empresarial" doc:"Solo los registrados desde Argos"`
+	ClienteExistente  *int64     `json:"clienteExistenteId" nullable:"true" doc:"Cliente de Argos que eligió quien lo registró en Argos: al ganar, Iris no lo crea ni lo edita"`
+	ClienteValidado   *bool      `json:"clienteValidado" nullable:"true" doc:"false: Argos no respondió al registrarlo (se confirma después)"`
 	OrigenDetalle     *string    `json:"origenDetalle" nullable:"true" doc:"Quién lo refirió, campaña…"`
 	Nombre            string     `json:"nombre"`
 	Documento         *string    `json:"documento" nullable:"true" doc:"NIT o DPI"`
@@ -58,6 +61,7 @@ func aProspecto(f comercialbd.ComercialProspecto) Prospecto {
 		ZonaID: f.ZonaID, PlanInteresID: f.PlanInteresID, PlanInteresNombre: f.PlanInteresNombre, VendedorID: f.VendedorID,
 		Estado: f.Estado, Notas: f.Notas, MotivoPerdida: f.MotivoPerdida, PerdidoEn: f.PerdidoEn, GanadoEn: f.GanadoEn,
 		ObraConfirmada: f.ObraConfirmada, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt, Version: f.Version,
+		Modo: f.Modo, ClienteExistente: f.ClienteExistenteID, ClienteValidado: f.ClienteValidado,
 	}
 	if f.AltaModo != nil {
 		p.Alta = &Alta{Modo: *f.AltaModo, Estado: deref(f.AltaEstado), ClienteArgosID: f.ClienteArgosID,
@@ -70,11 +74,21 @@ func aProspecto(f comercialbd.ComercialProspecto) Prospecto {
 // vivo y las acciones hacia Argos (pendientes) del alta.
 type ProspectoDetalle struct {
 	Prospecto
-	Factibilidad *Factibilidad      `json:"factibilidad,omitempty" doc:"La última evaluación"`
-	Cotizacion   *Cotizacion        `json:"cotizacion,omitempty" doc:"La vigente o aceptada"`
-	Contrato     *Contrato          `json:"contrato,omitempty" doc:"El borrador o firmado"`
-	Pendientes   []PendienteArgos   `json:"pendientes" doc:"Acciones en Argos del alta (POST /clientes y POST /servicios)"`
-	Acciones     AccionesDisponible `json:"acciones" doc:"Qué acción del embudo corresponde ahora (para los botones del panel; el servidor valida igual)"`
+	Factibilidad *Factibilidad       `json:"factibilidad,omitempty" doc:"La última evaluación"`
+	Cotizacion   *Cotizacion         `json:"cotizacion,omitempty" doc:"La vigente o aceptada"`
+	Contrato     *Contrato           `json:"contrato,omitempty" doc:"El borrador o firmado"`
+	Pendientes   []PendienteArgos    `json:"pendientes" doc:"Acciones en Argos del alta (POST /clientes y POST /servicios)"`
+	Telefonos    []TelefonoProspecto `json:"telefonos" doc:"Números del prospecto registrado desde Argos (vacío en los demás: usan telefono)"`
+	Acciones     AccionesDisponible  `json:"acciones" doc:"Qué acción del embudo corresponde ahora (para los botones del panel; el servidor valida igual)"`
+}
+
+// TelefonoProspecto es un número de un prospecto registrado desde Argos (§3.6).
+type TelefonoProspecto struct {
+	Numero    string  `json:"numero" doc:"E.164"`
+	Whatsapp  bool    `json:"whatsapp"`
+	Principal bool    `json:"principal"`
+	Nombre    *string `json:"nombre" nullable:"true" doc:"De quién es (al ganar, contacto del cliente)"`
+	Relacion  *string `json:"relacion" nullable:"true" enum:"titular,familiar,otro"`
 }
 
 // AccionesDisponible: guía para el panel.

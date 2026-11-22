@@ -4,8 +4,8 @@ import { Aviso, Boton, cn, Dialogo, DialogoContenido, DialogoPie, PanelEmergente
 import { AppWindow, Grid3x3, KeyRound, Lock, Mic, MicOff, Phone, PhoneCall, PhoneOff, RotateCw, Unplug, Volume2, WifiOff } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { avisoError, puntoTelefono, textoMotivo } from "@/lib/telefono/presentacion";
-import type { ErrorTelefono } from "@/lib/telefono/tipos";
+import { avisoError, puntoTelefono, textoMotivo } from "@iris/telefono";
+import type { ErrorTelefono } from "@iris/telefono";
 import { sonarTimbre } from "@/lib/voz/timbre";
 import { useTelefono, type ContextoTelefono } from "./proveedor";
 

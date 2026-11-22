@@ -16,7 +16,7 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { esquemaTelefono, textoPruebaTelefono, valoresTelefono, type ValoresTelefono } from "@/lib/telefono/administracion";
 import { activarTelefono, guardarTelefonoCentralita, probarTelefonoCentralita } from "@/lib/telefono/api";
-import type { PruebaTelefono } from "@/lib/telefono/tipos";
+import type { PruebaTelefono } from "@iris/telefono";
 
 const VOLVER = "/administracion/integraciones/centralita";
 const CAMPOS = ["wssPuerto", "wssRuta", "sipDominio", "prefijoSalida", "llamadasPorUsuarioDia", "llamadasSimultaneas"] as const;
