@@ -8,6 +8,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
@@ -139,6 +140,10 @@ func (m *Modulo) nuevoFallarOrden() *auditoria.Caso[EntradaFallarOrden, Orden] {
 			if err := validarCoordenadas(in.Lat, in.Lon); err != nil {
 				return antes, "", err
 			}
+			// Los pasos del titular que no salieron no salen ya (§3.4.8; lo hecho en Argos no se deshace).
+			if _, err := pendientes.DetenerPasos(ctx, t, antes.ID, pendientes.ComoFallida, actorUsuario(t), m.ahora()); err != nil {
+				return antes, "", err
+			}
 			despues := antes
 			despues.Estado, despues.FinalizadaEn = EstadoFallida, &cuando
 			despues.Resultado, despues.MotivoFalla, despues.Motivo = ptr("fallida"), &in.MotivoFalla, detalle
@@ -183,6 +188,9 @@ func (m *Modulo) nuevoCancelarOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 				}
 			}
 			despues.Estado, despues.FinalizadaEn, despues.Resultado, despues.Motivo = EstadoCancelada, &ahora, ptr("cancelada"), &motivo
+			if _, err := pendientes.DetenerPasos(ctx, t, antes.ID, pendientes.ComoCancelada, actorUsuario(t), ahora); err != nil {
+				return antes, "", err
+			}
 			// La cita deja de ocupar la agenda del técnico (y su ruta del día queda por recalcular).
 			if err := m.cfg.Agenda.QuitarCita(ctx, t, antes.ID, fmt.Sprintf("La orden %s se canceló", antes.Numero)); err != nil {
 				return antes, "", err
@@ -221,6 +229,10 @@ func (m *Modulo) nuevoReabrirOrden() *auditoria.Caso[EntradaMotivo, Orden] {
 			}
 			// La firma del intento anterior no vale para el próximo cierre.
 			if err := invalidarFirma(ctx, t, q, antes.ID, ahora); err != nil {
+				return antes, "", err
+			}
+			// El paso «Confirmar titular y plan» se toma de nuevo (titular.go).
+			if err := reiniciarTitular(ctx, t, q, antes.ID); err != nil {
 				return antes, "", err
 			}
 			despues := antes

@@ -425,6 +425,32 @@ type CampoOrdenPausa struct {
 	UpdatedAt       time.Time
 }
 
+type CampoOrdenTitular struct {
+	OrdenID              int64
+	EmpresaID            *int64
+	QuienFirma           *string
+	DocumentoTipo        *string
+	Nombre               *string
+	IdentidadPendienteID *int64
+	UltimoPendienteID    *int64
+	Tomas                int32
+	CambiosTitular       int32
+	DatosN               int32
+	CambiosPlan          int32
+	PlanID               *int64
+	ValidadaPor          *int64
+	ValidadaMotivo       *string
+	ValidadaEn           *time.Time
+	Version              int32
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
+	EnRevision           bool
+	RevisionDesde        *time.Time
+	RevisionLevantadaPor *int64
+	RevisionMotivo       *string
+	RevisionLevantadaEn  *time.Time
+}
+
 type CampoOrdene struct {
 	ID                    int64
 	Numero                string
@@ -1024,6 +1050,18 @@ type IntegracionConectore struct {
 	EliminadoPor                *int64
 }
 
+type IntegracionDatosTransito struct {
+	ID            uuid.UUID
+	EmpresaID     *int64
+	OrdenID       int64
+	Cifrado       []byte
+	TomadoEn      time.Time
+	BorradoEn     *time.Time
+	MotivoBorrado *string
+	CreatedAt     time.Time
+	LlaveCifrada  []byte
+}
+
 type IntegracionEntrante struct {
 	ID          int64
 	ConectorID  int64
@@ -1059,42 +1097,45 @@ type IntegracionOutbox struct {
 }
 
 type IntegracionPendiente struct {
-	ID               int64
-	EmpresaID        *int64
-	Sistema          string
-	Operacion        string
-	IdempotencyKey   string
-	Entidad          string
-	EntidadID        string
-	Metodo           string
-	Ruta             string
-	Payload          []byte
-	DependeDe        []int64
-	DatosIncompletos bool
-	Estado           string
-	Intentos         int32
-	ProximoIntento   time.Time
-	TomadoEn         *time.Time
-	UltimoError      *string
-	UltimoStatus     *int32
-	HechoEn          *time.Time
-	EventoID         *uuid.UUID
-	Version          int32
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	Conflicto        *string
-	ConflictoPayload []byte
-	ConflictoEn      *time.Time
-	Respuesta        []byte
-	Plantilla        []byte
-	PorResolver      bool
-	Verificar        []string
-	TecnicoUsuarioID *int64
-	CodigoError      *string
-	ResueltoMotivo   *string
-	ResueltoPor      *int64
-	ResueltoEn       *time.Time
-	Actor            *string
+	ID                int64
+	EmpresaID         *int64
+	Sistema           string
+	Operacion         string
+	IdempotencyKey    string
+	Entidad           string
+	EntidadID         string
+	Metodo            string
+	Ruta              string
+	Payload           []byte
+	DependeDe         []int64
+	DatosIncompletos  bool
+	Estado            string
+	Intentos          int32
+	ProximoIntento    time.Time
+	TomadoEn          *time.Time
+	UltimoError       *string
+	UltimoStatus      *int32
+	HechoEn           *time.Time
+	EventoID          *uuid.UUID
+	Version           int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	Conflicto         *string
+	ConflictoPayload  []byte
+	ConflictoEn       *time.Time
+	Respuesta         []byte
+	Plantilla         []byte
+	PorResolver       bool
+	Verificar         []string
+	TecnicoUsuarioID  *int64
+	CodigoError       *string
+	ResueltoMotivo    *string
+	ResueltoPor       *int64
+	ResueltoEn        *time.Time
+	Actor             *string
+	TransitoID        *uuid.UUID
+	ResueltoComo      *string
+	ResueltoClienteID *int64
 }
 
 type MensajeriaAjustesBandeja struct {
