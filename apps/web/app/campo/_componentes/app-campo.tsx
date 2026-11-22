@@ -1,10 +1,11 @@
 "use client";
 
-import { Aviso, Boton, Cargando, EstadoVacio, MarcaIris } from "@iris/ui";
+import { Aviso, avisar, Boton, Cargando, EstadoVacio, MarcaIris } from "@iris/ui";
 import { Building2, KeyRound, LogOut, RefreshCw, UserRoundX, WifiOff } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ErrorApi } from "@/lib/api/errores";
 import { abrirMotor, type MotorAbierto } from "@/lib/campo/motor";
+import { olvidarAlCerrarSesion, vigilarSesionPerdida } from "@/lib/campo/sensibles";
 import { dependenciasNavegador, olvidarTurno, RastreadorUbicacion } from "@/lib/campo/ubicacion";
 import {
     cerrarSesionApi,
@@ -20,16 +21,19 @@ import {
     recordarUsuario,
     sesionDesdeYo,
     sesionGuardada,
+    sensiblesAOlvidar,
     usableSinSenal,
     CODIGO_CAMBIO_CONTRASENA,
     type SesionCampo,
 } from "@/lib/campo/sesion";
-import { avisoSinConexion } from "@iris/sync/campo";
+import { avisoSinConexion, TEXTO_SENSIBLES_BORRADAS } from "@iris/sync/campo";
+import { AlmacenDexie } from "@iris/sync/dexie";
 import { ProveedorHistorial } from "./acciones-orden";
 import { ProveedorAgenda } from "./agenda-datos";
 import { ProveedorChat } from "./chat-datos";
 import { EntrarCampo } from "./entrar";
 import { ProveedorCampo, type CerrarSesion } from "./contexto";
+import { ProveedorTelefonoCampo } from "./telefono";
 import { ElegirEmpresa } from "./elegir-empresa";
 import { ProveedorInventario } from "./inventario-datos";
 import { ProveedorLibres } from "./libres-datos";
@@ -136,6 +140,16 @@ export function AppCampo() {
             vivo = false;
         };
     }, [intento]);
+
+    // Los datos del titular de la cola no se quedan sin la sesión de su técnico (§3.4.8): sin sesión
+    // (401, revocada o sin entrar) se olvidan de todas las bases; al entrar, de las de otras personas.
+    const usuarioLista = arranque.fase === "lista" ? arranque.sesion.usuarioId : undefined;
+    useEffect(() => {
+        const olvidar = sensiblesAOlvidar(arranque.fase, usuarioLista, arranque.fase === "conectate" ? arranque.motivo : undefined);
+        if (olvidar) {
+            void AlmacenDexie.olvidarSensiblesDeTodas(olvidar).catch(() => undefined);
+        }
+    }, [arranque, usuarioLista]);
 
     // En la entrada «Sin conexión»: al volver la señal se intenta de nuevo solo.
     const sinSenal = arranque.fase === "conectate" && arranque.motivo === "sin_verificar";
@@ -328,6 +342,9 @@ function ConMotor({
         abrirMotor({ usuarioId: sesion.usuarioId, empresaId: empresa }, ajena, { flujoChat: sesion.empresas.length <= 1 })
             .then((m) => {
                 actual = m;
+                if (vivo && m.almacen.borradasPorSeguridad() > 0) {
+                    avisar({ tono: "warning", titulo: TEXTO_SENSIBLES_BORRADAS, duracion: 0 });
+                }
                 if (vivo) {
                     setAbierto(m);
                 } else {
@@ -347,6 +364,12 @@ function ConMotor({
         };
     }, [sesion.usuarioId, sesion.nombre, empresa, intento, alSesionAjena, sesion.empresas.length]);
 
+    // El teléfono (E4c): cerrar sesión cuelga y suelta el micrófono antes de esperar a nada (también sin señal).
+    const detenerTelefono = useRef<(() => void) | null>(null);
+    const registrarTelefono = useCallback((detener: (() => void) | null) => {
+        detenerTelefono.current = detener;
+    }, []);
+
     // Uno por motor abierto: cerrar sesión termina su turno antes de esperar a nada.
     const rastreador = useMemo(
         () => (abierto ? new RastreadorUbicacion(abierto.posiciones, dependenciasNavegador(sesion.usuarioId, empresa)) : null),
@@ -359,6 +382,17 @@ function ConMotor({
         }
     }, [rastreador, registrarFinTurno]);
 
+    // Un 401 con la app abierta (sesión vencida o revocada): lo sensible se olvida en el momento.
+    useEffect(() => {
+        if (!abierto) {
+            return undefined;
+        }
+        return vigilarSesionPerdida(abierto.motor, {
+            propias: () => abierto.almacen.olvidarSensibles(),
+            todas: () => AlmacenDexie.olvidarSensiblesDeTodas({}),
+        });
+    }, [abierto]);
+
     const cerrarSesion = useCallback<CerrarSesion>(
         async ({ conservarPendientes }) => {
             if (!abierto) {
@@ -368,6 +402,7 @@ function ConMotor({
             // Antes del primer await: con mala señal, `cerrarSesionApi` tarda y no deben entrar
             // puntos nuevos después de tocar «Cerrar sesión» (la cola, además, queda cerrada).
             rastreador?.terminarTurno();
+            detenerTelefono.current?.();
             motor.detener();
             posiciones.detener();
             chat.detener();
@@ -376,12 +411,16 @@ function ConMotor({
             if (conservarPendientes) {
                 // Solo la cola, los adjuntos y las ubicaciones pendientes; nada que se pueda ver sin entrar.
                 await motor.olvidarDatosDelServidor();
+                // Los datos del titular (documento, contacto y fotos) nunca quedan sin sesión (§3.4.8).
+                await almacen.olvidarSensibles();
                 // La caché del chat se borra; lo que quedó por enviar sale al volver a entrar.
                 await chat.olvidarCache();
             } else {
                 await almacen.borrar();
             }
             olvidarSesion(sesion.usuarioId);
+            // Con o sin señal: lo sensible de todas las bases de campo de este navegador (§3.4.8).
+            await olvidarAlCerrarSesion({ todas: () => AlmacenDexie.olvidarSensiblesDeTodas({}) });
             try {
                 await cerrarSesionApi();
                 alCerrarSesion(false);
@@ -430,26 +469,28 @@ function ConMotor({
     return (
         <ProveedorUbicacion cola={abierto.posiciones} rastreador={rastreador}>
             <ProveedorCampo motor={abierto.motor} sesion={sesion} cerrarSesion={cerrarSesion}>
-                <ProveedorInventario inventario={abierto.inventario}>
-                    <ProveedorAgenda leer={abierto.agenda}>
-                        <ProveedorLibres api={abierto.libres}>
-                            <ProveedorHistorial leer={abierto.historialCliente}>
-                                {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
-                                {sesion.permisos?.includes("chat.ver") ? (
-                                    <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
-                                        <TurnoAutomatico rastreador={rastreador} />
-                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                                    </ProveedorChat>
-                                ) : (
-                                    <>
-                                        <TurnoAutomatico rastreador={rastreador} />
-                                        <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
-                                    </>
-                                )}
-                            </ProveedorHistorial>
-                        </ProveedorLibres>
-                    </ProveedorAgenda>
-                </ProveedorInventario>
+                <ProveedorTelefonoCampo registrar={registrarTelefono}>
+                    <ProveedorInventario inventario={abierto.inventario}>
+                        <ProveedorAgenda leer={abierto.agenda}>
+                            <ProveedorLibres api={abierto.libres}>
+                                <ProveedorHistorial leer={abierto.historialCliente}>
+                                    {/* Sin `chat.ver` (rol lectura u otro) el chat no arranca ni se ofrece. */}
+                                    {sesion.permisos?.includes("chat.ver") ? (
+                                        <ProveedorChat chat={abierto.chat} puedeEnviar={sesion.permisos.includes("chat.enviar")}>
+                                            <TurnoAutomatico rastreador={rastreador} />
+                                            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                        </ProveedorChat>
+                                    ) : (
+                                        <>
+                                            <TurnoAutomatico rastreador={rastreador} />
+                                            <Pantallas empresa={empresa} pedirEmpresa={pedirEmpresa} />
+                                        </>
+                                    )}
+                                </ProveedorHistorial>
+                            </ProveedorLibres>
+                        </ProveedorAgenda>
+                    </ProveedorInventario>
+                </ProveedorTelefonoCampo>
             </ProveedorCampo>
         </ProveedorUbicacion>
     );

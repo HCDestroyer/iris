@@ -26,7 +26,7 @@ type Extension struct {
 	SipUsuario    *string    `json:"sipUsuario" nullable:"true" doc:"Usuario SIP del endpoint (navegador)"`
 	SipGuardadoEn *time.Time `json:"sipGuardadoEn" nullable:"true" doc:"Cuándo se guardó la contraseña SIP (nunca se devuelve)"`
 	SipProbadoEn  *time.Time `json:"sipProbadoEn" nullable:"true" doc:"La última vez que «Probar registro» pasó"`
-	// SipRechazadoEn: la Issabel rechazó la contraseña guardada (se borra cuando una prueba pasa).
+	// SipRechazadoEn: la Issabel rechazó la contraseña guardada (se borra cuando una prueba pasa o al guardar otra).
 	SipRechazadoEn *time.Time `json:"sipRechazadoEn" nullable:"true" doc:"La última vez que la Issabel rechazó la contraseña guardada; con ella no se vuelve a probar hasta escribir otra"`
 }
 

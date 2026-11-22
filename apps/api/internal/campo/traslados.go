@@ -100,6 +100,9 @@ func grupoDe(op OperacionLote) string {
 	switch {
 	case esOpTarea(op.Tipo):
 		return "tarea:" + tareaDe(op)
+	case op.Tipo == OpLlamadaDirecta:
+		// Una llamada no bloquea la orden ni la orden a la llamada: cada una va sola.
+		return "llamada:" + op.ID
 	case op.Tipo != OpTrasladoRecibir:
 		return "orden:" + strconv.FormatInt(op.OrdenID, 10)
 	}

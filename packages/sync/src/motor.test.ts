@@ -552,6 +552,36 @@ describe("reloj", () => {
         motor.detener();
     });
 
+    it("una respuesta pedida antes de perder la señal no vuelve a poner «en línea» (sin otro aviso del navegador)", async () => {
+        const { motor, transporte } = await montar({ espera: { baseMs: 10_000, maximoMs: 60_000, azar: () => 0 } });
+        let soltar: (() => void) | null = null;
+        transporte.cambios = async (cursor) => {
+            await new Promise<void>((r) => {
+                soltar = r;
+            });
+            return { cambios: [], cursor, hayMas: false };
+        };
+        motor.iniciar();
+        await vaciarPromesas();
+        expect(soltar).not.toBeNull();
+        // Se cae la señal con la última petición de la pasada en vuelo; la respuesta llega igual
+        // (ya venía en camino) y no hay otra petición que lo corrija hasta la próxima pasada.
+        motor.establecerConexion(false);
+        transporte.sinRed = true;
+        (soltar as (() => void) | null)?.();
+        await vaciarPromesas();
+        expect(motor.obtenerEstado().conexion).toBe("sin_conexion");
+        // Una respuesta pedida después sí cuenta: la red volvió aunque el navegador no avisara.
+        transporte.sinRed = false;
+        soltar = null;
+        motor.reintentarAhora();
+        await vaciarPromesas();
+        (soltar as (() => void) | null)?.();
+        await vaciarPromesas();
+        expect(motor.obtenerEstado().conexion).toBe("en_linea");
+        motor.detener();
+    });
+
     it("lo pedido con el bucle detenido no suma pasadas al iniciar", async () => {
         const { motor, transporte, reloj } = await montar({ intervaloMs: 60_000 });
         // Antes de arrancar (al abrir la app): volver la señal y registrar algo.
