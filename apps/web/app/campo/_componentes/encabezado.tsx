@@ -14,6 +14,7 @@ import { useCampo } from "./contexto";
 import { HojaCampo } from "./hoja";
 import { useDemorado } from "./teclado";
 import { InsigniaOrden } from "./insignias";
+import { IndicadorTelefono } from "./telefono";
 
 /** Botón redondo de 44 px del encabezado (manual, chat, buscar). */
 const REDONDO = "size-11 shrink-0 rounded-full p-0 md:size-11";
@@ -54,6 +55,7 @@ function BotonesCuenta({ pedirEmpresa, compacta = false }: { pedirEmpresa: () =>
     return (
         <div className="flex shrink-0 items-center gap-1.5">
             <IndicadoresEstado pedirEmpresa={pedirEmpresa} compacta={compacta} />
+            {compacta ? null : <IndicadorTelefono />}
             {/* El «?» del manual de esta vista: dentro de /campo, para que abra sin señal. */}
             <BotonManual clave={claveManualCampo(vista)} base="/campo/manual" tamano="md" className={cn(REDONDO, "border border-border bg-[var(--campo-panel)] shadow-[var(--campo-sombra)]")} />
             {chat ? (

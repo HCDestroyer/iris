@@ -4,8 +4,8 @@ import { Aviso, Boton, cn, Dialogo, DialogoContenido, DialogoPie, PanelEmergente
 import { AppWindow, Grid3x3, KeyRound, Lock, Mic, MicOff, Phone, PhoneCall, PhoneOff, RotateCw, Unplug, Volume2, WifiOff } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { avisoError, puntoTelefono, textoMotivo } from "@/lib/telefono/presentacion";
-import type { ErrorTelefono } from "@/lib/telefono/tipos";
+import { avisoError, puntoTelefono, textoMotivo } from "@iris/telefono";
+import type { ErrorTelefono } from "@iris/telefono";
 import { sonarTimbre } from "@/lib/voz/timbre";
 import { useTelefono, type ContextoTelefono } from "./proveedor";
 
@@ -50,7 +50,7 @@ export function BotonTelefono() {
                 className="relative size-11 min-w-11 rounded-full border border-border bg-[var(--iris-tarjeta)] p-0 text-muted-foreground shadow-[var(--iris-sombra-flotante)] md:size-11 [&_svg]:size-[1.125rem]"
             >
                 <PhoneCall />
-                <span aria-hidden className={cn("absolute top-1.5 right-1.5 size-2 rounded-full ring-2 ring-card", punto.tono === "success" ? "bg-success" : "bg-[var(--hx-text-dim)]", c.fase === "conectando" && "motion-safe:animate-pulse")} />
+                <span aria-hidden className={cn("absolute top-1.5 right-1.5 size-2 rounded-full ring-2 ring-card", punto.tono === "success" ? "bg-success" : "bg-[var(--iris-texto-apagado)]", c.fase === "conectando" && "motion-safe:animate-pulse")} />
             </Boton>
         );
     return (
@@ -139,7 +139,7 @@ function EstadoTelefono({ t, alCerrar }: { t: ContextoTelefono; alCerrar: () => 
                         Verde: listo, tus llamadas suenan aquí
                     </li>
                     <li className="flex items-center gap-2">
-                        <span aria-hidden className="size-2 shrink-0 rounded-full bg-[var(--hx-text-dim)]" />
+                        <span aria-hidden className="size-2 shrink-0 rounded-full bg-[var(--iris-texto-apagado)]" />
                         Gris: apagado en este navegador
                     </li>
                     <li className="flex items-center gap-2">

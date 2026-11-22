@@ -3,17 +3,17 @@
 import type { OrdenVista, RutaCampo } from "@iris/sync";
 import { accionPrincipal, anilloAvance, intercalarTareas, mosaicoPorRecibir, mosaicoRuta, nombreCliente, resumenHoy, tareasDelDia } from "@iris/sync/campo";
 import { Aviso, Boton, Cargando, EstadoVacio, Globo, InsigniaEstado, cn } from "@iris/ui";
-import { CalendarX, ChevronRight, Clock, CloudUpload, MapPin, Navigation, Phone, Play, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react";
+import { CalendarX, ChevronRight, Clock, CloudUpload, ListChecks, MapPin, Navigation, Play, RefreshCw, Route, TriangleAlert, UserX } from "lucide-react";
 import type { MouseEvent, ReactNode } from "react";
 import { horaCorta, hoyEnGuatemala, ventanaCita } from "@/lib/campo/fechas";
 import { enlaceComoLlegar } from "@/lib/campo/gps";
 import { TIPOS_ORDEN } from "@/lib/campo/textos";
-import { enlaceTel, principal, telefonos } from "@/lib/datos/telefono";
 import { urlDeVista, useCampo } from "./contexto";
 import { InsigniaOrden } from "./insignias";
 import { useCargarAlAbrir } from "./inventario";
 import { useInventario } from "./inventario-datos";
 import { TarjetaTarea } from "./tareas";
+import { BotonLlamarOrden } from "./telefono";
 import type { CargaPaquete } from "./pantallas";
 
 /**
@@ -172,14 +172,6 @@ function useAbrir(orden: OrdenVista) {
     };
 }
 
-/** Teléfono para «Llamar»: primero el contacto en sitio de la orden, luego el de Argos. */
-function telefonoDe(orden: OrdenVista): string | null {
-    const deArgos = orden.cliente ? (orden.cliente.telefonos ?? telefonos("telefono", orden.cliente.telefono)) : [];
-    const lista = [...telefonos("telefono", orden.contacto.telefono), ...deArgos];
-    const t = orden.contacto.telefono ? (lista[0] ?? null) : principal(lista);
-    return t ? enlaceTel(t) : null;
-}
-
 /** La siguiente orden en grande: tarjeta de 28 px con el anillo de avance y sus tres botones. */
 function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posicion: number | null; parada: Parada | null }) {
     const { navegar } = useCampo();
@@ -188,9 +180,8 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
     const hora = horaCorta(orden.cita?.inicio ?? orden.programadaInicio);
     const anillo = anilloAvance(orden);
     const principalAccion = accionPrincipal(orden);
-    const llamar = telefonoDe(orden);
     const comoLlegar = enlaceComoLlegar(orden.lat ?? orden.cliente?.lat ?? null, orden.lon ?? orden.cliente?.lon ?? null, orden.direccion);
-    const IconoAccion = principalAccion.texto === "Ver orden" ? ChevronRight : Play;
+    const IconoAccion = principalAccion.texto === "Empezar trabajo" ? Play : principalAccion.texto === "Continuar trabajo" ? ListChecks : ChevronRight;
     return (
         <section
             aria-label="Siguiente orden"
@@ -244,13 +235,8 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
                         </a>
                     </BotonRedondo>
                 ) : null}
-                {llamar ? (
-                    <BotonRedondo etiqueta="Llamar al cliente">
-                        <a href={llamar}>
-                            <Phone aria-hidden />
-                        </a>
-                    </BotonRedondo>
-                ) : null}
+                {/* «Llamar» abre la hoja: por la empresa o desde mi celular (E4c fase 3); su globo es el `title`. */}
+                <BotonLlamarOrden orden={orden} etiqueta="Llamar al cliente" variante="contorno" className={CLASE_REDONDO} />
                 <Boton variante="primario" className="h-11 min-w-0 flex-1 rounded-full text-[0.9375rem] font-semibold whitespace-nowrap" onClick={() => navegar(principalAccion.vista)}>
                     <IconoAccion aria-hidden />
                     {principalAccion.texto}
@@ -260,11 +246,14 @@ function SiguienteOrden({ orden, posicion, parada }: { orden: OrdenVista; posici
     );
 }
 
+/** Clase del botón redondo de 44 px («Cómo llegar» y «Llamar»). */
+const CLASE_REDONDO = "size-11 shrink-0 rounded-full p-0 md:size-11 [&_svg]:size-5";
+
 /** Botón redondo de 44 px con su nombre accesible y su globo (el `title` del navegador y `Globo`). */
 function BotonRedondo({ etiqueta, children }: { etiqueta: string; children: ReactNode }) {
     return (
         <Globo texto={etiqueta}>
-            <Boton asChild variante="contorno" aria-label={etiqueta} title={etiqueta} className="size-11 shrink-0 rounded-full p-0 md:size-11 [&_svg]:size-5">
+            <Boton asChild variante="contorno" aria-label={etiqueta} title={etiqueta} className={CLASE_REDONDO}>
                 {children}
             </Boton>
         </Globo>

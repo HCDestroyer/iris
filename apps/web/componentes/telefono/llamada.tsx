@@ -10,8 +10,8 @@ import { anotarLlamadaCentralita, vincularTicketCentralita } from "@/lib/central
 import { quienCentralita, RESULTADOS_CENTRALITA } from "@/lib/centralita/presentacion";
 import { useLectura } from "@/lib/lectura";
 import { destinosTransferencia } from "@/lib/telefono/api";
-import { numeroLegible, reloj } from "@/lib/telefono/presentacion";
-import type { LlamadaTelefono } from "@/lib/telefono/tipos";
+import { numeroLegible, reloj } from "@iris/telefono";
+import type { LlamadaTelefono } from "@iris/telefono";
 import type { Llamada, ResultadoLlamada } from "@/lib/voz/tipos";
 import { CabeceraLlamada, MARCO_AVISO, Senales } from "../voz/llamada";
 import { DialogoEncender } from "./indicador";

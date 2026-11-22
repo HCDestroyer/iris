@@ -60,6 +60,29 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
     encolado lo encola con el id ya conocido.
   - **Sin conector** (nunca se conectó Argos): crea la orden con los datos capturados; el prospecto
     queda ganado sin ids de Argos (`alta.modo = local`).
+- **Prospectos registrados desde Argos** (contrato con Argos 0.10.0 §3.6, A44 / B23):
+  `POST /api/v1/integraciones/argosisp/prospectos`, solo el token de integración de Argos (permiso
+  `prospectos.registrar_integracion` del rol `integracion_argos`; una persona, 403
+  `solo_integracion_argos`), que no lee, lista ni edita prospectos. `X-Iris-Empresa`, `X-Iris-Actor`
+  (`usuario:<id de Argos>`; si no, 400 `cabecera_iris_requerida`) e `Idempotency-Key` obligatorias: la
+  regla del núcleo `ReglaIdempotenciaArgos` guarda la clave 30 días, mete las dos cabeceras en la huella y
+  responde 422 `idempotency_key_reutilizada`. Origen `argos_panel` (`origen_detalle` = oficina, llamada…),
+  `modo`, `registrado_por_argos`, `telefonos[]` en `comercial.prospecto_telefonos` (E.164, índice por
+  empresa y número; 422 `telefonos_invalidos` con `errors[]` por posición y sin el número), vendedor por
+  zona (la persona con `prospectos.contactar` en esa zona y en la empresa con menos prospectos abiertos) y
+  factibilidad si trae coordenadas. Plan aplicable al modo (`GET /planes?activo=true&modo=`; 422
+  `plan_no_permitido`; Argos caído no lo bloquea). `cliente_id`: de la instantánea de la empresa o
+  confirmado con Argos (422 `cliente_no_valido`; Argos sin respuesta, `cliente_validado: false`). 409
+  `prospecto_duplicado { url_iris }` si cualquiera de los números está en un prospecto abierto de la
+  empresa (el pedido se suma como actividad); 409 `argos_apagado`; 429 `demasiados_registros` al pasar 30
+  números por minuto por actor o 300 por empresa (`comercial.registros_argos`, un registro por empresa a la
+  vez con un candado de la transacción). La auditoría guarda los números enmascarados.
+  **Al ganar** con Argos ≥ 0.10.0: los números sin nombre van como `telefonos_adicionales[]` del mismo
+  `POST /clientes` y los que tienen nombre, como contactos (`POST /clientes/{id}/contactos`, clave
+  `iris:contacto:<cliente_id>:pt<id del teléfono>`); con `cliente_id`, Iris no crea ni edita el cliente: el
+  servicio sale con ese id y el alta empieza en `esperando_servicio`. `prospecto.estado_cambiado` lleva
+  `empresa_id` y `origen`: la mensajería lo manda a Argos (§6.6) solo de los `argos_panel` y con contrato
+  ≥ 0.10.0, sin el motivo escrito.
 - **Permisos y alcance:** `prospectos.*`, `factibilidad.evaluar|configurar`,
   `cotizaciones.crear|aceptar`, `contratos.crear|firmar`. Un prospecto se ve con `prospectos.ver`
   si el alcance es global, cubre su zona o el actor es su vendedor; si no, 404 (falla cerrado: un

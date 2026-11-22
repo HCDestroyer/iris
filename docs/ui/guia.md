@@ -19,7 +19,7 @@ rediseño de ArgosISP con su kit: **HeroUI v3 (`@heroui/react` 3.2.x) envuelto e
 ### HeroUI primero (regla del PM, nov. 2026)
 
 1. **Toda pieza de interfaz es un componente de HeroUI v3**, envuelto en `@iris/ui` con los tokens
-   de Horus. Antes de escribir un control, se busca en HeroUI (`node scripts/list_components.mjs`
+   de Iris (`--iris-*`). Antes de escribir un control, se busca en HeroUI (`node scripts/list_components.mjs`
    del skill `heroui-react`) y se lee su documentación.
 2. **Un control propio solo si HeroUI no lo trae** (cámara, escáner, firma, gráfica, logo…), y con
    su motivo escrito en la tabla «Lo que no se usa de HeroUI» de abajo o en
@@ -168,7 +168,7 @@ Además se mantienen las reglas de siempre:
 
 Los nombres y las props de `@iris/ui` no cambiaron: las pantallas siguen igual y por dentro usan
 **los componentes de HeroUI v3** (`@heroui/react` 3.2.6, sus piezas compuestas: `Modal.Backdrop`,
-`Card.Header`…), con los tokens de Horus. React Aria da el comportamiento: teclado, foco y lectores
+`Card.Header`…), con los tokens de Iris (`--iris-*`). React Aria da el comportamiento: teclado, foco y lectores
 de pantalla. Los envoltorios que reciben un icono de Lucide como componente (`Aviso`,
 `InsigniaEstado`, `EstadoVacio`) siguen sirviendo desde un componente de servidor: el icono se
 dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`aviso-alerta.tsx`,
@@ -176,13 +176,14 @@ dibuja afuera y la pieza de HeroUI va en un archivo `"use client"` aparte (`avis
 
 | `@iris/ui` | Componente de HeroUI | Notas |
 | --- | --- | --- |
-| `Boton`, `BotonEnviar` | `Button` | Variantes de Iris → `primary`, `tertiary`, `outline`, `ghost`; medidas y radio de Horus. `disabled` → `isDisabled`; `onClick`, `type="submit"`, `data-*` y `aria-*` como siempre. Lo que el `Button` de React Aria filtra (`title`, `role`, `tabIndex`, `aria-invalid`, `aria-keyshortcuts`, el arrastre nativo `draggable`/`onDrag*` del calendario de despacho) va directo al `<button>` por `render`. Como todo `Button` de React Aria, el clic no sigue subiendo a los padres. `asChild` (un `<Link>` con aspecto de botón) usa `Ranura` con las mismas clases |
+| `Boton`, `BotonEnviar` | `Button` | Variantes de Iris → `primary`, `tertiary`, `outline`, `ghost`; medidas y radio de Iris. `disabled` → `isDisabled`; `onClick`, `type="submit"`, `data-*` y `aria-*` como siempre. Lo que el `Button` de React Aria filtra (`title`, `role`, `tabIndex`, `aria-invalid`, `aria-keyshortcuts`, el arrastre nativo `draggable`/`onDrag*` del calendario de despacho) va directo al `<button>` por `render`. Como todo `Button` de React Aria, el clic no sigue subiendo a los padres. `asChild` (un `<Link>` con aspecto de botón) usa `Ranura` con las mismas clases |
 | `Tarjeta*` | `Card`, `Card.Header`, `Card.Title` (como `<h2>`), `Card.Description`, `Card.Content`, `Card.Footer` | Acomodo neutro: cada pantalla manda con sus clases; material `surface-card` |
 | `Aviso`, `ErrorFormulario` | `Alert`, `Alert.Indicator`, `Alert.Content`, `Alert.Title` y la pieza `alert__description` | Fondo tintado opaco por tono, borde, icono de Lucide + título + texto; `role="alert"` en `error`. La descripción es un `<div>` (`Alert.Description` es un `<span>` y aquí caben párrafos y listas) |
 | `Dialogo*`, `DialogoProtegido` | `Modal.Backdrop` + `Modal.Container` + `Modal.Dialog` + `Modal.Heading` | Panel sólido sobre telón; en el teléfono es una hoja inferior a lo ancho. La «X» es un `Boton` con el icono `X` de Lucide (no el `CloseButton` de HeroUI, que trae su propio icono) |
 | `DialogoConfirmar` | `AlertDialog.Backdrop` + `AlertDialog.Container` + `AlertDialog.Dialog` + `AlertDialog.Heading` | `role="alertdialog"`, foco inicial en «Cancelar», no se cierra tocando fuera |
 | `Hoja*`, `PanelProtegido` | `Drawer.Backdrop` + `Drawer.Content` + `Drawer.Dialog` + `Drawer.Heading` | Siempre con telón oscurecido: `fondo="transparente"` se acepta pero ya no quita el telón. Se cierra también arrastrando hacia su lado; el contenido se desplaza en vertical (`touch-action: pan-y`) |
 | `PanelEmergente` | `Popover`, `Popover.Content`, `Popover.Dialog`, `Popover.Heading` | Diálogo no modal junto al disparador |
+| `PantallaCompleta` | `Modal.Backdrop`, `Modal.Container`, `Modal.Dialog` | Pantalla modal que tapa toda la app y no se cierra tocando fuera ni con Escape (la llamada en curso de `/campo`) |
 | `PanelLateral` | — sin telón (`<section role="dialog" aria-modal="false">` propio); con `telon`, `Drawer` | Isla flotante a 16 px de los bordes, radio 20 px, 470 px desde `sm`, sombra de lo modal; en el teléfono a pantalla completa. **Sin telón (excepción aprobada por el PM a la regla de `Hoja`):** flota sobre la pantalla, la página no se corre ni cambia de ancho y los clics fuera le llegan a ella; no atrapa el foco (lo lleva a `data-foco-inicial` al abrir y lo devuelve al cerrar); Escape lo cierra con el foco adentro. Lo usan el chat del equipo y `VistaRapida`. **Con `telon`:** el `Drawer` de HeroUI con la misma isla (modal, telón oscurecido) para registrar algo sin perder la lista. En escritorio los avisos emergentes se corren a su izquierda (`globals.css`) |
 | `ListaSugerencias`, `teclasSugerencias`, `idOpcion` | — (combobox de ARIA con foco virtual) | Sugerencias bajo un `AreaTexto` que sigue con el foco: las `@menciones` del chat. El área lleva `role="combobox"`, `aria-controls` y `aria-activedescendant`; flechas, Enter/Tab y Escape. `Autocompletar` no sirve: reemplaza todo el valor de un campo de una línea |
 | `MenuDesplegable*`, `MenuEnLinea` | `Dropdown`, `Dropdown.Popover`, `Dropdown.Menu`, `Dropdown.Section`, `Dropdown.Item`, `Menu` y `Separator` | `onSelect` → `onAction`. Un `Boton` como disparador se conecta solo; otro elemento, por `Pressable` |
