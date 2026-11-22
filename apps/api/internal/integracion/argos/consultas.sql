@@ -63,6 +63,9 @@ WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en;
 -- name: ServicioPorID :one
 SELECT * FROM integracion.argos_servicios WHERE id = @id;
 
+-- name: ServiciosPorIDs :many
+SELECT * FROM integracion.argos_servicios WHERE id = ANY(@ids::bigint[]);
+
 -- name: ServiciosDeCliente :many
 SELECT * FROM integracion.argos_servicios WHERE cliente_id = @cliente_id ORDER BY id;
 
@@ -609,6 +612,14 @@ UPDATE integracion.argos_incidente_lecturas SET cursor = sqlc.narg(cursor), pagi
 
 -- name: TerminarLecturaIncidente :exec
 UPDATE integracion.argos_incidente_lecturas SET terminada_en = now(), paginar = false WHERE entrante_id = @entrante_id AND terminada_en IS NULL;
+
+-- name: TerminarLecturasDeIncidente :exec
+-- La falla se cerro: lo que quede por leer de ese incidente ya no se lee.
+UPDATE integracion.argos_incidente_lecturas SET terminada_en = now(), paginar = false
+WHERE incidente_id = @incidente_id AND empresa_id = @empresa_id AND terminada_en IS NULL;
+
+-- name: ContarPaginaLectura :one
+UPDATE integracion.argos_incidente_lecturas SET paginas = paginas + 1 WHERE entrante_id = @entrante_id RETURNING paginas;
 
 -- name: PendientesLecturaIncidente :many
 SELECT servicio_id, intentos FROM integracion.argos_incidente_servicios

@@ -153,6 +153,10 @@ func (m *Modulo) VerificarIncidente(ctx context.Context, entrante int64) (time.D
 		return cli, nil
 	}
 	for presupuesto := PresupuestoVerificar; presupuesto > 0; {
+		// Cada vuelta relee la lectura: si la falla se cerró (o la terminó otro), se corta.
+		if l, err = q.LecturaIncidente(ctx, entrante); err != nil || l.TerminadaEn != nil {
+			return 0, err
+		}
 		if l.Paginar {
 			c, err := cliente()
 			if err != nil {
@@ -162,8 +166,12 @@ func (m *Modulo) VerificarIncidente(ctx context.Context, entrante int64) (time.D
 			if err != nil {
 				return 0, err
 			}
+			paginas, err := q.ContarPaginaLectura(ctx, entrante)
+			if err != nil {
+				return 0, err
+			}
 			tanda := tandaVerificada{lectura: l, pagina: true}
-			if int(total) >= maxServiciosIncidente {
+			if int(total) >= maxServiciosIncidente || paginas > MaxPaginasIncidente {
 				tanda.paginar = false
 			} else {
 				v := url.Values{"empresa_id": {strconv.FormatInt(l.EmpresaID, 10)}, "limit": {strconv.Itoa(LimiteServiciosIncidente)}}
@@ -180,7 +188,8 @@ func (m *Modulo) VerificarIncidente(ctx context.Context, entrante int64) (time.D
 					return 0, err
 				default:
 					tanda.nuevos = p.Data
-					if p.NextCursor != "" && len(p.Data) > 0 {
+					// Sin datos, sin cursor o con el mismo cursor: no hay más que leer.
+					if p.NextCursor != "" && len(p.Data) > 0 && (l.Cursor == nil || p.NextCursor != *l.Cursor) {
 						tanda.cursor, tanda.paginar = &p.NextCursor, true
 					}
 				}

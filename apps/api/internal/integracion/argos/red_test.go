@@ -20,6 +20,10 @@ func (a *argosFalso) serviciosIncidente(w http.ResponseWriter, r *http.Request) 
 		problema(w, 404, "urn:argosisp:problema:no_encontrado", "No existe")
 		return
 	}
+	if c, ok := a.cursorFijo[r.PathValue("id")]; ok {
+		escribir(w, map[string]any{"data": ids, "nextCursor": c})
+		return
+	}
 	desde, _ := strconv.Atoi(r.URL.Query().Get("cursor"))
 	limite, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limite <= 0 || limite > 1000 {
@@ -30,6 +34,7 @@ func (a *argosFalso) serviciosIncidente(w http.ResponseWriter, r *http.Request) 
 	if hasta < len(ids) {
 		out["nextCursor"] = strconv.Itoa(hasta)
 	}
+
 	escribir(w, out)
 }
 
@@ -184,5 +189,50 @@ func TestWebhooksDeRed(t *testing.T) {
 	falla["empresa_id"], falla["alcance"] = 1, "edificio"
 	if r := e.procesarWebhook(id, secreto, argos.EventoFallaGeneralAbierta, falla); r.Resultado != "ignorado" || e.omitidoDe(r.EntranteID) != "payload_invalido" {
 		t.Fatalf("alcance inválido: %+v", r)
+	}
+}
+
+// La lectura de los servicios de una falla se corta si la falla se cerró, si Argos repite el cursor o
+// al llegar al máximo de páginas.
+func TestVerificarIncidenteSeCorta(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, id, secreto := e.conectado()
+	ctx := pruebas.ContextoSistema(e.pool)
+	e.argos.con(func() {
+		e.argos.incidentes = map[string][]int64{"inc-c:1": {1}, "inc-r:1": {1}, "inc-m:1": {1}}
+		e.argos.cursorFijo = map[string]string{"inc-r": "7"}
+	})
+	abrir := func(inc string) int64 {
+		f := map[string]any{"incidente_id": inc, "empresa_id": 1, "alcance": "zona", "alcance_id": "z-" + inc,
+			"servicios_afectados": map[string]any{"cantidad": 5000, "ids": []int64{}}, "desde": "2026-11-21T15:00:00Z"}
+		r := e.procesarWebhook(id, secreto, argos.EventoFallaGeneralAbierta, f)
+		if r.Resultado != "aplicado" {
+			t.Fatalf("%s: %+v", inc, r)
+		}
+		return r.EntranteID
+	}
+	llamadas := func(inc string) int { return e.argos.llamadasA("/api/v1/incidentes-red/" + inc + "/servicios") }
+
+	// Cerrada antes de leer: el cierre termina la lectura y el job no llama a Argos.
+	c := abrir("inc-c")
+	if r := e.procesarWebhook(id, secreto, argos.EventoFallaGeneralCerrada, map[string]any{"incidente_id": "inc-c", "empresa_id": 1, "alcance": "zona",
+		"alcance_id": "z-inc-c", "desde": "2026-11-21T15:00:00Z", "hasta": "2026-11-21T16:00:00Z"}); r.Resultado != "aplicado" {
+		t.Fatalf("cerrada: %+v", r)
+	}
+	if espera, err := e.mod.VerificarIncidente(ctx, c); err != nil || espera != 0 || llamadas("inc-c") != 0 {
+		t.Fatalf("falla cerrada: %v %v %d", espera, err, llamadas("inc-c"))
+	}
+	// Argos repite el cursor: una página más y se deja de paginar.
+	rr := abrir("inc-r")
+	if espera, err := e.mod.VerificarIncidente(ctx, rr); err != nil || espera != 0 || llamadas("inc-r") != 2 {
+		t.Fatalf("mismo cursor: %v %v %d", espera, err, llamadas("inc-r"))
+	}
+	// Con el máximo de páginas ya leído, no se pide otra.
+	mx := abrir("inc-m")
+	if _, err := e.pool.Exec(ctx, "UPDATE integracion.argos_incidente_lecturas SET paginas = $2 WHERE entrante_id = $1", mx, argos.MaxPaginasIncidente); err != nil {
+		t.Fatal(err)
+	}
+	if espera, err := e.mod.VerificarIncidente(ctx, mx); err != nil || espera != 0 || llamadas("inc-m") != 0 {
+		t.Fatalf("máximo de páginas: %v %v %d", espera, err, llamadas("inc-m"))
 	}
 }

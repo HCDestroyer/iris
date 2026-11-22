@@ -278,8 +278,10 @@ func (m *Modulo) aplicarCaidas(ctx context.Context, t *auditoria.Tx, q *soporteb
 	case !errors.Is(err, pgx.ErrNoRows):
 		return ResultadoRed{}, err
 	}
-	// 4. Posible falla general abierta: nota en ella (no se abren más).
-	posible, err := q.PosibleFallaAbierta(ctx, &empresa)
+	// 4. Posible falla general abierta que todavía agrupa (sin padre, o dentro de su ventana): nota en
+	// ella (no se abren más). Una que ya confirmó una falla general no se traga las caídas nuevas.
+	desde := m.ahora().Add(-VentanaPosibleFalla)
+	posible, err := q.PosibleFallaVigente(ctx, soportebd.PosibleFallaVigenteParams{EmpresaID: &empresa, Desde: desde})
 	switch {
 	case err == nil:
 		if _, err := mensajeSistema(ctx, q, posible, false, nota); err != nil {
@@ -289,14 +291,20 @@ func (m *Modulo) aplicarCaidas(ctx context.Context, t *auditoria.Tx, q *soporteb
 	case !errors.Is(err, pgx.ErrNoRows):
 		return ResultadoRed{}, err
 	}
-	// 5. Más de N tickets de caídas en 10 min: posible falla general.
-	desde := m.ahora().Add(-VentanaPosibleFalla)
+	// 5. Más de N tickets de caídas en 10 min: posible falla general (salvo que la empresa ya tenga una
+	// abierta, confirmada por una falla general: solo puede haber una).
 	n, err := q.ContarCaidasRecientes(ctx, soportebd.ContarCaidasRecientesParams{EmpresaID: &empresa, CategoriaID: cat, Desde: desde})
 	if err != nil {
 		return ResultadoRed{}, err
 	}
 	if n >= aj.FallaUmbral {
-		return m.abrirPosibleFalla(ctx, t, q, empresa, *cat, desde, n, nota)
+		_, err := q.PosibleFallaAbierta(ctx, &empresa)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return m.abrirPosibleFalla(ctx, t, q, empresa, *cat, desde, n, nota)
+		case err != nil:
+			return ResultadoRed{}, err
+		}
 	}
 	// 6. Ticket de caídas del servicio (se vincula a un maestro de Horus o a una falla general como cualquiera).
 	f, err := m.crearTicket(ctx, t, EntradaCrearTicket{
@@ -509,6 +517,12 @@ func (m *Modulo) abrirFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.Q
 	if err != nil {
 		return ResultadoRed{}, err
 	}
+	if reusa != nil {
+		// Los hijos del incidente anterior que esperaban verificar con el cliente: la falla volvió.
+		if err := m.retomarHijosEnEspera(ctx, t, q, *reusa, inc, general); err != nil {
+			return ResultadoRed{}, err
+		}
+	}
 	t.RegistrarCambios("incidente_red", inc.ID, nil, map[string]any{"incidente_id": inc.IncidenteID, "ticket_id": inc.TicketID, "alcance": inc.Alcance,
 		"alcance_id": inc.AlcanceID})
 	// La posible falla general de la empresa pasa a ser hija del ticket general.
@@ -552,6 +566,42 @@ func (m *Modulo) sumarAfectados(ctx context.Context, t *auditoria.Tx, q *soporte
 	}
 	t.Anotar(map[string]any{"absorbidos": len(hijos)})
 	return len(hijos), m.encolarAvisoFalla(ctx, t, general, inc, AvisoFallaAbierta)
+}
+
+// retomarHijosEnEspera: al reusar el ticket general, los hijos del incidente anterior que siguen en
+// espera vuelven a abierto (su espera empieza de nuevo cuando se cierre el incidente nuevo) y pasan al
+// incidente nuevo, así reciben su aviso de apertura.
+func (m *Modulo) retomarHijosEnEspera(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, anterior int64, inc soportebd.SoporteIncidentesRed,
+	general soportebd.SoporteTicket) error {
+	hijos, err := q.HijosEnEsperaDeIncidente(ctx, soportebd.HijosEnEsperaDeIncidenteParams{Incidente: anterior, GeneralID: general.ID})
+	if err != nil {
+		return err
+	}
+	ahora := m.ahora()
+	for _, h := range hijos {
+		cal, err := cargarCalendario(ctx, q, h.CalendarioID)
+		if err != nil {
+			return err
+		}
+		despues := h
+		salirDeEspera(&despues, cal, ahora)
+		despues.Estado = EstadoAbierto
+		f, err := guardar(ctx, t, q, h, despues, cal)
+		if err != nil {
+			return err
+		}
+		if _, err := mensajeSistema(ctx, q, f, false, "La falla general volvió ("+inc.IncidenteID+"): se deja de esperar la verificación del cliente."); err != nil {
+			return err
+		}
+		if err := cambioDeEstado(ctx, t, q, h, f, ptr("Argos: la falla general volvió")); err != nil {
+			return err
+		}
+		if err := q.RegistrarHijoIncidente(ctx, soportebd.RegistrarHijoIncidenteParams{Incidente: inc.ID, TicketID: f.ID}); err != nil {
+			return err
+		}
+	}
+	t.Anotar(map[string]any{"hijos_retomados": len(hijos)})
+	return nil
 }
 
 // reabrirGeneral reabre (o deja abierto) el ticket general de un incidente que vuelve antes de 30 min.
@@ -603,6 +653,10 @@ func (m *Modulo) cerrarFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.
 		return ResultadoRed{}, err
 	}
 	nota := "Argos: la falla general " + inc.IncidenteID + " se cerró."
+	// La posible falla general que confirmó este incidente se resuelve: deja de agrupar caídas.
+	if err := m.resolverPosiblesFalla(ctx, t, q, g, nota, ahora); err != nil {
+		return ResultadoRed{}, err
+	}
 	if g.Maestro == nil || *g.Maestro != MaestroFallaGeneral {
 		// El general es el maestro de Horus: sus hijos esperan a que Horus confirme (su «arriba»).
 		_, err := mensajeSistema(ctx, q, g, false, nota+" Los tickets vinculados siguen igual hasta que Horus confirme que el router volvió.")
@@ -640,10 +694,8 @@ func (m *Modulo) cerrarFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.
 		if err := cambioDeEstado(ctx, t, q, g, f, ptr("Argos: falla general cerrada")); err != nil {
 			return ResultadoRed{}, err
 		}
-		if m.cfg.Encolar != nil {
-			if err := m.cfg.Encolar(ctx, t.Tx, ArgsCerrarFallaGeneral{TicketID: f.ID, Incidente: inc.ID}); err != nil {
-				return ResultadoRed{}, err
-			}
+		if err := m.encolarCerrarGeneral(ctx, t, f, inc.ID); err != nil {
+			return ResultadoRed{}, err
 		}
 		g = f
 	} else if _, err := mensajeSistema(ctx, q, g, false, nota); err != nil {
@@ -653,6 +705,57 @@ func (m *Modulo) cerrarFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.
 		return ResultadoRed{}, err
 	}
 	return ResultadoRed{Resultado: RedFallaCerrada, TicketID: &g.ID}, nil
+}
+
+// resolverPosiblesFalla resuelve las posibles fallas generales abiertas que cuelgan del ticket general.
+func (m *Modulo) resolverPosiblesFalla(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, g soportebd.SoporteTicket, nota string, ahora time.Time) error {
+	posibles, err := q.PosiblesFallaHijasDe(ctx, g.ID)
+	if err != nil {
+		return err
+	}
+	for _, p := range posibles {
+		cal, err := cargarCalendario(ctx, q, p.CalendarioID)
+		if err != nil {
+			return err
+		}
+		despues := p
+		salirDeEspera(&despues, cal, ahora)
+		despues.Estado, despues.ResueltoEn = EstadoResuelto, &ahora
+		f, err := guardar(ctx, t, q, p, despues, cal)
+		if err != nil {
+			return err
+		}
+		if _, err := mensajeSistema(ctx, q, f, false, nota+" La posible falla general se resuelve con ella ("+g.Numero+")."); err != nil {
+			return err
+		}
+		if err := cambioDeEstado(ctx, t, q, p, f, ptr("Argos: falla general cerrada")); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// encolarCerrarGeneral programa el cierre del ticket general a los 30 min de resuelto (uno por resolución).
+func (m *Modulo) encolarCerrarGeneral(ctx context.Context, t *auditoria.Tx, g soportebd.SoporteTicket, incidente int64) error {
+	if m.cfg.Encolar == nil || g.ResueltoEn == nil {
+		return nil
+	}
+	return m.cfg.Encolar(ctx, t.Tx, ArgsCerrarFallaGeneral{TicketID: g.ID, Incidente: incidente, ResueltoEn: g.ResueltoEn.UTC()})
+}
+
+// reprogramarCierreGeneral: una persona resolvió el ticket general (lo había reabierto); si ninguna de
+// sus fallas sigue abierta, se vuelve a programar su cierre a los 30 min.
+func (m *Modulo) reprogramarCierreGeneral(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, g soportebd.SoporteTicket) error {
+	incs, err := q.IncidentesDeTicket(ctx, g.ID)
+	if err != nil || len(incs) == 0 {
+		return err
+	}
+	for _, i := range incs {
+		if i.Estado == "abierta" {
+			return nil
+		}
+	}
+	return m.encolarCerrarGeneral(ctx, t, g, incs[0].ID)
 }
 
 // verificarHijo: al cerrarse la falla, un hijo cuyo router Horus ya confirmó arriba se resuelve; uno
@@ -723,30 +826,54 @@ func (m *Modulo) resolverHijoConfirmado(ctx context.Context, t *auditoria.Tx, q 
 	return t.Emitir("ticket.respondido", map[string]any{"ticket_id": f.ID, "mensaje_id": msj.ID})
 }
 
-// ResolverConfirmadosPorHorus: Horus avisó que un router volvió; los hijos de fallas generales ya
-// cerradas con servicio en ese router se resuelven (los llama el caso de Horus, en su transacción).
-func (m *Modulo) resolverConfirmadosPorHorus(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, empresa *int64, router int64) (int, error) {
-	hijos, err := q.HijosVerificandoDeRouter(ctx, soportebd.HijosVerificandoDeRouterParams{EmpresaID: empresa, RouterID: &router})
-	if err != nil {
-		return 0, err
-	}
+// TandaConfirmados: hijos por consulta al resolver los que confirmó Horus.
+const TandaConfirmados = 200
+
+// resolverConfirmadosPorHorus: Horus avisó (en ocurrido) que un router volvió; se resuelven solo los
+// hijos que esperan verificar con el cliente tras el cierre de su falla general: siguen colgando del
+// ticket general de ese incidente, están en espera desde el cierre (nadie los movió ni volvieron a
+// abierto), el cierre fue hace menos de las horas de verificación de la empresa y la falla empezó antes
+// del aviso de Horus. Router de una empresa: solo esa; compartido (empresa nula): las empresas de los
+// servicios del router. Por tandas, en la transacción del caso de Horus.
+func (m *Modulo) resolverConfirmadosPorHorus(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, empresa *int64, router int64, ocurrido time.Time) (int, error) {
 	ahora := m.ahora()
-	for _, h := range hijos {
-		f, err := q.TicketPorIDParaActualizar(ctx, h.ID)
+	resueltos := 0
+	despues := int64(0)
+	for {
+		hijos, err := q.HijosVerificandoDeRouter(ctx, soportebd.HijosVerificandoDeRouterParams{EmpresaID: empresa, RouterID: &router, Despues: despues,
+			Ahora: ahora, Ocurrido: ocurrido.UTC(), Limite: TandaConfirmados})
 		if err != nil {
-			return 0, err
+			return resueltos, err
 		}
-		if !abierto(f.Estado) {
-			continue
+		for _, h := range hijos {
+			despues = h.ID
+			f, err := q.TicketPorIDParaActualizar(ctx, h.ID)
+			if err != nil {
+				return resueltos, err
+			}
+			if f.Estado != EstadoEnEspera || f.TicketPadreID == nil || h.TicketPadreID == nil || *f.TicketPadreID != *h.TicketPadreID {
+				continue
+			}
+			if err := m.resolverHijoConfirmado(ctx, t, q, f, ahora); err != nil {
+				return resueltos, err
+			}
+			resueltos++
 		}
-		if err := m.resolverHijoConfirmado(ctx, t, q, f, ahora); err != nil {
-			return 0, err
+		if len(hijos) < TandaConfirmados {
+			return resueltos, nil
 		}
 	}
-	return len(hijos), nil
+}
+
+func claveAvisoFalla(aviso string, incidente int64) string {
+	return fmt.Sprintf("%s:i%d", aviso, incidente)
 }
 
 func (m *Modulo) encolarAvisoFalla(ctx context.Context, t *auditoria.Tx, g soportebd.SoporteTicket, inc soportebd.SoporteIncidentesRed, aviso string) error {
+	if g.Maestro == nil || *g.Maestro != MaestroFallaGeneral {
+		// El general es el maestro de Horus: Horus ya avisa a los hijos (apertura y cierre).
+		return nil
+	}
 	t.Anotar(map[string]any{"aviso_hijos": aviso})
 	if m.cfg.Encolar == nil {
 		return nil
@@ -760,6 +887,9 @@ func (m *Modulo) encolarAvisoFalla(ctx context.Context, t *auditoria.Tx, g sopor
 type ArgsCerrarFallaGeneral struct {
 	TicketID  int64 `json:"ticket_id"`
 	Incidente int64 `json:"incidente"`
+	// ResueltoEn: la resolución que lo programó (una persona puede reabrirlo y volver a resolverlo:
+	// otro job, que no choca con la unicidad del anterior).
+	ResueltoEn time.Time `json:"resuelto_en,omitzero"`
 }
 
 // Kind implementa river.JobArgs.

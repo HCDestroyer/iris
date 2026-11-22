@@ -42,13 +42,16 @@ const (
 
 // Eventos internos que publica el conector.
 const (
-	EventoInternoCaidas          = "argos.caidas_repetidas"
-	EventoInternoFallaAbierta    = "argos.falla_general_abierta"
-	EventoInternoFallaCerrada    = "argos.falla_general_cerrada"
-	EventoInternoFallaServicios  = "argos.falla_general_servicios"
-	MaxServiciosEventoFalla      = 5000
-	LimiteServiciosIncidente     = 1000
-	maxServiciosIncidente        = 200_000
+	EventoInternoCaidas         = "argos.caidas_repetidas"
+	EventoInternoFallaAbierta   = "argos.falla_general_abierta"
+	EventoInternoFallaCerrada   = "argos.falla_general_cerrada"
+	EventoInternoFallaServicios = "argos.falla_general_servicios"
+	MaxServiciosEventoFalla     = 5000
+	LimiteServiciosIncidente    = 1000
+	maxServiciosIncidente       = 200_000
+	// MaxPaginasIncidente: tope de páginas de la lectura paginada (con margen sobre
+	// maxServiciosIncidente / LimiteServiciosIncidente, por páginas incompletas).
+	MaxPaginasIncidente          = 2 * maxServiciosIncidente / LimiteServiciosIncidente
 	maxLecturasServicioPorEvento = 1
 )
 
@@ -207,18 +210,28 @@ func (p *ProcesarEntrante) leerRed(ctx context.Context, bd conector.DBTX, e cone
 	validos := make([]int64, 0, len(ids))
 	desconocidos := []int64{}
 	descartados := 0
+	unicos := make([]int64, 0, len(ids))
 	for _, id := range ids {
-		if id <= 0 || vistos[id] {
-			continue
+		if id > 0 && !vistos[id] {
+			vistos[id] = true
+			unicos = append(unicos, id)
 		}
-		vistos[id] = true
-		s, err := q.ServicioPorID(ctx, id)
+	}
+	// Una sola consulta para todos (hasta MaxServiciosEventoFalla).
+	conocidos, err := q.ServiciosPorIDs(ctx, unicos)
+	if err != nil {
+		return nil, "", err
+	}
+	empresaDe := make(map[int64]int64, len(conocidos))
+	for _, s := range conocidos {
+		empresaDe[s.ID] = s.EmpresaID
+	}
+	for _, id := range unicos {
+		emp, ok := empresaDe[id]
 		switch {
-		case errors.Is(err, pgx.ErrNoRows):
+		case !ok:
 			desconocidos = append(desconocidos, id)
-		case err != nil:
-			return nil, "", err
-		case s.EmpresaID == *f.EmpresaID:
+		case emp == *f.EmpresaID:
 			validos = append(validos, id)
 		default:
 			descartados++
@@ -246,6 +259,13 @@ func fechaRed(t *time.Time) *string {
 
 func emitirRed(ctx context.Context, t *auditoria.Tx, r eventoRed, entrante int64, encolar Encolador) error {
 	t.FijarEmpresa(r.empresa)
+	if r.evento == EventoInternoFallaCerrada {
+		// La falla se cerró: las lecturas pendientes de sus servicios se terminan (no se sigue leyendo Argos).
+		inc, _ := r.payload["incidente_id"].(string)
+		if err := argosbd.New(t).TerminarLecturasDeIncidente(ctx, argosbd.TerminarLecturasDeIncidenteParams{IncidenteID: inc, EmpresaID: r.empresa}); err != nil {
+			return err
+		}
+	}
 	if l := r.lectura; l != nil {
 		q := argosbd.New(t)
 		if err := q.CrearLecturaIncidente(ctx, argosbd.CrearLecturaIncidenteParams{EntranteID: entrante, ConectorID: l.conector,

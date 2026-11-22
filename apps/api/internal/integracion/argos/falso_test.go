@@ -111,6 +111,8 @@ type argosFalso struct {
 	// incidentes: servicios de cada incidente de red por empresa («<incidente>:<empresa>»; contrato
 	// 0.13.0 §3.11, red_test.go). Sin entrada: 404.
 	incidentes map[string][]int64
+	// cursorFijo: el incidente devuelve siempre el mismo nextCursor (Argos con un error de paginación).
+	cursorFijo map[string]string
 }
 
 type usoToken struct {

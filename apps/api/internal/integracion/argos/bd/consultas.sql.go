@@ -721,6 +721,17 @@ func (q *Queries) ClientesEnInstantanea(ctx context.Context, ids []int64) ([]Cli
 	return items, nil
 }
 
+const contarPaginaLectura = `-- name: ContarPaginaLectura :one
+UPDATE integracion.argos_incidente_lecturas SET paginas = paginas + 1 WHERE entrante_id = $1 RETURNING paginas
+`
+
+func (q *Queries) ContarPaginaLectura(ctx context.Context, entranteID int64) (int32, error) {
+	row := q.db.QueryRow(ctx, contarPaginaLectura, entranteID)
+	var paginas int32
+	err := row.Scan(&paginas)
+	return paginas, err
+}
+
 const contarServiciosLectura = `-- name: ContarServiciosLectura :one
 SELECT count(*)::integer FROM integracion.argos_incidente_servicios WHERE entrante_id = $1
 `
@@ -1720,7 +1731,7 @@ func (q *Queries) LecturaCuentasDe(ctx context.Context, empresaID int64) (time.T
 }
 
 const lecturaIncidente = `-- name: LecturaIncidente :one
-SELECT entrante_id, conector_id, incidente_id, empresa_id, paginar, cursor, terminada_en, created_at FROM integracion.argos_incidente_lecturas WHERE entrante_id = $1
+SELECT entrante_id, conector_id, incidente_id, empresa_id, paginar, cursor, terminada_en, created_at, paginas FROM integracion.argos_incidente_lecturas WHERE entrante_id = $1
 `
 
 func (q *Queries) LecturaIncidente(ctx context.Context, entranteID int64) (IntegracionArgosIncidenteLectura, error) {
@@ -1735,6 +1746,7 @@ func (q *Queries) LecturaIncidente(ctx context.Context, entranteID int64) (Integ
 		&i.Cursor,
 		&i.TerminadaEn,
 		&i.CreatedAt,
+		&i.Paginas,
 	)
 	return i, err
 }
@@ -2536,6 +2548,60 @@ func (q *Queries) ServiciosEliminadosTodasLasEmpresas(ctx context.Context, ids [
 	return items, nil
 }
 
+const serviciosPorIDs = `-- name: ServiciosPorIDs :many
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre FROM integracion.argos_servicios WHERE id = ANY($1::bigint[])
+`
+
+func (q *Queries) ServiciosPorIDs(ctx context.Context, ids []int64) ([]IntegracionArgosServicio, error) {
+	rows, err := q.db.Query(ctx, serviciosPorIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []IntegracionArgosServicio
+	for rows.Next() {
+		var i IntegracionArgosServicio
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.ClienteID,
+			&i.Codigo,
+			&i.PlanID,
+			&i.PlanNombre,
+			&i.RouterID,
+			&i.RouterNombre,
+			&i.ZonaID,
+			&i.ZonaNombre,
+			&i.Ip,
+			&i.Direccion,
+			&i.Lat,
+			&i.Lon,
+			&i.Estado,
+			&i.SincronizadoEn,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.UserPpp,
+			&i.TipoConexion,
+			&i.Referencia,
+			&i.ContactoNombre,
+			&i.ContactoTelefono,
+			&i.PrecioMensual,
+			&i.Moneda,
+			&i.PrefijoEnlaceV6,
+			&i.PrefijoDelegadoV6,
+			&i.Planta,
+			&i.Nombre,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const sincronizacionEnCurso = `-- name: SincronizacionEnCurso :one
 SELECT id, conector_id, estado, contrato_remoto, excluir_retirados, informar, iniciada_en, actualizada_en, terminada_en, informe_estado, informado_en, informado_hasta, informe_detalle, iniciada_por, origen FROM integracion.argos_sincronizaciones WHERE conector_id = $1 AND estado = 'en_curso'
 `
@@ -2664,6 +2730,22 @@ UPDATE integracion.argos_incidente_lecturas SET terminada_en = now(), paginar = 
 
 func (q *Queries) TerminarLecturaIncidente(ctx context.Context, entranteID int64) error {
 	_, err := q.db.Exec(ctx, terminarLecturaIncidente, entranteID)
+	return err
+}
+
+const terminarLecturasDeIncidente = `-- name: TerminarLecturasDeIncidente :exec
+UPDATE integracion.argos_incidente_lecturas SET terminada_en = now(), paginar = false
+WHERE incidente_id = $1 AND empresa_id = $2 AND terminada_en IS NULL
+`
+
+type TerminarLecturasDeIncidenteParams struct {
+	IncidenteID string
+	EmpresaID   int64
+}
+
+// La falla se cerro: lo que quede por leer de ese incidente ya no se lee.
+func (q *Queries) TerminarLecturasDeIncidente(ctx context.Context, arg TerminarLecturasDeIncidenteParams) error {
+	_, err := q.db.Exec(ctx, terminarLecturasDeIncidente, arg.IncidenteID, arg.EmpresaID)
 	return err
 }
 

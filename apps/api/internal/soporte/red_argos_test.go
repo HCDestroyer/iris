@@ -271,7 +271,12 @@ func TestFallaGeneral(t *testing.T) {
 	if g := ticketsDe(t, "t.id = $1", *general)[0]; g.Estado != "abierto" {
 		t.Fatalf("reabierto: %s", g.Estado)
 	}
-	// Un ticket nuevo del mismo cliente en este incidente: el aviso de apertura no se repite antes de 6 h.
+	// h1 esperaba verificar con el cliente: la falla volvió, así que vuelve a abierto, pasa al incidente
+	// nuevo y recibe su apertura (el tope de 6 h no cuenta la del incidente que se reusa).
+	if e := ticketsDe(t, "t.id = $1", h1.ID)[0].Estado; e != "abierto" {
+		t.Fatalf("h1 al reusar: %s", e)
+	}
+	// Un ticket nuevo del mismo cliente en este incidente: un solo aviso de apertura por cliente e incidente.
 	h3 := crear(t, m, ctx, soporte.EntradaCrearTicket{ClienteID: ptr(int64(8201)), ServicioID: ptr(int64(820101)), CategoriaID: &sinServicio})
 	if h3.TicketPadreID == nil || *h3.TicketPadreID != *general {
 		t.Fatal("nace hijo del reusado")
@@ -281,15 +286,15 @@ func TestFallaGeneral(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if publicos(t, h3.ID) != 0 {
-		t.Fatal("máximo un aviso de apertura cada 6 h por cliente")
+	if publicos(t, h3.ID) != 0 || publicos(t, h1.ID) != 3 {
+		t.Fatalf("apertura del reuso: h1 %d, h3 %d", publicos(t, h1.ID), publicos(t, h3.ID))
 	}
 	// Su cierre no repite el aviso de cierre antes de 6 h.
 	c3 := f3
 	c3.EntranteID = nuevoEntrante()
 	aplicarRed(t, m, argos.EventoInternoFallaCerrada, c3)
 	avisarCierre()
-	if publicos(t, h1.ID) != 2 || publicos(t, h3.ID) != 0 {
+	if publicos(t, h1.ID) != 3 || publicos(t, h3.ID) != 0 {
 		t.Fatal("máximo un aviso de cierre cada 6 h")
 	}
 	// Pasados 30 min sin volver, el general se cierra.
@@ -349,7 +354,7 @@ func TestFallaGeneral(t *testing.T) {
 func TestFallaGeneralConMaestroDeHorus(t *testing.T) {
 	registrarEmpresas(t, 83)
 	instantanea(t, 83, 8301, 830101, 8300)
-	m, _, _ := nuevoModuloConCola(time.Now().UTC())
+	m, _, jobs := nuevoModuloConCola(time.Now().UTC())
 	e, p := router(ptr(int64(83)), 8300, "caido")
 	aplicarHorus(t, m, eventoHorus(t, "horus.router_estado_cambiado", p))
 	_, maestro := resultadoHorus(t, e)
@@ -372,6 +377,12 @@ func TestFallaGeneralConMaestroDeHorus(t *testing.T) {
 	if h.TicketPadreID == nil || *h.TicketPadreID != *maestro || len(hijo) != 0 {
 		t.Fatalf("nace hijo del maestro: %+v", h.TicketPadreID)
 	}
+	// Horus ya avisa a los hijos de su maestro: la falla no manda su propia apertura.
+	for _, a := range jobs.tomar() {
+		if a.Incidente != 0 {
+			t.Fatalf("sin aviso de falla con el maestro de Horus: %+v", a)
+		}
+	}
 	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE soporte.tickets SET estado = 'abierto' WHERE id = $1", h.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -385,11 +396,12 @@ func TestFallaGeneralConMaestroDeHorus(t *testing.T) {
 	if e := ticketsDe(t, "t.id = $1", h.ID)[0].Estado; e != "abierto" {
 		t.Fatalf("hijo: %s", e)
 	}
-	// Horus confirma que el router volvió: el hijo se resuelve solo, con un mensaje al cliente.
+	// Horus confirma que el router volvió: la confirmación de la falla resuelve solo a los hijos que
+	// esperaban verificar tras el cierre; los del maestro de Horus siguen su flujo (el del maestro).
 	_, arriba := router(ptr(int64(83)), 8300, "arriba")
 	aplicarHorus(t, m, eventoHorus(t, "horus.router_estado_cambiado", arriba))
-	if e := ticketsDe(t, "t.id = $1", h.ID)[0].Estado; e != "resuelto" || publicos(t, h.ID) != 1 {
-		t.Fatalf("resuelto por Horus: %s %d", e, publicos(t, h.ID))
+	if e := ticketsDe(t, "t.id = $1", h.ID)[0].Estado; e != "abierto" || publicos(t, h.ID) != 0 {
+		t.Fatalf("hijo del maestro de Horus: %s %d", e, publicos(t, h.ID))
 	}
 }
 

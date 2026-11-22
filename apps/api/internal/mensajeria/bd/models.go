@@ -890,6 +890,7 @@ type IntegracionArgosIncidenteLectura struct {
 	Cursor      *string
 	TerminadaEn *time.Time
 	CreatedAt   time.Time
+	Paginas     int32
 }
 
 type IntegracionArgosIncidenteServicio struct {

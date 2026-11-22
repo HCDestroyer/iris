@@ -52,6 +52,22 @@ WHERE empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id) AND maestro = 'posib
 LIMIT 1
 FOR UPDATE;
 
+-- name: PosibleFallaVigente :one
+-- La posible falla abierta que todavía agrupa caídas: sin padre (no la confirmó una falla general) o
+-- creada dentro de su ventana (desde).
+SELECT * FROM soporte.tickets
+WHERE empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id) AND maestro = 'posible_falla' AND estado IN ('nuevo', 'abierto', 'en_espera')
+  AND (ticket_padre_id IS NULL OR created_at >= @desde)
+LIMIT 1
+FOR UPDATE;
+
+-- name: PosiblesFallaHijasDe :many
+-- Las posibles fallas que confirmó (y cuelgan de) este ticket general y siguen abiertas.
+SELECT * FROM soporte.tickets
+WHERE ticket_padre_id = @general_id::bigint AND maestro = 'posible_falla' AND estado IN ('nuevo', 'abierto', 'en_espera')
+ORDER BY id
+FOR UPDATE;
+
 -- name: ContarCaidasRecientes :one
 -- Tickets de caídas que abrió Iris en la empresa desde @desde.
 SELECT count(*)::integer FROM soporte.tickets
@@ -129,7 +145,17 @@ ON CONFLICT DO NOTHING;
 -- name: AvisoFallaDesde :one
 -- El cliente recibió un aviso de ese tipo de otra falla desde @desde (máximo uno cada 6 h por tipo).
 SELECT EXISTS (SELECT 1 FROM soporte.avisos_falla_clientes
-               WHERE cliente_id = @cliente_id AND tipo = @tipo AND enviado_en >= @desde AND incidente <> @incidente::bigint)::boolean;
+               WHERE cliente_id = @cliente_id AND tipo = @tipo AND enviado_en >= @desde AND incidente <> @incidente::bigint
+                 AND incidente IS DISTINCT FROM sqlc.narg(excluir)::bigint)::boolean;
+
+-- name: HijosEnEsperaDeIncidente :many
+-- Los hijos de un incidente anterior que siguen colgando del ticket general y en espera de verificar
+-- (al reusar el general vuelven a abierto y pasan al incidente nuevo).
+SELECT t.* FROM soporte.tickets t
+JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id AND h.incidente = @incidente::bigint
+WHERE t.ticket_padre_id = @general_id::bigint AND t.estado = 'en_espera' AND t.maestro IS NULL
+ORDER BY t.id
+FOR UPDATE OF t;
 
 -- name: RegistrarAvisoHijoSinMensaje :exec
 INSERT INTO soporte.avisos_hijos (maestro_id, aviso, hijo_id, mensaje_id) VALUES (@maestro_id, @aviso, @hijo_id, NULL);
@@ -167,12 +193,29 @@ SELECT EXISTS (
 )::boolean;
 
 -- name: HijosVerificandoDeRouter :many
--- Hijos de fallas generales ya cerradas, todavía sin resolver, cuyo servicio está en ese router.
+-- Hijos de fallas generales cerradas que esperan verificar con el cliente, con servicio en el router
+-- (ver resolverConfirmadosPorHorus en red_argos.go).
 SELECT DISTINCT t.* FROM soporte.tickets t
 JOIN soporte.incidente_red_hijos h ON h.ticket_id = t.id
-JOIN soporte.incidentes_red i ON i.id = h.incidente AND i.estado = 'cerrada'
-JOIN integracion.argos_servicios s ON s.id = t.servicio_id
-WHERE t.empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id) AND s.router_id = @router_id AND t.estado IN ('nuevo', 'abierto', 'en_espera')
-  AND t.maestro IS NULL
+JOIN soporte.incidentes_red i ON i.id = h.incidente AND i.estado = 'cerrada' AND i.ticket_id = t.ticket_padre_id
+JOIN integracion.argos_servicios s ON s.id = t.servicio_id AND s.empresa_id = t.empresa_id
+WHERE t.empresa_id = coalesce(sqlc.narg(empresa_id)::bigint, t.empresa_id)
+  AND i.empresa_id = t.empresa_id AND s.router_id = @router_id
+  AND t.id > @despues::bigint AND t.estado = 'en_espera' AND t.maestro IS NULL
+  AND t.en_espera_desde >= i.cerrada_en
+  AND i.cerrada_en + make_interval(0, 0, 0, 0, coalesce((SELECT a.verificacion_horas FROM soporte.red_ajustes a WHERE a.empresa_id = i.empresa_id), 24)) >= @ahora::timestamptz
+  AND i.desde < @ocurrido::timestamptz
 ORDER BY t.id
-LIMIT 500;
+LIMIT @limite;
+
+-- name: IncidenteRedPorID :one
+SELECT * FROM soporte.incidentes_red WHERE id = @id;
+
+-- name: IncidenteAbiertoDeServicioCompartido :one
+-- Como IncidenteAbiertoDeServicio, con candado compartido (lo usa quien crea un hijo).
+SELECT i.* FROM soporte.incidentes_red i
+JOIN soporte.incidente_red_servicios s ON s.incidente = i.id
+WHERE i.empresa_id = @empresa_id AND i.estado = 'abierta' AND s.servicio_id = @servicio_id
+ORDER BY i.id DESC
+LIMIT 1
+FOR SHARE OF i;

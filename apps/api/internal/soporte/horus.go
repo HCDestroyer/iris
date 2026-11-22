@@ -284,7 +284,7 @@ func (m *Modulo) nuevoIncidenteHorus() *auditoria.Caso[EntradaIncidenteHorus, Re
 			// Horus confirma que el router volvió: los hijos de fallas generales de Argos ya cerradas con
 			// servicio en ese router se resuelven (contrato con Argos 0.13.0 §3.11).
 			if in.Estado == horus.EstadoArriba && in.Tipo == "router" && in.RouterID != nil {
-				n, err := m.resolverConfirmadosPorHorus(ctx, t, q, empresa, *in.RouterID)
+				n, err := m.resolverConfirmadosPorHorus(ctx, t, q, empresa, *in.RouterID, in.OcurridoEn)
 				if err != nil {
 					return ResultadoHorus{}, err
 				}

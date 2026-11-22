@@ -266,8 +266,9 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 	var falla *soportebd.SoporteIncidentesRed
 	if padreID == nil && op.incidente == nil && origen != "horus" && empresa != nil && in.ServicioID != nil && categoria != nil && categoria.Conectividad {
 		// Falla general de Argos abierta con el servicio (contrato 0.13.0 §3.11): un ticket de
-		// conectividad nace hijo del ticket general.
-		inc, err := q.IncidenteAbiertoDeServicio(ctx, soportebd.IncidenteAbiertoDeServicioParams{EmpresaID: *empresa, ServicioID: *in.ServicioID})
+		// conectividad nace hijo del ticket general. El incidente se lee con candado compartido: si el
+		// cierre llega a la vez, espera a este COMMIT (y ve al hijo) o ya cerró y no devuelve nada.
+		inc, err := q.IncidenteAbiertoDeServicioCompartido(ctx, soportebd.IncidenteAbiertoDeServicioCompartidoParams{EmpresaID: *empresa, ServicioID: *in.ServicioID})
 		switch {
 		case err == nil:
 			g, err := q.TicketPorIDCompartido(ctx, inc.TicketID)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -45,8 +46,14 @@ type ArgsAvisarHijos struct {
 // Kind implementa river.JobArgs.
 func (ArgsAvisarHijos) Kind() string { return "soporte.avisar_hijos" }
 
-// InsertOpts: único por maestro, aviso y versión mientras no termine.
-func (ArgsAvisarHijos) InsertOpts() river.InsertOpts {
+// InsertOpts: único por maestro, aviso y versión mientras no termine. Los avisos de una falla general
+// (Incidente) no son únicos: un hijo absorbido mientras el job corre (River cuenta «running» en la
+// unicidad y no se puede quitar) encola otro que lo avisa; los repetidos no hacen nada, porque el aviso
+// es idempotente por soporte.avisos_hijos.
+func (a ArgsAvisarHijos) InsertOpts() river.InsertOpts {
+	if a.Incidente != 0 {
+		return river.InsertOpts{MaxAttempts: 10}
+	}
 	return river.InsertOpts{MaxAttempts: 10, UniqueOpts: unicoMientrasPendiente}
 }
 
@@ -97,11 +104,22 @@ func (m *Modulo) nuevoAvisarTanda() *auditoria.Caso[ArgsAvisarHijos, int] {
 			t.FijarEmpresa(deref(maestro.EmpresaID))
 			clave := fmt.Sprintf("%s:%d", in.Aviso, in.Version)
 			if in.Incidente != 0 {
-				clave = fmt.Sprintf("%s:i%d", in.Aviso, in.Incidente)
+				clave = claveAvisoFalla(in.Aviso, in.Incidente)
+			}
+			// Dos jobs del mismo aviso (los de una falla no son únicos) se turnan: el segundo ve lo que
+			// registró el primero.
+			if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.avisos:%d:%s", in.MaestroID, clave)); err != nil {
+				return 0, err
 			}
 			hijos, err := q.HijosSinAviso(ctx, soportebd.HijosSinAvisoParams{MaestroID: in.MaestroID, Aviso: clave, Limite: TandaAvisos})
 			if err != nil {
 				return 0, err
+			}
+			if in.Incidente != 0 {
+				// El tope de 6 h es por cliente: candado por cliente (en orden, sin interbloqueos).
+				if err := bloquearClientes(ctx, q, hijos); err != nil {
+					return 0, err
+				}
 			}
 			cuerpo := cuerpoAviso(in)
 			avisados := 0
@@ -142,6 +160,22 @@ func (m *Modulo) nuevoAvisarTanda() *auditoria.Caso[ArgsAvisarHijos, int] {
 			return len(hijos), nil
 		},
 	})
+}
+
+func bloquearClientes(ctx context.Context, q *soportebd.Queries, hijos []soportebd.SoporteTicket) error {
+	clientes := make([]int64, 0, len(hijos))
+	for _, h := range hijos {
+		if h.ClienteID != nil {
+			clientes = append(clientes, *h.ClienteID)
+		}
+	}
+	slices.Sort(clientes)
+	for _, c := range slices.Compact(clientes) {
+		if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.red:cliente:%d", c)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // AvisarHijos procesa el aviso en tandas hasta terminar (lo llama el worker, actor sistema).
@@ -190,8 +224,27 @@ func (m *Modulo) avisoFallaPermitido(ctx context.Context, t *auditoria.Tx, q *so
 	if in.Aviso == AvisoFallaCerrada {
 		tipo = "cierre"
 	}
+	inc, err := q.IncidenteRedPorID(ctx, in.Incidente)
+	if err != nil {
+		return false, err
+	}
+	var excluir *int64
+	if tipo == "cierre" && !abierto(h.Estado) {
+		// Ya resuelto (Horus confirmó que volvió, o una persona): ya tiene su mensaje; no también el de
+		// «falla resuelta».
+		return false, nil
+	}
+	if tipo == "apertura" {
+		// Con el incidente ya cerrado, la apertura no sale (queda registrada sin mensaje).
+		if inc.Estado != "abierta" {
+			return false, nil
+		}
+		// Al reusar el general, la apertura nueva sale aunque el cliente recibió la del incidente anterior.
+		excluir = inc.ReusaDe
+	}
 	ahora := m.ahora()
-	reciente, err := q.AvisoFallaDesde(ctx, soportebd.AvisoFallaDesdeParams{ClienteID: *h.ClienteID, Tipo: tipo, Desde: ahora.Add(-VentanaAvisoCierre), Incidente: in.Incidente})
+	reciente, err := q.AvisoFallaDesde(ctx, soportebd.AvisoFallaDesdeParams{ClienteID: *h.ClienteID, Tipo: tipo, Desde: ahora.Add(-VentanaAvisoCierre),
+		Incidente: in.Incidente, Excluir: excluir})
 	if err != nil || reciente {
 		return false, err
 	}
