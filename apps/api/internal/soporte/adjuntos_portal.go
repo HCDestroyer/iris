@@ -184,7 +184,7 @@ func comprobarArchivo(nombre string, datos []byte) (archivoPortal, error) {
 			return archivoPortal{}, mimeNoPermitido()
 		}
 		pixeles := int64(cfg.Width) * int64(cfg.Height)
-		if pixeles > MaxPixelesAdjuntoPortal || pixeles*bytesPorPixel(cfg.ColorModel) > MaxBytesDecodificada {
+		if pixeles > MaxPixelesAdjuntoPortal || memoriaDecodificada(datos, tipo, pixeles, cfg.ColorModel) > MaxBytesDecodificada {
 			return archivoPortal{}, imagenDemasiadoGrande()
 		}
 	case "application/pdf":
@@ -193,6 +193,61 @@ func comprobarArchivo(nombre string, datos []byte) (archivoPortal, error) {
 		return archivoPortal{}, mimeNoPermitido()
 	}
 	return a, nil
+}
+
+// memoriaDecodificada estima lo que ocupa decodificar la imagen (revisión H1): la imagen final
+// (píxeles × bytes por píxel) más lo que el decodificador de Go guarda aparte:
+//   - JPEG progresivo (SOF2, SOF6, SOFA, SOFE): los coeficientes de cada componente, 4 B por píxel;
+//   - JPEG CMYK (4 componentes): una imagen intermedia de 4 B por píxel;
+//   - PNG entrelazado (Adam7): el doble (cada pasada se decodifica aparte y se copia).
+func memoriaDecodificada(datos []byte, tipo string, pixeles int64, modelo color.Model) int64 {
+	total := pixeles * bytesPorPixel(modelo)
+	switch tipo {
+	case "image/jpeg":
+		progresivo, componentes := marcadoresJPEG(datos)
+		if progresivo {
+			total += 4 * int64(componentes) * pixeles
+		}
+		if componentes == 4 {
+			total += 4 * pixeles
+		}
+	case "image/png":
+		// IHDR: firma (8) + largo (4) + "IHDR" (4) + ancho, alto, profundidad, color, compresión, filtro (12) → entrelazado en 28.
+		if len(datos) > 28 && datos[28] == 1 {
+			total *= 2
+		}
+	}
+	return total
+}
+
+// marcadoresJPEG lee los marcadores hasta el SOF: si es progresivo y cuántos componentes tiene.
+func marcadoresJPEG(datos []byte) (progresivo bool, componentes int) {
+	for i := 2; i+4 <= len(datos); {
+		if datos[i] != 0xff {
+			return false, 0
+		}
+		m := datos[i+1]
+		if m == 0xff { // relleno
+			i++
+			continue
+		}
+		if m == 0xd8 || (m >= 0xd0 && m <= 0xd7) || m == 0x01 {
+			i += 2
+			continue
+		}
+		largo := int(datos[i+2])<<8 | int(datos[i+3])
+		if m >= 0xc0 && m <= 0xcf && m != 0xc4 && m != 0xc8 && m != 0xcc {
+			if i+9 < len(datos) {
+				componentes = int(datos[i+9])
+			}
+			return m == 0xc2 || m == 0xc6 || m == 0xca || m == 0xce, componentes
+		}
+		if m == 0xda || largo < 2 {
+			return false, 0
+		}
+		i += 2 + largo
+	}
+	return false, 0
 }
 
 // recodificaciones limita las decodificaciones a la vez en el proceso.
@@ -212,13 +267,7 @@ func recodificarArchivos(archivos []archivoPortal) ([]archivoPortal, error) {
 			salida = append(salida, a)
 			continue
 		}
-		select {
-		case recodificaciones <- struct{}{}:
-		default:
-			return nil, ocupadoRecodificando()
-		}
-		datos, err := recodificar(a.Datos, a.Mime)
-		<-recodificaciones
+		datos, err := recodificarUna(a.Datos, a.Mime)
 		if err != nil {
 			return nil, err
 		}
@@ -230,6 +279,27 @@ func recodificarArchivos(archivos []archivoPortal) ([]archivoPortal, error) {
 	}
 	return salida, nil
 }
+
+// recodificarUna toma un lugar del semáforo y recodifica. El lugar se libera siempre (defer), también
+// si el decodificador entra en pánico con un archivo malicioso: el pánico se vuelve 422
+// mime_no_permitido (revisión H2).
+func recodificarUna(datos []byte, tipo string) (salida []byte, err error) {
+	select {
+	case recodificaciones <- struct{}{}:
+	default:
+		return nil, ocupadoRecodificando()
+	}
+	defer func() { <-recodificaciones }()
+	defer func() {
+		if r := recover(); r != nil {
+			salida, err = nil, mimeNoPermitido()
+		}
+	}()
+	return recodificador(datos, tipo)
+}
+
+// recodificador: recodificar (las pruebas lo cambian para simular un pánico).
+var recodificador = recodificar
 
 // recodificar decodifica y vuelve a codificar la imagen: el archivo nuevo no lleva metadatos. Las
 // dimensiones ya se comprobaron (comprobarArchivo).
