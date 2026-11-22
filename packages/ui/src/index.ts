@@ -122,6 +122,7 @@ export { ListaRecortada, type PropsListaRecortada } from "./componentes/lista-re
 export { MenuArchivos, type OpcionArchivo, type PropsMenuArchivos } from "./componentes/menu-archivos";
 export { PaletaBusqueda, type ElementoPaleta, type PropsPaletaBusqueda, type SeccionPaleta } from "./componentes/paleta-busqueda";
 export { PanelEmergente, type PropsPanelEmergente } from "./componentes/panel-emergente";
+export { PantallaCompleta, type PropsPantallaCompleta } from "./componentes/pantalla-completa";
 export { PanelLateral, type PropsPanelLateral } from "./componentes/panel-lateral";
 export { Pestanas, type Pestana, type PropsPestanas } from "./componentes/pestanas";
 export { SelectorArchivo, type PropsSelectorArchivo } from "./componentes/selector-archivo";
