@@ -1,10 +1,19 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import withSerwistInit from "@serwist/next";
 import type { NextConfig } from "next";
 
-const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const directorio = path.dirname(fileURLToPath(import.meta.url));
+const raiz = path.resolve(directorio, "../..");
+
+// Manual de la app del técnico (/campo/manual): se precachea con el shell para leerlo sin señal.
+// Las páginas salen del contenido generado del manual (lib/manual/contenido.generado.json).
+const paginasManualCampo = (JSON.parse(readFileSync(path.join(directorio, "lib/manual/contenido.generado.json"), "utf8")) as { paginas: { clave: string }[] }).paginas
+    .filter((p) => p.clave.startsWith("campo/"))
+    .map((p) => `/campo/manual/${p.clave.slice("campo/".length)}`);
+const revisionBuild = randomUUID();
 
 // Service worker de la app de campo (Serwist, I4): precachea el shell de /campo y los estáticos
 // del build para abrir sin señal. Solo controla /campo (alcance registrado en
@@ -15,8 +24,8 @@ const conSerwist = withSerwistInit({
     register: false,
     reloadOnOnline: false,
     disable: process.env.NODE_ENV === "development",
-    // El shell (HTML estático de /campo) cambia en cada build: revisión nueva por build.
-    additionalPrecacheEntries: [{ url: "/campo", revision: randomUUID() }],
+    // El shell (HTML estático de /campo) y el manual del técnico cambian en cada build: revisión nueva por build.
+    additionalPrecacheEntries: ["/campo", "/campo/manual", ...paginasManualCampo].map((url) => ({ url, revision: revisionBuild })),
 });
 
 const config: NextConfig = {
