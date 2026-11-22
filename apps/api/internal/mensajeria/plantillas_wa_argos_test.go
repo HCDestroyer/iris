@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
@@ -141,8 +142,11 @@ func TestPlantillasWhatsAppParaArgos(t *testing.T) {
 	}
 
 	// Sin caché y por páginas: recorrer de a 2 da lo mismo que una página grande.
-	if r := e.pedir(http.MethodGet, ruta, tokenA, "", nil); r.h.Get("Cache-Control") != "no-store" || r.cuerpo["nextCursor"] != nil {
-		t.Fatalf("Cache-Control y última página: %v %v", r.h.Get("Cache-Control"), r.cuerpo["nextCursor"])
+	// Sin limit (§6.7 no pagina): todas hasta 500 y sin la clave nextCursor, como antes.
+	if r := e.pedir(http.MethodGet, ruta, tokenA, "", nil); r.h.Get("Cache-Control") != "no-store" {
+		t.Fatalf("Cache-Control: %v", r.h.Get("Cache-Control"))
+	} else if _, hay := r.cuerpo["nextCursor"]; hay || len(r.cuerpo["data"].([]any)) != len(l) {
+		t.Fatalf("sin limit: %v", r.cuerpo)
 	}
 	porPaginas := map[string]bool{}
 	cursor, paginas := "", 0
@@ -167,6 +171,9 @@ func TestPlantillasWhatsAppParaArgos(t *testing.T) {
 		t.Fatalf("paginación: %d de %d en %d páginas", len(porPaginas), len(l), paginas)
 	}
 	e.exigir(e.pedir(http.MethodGet, ruta+"&cursor=basura", tokenA, "", nil), http.StatusUnprocessableEntity)
+	// El cursor va atado a la empresa: uno de otra empresa (o del formato viejo, sin empresa) es 422.
+	e.exigir(e.pedir(http.MethodGet, ruta+"&limit=2&cursor="+nucleo.CodificarCursor(empB, int64(0)), tokenA, "", nil), http.StatusUnprocessableEntity)
+	e.exigir(e.pedir(http.MethodGet, ruta+"&limit=2&cursor="+nucleo.CodificarCursor(int64(0)), tokenA, "", nil), http.StatusUnprocessableEntity)
 
 	// Un token de Horus con el permiso (por un rol a medida): 403, solo la integración de Argos.
 	rh, err := id.PrepararIntegracion(e.ctx, identidad.EntradaPrepararIntegracion{Sistema: "horus", Empresas: []int64{empA}, Correo: pruebas.Correo("horus-pwa")})

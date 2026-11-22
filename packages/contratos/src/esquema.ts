@@ -1349,7 +1349,7 @@ export interface paths {
         };
         /**
          * Plantillas de WhatsApp que puede usar una empresa (contrato Iris ↔ ArgosISP 0.13.0 §6.7)
-         * @description Permiso: `plantillas_whatsapp.leer_integracion`. Solo el token de integración de Argos (otro actor: 403 `solo_integracion_argos`) y solo empresas de su alcance (403 `empresa_no_permitida`). Paginada por cursor (`cursor`, `limit`; `{ data, nextCursor }`) y con `Cache-Control: no-store`. Devuelve las plantillas con el uso «avisos» de las cuentas de WhatsApp de la empresa (con un número suyo activo y conectado en esa cuenta) y, de un número prestado, solo si el préstamo la autoriza a mandar avisos. Sin borradores ni borradas; las de marketing solo con marketing activado. Nunca el id de la cuenta (WABA), el id de Meta ni el motivo de un rechazo. Las plantillas se editan y se aprueban solo en Iris.
+         * @description Permiso: `plantillas_whatsapp.leer_integracion`. Solo el token de integración de Argos (otro actor: 403 `solo_integracion_argos`) y solo empresas de su alcance (403 `empresa_no_permitida`). Sin `limit` devuelve todas hasta 500 (`{ data }`, como §6.7) y `nextCursor` solo si hay más; con `limit`, por páginas (cursor atado a la empresa: el de otra, 422). Con `Cache-Control: no-store`. Devuelve las plantillas con el uso «avisos» de las cuentas de WhatsApp de la empresa (con un número suyo activo y conectado en esa cuenta) y, de un número prestado, solo si el préstamo la autoriza a mandar avisos. Sin borradores ni borradas; las de marketing solo con marketing activado. Nunca el id de la cuenta (WABA), el id de Meta ni el motivo de un rechazo. Las plantillas se editan y se aprueban solo en Iris.
          */
         get: operations["listarPlantillasWhatsAppArgos"];
         put?: never;
@@ -16523,6 +16523,11 @@ export interface components {
             data: components["schemas"]["PlantillaVigente"][] | null;
             nextCursor: string | null;
         };
+        ListaPlantillasArgos: {
+            data: components["schemas"]["PlantillaArgos"][] | null;
+            /** @description Solo si hay más: cursor de la página siguiente */
+            nextCursor?: string;
+        };
         ListaPlantillasConv: {
             data: components["schemas"]["PlantillaDisponible"][];
             nextCursor: string | null;
@@ -17964,11 +17969,6 @@ export interface components {
         };
         PaginaPersonaChat: {
             data: components["schemas"]["PersonaChat"][] | null;
-            /** @description Cursor de la página siguiente; null si no hay más */
-            nextCursor: string | null;
-        };
-        PaginaPlantillaArgos: {
-            data: components["schemas"]["PlantillaArgos"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -27198,9 +27198,9 @@ export interface operations {
             query: {
                 /** @description Empresa de Argos (del alcance del conector; si no, 403 empresa_no_permitida) */
                 empresa_id: number;
-                /** @description Cursor opaco que devolvió la página anterior (nextCursor) */
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor); va atado a la empresa */
                 cursor?: string;
-                /** @description Tamaño de página */
+                /** @description Tamaño de página; sin él, todas hasta 500 (como §6.7, que no pagina) */
                 limit?: number;
             };
             header?: never;
@@ -27216,7 +27216,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PaginaPlantillaArgos"];
+                    "application/json": components["schemas"]["ListaPlantillasArgos"];
                 };
             };
             /** @description Unauthorized */
