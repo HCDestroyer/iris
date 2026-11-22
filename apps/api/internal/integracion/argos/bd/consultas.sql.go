@@ -1690,7 +1690,8 @@ type MarcarTitularCambiadoParams struct {
 	ID int64
 }
 
-// servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora del aviso (ocurrido_en) del último
+// servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora de Argos (ocurrido_en, solo con
+// ocurrido_origen = argos y dentro de la tolerancia) del último
 // cambio de titular; nunca retrocede. Llamar con BloquearArgos del servicio tomado.
 func (q *Queries) MarcarTitularCambiado(ctx context.Context, arg MarcarTitularCambiadoParams) (int64, error) {
 	result, err := q.db.Exec(ctx, marcarTitularCambiado, arg.En, arg.ID)

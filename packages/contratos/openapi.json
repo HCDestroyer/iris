@@ -31274,7 +31274,7 @@
         "properties": {
           "contrato": {
             "$ref": "#/components/schemas/Contrato",
-            "description": "El contrato regenerado en borrador (ausente si se anuló)"
+            "description": "El contrato regenerado en borrador, que el titular firma en la orden"
           },
           "cotizacion": {
             "$ref": "#/components/schemas/Cotizacion"
@@ -31286,7 +31286,8 @@
         },
         "required": [
           "ordenId",
-          "cotizacion"
+          "cotizacion",
+          "contrato"
         ],
         "type": "object"
       },

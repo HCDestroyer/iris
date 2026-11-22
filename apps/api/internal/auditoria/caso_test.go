@@ -304,6 +304,7 @@ func TestMascara(t *testing.T) {
 	casos := map[string]bool{
 		"contrasena": true, "contrasenaHash": true, "token": true, "csrf_token": true, "totp_secreto": true,
 		"firma": true, "token_id": false, "tokenId": false, "nombre": false, "correo": false, "prefijo": false,
+		"firmanteDocumento": true, "firmante_documento": true, "documentoNumero": true, "documento_tipo": false, "firmante_nombre": false,
 	}
 	for campo, esperado := range casos {
 		if auditoria.EsCampoSensible(campo) != esperado {

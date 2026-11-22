@@ -83,6 +83,12 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			if err != nil {
 				return r, err
 			}
+			// Con la orden cancelada o fallida ya no hay firma en sitio: no se regenera nada.
+			if o, err := q.OrdenParaFirmarContrato(ctx, in.OrdenID); err != nil {
+				return r, err
+			} else if ordenTerminal(o.Estado) {
+				return r, nil
+			}
 			idem := claveRevision(in.Clave)
 			if _, err := q.CotizacionPorIdempotencia(ctx, &idem); err == nil {
 				return r, nil // ya revisada (el evento llegó dos veces)
@@ -307,6 +313,8 @@ func (m *Modulo) RevisarVenta(ctx context.Context, in EntradaRevisarVenta) (Resu
 
 // SuscribirRevisionVenta: el cambio de plan o de titular hecho en Argos revisa la venta (cmd/worker).
 func (m *Modulo) SuscribirRevisionVenta(bus *integracion.Bus, bd nucleo.BD, log *slog.Logger) {
+	// La orden cancelada o fallida anula el contrato regenerado que esperaba la firma en sitio.
+	m.suscribirOrdenTerminada(bus, bd, log)
 	bus.Suscribir("comercial.venta_revisada", pendientes.EventoHecho, func(ctx context.Context, e integracion.Evento) error {
 		var p eventoPendienteOrden
 		if err := json.Unmarshal(e.Payload, &p); err != nil || p.Entidad != "orden" {

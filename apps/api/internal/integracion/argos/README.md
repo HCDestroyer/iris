@@ -537,9 +537,11 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
 - **`servicio.titular_cambiado`** (`titular_cambiado.go`): Iris relee al titular nuevo y, si Argos
   confirma que el servicio ya es suyo, refresca la instantánea y emite `argos.titular_cambiado`
   (con `tipo_titular`: `persona` o `empresa`, 0.14.1). La fila del servicio se bloquea
-  (`BloquearArgos`, como en las eliminaciones) y guarda `titular_cambiado_en` (el `ocurrido_en` del
-  último cambio aplicado): un aviso atrasado (A→B que llega después de B→C) no reescribe el
-  servicio ni emite (`titular: atrasado` en la auditoría). Comercial y campo, además, solo mueven si
+  (`BloquearArgos`, como en las eliminaciones) y guarda `titular_cambiado_en` (el `ocurrido_en` de
+  Argos del último cambio aplicado): un aviso atrasado (A→B que llega después de B→C) no reescribe
+  el servicio ni emite (`titular: atrasado` en la auditoría). Solo cuentan horas de Argos
+  (`integracion.entrantes.ocurrido_origen = argos`, que guarda el conector) y nunca más allá de la
+  recepción + 5 minutos; sin hora de Argos no se compara ni se guarda: manda la ficha releída. Comercial y campo, además, solo mueven si
   la instantánea dice que el servicio es de `a_cliente_id`.
 - **Titular empresa (0.14.1):** `TitularEmpresaDisponible` dice si el conector activo informa un
   contrato ≥ 0.14.1; si no, campo no ofrece el cambio a una empresa y el estado de la conexión lo

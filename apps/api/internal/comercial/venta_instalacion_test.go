@@ -55,12 +55,16 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 	if pf == nil || pf.OrdenID != orden || pf.Cotizacion.ID != *r.CotizacionID || pf.Cotizacion.Estado != "vigente" || pf.Cotizacion.Vencida ||
 		pf.Cotizacion.Revision != antes.Revision+1 || pf.Cotizacion.PlanID == nil || *pf.Cotizacion.PlanID != 301 ||
 		pf.Cotizacion.Lineas[0].Descripcion != "Fibra 200 (sin precio)" || pf.Cotizacion.TotalMensual != antes.TotalMensual ||
-		pf.Contrato == nil || pf.Contrato.ID != *r.ContratoID || pf.Contrato.Estado != "borrador" || pf.Contrato.CotizacionID != pf.Cotizacion.ID {
+		pf.Contrato.ID != *r.ContratoID || pf.Contrato.Estado != "borrador" || pf.Contrato.CotizacionID != pf.Cotizacion.ID {
 		t.Fatalf("revisión por firmar: %+v", pf)
 	}
 	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'firmado'", contratoAntes.ID); n != 1 {
 		t.Fatal("el contrato firmado se anuló antes de firmar el regenerado")
 	}
+	// El vendedor no lo firma desde el panel: el regenerado solo se firma en sitio (409).
+	_, err := e.com.FirmarContrato(ctx, comercial.EntradaFirmar{ContratoID: pf.Contrato.ID, Version: pf.Contrato.Version,
+		FirmanteNombre: "Ana López", SVG: firmaSVG})
+	problema(t, err, 409, "se_firma_en_la_orden")
 	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND (contenido->>'ordenId')::bigint = $2", *r.ContratoID, orden); n != 1 {
 		t.Fatal("el contrato regenerado no apunta a la orden donde se firma")
 	}
@@ -109,7 +113,7 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 		id, _ := uuid.NewV7()
 		res, err := e.cmp.Lote(c, campo.EntradaLote{DispositivoID: "tel-venta-" + pruebas.Unico(), Operaciones: []campo.OperacionLote{{
 			ID: id.String(), Tipo: campo.OpFirmarContrato, OrdenID: orden,
-			Datos: map[string]any{"contratoId": contrato, "firmanteNombre": "Ana Pérez", "svg": firmaSVG}}}})
+			Datos: map[string]any{"contratoId": contrato, "firmanteNombre": "Ana Pérez", "firmanteDocumento": "1234567890101", "svg": firmaSVG}}}})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,6 +165,64 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 	// Ya firmado: otra firma no.
 	if res := firmar(ct, *rt.ContratoID); res.Estado != "rechazada" {
 		t.Fatalf("firmado dos veces: %+v", res)
+	}
+
+	// La orden se cancela con una revisión por firmar: el regenerado queda anulado, la revisión sin
+	// aceptar y el contrato firmado, vivo. Una revisión que llega después no regenera nada.
+	r3 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
+		PlanID: ptr(int64(300)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":2"}))(t)
+	if r3.ContratoID == nil {
+		t.Fatalf("tercera revisión: %+v", r3)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'cancelada', finalizada_en = now(), resultado = 'cancelada' WHERE id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.com.OrdenTerminada(ctx, comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "cancelada"}); err == nil {
+		t.Fatal("un usuario anuló el regenerado")
+	}
+	if rc := deber(e.com.OrdenTerminada(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "cancelada"}))(t); rc.ContratoID == nil || *rc.ContratoID != *r3.ContratoID {
+		t.Fatalf("orden cancelada: %+v", rc)
+	}
+	if rc := deber(e.com.OrdenTerminada(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "cancelada"}))(t); rc.ContratoID != nil {
+		t.Fatalf("repetido: %+v", rc)
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'anulado'", *r3.ContratoID); n != 1 {
+		t.Fatal("el regenerado no quedó anulado con la orden cancelada")
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'firmado'", *rt.ContratoID); n != 1 {
+		t.Fatal("el contrato firmado no sigue vivo")
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND estado = 'vigente'", *r3.CotizacionID); n != 1 {
+		t.Fatal("la revisión se aceptó (o se perdió) con la orden cancelada")
+	}
+	v = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: prospecto}))(t)
+	if v.PorFirmarEnOrden != nil || v.Contrato == nil || v.Contrato.ID != *rt.ContratoID || v.Cotizacion == nil || v.Cotizacion.ID != *rt.CotizacionID {
+		t.Fatalf("tras cancelar: %+v %+v %+v", v.PorFirmarEnOrden, v.Contrato, v.Cotizacion)
+	}
+	if r4 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorPlan,
+		PlanID: ptr(int64(301)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":3"}))(t); r4.CotizacionID != nil {
+		t.Fatalf("revisión con la orden cancelada: %+v", r4)
+	}
+	// La revisión sin firmar se deja de lado para el resto de la prueba; la orden vuelve a estar en sitio.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET estado = 'reemplazada' WHERE id = $1", *r3.CotizacionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', finalizada_en = NULL, resultado = NULL WHERE id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+
+	// MEDIA de la verificación de #280: el DPI de quien firma (/firmar y la firma en la orden) nunca
+	// queda en claro en la auditoría.
+	for _, consulta := range []string{
+		"SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%1234567890101%' OR coalesce(resultado::text, '') LIKE '%1234567890101%'",
+		"SELECT count(*) FROM auditoria.cambios WHERE coalesce(antes::text, '') LIKE '%1234567890101%' OR coalesce(despues::text, '') LIKE '%1234567890101%'",
+	} {
+		if n := contar(t, consulta); n != 0 {
+			t.Fatalf("DPI del firmante en la auditoría: %s", consulta)
+		}
+	}
+	if n := contar(t, "SELECT count(*) FROM auditoria.cambios WHERE entidad = 'contrato' AND campo = 'firmante_documento' AND despues = '\"***\"'::jsonb"); n == 0 {
+		t.Fatal("el documento del firmante no quedó como *** en el diff")
 	}
 
 	// B17: el titular cambió en Argos → el prospecto pasa al cliente nuevo (idempotente).

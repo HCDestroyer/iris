@@ -1065,21 +1065,22 @@ type IntegracionDatosTransito struct {
 }
 
 type IntegracionEntrante struct {
-	ID          int64
-	ConectorID  int64
-	WebhookID   string
-	Evento      string
-	EmpresaID   *int64
-	Payload     []byte
-	OcurridoEn  *time.Time
-	RecibidoEn  time.Time
-	ProcesadoEn *time.Time
-	Resultado   *string
-	Intentos    int32
-	Error       *string
-	RequestID   string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             int64
+	ConectorID     int64
+	WebhookID      string
+	Evento         string
+	EmpresaID      *int64
+	Payload        []byte
+	OcurridoEn     *time.Time
+	RecibidoEn     time.Time
+	ProcesadoEn    *time.Time
+	Resultado      *string
+	Intentos       int32
+	Error          *string
+	RequestID      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	OcurridoOrigen *string
 }
 
 type IntegracionOutbox struct {

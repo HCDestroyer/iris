@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -341,12 +342,19 @@ func (m *Modulo) exigirFirmable(ctx context.Context, t *auditoria.Tx, q *comerci
 	if err := nucleo.ExigirVersion(in.Version, c.Version, "contrato", c.ID); err != nil {
 		return c, p, err
 	}
+	// El contrato regenerado en la instalación (B20) solo lo firma el titular en sitio, con la
+	// operación del lote orden.firmar_contrato (técnico asignado, orden en sitio): nunca desde aquí.
+	if ordenDeContrato(c) != nil {
+		return c, p, nucleo.Conflicto("se_firma_en_la_orden",
+			"Este contrato se regeneró en la instalación: lo firma el titular en sitio, en la orden "+strconv.FormatInt(*ordenDeContrato(c), 10))
+	}
 	return c, p, m.contratoFirmable(ctx, q, c, p)
 }
 
 // contratoFirmable: el contrato está en borrador y su prospecto en estado contrato; o es el
 // contrato regenerado en la instalación (contenido.ordenId, B20) de un prospecto ganado, con su
-// revisión aún por aceptar (la firma la acepta). La cotización, vigente.
+// revisión aún por aceptar (la firma la acepta; solo por FirmarEnOrdenEnTx: /firmar lo rechaza con
+// se_firma_en_la_orden). La cotización, vigente.
 func (m *Modulo) contratoFirmable(ctx context.Context, q *comercialbd.Queries, c comercialbd.ComercialContrato, p comercialbd.ComercialProspecto) error {
 	enOrden := ordenDeContrato(c) != nil
 	switch {

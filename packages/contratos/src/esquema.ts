@@ -20032,8 +20032,8 @@ export interface components {
             data: components["schemas"]["TextoConCuenta"][] | null;
         };
         RevisionEnOrden: {
-            /** @description El contrato regenerado en borrador (ausente si se anuló) */
-            contrato?: components["schemas"]["Contrato"];
+            /** @description El contrato regenerado en borrador, que el titular firma en la orden */
+            contrato: components["schemas"]["Contrato"];
             cotizacion: components["schemas"]["Cotizacion"];
             /** Format: int64 */
             ordenId: number;

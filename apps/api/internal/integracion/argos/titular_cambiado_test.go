@@ -1,6 +1,7 @@
 package argos_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -112,5 +113,78 @@ func TestTitularCambiadoAtrasadoNoRetrocede(t *testing.T) {
 	}
 	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.procesar_webhook' AND entrada->'auditoria'->>'titular' = 'atrasado'`); n != 1 {
 		t.Fatal("el aviso atrasado no quedó anotado")
+	}
+}
+
+// Verificación de #280 (reloj): solo se ordenan avisos por la hora que da Argos. Un aviso sin
+// ocurrido_en (hora de recepción de Iris) o con una hora futura (más allá de la recepción más la
+// tolerancia) no deja hora en la instantánea ni congela el servicio: manda la ficha releída de
+// Argos. El origen de la hora queda en integracion.entrantes.ocurrido_origen.
+func TestTitularCambiadoRelojDeIris(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos.con(func() { e.argos.version = "1.6.0" })
+	_, id, secreto := e.conectado()
+	e.sembrarCliente(81, "Titular B")
+	e.sembrarCliente(82, "Titular C")
+	servicio := func(cliente int64) []map[string]any {
+		return []map[string]any{{"id": 810, "empresa_id": 1, "cliente_id": cliente, "codigo": "S-810",
+			"plan": map[string]any{"id": 8, "nombre": "Fibra 100"}, "router_id": 4, "estado": "pendiente_instalacion"}}
+	}
+	e.exec(`INSERT INTO integracion.argos_clientes (id, empresa_id, empresas, nombre, codigo, telefono, direccion, sincronizado_en)
+		VALUES (80, 1, '{1}', 'Titular A', 'C-80', '5555-0000', 'Zona 1', now()) ON CONFLICT (id) DO NOTHING`)
+	e.exec(`INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, plan_nombre, estado, sincronizado_en)
+		VALUES (810, 1, 80, 'Fibra 100', 'pendiente_instalacion', now()) ON CONFLICT (id) DO NOTHING`)
+	t.Cleanup(func() {
+		e.exec("DELETE FROM integracion.argos_servicios WHERE id IN (810, 820)")
+		e.exec("DELETE FROM integracion.argos_clientes WHERE id IN (80, 81, 82)")
+	})
+	cambio := func(de, a int64, ocurrido string) (string, int64) {
+		t.Helper()
+		e.argos.con(func() { e.argos.servicios[a] = servicio(a) })
+		wid := "wh-reloj-" + pruebas.Unico()
+		cuerpo := map[string]any{"id": wid, "evento": "servicio.titular_cambiado", "payload": map[string]any{
+			"servicio_id": 810, "empresa_id": 1, "de_cliente_id": de, "a_cliente_id": a, "existente": false, "posible_duplicado": false,
+			"de_cliente_eliminado": false, "motivo_codigo": "otro", "origen_tipo": "iris_orden", "origen_id": "9"}}
+		if ocurrido != "" {
+			cuerpo["ocurrido_en"] = ocurrido
+		}
+		crudo, _ := json.Marshal(cuerpo)
+		ent := e.entranteDe(e.firmado(id, secreto, wid, crudo, time.Now()))
+		r, err := e.mod.ProcesarEntrante.Ejecutar(pruebas.ContextoSistema(e.pool), ent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.Resultado, ent
+	}
+	// Sin ocurrido_en: la hora es de Iris (origen iris); se aplica por la ficha y no deja hora.
+	r, ent := cambio(80, 81, "")
+	if r != "aplicado" || e.contar(`SELECT count(*) FROM integracion.entrantes WHERE id = $1 AND ocurrido_origen = 'iris'`, ent) != 1 {
+		t.Fatalf("sin ocurrido_en: %s", r)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 810 AND cliente_id = 81 AND titular_cambiado_en IS NULL`) != 1 {
+		t.Fatal("la hora de recepción de Iris quedó como hora del cambio")
+	}
+	// Con una hora futura (reloj de Argos adelantado un día): tampoco deja hora.
+	r, ent = cambio(81, 82, time.Now().UTC().Add(24*time.Hour).Format(time.RFC3339))
+	if r != "aplicado" || e.contar(`SELECT count(*) FROM integracion.entrantes WHERE id = $1 AND ocurrido_origen = 'argos'`, ent) != 1 {
+		t.Fatalf("hora futura: %s", r)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 810 AND cliente_id = 82 AND titular_cambiado_en IS NULL`) != 1 {
+		t.Fatal("la hora futura congeló el servicio")
+	}
+	// El siguiente aviso, con la hora real de Argos, se aplica y sí la deja.
+	ahora := time.Now().UTC().Truncate(time.Second)
+	if r, _ := cambio(82, 81, ahora.Format(time.RFC3339)); r != "aplicado" {
+		t.Fatalf("tras la hora futura: %s", r)
+	}
+	if e.contar(`SELECT count(*) FROM integracion.argos_servicios WHERE id = 810 AND cliente_id = 81 AND titular_cambiado_en = $1`, ahora) != 1 {
+		t.Fatal("la hora de Argos no quedó en la instantánea")
+	}
+	// Uno sin hora después: no se compara con la de Argos; manda la ficha.
+	if r, _ := cambio(81, 82, ""); r != "aplicado" {
+		t.Fatalf("sin hora tras una de Argos: %s", r)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'argos.titular_cambiado' AND (payload->>'servicio_id')::bigint = 810`); n != 4 {
+		t.Fatalf("eventos: %d (los cuatro avisos confirmados por la ficha)", n)
 	}
 }

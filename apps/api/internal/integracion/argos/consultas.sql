@@ -590,7 +590,8 @@ WHERE id = @id
 RETURNING *;
 
 -- name: MarcarTitularCambiado :execrows
--- servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora del aviso (ocurrido_en) del último
+-- servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora de Argos (ocurrido_en, solo con
+-- ocurrido_origen = argos y dentro de la tolerancia) del último
 -- cambio de titular; nunca retrocede. Llamar con BloquearArgos del servicio tomado.
 UPDATE integracion.argos_servicios SET titular_cambiado_en = @en
 WHERE id = @id AND (titular_cambiado_en IS NULL OR titular_cambiado_en <= @en);

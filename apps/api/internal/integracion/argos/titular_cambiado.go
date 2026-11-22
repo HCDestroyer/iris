@@ -42,8 +42,27 @@ type payloadTitular struct {
 type titularCambiado struct {
 	payloadTitular
 	entranteID int64
-	// ocurrido: ocurrido_en del webhook (o la hora de recepción si no lo trae).
-	ocurrido time.Time
+	// ocurrido: la hora que dio Argos (ocurrido_en del webhook); nil si no la trae, no se entiende
+	// o pasa de la recepción más la tolerancia (horaDeArgos).
+	ocurrido *time.Time
+}
+
+// toleranciaReloj: cuánto puede adelantarse el reloj de Argos al de Iris. Una hora más allá de la
+// recepción más esta tolerancia no se usa para ordenar avisos (congelaría el servicio).
+const toleranciaReloj = 5 * time.Minute
+
+// horaDeArgos: ocurrido_en del entrante solo si lo dio Argos (ocurrido_origen = argos) y no pasa
+// de la hora de recepción más la tolerancia; si no, nil. Nunca la hora de recepción de Iris: los
+// dos relojes no se comparan (MEDIA de la verificación de #280).
+func horaDeArgos(e conector.Entrante) *time.Time {
+	if e.OcurridoEn == nil || e.OcurridoOrigen == nil || *e.OcurridoOrigen != conector.OcurridoDeArgos {
+		return nil
+	}
+	if e.OcurridoEn.After(e.RecibidoEn.Add(toleranciaReloj)) {
+		return nil
+	}
+	t := e.OcurridoEn.UTC()
+	return &t
 }
 
 // tipoTitular: persona o empresa (contrato 0.14.1); cualquier otro valor cuenta como persona.
@@ -72,11 +91,7 @@ func (p *ProcesarEntrante) leerTitularCambiado(ctx context.Context, bd conector.
 	} else if err != nil {
 		return "", err
 	}
-	ocurrido := e.RecibidoEn
-	if e.OcurridoEn != nil {
-		ocurrido = *e.OcurridoEn
-	}
-	in.titular = &titularCambiado{payloadTitular: d, entranteID: e.ID, ocurrido: ocurrido.UTC()}
+	in.titular = &titularCambiado{payloadTitular: d, entranteID: e.ID, ocurrido: horaDeArgos(e)}
 	in.ClienteID = d.AClienteID
 	in.ficha, in.borrar, in.errArgos = p.leerDeArgos(ctx, bd, e.ConectorID, *d.AClienteID)
 	if in.borrar {
@@ -90,7 +105,9 @@ func (p *ProcesarEntrante) leerTitularCambiado(ctx context.Context, bd conector.
 
 // bloquearTitular toma el candado del servicio (y de los de la ficha, juntos y en orden de id,
 // como guardarFicha) y dice si el aviso está atrasado: la instantánea ya aplicó un cambio de
-// titular posterior (titular_cambiado_en > ocurrido_en del aviso).
+// titular posterior según Argos (titular_cambiado_en > ocurrido_en del aviso, las dos horas de
+// Argos). Sin hora de Argos nunca está atrasado: manda la ficha releída de Argos, que confirma el
+// titular.
 func bloquearTitular(ctx context.Context, q *argosbd.Queries, in entradaAplicar) (bool, error) {
 	c := in.titular
 	ids := []int64{*c.ServicioID}
@@ -107,7 +124,7 @@ func bloquearTitular(ctx context.Context, q *argosbd.Queries, in entradaAplicar)
 	if err != nil {
 		return false, err
 	}
-	return s.TitularCambiadoEn != nil && s.TitularCambiadoEn.After(c.ocurrido), nil
+	return c.ocurrido != nil && s.TitularCambiadoEn != nil && s.TitularCambiadoEn.After(*c.ocurrido), nil
 }
 
 // emitirTitularCambiado emite argos.titular_cambiado si la ficha leída confirma que el servicio
@@ -131,8 +148,11 @@ func emitirTitularCambiado(ctx context.Context, t *auditoria.Tx, q *argosbd.Quer
 		t.Anotar(map[string]any{"titular": "no_confirmado"})
 		return false, nil
 	}
-	if _, err := q.MarcarTitularCambiado(ctx, argosbd.MarcarTitularCambiadoParams{En: &c.ocurrido, ID: *c.ServicioID}); err != nil {
-		return false, err
+	// Solo una hora de Argos queda como referencia para ordenar los avisos siguientes.
+	if c.ocurrido != nil {
+		if _, err := q.MarcarTitularCambiado(ctx, argosbd.MarcarTitularCambiadoParams{En: c.ocurrido, ID: *c.ServicioID}); err != nil {
+			return false, err
+		}
 	}
 	if c.EmpresaID != nil {
 		t.FijarEmpresa(*c.EmpresaID)

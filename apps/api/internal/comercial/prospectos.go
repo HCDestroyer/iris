@@ -568,22 +568,23 @@ func (m *Modulo) detalle(ctx context.Context, t *auditoria.Tx, q *comercialbd.Qu
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return d, err
 	}
+	// Solo mientras el contrato regenerado espera la firma (anulado con la orden cancelada o
+	// fallida, la revisión queda sin aceptar y no se muestra como por firmar).
 	if c, err := q.RevisionPorFirmar(ctx, f.ID); err == nil && f.OrdenID != nil {
-		v, err := m.aCotizacion(ctx, q, c)
-		if err != nil {
-			return d, err
-		}
-		r := &RevisionEnOrden{OrdenID: *f.OrdenID, Cotizacion: v}
-		if ct, err := q.ContratoPorFirmarEnOrden(ctx, f.ID); err == nil {
+		ct, err := q.ContratoPorFirmarEnOrden(ctx, f.ID)
+		if err == nil {
+			v, err := m.aCotizacion(ctx, q, c)
+			if err != nil {
+				return d, err
+			}
 			vc, err := aContrato(ctx, q, ct)
 			if err != nil {
 				return d, err
 			}
-			r.Contrato = &vc
+			d.PorFirmarEnOrden = &RevisionEnOrden{OrdenID: *f.OrdenID, Cotizacion: v, Contrato: vc}
 		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return d, err
 		}
-		d.PorFirmarEnOrden = r
 	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return d, err
 	}

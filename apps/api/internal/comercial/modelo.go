@@ -88,7 +88,7 @@ type ProspectoDetalle struct {
 type RevisionEnOrden struct {
 	OrdenID    int64      `json:"ordenId"`
 	Cotizacion Cotizacion `json:"cotizacion"`
-	Contrato   *Contrato  `json:"contrato,omitempty" doc:"El contrato regenerado en borrador (ausente si se anuló)"`
+	Contrato   Contrato   `json:"contrato" doc:"El contrato regenerado en borrador, que el titular firma en la orden"`
 }
 
 // TelefonoProspecto es un número de un prospecto registrado desde Argos (§3.6).

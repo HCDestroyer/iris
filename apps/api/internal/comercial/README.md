@@ -118,9 +118,11 @@ De la venta a la instalación (contrato argosisp.md 0.10.0 §3.4.8):
   precio, conserva el anterior) y a nombre del titular confirmado en la orden, y regenera el contrato
   en borrador (`contenido.ordenId`). La cotización aceptada y el contrato firmado siguen vivos hasta
   que el titular firma el regenerado en la orden (`FirmarEnOrdenEnTx`, operación del lote
-  `orden.firmar_contrato`, o `POST /contratos/{id}/firmar`, que acepta un regenerado de un prospecto
-  ganado): ahí el firmado se anula, la aceptada queda reemplazada y la revisión aceptada (la firma
-  en sitio cubre la subida de precio). Una revisión sin firmar la reemplaza la siguiente. Emite
+  `orden.firmar_contrato`; `POST /contratos/{id}/firmar` lo rechaza con `409 se_firma_en_la_orden`):
+  ahí el firmado se anula, la aceptada queda reemplazada y la revisión aceptada (la firma en sitio
+  cubre la subida de precio). Con la orden cancelada o fallida (`orden.estado_cambiada`,
+  `orden_terminada.go`), el regenerado se anula, la revisión queda sin aceptar y el firmado sigue
+  vivo; una revisión que llegue después no regenera nada. Una revisión sin firmar la reemplaza la siguiente. Emite
   `prospecto.venta_revisada`, que notificaciones pone en la campana del vendedor; el detalle del
   prospecto trae `porFirmarEnOrden`. Idempotente por la clave del pendiente.
 - **B17, titular en orden**: `argos.titular_cambiado` pasa el prospecto solo si la instantánea dice
