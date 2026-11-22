@@ -234,7 +234,8 @@ func TestManualesBusquedaSugerenciasYEnvio(t *testing.T) {
 	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, sincronizado_en) VALUES ($1, 1, $2, now())`, cliente*10, cliente); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, servicio_id = $3 WHERE id = $1`, cid(c), cliente, cliente*10); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, servicio_id = $3, cliente_verificado = true, verificado_por = $4 WHERE id = $1`,
+		cid(c), cliente, cliente*10, b.supervisor.id); err != nil {
 		t.Fatal(err)
 	}
 	b.argos.modelos = []string{"ZTE F670L"}

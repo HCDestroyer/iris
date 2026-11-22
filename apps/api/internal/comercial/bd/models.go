@@ -1889,6 +1889,7 @@ type MensajeriaConversacione struct {
 	AsistenteReanudadoEn    *time.Time
 	AsistenteAtencionDesde  *time.Time
 	AsistentePausaPrevio    *string
+	ContactoArgosID         *int64
 }
 
 type MensajeriaDisponibilidad struct {

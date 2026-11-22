@@ -34,7 +34,13 @@ CREATE TABLE mensajeria.contactos_buscados (
     PRIMARY KEY (empresa, digitos)
 );
 
+-- El contacto de Argos con que se asoció la conversación (§3.5): su rol solo sale de ese contacto. Si
+-- Argos lo quita (o deja de devolverlo), la conversación pierde la verificación del número.
+ALTER TABLE mensajeria.conversaciones ADD COLUMN contacto_argos_id bigint CHECK (contacto_argos_id IS NULL OR contacto_argos_id > 0);
+CREATE INDEX conversaciones_contacto_argos_idx ON mensajeria.conversaciones (contacto_argos_id) WHERE contacto_argos_id IS NOT NULL;
+
 -- +goose Down
+ALTER TABLE mensajeria.conversaciones DROP COLUMN contacto_argos_id;
 DROP TABLE mensajeria.contactos_buscados;
 DROP TABLE mensajeria.elecciones_cliente;
 ALTER TABLE mensajeria.boletas DROP COLUMN contacto_argos;

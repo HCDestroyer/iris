@@ -20004,10 +20004,10 @@ export interface components {
             /** @description Lo que solo pide el titular, con su identidad (A41): cambiar titular, plan, Wi-Fi, traspaso y baja */
             reservado: string;
             /**
-             * @description titular: el número es del titular (o la asociación no tiene contacto conocido); contacto: un contacto del cliente en Argos
+             * @description titular: el número es el teléfono o el móvil del titular, o un supervisor lo confirmó o pasó la verificación fuerte; contacto: un contacto del cliente en Argos; sin_confirmar: no se sabe quién habla (sin permisos hasta que un supervisor confirme)
              * @enum {string}
              */
-            rol: "titular" | "contacto";
+            rol: "titular" | "contacto" | "sin_confirmar";
             /** @description «Sus servicios»: los del cliente a los que aplica el rol */
             servicios: components["schemas"]["ServicioContacto"][] | null;
             /** @description Sin cliente asociado: el número está en varios clientes. Se pide el número de servicio (elegir-cliente), sin mostrar datos de ninguno */

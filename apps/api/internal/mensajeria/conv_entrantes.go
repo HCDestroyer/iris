@@ -267,7 +267,7 @@ func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mens
 	// Una sola persona con ese número en la empresa (titular por la instantánea de Argos o contacto
 	// por la caché de contactos, §3.5; un contacto a cargo cuenta como su persona, §3.8): se asocia
 	// sola, con el rol del contacto. Con varias, nadie: se pide el número de servicio (elegir-cliente).
-	cliente, asociacion, err := clienteUnicoDelNumero(ctx, q, empresa, numero)
+	cliente, asociacion, contacto, err := clienteUnicoDelNumero(ctx, q, empresa, numero)
 	if err != nil {
 		return c, false, err
 	}
@@ -284,6 +284,12 @@ func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mens
 	}
 	if err != nil {
 		return c, false, err
+	}
+	if contacto != nil {
+		// El rol sale de ese contacto (B22): si Argos lo quita, la conversación pierde la verificación.
+		if err := fijarContactoConv(ctx, q, &c, contacto); err != nil {
+			return c, false, err
+		}
 	}
 	t.FijarEntidad("conversacion", c.ID)
 	if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "conversacion_creada", ColaNombre: m.nombreCola(ctx, q, empresa, c.ColaID)}); err != nil {

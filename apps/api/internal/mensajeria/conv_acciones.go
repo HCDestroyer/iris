@@ -70,7 +70,7 @@ func (m *Modulo) asegurarCliente(ctx context.Context, previo *auditoria.Caso[Ent
 			// Un servicio a cargo de quien escribe (§3.8) es de otro cliente: se asegura ese.
 			if bd := nucleo.BDDe(ctx); bd != nil {
 				if s, err := mensajeriabd.New(bd).ServicioInstantaneaPorID(ctx, *servicio); err == nil && s.ClienteID != cliente {
-					if rol, err := rolDeConversacion(ctx, mensajeriabd.New(bd), l.conv); err == nil {
+					if rol, err := m.rolDeConversacion(ctx, mensajeriabd.New(bd), l.conv); err == nil {
 						for _, k := range rol.ACargo {
 							if k.ClienteID == s.ClienteID {
 								cliente = s.ClienteID
@@ -138,7 +138,7 @@ func nuevoCrearTicketConv(m *Modulo) *CrearTicketConv {
 				if c.ClienteID != nil {
 					// Un contacto reporta solo con «reportar» y sobre un servicio suyo (o a su cargo:
 					// el ticket es del dueño del servicio), §3.5 y §3.8.
-					acc, err := accesoAServicio(ctx, q, *c, e.ServicioID, PermisoContactoReportar)
+					acc, err := m.accesoAServicio(ctx, q, *c, e.ServicioID, PermisoContactoReportar)
 					if err != nil {
 						return err
 					}
@@ -205,7 +205,17 @@ func nuevoCrearOrdenConv(m *Modulo) *CrearOrdenConv {
 		Accion: "conversaciones.crear_orden", Permiso: nucleo.PermOrdenesCrear,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaOrdenConv) (VinculoCreado, error) {
 			var v VinculoConversacion
-			d, err := m.accionConvDe(ctx, t, "conversaciones.crear_orden", in.ID, 0, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			d, err := m.accionConvDe(ctx, t, "conversaciones.crear_orden", in.ID, 0, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+				// Quién la pide (§3.5): el titular, o un contacto con «reportar» sobre un servicio suyo
+				// (o a su cargo: la orden es del dueño del servicio, §3.8).
+				var acc *accesoServicio
+				if c.ClienteID != nil {
+					x, err := m.accesoAServicio(ctx, q, *c, in.ServicioID, PermisoContactoReportar)
+					if err != nil {
+						return err
+					}
+					acc = &x
+				}
 				if m.cfg.Campo == nil {
 					return noDisponible("Crear órdenes")
 				}
@@ -233,6 +243,12 @@ func nuevoCrearOrdenConv(m *Modulo) *CrearOrdenConv {
 						nombre = *c.PerfilNombre
 					}
 					e.Contacto = &campo.EntradaContactoOrden{Nombre: &nombre, Telefono: &c.Numero}
+				}
+				if acc != nil && e.ClienteID != nil {
+					e.ClienteID = &acc.ClienteID
+					if acc.ServicioID != nil {
+						e.ServicioID = acc.ServicioID
+					}
 				}
 				o, err := m.cfg.Campo.CrearOrden.Caso.Ejecutar(ctx, e)
 				if err != nil {
@@ -405,7 +421,7 @@ func nuevoRegistrarBoleta(m *Modulo) *auditoria.Caso[EntradaBoleta, Boleta] {
 				}
 				// Quién paga (§3.5, §3.8): el titular, o un contacto con «pagar» sobre un servicio suyo
 				// (también uno que tiene a cargo). La boleta queda a nombre del dueño del servicio.
-				acc, err := accesoAServicio(ctx, q, *c, servicio, PermisoContactoPagar)
+				acc, err := m.accesoAServicio(ctx, q, *c, servicio, PermisoContactoPagar)
 				if err != nil {
 					return err
 				}
@@ -975,7 +991,7 @@ func (k *Promesas) Simular(ctx context.Context, in EntradaSimularPromesa) (Simul
 		return SimulacionPromesaConv{}, clienteSinConfirmar()
 	}
 	// Quién la pide (§3.5, §3.8): el titular, o un contacto con «pagar» sobre ese servicio.
-	acc, err := accesoAServicio(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), l.conv, &in.ServicioID, PermisoContactoPagar)
+	acc, err := k.m.accesoAServicio(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), l.conv, &in.ServicioID, PermisoContactoPagar)
 	if err != nil {
 		return SimulacionPromesaConv{}, err
 	}
@@ -1023,7 +1039,7 @@ func (k *Promesas) Crear(ctx context.Context, in EntradaPromesa) (PromesaConv, e
 	}
 	// Quién la pide (§3.5, §3.8): el titular, o un contacto con «pagar» sobre ese servicio (también
 	// uno que tiene a cargo: la promesa es del dueño del servicio, con X-Iris-Contacto).
-	acc, err := accesoAServicio(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), pre.conv, &in.ServicioID, PermisoContactoPagar)
+	acc, err := k.m.accesoAServicio(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), pre.conv, &in.ServicioID, PermisoContactoPagar)
 	if err != nil {
 		return PromesaConv{}, err
 	}

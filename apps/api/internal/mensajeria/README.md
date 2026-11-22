@@ -839,6 +839,12 @@ AMI adopta la fila de una saliente del puente.
   más de 24 h o, sin cliente, busca el número en Argos (una vez al día por número, tabla
   `mensajeria.contactos_buscados`) y, si queda una sola persona, la asocia
   (`conversaciones.asociar_por_contacto`, `conversacion.cliente_asociado` con `origen: contacto`).
+- **Falla cerrado:** la conversación guarda el contacto con que se asoció (`conversaciones.contacto_argos_id`).
+  El rol es de titular solo si el número es el teléfono o el móvil del cliente, o si un supervisor lo
+  confirmó o pasó la verificación fuerte; de contacto, solo si ese contacto sigue en la caché; si no,
+  `sin_confirmar`, sin permisos (`422 cliente_sin_confirmar`). Si Argos quita el contacto
+  (`argos.contactos_cambiados`, suscriptor `SuscribirContactos`), la conversación pierde la verificación.
+  Un contacto a cargo (`persona_cliente_id`) cuenta como la otra persona solo si el número es su teléfono o su móvil.
 - **El rol decide:** `rolContacto` en el detalle de la conversación (rol, permisos, «sus servicios» y
   «los que tiene a cargo», solo código y nombre). Boletas, promesas, tickets y el saldo pasan por
   `accesoAServicio`: un contacto solo con su permiso (`pagar`, `reportar`, `consultar`) y sobre sus
@@ -853,5 +859,6 @@ AMI adopta la fila de una saliente del puente.
 - **Contacto de Iris unido a un cliente:** con Argos ≥ 0.10.0 se crea en Argos por la cola de pendientes
   (`POST /clientes/:id/contactos`, `iris:contacto:<cliente_id>:<contacto_iris_id>`), relación `otro`, con
   todos los permisos (decisión 7 del PM) y `X-Iris-Actor` del agente; nunca desde el asistente.
-- **Asistente:** recibe quién escribe (rol, permisos y códigos de servicio, nunca el nombre del servicio)
-  y no ofrece lo que el contacto no puede; un contacto sin `consultar` no recibe saldo.
+- **Asistente:** recibe quién escribe (rol, permisos y códigos de servicio, nunca el nombre del servicio
+  ni, si no es el titular, el nombre del titular). Con un contacto ve solo sus servicios; sin `consultar`,
+  ni estado, ni precio, ni cuenta; sin `reportar`, no agenda visitas (y el panel no crea órdenes).

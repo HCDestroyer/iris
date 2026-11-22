@@ -1054,14 +1054,41 @@ func (m *Modulo) contextoAsistente(ctx context.Context, q *mensajeriabd.Queries,
 		datos = append(datos, "["+id+"] "+texto)
 	}
 	if aj.FuenteArgos && c.ClienteID != nil && empresa != 0 {
-		svs, err := q.ServiciosClienteAsistente(ctx, mensajeriabd.ServiciosClienteAsistenteParams{ClienteID: *c.ClienteID, Empresa: empresa, ServicioID: c.ServicioID})
+		todos, err := q.ServiciosClienteAsistente(ctx, mensajeriabd.ServiciosClienteAsistenteParams{ClienteID: *c.ClienteID, Empresa: empresa, ServicioID: c.ServicioID})
 		if err != nil {
 			return out, err
 		}
+		// Quién escribe (§3.5): un contacto ve solo sus servicios, sin consultar no ve estado, precio
+		// ni cuenta, y nunca el nombre del titular.
+		rol, err := m.rolDeConversacion(ctx, q, c)
+		if err != nil {
+			return out, err
+		}
+		propio := *rol.Propio
+		consulta := propio.permite(PermisoContactoConsultar)
+		if !consulta {
+			cuenta = nil
+		}
+		svs := todos[:0:0]
+		for _, s := range todos {
+			if propio.cubre(s.ID) {
+				svs = append(svs, s)
+			}
+		}
 		for i, s := range svs {
 			if i == 0 {
-				datos = append(datos, "Cliente asociado: "+limpiarDato(s.ClienteNombre, 80))
+				if propio.esTitular() {
+					datos = append(datos, "Cliente asociado: "+limpiarDato(s.ClienteNombre, 80))
+				} else {
+					datos = append(datos, "Cliente asociado: quien escribe no es el titular (no menciones el nombre del titular)")
+				}
 				out.hayCliente = true
+			}
+			if !consulta {
+				id := itoa(s.ID)
+				sumar(FuenteSugerencia{Tipo: "argos", Etiqueta: "Servicio · Argos", EntidadID: &id},
+					"(argos) "+nombreCortoServicioIA(s)+": quien escribe no puede consultar su estado ni su precio.")
+				continue
 			}
 			estado := s.Estado
 			if estado == "" {

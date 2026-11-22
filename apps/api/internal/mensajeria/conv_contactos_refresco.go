@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -158,8 +160,11 @@ func nuevoAsociarPorContactos(m *Modulo) *auditoria.Caso[entradaAsociarPorContac
 			if c.ClienteID != nil {
 				return false, nil
 			}
-			cliente, asociacion, err := clienteUnicoDelNumero(ctx, q, empresaDeConv(c), c.Numero)
+			cliente, asociacion, contacto, err := clienteUnicoDelNumero(ctx, q, empresaDeConv(c), c.Numero)
 			if err != nil || cliente == nil {
+				return false, err
+			}
+			if err := fijarContactoConv(ctx, q, &c, contacto); err != nil {
 				return false, err
 			}
 			antes := c
@@ -178,5 +183,58 @@ func nuevoAsociarPorContactos(m *Modulo) *auditoria.Caso[entradaAsociarPorContac
 			}
 			return true, m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil)
 		},
+	})
+}
+
+// Contactos que Argos quitó (§3.5, B22) --------------------------------------------------------------
+
+// entradaContactosArgos es el payload de argos.contactos_cambiados (sin números ni nombres).
+type entradaContactosArgos struct {
+	ClienteID  int64  `json:"cliente_id"`
+	ContactoID *int64 `json:"contacto_id"`
+	Accion     string `json:"accion"`
+}
+
+// nuevoContactosArgosCambiados: las conversaciones asociadas por un contacto que ya no está en la caché
+// (Argos lo quitó, dejó de devolverlo o la caché del cliente se olvidó) pierden la verificación del
+// número: hasta que un supervisor confirme, no hay saldo ni pagos (y el rol ya falla cerrado).
+func nuevoContactosArgosCambiados(m *Modulo) *auditoria.Caso[entradaContactosArgos, int] {
+	return auditoria.Nuevo(auditoria.Caso[entradaContactosArgos, int]{
+		Accion: "conversaciones.contacto_argos_quitado", Acceso: auditoria.Autenticado,
+		AuditarExito: func(n int) bool { return n > 0 },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaContactosArgos) (int, error) {
+			if err := soloSistema(ctx); err != nil {
+				return 0, err
+			}
+			if in.ClienteID <= 0 {
+				return 0, nil
+			}
+			q := mensajeriabd.New(t)
+			cs, err := q.DesverificarConvsSinContacto(ctx, mensajeriabd.DesverificarConvsSinContactoParams{ClienteID: &in.ClienteID, ContactoID: in.ContactoID})
+			if err != nil {
+				return 0, err
+			}
+			for _, c := range cs {
+				t.RegistrarCambios("conversacion", c.ID, map[string]any{"cliente_verificado": true}, map[string]any{"cliente_verificado": false})
+				if err := m.emitirEventoConv(ctx, t, c, EventoConvActualizada, nil, nil); err != nil {
+					return 0, err
+				}
+			}
+			t.Anotar(map[string]any{"cliente_id": in.ClienteID, "conversaciones": len(cs)})
+			return len(cs), nil
+		},
+	})
+}
+
+// SuscribirContactos registra en el bus del relay (cmd/worker) el suscriptor de
+// argos.contactos_cambiados. Idempotente.
+func (m *Modulo) SuscribirContactos(bus *integracion.Bus, bd nucleo.BD) {
+	bus.Suscribir("mensajeria.contactos_argos", argos.EventoContactosArgosCambiados, func(ctx context.Context, e integracion.Evento) error {
+		var in entradaContactosArgos
+		if err := json.Unmarshal(e.Payload, &in); err != nil {
+			return nil // un payload ilegible no se arregla reintentando
+		}
+		_, err := m.contactosArgosCambiados.Ejecutar(ctxSistema(ctx, bd), in)
+		return err
 	})
 }

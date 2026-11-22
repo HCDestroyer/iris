@@ -176,6 +176,7 @@ func correr() error {
 	// argos.comprobante_resuelto → la resolución queda en la boleta; el proceso de mensajería la
 	// aplica (mensaje de sistema y aviso al cliente, una sola vez).
 	msj.SuscribirComprobantes(bus, pool)
+	msj.SuscribirContactos(bus, pool)
 	// Reconexión temporal (contrato 0.8.0 §7.3): promesa.* de Argos → argos.promesa_cambiada → la
 	// reconexión de la conversación guarda cómo terminó y con qué motivo la guardó Argos.
 	msj.SuscribirPromesas(bus, pool)

@@ -353,9 +353,27 @@ func (m *Modulo) herrEstadoServicio(ctx context.Context, t *turnoIA, l LlamadaIA
 		return rechazo("esta herramienta no lleva argumentos."), h
 	}
 	q := mensajeriabd.New(nucleo.BDDe(ctx))
-	svs, err := q.ServiciosClienteAsistente(ctx, mensajeriabd.ServiciosClienteAsistenteParams{ClienteID: t.clienteID, Empresa: t.empresa, ServicioID: t.servicioID})
+	todos, err := q.ServiciosClienteAsistente(ctx, mensajeriabd.ServiciosClienteAsistenteParams{ClienteID: t.clienteID, Empresa: t.empresa, ServicioID: t.servicioID})
 	if err != nil {
 		return resHerramienta{fallo: true}, h
+	}
+	// Quién escribe (§3.5): un contacto, solo sus servicios y con «consultar».
+	c, err := q.ConversacionClientePorID(ctx, t.conv)
+	if err != nil || c.ClienteID == nil || *c.ClienteID != t.clienteID {
+		return resHerramienta{fallo: true}, h
+	}
+	rol, err := m.rolDeConversacion(ctx, q, c)
+	if err != nil {
+		return resHerramienta{fallo: true}, h
+	}
+	if !rol.Propio.permite(PermisoContactoConsultar) {
+		return rechazo("quien escribe no tiene permiso del titular para consultar el estado del servicio. No des estados, precios ni fallas."), h
+	}
+	svs := todos[:0:0]
+	for _, s := range todos {
+		if rol.Propio.cubre(s.ID) {
+			svs = append(svs, s)
+		}
 	}
 	fallas, err := q.FallasHorusCliente(ctx, mensajeriabd.FallasHorusClienteParams{ClienteID: t.clienteID, Empresa: t.empresa})
 	if err != nil {
@@ -512,7 +530,7 @@ func (m *Modulo) servicioDelCliente(ctx context.Context, t *turnoIA, servicio in
 	if err != nil {
 		return false
 	}
-	rol, err := rolDeConversacion(ctx, q, c)
+	rol, err := m.rolDeConversacion(ctx, q, c)
 	if err != nil {
 		return false
 	}

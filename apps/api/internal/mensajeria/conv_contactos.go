@@ -276,8 +276,11 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 				c.ClienteID, c.ServicioID, c.Asociacion = &in.ClienteID, in.ServicioID, nombrePtr("manual")
 				// Verificada solo si el número es un teléfono del cliente en la instantánea; si no,
 				// un supervisor la confirma (POST …/confirmar-cliente).
-				coincide, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, in.ClienteID)
+				coincide, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, in.ClienteID)
 				if err != nil {
+					return err
+				}
+				if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
 					return err
 				}
 				c.ClienteVerificado, c.VerificadoPor = coincide, nil
@@ -294,29 +297,32 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 }
 
 // numeroDelCliente: el número es el teléfono, el móvil o el contacto de un servicio del cliente en
-// la instantánea de la empresa.
-func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, cliente int64) (bool, error) {
+// la instantánea de la empresa, o el de un contacto de ese cliente en la caché de Argos (§3.5; con
+// ese contacto, que se guarda en la conversación).
+func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, cliente int64) (bool, *int64, error) {
 	cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	for _, x := range cs {
 		if x.ID == cliente {
-			return true, nil
+			return true, nil, nil
 		}
 	}
-	// El número de un contacto del cliente en Argos (§3.5): identifica igual que el del titular
-	// (WhatsApp desde ese número basta para consultar, reportar y pagar con sus permisos).
 	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	for _, x := range ks {
-		if x.ClienteID == cliente || (x.PersonaClienteID != nil && *x.PersonaClienteID == cliente) {
-			return true, nil
+		// Solo un contacto de ese mismo cliente. Un contacto de otro cliente a cargo de este
+		// (persona_cliente_id) no cuenta: el número de la persona a cargo es su teléfono o su móvil,
+		// que ya se comparó arriba (§3.8).
+		if x.ClienteID == cliente {
+			id := x.ContactoID
+			return true, &id, nil
 		}
 	}
-	return false, nil
+	return false, nil, nil
 }
 
 func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle] {
@@ -589,7 +595,11 @@ func nuevoUnirContacto(m *Modulo) *UnirContacto {
 				if err != nil {
 					return ContactoIris{}, err
 				}
-				if c.ClienteVerificado, err = numeroDelCliente(ctx, q, empresaDeConv(c), c.Numero, in.ClienteID); err != nil {
+				var contacto *int64
+				if c.ClienteVerificado, contacto, err = numeroDelCliente(ctx, q, empresaDeConv(c), c.Numero, in.ClienteID); err != nil {
+					return ContactoIris{}, err
+				}
+				if err := fijarContactoConv(ctx, q, &c, contacto); err != nil {
 					return ContactoIris{}, err
 				}
 				if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "cliente_asociado", ActorNombre: actorNombre(ctx, q, a.usuario),

@@ -31267,10 +31267,11 @@
             "type": "string"
           },
           "rol": {
-            "description": "titular: el número es del titular (o la asociación no tiene contacto conocido); contacto: un contacto del cliente en Argos",
+            "description": "titular: el número es el teléfono o el móvil del titular, o un supervisor lo confirmó o pasó la verificación fuerte; contacto: un contacto del cliente en Argos; sin_confirmar: no se sabe quién habla (sin permisos hasta que un supervisor confirme)",
             "enum": [
               "titular",
-              "contacto"
+              "contacto",
+              "sin_confirmar"
             ],
             "type": "string"
           },

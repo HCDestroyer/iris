@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
@@ -349,4 +351,114 @@ func TestAbrirConversacionBuscaContactosEnArgos(t *testing.T) {
 	if co["contacto"].(map[string]any)["clienteId"] != nil {
 		t.Fatalf("sin coincidencias no se asocia: %v", co["contacto"])
 	}
+}
+
+// emitirContactos simula el evento interno argos.contactos_cambiados (webhook de Argos ya aplicado a la
+// caché) y corre el relay.
+func (b *bandeja) emitirContactos(cliente, contacto int64, accion string) {
+	b.t.Helper()
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES ($1, 'argos.contactos_cambiados', 1, $2)`,
+		uuid.Must(uuid.NewV7()), fmt.Sprintf(`{"cliente_id": %d, "empresa_id": 1, "contacto_id": %d, "accion": %q}`, cliente, contacto, accion)); err != nil {
+		b.t.Fatal(err)
+	}
+	b.publicar()
+}
+
+// ALTA 1 de la revisión: el titular quita al familiar en Argos. Desde ese momento el familiar ya no
+// puede pagar ni ve nada de la cuenta: su rol falla cerrado (sin_confirmar) y la conversación pierde
+// la verificación del número.
+func TestContactoQuitadoPierdeElAcceso(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, ss := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.q1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2`, cid(c), contacto); n != 1 {
+		t.Fatal("la conversación guarda el contacto con que se asoció")
+	}
+	// Argos lo quita: sale de la caché (como hace el webhook) y llega el evento.
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+	b.emitirContactos(cliente, contacto, "quitado")
+	c = b.conv(num)
+	if k := c["contacto"].(map[string]any); k["verificado"] != false {
+		t.Fatalf("pierde la verificación del número: %v", k)
+	}
+	rol := c["rolContacto"].(map[string]any)
+	if p := rol["permisos"].(map[string]any); rol["rol"] != "sin_confirmar" || p["consultar"] != false || p["pagar"] != false || len(rol["servicios"].([]any)) != 0 {
+		t.Fatalf("sin permisos ni servicios: %v", rol)
+	}
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+	b.exigirProblema(b.apiClave(b.agente, http.MethodPost, ruta+"/crear-ticket", "tk-"+cid(c), map[string]any{"asunto": "Sin internet", "prioridad": "media"}),
+		http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+}
+
+// ALTA 2 de la revisión: un contacto de la mamá a cargo de José (persona_cliente_id) escribe desde un
+// número que no es el de José: es un contacto de la mamá, nunca José, y no ve ni toca la cuenta de José.
+func TestContactoACargoConOtroNumeroNoEsLaPersona(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	numJose := numeroCliente()
+	jose, sj := b.clienteArgos("José", numJose, codigoUnico())
+	mama, sm := b.clienteArgos("Mamá de José", "", codigoUnico())
+	otro := numeroCliente()
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: mama, relacion: "familiar", consultar: true, reportar: true, pagar: true, persona: &jose, numero: otro})
+	b.texto(otro, "wamid.o1", "Hola")
+	c := b.conv(otro)
+	if k := c["contacto"].(map[string]any); k["clienteId"] == nil || k["clienteId"].(float64) != float64(mama) {
+		t.Fatalf("es un contacto de la mamá, no José: %v", k)
+	}
+	rol := c["rolContacto"].(map[string]any)
+	if rol["rol"] != "contacto" || len(rol["aCargo"].([]any)) != 0 {
+		t.Fatalf("rol: %v", rol)
+	}
+	ruta := "/conversaciones/" + cid(c)
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": sj[0]}), http.StatusForbidden, "servicio_fuera_del_contacto")
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": sm[0]}), http.StatusOK)
+	if a := b.argos.simulaciones[len(b.argos.simulaciones)-1]; a.Contacto != fmt.Sprint(contacto) {
+		t.Fatalf("como contacto de la mamá: %+v", a)
+	}
+	// Asociada a mano a José: el número no es suyo ni de un contacto suyo; sin verificar.
+	r := b.api(b.agente, http.MethodPost, ruta+"/desasociar", map[string]any{"version": ver(b.conv(otro))})
+	b.exigir(r, http.StatusOK)
+	r = b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(b.conv(otro)), "clienteId": jose})
+	b.exigir(r, http.StatusOK)
+	if r.cuerpo["contacto"].(map[string]any)["verificado"] != false || r.cuerpo["rolContacto"].(map[string]any)["rol"] != "sin_confirmar" {
+		t.Fatalf("otro número asociado a José: %v %v", r.cuerpo["contacto"], r.cuerpo["rolContacto"])
+	}
+}
+
+// MEDIA 3 y 4 de la revisión: el asistente con un contacto sin «consultar» ni «reportar» no recibe el
+// nombre del titular, ni servicios ajenos al contacto, ni estado, precio o cuenta; y no agenda visitas.
+func TestAsistenteConContactoSinConsultar(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.activar(nil)
+	num := numeroCliente()
+	c1, c2 := codigoUnico(), codigoUnico()
+	cliente, ss := x.clienteArgos("Titular Secreta", "", c1, c2)
+	x.sembrarContacto(contactoSembrado{id: siguienteCliente.Add(1), cliente: cliente, relacion: "inquilino", servicios: []int64{ss[0]}, numero: num})
+	x.cuenta(&argos.EstadoCuenta{Saldo: texto("123.45"), Moneda: "GTQ", FacturasVencidas: vencidas(1), MontoVencido: texto("123.45")})
+	x.texto(num, "wamid.ia1", "¿Cómo está mi servicio?")
+	conv := cid(x.conv(num))
+	x.ia.decir(respuestaModelo("Hola, un agente le ayuda.", nil, nil))
+	x.pedirYGenerar(x.agente, conv)
+	pedido, _, _ := x.ia.ultimo()
+	for _, prohibido := range []string{"Titular Secreta", c2, "estado activo", "saldo vencido", "Plan 50"} {
+		if strings.Contains(pedido, prohibido) {
+			t.Fatalf("el modelo recibe %q: %s", prohibido, pedido)
+		}
+	}
+	if !strings.Contains(pedido, c1) || !strings.Contains(pedido, "no puede consultar") {
+		t.Fatalf("su servicio, sin estado: %s", pedido)
+	}
+	// Con rol de contacto sin «reportar», la orden de una visita desde la conversación se rechaza.
+	b := x.bandeja
+	b.exigirProblema(b.apiClave(b.supervisor, http.MethodPost, "/conversaciones/"+conv+"/crear-orden", "or-"+conv, map[string]any{"tipo": "visita", "servicioId": ss[0],
+		"descripcion": "Sin internet"}), http.StatusForbidden, "permiso_de_contacto")
 }

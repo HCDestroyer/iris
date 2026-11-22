@@ -122,6 +122,101 @@ func (q *Queries) ContactosArgosDelNumero(ctx context.Context, arg ContactosArgo
 	return items, nil
 }
 
+const desverificarConvsSinContacto = `-- name: DesverificarConvsSinContacto :many
+UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_por = NULL, version = c.version + 1, updated_at = now()
+WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
+  AND (c.cliente_id = $1 OR c.contacto_argos_id = $2::bigint)
+  AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id)
+RETURNING c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at, c.fuera_horario_hasta, c.guardia_hasta, c.bot_espera_en, c.bot_vence_en, c.bot_motivo, c.bot_atendio_en, c.bot_menu, c.categoria_id, c.categoria_confianza, c.categoria_origen, c.categoria_en, c.clasificado_mensaje_id, c.asistente_actividad_tipo, c.asistente_actividad_texto, c.asistente_actividad_en, c.cola_origen, c.asistente_transfirio_en, c.asistente_estado, c.asistente_turnos, c.asistente_presento_en, c.identidad_verificada_en, c.identidad_vence_en, c.bot_diferido_mensaje_id, c.asistente_motivo_paso, c.asistente_pausado_en, c.asistente_pausado_por, c.asistente_pausa_motivo, c.asistente_reanudado_en, c.asistente_atencion_desde, c.asistente_pausa_previo, c.contacto_argos_id
+`
+
+type DesverificarConvsSinContactoParams struct {
+	ClienteID  *int64
+	ContactoID *int64
+}
+
+// Las conversaciones asociadas por un contacto que ya no está en la caché (Argos lo quitó, dejó de
+// devolverlo o la caché del cliente se olvidó): pierden la verificación del número.
+func (q *Queries) DesverificarConvsSinContacto(ctx context.Context, arg DesverificarConvsSinContactoParams) ([]MensajeriaConversacion, error) {
+	rows, err := q.db.Query(ctx, desverificarConvsSinContacto, arg.ClienteID, arg.ContactoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MensajeriaConversacion
+	for rows.Next() {
+		var i MensajeriaConversacion
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.CanalID,
+			&i.Numero,
+			&i.PerfilNombre,
+			&i.ColaID,
+			&i.AsignadoA,
+			&i.AsignadoEn,
+			&i.Estado,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.ContactoIrisID,
+			&i.ProspectoID,
+			&i.Asociacion,
+			&i.ClienteVerificado,
+			&i.VerificadoPor,
+			&i.UltimoEntranteEn,
+			&i.EsperaDesde,
+			&i.SlaVenceEn,
+			&i.SlaAvisado,
+			&i.ResueltaEn,
+			&i.ReabiertaEn,
+			&i.UltimoSeq,
+			&i.UltimoMensajeID,
+			&i.UltimaActividad,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FueraHorarioHasta,
+			&i.GuardiaHasta,
+			&i.BotEsperaEn,
+			&i.BotVenceEn,
+			&i.BotMotivo,
+			&i.BotAtendioEn,
+			&i.BotMenu,
+			&i.CategoriaID,
+			&i.CategoriaConfianza,
+			&i.CategoriaOrigen,
+			&i.CategoriaEn,
+			&i.ClasificadoMensajeID,
+			&i.AsistenteActividadTipo,
+			&i.AsistenteActividadTexto,
+			&i.AsistenteActividadEn,
+			&i.ColaOrigen,
+			&i.AsistenteTransfirioEn,
+			&i.AsistenteEstado,
+			&i.AsistenteTurnos,
+			&i.AsistentePresentoEn,
+			&i.IdentidadVerificadaEn,
+			&i.IdentidadVenceEn,
+			&i.BotDiferidoMensajeID,
+			&i.AsistenteMotivoPaso,
+			&i.AsistentePausadoEn,
+			&i.AsistentePausadoPor,
+			&i.AsistentePausaMotivo,
+			&i.AsistenteReanudadoEn,
+			&i.AsistenteAtencionDesde,
+			&i.AsistentePausaPrevio,
+			&i.ContactoArgosID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const eleccionesClienteConv = `-- name: EleccionesClienteConv :one
 SELECT count(*)::bigint FROM mensajeria.elecciones_cliente WHERE conversacion_id = $1 AND NOT acierto
 `
@@ -149,6 +244,21 @@ func (q *Queries) EleccionesClienteNumero(ctx context.Context, arg EleccionesCli
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const fijarContactoArgosConv = `-- name: FijarContactoArgosConv :exec
+UPDATE mensajeria.conversaciones SET contacto_argos_id = $1 WHERE id = $2
+`
+
+type FijarContactoArgosConvParams struct {
+	ContactoArgosID *int64
+	ID              int64
+}
+
+// El contacto de Argos con que se asoció la conversación (null: titular o asociación a mano).
+func (q *Queries) FijarContactoArgosConv(ctx context.Context, arg FijarContactoArgosConvParams) error {
+	_, err := q.db.Exec(ctx, fijarContactoArgosConv, arg.ContactoArgosID, arg.ID)
+	return err
 }
 
 const insertarEleccionCliente = `-- name: InsertarEleccionCliente :exec

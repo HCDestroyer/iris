@@ -49,3 +49,16 @@ SELECT buscado_en FROM mensajeria.contactos_buscados WHERE empresa = @empresa AN
 -- name: MarcarNumeroBuscado :exec
 INSERT INTO mensajeria.contactos_buscados (empresa, digitos, buscado_en) VALUES (@empresa, @digitos, @buscado_en)
 ON CONFLICT (empresa, digitos) DO UPDATE SET buscado_en = EXCLUDED.buscado_en;
+
+-- name: FijarContactoArgosConv :exec
+-- El contacto de Argos con que se asoció la conversación (null: titular o asociación a mano).
+UPDATE mensajeria.conversaciones SET contacto_argos_id = sqlc.narg('contacto_argos_id') WHERE id = @id;
+
+-- name: DesverificarConvsSinContacto :many
+-- Las conversaciones asociadas por un contacto que ya no está en la caché (Argos lo quitó, dejó de
+-- devolverlo o la caché del cliente se olvidó): pierden la verificación del número.
+UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_por = NULL, version = c.version + 1, updated_at = now()
+WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
+  AND (c.cliente_id = @cliente_id OR c.contacto_argos_id = sqlc.narg('contacto_id')::bigint)
+  AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id)
+RETURNING c.*;

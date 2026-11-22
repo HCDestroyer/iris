@@ -176,7 +176,7 @@ func TestAsistenteCuentaAtadaAlCliente(t *testing.T) {
 	// 1. Cambia de cliente mientras «Argos» atiende el estado de cuenta (antes de preparar).
 	x.argos.mu.Lock()
 	x.argos.alLeerCuenta = func() {
-		if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, servicio_id = NULL WHERE id = $1`, conv, otro); err != nil {
+		if _, err := x.bd.Exec(x.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, servicio_id = NULL, verificado_por = $3 WHERE id = $1`, conv, otro, x.supervisor.id); err != nil {
 			t.Error(err)
 		}
 	}
