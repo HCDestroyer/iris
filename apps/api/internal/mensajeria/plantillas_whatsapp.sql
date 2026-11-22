@@ -226,3 +226,23 @@ DELETE FROM mensajeria.plantillas_whatsapp_avisos_meta WHERE recibido_en < @ante
 -- name: EventosMetaDeCuentaPW :many
 -- Foto del último aviso de Meta aplicado en cada plantilla de la cuenta, antes de leer Meta.
 SELECT id, meta_evento_en, version FROM mensajeria.plantillas_whatsapp WHERE waba_id = @waba_id AND coalesce(empresa_id, 0) = @empresa::bigint;
+
+-- name: PlantillasWAParaArgos :many
+-- Lo que Argos lee de una empresa (contrato 0.13.0 §6.7, B32): las plantillas con el uso avisos (o sin
+-- usos, las de antes) que esa empresa puede usar. Las de las cuentas de las que es dueña y las de la
+-- cuenta de un número prestado activo cuyo préstamo la autoriza a mandar avisos; nunca las de un
+-- préstamo sin el uso avisos. Sin borradores ni borradas, y las de marketing solo con marketing
+-- activado por la dueña.
+SELECT p.id, p.nombre, p.idioma, p.categoria, p.estado, p.codigos, p.componentes
+FROM mensajeria.plantillas_whatsapp p
+WHERE p.estado NOT IN ('BORRADOR', 'DELETED', 'ARCHIVED', 'PENDING_DELETION')
+  AND (cardinality(p.usos) = 0 OR 'avisos' = ANY (p.usos))
+  AND (p.categoria <> 'MARKETING' OR EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp_ajustes a
+                                            WHERE a.empresa_id = coalesce(p.empresa_id, 0) AND a.marketing_permitido))
+  AND (coalesce(p.empresa_id, 0) = @empresa::bigint
+       OR EXISTS (SELECT 1 FROM mensajeria.canal_prestamos cp JOIN mensajeria.canales ca ON ca.id = cp.canal_id
+                  WHERE cp.empresa_id = @empresa::bigint AND cp.activo AND 'avisos' = ANY (cp.usos)
+                    AND ca.activo AND ca.desconectado_en IS NULL AND ca.waba_id = p.waba_id
+                    AND coalesce(ca.empresa_id, 0) = coalesce(p.empresa_id, 0)))
+ORDER BY p.nombre, p.idioma, p.id
+LIMIT 1000;

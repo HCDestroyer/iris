@@ -1330,6 +1330,65 @@ func (q *Queries) PlantillasWADeCuenta(ctx context.Context, arg PlantillasWADeCu
 	return items, nil
 }
 
+const plantillasWAParaArgos = `-- name: PlantillasWAParaArgos :many
+SELECT p.id, p.nombre, p.idioma, p.categoria, p.estado, p.codigos, p.componentes
+FROM mensajeria.plantillas_whatsapp p
+WHERE p.estado NOT IN ('BORRADOR', 'DELETED', 'ARCHIVED', 'PENDING_DELETION')
+  AND (cardinality(p.usos) = 0 OR 'avisos' = ANY (p.usos))
+  AND (p.categoria <> 'MARKETING' OR EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp_ajustes a
+                                            WHERE a.empresa_id = coalesce(p.empresa_id, 0) AND a.marketing_permitido))
+  AND (coalesce(p.empresa_id, 0) = $1::bigint
+       OR EXISTS (SELECT 1 FROM mensajeria.canal_prestamos cp JOIN mensajeria.canales ca ON ca.id = cp.canal_id
+                  WHERE cp.empresa_id = $1::bigint AND cp.activo AND 'avisos' = ANY (cp.usos)
+                    AND ca.activo AND ca.desconectado_en IS NULL AND ca.waba_id = p.waba_id
+                    AND coalesce(ca.empresa_id, 0) = coalesce(p.empresa_id, 0)))
+ORDER BY p.nombre, p.idioma, p.id
+LIMIT 1000
+`
+
+type PlantillasWAParaArgosRow struct {
+	ID          int64
+	Nombre      string
+	Idioma      string
+	Categoria   string
+	Estado      string
+	Codigos     []string
+	Componentes []byte
+}
+
+// Lo que Argos lee de una empresa (contrato 0.13.0 §6.7, B32): las plantillas con el uso avisos (o sin
+// usos, las de antes) que esa empresa puede usar. Las de las cuentas de las que es dueña y las de la
+// cuenta de un número prestado activo cuyo préstamo la autoriza a mandar avisos; nunca las de un
+// préstamo sin el uso avisos. Sin borradores ni borradas, y las de marketing solo con marketing
+// activado por la dueña.
+func (q *Queries) PlantillasWAParaArgos(ctx context.Context, empresa int64) ([]PlantillasWAParaArgosRow, error) {
+	rows, err := q.db.Query(ctx, plantillasWAParaArgos, empresa)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PlantillasWAParaArgosRow
+	for rows.Next() {
+		var i PlantillasWAParaArgosRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Nombre,
+			&i.Idioma,
+			&i.Categoria,
+			&i.Estado,
+			&i.Codigos,
+			&i.Componentes,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const plantillasWAUsables = `-- name: PlantillasWAUsables :many
 SELECT id, empresa_id, waba_id, meta_id, nombre, idioma, etiqueta, categoria, categoria_anterior, categoria_cambiada_en, categoria_proxima, categoria_proxima_en, estado, estado_en, motivo, rechazo, calidad, pausada_hasta, formato, componentes, componentes_meta, codigos, parametros, usos, origen, sugerida, ediciones, enviada_en, borrada_en, borrada_por, nombre_libre_en, sincronizada_en, meta_evento_en, creada_por, version, created_at, updated_at FROM mensajeria.plantillas_whatsapp p
 WHERE p.waba_id = $1 AND coalesce(p.empresa_id, 0) = $2::bigint AND cardinality(p.codigos) > 0 AND p.estado IN ('APPROVED', 'FLAGGED')
