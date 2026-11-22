@@ -50,6 +50,8 @@ SET origen_detalle      = sqlc.narg(origen_detalle),
     orden_id            = sqlc.narg(orden_id),
     router_id           = sqlc.narg(router_id),
     alta_error          = sqlc.narg(alta_error),
+    cliente_validado    = sqlc.narg(cliente_validado),
+    ganado_por          = sqlc.narg(ganado_por),
     version             = version + 1,
     updated_at          = now()
 WHERE id = @id AND version = @version
@@ -295,3 +297,83 @@ SELECT EXISTS (SELECT 1 FROM nucleo.empresas WHERE id = @id);
 
 -- name: ResumenOrden :one
 SELECT o.id, o.numero, o.estado FROM campo.ordenes o WHERE o.id = @id;
+
+-- --- Prospectos registrados desde Argos (contrato 0.10.0 §3.6, A44) -------------------------
+
+-- name: CrearProspectoArgos :one
+INSERT INTO comercial.prospectos (
+    empresa_id, origen, origen_detalle, nombre, telefono, direccion, lat, lon, zona_id, plan_interes_id,
+    vendedor_id, notas, modo, registrado_por_argos, cliente_existente_id, cliente_validado, idempotencia
+) VALUES (
+    @empresa_id, 'argos_panel', @origen_detalle, @nombre, @telefono, @direccion, sqlc.narg(lat), sqlc.narg(lon),
+    sqlc.narg(zona_id), sqlc.narg(plan_interes_id), sqlc.narg(vendedor_id), @notas, @modo, @registrado_por_argos,
+    sqlc.narg(cliente_existente_id), sqlc.narg(cliente_validado), sqlc.narg(idempotencia)
+)
+RETURNING *;
+
+-- name: CrearTelefonoProspecto :one
+INSERT INTO comercial.prospecto_telefonos (prospecto_id, empresa_id, posicion, numero, whatsapp, principal, nombre, relacion)
+VALUES (@prospecto_id, sqlc.narg(empresa_id), @posicion, @numero, @whatsapp, @principal, sqlc.narg(nombre), sqlc.narg(relacion))
+RETURNING *;
+
+-- name: TelefonosDeProspecto :many
+SELECT * FROM comercial.prospecto_telefonos WHERE prospecto_id = @prospecto_id ORDER BY posicion, id;
+
+-- name: ProspectoAbiertoConNumeros :one
+-- El prospecto abierto (ni ganado ni perdido) más antiguo de la empresa con cualquiera de los
+-- números: en su tabla de teléfonos (E.164) o, para los de antes, en prospectos.telefono (formato
+-- de Argos). FOR UPDATE: el pedido se suma como actividad.
+SELECT p.* FROM comercial.prospectos p
+WHERE p.empresa_id = @empresa_id AND p.estado NOT IN ('ganado', 'perdido')
+    AND (EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = p.id AND t.numero = ANY(@numeros::text[]))
+         OR p.telefono = ANY(@telefonos::text[]))
+ORDER BY p.id
+LIMIT 1
+FOR UPDATE OF p;
+
+-- name: NumerosRegistradosArgos :one
+-- Números aceptados en el último minuto por el actor de Argos y por la empresa (§3.6: 30 y 300).
+SELECT
+    coalesce(sum(numeros) FILTER (WHERE actor = @actor), 0)::bigint AS por_actor,
+    coalesce(sum(numeros) FILTER (WHERE empresa_id = @empresa_id), 0)::bigint AS por_empresa
+FROM comercial.registros_argos
+WHERE created_at > @desde AND (actor = @actor OR empresa_id = @empresa_id);
+
+-- name: AnotarRegistroArgos :exec
+INSERT INTO comercial.registros_argos (actor, empresa_id, numeros, created_at) VALUES (@actor, @empresa_id, @numeros, @ahora);
+
+-- name: PurgarRegistrosArgos :exec
+DELETE FROM comercial.registros_argos WHERE created_at < @antes;
+
+-- name: VendedoresDeZona :many
+-- Candidatos a vendedor de un prospecto de la zona: personas activas que ven prospectos con un
+-- alcance de esa zona (no global: supervisión no recibe asignaciones automáticas) y pueden
+-- trabajarlos (prospectos.contactar), de menos prospectos abiertos a más.
+SELECT u.id
+FROM nucleo.usuarios u
+WHERE u.activo AND u.tipo = 'persona'
+    AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+        JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+        WHERE ur.usuario_id = u.id AND rp.permiso = 'prospectos.contactar' AND ur.zona_id = @zona_id)
+ORDER BY (SELECT count(*) FROM comercial.prospectos p WHERE p.vendedor_id = u.id AND p.estado NOT IN ('ganado', 'perdido')), u.id
+LIMIT 20;
+
+-- name: ClienteEnEmpresaInstantanea :one
+-- ¿La instantánea de Argos dice que el cliente es de la empresa (por su ficha o por un servicio)?
+-- existe = Iris lo tiene en la instantánea.
+SELECT
+    EXISTS (SELECT 1 FROM integracion.argos_clientes c WHERE c.id = @cliente_id) AS existe,
+    (EXISTS (SELECT 1 FROM integracion.argos_clientes c WHERE c.id = @cliente_id AND c.empresa_id = @empresa_id)
+     OR EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.cliente_id = @cliente_id AND s.empresa_id = @empresa_id)) AS de_la_empresa;
+
+-- name: BloquearRegistrosArgos :exec
+-- Un registro desde Argos a la vez por empresa: el aviso de duplicado y los límites no se saltan
+-- con dos peticiones simultáneas.
+SELECT pg_advisory_xact_lock(hashtextextended('comercial.registro_argos:' || @empresa_id::bigint, 0));
+
+-- name: ContratoArgosRemoto :one
+-- La versión del contrato que informó el conector Argos (null si no la informó o no hay).
+SELECT contrato_remoto FROM integracion.conectores
+WHERE sistema = 'argosisp' AND eliminado_en IS NULL
+ORDER BY (estado = 'activo') DESC, id DESC
+LIMIT 1;

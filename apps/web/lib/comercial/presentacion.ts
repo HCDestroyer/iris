@@ -70,6 +70,7 @@ export const ORIGENES: Record<OrigenProspecto, string> = {
     web: "Sitio web",
     referido: "Referido",
     argos: "Argos",
+    argos_panel: "Registrado en Argos",
     otro: "Otro",
 };
 /** Orígenes que una persona puede elegir al crear (`argos` es solo de la integración). */

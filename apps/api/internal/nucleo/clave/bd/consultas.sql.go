@@ -7,6 +7,8 @@ package clavebd
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const asistentesCifrados = `-- name: AsistentesCifrados :many
@@ -517,6 +519,20 @@ func (q *Queries) RecifrarTOTP(ctx context.Context, arg RecifrarTOTPParams) erro
 	return err
 }
 
+const recifrarTransito = `-- name: RecifrarTransito :exec
+UPDATE integracion.datos_transito SET llave_cifrada = $1 WHERE id = $2 AND llave_cifrada IS NOT NULL
+`
+
+type RecifrarTransitoParams struct {
+	LlaveCifrada []byte
+	ID           uuid.UUID
+}
+
+func (q *Queries) RecifrarTransito(ctx context.Context, arg RecifrarTransitoParams) error {
+	_, err := q.db.Exec(ctx, recifrarTransito, arg.LlaveCifrada, arg.ID)
+	return err
+}
+
 const recifrarWebhookSalida = `-- name: RecifrarWebhookSalida :exec
 UPDATE integracion.conectores SET webhook_salida_secreto_cifrado = $1 WHERE id = $2
 `
@@ -557,6 +573,48 @@ func (q *Queries) TOTPCifrados(ctx context.Context) ([]TOTPCifradosRow, error) {
 	for rows.Next() {
 		var i TOTPCifradosRow
 		if err := rows.Scan(&i.ID, &i.TotpSecreto); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const transitoCifrado = `-- name: TransitoCifrado :many
+SELECT id, orden_id, empresa_id, llave_cifrada FROM integracion.datos_transito
+WHERE llave_cifrada IS NOT NULL
+ORDER BY id
+FOR UPDATE
+`
+
+type TransitoCifradoRow struct {
+	ID           uuid.UUID
+	OrdenID      int64
+	EmpresaID    *int64
+	LlaveCifrada []byte
+}
+
+// Llaves de datos del depósito de tránsito del paso del titular (contrato argosisp.md 0.10.0
+// §3.4.8): cada depósito va cifrado con su llave y la llave con IRIS_CLAVE_CIFRADO. Solo se rota la
+// llave.
+func (q *Queries) TransitoCifrado(ctx context.Context) ([]TransitoCifradoRow, error) {
+	rows, err := q.db.Query(ctx, transitoCifrado)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TransitoCifradoRow
+	for rows.Next() {
+		var i TransitoCifradoRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrdenID,
+			&i.EmpresaID,
+			&i.LlaveCifrada,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

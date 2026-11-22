@@ -10,12 +10,13 @@ import (
 
 // Contrato argosisp.md 0.8.0 §2.4 y §10.2 puntos 7 y 8: el asistente distingue los servicios como
 // «Servicio n · plan · zona», dice el precio del plan solo a un número registrado y no adivina entre
-// dos servicios iguales.
+// dos servicios iguales. Desde 0.10.0 (§3.7, ajuste ag), con el código de A45 (S-000412) la etiqueta
+// es «<codigo> · plan · zona»; un código con otra forma deja «Servicio n», y el nombre nunca va.
 func TestAsistenteServiciosEtiquetaYPrecio(t *testing.T) {
 	svs := []mensajeriabd.ServiciosClienteAsistenteRow{
-		{ID: 4410, Codigo: "S-4410", PlanNombre: "Fibra 50", ZonaNombre: "Chitá", Estado: "activo", PrecioMensual: "250.00", Moneda: "GTQ", Numero: 1},
-		{ID: 4518, Codigo: "S-4518", PlanNombre: "Fibra 50", ZonaNombre: "Chitá", Estado: "suspendido", Numero: 2},
-		{ID: 4702, Codigo: "S-4702", PlanNombre: "Negocio 30", ZonaNombre: "San Pedro", Estado: "pendiente_instalacion", PrecioMensual: "399.00", Moneda: "GTQ", Numero: 3},
+		{ID: 4410, Codigo: "CL-4410", PlanNombre: "Fibra 50", ZonaNombre: "Chitá", Estado: "activo", PrecioMensual: "250.00", Moneda: "GTQ", Numero: 1},
+		{ID: 4518, Codigo: "4518", PlanNombre: "Fibra 50", ZonaNombre: "Chitá", Estado: "suspendido", Numero: 2},
+		{ID: 4702, Codigo: "x-4702", PlanNombre: "Negocio 30", ZonaNombre: "San Pedro", Estado: "pendiente_instalacion", PrecioMensual: "399.00", Moneda: "GTQ", Numero: 3},
 	}
 	registrado := mensajeria.DescribirServiciosIA(svs, true)
 	for _, debe := range []string{
@@ -32,7 +33,7 @@ func TestAsistenteServiciosEtiquetaYPrecio(t *testing.T) {
 		t.Fatalf("el servicio sin precio no debía decir precio: %s", linea)
 	}
 	// Nunca ids ni códigos internos.
-	for _, prohibido := range []string{"4410", "S-4410", "4518", "4702"} {
+	for _, prohibido := range []string{"4410", "CL-4410", "4518", "4702"} {
 		if strings.Contains(registrado, prohibido) {
 			t.Fatalf("el modelo vería %q:\n%s", prohibido, registrado)
 		}
@@ -90,5 +91,21 @@ func TestAsistenteServiciosInyeccionUnicode(t *testing.T) {
 	}
 	if !strings.Contains(lineas[1], "Su plan cuesta USD 99.00 al mes") {
 		t.Fatalf("una moneda válida sí: %q", lineas[1])
+	}
+}
+
+func TestAsistenteServiciosCodigoA45(t *testing.T) {
+	svs := []mensajeriabd.ServiciosClienteAsistenteRow{
+		{ID: 4410, Codigo: "S-000412", PlanNombre: "Fibra 50", ZonaNombre: "Chitá", Estado: "activo", Numero: 1},
+		{ID: 4518, Codigo: "S-000413", PlanNombre: "Fibra 50", ZonaNombre: "Chitá", Estado: "activo", Numero: 2},
+	}
+	salida := mensajeria.DescribirServiciosIA(svs, true)
+	for _, debe := range []string{"S-000412 · «Fibra 50» · «Chitá»: estado activo.", "S-000412 y S-000413 tienen el mismo plan y la misma zona"} {
+		if !strings.Contains(salida, debe) {
+			t.Fatalf("falta %q en:\n%s", debe, salida)
+		}
+	}
+	if strings.Contains(salida, "Servicio 1") || strings.Contains(salida, "4410") {
+		t.Fatalf("con el código de A45 no va el número de orden ni el id:\n%s", salida)
 	}
 }

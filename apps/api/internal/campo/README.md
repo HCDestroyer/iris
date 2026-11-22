@@ -307,6 +307,33 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   emite agenda en la misma transacción. Empresa del sobre = la de la orden (o de la plantilla).
 - **Consume:** `argos.servicio_retirado` (orden de retiro automática).
 
+## Paso «Confirmar titular y plan» (`titular.go`; contrato argosisp.md 0.10.0 §3.4, B18 y B19)
+
+- Operaciones del lote `orden.registrar_identidad` (A41), `orden.cambiar_titular` (A39),
+  `orden.completar_datos` (A43) y `orden.cambiar_plan` (A40), en una instalación en sitio del
+  técnico (reglas en `contratos/sync.md` §3b). Permisos `ordenes.cambiar_titular`,
+  `ordenes.completar_datos` y `ordenes.cambiar_plan` (técnico, despacho, supervisor) y
+  `ordenes.validar_identidad` (supervisor): `POST /ordenes/{id}/validar-identidad`, solo para activar.
+- Cada acción encola su llamada en `integracion.pendientes` (`pendientes.EncolarPaso`, con
+  `X-Iris-Actor`) en cadena identidad → datos → plan; la activación y el cobro, al cerrar, esperan a
+  todos. Lo sensible (documento, teléfono, correo, NIT/CUI y fotos) va solo al depósito de tránsito
+  cifrado (`integracion.datos_transito`): la auditoría lo guarda como `***` (`auditoria:"sensible"`),
+  y no va en la orden (`campo.orden_titular` guarda quién firma, tipo de documento, nombre, contadores
+  y la validación), en los eventos, en los logs ni en el payload del pendiente.
+- Una instalación de una venta (con prospecto) no cierra con éxito sin la identidad registrada o
+  validada (`identidad_requerida`). `GET /ordenes/{id}/titular` da el estado de cada paso en Argos.
+- **Emite** `orden.identidad_registrada`, `orden.cambio_titular_registrado`, `orden.datos_completados`,
+  `orden.cambio_plan_registrado` y `orden.identidad_validada` (nunca el número ni datos de contacto).
+- Revisión de seguridad (#273): solo el técnico asignado (`propia`); `titular_no_coincide` deja la
+  orden **en revisión** (`campo.orden_titular.en_revision`, la pone la cola) y solo un supervisor la
+  levanta (`POST /ordenes/{id}/levantar-revision-titular`, `orden.revision_titular_levantada`); A41
+  nunca reemplaza a un A39 rechazado; lo agotado no se reemplaza; cancelar o fallar detiene los
+  pasos (`pendientes.DetenerPasos`) y reabrir los reinicia; el cierre exige la identidad en toda
+  instalación con el servicio `pendiente_instalacion` (o sin instantánea); las fotos pasan por
+  `image.DecodeConfig` (hasta 8000 × 8000); `GET /titular` se audita y nunca muestra
+  `titular_no_coincide`.
+- Configuración: `campo.Config.Titular` (cifrador, conector de Argos y aviso a la cola).
+
 ## Desarrollo
 
 `go run ./cmd/iris campo semilla [--correo tecnico@iris.local] [--empresa N] [--ordenes 3]`: crea

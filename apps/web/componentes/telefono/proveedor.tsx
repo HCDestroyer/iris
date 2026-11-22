@@ -5,11 +5,11 @@ import { createContext, use, useEffect, useRef, useState, useSyncExternalStore, 
 import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useSesion } from "@/lib/sesion";
 import { abrirTelefono, leerTelefono, llamarTelefono } from "@/lib/telefono/api";
-import { cargarJssip } from "@/lib/telefono/jssip";
-import { MotorTelefono, type ConfigUa, type UaSip } from "@/lib/telefono/motor";
-import { coordinarPestanas, type Pestanas } from "@/lib/telefono/pestanas";
-import { textoErrorLlamar } from "@/lib/telefono/presentacion";
-import type { EntradaLlamarTelefono, EstadoTelefono, LlamadaTelefono, TelefonoMio } from "@/lib/telefono/tipos";
+import { cargarJssip } from "@iris/telefono/jssip";
+import { MotorTelefono, type ConfigUa, type UaSip } from "@iris/telefono";
+import { coordinarPestanas, type Pestanas } from "@iris/telefono";
+import { textoErrorLlamar } from "@iris/telefono";
+import type { EntradaLlamarTelefono, EstadoTelefono, LlamadaTelefono, TelefonoMio } from "@iris/telefono";
 import { escucharEventos } from "@/lib/voz/canal";
 import { ErrorMicrofono, permisoMicrofono, pedirMicrofono, soltarMicrofono } from "@/lib/voz/medios";
 import { sonarTimbre } from "@/lib/voz/timbre";
@@ -19,7 +19,7 @@ import type { Llamada } from "@/lib/voz/tipos";
  * El teléfono de Iris en el panel (E4c, contratos/voz.md §3.12; maqueta aprobada el 21 nov 2026).
  * Una sola fuente de verdad (`MotorTelefono`) para el punto de la barra superior, la ventana de la
  * entrante (la misma de E4a, con «Contestar» y «Rechazar»), la barra y el panel de la llamada, y
- * «Llamar» en las fichas. Suena en una sola pestaña (`lib/telefono/pestanas`).
+ * «Llamar» en las fichas. Suena en una sola pestaña (`pestanas` de `@iris/telefono`).
  *
  * Encendido por persona y navegador (preferencia en `localStorage`; solo comodidad: el servidor
  * decide si se puede): la primera vez se pide el micrófono con el diálogo «Encender el teléfono».

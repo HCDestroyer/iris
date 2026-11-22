@@ -229,6 +229,62 @@ type plan struct {
 	conActor bool
 	// actor: quien va en X-Iris-Actor (tecnico_usuario_id) si no es el técnico de la orden.
 	actor *int64
+	// externos: pendientes ya encolados (los pasos del titular, §3.4) que también deben estar
+	// hechos antes; van en depende_de después de los de depende.
+	externos []int64
+}
+
+// MotivoTitularResueltoAMano: el último cambio de titular de la orden se resolvió a mano en Argos y
+// nadie indicó el cliente final: el cobro y el consumo no salen solos (podrían ir al cliente
+// equivocado).
+const MotivoTitularResueltoAMano = "titular resuelto a mano: confirma el cliente"
+
+// despuesDelTitular: la activación, el consumo y el cobro de la instalación (lo que emite cargos)
+// esperan a los pasos del titular (contrato 0.10.0 §3.4, «Orden»: titular → datos → plan →
+// activar). Si el titular cambió (A39), el cobro va al cliente que quedó en el servicio
+// (titular.cliente_id de la respuesta, B21). Si ese cambio se resolvió a mano, va al cliente que
+// indicó quien lo resolvió o, sin él, el cobro y el consumo nacen incompletos.
+func despuesDelTitular(planes []plan, pasos []pendientesbd.IntegracionPendiente) {
+	if len(pasos) == 0 {
+		return
+	}
+	// Los resueltos (a mano, reemplazados por otra toma, por cancelar o validados) ya cuentan como
+	// hechos: no se esperan (un marcador nunca se resolvería con ellos).
+	ids := make([]int64, 0, len(pasos))
+	titular := -1                                // índice en ids del último cambio de titular vivo
+	var aMano *pendientesbd.IntegracionPendiente // último cambio de titular resuelto a mano
+	for i, p := range pasos {
+		if p.Estado == EstadoResueltoManual {
+			if p.Operacion == OpCambiarTitular && (p.ResueltoComo == nil || *p.ResueltoComo == ComoManual) {
+				titular, aMano = -1, &pasos[i]
+			}
+			continue
+		}
+		ids = append(ids, p.ID)
+		if p.Operacion == OpCambiarTitular {
+			titular, aMano = len(ids)-1, nil
+		}
+	}
+	for i := range planes {
+		p := &planes[i]
+		if p.operacion != OpActivarInstalacion && p.operacion != OpCargo && p.operacion != OpConsumo {
+			continue
+		}
+		p.externos = ids
+		if p.incompleto != "" {
+			continue
+		}
+		switch {
+		case aMano != nil && (p.operacion == OpCargo || p.operacion == OpConsumo):
+			if aMano.ResueltoClienteID == nil {
+				p.incompleto = MotivoTitularResueltoAMano
+			} else if p.operacion == OpCargo {
+				p.payload["cliente_id"] = *aMano.ResueltoClienteID
+			}
+		case p.operacion == OpCargo && titular >= 0:
+			p.payload["cliente_id"] = Ref(len(p.depende)+titular, "titular.cliente_id")
+		}
+	}
 }
 
 // omision es algo de la orden que no se manda a Argos, con su motivo (integracion.pendiente_omitido).
@@ -889,6 +945,13 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				}
 			}
 			q := pendientesbd.New(t)
+			// Paso «Confirmar titular y plan» (0.10.0 §3.4): la activación y el cobro esperan a todos
+			// sus pasos, y el cobro va a nombre del titular final (B21).
+			pasos, err := q.PasosTitularDeOrden(ctx, orden)
+			if err != nil {
+				return res, err
+			}
+			despuesDelTitular(planes, pasos)
 			ids := make([]int64, len(planes))
 			ahora := m.ahora()
 			var evento pgtype.UUID
@@ -898,10 +961,11 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			nuevos := 0
 			var fallidos []int64
 			for i, p := range planes {
-				depende := make([]int64, 0, len(p.depende))
+				depende := make([]int64, 0, len(p.depende)+len(p.externos))
 				for _, d := range p.depende {
 					depende = append(depende, ids[d])
 				}
+				depende = append(depende, p.externos...)
 				cuerpo, err := json.Marshal(p.payload)
 				if err != nil {
 					return res, err
@@ -913,6 +977,15 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					estado, ultimo = EstadoFallidoNegocio, errorf("datos incompletos: %s", p.incompleto)
 				case p.esperaPersona != "":
 					estado, ultimo = EstadoFallidoNegocio, &p.esperaPersona
+				}
+				porResolver := p.incompleto == "" && tieneMarcadores(cuerpo)
+				var plantilla []byte
+				proximo := ahora
+				if porResolver {
+					if err := validarPlantilla(cuerpo, len(depende)); err != nil {
+						return res, err
+					}
+					plantilla, proximo = cuerpo, NuncaVence
 				}
 				var empresaID *int64
 				if empresa != 0 {
@@ -928,8 +1001,8 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				f, err := q.InsertarPendiente(ctx, pendientesbd.InsertarPendienteParams{
 					EmpresaID: empresaID, Sistema: argos.Sistema, Operacion: p.operacion, IdempotencyKey: p.clave,
 					Entidad: "orden", EntidadID: orden, Metodo: "POST", Ruta: p.ruta, Payload: cuerpo, DependeDe: depende,
-					DatosIncompletos: p.incompleto != "", Estado: estado, UltimoError: ultimo, ProximoIntento: ahora, EventoID: evento,
-					TecnicoUsuarioID: tecnicoUsuario,
+					DatosIncompletos: p.incompleto != "", Estado: estado, UltimoError: ultimo, ProximoIntento: proximo, EventoID: evento,
+					TecnicoUsuarioID: tecnicoUsuario, Plantilla: plantilla, PorResolver: porResolver,
 				})
 				if errors.Is(err, pgx.ErrNoRows) {
 					// Cierre repetido (relay o reapertura): misma Idempotency-Key.
@@ -960,6 +1033,18 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 						return res, err
 					}
 					fallidos = append(fallidos, f.ID)
+					continue
+				}
+				if f.PorResolver {
+					if f, err = resolverSiListo(ctx, t, f, ahora); err != nil {
+						return res, err
+					}
+				}
+				if len(p.externos) > 0 && f.Estado == EstadoPendiente {
+					// Un paso del titular ya rechazado o agotado: la activación (o el cobro) nace bloqueada.
+					if err := bloquearSiDependenciaFallida(ctx, t, p.externos); err != nil {
+						return res, err
+					}
 				}
 			}
 			// Lo que dependa de una acción que nació fallida (datos incompletos) queda bloqueado.
@@ -1026,8 +1111,8 @@ func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pen
 			map[string]any{"estado": f.Estado, "ruta": f.Ruta, "payload": string(sinNotas(f.Payload)), "datos_incompletos": false})
 		return true, t.Emitir(EventoCorregido, eventoDe(f))
 	}
-	if previo.Ruta == p.ruta && mismoJSON(previo.Payload, cuerpo) && mismoActor {
-		return false, nil
+	if previo.Ruta == p.ruta && (mismoJSON(previo.Payload, cuerpo) || (len(previo.Plantilla) > 0 && mismoJSON(previo.Plantilla, cuerpo))) && mismoActor {
+		return false, nil // el mismo cierre (con marcadores: la misma plantilla) y el mismo actor
 	}
 	// Mismos datos con otra forma de decir la bodega (bodega_id ↔ tecnico, al vincular al técnico o
 	// actualizar Argos a 1.6.0): lo ya encolado se queda como está (su huella de idempotencia).
