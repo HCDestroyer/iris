@@ -196,6 +196,7 @@ sql:
       - internal/mensajeria/centralita.sql
       - internal/mensajeria/telefono.sql
       - internal/mensajeria/plantillas_whatsapp.sql
+      - internal/mensajeria/gestiones_cobro.sql
     gen:
       go:
         <<: *gen

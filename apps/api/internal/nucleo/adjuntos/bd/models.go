@@ -1136,6 +1136,7 @@ type IntegracionPendiente struct {
 	TransitoID        pgtype.UUID
 	ResueltoComo      *string
 	ResueltoClienteID *int64
+	Contacto          *string
 }
 
 type MensajeriaAjustesBandeja struct {
@@ -1888,6 +1889,26 @@ type MensajeriaEtiqueta struct {
 	Version   int32
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type MensajeriaGestionesCobro struct {
+	ID             uuid.UUID
+	EmpresaID      int64
+	ConversacionID int64
+	ClienteID      int64
+	ServicioID     *int64
+	ContactoID     *int64
+	Tipo           string
+	Resultado      string
+	OcurridoEn     time.Time
+	OrigenTipo     string
+	OrigenID       string
+	UsuarioID      *int64
+	Asistente      bool
+	IdempotencyKey *string
+	HashPeticion   []byte
+	PendienteID    *int64
+	CreatedAt      time.Time
 }
 
 type MensajeriaHorario struct {

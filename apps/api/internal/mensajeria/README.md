@@ -278,6 +278,28 @@ Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «A
 - **Emite:** `reconexion.solicitada` (motivo `sin_personal`), `reconexion.actualizada`, `reconexion.cliente_avisado`,
   `reconexion.ajustes_cambiados`.
 
+### Gestiones de cobro (`gestiones_cobro.go`, `gestiones_cobro.sql`, contrato con Argos 0.13.0 §3.12, B31)
+
+- `POST /conversaciones/{id}/gestiones-cobro` (`conversaciones.registrar_gestion_cobro`: admin, supervisor,
+  soporte y caja) `{ tipo, resultado, ocurridoEn, servicioId?, contactoId? }` y `GET` (las 100 más
+  recientes, con `conversaciones.ver`). `tipo` y `resultado` son las listas cerradas de §3.12; sin texto
+  libre, montos ni teléfonos (un campo de más es 422). `ocurridoEn` entre ahora − 7 días y ahora + 5 min
+  (422, regla `ventana`). `servicioId` debe ser del cliente según la instantánea.
+- Solo con el **cliente confirmado** (422 `sin_cliente`, `cliente_sin_confirmar`) y con Argos en
+  contrato ≥ 0.13.0 (409 `argos_sin_gestiones`; sin conector, 409 `argos_apagado`).
+- Se guarda en `mensajeria.gestiones_cobro` (id UUID v7 = `gestion_id`) y sale a Argos por
+  `integracion.pendientes` (operación `registrar_gestion_cobro`, `POST /clientes/:id/gestiones-cobro`,
+  `Idempotency-Key = iris:gestion:<gestion_id>`, `X-Iris-Actor` y, con `contactoId`, `X-Iris-Contacto`).
+  El cuerpo lleva solo `tipo`, `resultado`, `ocurrido_en`, `origen_tipo = conversacion`,
+  `origen_id = c-<id>` y `servicio_id?`. La respuesta y la lista dicen cómo va el envío (`envio`).
+- Asistente de IA: el caso acepta al actor `asistente_ia` (X-Iris-Actor `asistente_ia`), pero
+  `promete_pagar` y `pago_informado` exigen una promesa de Argos (activa o por aprobar) o un comprobante
+  (registrado o aprobado) en la conversación (422 `sin_respaldo`). El rol interno `asistente_ia`
+  todavía no lleva el permiso: falta la herramienta del asistente que la registre.
+- Emite `gestion_cobro.registrada`. Idempotency-Key opcional (la responde el middleware común).
+- No existe todavía el origen `orden` (una visita de cobro desde la app de campo) ni `llamada` (desde
+  la ficha de una llamada): hoy toda gestión nace de la conversación.
+
 ### Aprobar y rechazar boletas (`boletas_decidir.go`, `boletas_rutas.go`, `boletas.sql`)
 
 Contrato con Argos 0.7.0 §7.7 (pedido B3); la API está en `contratos/conversaciones.md` §6.4.1.

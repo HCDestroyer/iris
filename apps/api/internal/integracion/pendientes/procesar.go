@@ -125,6 +125,10 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		// La persona que actúa (contrato §3.4, §3.5 y §7.1): Argos audita con ella.
 		cli = cli.ConCabecera(CabeceraActorIris, *f.Actor)
 	}
+	if f.Contacto != nil {
+		// Quien habló es un contacto del cliente (§7.1, §3.12): Argos lo valida y lo audita.
+		cli = cli.ConCabecera(CabeceraContactoIris, *f.Contacto)
+	}
 	var partes []conector.Parte
 	if f.TransitoID.Valid {
 		d, err := m.leerTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f)

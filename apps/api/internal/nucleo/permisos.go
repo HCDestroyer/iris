@@ -422,6 +422,10 @@ const (
 	// PermConversacionesPedirReconexion: pedir a Argos una reconexión temporal mientras caja revisa la
 	// boleta (§7.3). Por ahora solo lo usa el asistente de IA (fuera de horario o sin nadie disponible).
 	PermConversacionesPedirReconexion Permiso = "conversaciones.pedir_reconexion"
+	// PermConversacionesRegistrarGestionCobro: registrar en Argos una gestión de cobro (llamada,
+	// mensaje, visita o promesa con su resultado) de la conversación, con el cliente confirmado
+	// (contrato con Argos 0.13.0 §3.12, B31). Solo informativa: nunca cambia nada en Argos.
+	PermConversacionesRegistrarGestionCobro Permiso = "conversaciones.registrar_gestion_cobro"
 	// PermConversacionesConfigurar: etiquetas y respuestas rápidas de la empresa.
 	PermConversacionesConfigurar Permiso = "conversaciones.configurar"
 	// PermCanalesConfigurar: colas, uso, cola y horario de cada número de WhatsApp, horarios y
@@ -554,6 +558,7 @@ var Catalogo = []DefPermiso{
 	{PermConversacionesPedirReconexion, "Pedir a Argos una reconexión temporal mientras caja revisa la boleta del cliente (Argos decide)"},
 	{PermConversacionesRegistrarBoleta, "Mandar a Argos la boleta de pago que envió el cliente por WhatsApp (caja la aprueba en Argos)"},
 	{PermConversacionesRegistrarPromesa, "Simular y pedir a Argos una promesa de pago desde una conversación (Argos decide)"},
+	{PermConversacionesRegistrarGestionCobro, "Registrar en Argos una gestión de cobro de la conversación (llamada, mensaje, visita o promesa y su resultado; solo informativa)"},
 	{PermConversacionesResolver, "Resolver y reabrir conversaciones"},
 	{PermConversacionesResponder, "Responder a los clientes por WhatsApp (texto, adjuntos y plantillas aprobadas) y escribir notas internas con menciones"},
 	{PermConversacionesSugerencias, "Ver y pedir sugerencias de respuesta del asistente de IA (con sus fuentes) y el resumen de una conversación; el asistente nunca envía: el texto lo envía la persona"},
@@ -770,7 +775,7 @@ var RolesBase = []DefRol{
 			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar, PermLlamadasDesbloquearNumero,
 			PermCentralitaAsignarExtension, PermCentralitaLlamar, PermCentralitaTransferir,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
-			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
+			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesRegistrarGestionCobro, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
 			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
@@ -800,7 +805,7 @@ var RolesBase = []DefRol{
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermEncuestasVer, PermEncuestasCompartir,
 			PermChatVer, PermChatEnviar, PermConversacionesTransferir, PermConversacionesAsociar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso,
-			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesIniciar, PermCentralitaLlamar, PermCentralitaTransferir,
+			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesRegistrarGestionCobro, PermConversacionesIniciar, PermCentralitaLlamar, PermCentralitaTransferir,
 			PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
 			slices.Concat(permisosTickets, permisosAtencion)...)},
 	{Codigo: "ventas", Nombre: "Ventas", Descripcion: "Seguimiento comercial",
@@ -818,7 +823,7 @@ var RolesBase = []DefRol{
 	// boletas.rechazar: un despliegue no le da poder de caja a nadie; quien lo necesite recibe este rol.
 	{Codigo: "caja", Nombre: "Caja", Descripcion: "Aprueba y rechaza boletas de pago desde las conversaciones",
 		Permisos: []Permiso{PermUsuariosVer, PermClientesVer, PermClientesEstadoCuenta, PermAdjuntosVer, PermConversacionesVer,
-			PermManualesVer, PermBoletasAprobar, PermBoletasRechazar, PermIntegracionesAbrirArgos}},
+			PermManualesVer, PermBoletasAprobar, PermBoletasRechazar, PermIntegracionesAbrirArgos, PermConversacionesRegistrarGestionCobro}},
 	// Roles de los usuarios de tipo integración (decisión del líder): el token que Iris entrega
 	// a cada sistema (iris integracion crear) lleva solo lo de su contrato.
 	//  - Argos: tickets.ver, tickets.crear, ordenes.ver y sso.emitir (contratos/argosisp.md §1.2).

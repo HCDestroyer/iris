@@ -190,15 +190,17 @@ type Modulo struct {
 	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
 	RegistrarConsentimiento *RegistrarConsentimiento
 	ListarPlantillas        *auditoria.Caso[EntradaPlantillas, ListaPlantillas]
-	CrearCanal              *CasoCanal[EntradaCrearCanal]
-	ActualizarCanal         *CasoCanal[EntradaActualizarCanal]
-	ActivarCanal            *auditoria.Caso[EntradaCambioCanal, Canal]
-	DesactivarCanal         *auditoria.Caso[EntradaCambioCanal, Canal]
-	ListarCanales           *auditoria.Caso[struct{}, ListaCanales]
-	VerCanal                *auditoria.Caso[EntradaVerCanal, Canal]
-	ProbarCanal             *ProbarCanal
-	RecibirMeta             *auditoria.Caso[EntradaMeta, MetaRecibido]
-	VerificarMeta           *auditoria.Caso[EntradaVerificarMeta, string]
+	// GestionesCobro: gestiones de cobro hacia Argos (contrato 0.13.0 §3.12, B31).
+	GestionesCobro  *GestionesCobro
+	CrearCanal      *CasoCanal[EntradaCrearCanal]
+	ActualizarCanal *CasoCanal[EntradaActualizarCanal]
+	ActivarCanal    *auditoria.Caso[EntradaCambioCanal, Canal]
+	DesactivarCanal *auditoria.Caso[EntradaCambioCanal, Canal]
+	ListarCanales   *auditoria.Caso[struct{}, ListaCanales]
+	VerCanal        *auditoria.Caso[EntradaVerCanal, Canal]
+	ProbarCanal     *ProbarCanal
+	RecibirMeta     *auditoria.Caso[EntradaMeta, MetaRecibido]
+	VerificarMeta   *auditoria.Caso[EntradaVerificarMeta, string]
 
 	// Chat interno del equipo.
 	Chat casosChat
@@ -408,6 +410,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.Chat = nuevosCasosChat(m)
 	m.retirarFoto = nuevoRetirarFotoSinEnviar(m)
 	m.Conv = nuevosCasosConv(m)
+	m.GestionesCobro = &GestionesCobro{registrar: m.nuevoRegistrarGestionCobro(), Listar: m.nuevoListarGestionesCobro()}
 	m.Voz = nuevosCasosVoz(m)
 	m.ServidorIA = nuevosCasosServidorIA(m)
 	m.abrirFlujoConv = nuevoAbrirFlujoConv(m)

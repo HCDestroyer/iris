@@ -507,6 +507,7 @@ func (m *Modulo) registrarConversaciones(api huma.API) {
 	})
 
 	// Acciones -----------------------------------------------------------------------------------
+	m.registrarRutasGestionesCobro(api, base)
 	creada := func(id, ruta, resumen string, permiso nucleo.Permiso) huma.Operation {
 		return op(id, http.MethodPost, base+"/{id}/"+ruta, resumen, permiso, http.StatusCreated, http.StatusNotFound)
 	}

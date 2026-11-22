@@ -469,3 +469,25 @@ func TestResolverManualConDependientePorResolver(t *testing.T) {
 		}
 	}
 }
+
+// X-Iris-Actor (también asistente_ia) y X-Iris-Contacto salen tal cual se encolaron (contrato 0.13.0
+// §3.12, gestiones de cobro); sin contacto, la cabecera no va.
+func TestActorYContactoDelPendiente(t *testing.T) {
+	e := nuevoEntorno(t)
+	sufijo := strings.ReplaceAll(nuevaOrden(), "-", "")
+	e.encolar(pendientes.Accion{Operacion: "registrar_gestion_cobro", IdempotencyKey: "iris:gestion:a" + sufijo, Ruta: "/clientes/7/gestiones-cobro",
+		Cuerpo: []byte(`{"tipo":"llamada"}`), Actor: "asistente_ia", Contacto: "77"})
+	e.encolar(pendientes.Accion{Operacion: "registrar_gestion_cobro", IdempotencyKey: "iris:gestion:b" + sufijo, Ruta: "/clientes/7/gestiones-cobro",
+		Cuerpo: []byte(`{"tipo":"mensaje"}`), Actor: "usuario:5"})
+	e.procesar()
+	vistas := map[string]llamada{}
+	for _, l := range e.argos.copia() {
+		vistas[l.Clave] = l
+	}
+	if a := vistas["iris:gestion:a"+sufijo]; a.Actor != "asistente_ia" || a.Contacto != "77" {
+		t.Fatalf("con contacto: %+v", a)
+	}
+	if b := vistas["iris:gestion:b"+sufijo]; b.Actor != "usuario:5" || b.Contacto != "" {
+		t.Fatalf("sin contacto: %+v", b)
+	}
+}

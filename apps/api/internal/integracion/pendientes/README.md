@@ -159,3 +159,7 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   deja su consumo y su cobro incompletos o, con `clienteId`, reescribe el cobro; `clienteId` debe ser
   el titular actual del servicio leído en vivo de Argos en la empresa del pendiente
   (`422 cliente_no_es_titular`; Argos sin responder: `503 no_disponible`, sin guardar nada).
+- **Actor y contacto (0.13.0 §3.12, B31):** `actor` admite también `asistente_ia` (§7.1) y la columna
+  `contacto` (`<contacto_id>` de Argos o `titular`) sale como `X-Iris-Contacto`; sin ella, la cabecera no
+  va. La usa la gestión de cobro (`registrar_gestion_cobro`, `iris:gestion:<gestion_id>`), que encola la
+  mensajería.
