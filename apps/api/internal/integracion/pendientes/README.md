@@ -190,7 +190,32 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   se puede leer en ese momento, el intento cuenta como temporal (Argos no guarda la clave en un 4xx).
 - **«Cobro por confirmar»:** si el 422 llega después de un envío sin respuesta (`envio_sin_respuesta`: timeout, red o
   5xx), queda `porConfirmar` (vigente), sin reemplazo ni reintento; resolver a mano responde 409
-  `cobro_por_confirmar`. `POST /integraciones/pendientes/{id}/confirmar-cobro` (`integraciones.confirmar_cobro`):
-  con `existe` y el `numero`, Iris lee la factura en Argos y la valida (empresa, servicio, `origen_id` y líneas
-  iguales) → `hecho` con ella (`pendiente_hecho`); con `existe = false` → fallido y sale el reemplazo
-  (`pendiente_fallido`). Nunca se concilia solo por `origen_id`.
+  `cobro_por_confirmar`. `POST /integraciones/pendientes/{id}/confirmar-cobro` (`integraciones.confirmar_cobro`), con
+  la orden bloqueada y `version`:
+  - `existe` con la «Factura #» del panel de Argos (`facturaId` = `factura_id`) o `serie` + `numeroDte`: Iris lee
+    `GET /facturas/origen-iris` (`X-Iris-Actor: usuario:<id>`, Argos ≥ 0.14.3; el token necesita
+    `facturas.leer_origen_iris`) y valida empresa, servicio, `iris_orden`, origen, líneas exactas (concepto, precio y
+    cantidad), no anulada, `emitida_en` ≥ primer envío − 5 min y `factura_id` único en Iris (índice único) → `hecho` con
+    ese `factura_id`. Un 404 `factura_no_encontrada` o un 422 solo rechazan (422 `factura_no_encontrada` /
+    `factura_no_coincide`); otros errores de lectura son 503 («Reintentar»). Nunca se compara el `numero`.
+  - Factura anterior a la 0.14.3 (líneas con `concepto_id` null) que cumple lo demás: queda como `facturaPorAnular`
+    (no liga el cargo ni ocupa el índice único). `POST …/quitar-factura-por-anular` la quita si la lectura de esa
+    acción no la ve anulada (si la ve anulada, 409 `factura_anulada`).
+  - `existe = false` («no existe», con motivo, cualquier versión de Argos) → fallido y sale el reemplazo. Con una
+    factura por anular, solo si la lectura de esa acción la ve anulada (422 `factura_por_anular_vigente`) y, si tenía
+    pagos (`saldo < total`), con `pagosAnulados` (422 `pagos_por_confirmar`).
+- **Revivir un cargo:** reintentar (y corregir un incompleto al repetir el cierre) un cargo con la línea de instalación
+  bloquea la orden y responde 409 `cargo_instalacion_vigente` si hay otro vigente con ella (A36 de instalación o el
+  cargo del cierre, incluido uno resuelto a mano). Sin concepto conocido, o en la forma anterior en una instalación, se
+  supone que la lleva.
+- **Forma anterior en una instalación:** falla cerrado (cuenta como la línea de instalación; con un A36 vigente no sale,
+  `cobro_a36_vigente`). Con solo `monto` y el concepto de instalación informado por Argos, se manda como `lineas[]` con
+  ese concepto. Un A36 vigente con otro concepto quita esa misma línea del cierre; sin el concepto de instalación
+  conocido no se quita nada a ciegas (con un A36 de instalación vigente, el cargo nace por resolver).
+- **Reemplazo sin concepto de instalación:** nace por resolver (fallido incompleto, con todas las líneas).
+- **`consumible_cobro` (forma anterior):** el cargo se encola `esperaConsumo` (nunca sale): queda `resuelto_manual`
+  (`cobrado_con_consumo`) si el consumo confirma su cobro en `cargos[]`; si no, fallido incompleto, visible.
+- **Aprovisionar con Wi-Fi y 422 `capacidad_no_disponible`:** se reenvía sin `wifi` con la clave `<clave>:sin-wifi`; la
+  clave cifrada se descarta y el intento de campo sigue con la nueva clave.
+- **Activado fuera de la orden:** solo la unidad que devuelve `GET /servicios/:id/equipo` cuenta como aprovisionada; el
+  resto lleva comodato.

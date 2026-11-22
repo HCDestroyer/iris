@@ -196,6 +196,10 @@ type plan struct {
 	// lineas: las líneas del cargo (0.14.3); se filtra la de instalación al encolar, con la orden
 	// bloqueada, y quedan fijas en el cuerpo.
 	lineas []map[string]any
+	// anterior: cargo de la forma anterior a la 0.14.3 (producto_id, monto).
+	anterior bool
+	// esperaConsumo: cargo de un consumible_cobro del consumo; nunca sale (lo cobra Argos con el consumo).
+	esperaConsumo bool
 }
 
 // MotivoTitularResueltoAMano: el último cambio de titular de la orden se resolvió a mano en Argos y
@@ -505,7 +509,15 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 		consumo = agregar(faltaServicio(p))
 	}
 
-	// Cargo único si la orden lo indica.
+	// Cargo único si la orden lo indica. Una instalación con la forma anterior y solo monto se cobra con
+	// el concepto de instalación de la empresa (codigo_sistema), si Argos lo informó (0.14.3 §3).
+	if o.Cargo != nil && len(o.Cargo.Lineas) == 0 && o.Tipo == TipoInstalacion && o.conceptoInstalacion > 0 && o.Cargo.ProductoID == nil {
+		if _, ok, _ := numero(o.Cargo.Monto); ok {
+			c := IDArgos(o.conceptoInstalacion)
+			o.Cargo = &Cargo{Descripcion: o.Cargo.Descripcion,
+				Lineas: []LineaCargo{{ConceptoID: &c, PrecioUnitario: o.Cargo.Monto, Descripcion: o.Cargo.Descripcion}}}
+		}
+	}
 	if o.Cargo != nil && len(o.Cargo.Lineas) > 0 {
 		// 0.14.3: lineas[] (cuerpo real de Argos). La línea de instalación se decide al encolar.
 		p := plan{operacion: OpCargo, clave: "iris:cargo:" + orden, ruta: "/facturas/cargo-unico",
@@ -536,10 +548,11 @@ func planificar(o OrdenCerrada, porTecnico bool) ([]plan, []omision) {
 		// Forma anterior a la 0.14.3 (producto_id, monto).
 		p := plan{operacion: OpCargo, clave: "iris:cargo:" + orden, ruta: "/facturas/cargo-unico",
 			payload: con(origen(orden), map[string]any{"cliente_id": o.ClienteID, "servicio_id": o.ServicioID})}
-		if o.Cargo.ProductoID != nil && cobrados[int64(*o.Cargo.ProductoID)] {
-			// Un consumible_cobro lo cobra Argos con el consumo (§3.3): nunca va en el cargo.
-			omisiones = append(omisiones, omision{motivo: MotivoConsumibleCobro, operaciones: []string{p.clave}})
-			return planes, omisiones
+		p.anterior = true
+		if o.Cargo.ProductoID != nil && cobrados[int64(*o.Cargo.ProductoID)] && consumo >= 0 {
+			// Un consumible_cobro lo cobra Argos con el consumo (§3.3): nunca sale. Queda esperando al
+			// consumo: resuelto si el consumo confirma el cobro; si no, visible al supervisor.
+			p.esperaConsumo = true
 		}
 		if o.Cargo.ProductoID != nil {
 			p.payload["producto_id"] = o.Cargo.ProductoID
@@ -707,7 +720,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					}
 					ids[i] = previo.ID
 					res.Pendientes = append(res.Pendientes, previo.ID)
-					corregido, err := m.cierreRepetido(ctx, t, previo, p, cuerpo, depende, ahora)
+					corregido, err := m.cierreRepetido(ctx, t, previo, p, cuerpo, depende, ahora, o.conceptoInstalacion)
 					if err != nil {
 						return res, err
 					}
@@ -722,6 +735,12 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				ids[i] = f.ID
 				res.Pendientes = append(res.Pendientes, f.ID)
 				nuevos++
+				if p.esperaConsumo && f.Estado == EstadoPendiente {
+					// Nunca sale: espera a que el consumo confirme el cobro del consumible_cobro.
+					if f, err = q.FijarEsperaConsumo(ctx, f.ID); err != nil {
+						return res, err
+					}
+				}
 				t.RegistrarCambios("pendiente", f.ID, nil, map[string]any{"operacion": f.Operacion, "estado": f.Estado, "idempotency_key": f.IdempotencyKey})
 				if f.Estado == EstadoFallidoNegocio {
 					if err := t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(f), Detalle: *ultimo}); err != nil {
@@ -771,7 +790,7 @@ func (m *Modulo) Suscribir(bus *integracion.Bus) {
 			o.EmpresaID = e.EmpresaID
 		}
 		o.EventoID = e.ID
-		if o.Cargo != nil && len(o.Cargo.Lineas) > 0 && m.cfg.Argos != nil && o.EmpresaID != nil {
+		if o.Cargo != nil && (len(o.Cargo.Lineas) > 0 || o.Tipo == TipoInstalacion) && m.cfg.Argos != nil && o.EmpresaID != nil {
 			// El concepto de instalación de la empresa (codigo_sistema, 0.14.3 §4.3), fuera de la
 			// transacción. Si no se puede leer, el cargo igual se decide con los cobros de A36 vigentes.
 			if id, err := m.cfg.Argos.ConceptoInstalacion(ctx, *o.EmpresaID); err == nil {
@@ -780,20 +799,54 @@ func (m *Modulo) Suscribir(bus *integracion.Bus) {
 				slog.WarnContext(ctx, "pendientes: no se pudo leer el concepto de instalación de Argos", "orden", o.OrdenID, "err", err)
 			}
 		}
+		if o.Activacion != nil && o.Activacion.Estado == ActivadoFuera && o.ServicioID != nil && m.cfg.Argos != nil {
+			// Activado fuera de la orden (0.14.3): solo la unidad que Argos tiene en el servicio ya está en
+			// comodato; las demás se mandan. Sin la lectura, se mandan todas (Argos rechaza la repetida).
+			if eq, err := m.cfg.Argos.LeerEquipo(ctx, int64(*o.ServicioID), "", false); err == nil {
+				for i := range o.Equipos {
+					if o.Equipos[i].Accion == AccionInstalar && mismaUnidad(o.Equipos[i], eq) {
+						o.Equipos[i].Aprovisionado = true
+					}
+				}
+			} else {
+				slog.WarnContext(ctx, "pendientes: no se pudo leer el equipo del servicio activado fuera de la orden", "orden", o.OrdenID, "err", err)
+			}
+		}
 		_, err := m.EncolarCierreOrden.Ejecutar(ctx, o)
 		return err
 	})
 }
 
-// lineaInstalacion quita del cargo del cierre la línea de instalación (el concepto con codigo_sistema
-// "instalacion", o el de un cobro de A36 vigente) si la orden ya tiene un cobro de A36 vigente con
-// ella o la empresa no tiene cobro_equipo (0.14.3 §3). Corre con la orden bloqueada (FOR UPDATE, igual
-// que el registro de A36): dos cargos vigentes con la línea de instalación nunca conviven. Si no queda
-// ninguna línea, el cargo no sale (pendiente_omitido cargo_sin_lineas). El cuerpo queda fijo.
+// ActivadoFuera: orden.cerrada.activacion.estado cuando el servicio se activó fuera de la orden.
+const ActivadoFuera = "activado_fuera"
+
+// mismaUnidad: el equipo de la orden es el que Argos tiene en el servicio (serie o MAC).
+func mismaUnidad(e Equipo, eq argos.EstadoEquipo) bool {
+	if eq.Serie != nil && strings.TrimSpace(e.Serie) != "" && strings.EqualFold(strings.TrimSpace(e.Serie), strings.TrimSpace(*eq.Serie)) {
+		return true
+	}
+	mac := func(s string) string {
+		return strings.ToUpper(strings.NewReplacer(":", "", "-", "", ".", "", " ", "").Replace(s))
+	}
+	return eq.MAC != nil && mac(e.MAC) != "" && mac(e.MAC) == mac(*eq.MAC)
+}
+
+// lineaInstalacion decide, con la orden bloqueada (FOR UPDATE, igual que el registro de A36), qué
+// sale del cargo del cierre (0.14.3 §3); dos cargos vigentes con la línea de instalación nunca conviven:
+//
+//   - lineas[]: sin las líneas del concepto de un cobro de A36 vigente (la misma línea no se cobra dos
+//     veces), y sin la de instalación (concepto con codigo_sistema) si hay un cobro de A36 de instalación
+//     vigente o la empresa tiene cobro_equipo: false. Sin el concepto de instalación conocido no se quita
+//     nada a ciegas: con un cobro de A36 de instalación vigente, el cargo nace por resolver (visible).
+//     Si no queda ninguna línea, no sale (pendiente_omitido cargo_sin_lineas).
+//   - forma anterior en una instalación: se supone que lleva la instalación (falla cerrado); con un cobro
+//     de A36 de instalación vigente no sale (pendiente_omitido cobro_a36_vigente).
+//
+// El cuerpo queda fijo.
 func (m *Modulo) lineaInstalacion(ctx context.Context, t *auditoria.Tx, o OrdenCerrada, planes []plan, omisiones []omision) ([]plan, []omision, error) {
 	idx := -1
 	for i, p := range planes {
-		if p.operacion == OpCargo && p.lineas != nil {
+		if p.operacion == OpCargo {
 			idx = i
 		}
 	}
@@ -801,51 +854,76 @@ func (m *Modulo) lineaInstalacion(ctx context.Context, t *auditoria.Tx, o OrdenC
 		return planes, omisiones, nil
 	}
 	q := pendientesbd.New(t)
-	instalacion := map[int64]bool{}
-	if o.conceptoInstalacion > 0 {
-		instalacion[o.conceptoInstalacion] = true
-	}
-	vigente := false
+	var a36 []pendientesbd.CobrosA36VigentesRow
 	if orden, err := strconv.ParseInt(string(o.OrdenID), 10, 64); err == nil {
-		if _, err := q.BloquearOrdenCampo(ctx, orden); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		if _, err := q.BloquearOrdenCampo(ctx, orden); err == nil {
+			if a36, err = q.CobrosA36Vigentes(ctx, orden); err != nil {
+				return nil, nil, err
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil, err
 		}
-		conceptos, err := q.ConceptosInstalacionVigentes(ctx, orden)
-		if err != nil {
-			return nil, nil, err
+	}
+	var err error
+	repetidos := map[int64]bool{}
+	instalacionVigente := false
+	for _, c := range a36 {
+		repetidos[c.ConceptoID] = true
+		instalacionVigente = instalacionVigente || c.EsInstalacion
+	}
+	p := &planes[idx]
+	quitar := func(motivo string) ([]plan, []omision, error) {
+		t.Anotar(map[string]any{"cargo_omitido": motivo})
+		omisiones = append(omisiones, omision{motivo: motivo, operaciones: []string{p.clave}})
+		return append(planes[:idx], planes[idx+1:]...), omisiones, nil
+	}
+	if p.anterior {
+		if o.Tipo == TipoInstalacion && instalacionVigente {
+			return quitar(MotivoCobroA36Vigente)
 		}
-		for _, c := range conceptos {
-			instalacion[c], vigente = true, true
-		}
+		return planes, omisiones, nil
+	}
+	if p.lineas == nil {
+		return planes, omisiones, nil
 	}
 	cobro := true
 	if m.cfg.Argos != nil {
-		var err error
 		if cobro, err = m.cfg.Argos.Aprovisionamiento(ctx, t, o.EmpresaID, argos.Funcion(argos.FuncionCobroEquipo)); err != nil {
 			return nil, nil, err
 		}
 	}
-	if cobro && !vigente {
-		return planes, omisiones, nil
+	quitarConceptos := map[int64]bool{}
+	for c := range repetidos {
+		quitarConceptos[c] = true
 	}
-	p := &planes[idx]
-	quedan := SinLineaInstalacion(p.lineas, instalacion)
+	if (instalacionVigente || !cobro) && o.conceptoInstalacion > 0 {
+		quitarConceptos[o.conceptoInstalacion] = true
+	}
+	quedan := SinLineaInstalacion(p.lineas, quitarConceptos)
+	if instalacionVigente && o.conceptoInstalacion <= 0 && len(quedan) > 0 && p.incompleto == "" {
+		// No se sabe si alguna de las líneas que quedan es la de instalación: no sale solo.
+		p.incompleto = MotivoInstalacionDesconocida
+	}
 	if len(quedan) == len(p.lineas) {
 		return planes, omisiones, nil
 	}
-	motivo := "cobro_equipo_apagado"
-	if vigente {
-		motivo = "cobro_a36_vigente"
-	}
-	t.Anotar(map[string]any{"cargo_sin_instalacion": motivo})
+	t.Anotar(map[string]any{"cargo_sin_lineas_repetidas": len(p.lineas) - len(quedan)})
 	if len(quedan) == 0 {
-		omisiones = append(omisiones, omision{motivo: MotivoCargoSinLineas, operaciones: []string{p.clave}})
-		return append(planes[:idx], planes[idx+1:]...), omisiones, nil
+		return quitar(MotivoCargoSinLineas)
 	}
 	p.lineas = quedan
 	p.payload["lineas"] = quedan
 	return planes, omisiones, nil
 }
+
+// Motivos del cargo del cierre frente a un cobro de A36 (0.14.3 §3).
+const (
+	// MotivoCobroA36Vigente: un cargo de la forma anterior de una instalación con un cobro de A36 vigente.
+	MotivoCobroA36Vigente = "cobro_a36_vigente"
+	// MotivoInstalacionDesconocida: hay un cobro de A36 de instalación vigente y Argos no informó qué
+	// concepto es el de instalación: el cargo queda por resolver (no sale solo).
+	MotivoInstalacionDesconocida = "concepto_instalacion_desconocido_con_cobro_a36_vigente"
+)
 
 // SinLineaInstalacion: las líneas cuyo concepto_id no está en instalacion.
 func SinLineaInstalacion(lineas []map[string]any, instalacion map[int64]bool) []map[string]any {
@@ -894,8 +972,19 @@ func conceptoDe(v any) (int64, bool) {
 //
 // Devuelve true si el pendiente volvió a la cola.
 func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pendientesbd.IntegracionPendiente, p plan,
-	cuerpo []byte, depende []int64, ahora time.Time) (bool, error) {
+	cuerpo []byte, depende []int64, ahora time.Time, concepto int64) (bool, error) {
 	q := pendientesbd.New(t)
+	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && p.incompleto == "" && previo.Operacion == OpCargo {
+		// Corregir un cargo incompleto lo revive: nunca si ya hay otro cobro vigente con la línea de
+		// instalación (0.14.3 §3; la orden ya está bloqueada).
+		if otro, err := otraInstalacionVigente(ctx, q, previo, cuerpo, concepto); err != nil {
+			return false, err
+		} else if otro {
+			t.Anotar(map[string]any{"correccion_omitida": MotivoCobroA36Vigente})
+			return false, t.Emitir(EventoOmitido, eventoOmitido{OrdenID: previo.EntidadID, Motivo: MotivoCobroA36Vigente,
+				Operaciones: []string{previo.IdempotencyKey}})
+		}
+	}
 	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && p.incompleto == "" {
 		f, err := q.CorregirPendiente(ctx, pendientesbd.CorregirPendienteParams{Payload: cuerpo, Ruta: p.ruta, DependeDe: depende, Ahora: ahora, ID: previo.ID})
 		if err != nil {

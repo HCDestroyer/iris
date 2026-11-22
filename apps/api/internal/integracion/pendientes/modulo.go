@@ -89,10 +89,11 @@ type Modulo struct {
 	cfg Config
 
 	Listar             *auditoria.Caso[EntradaListar, nucleo.Pagina[Pendiente]]
-	Reintentar         *auditoria.Caso[EntradaReintentar, Pendiente]
+	Reintentar         *Reintentador
 	ResolverManual     *auditoria.Caso[EntradaResolverManual, Pendiente]
 	EncolarCierreOrden *auditoria.Caso[OrdenCerrada, ResultadoCierre]
 	confirmarCobro     *auditoria.Caso[EntradaConfirmarCobro, Pendiente]
+	quitarPorAnular    *auditoria.Caso[EntradaQuitarPorAnular, Pendiente]
 	resolver           *auditoria.Caso[resultadoIntento, Pendiente]
 	resolverListos     *auditoria.Caso[time.Time, int]
 }
@@ -107,10 +108,11 @@ func Nuevo(cfg Config) *Modulo {
 	}
 	m := &Modulo{cfg: cfg}
 	m.Listar = nuevoListar(m)
-	m.Reintentar = nuevoReintentar(m)
+	m.Reintentar = &Reintentador{m: m, caso: nuevoReintentar(m)}
 	m.ResolverManual = nuevoResolverManual(m)
 	m.EncolarCierreOrden = nuevoEncolarCierreOrden(m)
 	m.confirmarCobro = nuevoConfirmarCobro(m)
+	m.quitarPorAnular = nuevoQuitarPorAnular(m)
 	m.resolver = nuevoResolver(m)
 	m.resolverListos = auditoria.Nuevo(auditoria.Caso[time.Time, int]{
 		Accion: "integraciones.resolver_pendientes", Acceso: auditoria.Autenticado,

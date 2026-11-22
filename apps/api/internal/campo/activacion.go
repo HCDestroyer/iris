@@ -907,6 +907,11 @@ func (m *Modulo) resolverDesdePendiente(ctx context.Context, evento string, payl
 	if err != nil {
 		return err
 	}
+	if evento == pendientes.EventoFallido && reg.ReemplazadoPor != nil {
+		// Argos rechazó el Wi-Fi (sin la marca, §4.3): el intento sigue con el reenvío sin Wi-Fi.
+		_, err := m.activacionSinWifi.Ejecutar(ctx, e.IdempotencyKey)
+		return err
+	}
 	in := EntradaResolverActivacion{Fuente: FuentePendiente, IdempotencyKey: &e.IdempotencyKey}
 	switch evento {
 	case pendientes.EventoHecho:
@@ -1027,7 +1032,9 @@ func (a activacionCierre) alPayload(p map[string]any) {
 		"cerrada_sin_activacion_motivo": a.sinMotivo}
 	equipos, _ := p["equipos"].([]map[string]any)
 	for _, e := range equipos {
-		e["aprovisionado"] = e["accion"] == AccionInstalar && (a.activadoFuera || (a.viva != nil && mismoEquipo(*a.viva, e)))
+		// Activado fuera de la orden: la cola marca aprovisionada solo la unidad que Argos tiene en el
+		// servicio (GET /servicios/:id/equipo) y manda el comodato del resto.
+		e["aprovisionado"] = e["accion"] == AccionInstalar && a.viva != nil && !a.activadoFuera && mismoEquipo(*a.viva, e)
 	}
 }
 
@@ -1157,4 +1164,28 @@ func bienvenidaCumplida(crudo []byte) bool {
 		}
 	}
 	return false
+}
+
+// nuevaActivacionSinWifi: el intento sigue con el reenvío sin Wi-Fi de la cola (<clave>:sin-wifi).
+func (m *Modulo) nuevaActivacionSinWifi() *auditoria.Caso[string, bool] {
+	return auditoria.Nuevo(auditoria.Caso[string, bool]{
+		Accion: "ordenes.activacion_sin_wifi", Acceso: auditoria.Autenticado, AuditarExito: func(b bool) bool { return b },
+		Logica: func(ctx context.Context, t *auditoria.Tx, clave string) (bool, error) {
+			var orden int64
+			var empresa *int64
+			err := t.QueryRow(ctx, `UPDATE campo.activaciones SET idempotency_key = $2, version = version + 1, updated_at = now()
+				WHERE idempotency_key = $1 AND estado IN ('pendiente', 'en_proceso') RETURNING orden_id, empresa_id`, clave, clave+":sin-wifi").Scan(&orden, &empresa)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			t.FijarEntidad("orden", orden)
+			t.FijarEmpresa(deref(empresa))
+			t.RegistrarCambios("activacion", orden, map[string]any{"idempotency_key": clave}, map[string]any{"idempotency_key": clave + ":sin-wifi",
+				"wifi": "rechazado_capacidad_no_disponible"})
+			return true, nil
+		},
+	})
 }

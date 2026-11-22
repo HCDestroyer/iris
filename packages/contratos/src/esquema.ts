@@ -1770,10 +1770,30 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Confirmar en Argos un cobro «por confirmar»
-         * @description Permiso: `integraciones.confirmar_cobro`. Un cargo que recibió `422 capacidad_no_disponible` después de un envío sin respuesta (timeout o 5xx) queda «por confirmar» (`porConfirmar`): Argos pudo haber creado la factura con el primer envío, y nada sale hasta que un supervisor revise Argos (contrato 0.14.3 §3; nunca se concilia solo por `origen_id`). Con `existe` = true y el `numero` de la factura, Iris la lee en Argos y la valida (misma empresa, mismo servicio, `origen_id` de la orden y líneas iguales al cuerpo del cargo): el cargo queda `hecho` con ese `factura_id` y no sale el reemplazo (422 `factura_no_encontrada` o `factura_no_coincide`; 503 si Argos no responde). Con `existe` = false, el cargo queda `fallido_negocio` (terminal) y sus demás líneas salen sin la de instalación como un cobro nuevo, con otro `cargo_id`. 409 por `version` o `cobro_no_por_confirmar`. Auditado; emite `integracion.pendiente_hecho` o `integracion.pendiente_fallido`.
+         * Conciliar un cobro «por confirmar»
+         * @description Permiso: `integraciones.confirmar_cobro`. Un cargo que recibió `422 capacidad_no_disponible` después de un envío sin respuesta (timeout o 5xx) queda «por confirmar» (`porConfirmar`, vigente) hasta que un supervisor concilie (contrato 0.14.3 §3; nunca solo por `origen_id`). Con `existe` = true y la «Factura #» del panel de Argos (`facturaId`) o `serie` + `numeroDte`, Iris la lee (`GET /facturas/origen-iris`) y la valida con la orden bloqueada: misma empresa, mismo servicio, `iris_orden`, mismo origen, líneas exactas, no anulada, emitida desde el primer envío (−5 min) y no ligada a otro cobro; si coincide, el cargo queda `hecho` con ese `factura_id`. Una factura anterior a la 0.14.3 (líneas sin concepto) que cumple lo demás queda como `facturaPorAnular` (no liga el cargo). 422 `factura_no_encontrada` o `factura_no_coincide` solo rechazan; 503 es un error de lectura (reintentar). Con `existe` = false (comprobado en Argos, con motivo), el cargo queda fallido y salen sus demás líneas sin la de instalación; con una factura por anular, solo si la lectura de esta acción la ve anulada (422 `factura_por_anular_vigente`) y, con pagos, `pagosAnulados` (422 `pagos_por_confirmar`). 409 por `version` o `cobro_no_por_confirmar`. Auditado; emite `integracion.pendiente_hecho` o `integracion.pendiente_fallido`.
          */
         post: operations["confirmarCobroIntegracion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/pendientes/{id}/quitar-factura-por-anular": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Quitar la factura por anular de un cobro por confirmar
+         * @description Permiso: `integraciones.confirmar_cobro`. Con la orden bloqueada y `version`, y solo si una lectura de Argos en esta acción la ve no anulada (si la ve anulada: 409 `factura_anulada`, se habilita «no existe»). El cobro sigue por confirmar.
+         */
+        post: operations["quitarFacturaPorAnularIntegracion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13517,12 +13537,21 @@ export interface components {
             version: number;
         };
         EntradaConfirmarCobroHTTPBody: {
-            /** @description true: la factura existe en Argos (con numero). false: no existe (sale el cobro de reemplazo) */
+            /** @description true: la factura existe en Argos (facturaId, o serie y numeroDte). false: no existe (sale el cobro de reemplazo) */
             existe: boolean;
+            /**
+             * Format: int64
+             * @description «Factura #» del panel de Argos (su factura_id)
+             */
+            facturaId?: number;
             /** @description Qué se revisó en Argos */
             motivo: string;
-            /** @description Con existe = true: número de la factura en Argos */
-            numero?: string;
+            /** @description Número del DTE (con serie) */
+            numeroDte?: string;
+            /** @description «No existe» con una factura por anular con pagos: se anularon o pasaron a abono */
+            pagosAnulados?: boolean;
+            /** @description Serie del DTE (con numeroDte) */
+            serie?: string;
             /** Format: int32 */
             version: number;
         };
@@ -15068,6 +15097,11 @@ export interface components {
         EntradaQuitarFormularioCampo: {
             /** @description Un formulario que agregó el mismo técnico, sin respuestas */
             formularioId: string;
+        };
+        EntradaQuitarPorAnularHTTPBody: {
+            motivo: string;
+            /** Format: int32 */
+            version: number;
         };
         EntradaReabrirTicket: {
             motivo: string;
@@ -18856,6 +18890,8 @@ export interface components {
             /** @description orden (más adelante prospecto) */
             entidad: string;
             entidadId: string;
+            /** @description Cargo de un consumible_cobro: nunca sale; queda resuelto cuando el consumo confirma su cobro */
+            esperaConsumo?: boolean;
             /**
              * @description bloqueado: una dependencia quedó fallido_negocio o agotado (ultimoError = depende_de_<id>_fallido); vuelve a pendiente cuando la dependencia termina hecha o resuelto_manual. resuelto_manual: final, un supervisor lo corrigió en Argos (resueltoMotivo); no vuelve a salir
              * @enum {string}
@@ -18866,6 +18902,11 @@ export interface components {
              * @description Consumo hecho: factura de Argos con esos cargos (si la hubo)
              */
             facturaId?: number;
+            /**
+             * Format: int64
+             * @description Por confirmar: factura anterior a la 0.14.3 indicada por el supervisor; «no existe» se habilita cuando Argos la vea anulada
+             */
+            facturaPorAnular?: number;
             /** Format: date-time */
             hechoEn: string | null;
             /** Format: int64 */
@@ -29282,6 +29323,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaConfirmarCobroHTTPBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Pendiente"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    quitarFacturaPorAnularIntegracion: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaQuitarPorAnularHTTPBody"];
             };
         };
         responses: {

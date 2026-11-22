@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -35,6 +36,15 @@ func (m *Modulo) ConceptoInstalacion(ctx context.Context, empresa int64) (int64,
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
 		return 0, nucleo.ErrSinBD
+	}
+	// codigo_sistema existe desde la 0.14.3: con un Argos anterior el concepto es desconocido.
+	var contrato *string
+	if err := bd.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato); err != nil {
+		return 0, err
+	}
+	if !conector.VersionAlMenos(contrato, ContratoLecturaFactura) {
+		return 0, ErrLecturaNoDisponible
 	}
 	cli, err := m.ClienteActivo(ctx, bd)
 	if err != nil {
@@ -76,117 +86,156 @@ func (m *Modulo) ConceptoInstalacion(ctx context.Context, empresa int64) (int64,
 type LineaFactura struct {
 	ConceptoID     int64
 	PrecioUnitario string
+	Cantidad       int64
 }
 
-// FacturaArgos es la factura que un supervisor dice que existe para un cargo «por confirmar».
+// FacturaArgos es una factura de origen Iris (GET /facturas/origen-iris, 0.14.3 §3).
 type FacturaArgos struct {
 	ID         int64
 	Numero     string
 	EmpresaID  int64
 	ServicioID int64
+	ClienteID  int64
 	OrigenTipo string
 	OrigenID   string
 	Estado     string
 	Total      *string
+	Saldo      *string
 	Moneda     *string
+	EmitidaEn  time.Time
 	Lineas     []LineaFactura
+	// SinConcepto: alguna línea trae concepto_id null (cargo emitido antes de que Argos pasara a la
+	// 0.14.3): no se concilia como «existe»; a lo más, factura por anular.
+	SinConcepto bool
 }
 
-// ErrFacturaNoEncontrada: Argos no tiene una factura con ese número en la empresa.
+// ConPagos: saldo < total (la factura tiene pagos).
+func (f FacturaArgos) ConPagos() bool {
+	if f.Total == nil || f.Saldo == nil {
+		return false
+	}
+	t, err1 := strconv.ParseFloat(*f.Total, 64)
+	s, err2 := strconv.ParseFloat(*f.Saldo, 64)
+	return err1 == nil && err2 == nil && s < t
+}
+
+// ErrFacturaNoEncontrada: 404 factura_no_encontrada (o 422 validacion) de GET /facturas/origen-iris.
+// Solo rechaza la conciliación: nunca equivale a «no existe».
 var ErrFacturaNoEncontrada = errors.New("argos: factura no encontrada")
 
-// LeerFacturaPorNumero lee la factura de la empresa con ese número (GET /facturas?numero=&empresa_id=).
-// El contrato 0.14.3 pide validar «leyendo Argos» pero no nombra la ruta: Iris usa esta lectura y,
-// si Argos no la tiene (404 o una lista vacía), la factura no se da por confirmada. Fuera de
-// transacción.
-func (m *Modulo) LeerFacturaPorNumero(ctx context.Context, empresa int64, numero string) (FacturaArgos, error) {
+// ErrLecturaNoDisponible: Argos < 0.14.3 (sin la ruta): Iris no concilia como «existe».
+var ErrLecturaNoDisponible = errors.New("argos: la lectura de facturas de origen Iris no está disponible")
+
+// ContratoLecturaFactura: desde la 0.14.3 Argos expone GET /facturas/origen-iris.
+const ContratoLecturaFactura = "0.14.3"
+
+// BuscarFactura: la «Factura #» del panel de Argos (= factura_id), o la serie y el número del DTE
+// (excluyentes).
+type BuscarFactura struct {
+	FacturaID int64
+	Serie     string
+	NumeroDTE string
+}
+
+// LeerFacturaOrigenIris lee GET /api/v1/facturas/origen-iris?empresa_id=&origen_id=&numero= (o serie y
+// numero_dte) con X-Iris-Actor: usuario:<id> (0.14.3 §3, permiso facturas.leer_origen_iris del token).
+// Fuera de transacción. 404 con type factura_no_encontrada → ErrFacturaNoEncontrada; con un Argos
+// anterior → ErrLecturaNoDisponible; cualquier otro error (otro 404, 429, 5xx, timeout) es de lectura.
+func (m *Modulo) LeerFacturaOrigenIris(ctx context.Context, empresa int64, orden string, b BuscarFactura, usuario int64) (FacturaArgos, error) {
 	var f FacturaArgos
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
 		return f, nucleo.ErrSinBD
 	}
+	var contrato *string
+	if err := bd.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato); err != nil {
+		return f, err
+	}
+	if !conector.VersionAlMenos(contrato, ContratoLecturaFactura) {
+		return f, ErrLecturaNoDisponible
+	}
 	cli, err := m.ClienteActivo(ctx, bd)
 	if err != nil {
 		return f, err
 	}
-	type linea struct {
-		ConceptoID     *conector.Numero `json:"concepto_id"`
-		PrecioUnitario *conector.Texto  `json:"precio_unitario"`
-		Cantidad       *conector.Numero `json:"cantidad"`
+	v := url.Values{"empresa_id": {strconv.FormatInt(empresa, 10)}, "origen_id": {orden}}
+	if b.FacturaID > 0 {
+		v.Set("numero", strconv.FormatInt(b.FacturaID, 10))
+	} else {
+		v.Set("serie", b.Serie)
+		v.Set("numero_dte", b.NumeroDTE)
 	}
-	type crudo struct {
-		ID         *conector.Numero `json:"id"`
+	var crudo struct {
+		FacturaID  *conector.Numero `json:"factura_id"`
 		Numero     *conector.Texto  `json:"numero"`
 		EmpresaID  *conector.Numero `json:"empresa_id"`
 		ServicioID *conector.Numero `json:"servicio_id"`
+		ClienteID  *conector.Numero `json:"cliente_id"`
 		OrigenTipo *string          `json:"origen_tipo"`
 		OrigenID   *conector.Texto  `json:"origen_id"`
 		Estado     *string          `json:"estado"`
 		Total      *conector.Texto  `json:"total"`
+		Saldo      *conector.Texto  `json:"saldo"`
 		Moneda     *string          `json:"moneda"`
-		Lineas     []linea          `json:"lineas"`
+		EmitidaEn  *time.Time       `json:"emitida_en"`
+		Lineas     []struct {
+			ConceptoID     *conector.Numero `json:"concepto_id"`
+			PrecioUnitario *conector.Texto  `json:"precio_unitario"`
+			Cantidad       *conector.Numero `json:"cantidad"`
+		} `json:"lineas"`
 	}
-	v := url.Values{"numero": {numero}}
-	if empresa > 0 {
-		v.Set("empresa_id", strconv.FormatInt(empresa, 10))
-	}
-	p, err := conector.ListaDe[crudo](ctx, cli.Cliente, "/facturas", v)
+	c := cli.ConCabecera(CabeceraActorIris, "usuario:"+strconv.FormatInt(usuario, 10))
+	err = c.Pedir(ctx, http.MethodGet, "/facturas/origen-iris", v, nil, true, &conector.Recurso{Destino: &crudo})
 	var er *conector.ErrorRemoto
-	if errors.As(err, &er) && er.Status == http.StatusNotFound {
+	if errors.As(err, &er) && ((er.Status == http.StatusNotFound && strings.HasSuffix(strings.TrimSpace(er.Tipo), "factura_no_encontrada")) ||
+		er.Status == http.StatusUnprocessableEntity) {
 		return f, ErrFacturaNoEncontrada
 	}
 	if err != nil {
 		return f, err
 	}
-	var hallada *crudo
-	for i := range p.Data {
-		c := &p.Data[i]
-		if c.Numero != nil && strings.TrimSpace(string(*c.Numero)) == strings.TrimSpace(numero) {
-			if hallada != nil {
-				return f, errors.New("argos: más de una factura con ese número")
-			}
-			hallada = c
+	if crudo.FacturaID.Entero() == nil || crudo.EmitidaEn == nil {
+		return f, errors.New("argos: factura sin factura_id o emitida_en")
+	}
+	f = FacturaArgos{ID: *crudo.FacturaID.Entero(), Total: decimal(crudo.Total), Saldo: decimal(crudo.Saldo), Moneda: moneda(crudo.Moneda),
+		EmitidaEn: crudo.EmitidaEn.UTC()}
+	if crudo.Numero != nil {
+		f.Numero = strings.TrimSpace(string(*crudo.Numero))
+	}
+	for dst, src := range map[*int64]*conector.Numero{&f.EmpresaID: crudo.EmpresaID, &f.ServicioID: crudo.ServicioID, &f.ClienteID: crudo.ClienteID} {
+		if n := src.Entero(); n != nil {
+			*dst = *n
 		}
 	}
-	if hallada == nil || hallada.ID.Entero() == nil {
-		return f, ErrFacturaNoEncontrada
+	if crudo.OrigenTipo != nil {
+		f.OrigenTipo = *crudo.OrigenTipo
 	}
-	f = FacturaArgos{ID: *hallada.ID.Entero(), Numero: strings.TrimSpace(string(*hallada.Numero)), Total: texto(hallada.Total),
-		Moneda: moneda(hallada.Moneda)}
-	if e := hallada.EmpresaID.Entero(); e != nil {
-		f.EmpresaID = *e
+	if crudo.OrigenID != nil {
+		f.OrigenID = string(*crudo.OrigenID)
 	}
-	if s := hallada.ServicioID.Entero(); s != nil {
-		f.ServicioID = *s
+	if crudo.Estado != nil {
+		f.Estado = *crudo.Estado
 	}
-	if hallada.OrigenTipo != nil {
-		f.OrigenTipo = *hallada.OrigenTipo
-	}
-	if hallada.OrigenID != nil {
-		f.OrigenID = string(*hallada.OrigenID)
-	}
-	if hallada.Estado != nil {
-		f.Estado = *hallada.Estado
-	}
-	for _, l := range hallada.Lineas {
-		c := l.ConceptoID.Entero()
+	for _, l := range crudo.Lineas {
 		precio := ""
 		if l.PrecioUnitario != nil {
 			precio = PrecioCanonico(string(*l.PrecioUnitario))
 		}
-		if c == nil || precio == "" {
-			return f, errors.New("argos: línea de factura sin concepto o precio")
+		if precio == "" {
+			return f, errors.New("argos: línea de factura sin precio")
+		}
+		var concepto int64
+		if c := l.ConceptoID.Entero(); c != nil {
+			concepto = *c
+		} else {
+			f.SinConcepto = true
 		}
 		n := int64(1)
 		if q := l.Cantidad.Entero(); q != nil {
 			n = *q
 		}
-		if n < 1 || n > 100 {
-			return f, errors.New("argos: línea de factura con cantidad fuera de rango")
-		}
-		for range n {
-			f.Lineas = append(f.Lineas, LineaFactura{ConceptoID: *c, PrecioUnitario: precio})
-		}
+		f.Lineas = append(f.Lineas, LineaFactura{ConceptoID: concepto, PrecioUnitario: precio, Cantidad: n})
 	}
 	return f, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"regexp"
@@ -133,7 +134,9 @@ func (r *RegistradorCobro) Ejecutar(ctx context.Context, in EntradaRegistrarCobr
 	in.conceptoInstalacion = 0
 	if leer := r.m.cfg.Equipos.ConceptoInstalacion; leer != nil && contexto.PermisosDe(ctx).Tiene(string(nucleo.PermOrdenesRegistrarCobro)) {
 		if bd := nucleo.BDDe(ctx); bd != nil {
-			if f, err := campobd.New(bd).OrdenPorID(ctx, in.ID); err == nil && f.EmpresaID != nil {
+			// Solo con la orden visible para quien registra: si no, no se pregunta nada a Argos.
+			if f, err := campobd.New(bd).OrdenPorID(ctx, in.ID); err == nil && f.EmpresaID != nil &&
+				verificarAcceso(ctx, nucleo.PermOrdenesRegistrarCobro, f) == nil {
 				if id, err := leer(ctx, *f.EmpresaID); err == nil {
 					in.conceptoInstalacion = id
 				}
@@ -399,6 +402,25 @@ func (m *Modulo) nuevoSeguirCobro() *auditoria.Caso[entradaCobroArgos, *Cobro] {
 			if in.Moneda != nil {
 				p.Moneda = in.Moneda
 			}
+			revive := antes.Estado == CobroFallido && (in.Estado == CobroFacturado || in.Estado == CobroPagado)
+			if revive && in.Estado != antes.Estado {
+				otro, err := m.otroCobroVigente(ctx, t, q, antes)
+				if err != nil {
+					return nil, err
+				}
+				if otro {
+					// 0.14.3 §3: no revive en silencio con otro cobro de instalación vigente; se avisa.
+					slog.ErrorContext(ctx, "campo: Argos facturó un cobro fallido y la orden ya tiene otro vigente con la instalación; revisar (posible cobro doble)",
+						"orden", antes.OrdenID, "cargo", antes.ID)
+					t.Anotar(map[string]any{"revivir_rechazado": true})
+					situacion, motivo := "revivir_rechazado", "Argos facturó un cobro que estaba fallido y la orden ya tiene otro vigente: revisa un posible cobro doble"
+					if err := historial(ctx, t, q, antes.OrdenID, "cobro", &antes.Estado, &situacion, &motivo,
+						map[string]any{"cargo_id": antes.ID.String(), "factura_id": in.FacturaID}, m.ahora()); err != nil {
+						return nil, err
+					}
+					return nil, nil
+				}
+			}
 			if in.Estado != antes.Estado && transicionCobro(antes.Estado, in.Estado) {
 				p.Estado = in.Estado
 				if in.Estado == CobroFallido || in.Estado == CobroPorConfirmar {
@@ -511,6 +533,14 @@ func (m *Modulo) SuscribirCobros(bus *integracion.Bus, bd nucleo.BD) {
 		if estado == "" {
 			return nil
 		}
+		// 0.14.3 §3: factura.* y pago.* solo se aplican al cobro ligado a ese factura_id; si no hay, quedan
+		// como aviso en la orden (el webhook ya está en integracion.entrantes).
+		if _, err := campobd.New(bd).CobroPorFactura(ctx, campobd.CobroPorFacturaParams{FacturaID: *p.FacturaID, OrdenID: orden}); errors.Is(err, pgx.ErrNoRows) {
+			_, err := m.avisoFactura.Ejecutar(nucleo.ConBD(ctx, bd), avisoFacturaEntrada{OrdenID: orden, FacturaID: *p.FacturaID, Webhook: p.Webhook})
+			return err
+		} else if err != nil {
+			return err
+		}
 		_, err = m.SeguirCobro.Ejecutar(nucleo.ConBD(ctx, bd), entradaCobroArgos{OrdenID: orden, FacturaID: p.FacturaID, Estado: estado,
 			Numero: p.Numero, Total: p.Total, Moneda: p.Moneda})
 		return err
@@ -595,6 +625,72 @@ func (m *Modulo) nuevoAvisoCobro() *auditoria.Caso[pendientes.Registro, bool] {
 				return false, err
 			}
 			return true, nil
+		},
+	})
+}
+
+// otroCobroVigente: la orden tiene otro cobro de A36 vivo, o (si este es de instalación) el cargo del
+// cierre vigente con la línea de instalación.
+func (m *Modulo) otroCobroVigente(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, c campobd.CampoCobro) (bool, error) {
+	if v, err := q.CobroVivoDeOrden(ctx, c.OrdenID); err == nil && v.ID != c.ID {
+		return true, nil
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return false, err
+	}
+	if !c.EsInstalacion {
+		return false, nil
+	}
+	return pendientes.CargoDelCierreConInstalacion(ctx, t, strconv.FormatInt(c.OrdenID, 10), 0)
+}
+
+type avisoFacturaEntrada struct {
+	OrdenID   int64  `json:"orden_id"`
+	FacturaID int64  `json:"factura_id"`
+	Webhook   string `json:"webhook"`
+}
+
+// nuevoAvisoFactura: un factura.* o pago.* de una factura sin cobro ligado (otro cargo de la orden, una
+// factura por anular o una desconocida) no cambia ningún cobro: queda como aviso en la orden (una vez
+// por factura y webhook).
+func (m *Modulo) nuevoAvisoFactura() *auditoria.Caso[avisoFacturaEntrada, bool] {
+	return auditoria.Nuevo(auditoria.Caso[avisoFacturaEntrada, bool]{
+		Accion: "ordenes.aviso_factura", Acceso: auditoria.Autenticado, AuditarExito: func(b bool) bool { return b },
+		Logica: func(ctx context.Context, t *auditoria.Tx, in avisoFacturaEntrada) (bool, error) {
+			q := campobd.New(t)
+			f, err := q.OrdenPorIDParaActualizar(ctx, in.OrdenID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return false, nil
+			}
+			if err != nil {
+				return false, err
+			}
+			situacion := "factura_sin_cobro"
+			if p, err := pendientes.PorFactura(ctx, t, in.FacturaID); err == nil {
+				switch {
+				case p.FacturaPorAnular != nil && *p.FacturaPorAnular == in.FacturaID:
+					situacion = "factura_por_anular"
+				case p.EntidadID == strconv.FormatInt(f.ID, 10):
+					return false, nil // la factura de un cargo de la orden (cierre o reemplazo): nada que avisar
+				}
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return false, err
+			}
+			var ya int
+			if err := t.QueryRow(ctx, `SELECT count(*) FROM campo.orden_eventos WHERE orden_id = $1 AND tipo = 'cobro'
+				AND datos->>'factura_id' = $2 AND datos->>'webhook' = $3`, f.ID, strconv.FormatInt(in.FacturaID, 10), in.Webhook).Scan(&ya); err != nil {
+				return false, err
+			}
+			if ya > 0 {
+				return false, nil
+			}
+			t.FijarEntidad("orden", f.ID)
+			t.FijarEmpresa(deref(f.EmpresaID))
+			motivo := "Argos avisó " + in.Webhook + " de una factura que no está ligada a ningún cobro de la orden: revísala"
+			if situacion == "factura_por_anular" {
+				motivo = "Argos avisó " + in.Webhook + " de la factura por anular del cobro por confirmar"
+			}
+			return true, historial(ctx, t, q, f.ID, "cobro", nil, &situacion, &motivo,
+				map[string]any{"factura_id": strconv.FormatInt(in.FacturaID, 10), "webhook": in.Webhook}, m.ahora())
 		},
 	})
 }

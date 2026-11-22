@@ -79,16 +79,12 @@ func TestCierreConTecnicoArgos16(t *testing.T) {
 		"cargo": map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
 	})
 	ps := e.pendientes(orden)
-	if _, ok := ps["iris:cargo:"+orden]; ok || len(ps) != 3 {
-		t.Fatalf("el cargo de un consumible_cobro no se encola: %+v", ps)
+	if c, ok := ps["iris:cargo:"+orden]; !ok || c.Estado != "bloqueado" || len(ps) != 4 {
+		t.Fatalf("el cargo de un consumible_cobro espera al consumo (nunca sale): %+v", ps)
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'integracion.pendiente_omitido' AND payload->>'orden_id' = $1
 		AND payload->>'motivo' = 'material_comodato'`, orden); n != 1 {
 		t.Fatalf("aviso del comodato: %d", n)
-	}
-	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'integracion.pendiente_omitido' AND payload->>'orden_id' = $1
-		AND payload->>'motivo' = 'consumible_cobro' AND payload->'operaciones' ? $2`, orden, "iris:cargo:"+orden); n != 1 {
-		t.Fatalf("aviso del cargo de un consumible_cobro: %d", n)
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE entidad_id = $1 AND tecnico_usuario_id = $2`, orden, tec); n != 2 {
 		t.Fatalf("tecnico_usuario_id (comodato y consumo): %d", n)
@@ -104,6 +100,15 @@ func TestCierreConTecnicoArgos16(t *testing.T) {
 	}
 	if com := e.llamadaA("iris:comodato:" + orden + ":ONT-1"); com.Cuerpo["tecnico"] == nil || com.Cuerpo["serie"] != "ONT-1" {
 		t.Fatalf("comodato con tecnico: %s", com.Crudo)
+	}
+	// El consumo confirmó el cobro del consumible_cobro: el cargo queda resuelto y nunca salió.
+	if f := e.pendientes(orden)["iris:cargo:"+orden]; f.Estado != "resuelto_manual" {
+		t.Fatalf("cargo resuelto con el consumo: %+v", f)
+	}
+	for _, l := range e.argos.copia() {
+		if l.Clave == "iris:cargo:"+orden {
+			t.Fatal("el cargo de un consumible_cobro salió hacia Argos")
+		}
 	}
 	// cargos[] y factura_id del consumo quedan en el pendiente (para la orden).
 	ps2, err := pendientes.DeEntidad(context.Background(), e.pool, "orden", orden)
@@ -517,5 +522,27 @@ func TestResolverManualConCargoResueltoTambien(t *testing.T) {
 	if n := e.contar(`SELECT count(*) FROM auditoria.cambios WHERE entidad = 'pendiente' AND entidad_id = $1
 		AND campo = 'estado' AND despues #>> '{}' = 'resuelto_manual'`, strconv.FormatInt(cargo.ID, 10)); n != 1 {
 		t.Fatalf("auditoría del cargo: %d", n)
+	}
+}
+
+// Un consumo hecho que no confirma el cobro del consumible_cobro deja el cargo visible al supervisor
+// (fallido e incompleto), sin mandarlo.
+func TestConsumibleCobroSinConfirmar(t *testing.T) {
+	e := nuevoEntorno(t)
+	orden := nuevaOrden()
+	e.cerrar(map[string]any{
+		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20, "bodega_id": 3,
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_cobro"}},
+		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
+	})
+	e.procesar()
+	f := e.pendientes(orden)["iris:cargo:"+orden]
+	if f.Estado != "fallido_negocio" || !f.Incompleto || !strings.Contains(f.Error, "consumible_cobro") {
+		t.Fatalf("visible al supervisor: %+v", f)
+	}
+	for _, l := range e.argos.copia() {
+		if l.Clave == "iris:cargo:"+orden {
+			t.Fatal("no sale")
+		}
 	}
 }

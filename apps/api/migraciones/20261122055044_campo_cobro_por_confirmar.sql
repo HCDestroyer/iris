@@ -42,6 +42,17 @@ ALTER TABLE campo.orden_eventos
     ADD CONSTRAINT orden_eventos_tipo_check CHECK (tipo IN ('creada', 'estado', 'asignada', 'programada', 'formulario', 'activacion', 'cobro'));
 
 -- +goose Down
+-- Un cargo terminal, por confirmar o con su reemplazo no se puede representar sin estas columnas:
+-- bajar la migración los dejaría reintentables (cobro doble). Se resuelven antes, o no se baja.
+-- +goose StatementBegin
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM integracion.pendientes WHERE cargo_terminal OR por_confirmar OR reemplazo_de IS NOT NULL)
+        OR EXISTS (SELECT 1 FROM campo.cobros WHERE estado = 'por_confirmar') THEN
+        RAISE EXCEPTION 'hay cargos terminales, por confirmar o de reemplazo: no se puede bajar esta migración';
+    END IF;
+END $$;
+-- +goose StatementEnd
 DELETE FROM campo.orden_eventos WHERE tipo = 'cobro';
 ALTER TABLE campo.orden_eventos
     DROP CONSTRAINT orden_eventos_tipo_check,
@@ -51,7 +62,6 @@ ALTER TABLE integracion.pendientes
     DROP CONSTRAINT pendientes_por_confirmar_ck,
     DROP COLUMN reemplazado_por, DROP COLUMN reemplazo_de, DROP COLUMN confirmado_en, DROP COLUMN confirmado_por,
     DROP COLUMN confirmado_motivo, DROP COLUMN por_confirmar, DROP COLUMN cargo_terminal, DROP COLUMN envio_sin_respuesta;
-UPDATE campo.cobros SET estado = 'fallido' WHERE estado = 'por_confirmar';
 DROP INDEX campo.cobros_vivo_uq;
 CREATE UNIQUE INDEX cobros_vivo_uq ON campo.cobros (orden_id) WHERE estado IN ('pendiente', 'facturado', 'pagado');
 ALTER TABLE campo.cobros

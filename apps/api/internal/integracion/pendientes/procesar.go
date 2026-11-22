@@ -522,6 +522,12 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 					return Pendiente{}, err
 				}
 			}
+			if f.Estado == EstadoFallidoNegocio && f.Operacion == OpAprovisionar && deref(f.CodigoError) == CodigoCapacidadNoDisponible {
+				// §4.3: sin la marca wifi, Argos rechaza el campo wifi; se reenvía sin él, con otra clave.
+				if f, reemplazo, err = aprovisionarSinWifi(ctx, t, f, in.ahora); err != nil {
+					return Pendiente{}, err
+				}
+			}
 			if evento != "" {
 				if err := t.Emitir(evento, payload); err != nil {
 					return Pendiente{}, err
@@ -531,6 +537,9 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			case EstadoHecho:
 				// Lo sensible del paso del titular se borra al recibir el 2xx (§3.4.8).
 				if err := borrarTransito(ctx, t, f, "entregado", in.ahora); err != nil {
+					return Pendiente{}, err
+				}
+				if err := despuesDeHecho(ctx, t, f, in.ahora); err != nil {
 					return Pendiente{}, err
 				}
 				// Primero los cuerpos con marcadores (con la respuesta recién guardada), una vez.

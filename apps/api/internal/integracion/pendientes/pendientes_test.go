@@ -64,7 +64,7 @@ type argosFalso struct {
 func nuevoArgosFalso(t *testing.T) *argosFalso {
 	a := &argosFalso{respuestas: map[string][]int{}, cuerpos: map[string]string{}, tipos: map[string]string{},
 		conceptos: `[{"id":5,"empresa_id":1,"nombre":"Instalación","codigo_sistema":"instalacion"},{"id":9,"empresa_id":1,"nombre":"Visita","codigo_sistema":null}]`,
-		facturas:  `{"data":[],"nextCursor":null}`}
+		facturas:  ""}
 	mux := http.NewServeMux()
 	leer := func(cuerpo func() string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +81,23 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		}
 	}
 	mux.HandleFunc("GET /api/v1/conceptos-cargo", leer(func() string { return a.conceptos }))
-	mux.HandleFunc("GET /api/v1/facturas", leer(func() string { return a.facturas }))
+	mux.HandleFunc("GET /api/v1/facturas/origen-iris", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		a.lecturas = append(a.lecturas, r.URL.Path+"?"+r.URL.RawQuery+"|"+r.Header.Get("X-Iris-Actor"))
+		c := a.facturas
+		a.mu.Unlock()
+		switch c {
+		case "":
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"type":"urn:argosisp:problema:factura_no_encontrada","title":"No encontrada","status":404}`))
+		case "503":
+			http.Error(w, "no disponible", http.StatusServiceUnavailable)
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(c))
+		}
+	})
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, r *http.Request) {
 		// 0.6.2: el canje trae el receptor de Argos en su propio host (sin él, 422 webhook_invalido).
 		w.Header().Set("Content-Type", "application/json")

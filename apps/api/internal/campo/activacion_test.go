@@ -737,6 +737,11 @@ func TestActivadoFueraDeLaOrden(t *testing.T) {
 		VALUES ($1, 1, 990, 'activo', now()) ON CONFLICT (id) DO UPDATE SET estado = 'activo'`, *o.ServicioID); err != nil {
 		t.Fatal(err)
 	}
+	// Bajo 3: solo la unidad que Argos tiene en el servicio (GET /servicios/:id/equipo) ya está en comodato.
+	e.falso.mu.Lock()
+	e.falso.equipos[strconv.FormatInt(*o.ServicioID, 10)] = `{"servicio_id":` + strconv.FormatInt(*o.ServicioID, 10) +
+		`,"tecnologia":"ftth","serie":"hwtc1234","mac":"A4:5E:60:11:22:33","en_linea":true}`
+	e.falso.mu.Unlock()
 	esperar(t, e.lote(ct, trabajoDeInstalacion(o.ID)[2:]...), repetir(len(trabajoDeInstalacion(o.ID))-2, "aplicada")...)
 	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.cerrada' AND payload->>'orden_id' = $1 AND payload->'activacion'->>'estado' = 'activado_fuera'", orden); n != 1 {
 		t.Fatalf("activado_fuera: %d", n)
@@ -744,5 +749,34 @@ func TestActivadoFueraDeLaOrden(t *testing.T) {
 	e.relay()
 	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE entidad_id = $1 AND operacion IN ('activar_instalacion', 'asignar_comodato')", orden); n != 0 {
 		t.Fatalf("activación o comodato al cerrar: %d", n)
+	}
+}
+
+// Bajo 3: activado fuera de la orden con otra unidad en Argos: el equipo de la orden sí lleva comodato.
+func TestActivadoFueraConOtraUnidad(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoExigirLista)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	orden := strconv.FormatInt(o.ID, 10)
+	pool := pruebas.Pool(t)
+	if _, err := pool.Exec(context.Background(), `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, sincronizado_en) VALUES (990, 1, 'Ana', now())
+		ON CONFLICT (id) DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, estado, sincronizado_en)
+		VALUES ($1, 1, 990, 'activo', now()) ON CONFLICT (id) DO UPDATE SET estado = 'activo'`, *o.ServicioID); err != nil {
+		t.Fatal(err)
+	}
+	e.falso.mu.Lock()
+	e.falso.equipos[strconv.FormatInt(*o.ServicioID, 10)] = `{"servicio_id":` + strconv.FormatInt(*o.ServicioID, 10) +
+		`,"tecnologia":"ftth","serie":"OTRA-999","mac":"00:11:22:33:44:55","en_linea":true}`
+	e.falso.mu.Unlock()
+	esperar(t, e.lote(ct, trabajoDeInstalacion(o.ID)[2:]...), repetir(len(trabajoDeInstalacion(o.ID))-2, "aplicada")...)
+	e.relay()
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE entidad_id = $1 AND operacion = 'asignar_comodato'", orden); n != 1 {
+		t.Fatalf("comodato del equipo que Argos no tiene: %d", n)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE entidad_id = $1 AND operacion = 'activar_instalacion'", orden); n != 0 {
+		t.Fatalf("sin activar-instalacion: %d", n)
 	}
 }

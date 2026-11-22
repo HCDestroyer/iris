@@ -229,10 +229,12 @@ type Modulo struct {
 	CambiarWifi     *auditoria.Caso[EntradaWifiOrden, equipos.CambioWifi]
 	CambiosWifi     *auditoria.Caso[EntradaEquipoOrden, []equipos.CambioWifi]
 	// Cobro de la instalación (cobro.go; 0.9.0 §3, B15).
-	RegistrarCobro *RegistradorCobro
-	avisoCobro     *auditoria.Caso[pendientes.Registro, bool]
-	VerCobros      *auditoria.Caso[EntradaVerOrden, []Cobro]
-	SeguirCobro    *auditoria.Caso[entradaCobroArgos, *Cobro]
+	RegistrarCobro    *RegistradorCobro
+	avisoCobro        *auditoria.Caso[pendientes.Registro, bool]
+	activacionSinWifi *auditoria.Caso[string, bool]
+	avisoFactura      *auditoria.Caso[avisoFacturaEntrada, bool]
+	VerCobros         *auditoria.Caso[EntradaVerOrden, []Cobro]
+	SeguirCobro       *auditoria.Caso[entradaCobroArgos, *Cobro]
 	// Bienvenida en la orden (bienvenida.go; 0.9.0 §12.5, B16).
 	VerBienvenida        *auditoria.Caso[EntradaVerOrden, Bienvenida]
 	ReenviarBienvenida   *auditoria.Caso[EntradaReenviarBienvenida, Bienvenida]
@@ -335,6 +337,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.CambiosWifi = m.nuevoCambiosWifi()
 	m.RegistrarCobro = &RegistradorCobro{m: m, caso: m.nuevoRegistrarCobro()}
 	m.avisoCobro = m.nuevoAvisoCobro()
+	m.activacionSinWifi = m.nuevaActivacionSinWifi()
+	m.avisoFactura = m.nuevoAvisoFactura()
 	m.VerCobros = m.nuevoVerCobros()
 	m.SeguirCobro = m.nuevoSeguirCobro()
 	m.VerBienvenida = m.nuevoVerBienvenida()

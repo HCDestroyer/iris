@@ -391,8 +391,11 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   `cargo_concepto_id` (y precio); la cola quita la línea de instalación si hay un cobro de A36 vigente (con la orden
   bloqueada, como aquí). Estado `por_confirmar` (422 tras un envío sin respuesta; vigente) hasta que un supervisor
   confirme en la cola; la orden lo muestra en su historial (`tipo = cobro`: `por_confirmar`, `reemplazado`,
-  `reemplazo_rechazado`, `sin_reemplazo`). El reenvío de la bienvenida no manda la orden como `origen` si la
-  bienvenida solo llegó relacionada por servicio.
+  `reemplazo_rechazado`, `sin_reemplazo`, `revivir_rechazado`, `factura_sin_cobro`, `factura_por_anular`). Un cobro
+  fallido no pasa a facturado en silencio si la orden ya tiene otro vigente (aviso `revivir_rechazado`). `factura.*` y
+  `pago.*` solo se aplican al cobro con ese `factura_id`; si no hay, quedan como aviso. El reenvío de la bienvenida no
+  manda la orden como `origen` si la bienvenida solo llegó relacionada por servicio; la bienvenida sin origen se
+  relaciona por la fecha de cierre de la instalación respecto de la llegada del aviso (7 días).
 - **Bienvenida** (`bienvenida.go`, B16): `GET /ordenes/{id}/bienvenida`, `POST /ordenes/{id}/bienvenida/reenviar`
   (`ordenes.reenviar_bienvenida`, `iris:bienvenida:<orden>:<n>`) y la bandeja `GET /ordenes/bienvenidas-sin-enviar`;
   el estado por canal llega con `argos.bienvenida_cambiada`.

@@ -2,10 +2,10 @@ package pendientes_test
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -203,69 +203,103 @@ func TestReemplazoCon422NoGeneraOtro(t *testing.T) {
 	}
 }
 
-// Un 422 tras un envío sin respuesta (5xx o timeout): «cobro por confirmar», sin reemplazo ni
-// reintento, hasta que un supervisor confirme. Si la factura existe (validada leyendo Argos), el cargo
-// queda hecho con ella; si no, fallido y sale el reemplazo.
-func TestCobroPorConfirmar(t *testing.T) {
-	e := nuevoEntorno(t)
-	e.contrato0143(true)
+// facturaArgos: el cuerpo de GET /facturas/origen-iris para la orden (servicio 20, líneas 5 y 9).
+func facturaArgos(id int, orden, estado, emitida string, lineas string) string {
+	return `{"factura_id":` + strconv.Itoa(id) + `,"numero":null,"empresa_id":1,"servicio_id":20,"cliente_id":10,"origen_tipo":"iris_orden",` +
+		`"origen_id":"` + orden + `","estado":"` + estado + `","total":"450.00","saldo":"450.00","moneda":"GTQ","emitida_en":"` + emitida + `",` +
+		`"dte":null,"lineas":` + lineas + `}`
+}
+
+const lineasArgos = `[{"concepto_id":5,"precio_unitario":"350.00","cantidad":1},{"concepto_id":9,"precio_unitario":"100","cantidad":1}]`
+
+// porConfirmar: un cargo con las líneas 5 y 9 que recibe 503 y luego 422 capacidad_no_disponible.
+func (e *entorno) porConfirmar() (string, pendientes.Pendiente) {
+	e.t.Helper()
 	e.argos.mu.Lock()
 	e.argos.tipos["/facturas/cargo-unico"] = "urn:argosisp:problema:capacidad_no_disponible"
 	e.argos.mu.Unlock()
-	porConfirmar := func() (string, pendientes.Pendiente) {
-		t.Helper()
-		orden := nuevaOrden()
-		e.cerrar(cierreConLineas(orden, 5, 9))
-		e.argos.responder("/facturas/cargo-unico", 503, 422)
-		e.procesar()
-		e.reloj = e.reloj.Add(pendientes.Esperas[0])
-		e.procesar()
-		cs := e.cargosDe(orden)
-		p := cs["iris:cargo:"+orden]
-		if len(cs) != 1 || p.Estado != pendientes.EstadoFallidoNegocio || !p.PorConfirmar || !p.CargoTerminal || p.ReemplazadoPor != nil {
-			t.Fatalf("por confirmar, sin reemplazo: %+v", cs)
-		}
-		return orden, p
+	orden := nuevaOrden()
+	e.cerrar(cierreConLineas(orden, 5, 9))
+	e.argos.responder("/facturas/cargo-unico", 503, 422)
+	e.procesar()
+	e.reloj = e.reloj.Add(pendientes.Esperas[0])
+	e.procesar()
+	cs := e.cargosDe(orden)
+	p := cs["iris:cargo:"+orden]
+	if len(cs) != 1 || p.Estado != pendientes.EstadoFallidoNegocio || !p.PorConfirmar || !p.CargoTerminal || p.ReemplazadoPor != nil {
+		e.t.Fatalf("por confirmar, sin reemplazo: %+v", cs)
 	}
-	orden, p := porConfirmar()
+	return orden, p
+}
+
+func (e *entorno) fijarFactura(cuerpo string) {
+	e.argos.mu.Lock()
+	e.argos.facturas = cuerpo
+	e.argos.mu.Unlock()
+}
+
+func ptrEntero(n int64) *int64 { return &n }
+
+// Un 422 tras un envío sin respuesta (5xx o timeout): «cobro por confirmar», sin reemplazo ni
+// reintento, hasta que un supervisor concilie con GET /facturas/origen-iris (0.14.3 final). Un 404 o un
+// desajuste solo rechazan; un error de lectura es «reintentar»; si coincide, el cargo queda hecho con
+// ese factura_id (único en Iris); «no existe» es una acción aparte y saca el reemplazo.
+func TestCobroPorConfirmar(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.contrato0143(true)
+	orden, p := e.porConfirmar()
+	emitida := e.reloj.Format(time.RFC3339)
 	sup := e.supervisorCon(nucleo.PermIntegracionesReintentar, nucleo.PermIntegracionesResolverPendiente, nucleo.PermIntegracionesConfirmarCobro)
 	_, err := e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: p.ID, Version: p.Version})
 	codigoDe(t, err, 409, "cargo_terminal")
 	_, err = e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: p.ID, Version: p.Version, Motivo: "Revisado en Argos"})
 	codigoDe(t, err, 409, "cobro_por_confirmar")
+	existe := func(id int64) error {
+		_, err := e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, FacturaID: ptrEntero(id), Motivo: "Revisado en Argos"})
+		return err
+	}
 	// Sin el permiso, ni siquiera se lee Argos.
 	sinPermiso := e.supervisorCon(nucleo.PermIntegracionesReintentar)
-	e.argos.mu.Lock()
-	antes := len(e.argos.lecturas)
-	e.argos.mu.Unlock()
-	_, err = e.m.ConfirmarCobro(sinPermiso, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, Numero: ptrTexto("A-77"), Motivo: "Revisado"})
+	_, err = e.m.ConfirmarCobro(sinPermiso, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, FacturaID: ptrEntero(901), Motivo: "Revisado"})
 	codigoDe(t, err, 403, "prohibido")
 	e.argos.mu.Lock()
-	if len(e.argos.lecturas) != antes {
-		t.Fatal("sin permiso no se lee Argos")
+	for _, l := range e.argos.lecturas {
+		if strings.Contains(l, "origen-iris") {
+			t.Fatal("sin permiso no se lee Argos")
+		}
 	}
-	// Una factura de otro servicio no confirma nada.
-	e.argos.facturas = `[{"id":901,"numero":"A-77","empresa_id":1,"servicio_id":21,"origen_tipo":"iris_orden","origen_id":"` + orden +
-		`","estado":"emitida","total":"450.00","moneda":"GTQ","lineas":[{"concepto_id":5,"precio_unitario":"350.00"},{"concepto_id":9,"precio_unitario":"100.00"}]}]`
 	e.argos.mu.Unlock()
-	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, Numero: ptrTexto("A-77"), Motivo: "Revisado en Argos"})
-	codigoDe(t, err, 422, "factura_no_coincide")
-	// Otras líneas tampoco.
-	e.argos.mu.Lock()
-	e.argos.facturas = strings.Replace(strings.Replace(e.argos.facturas, `"servicio_id":21`, `"servicio_id":20`, 1), `"100.00"}]`, `"90.00"}]`, 1)
-	e.argos.mu.Unlock()
-	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, Numero: ptrTexto("A-77"), Motivo: "Revisado en Argos"})
-	codigoDe(t, err, 422, "factura_no_coincide")
-	// La factura del cargo: queda hecho con ella y no sale el reemplazo.
-	e.argos.mu.Lock()
-	e.argos.facturas = strings.Replace(e.argos.facturas, `"90.00"}]`, `"100"}]`, 1)
-	e.argos.mu.Unlock()
-	r, err := e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, Numero: ptrTexto("A-77"), Motivo: "Revisado en Argos"})
+	// 404: solo rechaza. 503: error de lectura. Ninguno cambia el cargo.
+	codigoDe(t, existe(901), 422, "factura_no_encontrada")
+	e.fijarFactura("503")
+	codigoDe(t, existe(901), 503, "no_disponible")
+	// Otro servicio, otras líneas, anulada o anterior al primer envío: rechaza.
+	e.fijarFactura(strings.Replace(facturaArgos(901, orden, "emitida", emitida, lineasArgos), `"servicio_id":20`, `"servicio_id":21`, 1))
+	codigoDe(t, existe(901), 422, "factura_no_coincide")
+	e.fijarFactura(facturaArgos(901, orden, "emitida", emitida, `[{"concepto_id":5,"precio_unitario":"350.00","cantidad":1}]`))
+	codigoDe(t, existe(901), 422, "factura_no_coincide")
+	e.fijarFactura(facturaArgos(901, orden, "anulada", emitida, lineasArgos))
+	codigoDe(t, existe(901), 422, "factura_no_coincide")
+	e.fijarFactura(facturaArgos(901, orden, "emitida", e.reloj.Add(-2*time.Hour).Format(time.RFC3339), lineasArgos))
+	codigoDe(t, existe(901), 422, "factura_no_coincide")
+	if c := e.cargosDe(orden)["iris:cargo:"+orden]; !c.PorConfirmar || c.Version != p.Version {
+		t.Fatalf("los rechazos no cambian el cargo: %+v", c)
+	}
+	// La que coincide: hecho con ese factura_id; la lectura lleva el actor y la «Factura #».
+	e.fijarFactura(facturaArgos(901, orden, "emitida", emitida, lineasArgos))
+	r, err := e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, FacturaID: ptrEntero(901), Motivo: "Revisado en Argos"})
 	if err != nil || r.Estado != pendientes.EstadoHecho || r.PorConfirmar {
 		t.Fatalf("confirmado: %+v %v", r, err)
 	}
-	if v, ok := pendientes.CampoDeRespuesta(mustJSON(t, r.Respuesta), "factura.id"); !ok || string(v) != "901" {
-		t.Fatalf("factura del cargo: %+v", r.Respuesta)
+	e.argos.mu.Lock()
+	ultima := e.argos.lecturas[len(e.argos.lecturas)-1]
+	e.argos.mu.Unlock()
+	if !strings.Contains(ultima, "numero=901") || !strings.Contains(ultima, "origen_id="+orden) || !strings.Contains(ultima, "empresa_id=1") ||
+		!strings.HasSuffix(ultima, "|usuario:") && !strings.Contains(ultima, "|usuario:") {
+		t.Fatalf("lectura: %s", ultima)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND factura_id = 901`, p.ID); n != 1 {
+		t.Fatal("el cargo guarda el factura_id")
 	}
 	if cs := e.cargosDe(orden); len(cs) != 1 {
 		t.Fatalf("sin reemplazo: %+v", cs)
@@ -273,8 +307,11 @@ func TestCobroPorConfirmar(t *testing.T) {
 	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: false, Motivo: "Otra vez"})
 	codigoDe(t, err, 409, "cobro_no_por_confirmar")
 
-	// La factura no existe: fallido (terminal) y sale el reemplazo sin la línea de instalación.
-	orden2, p2 := porConfirmar()
+	// Otra orden: la misma factura ya está ligada (única en Iris); «no existe» saca el reemplazo.
+	orden2, p2 := e.porConfirmar()
+	e.fijarFactura(strings.Replace(facturaArgos(901, orden2, "emitida", emitida, lineasArgos), `"factura_id":901`, `"factura_id":901`, 1))
+	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p2.ID, Version: p2.Version, Existe: true, FacturaID: ptrEntero(901), Motivo: "Revisado en Argos"})
+	codigoDe(t, err, 422, "factura_no_coincide")
 	r, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p2.ID, Version: p2.Version, Existe: false, Motivo: "No hay factura en Argos"})
 	if err != nil || r.Estado != pendientes.EstadoFallidoNegocio || r.PorConfirmar || !r.CargoTerminal || r.ReemplazadoPor == nil {
 		t.Fatalf("confirmado sin factura: %+v %v", r, err)
@@ -293,18 +330,79 @@ func TestCobroPorConfirmar(t *testing.T) {
 	if got := conceptosDe(t, e.llamadaA(reemplazo.IdempotencyKey).Cuerpo); len(got) != 1 || got[0] != "9@100.00" {
 		t.Fatalf("reemplazo: %v", got)
 	}
-	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.confirmar_cobro' AND resultado IS NOT NULL`); n < 2 {
-		t.Fatalf("auditoría de la confirmación: %d", n)
+}
+
+// Factura anterior a la 0.14.3 (líneas sin concepto_id): queda como factura por anular (no liga el
+// cargo); «no existe» solo cuando una lectura de la misma acción la ve anulada y, con pagos, con la
+// confirmación del supervisor; quitarla solo si no está anulada.
+func TestFacturaPorAnular(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.contrato0143(true)
+	orden, p := e.porConfirmar()
+	emitida := e.reloj.Format(time.RFC3339)
+	sup := e.supervisorCon(nucleo.PermIntegracionesConfirmarCobro)
+	sinConcepto := `[{"concepto_id":null,"precio_unitario":"350.00","cantidad":1},{"concepto_id":null,"precio_unitario":"100.00","cantidad":1}]`
+	e.fijarFactura(facturaArgos(902, orden, "emitida", emitida, sinConcepto))
+	r, err := e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, FacturaID: ptrEntero(902), Motivo: "La factura vieja"})
+	if err != nil || r.FacturaPorAnular == nil || *r.FacturaPorAnular != 902 || !r.PorConfirmar || r.Estado != pendientes.EstadoFallidoNegocio {
+		t.Fatalf("factura por anular: %+v %v", r, err)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND factura_id IS NULL`, p.ID); n != 1 {
+		t.Fatal("la factura por anular no liga el cargo")
+	}
+	noExiste := func(v int32, pagos bool) (pendientes.Pendiente, error) {
+		return e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: v, Existe: false, PagosAnulados: pagos, Motivo: "Anulada en Argos"})
+	}
+	_, err = noExiste(r.Version, false)
+	codigoDe(t, err, 422, "factura_por_anular_vigente")
+	// Quitarla (no está anulada) y volver a indicarla.
+	r, err = e.m.QuitarFacturaPorAnular(sup, pendientes.EntradaQuitarPorAnular{ID: p.ID, Version: r.Version, Motivo: "Era otra factura"})
+	if err != nil || r.FacturaPorAnular != nil || !r.PorConfirmar {
+		t.Fatalf("quitada: %+v %v", r, err)
+	}
+	r, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: true, FacturaID: ptrEntero(902), Motivo: "La factura vieja"})
+	if err != nil || r.FacturaPorAnular == nil {
+		t.Fatalf("otra vez por anular: %+v %v", r, err)
+	}
+	// Anulada en Argos, con pagos: no se quita; «no existe» exige confirmar los pagos.
+	anulada := strings.Replace(facturaArgos(902, orden, "anulada", emitida, sinConcepto), `"saldo":"450.00"`, `"saldo":"100.00"`, 1)
+	e.fijarFactura(anulada)
+	_, err = e.m.QuitarFacturaPorAnular(sup, pendientes.EntradaQuitarPorAnular{ID: p.ID, Version: r.Version, Motivo: "Era otra factura"})
+	codigoDe(t, err, 409, "factura_anulada")
+	_, err = noExiste(r.Version, false)
+	codigoDe(t, err, 422, "pagos_por_confirmar")
+	r, err = noExiste(r.Version, true)
+	if err != nil || r.PorConfirmar || r.ReemplazadoPor == nil {
+		t.Fatalf("no existe: %+v %v", r, err)
 	}
 }
 
-func ptrTexto(s string) *string { return &s }
-
-func mustJSON(t *testing.T, v any) []byte {
-	t.Helper()
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
+// Sin el concepto de instalación (Argos no lo informa), el reemplazo nace por resolver con todas las
+// líneas: visible, sin salir solo y sin perderlas.
+func TestReemplazoSinConceptoQuedaPorResolver(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.contrato0143(true)
+	e.argos.mu.Lock()
+	e.argos.conceptos = `[]`
+	e.argos.tipos["/facturas/cargo-unico"] = "urn:argosisp:problema:capacidad_no_disponible"
+	e.argos.mu.Unlock()
+	orden := nuevaOrden()
+	e.cerrar(cierreConLineas(orden, 5, 9))
+	e.argos.responder("/facturas/cargo-unico", 422)
+	e.procesar()
+	cs := e.cargosDe(orden)
+	if len(cs) != 2 {
+		t.Fatalf("original y reemplazo: %+v", cs)
 	}
-	return b
+	for clave, c := range cs {
+		if clave == "iris:cargo:"+orden {
+			continue
+		}
+		if c.Estado != pendientes.EstadoFallidoNegocio || !c.DatosIncompletos || len(c.Payload["lineas"].([]any)) != 2 {
+			t.Fatalf("reemplazo por resolver: %+v", c)
+		}
+	}
+	if n := len(e.argos.copia()); n != 1 {
+		t.Fatalf("solo salió el original: %d", n)
+	}
 }

@@ -55,10 +55,12 @@ type Pendiente struct {
 	CreadoEn       time.Time    `json:"creadoEn"`
 	Version        int32        `json:"version"`
 	// Cobro de la instalación (0.14.3 §3).
-	CargoTerminal  bool   `json:"cargoTerminal,omitempty" required:"false" doc:"Cargo rechazado con 422 capacidad_no_disponible: nunca se reintenta con su clave"`
-	PorConfirmar   bool   `json:"porConfirmar,omitempty" required:"false" doc:"«Cobro por confirmar»: el 422 llegó tras un envío sin respuesta; un supervisor confirma en Argos si la factura existe (confirmar-cobro). Cuenta como vigente"`
-	ReemplazoDe    *int64 `json:"reemplazoDe,omitempty" required:"false" doc:"Cobro de reemplazo (sin la línea de instalación) del cargo indicado; nunca genera otro"`
-	ReemplazadoPor *int64 `json:"reemplazadoPor,omitempty" required:"false" doc:"Sus demás líneas salieron en este cobro de reemplazo"`
+	CargoTerminal    bool   `json:"cargoTerminal,omitempty" required:"false" doc:"Cargo rechazado con 422 capacidad_no_disponible: nunca se reintenta con su clave"`
+	PorConfirmar     bool   `json:"porConfirmar,omitempty" required:"false" doc:"«Cobro por confirmar»: el 422 llegó tras un envío sin respuesta; un supervisor confirma en Argos si la factura existe (confirmar-cobro). Cuenta como vigente"`
+	ReemplazoDe      *int64 `json:"reemplazoDe,omitempty" required:"false" doc:"Cobro de reemplazo (sin la línea de instalación) del cargo indicado; nunca genera otro"`
+	ReemplazadoPor   *int64 `json:"reemplazadoPor,omitempty" required:"false" doc:"Sus demás líneas salieron en este cobro de reemplazo"`
+	FacturaPorAnular *int64 `json:"facturaPorAnular,omitempty" required:"false" doc:"Por confirmar: factura anterior a la 0.14.3 indicada por el supervisor; «no existe» se habilita cuando Argos la vea anulada"`
+	EsperaConsumo    bool   `json:"esperaConsumo,omitempty" required:"false" doc:"Cargo de un consumible_cobro: nunca sale; queda resuelto cuando el consumo confirma su cobro"`
 
 	empresaID *int64
 }
@@ -88,6 +90,7 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 	p.PorResolver = f.PorResolver
 	p.ResueltoMotivo, p.ResueltoPor, p.ResueltoEn = f.ResueltoMotivo, f.ResueltoPor, f.ResueltoEn
 	p.CargoTerminal, p.PorConfirmar, p.ReemplazoDe, p.ReemplazadoPor = f.CargoTerminal, f.PorConfirmar, f.ReemplazoDe, f.ReemplazadoPor
+	p.FacturaPorAnular, p.EsperaConsumo = f.FacturaPorAnularID, f.EsperaConsumo
 	p.CodigoError, p.Corregible = f.CodigoError, f.Estado == EstadoFallidoNegocio && EsCorregible(f.CodigoError)
 	if f.Operacion == OpConsumo {
 		p.Cargos, p.FacturaID = cargosDeRespuesta(f.Respuesta)
@@ -215,6 +218,32 @@ func nuevoListar(*Modulo) *auditoria.Caso[EntradaListar, nucleo.Pagina[Pendiente
 type EntradaReintentar struct {
 	ID      int64 `json:"-"`
 	Version int32 `json:"version" minimum:"1"`
+
+	// concepto: el de instalación de la empresa (leído de Argos antes de la transacción; 0 = desconocido).
+	concepto int64
+}
+
+// Reintentador lee, fuera de la transacción, el concepto de instalación de la empresa de un cargo y
+// lo reintenta (integraciones.reintentar).
+type Reintentador struct {
+	m    *Modulo
+	caso *auditoria.Caso[EntradaReintentar, Pendiente]
+}
+
+// Ejecutar reintenta el pendiente.
+func (r *Reintentador) Ejecutar(ctx context.Context, in EntradaReintentar) (Pendiente, error) {
+	in.concepto = 0
+	if r.m.cfg.Argos != nil && contexto.PermisosDe(ctx).Tiene(string(nucleo.PermIntegracionesReintentar)) {
+		if bd := nucleo.BDDe(ctx); bd != nil {
+			if f, err := pendientesbd.New(bd).PendientePorID(ctx, in.ID); err == nil && f.Operacion == OpCargo && visible(ctx, f.EmpresaID) &&
+				!f.CargoTerminal && f.EmpresaID != nil {
+				if id, err := r.m.cfg.Argos.ConceptoInstalacion(ctx, *f.EmpresaID); err == nil {
+					in.concepto = id
+				}
+			}
+		}
+	}
+	return r.caso.Ejecutar(ctx, in)
 }
 
 type eventoReintentado struct {
@@ -230,6 +259,12 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 		Accion: "integraciones.reintentar",
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaReintentar) (Pendiente, error) {
 			q := pendientesbd.New(t)
+			// Un cargo de una orden: la orden primero (mismo orden de bloqueo que el cierre y A36).
+			if previo, err := q.PendientePorID(ctx, in.ID); err == nil && previo.Operacion == OpCargo {
+				if err := bloquearOrden(ctx, q, previo); err != nil {
+					return Pendiente{}, err
+				}
+			}
 			f, err := q.PendientePorIDParaActualizar(ctx, in.ID)
 			if err != nil {
 				return Pendiente{}, err
@@ -261,6 +296,12 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 					"Está bloqueado ("+deref(f.UltimoError)+"): reintenta su dependencia; al quedar hecha, este vuelve a la cola")
 			case f.Estado == EstadoHecho || f.Estado == EstadoEnCurso || f.Estado == EstadoResueltoManual:
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_reintentable", "El pendiente está "+f.Estado)
+			}
+			if otro, err := otraInstalacionVigente(ctx, q, f, f.Payload, in.concepto); err != nil {
+				return Pendiente{}, err
+			} else if otro {
+				// 0.14.3 §3: revivirlo dejaría dos cobros vigentes con la línea de instalación.
+				return Pendiente{}, conflictoInstalacion()
 			}
 			if corregido, ok, err := m.corregirTecnico(ctx, t, f, in.Version); err != nil || ok {
 				return corregido, err
@@ -429,6 +470,14 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			// Lo sensible del paso del titular ya no sale: se borra (§3.4.8).
 			if err := borrarTransito(ctx, t, nueva, "resuelto_manual", ahora); err != nil {
 				return Pendiente{}, err
+			}
+			if in.Cargo == CargoLiberar {
+				// Un cargo que esperaba la confirmación del consumo (consumible_cobro) sale si se libera.
+				for _, c := range cargos {
+					if err := q.LiberarEsperaConsumo(ctx, c.ID); err != nil {
+						return Pendiente{}, err
+					}
+				}
 			}
 			if in.Cargo == CargoResolverTambien {
 				for _, c := range cargos {

@@ -81,6 +81,9 @@ type Registro struct {
 	PorConfirmar   bool
 	ReemplazoDe    *int64
 	ReemplazadoPor *int64
+	// FacturaID: la factura ligada (2xx o conciliación); FacturaPorAnular: la de un cobro por confirmar.
+	FacturaID        *int64
+	FacturaPorAnular *int64
 }
 
 func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
@@ -91,6 +94,7 @@ func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 		CodigoError: f.CodigoError, EmpresaID: f.EmpresaID, EntidadID: f.EntidadID, TecnicoUsuarioID: f.TecnicoUsuarioID,
 		ActualizadoEn: f.UpdatedAt, Version: f.Version,
 		CargoTerminal: f.CargoTerminal, PorConfirmar: f.PorConfirmar, ReemplazoDe: f.ReemplazoDe, ReemplazadoPor: f.ReemplazadoPor,
+		FacturaID: f.FacturaID, FacturaPorAnular: f.FacturaPorAnularID,
 	}
 }
 
@@ -98,6 +102,15 @@ func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 // una transacción o el pool.
 func PorClave(ctx context.Context, q pendientesbd.DBTX, clave string) (Registro, error) {
 	f, err := pendientesbd.New(q).PendientePorClave(ctx, clave)
+	if err != nil {
+		return Registro{}, err
+	}
+	return aRegistro(f), nil
+}
+
+// PorFactura: el pendiente ligado a esa factura de Argos, o que la tiene como factura por anular.
+func PorFactura(ctx context.Context, q pendientesbd.DBTX, factura int64) (Registro, error) {
+	f, err := pendientesbd.New(q).PendientePorFactura(ctx, factura)
 	if err != nil {
 		return Registro{}, err
 	}
