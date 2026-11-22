@@ -11,14 +11,14 @@ import (
 	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
 )
 
-// prefijoTokenPortal: los permisos portal_argos.* solo valen en el token_portal que Iris emite en el
+// prefijoPortalArgos: los permisos portal_argos.* solo valen en el token_portal que Iris emite en el
 // canje del conector (contrato con Argos 0.9.0 §1.2); ninguna sesión ni token creado por la API los
 // usa, así que no cuentan al comparar quién puede asignar un rol, emitir un token o administrar a
 // un usuario de integración.
-const prefijoTokenPortal = "portal_argos."
+const prefijoPortalArgos = "portal_argos."
 
 func soloTokenPortal(permiso string) bool {
-	return strings.HasPrefix(permiso, prefijoTokenPortal)
+	return strings.HasPrefix(permiso, prefijoPortalArgos)
 }
 
 // cargarPermisos arma los permisos efectivos de un usuario a partir de sus roles. Con limite

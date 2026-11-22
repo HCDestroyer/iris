@@ -180,7 +180,7 @@ func autenticarBearer(ctx context.Context, q *identidadbd.Queries, auth string) 
 	if t.TokenPadreID == nil {
 		// portal_argos.* solo valen en el token_portal (contrato con Argos 0.9.0 §1.2): el iris_pat_ del
 		// panel de Argos no los tiene aunque los traiga el rol integracion_argos.
-		permisos = permisos.SinPrefijo(prefijoTokenPortal)
+		permisos = permisos.SinPrefijo(prefijoPortalArgos)
 	}
 	tipo, canal := contexto.ActorToken, contexto.CanalAPI
 	if u.Tipo == "integracion" {
