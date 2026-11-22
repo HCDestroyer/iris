@@ -20,7 +20,9 @@ func TestPermisosSensiblesCubrenLaAdministracion(t *testing.T) {
 		// Llamar y transferir con su propia extensión (teléfono de Iris, E4c) es trabajo de atención.
 		nucleo.PermCentralitaLlamar: true, nucleo.PermCentralitaTransferir: true,
 		// Releer de Meta las plantillas de WhatsApp no cambia ninguna (decisión del PM: supervisión y soporte).
-		nucleo.PermPlantillasWhatsAppSincronizar: true}
+		nucleo.PermPlantillasWhatsAppSincronizar: true,
+		// Cambiar el Wi-Fi del cliente (0.9.0 §12.4) es trabajo de campo y soporte, con el titular verificado.
+		nucleo.PermServiciosCambiarWifi: true}
 	for _, d := range nucleo.Catalogo {
 		c := string(d.Codigo)
 		_, accion, _ := strings.Cut(c, ".")

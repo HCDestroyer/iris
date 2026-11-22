@@ -56,7 +56,7 @@ func nuevoEntornoActivacion(t *testing.T, modo string) *entornoActivacion {
 	equipos.Nuevo().Suscribir(e.bus, pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	t.Cleanup(func() {
 		for _, sql := range []string{"DELETE FROM campo.activaciones", "DELETE FROM campo.orden_activacion", "DELETE FROM integracion.cambios_wifi",
-			"DELETE FROM campo.ajustes"} {
+			"DELETE FROM campo.ajustes", "DELETE FROM campo.cobros", "DELETE FROM campo.orden_eventos WHERE tipo = 'activacion'"} {
 			if _, err := pool.Exec(context.Background(), sql); err != nil {
 				t.Error(err)
 			}
@@ -447,7 +447,20 @@ func TestCobroDeLaInstalacion(t *testing.T) {
 	tec, ct := e.tecnicoEnEmpresa()
 	o := e.instalacionPropia(tec, ct)
 	orden := strconv.FormatInt(o.ID, 10)
-	// La plantilla trae el concepto y el precio del cobro, y además cobra al cerrar (el de antes).
+	// La plantilla trae el concepto y el precio del cobro, y además cobra al cerrar (el de antes). Al
+	// terminar vuelve a como estaba (la comparten las demás pruebas del paquete).
+	var cobrar *bool
+	var monto *float64
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT cobrar, cargo_monto::float8 FROM campo.plantillas_checklist
+		WHERE id = (SELECT plantilla_id FROM campo.ordenes WHERE id = $1)`, o.ID).Scan(&cobrar, &monto); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE campo.plantillas_checklist SET cobro_concepto_id = NULL, cobro_precio = NULL,
+			cobrar = $2, cargo_monto = $3 WHERE id = (SELECT plantilla_id FROM campo.ordenes WHERE id = $1)`, o.ID, cobrar, monto); err != nil {
+			t.Error(err)
+		}
+	})
 	if _, err := pruebas.Pool(t).Exec(context.Background(), `UPDATE campo.plantillas_checklist SET cobro_concepto_id = 5, cobro_precio = 350,
 		cobrar = true, cargo_monto = 100 WHERE id = (SELECT plantilla_id FROM campo.ordenes WHERE id = $1)`, o.ID); err != nil {
 		t.Fatal(err)
