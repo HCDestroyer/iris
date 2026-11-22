@@ -59,6 +59,14 @@ func TestPlantillasWhatsAppParaArgos(t *testing.T) {
 		}
 	}
 	canal(empA, wabaA)
+	// Una cuenta propia sin número activo, y otra con su número desconectado: no se ven.
+	wabaSin, wabaDesc := nuevaWaba(), nuevaWaba()
+	plantilla(empA, wabaSin, "a_cuenta_sin_numero", "UTILITY", "APPROVED", []string{"pago_recibido"}, []string{"avisos"})
+	desc := canal(empA, wabaDesc)
+	if _, err := e.bd.Exec(e.ctx, `UPDATE mensajeria.canales SET desconectado_en = now() WHERE id = $1`, desc); err != nil {
+		t.Fatal(err)
+	}
+	plantilla(empA, wabaDesc, "a_cuenta_desconectada", "UTILITY", "APPROVED", []string{"pago_recibido"}, []string{"avisos"})
 	plantilla(empA, wabaA, "a_aprobada", "UTILITY", "APPROVED", []string{"factura_por_vencer", "codigo_que_no_existe"}, []string{"avisos", "conversaciones"})
 	plantilla(empA, wabaA, "a_rechazada", "UTILITY", "REJECTED", []string{"pago_recibido"}, []string{"avisos"})
 	plantilla(empA, wabaA, "a_migrada", "UTILITY", "APPROVED", []string{"bienvenida"}, []string{})
@@ -118,7 +126,7 @@ func TestPlantillasWhatsAppParaArgos(t *testing.T) {
 			t.Fatalf("falta %s: %v", n, l)
 		}
 	}
-	for _, n := range []string{"a_solo_conversaciones", "a_borrador", "a_borrada", "a_marketing", "b_solo_conversaciones", "c_sin_avisos"} {
+	for _, n := range []string{"a_cuenta_sin_numero", "a_cuenta_desconectada", "a_solo_conversaciones", "a_borrador", "a_borrada", "a_marketing", "b_solo_conversaciones", "c_sin_avisos"} {
 		if l[n+"_"+sufijo] != nil {
 			t.Fatalf("no debía verse %s", n)
 		}
@@ -131,6 +139,51 @@ func TestPlantillasWhatsAppParaArgos(t *testing.T) {
 	if l["a_rechazada_"+sufijo]["estado"] != "REJECTED" {
 		t.Fatalf("rechazada: %v", l["a_rechazada_"+sufijo])
 	}
+
+	// Sin caché y por páginas: recorrer de a 2 da lo mismo que una página grande.
+	if r := e.pedir(http.MethodGet, ruta, tokenA, "", nil); r.h.Get("Cache-Control") != "no-store" || r.cuerpo["nextCursor"] != nil {
+		t.Fatalf("Cache-Control y última página: %v %v", r.h.Get("Cache-Control"), r.cuerpo["nextCursor"])
+	}
+	porPaginas := map[string]bool{}
+	cursor, paginas := "", 0
+	for {
+		u := ruta + "&limit=2"
+		if cursor != "" {
+			u += "&cursor=" + cursor
+		}
+		r := e.pedir(http.MethodGet, u, tokenA, "", nil)
+		e.exigir(r, http.StatusOK)
+		paginas++
+		for _, d := range r.cuerpo["data"].([]any) {
+			porPaginas[fmt.Sprint(d.(map[string]any)["nombre"])] = true
+		}
+		sig, _ := r.cuerpo["nextCursor"].(string)
+		if sig == "" || paginas > 20 {
+			break
+		}
+		cursor = sig
+	}
+	if len(porPaginas) != len(l) || paginas < 2 {
+		t.Fatalf("paginación: %d de %d en %d páginas", len(porPaginas), len(l), paginas)
+	}
+	e.exigir(e.pedir(http.MethodGet, ruta+"&cursor=basura", tokenA, "", nil), http.StatusUnprocessableEntity)
+
+	// Un token de Horus con el permiso (por un rol a medida): 403, solo la integración de Argos.
+	rh, err := id.PrepararIntegracion(e.ctx, identidad.EntradaPrepararIntegracion{Sistema: "horus", Empresas: []int64{empA}, Correo: pruebas.Correo("horus-pwa")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rol int64
+	if err := e.bd.QueryRow(e.ctx, `INSERT INTO nucleo.roles (codigo, nombre) VALUES ($1, 'Lee plantillas') RETURNING id`, "pwa_"+sufijo).Scan(&rol); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.bd.Exec(e.ctx, `INSERT INTO nucleo.roles_permisos (rol_id, permiso) VALUES ($1, 'plantillas_whatsapp.leer_integracion')`, rol); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.bd.Exec(e.ctx, `INSERT INTO nucleo.usuarios_roles (usuario_id, rol_id) VALUES ($1, $2)`, rh.Usuario.ID, rol); err != nil {
+		t.Fatal(err)
+	}
+	e.exigir(e.pedir(http.MethodGet, ruta, rh.Token.Valor, "", nil), http.StatusForbidden, "type", "urn:iris:problema:solo_integracion_argos")
 
 	// Marketing activado por la dueña: se ve.
 	if _, err := e.bd.Exec(e.ctx, `INSERT INTO mensajeria.plantillas_whatsapp_ajustes (empresa_id, marketing_permitido) VALUES ($1, true)`, empA); err != nil {

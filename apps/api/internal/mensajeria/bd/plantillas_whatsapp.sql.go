@@ -337,6 +337,19 @@ func (q *Queries) DatosClienteParaPlantilla(ctx context.Context, arg DatosClient
 	return i, err
 }
 
+const esIntegracionArgos = `-- name: EsIntegracionArgos :one
+SELECT EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles r ON r.id = ur.rol_id
+               WHERE ur.usuario_id = $1 AND r.codigo = 'integracion_argos' AND r.sistema)::boolean
+`
+
+// El usuario es el de la integración de Argos (rol de sistema integracion_argos), no otra integración.
+func (q *Queries) EsIntegracionArgos(ctx context.Context, usuarioID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, esIntegracionArgos, usuarioID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const estadoCuentaWA = `-- name: EstadoCuentaWA :exec
 UPDATE mensajeria.plantillas_whatsapp_cuentas
 SET sincronizada_en = coalesce($1, sincronizada_en), resumen = coalesce($2, resumen),
@@ -1333,18 +1346,27 @@ func (q *Queries) PlantillasWADeCuenta(ctx context.Context, arg PlantillasWADeCu
 const plantillasWAParaArgos = `-- name: PlantillasWAParaArgos :many
 SELECT p.id, p.nombre, p.idioma, p.categoria, p.estado, p.codigos, p.componentes
 FROM mensajeria.plantillas_whatsapp p
-WHERE p.estado NOT IN ('BORRADOR', 'DELETED', 'ARCHIVED', 'PENDING_DELETION')
+WHERE p.id > $1::bigint
+  AND p.estado NOT IN ('BORRADOR', 'DELETED', 'ARCHIVED', 'PENDING_DELETION')
   AND (cardinality(p.usos) = 0 OR 'avisos' = ANY (p.usos))
   AND (p.categoria <> 'MARKETING' OR EXISTS (SELECT 1 FROM mensajeria.plantillas_whatsapp_ajustes a
                                             WHERE a.empresa_id = coalesce(p.empresa_id, 0) AND a.marketing_permitido))
-  AND (coalesce(p.empresa_id, 0) = $1::bigint
+  AND ((coalesce(p.empresa_id, 0) = $2::bigint
+        AND EXISTS (SELECT 1 FROM mensajeria.canales ca
+                    WHERE ca.waba_id = p.waba_id AND coalesce(ca.empresa_id, 0) = $2::bigint AND ca.activo AND ca.desconectado_en IS NULL))
        OR EXISTS (SELECT 1 FROM mensajeria.canal_prestamos cp JOIN mensajeria.canales ca ON ca.id = cp.canal_id
-                  WHERE cp.empresa_id = $1::bigint AND cp.activo AND cp.avisos_empresa AND 'avisos' = ANY (cp.usos)
+                  WHERE cp.empresa_id = $2::bigint AND cp.activo AND cp.avisos_empresa AND 'avisos' = ANY (cp.usos)
                     AND ca.activo AND ca.desconectado_en IS NULL AND ca.waba_id = p.waba_id
                     AND coalesce(ca.empresa_id, 0) = coalesce(p.empresa_id, 0)))
-ORDER BY p.nombre, p.idioma, p.id
-LIMIT 1000
+ORDER BY p.id
+LIMIT $3
 `
+
+type PlantillasWAParaArgosParams struct {
+	Despues int64
+	Empresa int64
+	Limite  int32
+}
 
 type PlantillasWAParaArgosRow struct {
 	ID          int64
@@ -1356,13 +1378,14 @@ type PlantillasWAParaArgosRow struct {
 	Componentes []byte
 }
 
-// Lo que Argos lee de una empresa (contrato 0.13.0 §6.7, B32): las plantillas con el uso avisos (o sin
-// usos, las de antes) que esa empresa puede usar. Las de las cuentas de las que es dueña y las de la
-// cuenta del número prestado activo que la empresa marcó como su número de avisos (con el uso avisos); nunca las de un
+// Lo que Argos lee de una empresa (contrato 0.13.0 §6.7, B32), por páginas (id > @despues): las
+// plantillas con el uso avisos (o sin usos, las de antes) que esa empresa puede usar. Las de las cuentas
+// de las que es dueña con un número suyo activo y conectado en esa cuenta, y las de la cuenta del número
+// prestado activo que la empresa marcó como su número de avisos (con el uso avisos); nunca las de un
 // préstamo sin el uso avisos. Sin borradores ni borradas, y las de marketing solo con marketing
 // activado por la dueña.
-func (q *Queries) PlantillasWAParaArgos(ctx context.Context, empresa int64) ([]PlantillasWAParaArgosRow, error) {
-	rows, err := q.db.Query(ctx, plantillasWAParaArgos, empresa)
+func (q *Queries) PlantillasWAParaArgos(ctx context.Context, arg PlantillasWAParaArgosParams) ([]PlantillasWAParaArgosRow, error) {
+	rows, err := q.db.Query(ctx, plantillasWAParaArgos, arg.Despues, arg.Empresa, arg.Limite)
 	if err != nil {
 		return nil, err
 	}
