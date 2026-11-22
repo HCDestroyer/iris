@@ -49,14 +49,14 @@ func jpegProgresivo(ancho, alto uint16) []byte { return jpegCabecera(0xc2, 3, an
 // jpegCabecera: SOI, un APP0 JFIF, el SOF dado (0xc0 base, 0xc2 progresivo) con n componentes y el SOS.
 func jpegCabecera(sofMarca byte, n int, ancho, alto uint16) []byte {
 	app0 := []byte{0xff, 0xe0, 0, 16, 'J', 'F', 'I', 'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0}
-	sof := []byte{0xff, sofMarca, 0, byte(8 + 3*n), 8} //nolint:gosec // n ≤ 4
+	sof := []byte{0xff, sofMarca, 0, byte(8 + 3*n), 8}
 	sof = binary.BigEndian.AppendUint16(sof, alto)
 	sof = binary.BigEndian.AppendUint16(sof, ancho)
-	sof = append(sof, byte(n))                           //nolint:gosec // n ≤ 4
-	sos := []byte{0xff, 0xda, 0, byte(6 + 2*n), byte(n)} //nolint:gosec // n ≤ 4
+	sof = append(sof, byte(n))
+	sos := []byte{0xff, 0xda, 0, byte(6 + 2*n), byte(n)}
 	for c := 1; c <= n; c++ {
-		sof = append(sof, byte(c), 0x11, 0) //nolint:gosec // n ≤ 4
-		sos = append(sos, byte(c), 0)       //nolint:gosec // n ≤ 4
+		sof = append(sof, byte(c), 0x11, 0)
+		sos = append(sos, byte(c), 0)
 	}
 	sos = append(sos, 0, 0x3f, 0)
 	return append(append(append([]byte{0xff, 0xd8}, app0...), sof...), sos...)
