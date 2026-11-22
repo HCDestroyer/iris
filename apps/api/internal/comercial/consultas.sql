@@ -430,3 +430,20 @@ SELECT numero FROM campo.ordenes WHERE id = @id;
 -- name: OrdenParaFirmarContrato :one
 -- B20: la orden donde se firma el contrato regenerado (el técnico asignado, en sitio).
 SELECT id, numero, estado, tecnico_id, prospecto_id, empresa_id FROM campo.ordenes WHERE id = @id;
+
+-- name: OrdenEstadoCompartido :one
+-- B20 (verificación de #280): el estado de la orden de instalación con candado compartido. Lo toman
+-- antes que el prospecto los casos de sistema que dependen de él (revisar la venta, anular o
+-- regenerar el contrato por firmar), así no se cruzan con cancelar o reabrir la orden.
+SELECT id, numero, estado FROM campo.ordenes WHERE id = @id FOR SHARE;
+
+-- name: RevisionDeOrden :one
+-- B20: la revisión vigente (sin aceptar) del prospecto cuyo contrato regenerado era de esa orden.
+SELECT c.* FROM comercial.cotizaciones c
+WHERE c.prospecto_id = @prospecto_id AND c.estado = 'vigente' AND c.idempotencia LIKE 'iris:venta:%'
+  AND EXISTS (SELECT 1 FROM comercial.contratos k WHERE k.cotizacion_id = c.id AND (k.contenido->>'ordenId') = (@orden_id::bigint)::text);
+
+-- name: RenovarVigencia :one
+-- B20: la revisión que espera la firma en una orden reabierta vuelve a tener vigencia.
+UPDATE comercial.cotizaciones SET vigente_hasta = @vigente_hasta, version = version + 1, updated_at = now()
+WHERE id = @id RETURNING *;

@@ -113,6 +113,7 @@ type Modulo struct {
 	moverTitular         *auditoria.Caso[EntradaTitularCambiado, ResultadoAlta]
 	revisarVenta         *auditoria.Caso[EntradaRevisarVenta, ResultadoRevisarVenta]
 	ordenTerminada       *auditoria.Caso[EntradaOrdenTerminada, ResultadoOrdenTerminada]
+	ordenReabierta       *auditoria.Caso[EntradaOrdenTerminada, ResultadoOrdenReabierta]
 	marcarErrorAlta      *auditoria.Caso[entradaErrorAlta, Prospecto]
 
 	prepararRegistroArgos *auditoria.Caso[EntradaRegistrarArgos, previoRegistroArgos]
@@ -177,6 +178,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.moverTitular = m.nuevoMoverTitular()
 	m.revisarVenta = m.nuevoRevisarVenta()
 	m.ordenTerminada = m.nuevoOrdenTerminada()
+	m.ordenReabierta = m.nuevoOrdenReabierta()
 	m.marcarErrorAlta = m.nuevoMarcarErrorAlta()
 	m.prepararRegistroArgos = m.nuevoPrepararRegistroArgos()
 	m.registrarArgos = m.nuevoRegistrarArgos()

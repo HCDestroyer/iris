@@ -83,8 +83,9 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			if err != nil {
 				return r, err
 			}
-			// Con la orden cancelada o fallida ya no hay firma en sitio: no se regenera nada.
-			if o, err := q.OrdenParaFirmarContrato(ctx, in.OrdenID); err != nil {
+			// Con la orden cancelada o fallida ya no hay firma en sitio: no se regenera nada (al
+			// reabrirla, OrdenReabierta regenera el contrato). Candado compartido de la orden.
+			if o, err := q.OrdenEstadoCompartido(ctx, in.OrdenID); err != nil {
 				return r, err
 			} else if ordenTerminal(o.Estado) {
 				return r, nil

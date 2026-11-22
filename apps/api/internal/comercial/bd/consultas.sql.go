@@ -1939,6 +1939,26 @@ func (q *Queries) NumerosRegistradosArgos(ctx context.Context, arg NumerosRegist
 	return i, err
 }
 
+const ordenEstadoCompartido = `-- name: OrdenEstadoCompartido :one
+SELECT id, numero, estado FROM campo.ordenes WHERE id = $1 FOR SHARE
+`
+
+type OrdenEstadoCompartidoRow struct {
+	ID     int64
+	Numero string
+	Estado string
+}
+
+// B20 (verificación de #280): el estado de la orden de instalación con candado compartido. Lo toman
+// antes que el prospecto los casos de sistema que dependen de él (revisar la venta, anular o
+// regenerar el contrato por firmar), así no se cruzan con cancelar o reabrir la orden.
+func (q *Queries) OrdenEstadoCompartido(ctx context.Context, id int64) (OrdenEstadoCompartidoRow, error) {
+	row := q.db.QueryRow(ctx, ordenEstadoCompartido, id)
+	var i OrdenEstadoCompartidoRow
+	err := row.Scan(&i.ID, &i.Numero, &i.Estado)
+	return i, err
+}
+
 const ordenParaFirmarContrato = `-- name: OrdenParaFirmarContrato :one
 SELECT id, numero, estado, tecnico_id, prospecto_id, empresa_id FROM campo.ordenes WHERE id = $1
 `
@@ -2292,6 +2312,47 @@ func (q *Queries) PurgarRegistrosArgos(ctx context.Context, antes time.Time) err
 	return err
 }
 
+const renovarVigencia = `-- name: RenovarVigencia :one
+UPDATE comercial.cotizaciones SET vigente_hasta = $1, version = version + 1, updated_at = now()
+WHERE id = $2 RETURNING id, numero, empresa_id, prospecto_id, revision, estado, moneda, total_mensual, total_unico, vigente_hasta, plan_id, notas, cliente, pdf_adjunto_id, reemplazada_por, aceptada_en, aceptada_por, creado_por, idempotencia, version, created_at, updated_at
+`
+
+type RenovarVigenciaParams struct {
+	VigenteHasta time.Time
+	ID           int64
+}
+
+// B20: la revisión que espera la firma en una orden reabierta vuelve a tener vigencia.
+func (q *Queries) RenovarVigencia(ctx context.Context, arg RenovarVigenciaParams) (ComercialCotizacion, error) {
+	row := q.db.QueryRow(ctx, renovarVigencia, arg.VigenteHasta, arg.ID)
+	var i ComercialCotizacion
+	err := row.Scan(
+		&i.ID,
+		&i.Numero,
+		&i.EmpresaID,
+		&i.ProspectoID,
+		&i.Revision,
+		&i.Estado,
+		&i.Moneda,
+		&i.TotalMensual,
+		&i.TotalUnico,
+		&i.VigenteHasta,
+		&i.PlanID,
+		&i.Notas,
+		&i.Cliente,
+		&i.PdfAdjuntoID,
+		&i.ReemplazadaPor,
+		&i.AceptadaEn,
+		&i.AceptadaPor,
+		&i.CreadoPor,
+		&i.Idempotencia,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const resumenOrden = `-- name: ResumenOrden :one
 SELECT o.id, o.numero, o.estado FROM campo.ordenes o WHERE o.id = $1
 `
@@ -2306,6 +2367,48 @@ func (q *Queries) ResumenOrden(ctx context.Context, id int64) (ResumenOrdenRow, 
 	row := q.db.QueryRow(ctx, resumenOrden, id)
 	var i ResumenOrdenRow
 	err := row.Scan(&i.ID, &i.Numero, &i.Estado)
+	return i, err
+}
+
+const revisionDeOrden = `-- name: RevisionDeOrden :one
+SELECT c.id, c.numero, c.empresa_id, c.prospecto_id, c.revision, c.estado, c.moneda, c.total_mensual, c.total_unico, c.vigente_hasta, c.plan_id, c.notas, c.cliente, c.pdf_adjunto_id, c.reemplazada_por, c.aceptada_en, c.aceptada_por, c.creado_por, c.idempotencia, c.version, c.created_at, c.updated_at FROM comercial.cotizaciones c
+WHERE c.prospecto_id = $1 AND c.estado = 'vigente' AND c.idempotencia LIKE 'iris:venta:%'
+  AND EXISTS (SELECT 1 FROM comercial.contratos k WHERE k.cotizacion_id = c.id AND (k.contenido->>'ordenId') = ($2::bigint)::text)
+`
+
+type RevisionDeOrdenParams struct {
+	ProspectoID int64
+	OrdenID     int64
+}
+
+// B20: la revisión vigente (sin aceptar) del prospecto cuyo contrato regenerado era de esa orden.
+func (q *Queries) RevisionDeOrden(ctx context.Context, arg RevisionDeOrdenParams) (ComercialCotizacion, error) {
+	row := q.db.QueryRow(ctx, revisionDeOrden, arg.ProspectoID, arg.OrdenID)
+	var i ComercialCotizacion
+	err := row.Scan(
+		&i.ID,
+		&i.Numero,
+		&i.EmpresaID,
+		&i.ProspectoID,
+		&i.Revision,
+		&i.Estado,
+		&i.Moneda,
+		&i.TotalMensual,
+		&i.TotalUnico,
+		&i.VigenteHasta,
+		&i.PlanID,
+		&i.Notas,
+		&i.Cliente,
+		&i.PdfAdjuntoID,
+		&i.ReemplazadaPor,
+		&i.AceptadaEn,
+		&i.AceptadaPor,
+		&i.CreadoPor,
+		&i.Idempotencia,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 

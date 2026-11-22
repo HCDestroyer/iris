@@ -203,12 +203,53 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 		PlanID: ptr(int64(301)), Clave: "iris:plan:" + strconv.FormatInt(orden, 10) + ":3"}))(t); r4.CotizacionID != nil {
 		t.Fatalf("revisión con la orden cancelada: %+v", r4)
 	}
-	// La revisión sin firmar se deja de lado para el resto de la prueba; la orden vuelve a estar en sitio.
-	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET estado = 'reemplazada' WHERE id = $1", *r3.CotizacionID); err != nil {
+	// Reabierta (cancelada → pendiente): Argos ya tiene el plan nuevo, así que el contrato se
+	// regenera para esa orden con la revisión sin aceptar (con vigencia nueva: venció mientras
+	// tanto) y se firma en sitio. El firmado sigue vivo hasta esa firma.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET vigente_hasta = now() - interval '1 day' WHERE id = $1", *r3.CotizacionID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', finalizada_en = NULL, resultado = NULL WHERE id = $1", orden); err != nil {
+	if rr := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t); rr.ContratoID != nil {
+		t.Fatalf("regenerado con la orden todavía cancelada: %+v", rr)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'pendiente', finalizada_en = NULL, resultado = NULL WHERE id = $1", orden); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := e.com.OrdenReabierta(ctx, comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}); err == nil {
+		t.Fatal("un usuario regeneró el contrato")
+	}
+	rr := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t)
+	if rr.ContratoID == nil || *rr.ContratoID == *r3.ContratoID {
+		t.Fatalf("reabierta: %+v", rr)
+	}
+	if r2 := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t); r2.ContratoID != nil {
+		t.Fatalf("reabierta repetida: %+v", r2)
+	}
+	if n := contar(t, `SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'borrador' AND cotizacion_id = $2
+		AND (contenido->>'ordenId')::bigint = $3`, *rr.ContratoID, *r3.CotizacionID, orden); n != 1 {
+		t.Fatal("el contrato regenerado no es de la revisión y la orden")
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND estado = 'vigente' AND vigente_hasta > now()", *r3.CotizacionID); n != 1 {
+		t.Fatal("la revisión no volvió a tener vigencia")
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND estado = 'firmado'", *rt.ContratoID); n != 1 {
+		t.Fatal("el firmado no sigue vivo mientras se espera la firma")
+	}
+	v = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: prospecto}))(t)
+	if v.PorFirmarEnOrden == nil || v.PorFirmarEnOrden.Contrato.ID != *rr.ContratoID {
+		t.Fatalf("por firmar tras reabrir: %+v", v.PorFirmarEnOrden)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio' WHERE id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+	if res := firmar(ct, *rr.ContratoID); res.Estado != "aplicada" {
+		t.Fatalf("firma tras reabrir: %+v", res)
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE (id = $1 AND estado = 'firmado') OR (id = $2 AND estado = 'anulado')", *rr.ContratoID, *rt.ContratoID); n != 2 {
+		t.Fatal("la firma tras reabrir no hizo el cambio de contrato")
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND estado = 'aceptada'", *r3.CotizacionID); n != 1 {
+		t.Fatal("la revisión no quedó aceptada con la firma")
 	}
 
 	// MEDIA de la verificación de #280: el DPI de quien firma (/firmar y la firma en la orden) nunca
