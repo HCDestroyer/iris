@@ -74,6 +74,9 @@ type Config struct {
 	// Encolar el job que procesa la cola al crear o reintentar un pendiente. nil = lo toma el
 	// periódico (cada minuto).
 	Encolar Encolador
+	// Cifrador abre el depósito de tránsito del paso del titular (§3.4.8). nil = esos pendientes
+	// no salen (se reintentan con el error).
+	Cifrador *nucleo.Cifrador
 	// Reloj (pruebas). time.Now por defecto.
 	Reloj func() time.Time
 	// Reclamo: un pendiente en_curso más viejo que esto se considera abandonado (el worker cayó)

@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/pquerna/otp/totp"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -26,6 +27,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/mensajeria"
 	"github.com/HCDestroyer/iris/apps/api/internal/notificaciones"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -272,6 +274,7 @@ func limpiarCifrados(t *testing.T) {
 		"UPDATE nucleo.usuarios SET totp_secreto = NULL, totp_activo = false",
 		"DELETE FROM integracion.codigos_conexion", "DELETE FROM integracion.conectores",
 		"DELETE FROM soporte.buzones",
+		"UPDATE integracion.pendientes SET transito_id = NULL WHERE transito_id IS NOT NULL", "DELETE FROM integracion.datos_transito",
 	} {
 		if _, err := pruebas.Pool(t).Exec(context.Background(), sql); err != nil {
 			t.Fatalf("%s: %v", sql, err)
@@ -497,6 +500,9 @@ func TestTodasLasColumnasCifradasSeRotan(t *testing.T) {
 		// Semilla aleatoria del enlace de la encuesta (no cifrada: el token es HMAC con una clave
 		// derivada de IRIS_CLAVE_CIFRADO; tras rotar sin la anterior, el enlace ya no se muestra).
 		"soporte.encuestas.semilla",
+		// Contenido del depósito de tránsito: va cifrado con su propia llave de datos
+		// (llave_cifrada, que sí se rota con la clave).
+		"integracion.datos_transito.cifrado",
 	}
 	filas, err := pruebas.Pool(t).Query(context.Background(), `
 		SELECT table_schema || '.' || table_name || '.' || column_name FROM information_schema.columns
@@ -574,6 +580,53 @@ func TestRotarClaveCorreoSistema(t *testing.T) {
 	// Atada a su fila: con los datos de otra no abre.
 	if _, err := cNuevo.Descifrar(leer(), notificaciones.DatosAsociadosCorreo(id+1)); err == nil {
 		t.Fatal("la contraseña abrió con los datos asociados de otra fila")
+	}
+}
+
+// El depósito de tránsito del paso del titular (contrato argosisp.md 0.10.0 §3.4.8): la rotación
+// vuelve a cifrar solo su llave de datos (atada a la fila, la orden y la empresa); el contenido no
+// se toca.
+func TestRotarClaveTransito(t *testing.T) {
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	limpiar := func() {
+		if _, err := pool.Exec(ctx, `DELETE FROM integracion.datos_transito WHERE orden_id = -77`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	limpiar()
+	t.Cleanup(limpiar)
+	limpiarCifrados(t)
+	vieja, nueva := claveNueva(t), claveNueva(t)
+	cViejo, cNuevo, cTransicion := cifrador(t, vieja), cifrador(t, nueva), cifrador(t, nueva, vieja)
+	id := uuid.Must(uuid.NewV7())
+	empresa := int64(3)
+	ad := pendientes.DatosAsociadosTransito(id, -77, &empresa)
+	llave := []byte("llave-de-datos-de-32-bytes-12345")
+	llaveCifrada, err := cViejo.Cifrar(llave, ad)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contenido := []byte("contenido cifrado con la llave de datos")
+	if _, err := pool.Exec(ctx, `INSERT INTO integracion.datos_transito (id, empresa_id, orden_id, cifrado, llave_cifrada, tomado_en) VALUES ($1, 3, -77, $2, $3, now())`,
+		id, contenido, llaveCifrada); err != nil {
+		t.Fatal(err)
+	}
+	r, err := clave.Nuevo(cTransicion).Rotar.Ejecutar(pruebas.ContextoSistema(pool), clave.EntradaRotar{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exigirConteos(t, r, map[string][3]int{clave.ColumnaTransito: {1, 1, 0}})
+	var c, l []byte
+	if err := pool.QueryRow(ctx, `SELECT cifrado, llave_cifrada FROM integracion.datos_transito WHERE id = $1`, id).Scan(&c, &l); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := cNuevo.Descifrar(l, ad); err != nil || string(got) != string(llave) || string(c) != string(contenido) {
+		t.Fatalf("tras rotar: %v", err)
+	}
+	// Atada a su orden y su empresa.
+	if _, err := cNuevo.Descifrar(l, pendientes.DatosAsociadosTransito(id, -78, &empresa)); err == nil {
+		t.Fatal("la llave abrió con otra orden")
 	}
 }
 

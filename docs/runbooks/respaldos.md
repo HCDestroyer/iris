@@ -19,6 +19,21 @@ age-keygen -o iris-respaldos.key                   # privada: guárdala fuera de
 age-keygen -y iris-respaldos.key > destinatarios.txt   # pública: va al servidor
 ```
 
+## Datos personales en tránsito (`integracion.datos_transito`)
+
+La tabla `integracion.datos_transito` guarda, hasta 7 días, el número de documento, el teléfono, el
+correo, el NIT/CUI y las fotos del documento del titular de una instalación (contrato con Argos
+0.10.0 §3.4.8). Cada fila va cifrada con su propia llave de datos, y esa llave con
+`IRIS_CLAVE_CIFRADO`; las dos viven **en la misma fila**. Al entregarse a Argos, al resolverse o a
+los 7 días se borran de la fila viva, pero **siguen en el WAL y en los respaldos tomados antes**, y
+quien tenga el respaldo y `IRIS_CLAVE_CIFRADO` los puede abrir.
+
+- Trata todo respaldo que incluya esta tabla como **datos personales**: cifrado (age, abajo), acceso
+  restringido y **retención limitada** (borra los respaldos y archivos de WAL que ya no necesites;
+  no los copies a entornos de prueba).
+- Nunca guardes `IRIS_CLAVE_CIFRADO` junto a los respaldos.
+- Es un riesgo bajo aceptado (revisión de seguridad de #273, B11): no hay KMS ni tabla aparte.
+
 ## Respaldar
 
 ```sh

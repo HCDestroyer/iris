@@ -1299,8 +1299,11 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   `origen: celular`, `direccion: saliente`, `estado: terminada`, `motivo_fin: directa`, sin
   `contestada_en` ni `duracion_seg` (Iris no sabe si contestaron), `orden_id`, `cliente_id`,
   `servicio_id`, `usuario_id`; y el número (E.164) para abrir `tel:`. No necesita extensión ni puente y no
-  cuenta para el límite diario. 422 `sin_contacto`. Evento `llamada.directa_registrada`. En el
+  cuenta para el límite diario de salientes. 422 `sin_contacto`; 422 `limite_llamadas` pasadas 20 directas de la persona en la orden ese día (hora de Guatemala; igual que la op `llamada.directa` de `sync.md`). Evento `llamada.directa_registrada`. En el
   historial de la orden se ve como «Llamada directa» con la hora.
+  **Sin señal** (fase 3, app de campo): el teléfono abre `tel:` con el número de la orden guardada y
+  la anota después con la operación `llamada.directa` de `POST /sync/lote` (`contratos/sync.md` §2): la
+  misma fila y el mismo evento, con la hora real de la llamada y el id de la operación.
 - `GET /telefono/transferir/destinos` (`centralita.transferir`) → `{ personas: [{ usuarioId, nombre,
   extension }], grupos: [{ id, nombre, numero }] }`: las extensiones activas de su empresa (sin la suya)
   y los grupos activos.
@@ -1338,7 +1341,7 @@ Recibir llamadas en el teléfono de Iris no pide permiso propio: basta una exten
   credencial. Se guarda cifrada y **nunca se devuelve** (`sipGuardadoEn`). Cualquier cambio corta la
   conexión de esa persona (`4003`) y borra `sip_probado_en`. Evento `extension.telefono_cambiado`.
   `Extension` suma `tipo`, `sipUsuario`, `sipGuardadoEn`, `sipProbadoEn` y `sipRechazadoEn` (la última
-  vez que la Issabel rechazó la contraseña guardada; se borra cuando una prueba pasa).
+  vez que la Issabel rechazó la contraseña guardada; se borra cuando una prueba pasa o al guardar otra contraseña).
 - `POST /centralitas/{id}/extensiones/{extensionId}/probar-registro` (`centralita.asignar_extension`):
   Iris abre el WSS y manda un `REGISTER` **de consulta** (sin `Contact`: no agrega ni quita registros)
   y responde el desafío con la credencial guardada: `ok`, `credenciales` (rechazada), `huella_distinta`,

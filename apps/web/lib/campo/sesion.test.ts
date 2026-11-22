@@ -1,6 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { HORAS_SIN_SENAL, pideCambioContrasena, RUTA_CAMBIAR_CONTRASENA, usableSinSenal, verificarDueno, type SesionCampo } from "./sesion";
+import { HORAS_SIN_SENAL, pideCambioContrasena, RUTA_CAMBIAR_CONTRASENA, sensiblesAOlvidar, usableSinSenal, verificarDueno, type SesionCampo } from "./sesion";
 
 const HORA = 60 * 60 * 1000;
 const sesion = (verificadoEn: number): SesionCampo => ({
@@ -68,5 +68,19 @@ describe("verificarDueno (antes de cada envío del motor)", () => {
         expect(pideCambioContrasena({ type: "urn:iris:problema:no_autenticado" })).toBe(false);
         expect(pideCambioContrasena(null)).toBe(false);
         expect(RUTA_CAMBIAR_CONTRASENA).toBe("/cambiar-contrasena?siguiente=%2Fcampo");
+    });
+});
+
+describe("datos del titular en el teléfono (§3.4.8)", () => {
+    it("sin sesión (401, revocada o sin entrar) se olvidan de todas las bases", () => {
+        expect(sensiblesAOlvidar("sin_sesion")).toEqual({});
+    });
+    it("al entrar una persona se olvidan los de las demás", () => {
+        expect(sensiblesAOlvidar("lista", 51)).toEqual({ excepto: "iris-campo-51-" });
+    });
+    it("cargando, sin señal o con error no se toca nada", () => {
+        for (const fase of ["cargando", "conectate", "error", "ajena", "cambiar_contrasena"]) {
+            expect(sensiblesAOlvidar(fase)).toBeNull();
+        }
     });
 });
