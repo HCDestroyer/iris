@@ -454,9 +454,11 @@ RETURNING *;
 -- name: AvisoSinFirmaPrevio :one
 -- B20: ¿ya salió orden.contrato_sin_firma con ese motivo para esa clave de pendiente o esa
 -- cotización? (los reintentos del relay no repiten el aviso ni la auditoría).
+-- Solo de la misma empresa. La outbox no se purga: la deduplicación depende de eso.
 SELECT EXISTS (
     SELECT 1 FROM integracion.outbox
     WHERE evento = 'orden.contrato_sin_firma' AND payload->>'motivo' = @motivo::text
+      AND coalesce((payload->>'empresa_id')::bigint, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)
       AND ((@clave::text <> '' AND payload->>'clave' = @clave::text)
            OR (@cotizacion_id::bigint > 0 AND (payload->>'cotizacion_id')::bigint = @cotizacion_id::bigint))
 )::boolean;
@@ -464,4 +466,7 @@ SELECT EXISTS (
 -- name: NombreClienteArgos :one
 -- B20: el nombre del cliente de Argos en la instantánea (el titular final de un cambio de titular
 -- resuelto a mano con resuelto_cliente_id).
-SELECT nombre FROM integracion.argos_clientes WHERE id = @id;
+-- Solo un cliente de la empresa de la venta (o de cualquiera, sin empresa).
+SELECT nombre FROM integracion.argos_clientes
+WHERE id = @id AND (sqlc.narg('empresa')::bigint IS NULL OR empresa_id = sqlc.narg('empresa')::bigint
+                    OR sqlc.narg('empresa')::bigint = ANY (empresas));

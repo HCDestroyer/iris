@@ -14,6 +14,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -235,6 +236,14 @@ func TestTitularResueltoAManoConfirmaElCliente(t *testing.T) {
 		pt := e.pendiente(clave)
 		sinPermiso := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), e.sup, 1, nucleo.PermIntegracionesResolverPendiente, nucleo.PermIntegracionesVerPendientes)
 		_, err := e.pend.ResolverManual.Ejecutar(sinPermiso, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave), Motivo: "Lo corregí en Argos"})
+		problema(t, err, 403, "prohibido")
+		// Un supervisor con el permiso pero de otra zona (sin alcance sobre la orden): tampoco.
+		otraZona := map[string][]contexto.Alcance{}
+		for _, pm := range permisosDe("supervisor") {
+			otraZona[string(pm)] = []contexto.Alcance{{ZonaID: 987654}}
+		}
+		deOtraZona := contexto.ConActor(e.cs, contexto.ActorDe(e.cs), contexto.NuevosPermisos(otraZona))
+		_, err = e.pend.ResolverManual.Ejecutar(deOtraZona, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave), Motivo: "Lo corregí en Argos"})
 		problema(t, err, 403, "prohibido")
 		e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
 		deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),

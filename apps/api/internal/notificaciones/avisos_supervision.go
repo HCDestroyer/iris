@@ -201,6 +201,8 @@ func tituloSinFirma(numero string, in EntradaAvisarSupervision) string {
 			detalle = " (" + *in.Detalle + ")"
 		}
 		return fmt.Sprintf("Argos aplicó %s de la orden %s, pero no se pudo crear el contrato nuevo%s", cambio, numero, detalle)
+	case "sin_titular":
+		return fmt.Sprintf("Argos aplicó el cambio de titular de la orden %s, pero falta el nombre del titular nuevo: no hay contrato que firmar", numero)
 	case "sin_regenerar":
 		return fmt.Sprintf("La orden %s se cerró antes de regenerar el contrato nuevo (%s)", numero, cambio)
 	}

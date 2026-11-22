@@ -234,21 +234,29 @@ const avisoSinFirmaPrevio = `-- name: AvisoSinFirmaPrevio :one
 SELECT EXISTS (
     SELECT 1 FROM integracion.outbox
     WHERE evento = 'orden.contrato_sin_firma' AND payload->>'motivo' = $1::text
-      AND (($2::text <> '' AND payload->>'clave' = $2::text)
-           OR ($3::bigint > 0 AND (payload->>'cotizacion_id')::bigint = $3::bigint))
+      AND coalesce((payload->>'empresa_id')::bigint, 0) = coalesce($2::bigint, 0)
+      AND (($3::text <> '' AND payload->>'clave' = $3::text)
+           OR ($4::bigint > 0 AND (payload->>'cotizacion_id')::bigint = $4::bigint))
 )::boolean
 `
 
 type AvisoSinFirmaPrevioParams struct {
 	Motivo       string
+	Empresa      *int64
 	Clave        string
 	CotizacionID int64
 }
 
 // B20: ¿ya salió orden.contrato_sin_firma con ese motivo para esa clave de pendiente o esa
 // cotización? (los reintentos del relay no repiten el aviso ni la auditoría).
+// Solo de la misma empresa. La outbox no se purga: la deduplicación depende de eso.
 func (q *Queries) AvisoSinFirmaPrevio(ctx context.Context, arg AvisoSinFirmaPrevioParams) (bool, error) {
-	row := q.db.QueryRow(ctx, avisoSinFirmaPrevio, arg.Motivo, arg.Clave, arg.CotizacionID)
+	row := q.db.QueryRow(ctx, avisoSinFirmaPrevio,
+		arg.Motivo,
+		arg.Empresa,
+		arg.Clave,
+		arg.CotizacionID,
+	)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -1957,13 +1965,21 @@ func (q *Queries) MarcarReemplazada(ctx context.Context, id int64) error {
 }
 
 const nombreClienteArgos = `-- name: NombreClienteArgos :one
-SELECT nombre FROM integracion.argos_clientes WHERE id = $1
+SELECT nombre FROM integracion.argos_clientes
+WHERE id = $1 AND ($2::bigint IS NULL OR empresa_id = $2::bigint
+                    OR $2::bigint = ANY (empresas))
 `
+
+type NombreClienteArgosParams struct {
+	ID      int64
+	Empresa *int64
+}
 
 // B20: el nombre del cliente de Argos en la instantánea (el titular final de un cambio de titular
 // resuelto a mano con resuelto_cliente_id).
-func (q *Queries) NombreClienteArgos(ctx context.Context, id int64) (string, error) {
-	row := q.db.QueryRow(ctx, nombreClienteArgos, id)
+// Solo un cliente de la empresa de la venta (o de cualquiera, sin empresa).
+func (q *Queries) NombreClienteArgos(ctx context.Context, arg NombreClienteArgosParams) (string, error) {
+	row := q.db.QueryRow(ctx, nombreClienteArgos, arg.ID, arg.Empresa)
 	var nombre string
 	err := row.Scan(&nombre)
 	return nombre, err

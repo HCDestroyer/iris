@@ -14945,6 +14945,11 @@ export interface components {
              * @enum {string}
              */
             cargo?: "liberar" | "resolver_tambien";
+            /**
+             * Format: int64
+             * @description Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro y el contrato regenerado van a su nombre). Resolver a mano un cambiar_plan o cambiar_titular significa que el cambio se aplicó en Argos
+             */
+            clienteId?: number;
             /** @description Qué se hizo en Argos (si se rehízo el consumo, con origen_tipo/origen_id de la orden) */
             motivo: string;
             /** Format: int32 */

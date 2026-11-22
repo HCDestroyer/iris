@@ -118,7 +118,7 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 				if base, err = q.CotizacionViva(ctx, p.ID); errors.Is(err, pgx.ErrNoRows) {
 					// Sin cotización de la venta no hay revisión ni contrato: la orden no cerraría sin
 					// un supervisor; se le avisa por qué (una vez por pendiente).
-					if previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: MotivoSinCotizacionViva, Clave: in.Clave}); err != nil || previo {
+					if previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: MotivoSinCotizacionViva, Clave: in.Clave, Empresa: p.EmpresaID}); err != nil || previo {
 						return r, err
 					}
 					r.Aviso = ptr(MotivoSinCotizacionViva)
@@ -159,13 +159,30 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 				}
 			}
 			cliente := clienteDe(p)
-			// Cambio de titular resuelto a mano con el cliente final indicado: su nombre en la instantánea.
-			if in.Motivo == RevisionPorTitular && in.ClienteArgosID != nil {
-				if nombre, err := q.NombreClienteArgos(ctx, *in.ClienteArgosID); err == nil && nombre != "" {
-					cliente.Nombre, cliente.Documento = nombre, ""
-				} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-					return r, err
+			sinTitular := false
+			if in.Motivo == RevisionPorTitular {
+				// Cambio de titular: el documento del titular anterior nunca pasa al contrato (el del
+				// nuevo vive solo en Argos, A41). El nombre: el cliente final que indicó quien lo
+				// resolvió a mano (instantánea de Argos, de la empresa de la venta) o, si no está, el
+				// titular tomado en la orden. Sin nombre no hay contrato que regenerar.
+				cliente.Documento = ""
+				nombre := ""
+				if in.ClienteArgosID != nil {
+					if n, err := q.NombreClienteArgos(ctx, comercialbd.NombreClienteArgosParams{ID: *in.ClienteArgosID, Empresa: p.EmpresaID}); err == nil {
+						nombre = n
+					} else if !errors.Is(err, pgx.ErrNoRows) {
+						return r, err
+					}
 				}
+				if nombre == "" {
+					if n, err := q.NombreTitularDeOrden(ctx, in.OrdenID); err == nil && n != nil {
+						nombre = *n
+					} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+						return r, err
+					}
+				}
+				cliente.Nombre = nombre
+				sinTitular = nombre == ""
 			} else if nombre, err := q.NombreTitularDeOrden(ctx, in.OrdenID); err == nil && nombre != nil && *nombre != "" {
 				if *nombre != cliente.Nombre {
 					// Titular nuevo: su documento vive solo en Argos (A41), nunca en el contrato de Iris.
@@ -251,7 +268,7 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			// Contrato regenerado a nombre del titular, para firmar en la orden (con la orden
 			// terminada, al reabrirla).
 			var contrato *int64
-			if !terminada {
+			if !terminada && !sinTitular {
 				ct, err := m.regenerarContrato(ctx, t, q, p, cot, cliente, in.OrdenID)
 				if err != nil {
 					return r, err
@@ -269,6 +286,14 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 				"motivo": in.Motivo, "cotizacion_id": cot.ID, "contrato_id": contrato,
 			}); err != nil {
 				return r, err
+			}
+			// Sin el nombre del titular nuevo no se regenera el contrato: avisa a supervisión.
+			if sinTitular && !terminada {
+				avisado = true
+				if err := emitirContratoSinFirma(t, sinFirma{orden: in.OrdenID, p: p, cotizacion: &cot.ID, operacion: operacionDeRevision(&idem),
+					motivo: MotivoSinTitular, clave: in.Clave}); err != nil {
+					return r, err
+				}
 			}
 			// Cerrada sin contrato: Argos ya aplicó el cambio sin la firma; avisa a supervisión.
 			if o.Estado == "cerrada" && !avisado {

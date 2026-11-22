@@ -654,6 +654,43 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 	}
 	quitarPendiente(clave14)
 
+	// B1: el cliente indicado no está en la instantánea (o es de otra empresa): el nombre es el del
+	// titular tomado en la orden, nunca con el documento anterior.
+	nombreOrden := "Marta Lucía Ortiz"
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.orden_titular SET nombre = $2 WHERE orden_id = $1", orden, nombreOrden); err != nil {
+		t.Fatal(err)
+	}
+	clave15 := "iris:titular:" + ordenTxt + ":15"
+	r15 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorTitular, Clave: clave15,
+		ClienteArgosID: ptr(int64(999999))}))(t)
+	if r15.ContratoID == nil {
+		t.Fatalf("titular sin cliente en la instantánea: %+v", r15)
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.contratos WHERE id = $1 AND contenido->'cliente'->>'nombre' = $2 AND contenido->'cliente'->>'documento' = ''", *r15.ContratoID, nombreOrden); n != 1 {
+		t.Fatal("el contrato no va al titular de la orden, sin documento")
+	}
+	if res := firmar(ct, *r15.ContratoID); res.Estado != "aplicada" {
+		t.Fatalf("firma del titular de la orden: %+v", res)
+	}
+	// Sin ningún nombre: la revisión sin contrato y aviso sin_titular.
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.orden_titular SET nombre = NULL WHERE orden_id = $1", orden); err != nil {
+		t.Fatal(err)
+	}
+	clave16 := "iris:titular:" + ordenTxt + ":16"
+	r16 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorTitular, Clave: clave16}))(t)
+	if r16.CotizacionID == nil || r16.ContratoID != nil {
+		t.Fatalf("titular sin nombre: %+v", r16)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.contrato_sin_firma' AND payload->>'motivo' = 'sin_titular' AND (payload->>'cotizacion_id')::bigint = $1", *r16.CotizacionID); n != 1 {
+		t.Fatal("sin aviso sin_titular")
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.orden_titular SET nombre = $2 WHERE orden_id = $1", orden, nombreOrden); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET estado = 'reemplazada' WHERE id = $1", *r16.CotizacionID); err != nil {
+		t.Fatal(err)
+	}
+
 	// orden.paso_titular_tras_cancelar llega a la campana de supervisión una sola vez (el relay
 	// entrega el evento dos veces).
 	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.outbox (id, evento, empresa_id, payload)

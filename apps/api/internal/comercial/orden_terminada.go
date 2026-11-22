@@ -181,6 +181,7 @@ const (
 	MotivoSinPlan           = "sin_plan"            // el cambio de plan no trae plan_id
 	MotivoRevisionRechazada = "revision_rechazada"  // la revisión dio un error de negocio (detalle: el código)
 	MotivoSinRegenerar      = "sin_regenerar"       // la orden se cerró antes de regenerar el contrato tras reabrirla
+	MotivoSinTitular        = "sin_titular"         // cambio de titular sin el nombre del titular nuevo: no se regenera
 )
 
 // operacionDeClave: cambiar_plan o cambiar_titular según la clave del pendiente.
@@ -213,12 +214,13 @@ func (m *Modulo) nuevoSinRevision() *auditoria.Caso[EntradaSinRevision, bool] {
 			if err != nil {
 				return false, err
 			}
-			p, err := q.ProspectoPorID(ctx, id)
+			// El prospecto con candado antes de mirar la outbox: dos avisos a la vez no se duplican.
+			p, err := q.ProspectoPorIDParaActualizar(ctx, id)
 			if err != nil {
 				return false, err
 			}
 			// Una vez por clave y motivo: un reintento del relay no repite el aviso ni la auditoría.
-			if previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: in.Motivo, Clave: in.Clave}); err != nil || previo {
+			if previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: in.Motivo, Clave: in.Clave, Empresa: p.EmpresaID}); err != nil || previo {
 				return false, err
 			}
 			t.FijarEntidad("prospecto", p.ID)
@@ -403,7 +405,8 @@ func avisarCerradaSinRegenerar(ctx context.Context, t *auditoria.Tx, q *comercia
 	if err != nil {
 		return false, err
 	}
-	p, err := q.ProspectoPorID(ctx, id)
+	// El prospecto con candado antes de mirar la outbox: dos avisos a la vez no se duplican.
+	p, err := q.ProspectoPorIDParaActualizar(ctx, id)
 	if err != nil {
 		return false, err
 	}
@@ -420,7 +423,7 @@ func avisarCerradaSinRegenerar(ctx context.Context, t *auditoria.Tx, q *comercia
 		return false, nil
 	}
 	// Una vez por revisión (un reintento del relay no repite el aviso ni la auditoría).
-	if previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: MotivoSinRegenerar, CotizacionID: rev.ID}); err != nil || previo {
+	if previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: MotivoSinRegenerar, CotizacionID: rev.ID, Empresa: p.EmpresaID}); err != nil || previo {
 		return false, err
 	}
 	t.FijarEntidad("prospecto", p.ID)
