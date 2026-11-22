@@ -205,7 +205,7 @@ func (m *Modulo) nuevoCaidasArgos() *auditoria.Caso[EntradaCaidas, ResultadoRed]
 				return ResultadoRed{}, err
 			}
 			// Iris decide con su umbral: Argos cuenta con el suyo (§3.11).
-			if int32(in.Sesiones) < aj.CaidasUmbral || int32(in.VentanaMinutos) > aj.CaidasVentanaMin {
+			if in.Sesiones < int(aj.CaidasUmbral) || in.VentanaMinutos > int(aj.CaidasVentanaMin) {
 				return cerrarRed(ctx, q, in.EntranteID, ResultadoRed{Resultado: RedBajoUmbral}, nil)
 			}
 			empresa := in.EmpresaID

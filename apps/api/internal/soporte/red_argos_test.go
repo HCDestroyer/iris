@@ -103,7 +103,9 @@ func TestCaidasRepetidasYPosibleFalla(t *testing.T) {
 	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO soporte.red_ajustes (empresa_id, falla_umbral) VALUES (81, 2)`); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = pruebas.Pool(t).Exec(context.Background(), "DELETE FROM soporte.red_ajustes WHERE empresa_id = 81") })
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), "DELETE FROM soporte.red_ajustes WHERE empresa_id = 81")
+	})
 	c = caidas(81, 8102, 810002, 4)
 	aplicarRed(t, m, argos.EventoInternoCaidas, c)
 	exigirRed(t, c.EntranteID, soporte.RedTicketCreado)
