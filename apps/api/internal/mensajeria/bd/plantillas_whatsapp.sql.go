@@ -1339,7 +1339,7 @@ WHERE p.estado NOT IN ('BORRADOR', 'DELETED', 'ARCHIVED', 'PENDING_DELETION')
                                             WHERE a.empresa_id = coalesce(p.empresa_id, 0) AND a.marketing_permitido))
   AND (coalesce(p.empresa_id, 0) = $1::bigint
        OR EXISTS (SELECT 1 FROM mensajeria.canal_prestamos cp JOIN mensajeria.canales ca ON ca.id = cp.canal_id
-                  WHERE cp.empresa_id = $1::bigint AND cp.activo AND 'avisos' = ANY (cp.usos)
+                  WHERE cp.empresa_id = $1::bigint AND cp.activo AND cp.avisos_empresa AND 'avisos' = ANY (cp.usos)
                     AND ca.activo AND ca.desconectado_en IS NULL AND ca.waba_id = p.waba_id
                     AND coalesce(ca.empresa_id, 0) = coalesce(p.empresa_id, 0)))
 ORDER BY p.nombre, p.idioma, p.id
@@ -1358,7 +1358,7 @@ type PlantillasWAParaArgosRow struct {
 
 // Lo que Argos lee de una empresa (contrato 0.13.0 §6.7, B32): las plantillas con el uso avisos (o sin
 // usos, las de antes) que esa empresa puede usar. Las de las cuentas de las que es dueña y las de la
-// cuenta de un número prestado activo cuyo préstamo la autoriza a mandar avisos; nunca las de un
+// cuenta del número prestado activo que la empresa marcó como su número de avisos (con el uso avisos); nunca las de un
 // préstamo sin el uso avisos. Sin borradores ni borradas, y las de marketing solo con marketing
 // activado por la dueña.
 func (q *Queries) PlantillasWAParaArgos(ctx context.Context, empresa int64) ([]PlantillasWAParaArgosRow, error) {

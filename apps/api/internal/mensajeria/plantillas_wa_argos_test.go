@@ -70,8 +70,17 @@ func TestPlantillasWhatsAppParaArgos(t *testing.T) {
 	canalB := canal(empB, wabaB)
 	plantilla(empB, wabaB, "b_prestada", "UTILITY", "APPROVED", []string{"corte_por_falta_de_pago"}, []string{"avisos"})
 	plantilla(empB, wabaB, "b_solo_conversaciones", "UTILITY", "APPROVED", []string{}, []string{"conversaciones"})
+	// Con el uso avisos pero sin marcarlo como su número de avisos: todavía no las ve.
 	if _, err := e.bd.Exec(e.ctx, `INSERT INTO mensajeria.canal_prestamos (canal_id, empresa_id, usos, activo, prestado_en) VALUES ($1, $2, '{avisos,soporte}', true, now())`,
 		canalB, empA); err != nil {
+		t.Fatal(err)
+	}
+	ruta0 := fmt.Sprintf("/api/v1/integraciones/argosisp/plantillas-whatsapp?empresa_id=%d", empA)
+	if r := e.pedir(http.MethodGet, ruta0, tokenA, "", nil); r.status != http.StatusOK || fmt.Sprint(r.cuerpo["data"]) == "" ||
+		contieneNombre(r.cuerpo, "b_prestada_"+sufijo) {
+		t.Fatalf("préstamo sin avisos_empresa: %v", r.cuerpo)
+	}
+	if _, err := e.bd.Exec(e.ctx, `UPDATE mensajeria.canal_prestamos SET avisos_empresa = true WHERE canal_id = $1 AND empresa_id = $2`, canalB, empA); err != nil {
 		t.Fatal(err)
 	}
 	// C le presta a A un número solo para soporte: sus plantillas no se ven.
@@ -131,7 +140,7 @@ func TestPlantillasWhatsAppParaArgos(t *testing.T) {
 		t.Fatal("con marketing activado, la de marketing se ve")
 	}
 	// Préstamo revocado: ya no se ven las de B.
-	if _, err := e.bd.Exec(e.ctx, `UPDATE mensajeria.canal_prestamos SET activo = false, revocado_en = now() WHERE canal_id = $1`, canalB); err != nil {
+	if _, err := e.bd.Exec(e.ctx, `UPDATE mensajeria.canal_prestamos SET activo = false, avisos_empresa = false, revocado_en = now() WHERE canal_id = $1`, canalB); err != nil {
 		t.Fatal(err)
 	}
 	if l := nombres(e.pedir(http.MethodGet, ruta, tokenA, "", nil)); l["b_prestada_"+sufijo] != nil {
@@ -153,4 +162,13 @@ func TestPlantillasWhatsAppParaArgos(t *testing.T) {
 			t.Fatalf("la empresa 2 ve %s", n)
 		}
 	}
+}
+
+func contieneNombre(cuerpo map[string]any, nombre string) bool {
+	for _, d := range cuerpo["data"].([]any) {
+		if d.(map[string]any)["nombre"] == nombre {
+			return true
+		}
+	}
+	return false
 }
