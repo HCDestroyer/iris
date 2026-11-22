@@ -126,6 +126,9 @@ const (
 	PermOrdenesReenviarBienvenida  Permiso = "ordenes.reenviar_bienvenida"
 	PermOrdenesRegistrarCobro      Permiso = "ordenes.registrar_cobro"
 	PermOrdenesCobroEditarMonto    Permiso = "ordenes.cobro_editar_monto"
+	// integraciones.confirmar_cuenta_bancaria: un admin confirma una cuenta recién cambiada en Argos
+	// para que entre en la bienvenida antes de las 24 h (§12.5). Solo admin (todos los permisos).
+	PermIntegracionesConfirmarCuentaBancaria Permiso = "integraciones.confirmar_cuenta_bancaria"
 
 	// Ticket y orden de la mano (I2). tickets.crear_orden: crear la orden de trabajo del ticket y
 	// asignarla (y programarla) en un paso; exige además ordenes.crear, ordenes.asignar y, con
@@ -473,7 +476,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
 	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true,
-	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
+	PermIntegracionesResolverPendiente: true, PermIntegracionesConfirmarCuentaBancaria: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermPlantillasWhatsAppCrear: true, PermPlantillasWhatsAppEditar: true, PermPlantillasWhatsAppBorrar: true,
 	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
@@ -625,6 +628,7 @@ var Catalogo = []DefPermiso{
 	{PermMensajeriaVer, "Ver las plantillas de mensajería vigentes y en qué canales están aprobadas"},
 	{PermOrdenesActivarServicio, "Pedir a Argos que aprovisione y active el servicio de una instalación (FTTH o wireless; el técnico solo en sus órdenes en curso; con la orden cerrada, solo un agente)"},
 	{PermOrdenesCerrarSinActivacion, "Cerrar con motivo una instalación sin la activación lista cuando la empresa la exige (supervisor)"},
+	{PermIntegracionesConfirmarCuentaBancaria, "Confirmar una cuenta bancaria recién cambiada en Argos para que entre ya en el mensaje de bienvenida (sin esperar 24 h)"},
 	{PermOrdenesCobroEditarMonto, "Cambiar el precio del cobro de la instalación que trae la plantilla, con motivo auditado"},
 	{PermOrdenesReenviarBienvenida, "Reenviar el mensaje de bienvenida del servicio desde la orden"},
 	{PermOrdenesRegistrarCobro, "Registrar el cobro de la instalación desde la orden (factura única en Argos, nunca Q0)"},

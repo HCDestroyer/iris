@@ -1320,6 +1320,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/argosisp/cuentas-bancarias/{id}/confirmar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirmar una cuenta recién cambiada
+         * @description Permiso: `integraciones.confirmar_cuenta_bancaria`. Una cuenta creada o editada en Argos no entra en la bienvenida (§12.5) durante 24 h, o hasta que un admin de Iris la confirma aquí. Otro cambio en Argos (número, titular, banco, moneda o empresa) quita la confirmación. Emite `argos.cuenta_bancaria_confirmada`.
+         */
+        post: operations["confirmarCuentaBancaria"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/estado": {
         parameters: {
             query?: never;
@@ -5797,6 +5817,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mensajeria/publico/wifi/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Enlace de un solo uso para cambiar el Wi-Fi
+         * @description Sin sesión: el token es la credencial (256 bits; Iris guarda solo su huella). Dice si el enlace sigue vigente (10 min, un solo uso).
+         */
+        get: operations["verEnlaceWifi"];
+        put?: never;
+        /**
+         * Cambiar el Wi-Fi con el enlace
+         * @description El cliente escribe el nombre o la clave nuevos (al menos uno). Consume el enlace (un solo uso) y manda el cambio a Argos (POST /servicios/:id/wifi con X-Iris-Actor: asistente_ia y la verificación de la conversación). 410 `enlace_vencido` (usado, vencido o el cliente de la conversación cambió); 429 `demasiados_cambios_wifi`. La clave nunca se guarda ni se devuelve.
+         */
+        post: operations["usarEnlaceWifi"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/mensajeria/respuestas-rapidas": {
         parameters: {
             query?: never;
@@ -6385,6 +6429,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/bienvenidas-sin-enviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bienvenidas sin enviar
+         * @description Permiso: `ordenes.reenviar_bienvenida`. Instalaciones activas de los últimos 30 días (empresa activa) cuya bienvenida no salió por ningún canal ni quedó sin enviar porque el cliente no acepta avisos. Paginada por cursor.
+         */
+        get: operations["bienvenidasSinEnviar"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}": {
         parameters: {
             query?: never;
@@ -6399,6 +6463,46 @@ export interface paths {
         get: operations["verOrden"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/activacion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado de la activación de la orden
+         * @description Permiso: `ordenes.ver` u `ordenes.ver_propias`. El modo efectivo (al_cerrar si Argos no puede aprovisionar en la empresa), si se puede pedir «Activar servicio» y por qué no, y cada intento con su estado, causa y pasos. Nunca el Wi-Fi.
+         */
+        get: operations["verActivacionOrden"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/activar-servicio": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Activar el servicio (aprovisionar en Argos)
+         * @description Permiso: `ordenes.activar_servicio`. FTTH (ONT por su serie, con la planta opcional) o wireless (CPE o radio por su MAC; AP y sector opcionales), con el Wi-Fi inicial opcional. Argos aprovisiona y activa; el resultado llega por webhook (o Iris consulta a los 10 min): GET /ordenes/{id}/activacion. El técnico, en sitio y en su orden (también sin señal: orden.activar_servicio); un agente desde el panel, también con la orden cerrada. Un intento vivo por orden y por servicio: 409 `activacion_en_curso`, `activacion_lista` o `activacion_al_cerrar` (el cierre ya la mandó). 422 `activacion_no_disponible` (la empresa activa al cerrar o Argos no puede aprovisionar ese equipo), `orden_no_es_instalacion`, `orden_sin_servicio` o la validación del equipo y el Wi-Fi. La clave Wi-Fi nunca se guarda: viaja cifrada hasta Argos y se borra. Emite `orden.activacion_pedida`.
+         */
+        post: operations["activarServicioOrden"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6465,6 +6569,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/bienvenida": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Bienvenida del servicio de la orden
+         * @description Permiso: `ordenes.ver`. El estado por canal (WhatsApp, correo, Telegram) que informa Argos y el último reenvío. Nunca el texto ni las cuentas.
+         */
+        get: operations["verBienvenidaOrden"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/bienvenida/reenviar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reenviar la bienvenida
+         * @description Permiso: `ordenes.reenviar_bienvenida`. Argos la vuelve a disparar por sus canales con las mismas reglas (permisos de contacto, límites y horario de silencio). Sale por la cola de pendientes (iris:bienvenida:<orden>:<n>); su rechazo (servicio_no_activo, bienvenida_reciente, demasiados_reenvios) queda en `reenvio`. 409 `servicio_no_activo` si la orden aún no tiene el servicio activo. Emite `orden.bienvenida_reenviada`.
+         */
+        post: operations["reenviarBienvenidaOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/cancelar": {
         parameters: {
             query?: never;
@@ -6525,6 +6669,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/cobros": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cobros de la instalación de la orden
+         * @description Permiso: `ordenes.ver`.
+         */
+        get: operations["cobrosOrden"];
+        put?: never;
+        /**
+         * Registrar el cobro de la instalación
+         * @description Permiso: `ordenes.registrar_cobro`. Factura única en Argos (POST /facturas/cargo-unico) con el concepto y el precio de la plantilla; sale en el momento por la cola de pendientes (iris:cargo:<orden>:<cargo_id>, X-Iris-Actor). Cambiar el precio exige `ordenes.cobro_editar_monto` y motivo. Nunca Q0. 409 `cobro_registrado` (uno vivo por orden; tras un anulado, otro con otro cargo_id). El cierre ya no manda el cargo de instalación de la plantilla. Emite `orden.cobro_registrado`.
+         */
+        post: operations["registrarCobroOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/descartar-datos-argos": {
         parameters: {
             query?: never;
@@ -6539,6 +6707,26 @@ export interface paths {
          * @description Permiso: `ordenes.descartar_datos_argos`. La orden se queda con sus datos: solo quita el aviso `datosArgosCambiados` y sube la versión. 422 `sin_aviso_argos` o `transicion_invalida`; 409 por `version`. Auditado (con el `motivo`); emite `orden.datos_argos_descartados`.
          */
         post: operations["descartarDatosArgosOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/equipo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado del equipo del cliente
+         * @description Permiso: `servicios.ver_equipo`. En línea, señal, serie, MAC, modelo y firmware leídos de Argos (SmartOLT o el ACS) en el momento. El técnico solo en sus órdenes en curso. 409 `equipo_sin_gestion`; 503 `equipo_sin_respuesta` (Iris no reintenta solo: «Reintentar»). Nunca la clave Wi-Fi.
+         */
+        get: operations["verEquipoOrden"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6999,6 +7187,30 @@ export interface paths {
          * @description Permiso: `ordenes.validar_identidad`. Un supervisor, con motivo (10 a 500), en una instalación no cancelada. Solo sirve para activar: nunca cambia el titular ni toma una identidad. Sin identidad tomada, la orden se puede cerrar y activar sin ella. Con la identidad del mismo titular rechazada o agotada en Argos y su foto aún en el depósito de tránsito (7 días), la manda otra vez como `revision_panel` (la foto tomada en sitio, que nadie ve en Iris); si la foto ya se borró, el paso queda resuelto y la activación sale sin ella. 409 `identidad_registrada`, `identidad_en_envio` o `identidad_ya_validada`; 422 `titular_en_revision` (un cambio de titular no se valida), `orden_no_es_instalacion`, `argos_sin_conector`. Emite `orden.identidad_validada`.
          */
         post: operations["validarIdentidadOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/wifi": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Cambios de Wi-Fi pedidos desde la orden
+         * @description Permiso: `ordenes.ver`.
+         */
+        get: operations["cambiosWifiOrden"];
+        put?: never;
+        /**
+         * Cambiar el Wi-Fi del cliente
+         * @description Permiso: `servicios.cambiar_wifi`. Nombre o clave nuevos (al menos uno). Argos lo aplica en el equipo y avisa por webhook; el estado queda en GET /ordenes/{id}/wifi. El técnico en sitio (presencial); un agente con el titular confirmado (llamada_verificada). 429 `demasiados_cambios_wifi` (3 por servicio al día). La clave nunca se guarda ni se devuelve. Emite `wifi.cambio_pedido`.
+         */
+        post: operations["cambiarWifiOrden"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9478,6 +9690,8 @@ export interface components {
             agendar_visita: boolean;
             /** @description Fallas de Horus en la zona del cliente */
             avisar_fallas: boolean;
+            /** @description Mandar al cliente verificado un enlace de un solo uso para cambiar su Wi-Fi (el asistente nunca pide ni ve la clave). Apagada de fábrica */
+            cambiar_wifi?: boolean;
             crear_ticket: boolean;
             /** @description Solo a un cliente verificado */
             dar_saldo: boolean;
@@ -9491,6 +9705,8 @@ export interface components {
             reconexion_temporal: boolean;
             /** @description Con los manuales «Para el cliente» */
             responder_dudas: boolean;
+            /** @description Leer si el equipo del cliente está en línea y su señal (sin serie, MAC ni datos de red). Apagada de fábrica */
+            ver_equipo?: boolean;
         };
         AccionesCola: {
             /** @description De las ocho acciones (nunca pasar_a_persona) */
@@ -9510,6 +9726,36 @@ export interface components {
             ganar: boolean;
             perder: boolean;
             reabrir: boolean;
+        };
+        Activacion: {
+            /** Format: date-time */
+            actualizadaEn: string;
+            /** Format: int64 */
+            aprovisionamientoId: number | null;
+            /** @description Con fallido: equipo_no_encontrado, equipo_en_uso, sin_puerto, perfil_sin_mapear, sin_ip_disponible, olt_sin_respuesta, acs_sin_respuesta, servicio_no_pendiente, otro, o el código de Argos que rechazó el pedido (unidad_en_otra_bodega, wifi_no_disponible…) */
+            causa: string | null;
+            /** @description Se pidió el Wi-Fi inicial (sin el nombre ni la clave) */
+            conWifi: boolean;
+            /** Format: date-time */
+            creadaEn: string;
+            /** @description Texto de Argos para la persona, sin secretos */
+            detalle: string | null;
+            equipo: components["schemas"]["EquipoActivado"];
+            /**
+             * @description pendiente: aún no llega a Argos (Argos caído o esperando el paso del titular); en_proceso: Argos lo está haciendo; listo: el servicio quedó activo; fallido: ver causa
+             * @enum {string}
+             */
+            estado: "pendiente" | "en_proceso" | "listo" | "fallido";
+            id: string;
+            /** Format: int32 */
+            intento: number;
+            /** @enum {string} */
+            origen: "campo" | "panel";
+            /** @description ip, equipo, wifi y activacion con su estado (si Argos los informó) */
+            pasos: components["schemas"]["PasoAprovisionamiento"][] | null;
+            /** Format: int64 */
+            pedidoPor: number | null;
+            reintentable: boolean | null;
         };
         ActivacionConector: {
             /** @description Nombre de quien lo activó tal como quedó en la auditoría */
@@ -9790,6 +10036,13 @@ export interface components {
             version: number;
         };
         AjustesCampo: {
+            /**
+             * @description Cómo se activa el servicio de una instalación: al cerrar (de fábrica), exigir la activación lista para cerrar (salvo un supervisor con motivo) o cerrar con la activación pendiente para un agente. Solo aplica si Argos puede aprovisionar en la empresa; la plantilla puede cambiarlo
+             * @enum {string}
+             */
+            activacionModo: "al_cerrar" | "exigir_lista" | "pendiente_agente";
+            /** @description Con «exigir la activación lista», el cierre exige además la bienvenida enviada (o no enviada porque el cliente no acepta avisos). Apagado de fábrica */
+            cierreExigeBienvenida: boolean;
             /** Format: int64 */
             empresaId: number | null;
             /** @description La empresa no los ha fijado: son los de Iris (todo apagado) */
@@ -10139,6 +10392,30 @@ export interface components {
             id: number;
             nombre: string;
         };
+        Bienvenida: {
+            /** Format: date-time */
+            actualizadaEn: string | null;
+            /** @description Lo último que informó Argos por canal (vacío: aún no hay noticias) */
+            canales: components["schemas"]["CanalBienvenida"][] | null;
+            /** @description Salió por algún canal, o no salió porque el cliente no acepta avisos */
+            cumplida: boolean;
+            /** Format: int64 */
+            ordenId: number;
+            reenvio?: components["schemas"]["ReenvioBienvenida"];
+            /** Format: int32 */
+            reenvios: number;
+        };
+        BienvenidaSinEnviar: {
+            canales: components["schemas"]["CanalBienvenida"][] | null;
+            /** Format: int64 */
+            clienteId: number | null;
+            estado: string;
+            numero: string;
+            /** Format: int64 */
+            ordenId: number;
+            /** Format: int64 */
+            servicioId: number | null;
+        };
         BloqueVisita: {
             /** @description HH:MM, después del inicio */
             fin: string;
@@ -10319,6 +10596,23 @@ export interface components {
             /** @enum {string} */
             tipo: "nueva" | "actualizada" | "reprogramada" | "reasignada" | "cancelada";
         };
+        CambioWifi: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Con fallido: equipo_sin_gestion, equipo_sin_respuesta, rechazado_por_equipo, otro, o el código con que Argos rechazó el pedido */
+            causa: string | null;
+            conClave: boolean;
+            conSsid: boolean;
+            /** Format: date-time */
+            creadoEn: string;
+            detalle: string | null;
+            /** @enum {string} */
+            estado: "pendiente" | "en_proceso" | "aplicado" | "fallido";
+            id: string;
+            metodo: string;
+            /** @enum {string} */
+            origenTipo: "iris_orden" | "iris_ticket" | "iris_conversacion";
+        };
         Cambios: {
             /** @description Una entrada por orden (el último cambio), en orden */
             cambios: components["schemas"]["CambioOrden"][] | null;
@@ -10494,6 +10788,16 @@ export interface components {
              * @description Última verificación correcta de Meta (hub.challenge); null si no la hizo o cambió el verify token
              */
             webhookVerificadoEn: string | null;
+        };
+        CanalBienvenida: {
+            /** @description WhatsApp: el aviso de Iris */
+            avisoId?: string;
+            /** @enum {string} */
+            canal: "whatsapp" | "correo" | "telegram";
+            /** @enum {string} */
+            estado: "pendiente" | "enviada" | "fallida" | "omitida";
+            /** @description Por qué falló u omitió (sin_permiso, baja, sin_contacto…) */
+            motivo: string | null;
         };
         CanalDeLlamada: {
             /** Format: int64 */
@@ -10954,6 +11258,27 @@ export interface components {
             motor: string;
             routers: components["schemas"]["RouterCobertura"][] | null;
             umbrales: components["schemas"]["Umbrales"];
+        };
+        Cobro: {
+            /** Format: int64 */
+            conceptoId: number;
+            /** Format: date-time */
+            creadoEn: string;
+            descripcion: string | null;
+            /** @description Con fallido: lo que respondió Argos */
+            detalle: string | null;
+            /** @enum {string} */
+            estado: "pendiente" | "facturado" | "pagado" | "anulado" | "fallido";
+            /** Format: int64 */
+            facturaId: number | null;
+            /** @description cargo_id de la clave iris:cargo:<orden>:<cargo_id> */
+            id: string;
+            moneda: string | null;
+            numero: string | null;
+            /** @description El precio no es el de la plantilla (con motivo) */
+            precioEditado: boolean;
+            precioUnitario: string;
+            total: string | null;
         };
         CodigoFalla: {
             /**
@@ -11833,6 +12158,16 @@ export interface components {
             /** @description A nombre de quién está la cuenta; null si Argos no lo tiene */
             titular: string | null;
         };
+        CuentaConfirmada: {
+            /** Format: date-time */
+            cambiadaEn: string | null;
+            /** Format: date-time */
+            confirmadaEn: string | null;
+            /** Format: int64 */
+            empresaId: number;
+            /** Format: int64 */
+            id: number;
+        };
         CuentaPWA: {
             /** @description Último error al hablar con Meta (null si la última vez salió bien) */
             error: components["schemas"]["ErrorCuentaPWA"];
@@ -12457,6 +12792,11 @@ export interface components {
             /** Format: date-time */
             revocadoEn: string;
         };
+        EnlaceWifiPublico: {
+            /** Format: date-time */
+            venceEn?: string;
+            vigente: boolean;
+        };
         EnlacesExternos: {
             /** @description ArgosISP; ausente sin conector activo */
             argosisp?: components["schemas"]["EnlaceExterno"];
@@ -12516,6 +12856,15 @@ export interface components {
         EntradaActivarMotor: {
             /** @description La huella que el administrador comparó con la del instalador (la que devolvió «Conectar»). Si el servidor enlazado ya no es ese, 409 huella_cambiada */
             huellaTls: string;
+        };
+        EntradaActivarServicio: {
+            equipo: components["schemas"]["EquipoActivacion"];
+            /** @description Solo con ont */
+            planta?: components["schemas"]["PlantaActivacion"];
+            /** @description Opcional. Con un equipo que Argos no gestiona (wireless sin TR-069), Argos responde wifi_no_disponible */
+            wifi?: components["schemas"]["WifiActivacion"];
+            /** @description Solo con cpe_wireless */
+            wireless?: components["schemas"]["WirelessActivacion"];
         };
         EntradaActividad: {
             descripcion: string;
@@ -12845,6 +13194,8 @@ export interface components {
              * @description Empresa en Argos
              */
             empresa_id: number;
+            /** @description Solo con bienvenida_servicio: { tipo: iris_orden, id } cuando la activación vino de una orden de Iris de ese servicio; null o ausente si fue desde el panel de Argos. Fuera de forma: 422 origen_invalido */
+            origen?: components["schemas"]["OrigenAviso"];
             /** @description Código de la plantilla (§6.3; GET /mensajeria/plantillas) */
             plantilla: string;
             /**
@@ -13017,6 +13368,8 @@ export interface components {
              * @enum {string}
              */
             resultado?: "exitosa" | "parcial";
+            /** @description Solo con el modo «exigir la activación lista»: un supervisor (ordenes.cerrar_sin_activacion) cierra sin ella; un agente la termina desde el panel */
+            sinActivacionMotivo?: string;
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -14076,6 +14429,9 @@ export interface components {
             version: number;
         };
         EntradaFijarAjustes: {
+            /** @enum {string} */
+            activacionModo?: "al_cerrar" | "exigir_lista" | "pendiente_agente";
+            cierreExigeBienvenida?: boolean;
             tecnicosTomanLibres: boolean;
             /**
              * Format: int32
@@ -14730,6 +15086,10 @@ export interface components {
              */
             trasladoId: number;
         };
+        EntradaReenviarBienvenida: {
+            /** @description Sin ellos, todos los que Argos tenga configurados */
+            canales?: ("whatsapp" | "correo" | "telegram")[] | null;
+        };
         EntradaRegistrar: {
             /** @description Ítem del checklist que respalda */
             claveChecklist?: string;
@@ -14814,6 +15174,18 @@ export interface components {
             inicio: string;
             /** @enum {string} */
             motivo: "vacaciones" | "enfermedad" | "capacitacion" | "permiso" | "otro";
+        };
+        EntradaRegistrarCobro: {
+            /**
+             * Format: int64
+             * @description Concepto de Argos (GET /conceptos-cargo; por defecto «Instalación»). Sin él, el de la plantilla
+             */
+            conceptoId?: number;
+            descripcion?: string;
+            /** @description Obligatorio si el precio no es el de la plantilla */
+            motivoPrecio?: string;
+            /** @description Bruto con IVA, mayor que 0. Sin él, el de la plantilla; uno distinto exige ordenes.cobro_editar_monto y motivo */
+            precioUnitario?: string;
         };
         EntradaRegistrarDispositivo: {
             /** @description Versión de la app (1.4.0) */
@@ -15212,10 +15584,52 @@ export interface components {
             /** Format: int64 */
             ticketId: number;
         };
+        EntradaWifiOrden: {
+            /** @description Clave nueva (8 a 63). Nunca se devuelve ni queda en Iris: viaja cifrada hasta Argos y se borra */
+            clave?: string;
+            /**
+             * @description Cómo se comprobó que quien pide es el titular. El técnico: presencial (se pone solo); un agente: llamada_verificada
+             * @enum {string}
+             */
+            metodo?: "presencial" | "llamada_verificada";
+            /** @description Nombre nuevo del Wi-Fi (1 a 32 caracteres) */
+            ssid?: string;
+        };
+        EntradaWifiPublico: {
+            /** @description Clave nueva (8 a 63). Nunca se devuelve ni queda en Iris */
+            clave?: string;
+            /** @description Nombre nuevo del Wi-Fi */
+            ssid?: string;
+        };
         EntrarComoSSO: {
             idExterno: string;
             nombreExterno: string;
             nombreIris: string;
+        };
+        EquipoActivacion: {
+            /** @description AA:BB:CC:DD:EE:FF */
+            mac?: string;
+            modelo?: string;
+            serie?: string;
+            /**
+             * @description ont (exige serie), cpe_wireless (exige mac) o router_tr069 (mac o serie)
+             * @enum {string}
+             */
+            tipo: "ont" | "cpe_wireless" | "router_tr069";
+            /**
+             * Format: int64
+             * @description Unidad del inventario de Argos, si se conoce (debe estar en la bodega del técnico)
+             */
+            unidadId?: number;
+        };
+        EquipoActivado: {
+            mac: string | null;
+            modelo: string | null;
+            serie: string | null;
+            /** @enum {string} */
+            tipo: "ont" | "cpe_wireless" | "router_tr069";
+            /** Format: int64 */
+            unidadId: number | null;
         };
         EquipoComodato: {
             mac: string | null;
@@ -15291,6 +15705,32 @@ export interface components {
             /** Format: int64 */
             totalDisponibles: number;
         };
+        EstadoActivacion: {
+            /** @description El último intento */
+            actual?: components["schemas"]["Activacion"];
+            /** @description Se puede pedir «Activar servicio» ahora (con el actual) */
+            disponible: boolean;
+            /**
+             * @description El del último intento
+             * @enum {string}
+             */
+            estado: "ninguna" | "pendiente" | "en_proceso" | "listo" | "fallido";
+            /** @description La empresa o la plantilla exigen la bienvenida enviada para cerrar (solo con exigir_lista) */
+            exigeBienvenida: boolean;
+            /** @description Todos, del último al primero */
+            intentos: components["schemas"]["Activacion"][] | null;
+            /**
+             * @description Efectivo: al_cerrar si Argos no puede aprovisionar en la empresa (§4.3)
+             * @enum {string}
+             */
+            modo: "al_cerrar" | "exigir_lista" | "pendiente_agente";
+            /** @description Por qué no: sin_capacidad, modo_al_cerrar, activacion_al_cerrar, activacion_en_curso, activacion_lista, no_es_instalacion, sin_servicio, orden_terminada */
+            noDisponible: string | null;
+            /** Format: int64 */
+            ordenId: number;
+            /** @description La orden se cerró sin la activación lista (supervisor, con motivo) */
+            sinActivacionMotivo: string | null;
+        };
         EstadoAsistente: {
             activo: boolean;
             /** @description true: el servidor actúa solo (3b) */
@@ -15344,6 +15784,36 @@ export interface components {
             intentos: number;
             /** Format: date-time */
             proximoIntentoEn?: string;
+        };
+        EstadoEquipo: {
+            enLinea: boolean;
+            /** @description Nunca con el asistente de IA */
+            firmware?: string;
+            /** @enum {string} */
+            fuente?: "smartolt" | "acs";
+            /** Format: date-time */
+            leidoEn?: string;
+            /** @description Nunca con el asistente de IA */
+            mac?: string;
+            /** @description Nunca con el asistente de IA */
+            modelo?: string;
+            /** @description ONT: rx_dbm y tx_dbm; CPE gestionado: rssi_dbm y snr_db; o null */
+            senal: {
+                [key: string]: number;
+            } | null;
+            /** @description Nunca con el asistente de IA */
+            serie?: string;
+            /** Format: int64 */
+            servicioId: number;
+            /** @enum {string} */
+            tecnologia: "ftth" | "wireless";
+            /**
+             * @description Nunca con el asistente de IA
+             * @enum {string}
+             */
+            tipo?: "ont" | "cpe_wireless" | "router_tr069";
+            /** Format: date-time */
+            ultimoContacto?: string;
         };
         EstadoGrabacion: {
             /** @enum {string} */
@@ -17242,7 +17712,7 @@ export interface components {
              */
             ordenId?: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular" | "llamada.directa" | "orden.registrar_identidad" | "orden.cambiar_titular" | "orden.completar_datos" | "orden.cambiar_plan";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular" | "llamada.directa" | "orden.registrar_identidad" | "orden.cambiar_titular" | "orden.completar_datos" | "orden.cambiar_plan" | "orden.activar_servicio";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -17802,6 +18272,12 @@ export interface components {
             /** @description Zonas que atiende tu cuadrilla (de donde salen) */
             zonas: components["schemas"]["ZonaLibre"][] | null;
         };
+        OrigenAviso: {
+            /** @description Id de la orden de Iris */
+            id: string;
+            /** @description iris_orden */
+            tipo: string;
+        };
         PaginaAcceso: {
             data: components["schemas"]["Acceso"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
@@ -17819,6 +18295,11 @@ export interface components {
         };
         PaginaAvisoPanel: {
             data: components["schemas"]["AvisoPanel"][] | null;
+            /** @description Cursor de la página siguiente; null si no hay más */
+            nextCursor: string | null;
+        };
+        PaginaBienvenidaSinEnviar: {
+            data: components["schemas"]["BienvenidaSinEnviar"][] | null;
             /** @description Cursor de la página siguiente; null si no hay más */
             nextCursor: string | null;
         };
@@ -18239,6 +18720,12 @@ export interface components {
             /** @description false: se pasó a alguien no disponible (el panel avisa) */
             destinoDisponible: boolean;
         };
+        PasoAprovisionamiento: {
+            /** Format: date-time */
+            en?: string;
+            estado: string;
+            paso: string;
+        };
         PasoPrueba: {
             /** @enum {string} */
             codigo: "conexion" | "compatibilidad" | "gpu" | "stt" | "tts" | "llm" | "medios" | "capacidad";
@@ -18448,7 +18935,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cambiar_plan" | "ordenes.cambiar_titular" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.completar_datos" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.validar_identidad" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.registrar_integracion" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.activar_servicio" | "ordenes.cerrar_sin_activacion" | "integraciones.confirmar_cuenta_bancaria" | "ordenes.cobro_editar_monto" | "ordenes.reenviar_bienvenida" | "ordenes.registrar_cobro" | "servicios.cambiar_wifi" | "servicios.ver_equipo" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cambiar_plan" | "ordenes.cambiar_titular" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.completar_datos" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.validar_identidad" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.registrar_integracion" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -18543,6 +19030,16 @@ export interface components {
             potenciaDbm: string | null;
             puerto: string | null;
             slot: string | null;
+        };
+        PlantaActivacion: {
+            caja?: string;
+            olt?: string;
+            /** Format: int32 */
+            pon?: number;
+            /** Format: int32 */
+            puerto?: number;
+            /** Format: int32 */
+            slot?: number;
         };
         Plantilla: {
             codigo: string;
@@ -19491,6 +19988,12 @@ export interface components {
             totalPuntos: number;
             /** Format: date-time */
             ultimaEn: string | null;
+        };
+        ReenvioBienvenida: {
+            /** @description Con fallido_negocio: servicio_no_activo, bienvenida_reciente, demasiados_reenvios… */
+            codigo: string | null;
+            /** @description El del pendiente hacia Argos: pendiente, en_curso, hecho, fallido_negocio… */
+            estado: string;
         };
         RegistroQR: {
             appId: string | null;
@@ -21653,6 +22156,23 @@ export interface components {
             duplicado: boolean;
             /** Format: int64 */
             entranteId: number;
+        };
+        WifiActivacion: {
+            /** @description 8 a 63 caracteres imprimibles (WPA2). Nunca se devuelve ni queda en eventos, logs, auditoría ni en la cola: viaja cifrada hasta Argos y se borra */
+            clave?: string;
+            /** @description 1 a 32 caracteres, sin caracteres de control */
+            ssid: string;
+        };
+        WifiPedido: {
+            /**
+             * @description Argos lo aplica en el equipo; el cliente recibe la confirmación por sus contactos
+             * @enum {string}
+             */
+            estado: "en_proceso";
+        };
+        WirelessActivacion: {
+            ap?: string;
+            sector?: string;
         };
         Yo: {
             /**
@@ -27071,6 +27591,73 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    confirmarCuentaBancaria: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CuentaConfirmada"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -44949,6 +45536,126 @@ export interface operations {
             };
         };
     };
+    verEnlaceWifi: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnlaceWifiPublico"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    usarEnlaceWifi: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaWifiPublico"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WifiPedido"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     listarRespuestasRapidas: {
         parameters: {
             query?: {
@@ -47186,6 +47893,66 @@ export interface operations {
             };
         };
     };
+    bienvenidasSinEnviar: {
+        parameters: {
+            query?: {
+                /** @description nextCursor de la página anterior */
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PaginaBienvenidaSinEnviar"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     verOrden: {
         parameters: {
             query?: never;
@@ -47226,6 +47993,156 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verActivacionOrden: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstadoActivacion"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    activarServicioOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaActivarServicio"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -47444,6 +48361,156 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verBienvenidaOrden: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bienvenida"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    reenviarBienvenidaOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaReenviarBienvenida"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Bienvenida"];
                 };
             };
             /** @description Unauthorized */
@@ -47751,6 +48818,156 @@ export interface operations {
             };
         };
     };
+    cobrosOrden: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cobro"][] | null;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    registrarCobroOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRegistrarCobro"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Cobro"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     descartarDatosArgosOrden: {
         parameters: {
             query?: never;
@@ -47825,6 +49042,91 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verEquipoOrden: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstadoEquipo"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -49700,6 +51002,156 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cambiosWifiOrden: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CambioWifi"][] | null;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    cambiarWifiOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaWifiOrden"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CambioWifi"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

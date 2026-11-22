@@ -531,3 +531,16 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
   (`ServiciosClienteAsistente` no lo lee).
 - `codigo` ya se guardaba. Con el formato de A45 (`S-000412`) el asistente lo usa en la etiqueta corta
   (`<codigo> · «plan» · «zona»`, §10.5 ajuste ag); con otra forma sigue «Servicio n».
+
+## Contrato 0.9.0, bloque E (§12) y cobro de la instalación (A36)
+
+- `GET /integraciones/iris/estado` → `capacidades.aprovisionamiento` se guarda en
+  `integracion.conectores.capacidades_aprovisionamiento`; `Aprovisionamiento(empresa, tecnologia)` dice si Iris
+  ofrece «Activar servicio» (contrato ≥ 0.9.0 y la marca en true). `ContratoIris` sigue en 0.8.1: hasta subirlo,
+  Argos no manda los webhooks de la 0.9.0 ni Iris ve el contrato que habilita estas funciones.
+- Webhooks `instalacion.aprovisionada|fallida`, `equipo.wifi_resuelto`, `servicio.bienvenida_cambiada`,
+  `factura.*` y `pago.*` (`webhook_090.go`): lista blanca, empresa en el alcance del conector, y eventos internos
+  `argos.instalacion_resuelta`, `argos.wifi_resuelto`, `argos.bienvenida_cambiada` y `argos.factura_cambiada`.
+  Nunca el Wi-Fi, el texto de la bienvenida ni credenciales.
+- Lecturas: `LeerAprovisionamiento` (`GET /aprovisionamientos/:id`) y `LeerEquipo` (`GET /servicios/:id/equipo`;
+  con el asistente, sin serie, MAC, modelo ni firmware).

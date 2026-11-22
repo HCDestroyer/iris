@@ -828,3 +828,20 @@ AMI adopta la fila de una saliente del puente.
 - **Pruebas:** `sippuente/puente_test.go` (puente, Digest, CSeq y branch, rechazos, corte) contra el Asterisk
   falso de `sippuente/sipfalso`, y `telefono_test.go` de punta a punta contra Postgres y el mismo falso.
 - Guía para preparar Issabel y el servidor: `docs/runbooks/centralita-issabel.md` §9.
+
+## Bienvenida y asistente con los equipos (contrato argosisp.md 0.9.0 §12.3–§12.5, B14 y B16)
+
+- **`bienvenida_servicio`** (§6.3, la pide Argos): variables `nombre` (≤ 60), `plan` (≤ 80), `precio_mensual`,
+  `moneda` y `codigo_cliente`, sin saltos de línea, enlaces ni 4 dígitos seguidos (422 `validacion`). Las cuentas las
+  inserta Iris (variable `cuentas`, nunca de Argos) de su instantánea (§7.8): activas, de la empresa, en GTQ, con
+  titular y sin cambios en 24 h (`cambiada_en`) salvo confirmadas por un admin. Sin cuentas, la variante interna
+  `bienvenida_servicio_sin_cuentas` con `detalle: sin_cuentas`. `origen { tipo: iris_orden, id }` (§6.2) solo con
+  esta plantilla y una orden de Iris de ese servicio (si no, 422 `origen_invalido`); queda en `avisos.orden_id`.
+- **Asistente** (apagadas de fábrica): `ver_equipo` → herramienta `estado_del_equipo` (`X-Iris-Actor: asistente_ia`;
+  al modelo solo en línea, señal y último contacto); `cambiar_wifi` → `enlace_wifi`: con una verificación de
+  identidad que coincidió en la conversación hace menos de 10 min (una por enlace), un enlace de un solo uso
+  (10 min, 256 bits, Iris guarda solo su sha256) que el servidor pone en la marca `{{enlace_wifi}}`. El cliente
+  usa `GET|POST /api/v1/mensajeria/publico/wifi/{token}` (sin sesión): consume el enlace y encola el cambio
+  (`integracion/equipos`) con `metodo: datos_titular`; 410 `enlace_vencido` si se usó, venció o cambió el cliente
+  de la conversación. La clave escrita en el chat se tapa (`TaparClaveWifi`) al guardar el mensaje y
+  `RedactarParaIA` la tapa antes del modelo.

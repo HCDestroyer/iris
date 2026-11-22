@@ -359,3 +359,36 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   falla con `ordenes_origen_check`) hasta volver a subir la migración. Si hay que quedarse abajo, hay
   que decidir a mano qué origen llevan esas órdenes (p. ej. `sistema`) antes de tocarlas.
 
+
+## Equipos del cliente y activación desde la orden (contrato 0.9.0 §12, B12, B15 y B16)
+
+- **Activar el servicio** (`activacion.go`): `orden.activar_servicio` del lote o `POST /ordenes/{id}/activar-servicio`
+  (`ordenes.activar_servicio`; el técnico en sitio y en su orden, un agente también con la orden cerrada). Cada
+  intento es una fila de `campo.activaciones` con `iris:aprovisionar:<orden>:<intento>`; la llamada sale por la
+  cola de pendientes (`aprovisionar`), detrás de los pasos vivos del titular, con la clave Wi-Fi solo en el
+  depósito cifrado. **Nunca dos activaciones:** la orden se toma con `FOR UPDATE`, hay un solo intento vivo
+  (`pendiente`, `en_proceso`, `listo`) por orden y por servicio (índices únicos), y si el cierre ya mandó
+  `activar-instalacion` no se activa otra vez (409 `activacion_al_cerrar`). Resultado: el 202 de la cola, el
+  webhook `instalacion.*` (`argos.instalacion_resuelta`) o, a los 10 min, `GET /aprovisionamientos/:id`
+  (`campo.consultar_activaciones`, cada 2 min); un intento resuelto no cambia. Un agotado sigue vivo hasta
+  reintentarse o resolverse a mano en la cola (nunca dos aprovisionamientos a la vez). Estado:
+  `GET /ordenes/{id}/activacion`.
+- **Modo** por empresa (`POST /campo/ajustes`: `activacionModo`, `cierreExigeBienvenida`) o plantilla: `al_cerrar`
+  (de fábrica), `exigir_lista` (el cierre exitoso exige el intento listo o un supervisor con
+  `ordenes.cerrar_sin_activacion` y `sinActivacionMotivo`; con `cierre_exige_bienvenida`, además la bienvenida) o
+  `pendiente_agente`. Sin la capacidad de Argos (contrato ≥ 0.9.0 y `capacidades.aprovisionamiento`) el modo
+  efectivo es `al_cerrar`. `orden.cerrada` lleva `activacion` y `equipos[].aprovisionado`: la cola no manda
+  `activar-instalacion` ni el comodato del equipo aprovisionado.
+- **Equipo y Wi-Fi** (`equipo.go`): `GET /ordenes/{id}/equipo` (`servicios.ver_equipo`; 409 `equipo_sin_gestion`,
+  503 `equipo_sin_respuesta`) y `POST|GET /ordenes/{id}/wifi` (`servicios.cambiar_wifi`; `integracion/equipos`).
+- **Cobro de la instalación** (`cobro.go`, B15): `POST /ordenes/{id}/cobros` (`ordenes.registrar_cobro`; cambiar el
+  precio de la plantilla exige `ordenes.cobro_editar_monto` y motivo; nunca Q0), `iris:cargo:<orden>:<cargo_id>`
+  con `X-Iris-Actor`; un cobro vivo por orden. El cierre ya no manda el cargo de la plantilla. Sigue
+  `argos.factura_cambiada` (facturado, pagado, anulado).
+- **Bienvenida** (`bienvenida.go`, B16): `GET /ordenes/{id}/bienvenida`, `POST /ordenes/{id}/bienvenida/reenviar`
+  (`ordenes.reenviar_bienvenida`, `iris:bienvenida:<orden>:<n>`) y la bandeja `GET /ordenes/bienvenidas-sin-enviar`;
+  el estado por canal llega con `argos.bienvenida_cambiada`.
+- Eventos: emite `orden.activacion_pedida`, `orden.activacion_cambiada`, `orden.cobro_registrado`,
+  `orden.cobro_cambiado`, `orden.bienvenida_cambiada` y `orden.bienvenida_reenviada`; consume
+  `integracion.pendiente_hecho`, `_fallido`, `_resuelto_manual`, `argos.instalacion_resuelta`,
+  `argos.factura_cambiada` y `argos.bienvenida_cambiada`.

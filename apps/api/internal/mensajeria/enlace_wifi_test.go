@@ -110,7 +110,9 @@ func TestEnlaceWifiUnSoloUso(t *testing.T) {
 // variante sin cuentas con detalle sin_cuentas; origen solo con una orden de Iris de ese servicio.
 func TestAvisoBienvenidaServicio(t *testing.T) {
 	e := nuevoEntorno(t, nil)
-	t.Cleanup(func() { _, _ = e.bd.Exec(e.ctx, "DELETE FROM integracion.argos_cuentas_bancarias WHERE id BETWEEN 9100 AND 9199") })
+	t.Cleanup(func() {
+		_, _ = e.bd.Exec(e.ctx, "DELETE FROM integracion.argos_cuentas_bancarias WHERE id BETWEEN 9100 AND 9199")
+	})
 	cliente := e.cliente(1, "+502 5512-3344")
 	servicio := cliente * 10
 	vars := map[string]any{"nombre": "Ana Pérez", "plan": "Fibra 100", "precio_mensual": "250.00", "moneda": "GTQ", "codigo_cliente": "C-0091"}

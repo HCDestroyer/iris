@@ -159,3 +159,17 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   deja su consumo y su cobro incompletos o, con `clienteId`, reescribe el cobro; `clienteId` debe ser
   el titular actual del servicio leído en vivo de Argos en la empresa del pendiente
   (`422 cliente_no_es_titular`; Argos sin responder: `503 no_disponible`, sin guardar nada).
+
+## Contrato 0.9.0: activación, Wi-Fi, bienvenida y cobro (§12, B12, B14–B16; `equipos.go`)
+
+- Operaciones `aprovisionar` (`iris:aprovisionar:<orden>:<intento>`), `cambiar_wifi`
+  (`iris:wifi:<origen>:<id>:<uuid>`), `reenviar_bienvenida` (`iris:bienvenida:<orden>:<n>`) y el cobro de la
+  instalación como `cargo` (`iris:cargo:<orden>:<cargo_id>`). `AccionConTransito` guarda la clave Wi-Fi en el
+  depósito de tránsito (entidad orden, ticket o conversación, con la entidad en los datos asociados) y encola.
+  La clave se borra al 2xx y también al rechazo de Argos (`rechazado`); un reintento a mano sin ella queda
+  `clave_wifi_descartada`. Un cambio desde una conversación lleva `X-Iris-Conversacion` y `X-Iris-Actor: asistente_ia`.
+- `orden.cerrada` con `activacion` (modo distinto de `al_cerrar` o un intento vivo) no planifica
+  `activar_instalacion`; un equipo con `aprovisionado` no lleva comodato. Un `409 servicio_no_pendiente` de
+  `activar_instalacion` con un intento `listo` en la orden queda hecho (conciliado).
+- Lista blanca de la respuesta: también `aprovisionamiento_id`, `solicitud_id`, `causa`, `reintentable`,
+  `numero`, `total`, `moneda` y el objeto `factura { id, numero, estado, total, moneda }`.

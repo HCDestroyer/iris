@@ -10,12 +10,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
 
 // Contrato 0.9.0, bloque E (§12) y cobro de la instalación (A36): webhooks de Argos hacia Iris y
@@ -544,3 +547,62 @@ func (m *Modulo) LeerEquipo(ctx context.Context, servicioID int64, actor string,
 
 // CabeceraActorIris: quién actúa en Iris (§7.1).
 const CabeceraActorIris = "X-Iris-Actor"
+
+// --- Confirmar una cuenta recién cambiada (§12.5) -----------------------------------------------
+
+// EntradaConfirmarCuenta: la cuenta de la instantánea (§7.8) que un admin de Iris confirma.
+type EntradaConfirmarCuenta struct {
+	ID int64 `path:"id" minimum:"1"`
+}
+
+// CuentaConfirmada es la respuesta (sin el número ni el titular).
+type CuentaConfirmada struct {
+	ID           int64      `json:"id"`
+	EmpresaID    int64      `json:"empresaId"`
+	CambiadaEn   *time.Time `json:"cambiadaEn" nullable:"true"`
+	ConfirmadaEn *time.Time `json:"confirmadaEn" nullable:"true"`
+}
+
+// EventoCuentaConfirmada: un admin confirmó una cuenta recién cambiada (entra ya en la bienvenida).
+const EventoCuentaConfirmada = "argos.cuenta_bancaria_confirmada"
+
+func (m *Modulo) nuevoConfirmarCuenta() *auditoria.Caso[EntradaConfirmarCuenta, CuentaConfirmada] {
+	return auditoria.Nuevo(auditoria.Caso[EntradaConfirmarCuenta, CuentaConfirmada]{
+		Accion: "integraciones.confirmar_cuenta_bancaria", Permiso: nucleo.PermIntegracionesConfirmarCuentaBancaria,
+		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaConfirmarCuenta) (CuentaConfirmada, error) {
+			q := argosbd.New(t)
+			t.FijarEntidad("cuenta_bancaria", in.ID)
+			antes, err := q.CuentaBancariaParaActualizar(ctx, in.ID)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return CuentaConfirmada{}, nucleo.NoEncontrado("La cuenta no está en la instantánea de Argos")
+			}
+			if err != nil {
+				return CuentaConfirmada{}, err
+			}
+			t.FijarEmpresa(antes.EmpresaID)
+			a := contexto.ActorDe(ctx)
+			if !a.EsUsuario() {
+				return CuentaConfirmada{}, nucleo.Prohibido("La confirma una persona")
+			}
+			f, err := q.ConfirmarCuentaBancaria(ctx, argosbd.ConfirmarCuentaBancariaParams{ID: in.ID, UsuarioID: &a.ID})
+			if err != nil {
+				return CuentaConfirmada{}, err
+			}
+			t.RegistrarCambios("cuenta_bancaria", f.ID, map[string]any{"confirmada_en": antes.ConfirmadaEn}, map[string]any{"confirmada_en": f.ConfirmadaEn})
+			return CuentaConfirmada{ID: f.ID, EmpresaID: f.EmpresaID, CambiadaEn: f.CambiadaEn, ConfirmadaEn: f.ConfirmadaEn},
+				t.Emitir(EventoCuentaConfirmada, map[string]any{"cuenta_bancaria_id": f.ID, "empresa_id": f.EmpresaID, "usuario_id": a.ID})
+		},
+	})
+}
+
+func (m *Modulo) registrarConfirmarCuenta(api huma.API) {
+	caso := m.nuevoConfirmarCuenta()
+	op := conector.Operacion(conector.EtiquetaIntegraciones, "confirmarCuentaBancaria", http.MethodPost,
+		"/api/v1/integraciones/argosisp/cuentas-bancarias/{id}/confirmar", "Confirmar una cuenta recién cambiada",
+		nucleo.PermIntegracionesConfirmarCuentaBancaria, http.StatusOK, http.StatusNotFound)
+	op.Description += " Una cuenta creada o editada en Argos no entra en la bienvenida (§12.5) durante 24 h, o hasta que un admin de Iris la confirma aquí. " +
+		"Otro cambio en Argos (número, titular, banco, moneda o empresa) quita la confirmación. Emite `argos.cuenta_bancaria_confirmada`."
+	huma.Register(api, op, func(ctx context.Context, in *EntradaConfirmarCuenta) (*conector.Cuerpo[CuentaConfirmada], error) {
+		return conector.Responder(caso.Ejecutar(ctx, *in))
+	})
+}
