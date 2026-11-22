@@ -228,12 +228,13 @@ for (const [franja, instante] of [
     ["01:30 UTC (19:30 GT)", "2026-11-06T01:30:00Z"],
     ["23:30 UTC (17:30 GT)", "2026-11-05T23:30:00Z"],
 ] as const) {
-    test(`Mañana a las ${franja}: el viernes 6 con sus citas y el sábado 7 con el retiro`, async ({ page }) => {
+    test(`Mañana a las ${franja}: el viernes 6 con sus citas y el sábado 7 con el retiro`, async ({ page }, info) => {
         const ahora = Date.parse(instante);
         await page.clock.setFixedTime(ahora);
         const api = await simularApiCampo(page, { ordenes: [], ordenesFuturas: ordenesFuturas(ahora) });
         await page.goto("/campo");
-        await expect(page.getByText("Jueves 5 de noviembre")).toBeVisible();
+        // La fecha del encabezado es la de Guatemala: corta en el teléfono, larga en pantallas anchas.
+        await expect(page.getByText(info.project.name.startsWith("telefono") ? "Jue 5 nov" : "Jueves 5 de noviembre", { exact: true })).toBeVisible();
         await page.getByRole("radiogroup", { name: "Día" }).getByRole("radio", { name: /^Mañana/ }).click();
         await expect(page.getByRole("heading", { name: "Mañana, vie 6" })).toBeVisible();
         await expect(page.getByTestId("resumen-dia")).toHaveText("2 citas · 3 h");
