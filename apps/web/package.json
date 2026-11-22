@@ -11,7 +11,8 @@
         "lint": "eslint .",
         "typecheck": "tsc --noEmit -p tsconfig.json",
         "test": "vitest run",
-        "e2e": "playwright test"
+        "e2e": "playwright test",
+        "manual": "node scripts/manual.mjs"
     },
     "dependencies": {
         "@hookform/resolvers": "^5.2.2",

@@ -235,6 +235,19 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   (`/extensiones/[id]`: la contraseña SIP una vez y «Probar registro»). Pruebas: `packages/telefono/src/*.test.ts`, `lib/telefono/*.test.ts`
   y `e2e/telefono.spec.ts` (JsSIP contra una Issabel falsa, `e2e/sip-falso.ts`).
 
+- **Manual de Iris** (`/manual`, `/manual/<modulo>/<pantalla>` y `/campo/manual/<pantalla>`): la ayuda
+  de cada pantalla, para quien usa Iris. El texto vive en `docs/manual/<modulo>/<pantalla>.md` (índice en
+  `docs/manual/indice.md`, claves en `docs/manual/claves.md`) y llega al panel como
+  `lib/manual/contenido.generado.json` (`pnpm --filter @iris/web manual`; la imagen de Docker no copia
+  `docs/`). Convertidor propio y seguro (`componentes/manual/markdown.tsx`: títulos, párrafos, listas,
+  negritas, código y enlaces; nada de HTML), buscador en el navegador (`lib/manual/busqueda.ts`), marco a
+  pantalla completa con «Atrás». Lo ve cualquier usuario con sesión; la sección del técnico va en
+  `/campo/manual`, precacheada por el service worker para leerla sin señal (como todo `/campo`, el
+  middleware no la cubre: es texto estático, sin datos de clientes). Una clave sin página muestra
+  «Esta pantalla todavía no tiene manual». Pruebas: `componentes/manual/markdown.test.tsx`,
+  `lib/manual/contenido.test.ts` (JSON al día, cinco partes por página, enlaces y claves) y
+  `e2e/manual.spec.ts`.
+
 No emite ni consume eventos.
 
 ## Uso
@@ -243,6 +256,7 @@ No emite ni consume eventos.
 cp apps/web/.env.example apps/web/.env.local     # IRIS_API_URL=http://localhost:8080
 pnpm --filter @iris/web dev                       # http://localhost:3000
 pnpm --filter @iris/web lint | typecheck | test   # eslint, tsc, Vitest
+pnpm --filter @iris/web manual                    # regenera el manual desde docs/manual
 pnpm --filter @iris/web e2e                       # build + Playwright (escritorio/teléfono, claro/oscuro)
 IRIS_E2E_SIN_BUILD=1 pnpm --filter @iris/web e2e  # reutiliza el build
 IRIS_CAPTURAS=/ruta pnpm --filter @iris/web e2e capturas   # capturas para revisión visual
