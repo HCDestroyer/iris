@@ -246,7 +246,7 @@ el `token_portal` bajo `/api/v1/integraciones/argosisp/portal/clientes/{cliente_
   Los topes son los de `/soporte` (compartidos) y, con un contacto, además los suyos.
 - Adjuntos por `multipart/form-data` (parte `datos` y hasta 3 `archivos` de 10 MB), solo JPEG, PNG y
   PDF (0.14.2: HEIC y WebP, 422 `mime_no_permitido`). Al leer el cuerpo solo se mira el encabezado:
-  40 MP y unos 200 MB decodificada (`422 imagen_demasiado_grande`). La recodificación (sin ningún
+  40 MP y unos 200 MB decodificada, contando lo que el decodificador guarda aparte (JPEG progresivo, CMYK o RGB y PNG entrelazado; los marcadores se recorren como `image/jpeg` y, si no aparece el SOF, se cuenta como progresivo) (`422 imagen_demasiado_grande`). La recodificación (sin ningún
   metadato del original) corre dentro del caso de uso, después del ticket, el permiso y los topes, con
   2 a la vez en el proceso como máximo (lleno: `503 recodificacion_ocupada` con `Retry-After`). PDF tal
   cual. Descarga con `nosniff`, `sandbox` y el nombre saneado en `filename*`.

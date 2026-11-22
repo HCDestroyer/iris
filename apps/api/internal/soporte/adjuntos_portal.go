@@ -195,21 +195,32 @@ func comprobarArchivo(nombre string, datos []byte) (archivoPortal, error) {
 	return a, nil
 }
 
-// memoriaDecodificada estima lo que ocupa decodificar la imagen (revisión H1): la imagen final
-// (píxeles × bytes por píxel) más lo que el decodificador de Go guarda aparte:
-//   - JPEG progresivo (SOF2, SOF6, SOFA, SOFE): los coeficientes de cada componente, 4 B por píxel;
+// memoriaDecodificada estima lo que ocupa decodificar la imagen (revisiones H1, B1 y B2): la imagen
+// final (píxeles × bytes por píxel) más lo que el decodificador de Go guarda aparte:
+//   - JPEG progresivo (SOF2): los coeficientes de cada componente, 4 B por píxel;
 //   - JPEG CMYK (4 componentes): una imagen intermedia de 4 B por píxel;
+//   - JPEG RGB (Adobe transform 0 o componentes R, G, B): se decodifica a YCbCr y se copia a RGBA,
+//     3 B por píxel más;
 //   - PNG entrelazado (Adam7): el doble (cada pasada se decodifica aparte y se copia).
+//
+// Falla cerrado: si no encuentra el SOF, cuenta la imagen como progresiva con los componentes de su
+// modelo de color.
 func memoriaDecodificada(datos []byte, tipo string, pixeles int64, modelo color.Model) int64 {
 	total := pixeles * bytesPorPixel(modelo)
 	switch tipo {
 	case "image/jpeg":
-		progresivo, componentes := marcadoresJPEG(datos)
-		if progresivo {
-			total += 4 * int64(componentes) * pixeles
+		j := marcadoresJPEG(datos)
+		if !j.sof {
+			j.progresivo, j.componentes = true, componentesDe(modelo)
 		}
-		if componentes == 4 {
+		if j.progresivo {
+			total += 4 * int64(j.componentes) * pixeles
+		}
+		if j.componentes == 4 {
 			total += 4 * pixeles
+		}
+		if j.componentes == 3 && j.rgb {
+			total += 3 * pixeles
 		}
 	case "image/png":
 		// IHDR: firma (8) + largo (4) + "IHDR" (4) + ancho, alto, profundidad, color, compresión, filtro (12) → entrelazado en 28.
@@ -220,34 +231,85 @@ func memoriaDecodificada(datos []byte, tipo string, pixeles int64, modelo color.
 	return total
 }
 
-// marcadoresJPEG lee los marcadores hasta el SOF: si es progresivo y cuántos componentes tiene.
-func marcadoresJPEG(datos []byte) (progresivo bool, componentes int) {
-	for i := 2; i+4 <= len(datos); {
+// componentesDe: los componentes de un JPEG según el modelo de color de DecodeConfig.
+func componentesDe(m color.Model) int {
+	switch m {
+	case color.GrayModel:
+		return 1
+	case color.CMYKModel:
+		return 4
+	}
+	return 3
+}
+
+// infoJPEG es lo que importa de los marcadores para estimar la memoria.
+type infoJPEG struct {
+	sof         bool // se encontró un SOF
+	progresivo  bool
+	componentes int
+	// rgb: el decodificador puede tratarlo como RGB (algún APP14 de Adobe con transform 0, o
+	// componentes R, G, B). Se cuenta aunque un APP0 JFIF lo anule: falla cerrado.
+	rgb bool
+}
+
+// marcadoresJPEG recorre los marcadores como image/jpeg (reader.go): salta los bytes que no son 0xff,
+// trata «\xff\x00» como relleno, salta los 0xff de relleno, los RST y los segmentos. Mira todo el
+// archivo (también después del primer SOS) para no perder un SOF o un APP14 escondido.
+func marcadoresJPEG(datos []byte) infoJPEG {
+	var r infoJPEG
+	var ids []byte
+recorrer:
+	for i := 2; i+1 < len(datos); {
 		if datos[i] != 0xff {
-			return false, 0
-		}
-		m := datos[i+1]
-		if m == 0xff { // relleno
 			i++
 			continue
 		}
-		if m == 0xd8 || (m >= 0xd0 && m <= 0xd7) || m == 0x01 {
+		j := i + 1
+		for j < len(datos) && datos[j] == 0xff {
+			j++
+		}
+		if j >= len(datos) {
+			break
+		}
+		m := datos[j]
+		i = j + 1
+		switch {
+		case m == 0x00, m >= 0xd0 && m <= 0xd7, m == 0xd8, m == 0x01:
+			continue
+		case m == 0xd9:
+			break recorrer
+		}
+		if i+2 > len(datos) {
+			break
+		}
+		largo := int(datos[i])<<8 | int(datos[i+1])
+		if largo < 2 {
 			i += 2
 			continue
 		}
-		largo := int(datos[i+2])<<8 | int(datos[i+3])
-		if m >= 0xc0 && m <= 0xcf && m != 0xc4 && m != 0xc8 && m != 0xcc {
-			if i+9 < len(datos) {
-				componentes = int(datos[i+9])
+		seg := datos[i+2 : min(len(datos), i+largo)]
+		switch {
+		case m >= 0xc0 && m <= 0xcf && m != 0xc4 && m != 0xc8 && m != 0xcc:
+			if !r.sof && len(seg) >= 6 {
+				r.sof = true
+				r.progresivo = m == 0xc2 || m == 0xc6 || m == 0xca || m == 0xce
+				r.componentes = int(seg[5])
+				for k := 0; k < r.componentes && 6+3*k < len(seg); k++ {
+					ids = append(ids, seg[6+3*k])
+				}
 			}
-			return m == 0xc2 || m == 0xc6 || m == 0xca || m == 0xce, componentes
+		case m == 0xee:
+			if len(seg) >= 12 && string(seg[:5]) == "Adobe" && seg[11] == 0 {
+				r.rgb = true
+			}
 		}
-		if m == 0xda || largo < 2 {
-			return false, 0
-		}
-		i += 2 + largo
+		// Tras un SOS vienen los datos del escaneo: el bucle salta lo que no es marcador (y los «\xff\x00»).
+		i += largo
 	}
-	return false, 0
+	if len(ids) == 3 && ids[0] == 'R' && ids[1] == 'G' && ids[2] == 'B' {
+		r.rgb = true
+	}
+	return r
 }
 
 // recodificaciones limita las decodificaciones a la vez en el proceso.

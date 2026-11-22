@@ -207,3 +207,73 @@ func TestPanicoRecodificandoLiberaSemaforo(t *testing.T) {
 		t.Fatalf("semáforo tomado: %d", n)
 	}
 }
+
+// jpegArmado: SOI, (APP0 JFIF), lo que se ponga antes del SOF, el SOF con esos identificadores de
+// componentes, el SOS y unos datos de escaneo.
+func jpegArmado(sofMarca byte, ids []byte, ancho, alto uint16, jfif bool, antesSOF []byte) []byte {
+	b := []byte{0xff, 0xd8}
+	if jfif {
+		b = append(b, 0xff, 0xe0, 0, 16, 'J', 'F', 'I', 'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0)
+	}
+	b = append(b, antesSOF...)
+	n := byte(len(ids))
+	b = append(b, 0xff, sofMarca, 0, 8+3*n, 8)
+	b = binary.BigEndian.AppendUint16(b, alto)
+	b = binary.BigEndian.AppendUint16(b, ancho)
+	b = append(b, n)
+	sos := []byte{0xff, 0xda, 0, 6 + 2*n, n}
+	for _, id := range ids {
+		b = append(b, id, 0x11, 0)
+		sos = append(sos, id, 0)
+	}
+	b = append(b, append(sos, 0, 0x3f, 0)...)
+	for i := range 2048 {
+		b = append(b, byte(i%200+1))
+	}
+	return append(b, 0xff, 0xd9)
+}
+
+// B1: un byte suelto o «\xff\x00» antes del SOF2 no esconden que el JPEG es progresivo (Go los salta).
+func TestMemoriaJPEGConRellenoAntesDelSOF(t *testing.T) {
+	ycc := []byte{1, 2, 3}
+	cmyk := []byte{1, 2, 3, 4}
+	for nombre, antes := range map[string][]byte{"byte extra": {0x00}, "ff00": {0xff, 0x00}, "varios": {0x12, 0xff, 0x00, 0x34}} {
+		// 39,9 MP progresivo: 160 MB de imagen más 480 MB de coeficientes.
+		if _, err := comprobarArchivo("p.jpg", jpegArmado(0xc2, ycc, 6400, 6234, true, antes)); codigoDe(t, err) != "imagen_demasiado_grande" {
+			t.Fatalf("%s, progresivo: %v", nombre, err)
+		}
+		// CMYK progresivo de 20 MP: 80 + 320 + 80 MB.
+		if _, err := comprobarArchivo("c.jpg", jpegArmado(0xc2, cmyk, 5000, 4000, true, antes)); codigoDe(t, err) != "imagen_demasiado_grande" {
+			t.Fatalf("%s, cmyk progresivo: %v", nombre, err)
+		}
+		// El mismo CMYK sin progresivo (160 MB) pasa.
+		if _, err := comprobarArchivo("c.jpg", jpegArmado(0xc0, cmyk, 5000, 4000, true, antes)); err != nil {
+			t.Fatalf("%s, cmyk base: %v", nombre, err)
+		}
+	}
+}
+
+// B1: sin SOF reconocible se cuenta como progresivo (falla cerrado).
+func TestMemoriaJPEGSinSOFFallaCerrado(t *testing.T) {
+	if got := memoriaDecodificada([]byte{0xff, 0xd8, 0xff, 0xd9}, "image/jpeg", 10_000_000, color.YCbCrModel); got != 10_000_000*(4+12) {
+		t.Fatalf("sin SOF: %d", got)
+	}
+	if got := memoriaDecodificada([]byte{0xff, 0xd8}, "image/jpeg", 1_000_000, color.GrayModel); got != 1_000_000*(1+4) {
+		t.Fatalf("gris sin SOF: %d", got)
+	}
+}
+
+// B2: un JPEG RGB (componentes R, G, B o Adobe transform 0) se copia de YCbCr a RGBA: 7 B por píxel.
+func TestMemoriaJPEGRGB(t *testing.T) {
+	// 30 MP: como YCbCr, 120 MB (pasa); como RGB, 210 MB (no).
+	if _, err := comprobarArchivo("y.jpg", jpegArmado(0xc0, []byte{1, 2, 3}, 6000, 5000, true, nil)); err != nil {
+		t.Fatalf("ycbcr: %v", err)
+	}
+	if _, err := comprobarArchivo("r.jpg", jpegArmado(0xc0, []byte{'R', 'G', 'B'}, 6000, 5000, false, nil)); codigoDe(t, err) != "imagen_demasiado_grande" {
+		t.Fatalf("rgb por componentes: %v", err)
+	}
+	adobe := []byte{0xff, 0xee, 0, 14, 'A', 'd', 'o', 'b', 'e', 0, 100, 0, 0, 0, 0, 0}
+	if _, err := comprobarArchivo("a.jpg", jpegArmado(0xc0, []byte{1, 2, 3}, 6000, 5000, false, adobe)); codigoDe(t, err) != "imagen_demasiado_grande" {
+		t.Fatalf("rgb por Adobe: %v", err)
+	}
+}
