@@ -304,6 +304,9 @@ const (
 	PermPlantillasWhatsAppCrear       Permiso = "plantillas_whatsapp.crear"
 	PermPlantillasWhatsAppEditar      Permiso = "plantillas_whatsapp.editar"
 	PermPlantillasWhatsAppBorrar      Permiso = "plantillas_whatsapp.borrar"
+	// PermPlantillasWhatsAppLeerIntegracion: Argos lee las plantillas que puede usar una empresa de
+	// su alcance (contrato 0.13.0 §6.7, B32). Solo del rol integracion_argos; no edita nada.
+	PermPlantillasWhatsAppLeerIntegracion Permiso = "plantillas_whatsapp.leer_integracion"
 )
 
 // Voz, etapa E1 (contratos/voz.md §8.2): llamadas entrantes de WhatsApp contestadas en el panel.
@@ -641,6 +644,7 @@ var Catalogo = []DefPermiso{
 	{PermPlantillasWhatsAppBorrar, "Borrar plantillas de WhatsApp (también en Meta)"},
 	{PermPlantillasWhatsAppCrear, "Crear plantillas de WhatsApp y enviarlas a Meta"},
 	{PermPlantillasWhatsAppEditar, "Editar plantillas de WhatsApp, decidir dónde se usan y cambiar sus ajustes"},
+	{PermPlantillasWhatsAppLeerIntegracion, "Leer las plantillas de WhatsApp que puede usar una empresa (lo usa Argos con su token de integración; no edita nada)"},
 	{PermPlantillasWhatsAppSincronizar, "Sincronizar con Meta las plantillas de WhatsApp de una cuenta"},
 	{PermPlantillasWhatsAppVer, "Ver las plantillas de WhatsApp de las cuentas de la empresa, su estado en Meta y su historial"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
@@ -835,7 +839,9 @@ var RolesBase = []DefRol{
 			// Mensajería (contrato 0.6.0 §1.2 y §6): avisos, permisos de contacto y plantillas.
 			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer,
 			// Prospectos registrados desde Argos (contrato 0.10.0 §3.6, A44): solo registrar.
-			PermProspectosRegistrarIntegracion}},
+			PermProspectosRegistrarIntegracion,
+			// Plantillas de WhatsApp que puede usar cada empresa (contrato 0.13.0 §6.7, B32): solo leer.
+			PermPlantillasWhatsAppLeerIntegracion}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }
