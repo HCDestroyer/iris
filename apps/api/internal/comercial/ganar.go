@@ -716,7 +716,8 @@ func (m *Modulo) nuevoCompletarAlta() *auditoria.Caso[entradaAltaArgos, Prospect
 				return Prospecto{}, err
 			}
 			d := antes
-			d.ServicioArgosID, d.AltaEstado, d.OrdenID = &in.ArgosID, ptr(AltaCompleta), &o.ID
+			// B17: «ganado, alta pendiente» hasta que la activación de la orden llegue a Argos.
+			d.ServicioArgosID, d.AltaEstado, d.OrdenID = &in.ArgosID, ptr(AltaEsperandoActivacion), &o.ID
 			f, err := guardar(ctx, t, q, antes, d)
 			if err != nil {
 				return Prospecto{}, err
@@ -727,7 +728,7 @@ func (m *Modulo) nuevoCompletarAlta() *auditoria.Caso[entradaAltaArgos, Prospect
 				return Prospecto{}, err
 			}
 			return aProspecto(f), t.Emitir("prospecto.alta_actualizada", map[string]any{
-				"prospecto_id": f.ID, "estado": AltaCompleta, "cliente_id": f.ClienteArgosID, "servicio_id": in.ArgosID, "orden_id": o.ID,
+				"prospecto_id": f.ID, "estado": AltaEsperandoActivacion, "cliente_id": f.ClienteArgosID, "servicio_id": in.ArgosID, "orden_id": o.ID,
 			})
 		},
 	})
@@ -760,6 +761,8 @@ func (m *Modulo) CompletarAlta(ctx context.Context, prospecto int64) error {
 			clave, paso = ClaveCliente(p.ID), m.registrarCliente
 		case AltaEsperandoServicio:
 			clave, paso = ClaveServicio(p.ID), m.completarAlta
+		case AltaEsperandoActivacion:
+			return m.activacionHecha(ctx, bd, p)
 		default:
 			return nil
 		}

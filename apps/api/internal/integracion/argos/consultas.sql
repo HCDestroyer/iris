@@ -651,3 +651,10 @@ SELECT c.id, c.estado FROM integracion.conectores c
 WHERE c.sistema = 'argosisp' AND c.eliminado_en IS NULL AND (c.token_entregado_id = @token_id OR c.reemplaza_token_id = @token_id)
 ORDER BY (c.estado = 'activo') DESC, c.id DESC
 LIMIT 1;
+
+-- name: MarcarTitularCambiado :execrows
+-- servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora de Argos (ocurrido_en, solo con
+-- ocurrido_origen = argos y dentro de la tolerancia) del último
+-- cambio de titular; nunca retrocede. Llamar con BloquearArgos del servicio tomado.
+UPDATE integracion.argos_servicios SET titular_cambiado_en = @en
+WHERE id = @id AND (titular_cambiado_en IS NULL OR titular_cambiado_en <= @en);
