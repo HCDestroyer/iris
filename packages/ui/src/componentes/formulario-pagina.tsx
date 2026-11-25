@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState, type FormEventHandler, type ReactNode } from "react";
 import { cn } from "../utilidades";
+import { BotonManualPantalla } from "./boton-manual";
 import { Boton } from "./boton";
 import { BotonEnviar, DialogoConfirmar, ProveedorCambios, useRegistroCambios } from "./formulario-modal";
 import { Migas, type Miga } from "./migas";
@@ -375,9 +376,12 @@ export function FormularioPagina({
                     {migas ? <Migas migas={migas} /> : null}
                     <div className="flex min-w-0 items-center gap-3">
                         <div className="grid min-w-0 flex-1 gap-1">
-                            <h1 id={idTitulo} className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">
-                                {titulo}
-                            </h1>
+                            <div className="flex min-w-0 items-center gap-1.5">
+                                <h1 id={idTitulo} className="min-w-0 text-xl font-semibold tracking-[-0.015em] sm:text-2xl">
+                                    {titulo}
+                                </h1>
+                                <BotonManualPantalla />
+                            </div>
                             {descripcion ? (
                                 <p id={idDescripcion} className="text-sm text-muted-foreground">
                                     {descripcion}

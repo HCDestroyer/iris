@@ -20,6 +20,7 @@ import {
     CampoHora,
     CampoSelector,
     DialogoConfirmar,
+    GrupoSegmentado,
     SelectorFecha,
     cn,
 } from "@iris/ui";
@@ -121,35 +122,21 @@ export function NuevaTarea() {
                                 <legend className="mb-2 text-sm font-medium">
                                     Duración
                                 </legend>
-                                <div
-                                    className="grid grid-cols-4 gap-2"
-                                    role="radiogroup"
-                                    aria-label="Duración"
-                                >
-                                    {DURACIONES_TAREA.map((d) => {
-                                        const elegida =
-                                            field.value === d.minutos;
-                                        return (
-                                            <Boton
-                                                key={d.minutos}
-                                                variante="fantasma"
-                                                role="radio"
-                                                aria-checked={elegida}
-                                                className={cn(
-                                                    "h-11 w-full min-w-0 rounded-full px-0 text-[0.9375rem]",
-                                                    elegida
-                                                        ? "bg-[var(--campo-tinta)] font-semibold text-[var(--campo-sobre-tinta)] hover:bg-[var(--campo-tinta)]"
-                                                        : "bg-[var(--campo-panel-2)] font-medium text-foreground",
-                                                )}
-                                                onClick={() =>
-                                                    field.onChange(d.minutos)
-                                                }
-                                            >
-                                                {d.texto}
-                                            </Boton>
-                                        );
-                                    })}
-                                </div>
+                                <GrupoSegmentado
+                                    etiqueta="Duración"
+                                    className="grid w-full grid-cols-4 gap-2 rounded-none bg-transparent p-0"
+                                    claseOpcion="h-11 w-full min-w-0 rounded-full bg-[var(--campo-panel-2)] px-0 text-[0.9375rem] font-medium text-foreground hover:text-foreground data-selected:bg-[var(--campo-tinta)] data-selected:font-semibold data-selected:text-[var(--campo-sobre-tinta)] data-selected:shadow-none"
+                                    opciones={DURACIONES_TAREA.map((d) => ({
+                                        valor: String(d.minutos),
+                                        etiqueta: d.texto,
+                                    }))}
+                                    valor={
+                                        field.value === undefined
+                                            ? undefined
+                                            : String(field.value)
+                                    }
+                                    alCambiar={(v) => field.onChange(Number(v))}
+                                />
                             </fieldset>
                         )}
                     />
@@ -172,7 +159,7 @@ export function NuevaTarea() {
                 </p>
                 <Boton
                     type="submit"
-                    variante="tinta"
+                    variante="primario"
                     tamano="lg"
                     className={BOTON_TINTA}
                     disabled={form.formState.isSubmitting}

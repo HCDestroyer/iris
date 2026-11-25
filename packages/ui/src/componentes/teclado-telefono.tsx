@@ -2,12 +2,14 @@
 
 import type { ComponentType, ReactNode, SVGProps } from "react";
 import { cn } from "../utilidades";
+import { Boton } from "./boton";
 
 /*
  * Piezas del teléfono de Iris (E4c, maqueta aprobada el 21 nov 2026): el teclado de 12 teclas
  * (marcar y tonos durante la llamada) y los controles redondos de la llamada (silenciar, en espera,
  * teclado, transferir, colgar). Botones grandes (56 px) para tocarlos sin mirar, con texto debajo:
- * el ícono nunca va solo.
+ * el ícono nunca va solo. Cada tecla y cada control es un `Boton` (el `Button` de HeroUI): React
+ * Aria da el teclado, el foco visible y el estado de presión.
  */
 
 const TECLAS: readonly (readonly [string, string])[] = [
@@ -38,19 +40,19 @@ export function TecladoTelefono({ alTocar, etiqueta = "Teclado", deshabilitado, 
     return (
         <div role="group" aria-label={etiqueta} data-slot="teclado-telefono" className={cn("mx-auto grid w-full max-w-[17rem] grid-cols-3 gap-2.5", className)}>
             {TECLAS.map(([tecla, letras]) => (
-                <button
+                <Boton
                     key={tecla}
-                    type="button"
+                    variante="fantasma"
                     disabled={deshabilitado}
                     aria-label={tecla === "*" ? "Asterisco" : tecla === "#" ? "Numeral" : tecla}
                     onClick={() => alTocar(tecla)}
-                    className="flex h-14 flex-col items-center justify-center rounded-full border border-border bg-card text-foreground transition-colors outline-none select-none hover:bg-elevated focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+                    className="flex h-14 w-full flex-col items-center justify-center gap-0 rounded-full border border-border bg-card px-0 text-foreground transition-colors select-none hover:bg-elevated active:scale-95 md:h-14"
                 >
                     <span className="text-xl leading-6 font-semibold tabular-nums">{tecla}</span>
                     <span aria-hidden className="h-3 text-[0.625rem] leading-3 tracking-[0.12em] text-muted-foreground">
                         {letras}
                     </span>
-                </button>
+                </Boton>
             ))}
         </div>
     );
@@ -72,15 +74,15 @@ export type PropsControlLlamada = {
 
 export function ControlLlamada({ icono: Icono, etiqueta, onClick, activo, peligro, deshabilitado, ayuda }: PropsControlLlamada) {
     return (
-        <button
-            type="button"
-            onClick={onClick}
+        <Boton
+            variante="fantasma"
+            {...(onClick ? { onClick } : {})}
             disabled={deshabilitado}
             aria-pressed={activo === undefined ? undefined : activo}
-            title={ayuda}
+            {...(ayuda ? { title: ayuda } : {})}
             data-slot="control-llamada"
             data-activo={activo || undefined}
-            className="group flex min-w-0 flex-col items-center gap-1.5 rounded-lg p-1 text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-50"
+            className="group flex h-auto w-auto min-w-0 flex-col items-center gap-1.5 rounded-lg p-1 text-xs font-medium text-foreground hover:bg-transparent md:h-auto [&_svg]:size-5"
         >
             <span
                 aria-hidden
@@ -96,7 +98,7 @@ export function ControlLlamada({ icono: Icono, etiqueta, onClick, activo, peligr
                 <Icono />
             </span>
             <span className="max-w-full truncate">{etiqueta}</span>
-        </button>
+        </Boton>
     );
 }
 

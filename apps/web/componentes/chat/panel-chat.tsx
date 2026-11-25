@@ -35,7 +35,7 @@ export function BotonChatEquipo() {
                 aria-expanded={enEquipo ? undefined : chat.panel.abierto}
                 aria-controls={chat.panel.abierto ? ID_PANEL : undefined}
                 data-slot="boton-chat-equipo"
-                className={cn("relative size-9 rounded-lg", chat.panel.abierto && "border-primary text-primary")}
+                className={cn("relative size-11 min-w-11 rounded-full border border-border bg-[var(--iris-tarjeta)] p-0 text-muted-foreground shadow-[var(--iris-sombra-flotante)] md:size-11 [&_svg]:size-[1.125rem]", chat.panel.abierto && "border-primary text-primary")}
                 onClick={() => (chat.panel.abierto ? chat.cerrarPanel() : chat.abrirPanel())}
             >
                 <MessageCircle />

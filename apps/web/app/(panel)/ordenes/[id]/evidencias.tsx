@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, Esqueleto } from "@iris/ui";
 import {
     Camera,
     CircleCheck,
@@ -103,9 +103,9 @@ export function Fotos({ orden, adjuntos }: { orden: OrdenDetalle; adjuntos: Lect
                     </p>
                 ) : adjuntos.estado === "cargando" ? (
                     <div className="grid grid-cols-3 gap-2" aria-busy="true">
-                        <span className="aspect-square animate-pulse rounded-md bg-elevated" />
-                        <span className="aspect-square animate-pulse rounded-md bg-elevated" />
-                        <span className="aspect-square animate-pulse rounded-md bg-elevated" />
+                        <Esqueleto className="aspect-square" />
+                        <Esqueleto className="aspect-square" />
+                        <Esqueleto className="aspect-square" />
                     </div>
                 ) : adjuntos.estado === "error" ? (
                     <ErrorLectura error={adjuntos.error} que="las fotos" reintentar={adjuntos.reintentar} />
@@ -229,7 +229,7 @@ export function Gps({ orden, eventos }: { orden: OrdenDetalle; eventos: Paginado
                 <div className="grid gap-1.5 border-t pt-3">
                     <span className="text-xs font-medium text-muted-foreground">Posiciones del técnico</span>
                     {lectura.estado === "cargando" ? (
-                        <span className="h-10 animate-pulse rounded-md bg-elevated" />
+                        <Esqueleto className="h-10" />
                     ) : lectura.estado === "error" ? (
                         <ErrorLectura error={lectura.error} que="las posiciones" reintentar={lectura.reintentar} />
                     ) : puntos.length === 0 ? (

@@ -177,7 +177,7 @@ test.describe("compositor de la bandeja", () => {
                 const t = c?.querySelector("textarea");
                 return { borde: c ? getComputedStyle(c).borderTopColor : "", contorno: t ? getComputedStyle(t).outlineStyle : "" };
             });
-        // El borde de la caja pasa a teal (con una transición corta); el texto no lleva contorno propio.
+        // El borde de la caja pasa a índigo (con una transición corta); el texto no lleva contorno propio.
         await expect.poll(estilos).toEqual({ borde: rgb, contorno: "none" });
         const adjuntar = compositor(page).locator("[data-adjuntar]");
         if (esTelefono(page)) {
@@ -189,7 +189,7 @@ test.describe("compositor de la bandeja", () => {
             await expect(adjuntar).toBeVisible();
             await expect(compositor(page).getByRole("button", { name: "Adjuntar y más herramientas" })).toBeHidden();
         }
-        // «Enviar» va en teal (el color de la marca), no en tinta.
+        // «Enviar» va en índigo (el color de la marca), no en tinta.
         await expect.poll(() => enviar(page).evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(rgb);
         await captura(page, "foco-y-herramientas");
     });

@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Aviso, Boton, Campo, CampoBusqueda, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Selector } from "@iris/ui";
+import { Aviso, Boton, BotonManualPantalla, Campo, CampoBusqueda, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Selector } from "@iris/ui";
 import { BookmarkPlus, Plus, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -122,7 +122,10 @@ function Bandeja({ clienteId, vistaInicial }: { clienteId: number | null; vistaI
         <div className="grid gap-4 [&>*]:min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
                 <div className="mr-auto grid gap-1">
-                    <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Tickets</h1>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                        <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Tickets</h1>
+                        <BotonManualPantalla />
+                    </div>
                     <p className="text-[0.8125rem] text-muted-foreground">Toca un ticket para abrir su ficha: asignar, escalar y resolver se hacen ahí.</p>
                 </div>
                 {puede(["tickets.crear"]) ? (

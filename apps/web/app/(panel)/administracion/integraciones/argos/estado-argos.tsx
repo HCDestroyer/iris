@@ -1,7 +1,7 @@
 "use client";
 
-import { Aviso, avisar, Boton, cn, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta } from "@iris/ui";
-import { AlertTriangle, CheckCircle2, Circle, CircleCheck, CirclePower, Info, Loader, Plug, RefreshCw, ShieldAlert } from "lucide-react";
+import { Aviso, avisar, Boton, cn, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta, Cargando, Tabla, TablaCelda, TablaCuerpo, TablaFila } from "@iris/ui";
+import { AlertTriangle, CheckCircle2, Circle, CircleCheck, CirclePower, Info, Plug, RefreshCw, ShieldAlert } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useState, type ReactNode } from "react";
@@ -101,7 +101,7 @@ function IconoEtapa({ estado }: { estado: EtapaSincronizacion["estado"] }) {
         case "completa":
             return <CheckCircle2 aria-hidden className={cn(clase, "text-success")} />;
         case "en_curso":
-            return <Loader aria-hidden className={cn(clase, "text-info motion-safe:animate-spin")} />;
+            return <Cargando decorativo className={cn(clase, "text-info")} />;
         case "con_errores":
             return <AlertTriangle aria-hidden className={cn(clase, "text-warning")} />;
         default:
@@ -243,21 +243,24 @@ function TarjetaConexion({ datos: d, conector: c }: { datos: EstadoConexionArgos
     );
 }
 
+/** Filas de dato y cifra (sin realce al pasar el puntero): una línea entre filas, como una lista. */
+const FILA_DATO = "border-t border-b-0 first:border-t-0 hover:bg-transparent";
+
 function TarjetaDatos({ datos: d }: { datos: EstadoConexionArgos }) {
     const [ahora] = useState(() => Date.now());
     return (
         <Seccion titulo="Datos de Argos en Iris" testid="instantaneas">
-            <table className="w-full text-sm">
-                <tbody>
+            <Tabla>
+                <TablaCuerpo>
                     {(d.instantaneas ?? []).map((i) => (
-                        <tr key={i.recurso} className="border-t first:border-t-0">
-                            <td className="py-1.5">{NOMBRE_RECURSO[i.recurso]}</td>
-                            <td className="py-1.5 text-right tabular-nums">{i.cuantos.toLocaleString("es-GT")}</td>
-                            <td className="py-1.5 pl-3 text-right text-xs text-muted-foreground">{i.ultimoSincronizadoEn ? haceCuanto(i.ultimoSincronizadoEn, ahora) : "—"}</td>
-                        </tr>
+                        <TablaFila key={i.recurso} className={FILA_DATO}>
+                            <TablaCelda className="px-0 py-1.5">{NOMBRE_RECURSO[i.recurso]}</TablaCelda>
+                            <TablaCelda className="px-0 py-1.5 text-right">{i.cuantos.toLocaleString("es-GT")}</TablaCelda>
+                            <TablaCelda className="py-1.5 pr-0 pl-3 text-right text-xs text-muted-foreground">{i.ultimoSincronizadoEn ? haceCuanto(i.ultimoSincronizadoEn, ahora) : "—"}</TablaCelda>
+                        </TablaFila>
                     ))}
-                </tbody>
-            </table>
+                </TablaCuerpo>
+            </Tabla>
         </Seccion>
     );
 }
@@ -272,22 +275,22 @@ function TarjetaFallos({ datos: d }: { datos: EstadoConexionArgos }) {
             testid="fallos"
             estado={n > 0 ? <InsigniaEstado tono="warning" texto={`${n} por revisar`} /> : <InsigniaEstado tono="success" texto="Nada" />}
         >
-            <table className="w-full text-sm">
-                <tbody>
-                    <tr>
-                        <td className="py-1.5">Avisos de Argos sin aplicar</td>
-                        <td className="py-1.5 text-right tabular-nums">{f.webhooksConError}</td>
-                    </tr>
-                    <tr className="border-t">
-                        <td className="py-1.5">Avisos con firma inválida (desde el último arranque)</td>
-                        <td className="py-1.5 text-right tabular-nums">{f.webhooksRechazados}</td>
-                    </tr>
-                    <tr className="border-t">
-                        <td className="py-1.5">Acciones hacia Argos esperando</td>
-                        <td className="py-1.5 text-right tabular-nums">{pendientes}</td>
-                    </tr>
-                </tbody>
-            </table>
+            <Tabla>
+                <TablaCuerpo>
+                    <TablaFila className={FILA_DATO}>
+                        <TablaCelda className="px-0 py-1.5">Avisos de Argos sin aplicar</TablaCelda>
+                        <TablaCelda className="px-0 py-1.5 text-right">{f.webhooksConError}</TablaCelda>
+                    </TablaFila>
+                    <TablaFila className={FILA_DATO}>
+                        <TablaCelda className="px-0 py-1.5">Avisos con firma inválida (desde el último arranque)</TablaCelda>
+                        <TablaCelda className="px-0 py-1.5 text-right">{f.webhooksRechazados}</TablaCelda>
+                    </TablaFila>
+                    <TablaFila className={FILA_DATO}>
+                        <TablaCelda className="px-0 py-1.5">Acciones hacia Argos esperando</TablaCelda>
+                        <TablaCelda className="px-0 py-1.5 text-right">{pendientes}</TablaCelda>
+                    </TablaFila>
+                </TablaCuerpo>
+            </Tabla>
         </Seccion>
     );
 }
