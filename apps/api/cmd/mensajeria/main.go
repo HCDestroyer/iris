@@ -125,7 +125,7 @@ func servir(ctx context.Context, cfg config.Config, ent mensajeria.Entorno, log 
 	// campo y comercial en la misma transacción. Sus jobs (correo, pendientes…) se insertan en sus
 	// colas y los trabaja cmd/worker (por eso SkipUnknownJobCheck).
 	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: cif, Encolar: encolar})
-	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Soporte: sop,
+	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Soporte: sop,
 		Agenda: agenda.Nuevo(agenda.Config{Argos: agenda.TecnicosDeArgos(conectorArgos)})})
 	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
 		Campo: cmp, Encolar: encolar})

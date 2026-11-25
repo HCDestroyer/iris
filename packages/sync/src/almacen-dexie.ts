@@ -33,6 +33,8 @@ export const TIPOS_CIFRADOS: readonly string[] = [
     "orden.cambiar_titular",
     "orden.completar_datos",
     "orden.cambiar_plan",
+    // La firma del contrato regenerado (el trazo es dato sensible, como la firma de la orden).
+    "orden.firmar_contrato",
 ];
 
 interface DatosCifrados {

@@ -89,7 +89,7 @@ function useTactil(): boolean {
  * líneas con tope (18 % del alto en el teléfono, 30 % en escritorio) y después se desplaza por
  * dentro, para que el hilo siga a la vista con el teclado abierto. En el teléfono va en una fila
  * con «+» (despliega las herramientas) y «Enviar» redondo; en escritorio, la barra de íconos
- * (adjuntar, plantillas, respuestas rápidas, emoji) siempre visible y «Enviar» en teal. Las
+ * (adjuntar, plantillas, respuestas rápidas, emoji) siempre visible y «Enviar» en índigo. Las
  * respuestas rápidas salen en chips solo con la caja vacía. Fuera de la ventana, al cliente solo se le puede mandar una plantilla
  * aprobada en ese número (lo dice en una línea). Enter envía; Mayús + Enter baja de línea.
  *
@@ -485,7 +485,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                     {cerrada ? null : <MenuRespuestas respuestas={deLaCola} alElegir={usarRespuesta} />}
                     {cerrada ? null : <BotonEnviarCuentas conv={conv} identidad={identidad} alEnviado={alConfirmado} />}
                     {/* «Sugerir» (asistente en modo botón): en el teléfono va en la fila, siempre a la vista. */}
-                    {cerrada || !accesorio ? null : <span className="hidden @min-[34rem]/conv:contents">{accesorio}</span>}
+                    {cerrada || !accesorio ? null : <span className="hidden @min-[30rem]/conv:contents">{accesorio}</span>}
                 </>
             ) : (
                 <MenuMenciones candidatos={candidatos} elegidos={menciones} alCambiar={setMenciones} />
@@ -586,11 +586,11 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                             {modo === "nota" ? "Nota interna (solo la ve el equipo)" : `Mensaje para ${conv.titulo}`}
                         </label>
                         {/* Teléfono (contenedor angosto): «+», el texto y «Enviar» en una fila. */}
-                        <div className="flex min-w-0 items-end gap-1 px-1 pb-1 @min-[34rem]/conv:px-1.5 @min-[34rem]/conv:pb-0" data-slot="fila-compositor">
+                        <div className="flex min-w-0 items-end gap-1 px-1 pb-1 @min-[30rem]/conv:px-1.5 @min-[30rem]/conv:pb-0" data-slot="fila-compositor">
                             <Boton
                                 variante="fantasma"
                                 tamano="icono"
-                                className="shrink-0 text-primary @min-[34rem]/conv:hidden"
+                                className="shrink-0 text-primary @min-[30rem]/conv:hidden"
                                 aria-label={herramientas ? "Ocultar herramientas" : "Adjuntar y más herramientas"}
                                 aria-expanded={herramientas}
                                 aria-controls={`herramientas-${conv.id}`}
@@ -604,7 +604,7 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                                 rows={1}
                                 maxLength={4096}
                                 placeholder={modo === "nota" ? "Nota para el equipo; el cliente no la ve" : validos > 0 ? "Comentario (opcional)" : "Escribe un mensaje"}
-                                className="block max-h-[min(8.5rem,18dvh)] min-h-10 w-full min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-1.5 py-2 text-base leading-[1.4] [overflow-wrap:anywhere] shadow-none [field-sizing:content] focus:ring-0 focus-visible:ring-0 focus-visible:outline-none! @min-[34rem]/conv:max-h-[min(11rem,30dvh)] @min-[34rem]/conv:px-1.5 sm:text-sm"
+                                className="block max-h-[min(8.5rem,18dvh)] min-h-10 w-full min-w-0 flex-1 resize-none rounded-none border-0 bg-transparent px-1.5 py-2 text-base leading-[1.4] [overflow-wrap:anywhere] shadow-none [field-sizing:content] focus:ring-0 focus-visible:ring-0 focus-visible:outline-none! @min-[30rem]/conv:max-h-[min(11rem,30dvh)] @min-[30rem]/conv:px-1.5 sm:text-sm"
                                 onKeyDown={alTeclear}
                                 onPaste={alPegar}
                                 aria-invalid={form.formState.errors.texto ? true : undefined}
@@ -614,11 +614,11 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                                     campo.current = el;
                                 }}
                             />
-                            {modo === "responder" && !cerrada && accesorio ? <span className="flex shrink-0 items-center self-center @min-[34rem]/conv:hidden">{accesorio}</span> : null}
+                            {modo === "responder" && !cerrada && accesorio ? <span className="flex shrink-0 items-center self-center @min-[30rem]/conv:hidden">{accesorio}</span> : null}
                             <Boton
                                 variante="primario"
                                 tamano="icono"
-                                className="shrink-0 rounded-full! @min-[34rem]/conv:hidden"
+                                className="shrink-0 rounded-full! @min-[30rem]/conv:hidden"
                                 onClick={enviar}
                                 disabled={!puedeEnviar}
                                 aria-label={textoEnviar}
@@ -637,12 +637,12 @@ export function Compositor({ conv, identidad, ahora, alPendiente, alConfirmado, 
                 ) : null}
                 <div
                     id={`herramientas-${conv.id}`}
-                    className={cn("min-w-0 flex-wrap items-center gap-0.5 px-1.5 pt-0.5 pb-1.5", herramientas || soloPlantilla ? "flex" : "hidden", "@min-[34rem]/conv:flex")}
+                    className={cn("min-w-0 flex-wrap items-center gap-0.5 px-1.5 pt-0.5 pb-1.5", herramientas || soloPlantilla ? "flex" : "hidden", "@min-[30rem]/conv:flex")}
                     data-slot="barra-compositor"
                 >
                     {barra}
                     {soloPlantilla ? null : (
-                        <Boton variante="primario" tamano="sm" className="ml-auto hidden h-8 px-3 @min-[34rem]/conv:inline-flex" onClick={enviar} disabled={!puedeEnviar} title={`${textoEnviar} (Enter)`}>
+                        <Boton variante="primario" tamano="sm" className="ml-auto hidden h-8 px-3 @min-[30rem]/conv:inline-flex" onClick={enviar} disabled={!puedeEnviar} title={`${textoEnviar} (Enter)`}>
                             {textoEnviar}
                             <Send />
                         </Boton>

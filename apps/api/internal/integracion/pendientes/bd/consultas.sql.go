@@ -13,6 +13,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const alcanceDeOrden = `-- name: AlcanceDeOrden :one
+SELECT zona_id, cuadrilla_id, tecnico_id FROM campo.ordenes WHERE id = $1::bigint
+`
+
+type AlcanceDeOrdenRow struct {
+	ZonaID      *int64
+	CuadrillaID *int64
+	TecnicoID   *int64
+}
+
+// La zona, la cuadrilla y el técnico de la orden: resolver a mano un paso del titular exige
+// ordenes.validar_identidad con alcance sobre ella (como campo).
+func (q *Queries) AlcanceDeOrden(ctx context.Context, id int64) (AlcanceDeOrdenRow, error) {
+	row := q.db.QueryRow(ctx, alcanceDeOrden, id)
+	var i AlcanceDeOrdenRow
+	err := row.Scan(&i.ZonaID, &i.CuadrillaID, &i.TecnicoID)
+	return i, err
+}
+
 const bloqueadosPorVinculo = `-- name: BloqueadosPorVinculo :many
 SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id, resuelto_como, resuelto_cliente_id, enviado_a_conector, esperando_vinculo_desde FROM integracion.pendientes WHERE estado = 'bloqueado' AND codigo_error = 'depende_de_vinculado' ORDER BY id LIMIT 500
 `
@@ -1043,6 +1062,19 @@ SELECT estado FROM campo.ordenes WHERE id = $1::bigint
 
 func (q *Queries) EstadoDeOrden(ctx context.Context, id int64) (string, error) {
 	row := q.db.QueryRow(ctx, estadoDeOrden, id)
+	var estado string
+	err := row.Scan(&estado)
+	return estado, err
+}
+
+const estadoDeOrdenCompartido = `-- name: EstadoDeOrdenCompartido :one
+SELECT estado FROM campo.ordenes WHERE id = $1::bigint FOR SHARE
+`
+
+// El estado de la orden con candado compartido (verificación de #280): un paso del titular hecho no
+// se cruza con el cierre de la orden, que la toma FOR UPDATE.
+func (q *Queries) EstadoDeOrdenCompartido(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, estadoDeOrdenCompartido, id)
 	var estado string
 	err := row.Scan(&estado)
 	return estado, err

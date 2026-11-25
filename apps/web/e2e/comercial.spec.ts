@@ -523,6 +523,12 @@ test("capturas del panel comercial", async ({ page, context, baseURL }, info) =>
     await page.getByTestId("cotizacion").getByRole("link", { name: "Cotizar" }).click();
     const cotizar = page.getByRole("form", { name: "Cotizar" });
     await cotizar.getByRole("button", { name: "Instalación" }).click();
+    // El aviso de «Evaluar» sigue a la vista unos segundos: nunca tapa la barra de «Guardar» y
+    // «Cancelar» (en escritorio sube por encima de ella; en el teléfono va arriba).
+    const aviso = page.locator('[data-region="avisos-emergentes"] [data-slot="toast"]').filter({ hasText: "Factibilidad de PR-000002 evaluada" });
+    const barra = await page.locator('[data-slot="barra-guardar"]').boundingBox();
+    const cajaAviso = await aviso.boundingBox({ timeout: 1_000 }).catch(() => null);
+    if (barra && cajaAviso) expect(cajaAviso.y + cajaAviso.height, "el aviso no se cruza con la barra de guardar").toBeLessThanOrEqual(barra.y);
     await page.screenshot({ path: nombre("06-cotizar") });
     // Salir con cambios pregunta antes de descartar.
     await cotizar.getByRole("button", { name: "Cancelar" }).click();

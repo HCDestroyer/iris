@@ -120,8 +120,12 @@ type Modulo struct {
 	AvisarClaveReutilizada *auditoria.Caso[EntradaAvisarClaveReutilizada, ResultadoAvisarTope]
 	// AvisarCargaVinculos: campana cuando la carga de vínculos con Argos queda detenida (0.14.0 §6.6).
 	AvisarCargaVinculos *auditoria.Caso[EntradaAvisarCargaVinculos, ResultadoAvisarTope]
-	prepararCorreo      *auditoria.Caso[int64, *correoListo]
-	cerrarCorreo        *auditoria.Caso[ResultadoCorreo, bool]
+	// AvisarVentaRevisada: campana del vendedor cuando la instalación cambia su venta (B20).
+	AvisarVentaRevisada *auditoria.Caso[EntradaAvisarVentaRevisada, ResultadoAvisarTope]
+	// AvisarSupervision: campana de los supervisores de la orden (paso_titular, contrato_sin_firma).
+	AvisarSupervision *auditoria.Caso[EntradaAvisarSupervision, ResultadoAvisarTope]
+	prepararCorreo    *auditoria.Caso[int64, *correoListo]
+	cerrarCorreo      *auditoria.Caso[ResultadoCorreo, bool]
 	// Correo del sistema configurable desde el panel (contratos/correo-sistema.md).
 	VerCorreoSistema        *auditoria.Caso[EntradaVerCorreo, CorreoSistema]
 	GuardarCorreoSistema    *auditoria.Caso[EntradaGuardarCorreo, CorreoSistema]
@@ -170,6 +174,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.AvisarCertificadoArgos = m.nuevoAvisarCertificadoArgos()
 	m.AvisarClaveReutilizada = m.nuevoAvisarClaveReutilizada()
 	m.AvisarCargaVinculos = m.nuevoAvisarCargaVinculos()
+	m.AvisarVentaRevisada = m.nuevoAvisarVentaRevisada()
+	m.AvisarSupervision = m.nuevoAvisarSupervision()
 	m.prepararCorreo = m.nuevoPrepararCorreo()
 	m.cerrarCorreo = m.nuevoCerrarCorreo()
 	m.VerCorreoSistema = m.nuevoVerCorreoSistema()

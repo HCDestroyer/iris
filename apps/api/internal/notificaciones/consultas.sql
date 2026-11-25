@@ -356,3 +356,28 @@ ORDER BY id DESC LIMIT 1;
 
 -- name: PurgarPruebasCorreo :execrows
 DELETE FROM notificaciones.correo_pruebas WHERE creado_en < @antes;
+
+-- name: DestinatariosDeOrden :many
+-- Personas activas con el permiso por un rol cuyo alcance cubre la orden (global, su zona o su
+-- cuadrilla) y que operan en su empresa (asignada o empresas.todas sin límite). Con la orden sin
+-- empresa (empresa_id null, sin conector), no se filtra por empresa: avisa a todos los que tienen
+-- el permiso con alcance sobre la orden (los globales incluidos).
+SELECT DISTINCT u.id, u.correo, u.nombre
+FROM nucleo.usuarios u
+JOIN nucleo.usuarios_roles ur ON ur.usuario_id = u.id
+JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id AND rp.permiso = @permiso::text
+JOIN campo.ordenes o ON o.id = @orden_id::bigint
+WHERE u.activo AND u.tipo = 'persona'
+  AND ((ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL) OR ur.zona_id = o.zona_id OR ur.cuadrilla_id = o.cuadrilla_id)
+  AND (o.empresa_id IS NULL
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = u.id AND ue.empresa_id = o.empresa_id)
+       OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur2
+                  JOIN nucleo.roles r2 ON r2.id = ur2.rol_id AND r2.activo
+                  JOIN nucleo.roles_permisos rp2 ON rp2.rol_id = ur2.rol_id
+                  WHERE ur2.usuario_id = u.id AND rp2.permiso = 'empresas.todas'
+                    AND ur2.zona_id IS NULL AND ur2.cuadrilla_id IS NULL))
+ORDER BY u.id;
+
+-- name: OrdenParaAviso :one
+SELECT id, numero, empresa_id FROM campo.ordenes WHERE id = @id;

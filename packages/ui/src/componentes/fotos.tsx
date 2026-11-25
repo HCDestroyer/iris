@@ -1,5 +1,6 @@
 "use client";
 
+import { Spinner } from "@heroui/react";
 import { ImageOff, RotateCw } from "lucide-react";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { cn } from "../utilidades";
@@ -96,7 +97,7 @@ export function FotoMensaje({ src, ancho, alto, estado, etiqueta, alAbrir, super
         return (
             <span role="img" aria-label={rechazada ? textoRechazada : textoPendiente} data-slot="foto-mensaje" data-estado-foto={rechazada ? "rechazada" : "pendiente"} className={comun} style={estilo}>
                 <span className={cn("absolute inset-0 grid place-content-center justify-items-center gap-1.5 p-3 text-center text-xs", rechazada ? "text-error" : "text-muted-foreground")}>
-                    {rechazada ? <ImageOff aria-hidden className="size-5" /> : <span aria-hidden className="size-5 animate-spin rounded-full border-2 border-current border-t-transparent motion-reduce:animate-none" />}
+                    {rechazada ? <ImageOff aria-hidden className="size-5" /> : <Spinner color="current" size="sm" role="presentation" aria-label={undefined} aria-hidden className="size-5" />}
                     <span>{rechazada ? textoRechazada : textoPendiente}</span>
                 </span>
                 {pie}
@@ -129,14 +130,19 @@ export function FotoMensaje({ src, ancho, alto, estado, etiqueta, alAbrir, super
     }
 
     return (
-        <button
-            type="button"
+        <Boton
+            variante="fantasma"
             data-slot="foto-mensaje"
             data-estado-foto={carga}
             data-proporcion={m.proporcion}
             aria-label={etiqueta}
-            onClick={alAbrir}
-            className={cn(comun, "cursor-zoom-in border-0 p-0 outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary", m.contener && "grid place-items-center")}
+            {...(alAbrir ? { onClick: alAbrir } : {})}
+            className={cn(
+                "h-auto min-w-0 justify-start gap-0 p-0 text-inherit md:h-auto [&_svg]:size-3.5",
+                comun,
+                "cursor-zoom-in border-0 outline-offset-2 focus-visible:outline-2 focus-visible:outline-primary",
+                m.contener && "grid place-items-center",
+            )}
             style={estilo}
         >
             {carga === "cargando" ? <span aria-hidden className="absolute inset-0 animate-pulse bg-elevated motion-reduce:animate-none" /> : null}
@@ -165,7 +171,7 @@ export function FotoMensaje({ src, ancho, alto, estado, etiqueta, alAbrir, super
                 </span>
             ) : null}
             {pie}
-        </button>
+        </Boton>
     );
 }
 

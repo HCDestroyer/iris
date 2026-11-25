@@ -1,7 +1,7 @@
 "use client";
 
 import { candidatoUnico, preguntaConfirmacion, SesionEscaneo, textoRepetido, textosEscaneo, type Candidato, type EstadoEscaneo, type ObjetivoEscaneo, type UsoCodigo } from "@iris/sync/campo";
-import { Boton, InsigniaEstado, VisorEscaner, type CodigoLeido, type GeometriaVisor, type Lector } from "@iris/ui";
+import { Boton, HojaEscaner, InsigniaEstado, VisorEscaner, type CodigoLeido, type GeometriaVisor, type Lector } from "@iris/ui";
 import { Barcode, CircleCheck, CircleSlash, Info, Keyboard, Package, QrCode, ScanLine, TriangleAlert, type LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { codigosQueCuentan, vibrarCorto } from "@/lib/campo/escaner";
@@ -65,11 +65,7 @@ export function EscanerEquipo({
             {...(crearLector ? { crearLector } : {})}
         >
             {candidatos ? (
-                <section
-                    role="dialog"
-                    aria-label="Códigos detectados"
-                    className="absolute inset-x-0 bottom-0 z-20 mx-auto grid max-h-[80%] max-w-xl gap-3 overflow-y-auto rounded-t-2xl border-t border-border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-foreground shadow-2xl"
-                >
+                <HojaEscaner etiqueta="Códigos detectados">
                     {unico ? (
                         <div className="grid gap-3">
                             <h3 className="text-lg font-semibold break-words">{preguntaConfirmacion(objetivo, unico)}</h3>
@@ -122,7 +118,7 @@ export function EscanerEquipo({
                             Escribir a mano
                         </Boton>
                     </div>
-                </section>
+                </HojaEscaner>
             ) : null}
         </VisorEscaner>
     );

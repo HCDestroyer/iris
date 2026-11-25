@@ -17,6 +17,12 @@ import {
     Esqueleto,
     EstadoVacio,
     useCambiosSinGuardar,
+    Tabla,
+    TablaCelda,
+    TablaCuerpo,
+    TablaEncabezado,
+    TablaFila,
+    TablaTitulo,
 } from "@iris/ui";
 import { ChevronDown, Inbox, RotateCw, UserRoundPlus, X } from "lucide-react";
 import Link from "next/link";
@@ -231,55 +237,55 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, a
 
             {/* Escritorio: tabla a todo el ancho. */}
             <div className="hidden overflow-x-auto md:block">
-                <table aria-label="Tickets" className="w-full min-w-[46rem] border-collapse text-[0.8125rem]">
-                    <thead>
-                        <tr className="bg-background-secondary text-left text-xs font-semibold text-muted-foreground">
+                <Tabla aria-label="Tickets" className="min-w-[46rem] text-[0.8125rem]">
+                    <TablaEncabezado className="[&_tr]:border-b-0">
+                        <TablaFila className="border-b-0 bg-background-secondary hover:bg-background-secondary">
                             {seleccionable ? (
-                                <th scope="col" className="w-10 py-2 pl-3">
+                                <TablaTitulo scope="col" className="h-auto font-semibold w-10 py-2 pl-3">
                                     <Casilla
                                         etiqueta={<span className="sr-only">Seleccionar todos los tickets</span>}
                                         checked={todos}
                                         disabled={asignables.length === 0}
                                         onChange={(e) => setElegidos(e.target.checked ? new Set(asignables.map((t) => t.id)) : new Set())}
                                     />
-                                </th>
+                                </TablaTitulo>
                             ) : null}
-                            <th scope="col" className={cn("py-2 pr-2", seleccionable ? "pl-1" : "pl-3")}>
+                            <TablaTitulo scope="col" className={cn("h-auto font-semibold", "py-2 pr-2", seleccionable ? "pl-1" : "pl-3")}>
                                 Ticket
-                            </th>
-                            <th scope="col" className="px-2 py-2">
+                            </TablaTitulo>
+                            <TablaTitulo scope="col" className="h-auto font-semibold px-2 py-2">
                                 Cliente
-                            </th>
-                            <th scope="col" className="px-2 py-2">
+                            </TablaTitulo>
+                            <TablaTitulo scope="col" className="h-auto font-semibold px-2 py-2">
                                 Estado
-                            </th>
-                            <th scope="col" className="px-2 py-2">
+                            </TablaTitulo>
+                            <TablaTitulo scope="col" className="h-auto font-semibold px-2 py-2">
                                 Prioridad
-                            </th>
-                            <th scope="col" className="px-2 py-2">
+                            </TablaTitulo>
+                            <TablaTitulo scope="col" className="h-auto font-semibold px-2 py-2">
                                 SLA
-                            </th>
-                            <th scope="col" className="py-2 pr-3 pl-2">
+                            </TablaTitulo>
+                            <TablaTitulo scope="col" className="h-auto font-semibold py-2 pr-3 pl-2">
                                 Responsable
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
+                            </TablaTitulo>
+                        </TablaFila>
+                    </TablaEncabezado>
+                    <TablaCuerpo className="[&_tr:last-child]:border-t">
                         {tickets.map((t) => {
                             const { tipo, reloj } = relojPrincipal(t);
                             const marcado = elegidos.has(t.id);
                             return (
-                                <tr
+                                <TablaFila
                                     key={t.id}
                                     data-ticket={t.numero}
                                     aria-selected={seleccionable ? marcado : undefined}
                                     className={cn(
-                                        "border-t border-border align-middle transition-colors hover:bg-background-secondary/60",
+                                        "border-t border-b-0 border-border align-middle",
                                         marcado && "bg-primary/5 shadow-[inset_3px_0_0_var(--hx-primary)]",
                                     )}
                                 >
                                     {seleccionable ? (
-                                        <td className="py-2.5 pl-3">
+                                        <TablaCelda className="py-2.5 pl-3">
                                             {t.estado !== "cerrado" ? (
                                                 <Casilla
                                                     etiqueta={<span className="sr-only">Seleccionar {t.numero}</span>}
@@ -287,9 +293,9 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, a
                                                     onChange={(e) => alternar(t.id, e.target.checked)}
                                                 />
                                             ) : null}
-                                        </td>
+                                        </TablaCelda>
                                     ) : null}
-                                    <td className={cn("max-w-[22rem] py-2.5 pr-2", seleccionable ? "pl-1" : "pl-3")}>
+                                    <TablaCelda className={cn("max-w-[22rem] py-2.5 pr-2", seleccionable ? "pl-1" : "pl-3")}>
                                         <Link href={`/tickets/${t.id}`} className="grid min-w-0 gap-0.5 rounded-sm hover:text-primary">
                                             <span className="truncate font-semibold">{t.asunto}</span>
                                             <span className="truncate font-mono text-[0.6875rem] text-muted-foreground">
@@ -299,25 +305,25 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, a
                                                 ) : null}
                                             </span>
                                         </Link>
-                                    </td>
-                                    <td className="max-w-[11rem] truncate px-2 py-2.5">
+                                    </TablaCelda>
+                                    <TablaCelda className="max-w-[11rem] truncate px-2 py-2.5">
                                         {t.contacto.nombre ?? <span className="text-muted-foreground">—</span>}
-                                    </td>
-                                    <td className="px-2 py-2.5">
+                                    </TablaCelda>
+                                    <TablaCelda className="px-2 py-2.5">
                                         <InsigniaEstadoTicket estado={t.estado} />
-                                    </td>
-                                    <td className="px-2 py-2.5">
+                                    </TablaCelda>
+                                    <TablaCelda className="px-2 py-2.5">
                                         <InsigniaPrioridad prioridad={t.prioridad} />
-                                    </td>
-                                    <td className="px-2 py-2.5">
+                                    </TablaCelda>
+                                    <TablaCelda className="px-2 py-2.5">
                                         <SlaVisible reloj={reloj} tipo={tipo} ahora={ahora} compacto />
-                                    </td>
-                                    <td className="max-w-[12rem] truncate py-2.5 pr-3 pl-2 text-muted-foreground">{asignado(t) ?? "Sin asignar"}</td>
-                                </tr>
+                                    </TablaCelda>
+                                    <TablaCelda className="max-w-[12rem] truncate py-2.5 pr-3 pl-2 text-muted-foreground">{asignado(t) ?? "Sin asignar"}</TablaCelda>
+                                </TablaFila>
                             );
                         })}
-                    </tbody>
-                </table>
+                    </TablaCuerpo>
+                </Tabla>
             </div>
 
             <div className="grid justify-items-center gap-3 border-t border-border p-3">

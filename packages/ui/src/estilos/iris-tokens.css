@@ -1,0 +1,230 @@
+/*
+ * Tokens de Iris (rediseño aprobado por el PM, nov. 2026): índigo #4F46E5 como color principal
+ * (#818CF8 en oscuro, con texto #0B0F1A encima), cian #06B6D4 como secundario y el degradado del
+ * logo. Es la única fuente de color de Iris: copia exacta de docs/marca/iris-tokens.css (una
+ * prueba lo verifica). Nunca colores crudos en componentes: solo estos nombres.
+ *
+ * Los `--hx-*` de la identidad Horus siguen existiendo como alias (todo el código que los usa
+ * toma los colores nuevos sin cambiar): cada uno apunta a un `--iris-*`. Ningún teal queda en la
+ * interfaz.
+ *
+ * Contraste (WCAG 2.2 AA, medido con `docs/ui/guia.md` «Contraste»): todo texto pasa 4,5:1 sobre
+ * la tarjeta, el lienzo y el relleno de su tema; las series de gráficas, 3:1 contra la tarjeta.
+ */
+
+/* ---------- Tema claro ---------- */
+:root,
+.light,
+[data-theme='light'] {
+  color-scheme: light;
+  --iris-fuente: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', 'Noto Sans',
+    'Liberation Sans', Arial, sans-serif;
+  --iris-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  /* Marca */
+  --iris-primario: #4f46e5; /* índigo 600 */
+  --iris-primario-hover: #4338ca; /* índigo 700 */
+  --iris-sobre-primario: #ffffff;
+  --iris-primario-suave: #eef2ff; /* índigo 50: lo elegido y el botón «suave» */
+  --iris-primario-texto: #4338ca; /* texto sobre el suave */
+  --iris-secundario: #06b6d4; /* cian 500: solo en el degradado y detalles, nunca un estado */
+  --iris-gradiente: linear-gradient(135deg, #4f46e5, #06b6d4);
+  /* Con texto blanco encima: el cian claro no llega a 4,5:1, así que baja a cian 700. */
+  --iris-gradiente-texto: linear-gradient(135deg, #4f46e5, #4338ca 55%, #0e7490);
+
+  /* Superficies */
+  --iris-fondo: #f8f9fa;
+  --iris-tarjeta: #ffffff;
+  --iris-flotante: #ffffff;
+  --iris-relleno: #f1f5f9;
+  --iris-borde: #e7eaee;
+
+  /* Texto */
+  --iris-texto: #0f172a;
+  --iris-texto-tenue: #475569;
+  --iris-texto-apagado: #5f6b7f; /* el #64748b de la maqueta no llega a 4,5:1 sobre el relleno */
+
+  /* Estados: siempre con ícono y texto. */
+  --iris-exito: #166534;
+  --iris-exito-fondo: #dcfce7;
+  --iris-exito-punto: #16a34a;
+  --iris-atencion: #92400e;
+  --iris-atencion-fondo: #fef3c7;
+  --iris-atencion-punto: #d97706;
+  --iris-peligro: #b91c1c;
+  --iris-peligro-fondo: #fee2e2;
+  --iris-peligro-punto: #dc2626;
+  --iris-info: #1d4ed8;
+  --iris-info-fondo: #dbeafe;
+  --iris-neutro: #334155;
+  --iris-neutro-fondo: #f1f5f9;
+
+  /*
+   * Gráficas: 5 series en orden fijo, sin colores de estado (ni verde, ni ámbar de aviso, ni rojo,
+   * ni azul de info) y sin teal. Siempre con leyenda o rótulo: el
+   * naranja y el amarillo se parecen con daltonismo rojo-verde. Cada una pasa 3:1 contra la tarjeta.
+   */
+  --iris-grafica-1: #4f46e5; /* índigo 600 */
+  --iris-grafica-2: #0891b2; /* cian 600 */
+  --iris-grafica-3: #c026d3; /* fucsia 600 */
+  --iris-grafica-4: #c2410c; /* naranja 700 */
+  --iris-grafica-5: #a16207; /* amarillo 700 */
+
+  /* Sombras, telón y aura */
+  --iris-sombra-tarjeta: 0 1px 2px rgb(15 23 42 / 0.04), 0 2px 8px rgb(15 23 42 / 0.04);
+  --iris-sombra-flotante: 0 10px 30px rgb(15 23 42 / 0.1), 0 2px 6px rgb(15 23 42 / 0.06);
+  --iris-sombra-modal: 0 24px 60px rgb(15 23 42 / 0.22);
+  --iris-telon: rgb(15 23 42 / 0.45);
+  --iris-aura-1: #e0e7ff;
+  --iris-aura-2: #cffafe;
+
+  /* Radios */
+  --iris-radio-control: 10px;
+  --iris-radio-tarjeta: 12px;
+  --iris-radio-modal: 16px;
+  --iris-radio-isla: 20px;
+  --iris-radio-isla-grande: 22px;
+}
+
+/* ---------- Tema oscuro ---------- */
+.dark,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --iris-primario: #818cf8; /* índigo 400: el blanco encima no llega a 4,5:1 */
+  --iris-primario-hover: #a5b4fc;
+  --iris-sobre-primario: #0b0f1a;
+  --iris-primario-suave: rgb(129 140 248 / 0.14);
+  --iris-primario-texto: #a5b4fc;
+  --iris-secundario: #22d3ee;
+
+  /* Azul noche, nunca negro. */
+  --iris-fondo: #0b0f1a;
+  --iris-tarjeta: #121828;
+  --iris-flotante: #18203a;
+  --iris-relleno: #1a2236;
+  --iris-borde: #222a40;
+
+  --iris-texto: #e2e8f0;
+  --iris-texto-tenue: #a3b0c2;
+  --iris-texto-apagado: #8a96aa;
+
+  --iris-exito: #4ade80;
+  --iris-exito-fondo: rgb(74 222 128 / 0.13);
+  --iris-exito-punto: #4ade80;
+  --iris-atencion: #fbbf24;
+  --iris-atencion-fondo: rgb(251 191 36 / 0.13);
+  --iris-atencion-punto: #fbbf24;
+  --iris-peligro: #f87171;
+  --iris-peligro-fondo: rgb(248 113 113 / 0.14);
+  --iris-peligro-punto: #f87171;
+  --iris-info: #60a5fa;
+  --iris-info-fondo: rgb(96 165 250 / 0.14);
+  --iris-neutro: #cbd5e1;
+  --iris-neutro-fondo: #1f2840;
+
+  --iris-grafica-1: #818cf8;
+  --iris-grafica-2: #22d3ee;
+  --iris-grafica-3: #e879f9;
+  --iris-grafica-4: #fb923c;
+  --iris-grafica-5: #facc15;
+
+  --iris-sombra-tarjeta: 0 1px 2px rgb(0 0 0 / 0.3);
+  --iris-sombra-flotante: 0 12px 32px rgb(0 0 0 / 0.45);
+  --iris-sombra-modal: 0 24px 60px rgb(0 0 0 / 0.6);
+  --iris-telon: rgb(0 0 0 / 0.62);
+  --iris-aura-1: rgb(79 70 229 / 0.22);
+  --iris-aura-2: rgb(6 182 212 / 0.12);
+}
+
+/*
+ * ---------- Alias de Horus ----------
+ * Los nombres `--hx-*` que ya usan los componentes y las pantallas apuntan a los de Iris. Van en el
+ * mismo selector que cada tema (después de horus-tokens.css): ganan a los valores teal de Horus.
+ */
+:root,
+.light,
+[data-theme='light'],
+.dark,
+[data-theme='dark'] {
+  --hx-font-sans: var(--iris-fuente);
+  --hx-font-mono: var(--iris-mono);
+  --hx-primary: var(--iris-primario);
+  --hx-primary-hover: var(--iris-primario-hover);
+  --hx-on-primary: var(--iris-sobre-primario);
+  --hx-secondary: var(--iris-primario-texto);
+  --hx-success: var(--iris-exito);
+  --hx-info: var(--iris-info);
+  --hx-warning: var(--iris-atencion);
+  --hx-error: var(--iris-peligro);
+
+  /* `--hx-bg` es la superficie base (campos, texto sobre un relleno de estado): la tarjeta. */
+  --hx-bg: var(--iris-tarjeta);
+  /* Lienzo del panel (`bg-background-secondary`). */
+  --hx-bg-muted: var(--iris-fondo);
+  /* Relleno tenue dentro de una tarjeta (`bg-elevated`). */
+  --hx-bg-elevated: var(--iris-relleno);
+  --hx-border: var(--iris-borde);
+  --hx-text: var(--iris-texto);
+  --hx-text-muted: var(--iris-texto-tenue);
+  --hx-text-dimmed: var(--iris-texto-apagado);
+
+  --hx-glass: var(--iris-tarjeta);
+  --hx-glass-strong: var(--iris-flotante);
+  --hx-glass-edge: transparent;
+  --hx-card: var(--iris-tarjeta);
+  --hx-aura-1: var(--iris-aura-1);
+  --hx-aura-2: var(--iris-aura-2);
+  /* Sin halos: el rediseño marca con color y sombra, no con luz. */
+  --hx-glow-brand: transparent;
+  --hx-glow-crit: transparent;
+  --hx-radius: var(--iris-radio-control);
+  --hx-radius-card: var(--iris-radio-tarjeta);
+}
+
+/* ---------- Base ---------- */
+body {
+  background: var(--iris-fondo);
+  color: var(--iris-texto);
+  font-family: var(--iris-fuente);
+}
+
+/* Aura del rediseño: dos luces suaves (índigo y cian) arriba, sin movimiento. */
+.app-aura::before,
+.app-aura::after {
+  animation: none;
+}
+
+/* La capa funcional ya no es vidrio: tarjeta sólida. */
+.glass-material,
+.chrome-material {
+  background-color: var(--iris-tarjeta);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+.surface-card,
+.dark .surface-card,
+[data-theme='dark'] .surface-card {
+  background-color: var(--iris-tarjeta);
+  border-radius: var(--iris-radio-tarjeta);
+  box-shadow:
+    0 0 0 1px var(--iris-borde),
+    var(--iris-sombra-tarjeta);
+}
+
+@media (prefers-contrast: more) {
+  :root,
+  .light,
+  [data-theme='light'] {
+    --iris-texto-tenue: #27313f;
+    --iris-borde: #64748b;
+  }
+
+  .dark,
+  [data-theme='dark'] {
+    --iris-texto-tenue: #e2e8f0;
+    --iris-borde: #8a96aa;
+  }
+}

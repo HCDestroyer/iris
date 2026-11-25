@@ -59,7 +59,7 @@ test("por la empresa: sin REGISTER, sonando, en curso con teclado, colgar y qued
     await expect(slot(page, "indicador-telefono")).toHaveAttribute("data-estado", "listo");
     await captura(page, "23-orden");
     const hoja = await abrirHoja(page);
-    await expect(hoja.getByRole("radio", { name: /Contacto en sitio/ })).toHaveAttribute("aria-checked", "true");
+    await expect(hoja.getByRole("radio", { name: /Contacto en sitio/ })).toBeChecked();
     await expect(hoja.getByText("El cliente verá")).toBeVisible();
     await captura(page, "24-hoja");
 
@@ -231,6 +231,8 @@ test("cerrar sesión con una llamada en curso cuelga y suelta el micrófono", as
     expect([...pistas.values()]).toContain("live");
 
     // La llamada tapa la app: se llega a «Yo» por la isla sin colgar (como al volver de otra app).
+    // En la orden la isla del teléfono es la acción fija (rediseño): primero «Mis órdenes».
+    await page.getByRole("button", { name: "Mis órdenes", includeHidden: true }).dispatchEvent("click");
     await page.locator('nav[aria-label="Secciones de la app"] a[href*="vista=yo"]').dispatchEvent("click");
     await page.getByRole("button", { name: "Cerrar sesión", includeHidden: true }).dispatchEvent("click");
     await expect(page).toHaveURL(/\/campo\?entrar=1$/);

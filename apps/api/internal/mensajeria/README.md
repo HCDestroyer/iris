@@ -108,6 +108,18 @@ cada variable recibe su dato (`parametros`): las variables del aviso, los deriva
 - Emite `plantilla_whatsapp.creada`, `.actualizada`, `.enviada`, `.estado_cambiado`,
   `.categoria_cambiada`, `.calidad_cambiada`, `.borrada`, `.sincronizada` y
   `plantillas_whatsapp.ajustes_cambiados`. No consume eventos.
+- **Lectura de Argos** (`plantillas_wa_argos.go`, contrato con Argos 0.13.0 §6.7, B32):
+  `GET /api/v1/integraciones/argosisp/plantillas-whatsapp?empresa_id=` con
+  `plantillas_whatsapp.leer_integracion` (solo el rol `integracion_argos`). La API la reenvía a este
+  proceso como un delegado más (`RutaPlantillasArgos`). Solo el token de integración (otro actor: 403
+  `solo_integracion_argos`) y solo empresas de su alcance (403 `empresa_no_permitida`). Devuelve
+  `{ data: [{ nombre, idioma, categoria, estado, codigos_aviso[], vista_previa }] }`: las plantillas
+  con el uso `avisos` (o sin usos, las migradas) de las cuentas de las que la empresa es dueña y de la
+  cuenta de un número prestado activo cuyo préstamo incluye `avisos`; sin borradores ni borradas, y
+  las de marketing solo con marketing activado por la dueña. `codigos_aviso` solo trae códigos del
+  catálogo de §6.3; `vista_previa` es el cuerpo con `{{dato}}`. Nunca el id de la cuenta, el id de
+  Meta ni el motivo de un rechazo. No audita la lectura correcta (como `GET /mensajeria/plantillas`).
+  Los números sin cuenta (`wabaId` vacío, con su mapa propio) no salen: no tienen estado de Meta.
 
 ## Chat interno del equipo (fase 1)
 

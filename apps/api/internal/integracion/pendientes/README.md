@@ -200,7 +200,9 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   `resuelto_como` distingue a mano, reemplazado, cancelado y validado; un A39 resuelto a mano deja el
   cobro y el consumo incompletos salvo `clienteId` al resolver; resolver un paso del titular exige
   `ordenes.validar_identidad`; `titular_no_coincide` marca la orden en revisión; un paso hecho con la
-  orden cancelada o fallida emite `orden.paso_titular_tras_cancelar`; `motivo` (A39) y
+  orden cancelada o fallida emite `orden.paso_titular_tras_cancelar` (con la orden cerrada ya no, desde
+  la verificación de #280: un cambio de plan o de titular de una venta de Iris lo avisa comercial con
+  `orden.contrato_sin_firma`, y las órdenes sin venta de Iris no avisan); `motivo` (A39) y
   `motivo_texto` (A40) no se ven en el panel.
 - Segunda revisión (#273): un paso del titular de una orden cancelada o fallida nunca sale (se mira
   antes de enviar y al guardar el resultado: lo que no salió bien queda `resuelto_manual` con

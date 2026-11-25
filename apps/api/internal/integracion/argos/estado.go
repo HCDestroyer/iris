@@ -222,6 +222,10 @@ func FuncionesApagadas(version, contrato *string) []FuncionApagada {
 	if !SoportaAprobarComprobantes(contrato) {
 		f = append(f, FuncionApagada{Codigo: "aprobar_comprobantes", Desde: "contrato 0.7.0", Texto: "No se aprueban ni rechazan boletas desde la conversación"})
 	}
+	if !SoportaTitularEmpresa(contrato) {
+		f = append(f, FuncionApagada{Codigo: "titular_empresa", Desde: "contrato " + ContratoTitularEmpresa,
+			Texto: "En la instalación no se cambia el titular a una empresa (con su NIT y representante)"})
+	}
 	if !SoportaInventarioTecnico(version) {
 		f = append(f, FuncionApagada{Codigo: "inventario_por_tecnico", Desde: "Argos " + VersionInventarioTecnico, Texto: "Sin inventario por técnico: Iris usa el número de bodega"})
 	}

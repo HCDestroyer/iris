@@ -318,6 +318,9 @@ const (
 	PermPlantillasWhatsAppCrear       Permiso = "plantillas_whatsapp.crear"
 	PermPlantillasWhatsAppEditar      Permiso = "plantillas_whatsapp.editar"
 	PermPlantillasWhatsAppBorrar      Permiso = "plantillas_whatsapp.borrar"
+	// PermPlantillasWhatsAppLeerIntegracion: Argos lee las plantillas que puede usar una empresa de
+	// su alcance (contrato 0.13.0 §6.7, B32). Solo del rol integracion_argos; no edita nada.
+	PermPlantillasWhatsAppLeerIntegracion Permiso = "plantillas_whatsapp.leer_integracion"
 )
 
 // Voz, etapa E1 (contratos/voz.md §8.2): llamadas entrantes de WhatsApp contestadas en el panel.
@@ -632,11 +635,11 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesAplicarDatosArgos, "Aplicar a una orden abierta los datos nuevos de Argos (dirección, coordenadas, referencia y contacto) tras el aviso «Dato de Argos cambió»"},
 	{PermOrdenesAsignar, "Asignar órdenes de trabajo a un técnico o cuadrilla"},
 	{PermOrdenesAsignarForm, "Agregar formularios (plantillas) a una orden o quitarlos mientras no tengan respuestas"},
-	{PermOrdenesCambiarPlan, "Cambiar el plan de una instalación antes de activarla (entre los permitidos, con motivo; el técnico solo en sus órdenes en sitio)"},
-	{PermOrdenesCambiarTitular, "Registrar la identidad del titular de una instalación o cambiar el titular antes de activar (con la foto del documento; el técnico solo en sus órdenes en sitio)"},
+	{PermOrdenesCambiarPlan, "Cambiar el plan de una instalación antes de activarla (entre los permitidos, con motivo; el técnico solo en sus órdenes en sitio; despacho y supervisor desde el panel)"},
+	{PermOrdenesCambiarTitular, "Registrar la identidad del titular de una instalación, cambiar el titular antes de activar (con la foto del documento) y tomar la firma del contrato regenerado (el técnico solo en sus órdenes en sitio)"},
 	{PermOrdenesCancelar, "Cancelar órdenes de trabajo"},
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
-	{PermOrdenesCompletarDatos, "Completar los datos que falten del titular y del lugar de una instalación antes de activarla (el técnico solo en sus órdenes en sitio)"},
+	{PermOrdenesCompletarDatos, "Completar los datos que falten del titular y del lugar de una instalación antes de activarla (el técnico solo en sus órdenes en sitio; despacho y supervisor desde el panel)"},
 	{PermOrdenesCrear, "Crear órdenes de trabajo (también desde un ticket)"},
 	{PermOrdenesDeclararPerdida, "Declarar perdido un equipo en comodato que no se pudo recuperar (solo con Argos anterior a 0.12.0; desde 0.12.0 lo decide una persona en Argos)"},
 	{PermOrdenesDescartarDatosArgos, "Descartar el aviso «Dato de Argos cambió» de una orden sin cambiar sus datos"},
@@ -664,6 +667,7 @@ var Catalogo = []DefPermiso{
 	{PermPlantillasWhatsAppBorrar, "Borrar plantillas de WhatsApp (también en Meta)"},
 	{PermPlantillasWhatsAppCrear, "Crear plantillas de WhatsApp y enviarlas a Meta"},
 	{PermPlantillasWhatsAppEditar, "Editar plantillas de WhatsApp, decidir dónde se usan y cambiar sus ajustes"},
+	{PermPlantillasWhatsAppLeerIntegracion, "Leer las plantillas de WhatsApp que puede usar una empresa (lo usa Argos con su token de integración; no edita nada)"},
 	{PermPlantillasWhatsAppSincronizar, "Sincronizar con Meta las plantillas de WhatsApp de una cuenta"},
 	{PermPlantillasWhatsAppVer, "Ver las plantillas de WhatsApp de las cuentas de la empresa, su estado en Meta y su historial"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
@@ -798,14 +802,18 @@ var RolesBase = []DefRol{
 			PermOrdenesDeclararPerdida},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
-					PermOrdenesValidarIdentidad})...)},
+					PermOrdenesValidarIdentidad,
+					// Paso «Confirmar titular y plan» desde el panel (0.10.0 §3.4, «Quién»): completar datos y cambiar el plan.
+					PermOrdenesCompletarDatos, PermOrdenesCambiarPlan})...)},
 	{Codigo: "despacho", Nombre: "Despacho", Descripcion: "Programa órdenes y rutas",
 		Permisos: append([]Permiso{PermUsuariosVer,
 			PermClientesVer, PermServiciosVerUbicacion, PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesVerPendientes,
 			PermTicketsVer, PermTicketsCrear, PermTicketsAsignar, PermTicketsNotaInterna, PermTicketsVerNotas,
 			PermAgendaVer, PermAgendaFijarTurnos, PermAgendaRegistrarAusencia, PermAgendaAnularAusencia,
 			PermAgendaCrearTarea, PermAgendaCompletarTarea, PermAgendaAnularTarea,
-			PermCampoVerPosiciones, PermCampoVerActividad, PermChatVer, PermChatEnviar, PermCentralitaLlamar, PermCentralitaTransferir},
+			PermCampoVerPosiciones, PermCampoVerActividad, PermChatVer, PermChatEnviar, PermCentralitaLlamar, PermCentralitaTransferir,
+			// Paso «Confirmar titular y plan» desde el panel (0.10.0 §3.4, «Quién»).
+			PermOrdenesCompletarDatos, PermOrdenesCambiarPlan},
 			slices.Concat(permisosOrdenes, permisosRutas, permisosAtencion)...)},
 	{Codigo: "tecnico", Nombre: "Técnico", Descripcion: "Trabaja órdenes en campo",
 		// servicios.ver_red y servicios.ver_ubicacion: solo en los servicios de sus órdenes (alcance de
@@ -859,7 +867,9 @@ var RolesBase = []DefRol{
 			// Bodega de cuadrilla (0.11.0 §3.9): conciliar la cuadrilla.
 			PermCuadrillasLeerIntegracion,
 			// Equipos del cliente (0.14.0 §3.10): verificar cambios e intentos.
-			PermAdjuntosVerificarIntegracion}},
+			PermAdjuntosVerificarIntegracion,
+			// Plantillas de WhatsApp que puede usar cada empresa (contrato 0.13.0 §6.7, B32): solo leer.
+			PermPlantillasWhatsAppLeerIntegracion}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }

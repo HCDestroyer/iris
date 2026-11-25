@@ -155,11 +155,12 @@ func correr() error {
 	if err != nil {
 		return err
 	}
-	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
+	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop})
 	cmp.SuscribirRetiros(bus, pool, log)
 	// «Dato de Argos cambió» (contrato 0.5.0): argos.datos_cambiados marca las órdenes abiertas.
 	cmp.SuscribirDatosArgos(bus, pool, log)
+	cmp.SuscribirTitularArgos(bus, pool, log)
 	// Bodega de cuadrilla (contrato 0.11.0 §3.9): un usuario desactivado o con otra empresa cambia
 	// los miembros que van a Argos en cuadrilla.actualizada.
 	cmp.Agenda().SuscribirCuadrillas(bus, pool, log)
@@ -173,6 +174,8 @@ func correr() error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	com.SuscribirAltas(bus, pool, log)
+	com.SuscribirActivacion(bus, pool, log)
+	com.SuscribirRevisionVenta(bus, pool, log)
 	// Mensajería (contrato 0.6.0 §6.6): aviso.entregado, aviso.fallido y contacto.baja → webhooks hacia
 	// Argos (mensajeria.webhooks_salida); los entrega el proceso de mensajería.
 	msj := mensajeria.Nuevo(mensajeria.Config{})
