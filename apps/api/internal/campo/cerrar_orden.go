@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
 
@@ -27,10 +29,90 @@ type EntradaCerrarOrden struct {
 	// SinActivacionMotivo: un supervisor (ordenes.cerrar_sin_activacion) cierra una instalación
 	// exitosa sin la activación lista cuando la empresa la exige (contrato 0.9.0 §12.2).
 	SinActivacionMotivo *string `json:"sinActivacionMotivo,omitempty" minLength:"10" maxLength:"500" doc:"Solo con el modo «exigir la activación lista»: un supervisor (ordenes.cerrar_sin_activacion) cierra sin ella; un agente la termina desde el panel"`
-	Sync                *OpSync `json:"-"`
+	// MotivoSinContratoFirmado: un supervisor cierra una instalación con el contrato regenerado sin firmar.
+	MotivoSinContratoFirmado *string `json:"motivoSinContratoFirmado,omitempty" minLength:"10" maxLength:"500" doc:"Solo desde el panel y con ordenes.validar_identidad (supervisor) sobre la orden: cierra la instalación aunque el titular no haya firmado el contrato regenerado (B20). Queda en la auditoría y avisa a supervisión (orden.contrato_sin_firma)"`
+	Sync                     *OpSync `json:"-"`
 }
 
 func (e EntradaCerrarOrden) ordenID() int64 { return e.ID }
+
+// exigirContratoFirmado (B20, verificación de #280): una instalación con el contrato regenerado
+// en la orden sin firmar no cierra (422 contrato_por_firmar). Tampoco mientras el cambio de plan o
+// de titular que lo va a regenerar sigue sin revisión: en la cola de Argos, o hecho sin que el relay
+// haya creado la revisión en comercial (CambioSinRevisionDeOrden). Un supervisor la cierra igual
+// desde el panel con motivo (motivoSinContratoFirmado): ordenes.validar_identidad con alcance de su
+// rol sobre la orden (global, zona o cuadrilla; nunca por ser el técnico asignado), canal panel.
+// Argos ya tiene (o va a tener) el plan o el titular nuevo: sin la firma, la subida de precio no
+// queda aceptada (B6).
+func exigirContratoFirmado(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f campobd.CampoOrden, tipo string, in EntradaCerrarOrden) error {
+	if tipo != tipoInstalacion {
+		if in.MotivoSinContratoFirmado != nil {
+			return campoInvalido("motivoSinContratoFirmado", "Solo para una instalación con el contrato regenerado sin firmar", "instalacion")
+		}
+		return nil
+	}
+	detalle := ""
+	var enCola *campobd.CambioSinRevisionDeOrdenRow
+	if _, err := q.ContratoPorFirmarDeOrden(ctx, f.ID); err == nil {
+		detalle = "El titular debe firmar en sitio el contrato regenerado (cambio de plan o de titular) antes de cerrar"
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	} else if c, err := q.CambioSinRevisionDeOrden(ctx, f.ID); err == nil {
+		cambio := "de plan"
+		if c.Operacion == "cambiar_titular" {
+			cambio = "de titular"
+		}
+		detalle = "El cambio " + cambio + " todavía no tiene el contrato nuevo firmado (sigue en curso con Argos o espera el contrato); espera la firma del titular antes de cerrar"
+		if slices.Contains([]string{"pendiente", "en_curso", "bloqueado", "agotado"}, c.Estado) {
+			enCola = &c
+		}
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	if detalle == "" {
+		if in.MotivoSinContratoFirmado != nil {
+			return campoInvalido("motivoSinContratoFirmado", "Esta orden no tiene un contrato por firmar", "sin_contrato")
+		}
+		return nil
+	}
+	if in.MotivoSinContratoFirmado == nil {
+		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "contrato_por_firmar", "Falta la firma del contrato nuevo",
+			detalle+"; un supervisor puede cerrar sin la firma desde el panel, con motivo",
+			nucleo.ErrorCampo{Field: "contrato", Message: "Falta la firma del contrato nuevo", Rule: "firma"})
+	}
+	if in.Sync != nil || contexto.CanalDe(ctx) != contexto.CanalPanel || !supervisaOrden(ctx, f) {
+		return nucleo.Prohibido("Solo un supervisor cierra sin la firma del contrato nuevo, desde el panel")
+	}
+	if _, err := texto("motivoSinContratoFirmado", *in.MotivoSinContratoFirmado, 10, 500); err != nil {
+		return err
+	}
+	// Lo único que bloqueaba era un cambio todavía en la cola de Argos: no hay contrato ni revisión
+	// que anular después, así que el aviso a supervisión sale aquí, en la misma transacción.
+	if enCola != nil {
+		return t.Emitir(eventoContratoSinFirma, map[string]any{"orden_id": f.ID, "prospecto_id": enCola.ProspectoID, "empresa_id": f.EmpresaID,
+			"contrato_id": nil, "cotizacion_id": nil, "operacion": enCola.Operacion, "motivo": "cierre_sin_firma", "clave": enCola.IdempotencyKey})
+	}
+	return nil
+}
+
+// eventoContratoSinFirma: el aviso a supervisión de comercial (comercial.EventoContratoSinFirma;
+// campo no importa comercial). Aquí, un supervisor cerró con el cambio todavía en la cola.
+const eventoContratoSinFirma = "orden.contrato_sin_firma"
+
+// supervisaOrden: ordenes.validar_identidad con el alcance de su rol sobre la orden (global, su
+// zona o su cuadrilla). Sin «propia»: el técnico asignado nunca se autoriza a sí mismo.
+func supervisaOrden(ctx context.Context, f campobd.CampoOrden) bool {
+	a := contexto.ActorDe(ctx)
+	if !a.EsUsuario() || (f.TecnicoID != nil && *f.TecnicoID == a.ID) {
+		return false
+	}
+	p := contexto.PermisosDe(ctx)
+	if !p.Tiene(string(nucleo.PermOrdenesValidarIdentidad)) {
+		return false
+	}
+	global, zonas, cuadrillas := p.Alcances(string(nucleo.PermOrdenesValidarIdentidad))
+	return global || (f.ZonaID != nil && slices.Contains(zonas, *f.ZonaID)) || (f.CuadrillaID != nil && slices.Contains(cuadrillas, *f.CuadrillaID))
+}
 
 // cierreIncompleto: faltan requisitos de la plantilla o del tipo (422 con la lista).
 func cierreIncompleto(errores []nucleo.ErrorCampo) *nucleo.Problema {
@@ -92,6 +174,14 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			// Instalación de una venta: la identidad del titular registrada o validada (§3.4.8).
 			if err := m.exigirIdentidad(ctx, t, q, antes, tipo.Codigo, resultado); err != nil {
 				return antes, "", err
+			}
+			// Requisitos del cierre, en este orden: el contrato regenerado firmado (B20) y después la
+			// activación y la bienvenida (0.9.0 §12.2). Se evalúan todos; el primero que falte responde.
+			if err := exigirContratoFirmado(ctx, t, q, antes, tipo.Codigo, in); err != nil {
+				return antes, "", err
+			}
+			if in.MotivoSinContratoFirmado != nil {
+				t.Anotar(map[string]any{"cierre_sin_contrato_firmado": true})
 			}
 			// Activación desde la orden (0.9.0 §12.2): con «exigir lista», la activación lista (o un
 			// supervisor con motivo); en cualquier modo, lo que el cierre le dice a la cola.

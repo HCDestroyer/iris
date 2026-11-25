@@ -612,3 +612,10 @@ RETURNING *;
 -- Un admin de Iris confirma una cuenta recién cambiada: entra en la bienvenida antes de las 24 h (§12.5).
 UPDATE integracion.argos_cuentas_bancarias SET confirmada_por = @usuario_id, confirmada_en = now(), updated_at = now()
 WHERE id = @id RETURNING *;
+
+-- name: MarcarTitularCambiado :execrows
+-- servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora de Argos (ocurrido_en, solo con
+-- ocurrido_origen = argos y dentro de la tolerancia) del último
+-- cambio de titular; nunca retrocede. Llamar con BloquearArgos del servicio tomado.
+UPDATE integracion.argos_servicios SET titular_cambiado_en = @en
+WHERE id = @id AND (titular_cambiado_en IS NULL OR titular_cambiado_en <= @en);

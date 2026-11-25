@@ -35,6 +35,8 @@ export const TIPOS_CIFRADOS: readonly string[] = [
     "orden.cambiar_plan",
     // La clave Wi-Fi inicial de «Activar servicio» (0.9.0 §12.1, «Secretos»).
     "orden.activar_servicio",
+    // La firma del contrato regenerado (el trazo es dato sensible, como la firma de la orden).
+    "orden.firmar_contrato",
 ];
 
 interface DatosCifrados {

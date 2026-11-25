@@ -484,3 +484,13 @@ WHERE idempotency_key = @clave::text AND NOT factura_anulada;
 -- Avisos factura.* / pago.* que llegaron antes de ligar esa factura (historial de la orden), en orden.
 SELECT coalesce(datos->>'webhook', '')::text AS webhook FROM campo.orden_eventos
 WHERE orden_id = @orden_id::bigint AND tipo = 'cobro' AND datos->>'factura_id' = @factura::text ORDER BY id;
+
+-- name: EstadoDeOrdenCompartido :one
+-- El estado de la orden con candado compartido (verificación de #280): un paso del titular hecho no
+-- se cruza con el cierre de la orden, que la toma FOR UPDATE.
+SELECT estado FROM campo.ordenes WHERE id = @id::bigint FOR SHARE;
+
+-- name: AlcanceDeOrden :one
+-- La zona, la cuadrilla y el técnico de la orden: resolver a mano un paso del titular exige
+-- ordenes.validar_identidad con alcance sobre ella (como campo).
+SELECT zona_id, cuadrilla_id, tecnico_id FROM campo.ordenes WHERE id = @id::bigint;

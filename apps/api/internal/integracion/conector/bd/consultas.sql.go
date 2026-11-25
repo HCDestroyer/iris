@@ -698,7 +698,7 @@ func (q *Queries) EmpresaCanjeParaActualizar(ctx context.Context, id int64) (Nuc
 }
 
 const entranteParaProcesar = `-- name: EntranteParaProcesar :one
-SELECT id, conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, recibido_en, procesado_en, resultado, intentos, error, request_id, created_at, updated_at FROM integracion.entrantes WHERE id = $1 FOR UPDATE
+SELECT id, conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, recibido_en, procesado_en, resultado, intentos, error, request_id, created_at, updated_at, ocurrido_origen FROM integracion.entrantes WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) EntranteParaProcesar(ctx context.Context, id int64) (IntegracionEntrante, error) {
@@ -720,12 +720,13 @@ func (q *Queries) EntranteParaProcesar(ctx context.Context, id int64) (Integraci
 		&i.RequestID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OcurridoOrigen,
 	)
 	return i, err
 }
 
 const entrantePorID = `-- name: EntrantePorID :one
-SELECT id, conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, recibido_en, procesado_en, resultado, intentos, error, request_id, created_at, updated_at FROM integracion.entrantes WHERE id = $1
+SELECT id, conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, recibido_en, procesado_en, resultado, intentos, error, request_id, created_at, updated_at, ocurrido_origen FROM integracion.entrantes WHERE id = $1
 `
 
 func (q *Queries) EntrantePorID(ctx context.Context, id int64) (IntegracionEntrante, error) {
@@ -747,12 +748,13 @@ func (q *Queries) EntrantePorID(ctx context.Context, id int64) (IntegracionEntra
 		&i.RequestID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OcurridoOrigen,
 	)
 	return i, err
 }
 
 const entrantePorWebhook = `-- name: EntrantePorWebhook :one
-SELECT id, conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, recibido_en, procesado_en, resultado, intentos, error, request_id, created_at, updated_at FROM integracion.entrantes WHERE conector_id = $1 AND webhook_id = $2
+SELECT id, conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, recibido_en, procesado_en, resultado, intentos, error, request_id, created_at, updated_at, ocurrido_origen FROM integracion.entrantes WHERE conector_id = $1 AND webhook_id = $2
 `
 
 type EntrantePorWebhookParams struct {
@@ -779,6 +781,7 @@ func (q *Queries) EntrantePorWebhook(ctx context.Context, arg EntrantePorWebhook
 		&i.RequestID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OcurridoOrigen,
 	)
 	return i, err
 }
@@ -1091,20 +1094,21 @@ func (q *Queries) InsertarConector(ctx context.Context, arg InsertarConectorPara
 
 const insertarEntrante = `-- name: InsertarEntrante :one
 
-INSERT INTO integracion.entrantes (conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, request_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
+INSERT INTO integracion.entrantes (conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, ocurrido_origen, request_id)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 ON CONFLICT (conector_id, webhook_id) DO NOTHING
-RETURNING id, conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, recibido_en, procesado_en, resultado, intentos, error, request_id, created_at, updated_at
+RETURNING id, conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, recibido_en, procesado_en, resultado, intentos, error, request_id, created_at, updated_at, ocurrido_origen
 `
 
 type InsertarEntranteParams struct {
-	ConectorID int64
-	WebhookID  string
-	Evento     string
-	EmpresaID  *int64
-	Payload    []byte
-	OcurridoEn *time.Time
-	RequestID  string
+	ConectorID     int64
+	WebhookID      string
+	Evento         string
+	EmpresaID      *int64
+	Payload        []byte
+	OcurridoEn     *time.Time
+	OcurridoOrigen *string
+	RequestID      string
 }
 
 // Webhooks entrantes --------------------------------------------------------------------
@@ -1117,6 +1121,7 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 		arg.EmpresaID,
 		arg.Payload,
 		arg.OcurridoEn,
+		arg.OcurridoOrigen,
 		arg.RequestID,
 	)
 	var i IntegracionEntrante
@@ -1136,6 +1141,7 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 		&i.RequestID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OcurridoOrigen,
 	)
 	return i, err
 }

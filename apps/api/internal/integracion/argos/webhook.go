@@ -116,6 +116,9 @@ type entradaAplicar struct {
 	// e090: webhook de la 0.9.0 (instalacion.*, equipo.wifi_resuelto, servicio.bienvenida_cambiada,
 	// factura.*, pago.*): se emite su evento interno.
 	e090 *evento090
+	// titular: servicio.titular_cambiado (0.10.0 §3.4.4): se emite el evento interno si la ficha
+	// releída del titular nuevo lo confirma.
+	titular *titularCambiado
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -224,6 +227,17 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 			r.Resultado = "aplicado"
 		}
 	}
+	// servicio.titular_cambiado: el candado del servicio antes de guardar la ficha (MEDIA 2 de #280).
+	titularAtrasado := false
+	if in.titular != nil && in.errArgos == nil && in.omitido == "" {
+		if titularAtrasado, err = bloquearTitular(ctx, q, in); err != nil {
+			return r, err
+		}
+		if titularAtrasado && in.ficha != nil {
+			// La ficha del titular del aviso atrasado no reescribe ese servicio (ya es de otro).
+			in.ficha = in.ficha.sinServicio(*in.titular.ServicioID)
+		}
+	}
 	switch {
 	case in.borrar && in.ClienteID != nil:
 		// Argos ya no tiene al cliente: sus copias en tickets y órdenes se anonimizan.
@@ -255,6 +269,15 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 			if err := emitirDatosCambiados(t, e, "cliente", c, nil); err != nil {
 				return r, err
 			}
+		}
+	}
+	if in.titular != nil && in.errArgos == nil && in.omitido == "" {
+		emitido, err := emitirTitularCambiado(ctx, t, q, in, titularAtrasado)
+		if err != nil {
+			return r, err
+		}
+		if emitido {
+			r.Resultado = "aplicado"
 		}
 	}
 	if e.Evento == EventoServicioEstadoCambiado && strings.EqualFold(leerPayload(e.Payload).A, "retirado") {
@@ -339,6 +362,13 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoServicioDatosCambiados:
 		in.datosServicio = datos.servicio()
+	case EventoServicioTitularCambiado:
+		omitido, err := p.leerTitularCambiado(ctx, bd, e, &in)
+		if err != nil {
+			return ResultadoEntrante{}, err
+		}
+		in.omitido = omitido
+		return p.aplicar.Ejecutar(ctx, in)
 	}
 	switch e.Evento {
 	case EventoServicioEliminado, EventoRouterEliminado:
