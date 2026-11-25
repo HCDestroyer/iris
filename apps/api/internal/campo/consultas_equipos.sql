@@ -154,7 +154,8 @@ SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios WHERE id = @servicio_id
 -- días anteriores a la llegada del aviso (@recibido), o aún abiertas y creadas antes; solo se relaciona si
 -- hay exactamente una. Nunca por updated_at ni por la hora en que se procesa.
 SELECT o.id FROM campo.ordenes o JOIN campo.tipos_orden t ON t.id = o.tipo_id
-WHERE o.servicio_id = @servicio_id AND o.cliente_id = @cliente_id AND t.codigo = 'instalacion' AND o.estado <> 'cancelada'
+WHERE o.servicio_id = @servicio_id AND o.cliente_id = @cliente_id AND t.codigo = 'instalacion' AND o.estado NOT IN ('cancelada', 'fallida')
+  AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint
   AND o.created_at <= sqlc.arg(creada_antes)::timestamptz
   AND (o.finalizada_en IS NULL OR (o.finalizada_en >= sqlc.arg(desde)::timestamptz AND o.finalizada_en <= sqlc.arg(recibido)::timestamptz))
 LIMIT 2;

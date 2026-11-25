@@ -1170,15 +1170,17 @@ func (q *Queries) OrdenesDeServicioParaBienvenida(ctx context.Context, servicioI
 
 const ordenesParaBienvenidaSinOrigen = `-- name: OrdenesParaBienvenidaSinOrigen :many
 SELECT o.id FROM campo.ordenes o JOIN campo.tipos_orden t ON t.id = o.tipo_id
-WHERE o.servicio_id = $1 AND o.cliente_id = $2 AND t.codigo = 'instalacion' AND o.estado <> 'cancelada'
-  AND o.created_at <= $3::timestamptz
-  AND (o.finalizada_en IS NULL OR (o.finalizada_en >= $4::timestamptz AND o.finalizada_en <= $5::timestamptz))
+WHERE o.servicio_id = $1 AND o.cliente_id = $2 AND t.codigo = 'instalacion' AND o.estado NOT IN ('cancelada', 'fallida')
+  AND o.empresa_id IS NOT DISTINCT FROM $3::bigint
+  AND o.created_at <= $4::timestamptz
+  AND (o.finalizada_en IS NULL OR (o.finalizada_en >= $5::timestamptz AND o.finalizada_en <= $6::timestamptz))
 LIMIT 2
 `
 
 type OrdenesParaBienvenidaSinOrigenParams struct {
 	ServicioID  *int64
 	ClienteID   *int64
+	EmpresaID   *int64
 	CreadaAntes time.Time
 	Desde       time.Time
 	Recibido    time.Time
@@ -1191,6 +1193,7 @@ func (q *Queries) OrdenesParaBienvenidaSinOrigen(ctx context.Context, arg Ordene
 	rows, err := q.db.Query(ctx, ordenesParaBienvenidaSinOrigen,
 		arg.ServicioID,
 		arg.ClienteID,
+		arg.EmpresaID,
 		arg.CreadaAntes,
 		arg.Desde,
 		arg.Recibido,

@@ -80144,7 +80144,7 @@
         "x-permiso": "ordenes.ver"
       },
       "post": {
-        "description": "Permiso: `servicios.cambiar_wifi`. Nombre o clave nuevos (al menos uno). Argos lo aplica en el equipo y avisa por webhook; el estado queda en GET /ordenes/{id}/wifi. El técnico en sitio (presencial); un agente con el titular confirmado (llamada_verificada). 429 `demasiados_cambios_wifi` (3 por servicio al día). La clave nunca se guarda ni se devuelve. Emite `wifi.cambio_pedido`.",
+        "description": "Permiso: `servicios.cambiar_wifi`. Nombre o clave nuevos (al menos uno). Argos lo aplica en el equipo y avisa por webhook; el estado queda en GET /ordenes/{id}/wifi. `metodo`: `presencial` (solo el técnico en sitio, en su orden en curso) o `datos_titular` (un agente con la verificación §7.5 del titular en `verificacionId`); `codigo_telefono` y `codigo_correo` aún no: 422 `metodo_no_disponible`. 429 `demasiados_cambios_wifi` (3 por servicio al día). La clave nunca se guarda ni se devuelve. Emite `wifi.cambio_pedido`.",
         "operationId": "cambiarWifiOrden",
         "parameters": [
           {

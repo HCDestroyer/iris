@@ -11,8 +11,11 @@ ALTER TABLE integracion.pendientes
     ADD COLUMN exige_por_anular boolean NOT NULL DEFAULT false,
     ADD COLUMN factura_anulada boolean NOT NULL DEFAULT false;
 UPDATE integracion.pendientes SET exige_por_anular = true WHERE factura_por_anular_id IS NOT NULL;
-UPDATE integracion.pendientes SET primer_envio_en = created_at WHERE intentos > 0 AND primer_envio_en IS NULL;
-UPDATE integracion.pendientes SET envio_sin_respuesta = true WHERE intentos > 0 AND estado <> 'hecho' AND operacion = 'cargo';
+UPDATE integracion.pendientes SET primer_envio_en = created_at
+WHERE primer_envio_en IS NULL AND (intentos > 0 OR ultimo_error IS NOT NULL OR tomado_en IS NOT NULL);
+-- Falla cerrado: todo cargo no hecho que alguna vez se tomó o falló (ultimo_error o tomado_en).
+UPDATE integracion.pendientes SET envio_sin_respuesta = true
+WHERE operacion = 'cargo' AND estado <> 'hecho' AND (intentos > 0 OR ultimo_error IS NOT NULL OR tomado_en IS NOT NULL);
 
 -- +goose Down
 -- +goose StatementBegin

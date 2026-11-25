@@ -614,3 +614,51 @@ func TestAvisoDeFacturaSeAplicaAlLigarla(t *testing.T) {
 		t.Fatalf("pagado al ligar la factura: %+v", cs[0])
 	}
 }
+
+// A1-quater: el cargo del cierre que espera al titular (por resolver) cuenta como vigente: A36 con la
+// instalación da 409 cobro_al_cerrar. Y si un A36 de instalación nació entretanto, el cuerpo se vuelve a
+// decidir al resolverlo (con la orden bloqueada): sale sin esa línea.
+func TestCargoPorResolverCuentaComoVigente(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	tec, ct := e.tecnicoEnEmpresa()
+	cierre := func(o campo.Orden) {
+		t.Helper()
+		esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o.ID, datosCambioTitular())), "aplicada")
+		if _, err := pruebas.Pool(t).Exec(context.Background(), "INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES (gen_random_uuid(), 'orden.cerrada', 1, $1)",
+			`{"orden_id":"`+strconv.FormatInt(o.ID, 10)+`","tipo":"instalacion","resultado":"exitosa","cliente_id":990,"servicio_id":9901,"empresa_id":1,`+
+				`"cargo":{"descripcion":"Cobro","lineas":[{"concepto_id":5,"precio_unitario":"350.00"},{"concepto_id":9,"precio_unitario":"100.00"}]}}`); err != nil {
+			t.Fatal(err)
+		}
+		e.relay()
+	}
+	o := e.instalacion(tec, ct, true)
+	cierre(o)
+	if c := e.pendiente("iris:cargo:" + strconv.FormatInt(o.ID, 10)); len(c.DependeDe) != 1 {
+		t.Fatalf("el cobro espera al titular: %+v", c)
+	}
+	_, err := e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID, ConceptoID: ptr(int64(5)), PrecioUnitario: ptr("350"),
+		MotivoPrecio: ptr("Cobro de la instalación acordado")})
+	problema(t, err, 409, "cobro_al_cerrar")
+
+	// Un A36 de instalación vigente que nació en medio (sin pasar por el registro): al resolver el cuerpo
+	// del cargo del cierre, sale sin la línea de instalación.
+	o2 := e.instalacion(tec, ct, true)
+	cierre(o2)
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO campo.cobros (id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id,
+		precio_unitario, estado, idempotency_key, es_instalacion) VALUES (gen_random_uuid(), $1, 1, 9901, 990, 5, 350, 'facturado', $2, true)`,
+		o2.ID, "iris:cargo:"+strconv.FormatInt(o2.ID, 10)+":"+pruebas.Unico()); err != nil {
+		t.Fatal(err)
+	}
+	e.procesar()
+	l := e.falso.porClave("iris:cargo:" + strconv.FormatInt(o2.ID, 10))
+	if l == nil {
+		t.Fatal("no salió el cargo del cierre")
+	}
+	if lineas, _ := l.JSON["lineas"].([]any); len(lineas) != 1 || lineas[0].(map[string]any)["concepto_id"] != 9.0 {
+		t.Fatalf("sin la línea de instalación: %+v", l.JSON)
+	}
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), "DELETE FROM campo.cobros WHERE orden_id = $1", o2.ID)
+	})
+}

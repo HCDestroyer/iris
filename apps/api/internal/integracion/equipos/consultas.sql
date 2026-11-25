@@ -33,6 +33,9 @@ ORDER BY created_at DESC LIMIT 20;
 -- otro cambio ni en un enlace del asistente: vale para un solo cambio (0.9.0 §12.4).
 SELECT v.id, v.creada_en FROM mensajeria.asistente_verificaciones v
 WHERE v.id = @id AND v.cliente_id = @cliente_id AND v.resultado = 'coincide' AND v.creada_en >= @desde
+  AND v.empresa_id IS NOT DISTINCT FROM sqlc.narg(empresa_id)::bigint
+  -- La conversación de la verificación sigue asociada a ese cliente.
+  AND EXISTS (SELECT 1 FROM mensajeria.conversaciones c WHERE c.id = v.conversacion_id AND c.cliente_id = v.cliente_id)
   AND NOT EXISTS (SELECT 1 FROM integracion.cambios_wifi c WHERE c.verificacion_id = v.id)
   AND NOT EXISTS (SELECT 1 FROM mensajeria.enlaces_wifi e WHERE e.verificacion_id = v.id AND e.id IS DISTINCT FROM sqlc.narg(enlace_id)::uuid);
 

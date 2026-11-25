@@ -260,6 +260,23 @@ func resolverSiListo(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integr
 	if err != nil {
 		return f, err
 	}
+	// A1-quater: un cargo que esperaba (p. ej. al titular) vuelve a decidir la línea de instalación con la
+	// orden bloqueada antes de fijar su cuerpo: un cobro de A36 vigente con ella pudo nacer entretanto.
+	cuerpo, motivo, err := lineaAlResolver(ctx, q, f, cuerpo)
+	if err != nil {
+		return f, err
+	}
+	if motivo != "" {
+		g, err := q.FallarResolucion(ctx, pendientesbd.FallarResolucionParams{ID: f.ID, Motivo: &motivo})
+		if err != nil {
+			return f, err
+		}
+		t.RegistrarCambios("pendiente", g.ID, map[string]any{"estado": f.Estado}, map[string]any{"estado": g.Estado, "datos_incompletos": true})
+		if err := t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(g), Intentos: g.Intentos, Detalle: motivo}); err != nil {
+			return g, err
+		}
+		return g, bloquearDependientes(ctx, t, g.ID, g.Estado)
+	}
 	g, err := q.FijarCuerpoResuelto(ctx, pendientesbd.FijarCuerpoResueltoParams{ID: f.ID, Payload: cuerpo, Ahora: ahora})
 	if err != nil {
 		return f, err

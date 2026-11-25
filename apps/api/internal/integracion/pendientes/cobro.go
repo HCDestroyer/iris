@@ -593,11 +593,12 @@ func CargoConInstalacionVigente(ctx context.Context, q pendientesbd.DBTX, orden 
 }
 
 // cargoVigente: un cargo cuenta como vigente salvo fallido (sin «por confirmar»), con su factura anulada
-// en Argos, en espera del consumo (nunca sale), por resolver (marcadores) o resuelto porque Argos lo
-// cobró con el consumo. Uno resuelto a mano sí cuenta (pudo cobrarse en Argos).
+// en Argos, en espera del consumo (nunca sale) o resuelto porque Argos lo cobró con el consumo. Uno
+// resuelto a mano sí cuenta (pudo cobrarse en Argos), y también uno por resolver (espera, p. ej., al
+// titular: saldrá).
 func cargoVigente(f pendientesbd.IntegracionPendiente) bool {
 	switch {
-	case f.Estado == EstadoFallidoNegocio && !f.PorConfirmar, f.FacturaAnulada, f.EsperaConsumo, f.PorResolver:
+	case f.Estado == EstadoFallidoNegocio && !f.PorConfirmar, f.FacturaAnulada, f.EsperaConsumo:
 		return false
 	}
 	return f.Estado != EstadoResueltoManual || f.ResueltoComo == nil || *f.ResueltoComo != "cobrado_con_consumo"
@@ -933,4 +934,58 @@ func MarcarFacturaAnulada(ctx context.Context, t *auditoria.Tx, factura int64, c
 		t.Anotar(map[string]any{"factura_anulada": factura, "clave": clave})
 	}
 	return nil
+}
+
+// lineaAlResolver: al fijar el cuerpo de un cargo de orden por resolver, con la orden bloqueada, quita
+// la línea de instalación si la orden tiene un cobro de A36 de instalación vigente (su concepto). Si no
+// queda ninguna línea, o el cargo es de la forma anterior en una instalación, devuelve el motivo para
+// dejarlo fallido e incompleto (no sale).
+func lineaAlResolver(ctx context.Context, q *pendientesbd.Queries, f pendientesbd.IntegracionPendiente, cuerpo []byte) ([]byte, string, error) {
+	if f.Operacion != OpCargo || f.Entidad != "orden" {
+		return cuerpo, "", nil
+	}
+	orden, err := strconv.ParseInt(f.EntidadID, 10, 64)
+	if err != nil {
+		return cuerpo, "", nil
+	}
+	if _, err := q.BloquearOrdenCampo(ctx, orden); errors.Is(err, pgx.ErrNoRows) {
+		return cuerpo, "", nil
+	} else if err != nil {
+		return nil, "", err
+	}
+	a36, err := q.CobrosA36Vigentes(ctx, orden)
+	if err != nil {
+		return nil, "", err
+	}
+	instalacion := map[int64]bool{}
+	for _, c := range a36 {
+		if c.EsInstalacion && c.IdempotencyKey != f.IdempotencyKey {
+			instalacion[c.ConceptoID] = true
+		}
+	}
+	if len(instalacion) == 0 {
+		return cuerpo, "", nil
+	}
+	motivo := "datos incompletos: " + MotivoCobroA36Vigente + " (la orden ya tiene un cobro de la instalación)"
+	base, lineas, ok := lineasDe(cuerpo)
+	if !ok {
+		tipo, err := q.TipoDeOrdenCampo(ctx, orden)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return nil, "", err
+		}
+		if tipo == TipoInstalacion {
+			return cuerpo, motivo, nil
+		}
+		return cuerpo, "", nil
+	}
+	quedan := SinLineaInstalacion(lineas, instalacion)
+	if len(quedan) == len(lineas) {
+		return cuerpo, "", nil
+	}
+	if len(quedan) == 0 {
+		return cuerpo, motivo, nil
+	}
+	base["lineas"] = quedan
+	b, err := json.Marshal(base)
+	return b, "", err
 }

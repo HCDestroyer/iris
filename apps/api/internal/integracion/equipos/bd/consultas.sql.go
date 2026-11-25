@@ -299,14 +299,18 @@ func (q *Queries) ServicioEsDelCliente(ctx context.Context, arg ServicioEsDelCli
 const verificacionParaPanel = `-- name: VerificacionParaPanel :one
 SELECT v.id, v.creada_en FROM mensajeria.asistente_verificaciones v
 WHERE v.id = $1 AND v.cliente_id = $2 AND v.resultado = 'coincide' AND v.creada_en >= $3
+  AND v.empresa_id IS NOT DISTINCT FROM $4::bigint
+  -- La conversación de la verificación sigue asociada a ese cliente.
+  AND EXISTS (SELECT 1 FROM mensajeria.conversaciones c WHERE c.id = v.conversacion_id AND c.cliente_id = v.cliente_id)
   AND NOT EXISTS (SELECT 1 FROM integracion.cambios_wifi c WHERE c.verificacion_id = v.id)
-  AND NOT EXISTS (SELECT 1 FROM mensajeria.enlaces_wifi e WHERE e.verificacion_id = v.id AND e.id IS DISTINCT FROM $4::uuid)
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.enlaces_wifi e WHERE e.verificacion_id = v.id AND e.id IS DISTINCT FROM $5::uuid)
 `
 
 type VerificacionParaPanelParams struct {
 	ID        int64
 	ClienteID int64
 	Desde     time.Time
+	EmpresaID *int64
 	EnlaceID  pgtype.UUID
 }
 
@@ -322,6 +326,7 @@ func (q *Queries) VerificacionParaPanel(ctx context.Context, arg VerificacionPar
 		arg.ID,
 		arg.ClienteID,
 		arg.Desde,
+		arg.EmpresaID,
 		arg.EnlaceID,
 	)
 	var i VerificacionParaPanelRow

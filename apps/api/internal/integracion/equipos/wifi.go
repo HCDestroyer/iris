@@ -152,7 +152,7 @@ func Encolar(ctx context.Context, t *auditoria.Tx, cif *nucleo.Cifrador, p Pedid
 		if p.VerificacionID == nil {
 			return CambioWifi{}, verificacionRequerida()
 		}
-		v, err := q.VerificacionParaPanel(ctx, equiposbd.VerificacionParaPanelParams{ID: *p.VerificacionID, ClienteID: p.ClienteID, EnlaceID: uuidPG(p.EnlaceID),
+		v, err := q.VerificacionParaPanel(ctx, equiposbd.VerificacionParaPanelParams{ID: *p.VerificacionID, ClienteID: p.ClienteID, EnlaceID: uuidPG(p.EnlaceID), EmpresaID: p.EmpresaID,
 			Desde: p.Ahora.Add(-VigenciaVerificacion)})
 		if errors.Is(err, pgx.ErrNoRows) {
 			return CambioWifi{}, verificacionRequerida()

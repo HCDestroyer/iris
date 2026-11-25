@@ -252,7 +252,8 @@ func (m *Modulo) nuevoActualizarBienvenida() *auditoria.Caso[entradaBienvenidaAr
 					}
 				}
 				ids, err := q.OrdenesParaBienvenidaSinOrigen(ctx, campobd.OrdenesParaBienvenidaSinOrigenParams{ServicioID: &in.ServicioID,
-					ClienteID: in.ClienteID, Recibido: recibido, Desde: recibido.Add(-7 * 24 * time.Hour), CreadaAntes: creadaAntes})
+					ClienteID: in.ClienteID, Recibido: recibido, Desde: recibido.Add(-7 * 24 * time.Hour), CreadaAntes: creadaAntes,
+					EmpresaID: in.EmpresaID})
 				if err != nil {
 					return nil, err
 				}
