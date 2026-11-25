@@ -22,7 +22,10 @@ func TestPermisosSensiblesCubrenLaAdministracion(t *testing.T) {
 		// Releer de Meta las plantillas de WhatsApp no cambia ninguna (decisión del PM: supervisión y soporte).
 		nucleo.PermPlantillasWhatsAppSincronizar: true,
 		// Cambiar el Wi-Fi del cliente (0.9.0 §12.4) es trabajo de campo y soporte, con el titular verificado.
-		nucleo.PermServiciosCambiarWifi: true}
+		nucleo.PermServiciosCambiarWifi: true,
+		// Argos lee las plantillas que puede usar una empresa (contrato 0.13.0 §6.7): solo lectura, del
+		// rol integracion_argos.
+		nucleo.PermPlantillasWhatsAppLeerIntegracion: true}
 	for _, d := range nucleo.Catalogo {
 		c := string(d.Codigo)
 		_, accion, _ := strings.Cut(c, ".")

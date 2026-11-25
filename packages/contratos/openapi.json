@@ -21286,6 +21286,28 @@
         ],
         "type": "object"
       },
+      "ListaPlantillasArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PlantillaArgos"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Solo si hay más: cursor de la página siguiente",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "type": "object"
+      },
       "ListaPlantillasConv": {
         "additionalProperties": false,
         "properties": {
@@ -27590,6 +27612,7 @@
           "plantillas_whatsapp.borrar",
           "plantillas_whatsapp.crear",
           "plantillas_whatsapp.editar",
+          "plantillas_whatsapp.leer_integracion",
           "plantillas_whatsapp.sincronizar",
           "plantillas_whatsapp.ver",
           "portal.emitir",
@@ -28085,6 +28108,54 @@
           "nombre",
           "requiereFirma",
           "items"
+        ],
+        "type": "object"
+      },
+      "PlantillaArgos": {
+        "additionalProperties": false,
+        "properties": {
+          "categoria": {
+            "enum": [
+              "UTILITY",
+              "MARKETING",
+              "AUTHENTICATION"
+            ],
+            "type": "string"
+          },
+          "codigos_aviso": {
+            "description": "Códigos de §6.3 que atiende (factura_por_vencer…)",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "estado": {
+            "description": "Estado en Meta (APPROVED, PENDING, REJECTED, PAUSED, DISABLED, FLAGGED…). Un aviso sale solo con APPROVED o FLAGGED y sin pausa",
+            "type": "string"
+          },
+          "idioma": {
+            "description": "Idioma en Meta (es, es_MX…)",
+            "type": "string"
+          },
+          "nombre": {
+            "description": "Nombre de la plantilla en Meta",
+            "type": "string"
+          },
+          "vista_previa": {
+            "description": "Texto del mensaje con las variables como {{nombre}}",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nombre",
+          "idioma",
+          "categoria",
+          "estado",
+          "codigos_aviso",
+          "vista_previa"
         ],
         "type": "object"
       },
@@ -45668,6 +45739,123 @@
           "integraciones"
         ],
         "x-permiso": "integraciones.ver"
+      }
+    },
+    "/api/v1/integraciones/argosisp/plantillas-whatsapp": {
+      "get": {
+        "description": "Permiso: `plantillas_whatsapp.leer_integracion`. Solo el token de integración de Argos (otro actor: 403 `solo_integracion_argos`) y solo empresas de su alcance (403 `empresa_no_permitida`). Sin `limit` devuelve todas hasta 500 (`{ data }`, como §6.7) y `nextCursor` solo si hay más; con `limit`, por páginas (cursor atado a la empresa: el de otra, 422). Con `Cache-Control: no-store`. Devuelve las plantillas con el uso «avisos» de las cuentas de WhatsApp de la empresa (con un número suyo activo y conectado en esa cuenta) y, de un número prestado, solo si el préstamo la autoriza a mandar avisos. Sin borradores ni borradas; las de marketing solo con marketing activado. Nunca el id de la cuenta (WABA), el id de Meta ni el motivo de un rechazo. Las plantillas se editan y se aprueban solo en Iris.",
+        "operationId": "listarPlantillasWhatsAppArgos",
+        "parameters": [
+          {
+            "description": "Empresa de Argos (del alcance del conector; si no, 403 empresa_no_permitida)",
+            "explode": false,
+            "in": "query",
+            "name": "empresa_id",
+            "required": true,
+            "schema": {
+              "description": "Empresa de Argos (del alcance del conector; si no, 403 empresa_no_permitida)",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Cursor opaco que devolvió la página anterior (nextCursor); va atado a la empresa",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "Cursor opaco que devolvió la página anterior (nextCursor); va atado a la empresa",
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Tamaño de página; sin él, todas hasta 500 (como §6.7, que no pagina)",
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "description": "Tamaño de página; sin él, todas hasta 500 (como §6.7, que no pagina)",
+              "format": "int64",
+              "maximum": 500,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListaPlantillasArgos"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Plantillas de WhatsApp que puede usar una empresa (contrato Iris ↔ ArgosISP 0.13.0 §6.7)",
+        "tags": [
+          "mensajeria"
+        ],
+        "x-permiso": "plantillas_whatsapp.leer_integracion"
       }
     },
     "/api/v1/integraciones/argosisp/prospectos": {

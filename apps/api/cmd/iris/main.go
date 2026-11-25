@@ -322,7 +322,8 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			legal.Nuevo(legal.Config{}).Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
-		Delegados:         map[string]http.Handler{mensajeria.Prefijo: proxyMsj},
+		// Las plantillas de WhatsApp que lee Argos (contrato 0.13.0 §6.7) también las sirve la mensajería.
+		Delegados: map[string]http.Handler{mensajeria.Prefijo: proxyMsj, mensajeria.RutaPlantillasArgos: proxyMsj},
 	})
 
 	srv := &http.Server{
