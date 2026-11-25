@@ -245,6 +245,14 @@ func TestTitularResueltoAManoConfirmaElCliente(t *testing.T) {
 		deOtraZona := contexto.ConActor(e.cs, contexto.ActorDe(e.cs), contexto.NuevosPermisos(otraZona))
 		_, err = e.pend.ResolverManual.Ejecutar(deOtraZona, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave), Motivo: "Lo corregí en Argos"})
 		problema(t, err, 403, "prohibido")
+		// Con el cliente final, el permiso se mira antes de consultar a Argos (fuera del candado).
+		antes := e.falso.lecturas()
+		_, err = e.pend.ResolverManual.Ejecutar(deOtraZona, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
+			Motivo: "Lo corregí en Argos", ClienteID: ptr(int64(888))})
+		problema(t, err, 403, "prohibido")
+		if e.falso.lecturas() != antes {
+			t.Fatal("se consultó a Argos sin permiso")
+		}
 		e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
 		deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
 			Motivo: "Lo corregí en Argos a mano", ClienteID: cliente}))(t)
@@ -270,6 +278,25 @@ func TestTitularResueltoAManoConfirmaElCliente(t *testing.T) {
 		}
 	}
 	// Reemplazado por otra toma no es «a mano»: el cobro va al titular nuevo (prueba del cobro).
+	// El diff del pendiente y el evento llevan el cliente final indicado.
+	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'integracion.pendiente_resuelto_manual'
+		AND (payload->>'resuelto_cliente_id')::bigint = 888`); n == 0 {
+		t.Fatal("pendiente_resuelto_manual sin resuelto_cliente_id")
+	}
+	if n := contar(t, "SELECT count(*) FROM auditoria.cambios WHERE entidad = 'pendiente' AND campo = 'resuelto_cliente_id' AND despues = '888'::jsonb"); n == 0 {
+		t.Fatal("el diff del pendiente sin resuelto_cliente_id")
+	}
+	// Una operación del titular sin una orden válida: falla cerrado (403).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.pendientes (operacion, idempotency_key, entidad, entidad_id, metodo, ruta, estado, empresa_id)
+		VALUES ('cambiar_titular', $1, 'prospecto', 'x', 'POST', '/servicios/1/cambiar-titular', 'fallido_negocio', 1)`, "iris:titular:sin-orden-"+pruebas.Unico()); err != nil {
+		t.Fatal(err)
+	}
+	var sinOrden int64
+	if err := pruebas.Pool(t).QueryRow(context.Background(), "SELECT id FROM integracion.pendientes WHERE entidad = 'prospecto' AND entidad_id = 'x' ORDER BY id DESC LIMIT 1").Scan(&sinOrden); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: sinOrden, Version: 1, Motivo: "Lo corregí en Argos"})
+	problema(t, err, 403, "prohibido")
 }
 
 // MEDIA 7: toda instalación con el servicio pendiente en Argos exige la identidad (tenga prospecto o

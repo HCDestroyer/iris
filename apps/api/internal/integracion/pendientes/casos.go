@@ -316,6 +316,8 @@ type eventoResueltoManual struct {
 	De             string `json:"de"`
 	Motivo         string `json:"motivo"`
 	UsuarioID      *int64 `json:"usuario_id"`
+	// ResueltoClienteID: el cliente final que indicó quien lo resolvió (cambio de titular), o null.
+	ResueltoClienteID *int64 `json:"resuelto_cliente_id"`
 }
 
 // nuevoResolverManual: solo desde fallido_negocio (incluido el incompleto). Lo agotado se
@@ -333,6 +335,27 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 		Accion: "integraciones.resolver_pendiente",
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaResolverManual) (Pendiente, error) {
 			q := pendientesbd.New(t)
+			// El cliente final de un cambio de titular se confirma con Argos (una llamada HTTP) antes
+			// de tomar el candado del pendiente; dentro, solo se comprueba que la versión no cambió.
+			var confirmado *pendientesbd.IntegracionPendiente
+			if in.ClienteID != nil {
+				previo, err := q.PendientePorID(ctx, in.ID)
+				if err != nil {
+					return Pendiente{}, err
+				}
+				if !visible(ctx, previo.EmpresaID) {
+					return Pendiente{}, nucleo.NoEncontrado("")
+				}
+				if previo.Operacion == OpCambiarTitular && previo.Estado == EstadoFallidoNegocio {
+					if err := exigirSupervisorDelPaso(ctx, q, previo); err != nil {
+						return Pendiente{}, err
+					}
+					if err := m.clienteEsTitular(ctx, t, previo, *in.ClienteID); err != nil {
+						return Pendiente{}, err
+					}
+					confirmado = &previo
+				}
+			}
 			f, err := q.PendientePorIDParaActualizar(ctx, in.ID)
 			if err != nil {
 				return Pendiente{}, err
@@ -354,16 +377,8 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if in.Cargo != "" && in.Cargo != CargoLiberar && in.Cargo != CargoResolverTambien {
 				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "cargo", Message: "liberar o resolver_tambien", Rule: "enum"})
 			}
-			if orden, ok := ordenDePasoTitular(f); ok {
-				// Paso del titular (§3.4.8): solo un supervisor con ordenes.validar_identidad y alcance
-				// de su rol sobre la orden (global, su zona o su cuadrilla; nunca el técnico asignado).
-				permitido, err := supervisaOrden(ctx, q, orden)
-				if err != nil {
-					return Pendiente{}, err
-				}
-				if !permitido {
-					return Pendiente{}, nucleo.Prohibido("Un paso del titular lo resuelve a mano un supervisor con ordenes.validar_identidad sobre la orden")
-				}
+			if err := exigirSupervisorDelPaso(ctx, q, f); err != nil {
+				return Pendiente{}, err
 			}
 			if in.ClienteID != nil && f.Operacion != OpCambiarTitular {
 				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "clienteId", Message: "Solo al resolver un cambio de titular", Rule: "solo_titular"})
@@ -373,10 +388,9 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 					"Solo se resuelve a mano lo que Argos rechazó (fallido_negocio); está "+f.Estado+
 						": lo agotado se reintenta y lo bloqueado espera a su dependencia")
 			}
-			if in.ClienteID != nil {
-				if err := m.clienteEsTitular(ctx, t, f, *in.ClienteID); err != nil {
-					return Pendiente{}, err
-				}
+			if in.ClienteID != nil && (confirmado == nil || confirmado.Version != f.Version) {
+				// Cambió entre la consulta a Argos y el candado: que lo vuelvan a intentar.
+				return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)
 			}
 			dependientes, err := q.DependientesAbiertos(ctx, f.ID)
 			if err != nil {
@@ -409,11 +423,11 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if err != nil {
 				return Pendiente{}, err
 			}
-			t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": f.Estado},
-				map[string]any{"estado": nueva.Estado, "resuelto_motivo": motivo})
+			t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": f.Estado, "resuelto_cliente_id": f.ResueltoClienteID},
+				map[string]any{"estado": nueva.Estado, "resuelto_motivo": motivo, "resuelto_cliente_id": nueva.ResueltoClienteID})
 			if err := t.Emitir(EventoResueltoManual, eventoResueltoManual{
 				PendienteID: f.ID, Operacion: f.Operacion, Entidad: f.Entidad, EntidadID: f.EntidadID,
-				IdempotencyKey: f.IdempotencyKey, De: f.Estado, Motivo: motivo, UsuarioID: usuario,
+				IdempotencyKey: f.IdempotencyKey, De: f.Estado, Motivo: motivo, UsuarioID: usuario, ResueltoClienteID: nueva.ResueltoClienteID,
 			}); err != nil {
 				return Pendiente{}, err
 			}
@@ -685,4 +699,26 @@ func supervisaOrden(ctx context.Context, q *pendientesbd.Queries, orden int64) (
 	}
 	global, zonas, cuadrillas := p.Alcances(string(nucleo.PermOrdenesValidarIdentidad))
 	return global || (o.ZonaID != nil && slices.Contains(zonas, *o.ZonaID)) || (o.CuadrillaID != nil && slices.Contains(cuadrillas, *o.CuadrillaID)), nil
+}
+
+// exigirSupervisorDelPaso: un paso del titular (§3.4.8) lo resuelve a mano solo un supervisor con
+// ordenes.validar_identidad y alcance de su rol sobre la orden (global, su zona o su cuadrilla;
+// nunca el técnico asignado). Sin una orden válida, falla cerrado (403).
+func exigirSupervisorDelPaso(ctx context.Context, q *pendientesbd.Queries, f pendientesbd.IntegracionPendiente) error {
+	if !slices.Contains(OperacionesTitular, f.Operacion) {
+		return nil
+	}
+	prohibido := nucleo.Prohibido("Un paso del titular lo resuelve a mano un supervisor con ordenes.validar_identidad sobre la orden")
+	orden, ok := ordenDePasoTitular(f)
+	if !ok {
+		return prohibido
+	}
+	permitido, err := supervisaOrden(ctx, q, orden)
+	if err != nil {
+		return err
+	}
+	if !permitido {
+		return prohibido
+	}
+	return nil
 }

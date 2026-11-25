@@ -684,10 +684,50 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.contrato_sin_firma' AND payload->>'motivo' = 'sin_titular' AND (payload->>'cotizacion_id')::bigint = $1", *r16.CotizacionID); n != 1 {
 		t.Fatal("sin aviso sin_titular")
 	}
+	// Seguimiento de #280: el aviso queda en el resultado y la auditoría, y el historial dice que
+	// la revisión quedó sin contrato.
+	if r16.Aviso == nil || *r16.Aviso != "sin_titular" {
+		t.Fatalf("sin_titular sin aviso en el resultado: %+v", r16)
+	}
+	if n := contar(t, "SELECT count(*) FROM auditoria.acciones WHERE accion = 'prospectos.venta_revisada' AND resultado = 'ok' AND entrada->'auditoria'->>'aviso' = 'sin_titular'"); n != 1 {
+		t.Fatalf("auditoría de sin_titular: %d", n)
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.prospecto_eventos WHERE prospecto_id = $1 AND tipo = 'venta_revisada' AND (datos->>'cotizacion_id')::bigint = $2 AND (datos->>'sin_contrato')::boolean",
+		prospecto, *r16.CotizacionID); n != 1 {
+		t.Fatal("el historial no dice que la revisión quedó sin contrato")
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET estado = 'reemplazada' WHERE id = $1", *r16.CotizacionID); err != nil {
+		t.Fatal(err)
+	}
+	// Seguimiento de #280: con la orden cancelada, la revisión de un cambio de titular sin nombre se
+	// crea sin contrato; al reabrir, OrdenReabierta no regenera un contrato sin titular: avisa
+	// sin_titular, una sola vez aunque el evento llegue dos veces.
+	deber(e.cmp.CancelarOrden.Ejecutar(cs, campo.EntradaMotivo{ID: orden, Version: version(), Motivo: "El cliente pidió otra fecha"}))(t)
+	clave17 := "iris:titular:" + ordenTxt + ":17"
+	r17 := deber(e.com.RevisarVenta(sistema(t), comercial.EntradaRevisarVenta{OrdenID: orden, Motivo: comercial.RevisionPorTitular, Clave: clave17}))(t)
+	if r17.CotizacionID == nil || r17.ContratoID != nil {
+		t.Fatalf("titular sin nombre con la orden cancelada: %+v", r17)
+	}
+	deber(e.cmp.ReabrirOrden.Ejecutar(cs, campo.EntradaMotivo{ID: orden, Version: version(), Motivo: "El cliente ya puede recibirnos"}))(t)
+	e.relay()
+	for range 2 {
+		if rr := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t); rr.ContratoID != nil {
+			t.Fatalf("contrato regenerado sin titular: %+v", rr)
+		}
+	}
+	if pf := porFirmar(); pf != nil {
+		t.Fatalf("por firmar sin titular: %+v", pf)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.contrato_sin_firma' AND payload->>'motivo' = 'sin_titular' AND (payload->>'cotizacion_id')::bigint = $1", *r17.CotizacionID); n != 1 {
+		t.Fatalf("sin_titular al reabrir: %d (uno)", n)
+	}
 	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.orden_titular SET nombre = $2 WHERE orden_id = $1", orden, nombreOrden); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET estado = 'reemplazada' WHERE id = $1", *r16.CotizacionID); err != nil {
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET estado = 'reemplazada' WHERE id = $1", *r17.CotizacionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'en_sitio', en_sitio_en = now() WHERE id = $1", orden); err != nil {
 		t.Fatal(err)
 	}
 

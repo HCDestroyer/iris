@@ -333,6 +333,19 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 				return r, err
 			}
 			t.FijarEmpresa(deref(p.EmpresaID))
+			// Sin el nombre del titular (cambio de titular sin nombre) no se regenera: avisa
+			// sin_titular, una vez por revisión.
+			if cliente.Nombre == "" {
+				previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: MotivoSinTitular, CotizacionID: rev.ID, Empresa: p.EmpresaID})
+				if err != nil || previo {
+					return r, err
+				}
+				t.FijarEntidad("prospecto", p.ID)
+				t.Anotar(map[string]any{"aviso": MotivoSinTitular, "cotizacion_id": rev.ID})
+				r.Aviso = ptr(MotivoSinTitular)
+				return r, emitirContratoSinFirma(t, sinFirma{orden: in.OrdenID, p: p, cotizacion: &rev.ID, operacion: operacionDeRevision(rev.Idempotencia),
+					motivo: MotivoSinTitular})
+			}
 			ct, err := m.regenerarContrato(ctx, t, q, p, rev, cliente, in.OrdenID)
 			if err != nil {
 				return r, err
