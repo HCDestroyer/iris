@@ -162,7 +162,7 @@ export type PropsVisorEscaner = {
 };
 
 /**
- * Visor del escáner a pantalla completa: cámara trasera oscurecida con un recuadro de esquinas teal
+ * Visor del escáner a pantalla completa: cámara trasera oscurecida con un recuadro de esquinas índigo
  * al centro, encabezado «Escaneando: …», «Detectados: N», linterna (si la cámara la tiene),
  * «Escribir a mano» y «Cerrar». Lee cada 200 ms y entrega todo lo que ve con su geometría: qué
  * cuenta, cuándo se muestra la lista y qué se llena lo decide quien lo usa (`@iris/sync/campo`).
@@ -339,7 +339,7 @@ export function VisorEscaner({ objetivo, ayuda, detectados, pausado = false, alD
                     </Aviso>
                 ) : (
                     <>
-                        {/* El recuadro: lo de afuera se oscurece con su sombra; esquinas en teal. */}
+                        {/* El recuadro: lo de afuera se oscurece con su sombra; esquinas en índigo. */}
                         <div ref={recuadro} data-slot="recuadro" aria-hidden className="relative aspect-[5/3] w-[min(80%,340px)] rounded-lg shadow-[0_0_0_100vmax_rgb(0_0_0/0.6)]">
                             {(["top-0 left-0 border-t-4 border-l-4 rounded-tl-lg", "top-0 right-0 border-t-4 border-r-4 rounded-tr-lg", "bottom-0 left-0 border-b-4 border-l-4 rounded-bl-lg", "right-0 bottom-0 border-r-4 border-b-4 rounded-br-lg"] as const).map((esquina) => (
                                 <span key={esquina} className={cn("absolute size-8 border-primary", esquina)} />

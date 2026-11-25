@@ -216,7 +216,7 @@ function EtiquetaNota({ delAsistente = false }: { delAsistente?: boolean }) {
     );
 }
 
-/** Fase 3: lo que escribió el asistente de IA (no una persona), en teal con `Sparkles`. */
+/** Fase 3: lo que escribió el asistente de IA (no una persona), en índigo con `Sparkles`. */
 function EtiquetaAsistente() {
     return (
         <span className="flex items-center gap-1 text-[0.6875rem] font-semibold text-primary" data-slot="etiqueta-asistente">

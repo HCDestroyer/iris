@@ -646,3 +646,10 @@ SELECT coalesce(md5(string_agg(k.contacto_id::text || ':' || k.es_titular::text 
     ORDER BY k.contacto_id, t.digitos)), '')::text
 FROM integracion.argos_contactos k LEFT JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id
 WHERE k.cliente_id = @cliente_id;
+
+-- name: MarcarTitularCambiado :execrows
+-- servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora de Argos (ocurrido_en, solo con
+-- ocurrido_origen = argos y dentro de la tolerancia) del último
+-- cambio de titular; nunca retrocede. Llamar con BloquearArgos del servicio tomado.
+UPDATE integracion.argos_servicios SET titular_cambiado_en = @en
+WHERE id = @id AND (titular_cambiado_en IS NULL OR titular_cambiado_en <= @en);

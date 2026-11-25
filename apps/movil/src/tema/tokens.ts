@@ -1,5 +1,5 @@
-// Identidad Horus («vidrio y luz») traducida a React Native desde `docs/marca/horus-tokens.css`.
-// Un solo color de marca (teal) y estados con icono + texto + color. Nunca colores crudos en las
+// Identidad de Iris (rediseño, nov. 2026) traducida a React Native desde `docs/marca/iris-tokens.css`.
+// Color principal índigo y estados con icono + texto + color. Nunca colores crudos en las
 // pantallas: se leen de `useTema()`.
 import type { TonoEstado } from "@iris/sync/campo";
 
@@ -72,25 +72,25 @@ export interface Tema {
 
 /** `--hx-*` del tema claro (tonos 600–800: 4,5:1 sobre blanco). */
 export const CLARO: Colores = {
-    primario: "#0f766e",
-    primarioPresionado: "#115e59",
+    primario: "#4f46e5",
+    primarioPresionado: "#4338ca",
     sobrePrimario: "#ffffff",
     exito: "#166534",
     info: "#1d4ed8",
     advertencia: "#92400e",
     error: "#b91c1c",
     fondo: "#ffffff",
-    fondoSuave: "#fafafa",
-    fondoElevado: "#f4f4f5",
-    borde: "#e4e4e7",
-    texto: "#18181b",
-    textoSuave: "#52525b",
-    textoTenue: "#71717a",
+    fondoSuave: "#f8f9fa",
+    fondoElevado: "#f1f5f9",
+    borde: "#e7eaee",
+    texto: "#0f172a",
+    textoSuave: "#475569",
+    textoTenue: "#5f6b7f",
     tarjeta: "#ffffff",
-    vidrio: "rgba(255,255,255,0.86)",
-    tono: { neutral: "#52525b", info: "#1d4ed8", success: "#166534", warning: "#92400e", error: "#b91c1c" },
+    vidrio: "#ffffff",
+    tono: { neutral: "#475569", info: "#1d4ed8", success: "#166534", warning: "#92400e", error: "#b91c1c" },
     fondoTono: {
-        neutral: "#f4f4f5",
+        neutral: "#f1f5f9",
         info: "rgba(29,78,216,0.10)",
         success: "rgba(22,101,52,0.10)",
         warning: "rgba(146,64,14,0.10)",
@@ -98,27 +98,27 @@ export const CLARO: Colores = {
     },
 };
 
-/** `--hx-*` del tema oscuro: azul noche, sin negro puro; el teal 400 es la «luz». */
+/** `--hx-*` del tema oscuro (sus `--iris-*`): azul noche, sin negro puro; índigo 400. */
 export const OSCURO: Colores = {
-    primario: "#2dd4bf",
-    primarioPresionado: "rgba(45,212,191,0.9)",
-    sobrePrimario: "#042f2e",
+    primario: "#818cf8",
+    primarioPresionado: "#a5b4fc",
+    sobrePrimario: "#0b0f1a",
     exito: "#4ade80",
     info: "#60a5fa",
     advertencia: "#fbbf24",
     error: "#f87171",
-    fondo: "#0b1014",
-    fondoSuave: "#10151b",
-    fondoElevado: "#1a2029",
-    borde: "#232a33",
-    texto: "#f4f4f5",
-    textoSuave: "#a1a1aa",
-    textoTenue: "#a1a1aa",
-    tarjeta: "rgba(20,25,32,0.86)",
-    vidrio: "rgba(16,21,27,0.86)",
-    tono: { neutral: "#a1a1aa", info: "#60a5fa", success: "#4ade80", warning: "#fbbf24", error: "#f87171" },
+    fondo: "#121828",
+    fondoSuave: "#0b0f1a",
+    fondoElevado: "#1a2236",
+    borde: "#222a40",
+    texto: "#e2e8f0",
+    textoSuave: "#a3b0c2",
+    textoTenue: "#8a96aa",
+    tarjeta: "#121828",
+    vidrio: "#18203a",
+    tono: { neutral: "#a3b0c2", info: "#60a5fa", success: "#4ade80", warning: "#fbbf24", error: "#f87171" },
     fondoTono: {
-        neutral: "#1a2029",
+        neutral: "#1a2236",
         info: "rgba(96,165,250,0.14)",
         success: "rgba(74,222,128,0.14)",
         warning: "rgba(251,191,36,0.14)",
