@@ -633,3 +633,10 @@ SELECT count(*)::integer FROM integracion.argos_incidente_servicios WHERE entran
 -- name: MarcarServicioLectura :exec
 UPDATE integracion.argos_incidente_servicios SET estado = @estado, intentos = @intentos
 WHERE entrante_id = @entrante_id AND servicio_id = @servicio_id;
+
+-- name: MarcarTitularCambiado :execrows
+-- servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora de Argos (ocurrido_en, solo con
+-- ocurrido_origen = argos y dentro de la tolerancia) del último
+-- cambio de titular; nunca retrocede. Llamar con BloquearArgos del servicio tomado.
+UPDATE integracion.argos_servicios SET titular_cambiado_en = @en
+WHERE id = @id AND (titular_cambiado_en IS NULL OR titular_cambiado_en <= @en);

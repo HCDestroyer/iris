@@ -1,8 +1,8 @@
 /*
- * Tema Horus («vidrio y luz») para HeroUI Native con Uniwind. Es el mismo mapeo que
+ * Tema de Iris (rediseño, nov. 2026) para HeroUI Native con Uniwind. Es el mismo mapeo que
  * `packages/ui/src/estilos/tema-heroui.css` en la web: cada variable de HeroUI apunta a un token
- * `--hx-*`, y los `--hx-*` son los de `docs/marca/horus-tokens.css` (una prueba lo verifica:
- * `prueba/tema.test.ts`). Un solo color de marca (teal); claro y oscuro según el teléfono.
+ * `--hx-*`, y cada `--hx-*` vale lo que su `--iris-*` de `docs/marca/iris-tokens.css` (una prueba
+ * lo verifica: `prueba/tema.test.ts`). Color principal índigo; claro y oscuro según el teléfono.
  *
  * Uniwind no lee `.dark` ni `[data-theme]`: cada tema es un `@variant` y los dos definen las
  * mismas variables. Tailwind busca clases desde esta carpeta (`src/`); HeroUI registra las suyas.
@@ -14,23 +14,23 @@
 @layer theme {
     :root {
         @variant light {
-            /* horus-tokens.css · tema claro (tonos 600–800: 4,5:1 sobre blanco). */
-            --hx-primary: #0f766e;
-            --hx-primary-hover: #115e59;
+            /* iris-tokens.css · tema claro (alias --hx-* → --iris-*; 4,5:1 sobre la tarjeta). */
+            --hx-primary: #4f46e5;
+            --hx-primary-hover: #4338ca;
             --hx-on-primary: #ffffff;
             --hx-success: #166534;
             --hx-info: #1d4ed8;
             --hx-warning: #92400e;
             --hx-error: #b91c1c;
             --hx-bg: #ffffff;
-            --hx-bg-muted: #fafafa;
-            --hx-bg-elevated: #f4f4f5;
-            --hx-border: #e4e4e7;
-            --hx-text: #18181b;
-            --hx-text-muted: #52525b;
-            --hx-text-dimmed: #71717a;
-            --hx-glass: rgb(255 255 255 / 0.66);
-            --hx-glass-strong: rgb(255 255 255 / 0.86);
+            --hx-bg-muted: #f8f9fa;
+            --hx-bg-elevated: #f1f5f9;
+            --hx-border: #e7eaee;
+            --hx-text: #0f172a;
+            --hx-text-muted: #475569;
+            --hx-text-dimmed: #5f6b7f;
+            --hx-glass: #ffffff;
+            --hx-glass-strong: #ffffff;
             --hx-card: #ffffff;
 
             /* HeroUI → Horus. */
@@ -72,24 +72,24 @@
         }
 
         @variant dark {
-            /* horus-tokens.css · tema oscuro: azul noche, sin negro puro; el teal 400 es la «luz». */
-            --hx-primary: #2dd4bf;
-            --hx-primary-hover: rgb(45 212 191 / 0.9);
-            --hx-on-primary: #042f2e;
+            /* iris-tokens.css · tema oscuro: azul noche, sin negro puro; índigo 400 con texto #0B0F1A encima. */
+            --hx-primary: #818cf8;
+            --hx-primary-hover: #a5b4fc;
+            --hx-on-primary: #0b0f1a;
             --hx-success: #4ade80;
             --hx-info: #60a5fa;
             --hx-warning: #fbbf24;
             --hx-error: #f87171;
-            --hx-bg: #0b1014;
-            --hx-bg-muted: #10151b;
-            --hx-bg-elevated: #1a2029;
-            --hx-border: #232a33;
-            --hx-text: #f4f4f5;
-            --hx-text-muted: #a1a1aa;
-            --hx-text-dimmed: #a1a1aa;
-            --hx-glass: rgb(16 21 27 / 0.62);
-            --hx-glass-strong: rgb(16 21 27 / 0.86);
-            --hx-card: rgb(20 25 32 / 0.86);
+            --hx-bg: #121828;
+            --hx-bg-muted: #0b0f1a;
+            --hx-bg-elevated: #1a2236;
+            --hx-border: #222a40;
+            --hx-text: #e2e8f0;
+            --hx-text-muted: #a3b0c2;
+            --hx-text-dimmed: #8a96aa;
+            --hx-glass: #121828;
+            --hx-glass-strong: #18203a;
+            --hx-card: #121828;
 
             --accent: var(--hx-primary);
             --accent-foreground: var(--hx-on-primary);

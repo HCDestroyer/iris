@@ -138,13 +138,14 @@ ALTER TABLE soporte.avisos_hijos ALTER COLUMN mensaje_id DROP NOT NULL;
 ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
 ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
     CHECK (tipo IN ('asistente_tope', 'servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_certificado',
-                    'posible_falla_general', 'verificacion_vencida'));
+                    'venta_revisada', 'paso_titular', 'contrato_sin_firma', 'posible_falla_general', 'verificacion_vencida'));
 
 -- +goose Down
 DELETE FROM notificaciones.avisos WHERE tipo IN ('posible_falla_general', 'verificacion_vencida');
 ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
 ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
-    CHECK (tipo IN ('asistente_tope', 'servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_certificado'));
+    CHECK (tipo IN ('asistente_tope', 'servidor_ia_caido', 'servidor_ia_incompatible', 'servidor_ia_umbral', 'argos_certificado',
+                    'venta_revisada', 'paso_titular', 'contrato_sin_firma'));
 DELETE FROM soporte.avisos_hijos WHERE mensaje_id IS NULL;
 ALTER TABLE soporte.avisos_hijos ALTER COLUMN mensaje_id SET NOT NULL;
 DROP TABLE integracion.argos_incidente_servicios;

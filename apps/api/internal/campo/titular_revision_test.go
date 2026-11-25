@@ -14,6 +14,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -195,6 +196,28 @@ func TestTitularCancelarDetieneLosPasos(t *testing.T) {
 	if est := deber(e.m.Titular.Ver.Ejecutar(e.cs, campo.EntradaVerOrden{ID: p.ID}))(t); !est.CambiadoEnArgos {
 		t.Fatalf("titular ya cambiado en Argos: %+v", est)
 	}
+
+	// Verificación de #280: un cambio de titular que Argos acepta con la orden ya cerrada no deja
+	// paso_titular: lo avisa comercial con orden.contrato_sin_firma (una sola campana). El paso
+	// termina hecho.
+	c := e.instalacion(tec, ct, true)
+	ordenC := strconv.FormatInt(c.ID, 10)
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, c.ID, datosCambioTitular())), "aplicada")
+	e.falso.fijarAlRecibir(func(ruta string) {
+		if strings.HasSuffix(ruta, "/cambiar-titular") {
+			if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.ordenes SET estado = 'cerrada', finalizada_en = now(), resultado = 'exitosa', version = version + 1 WHERE id = $1", c.ID); err != nil {
+				t.Error(err)
+			}
+		}
+	})
+	e.procesar()
+	e.falso.fijarAlRecibir(nil)
+	if pc := e.pendiente("iris:titular:" + ordenC + ":1"); pc.Estado != pendientes.EstadoHecho {
+		t.Fatalf("el paso con la orden cerrada termina: %+v", pc)
+	}
+	if n := contar(t, "SELECT count(*) FROM integracion.outbox WHERE evento = 'orden.paso_titular_tras_cancelar' AND payload->>'orden_id' = $1", ordenC); n != 0 {
+		t.Fatalf("paso_titular con la orden cerrada (lo avisa comercial): %d", n)
+	}
 }
 
 // MEDIA 5 y B9: un cambio de titular resuelto a mano (no reemplazado por otra toma) deja el cobro y el
@@ -213,6 +236,14 @@ func TestTitularResueltoAManoConfirmaElCliente(t *testing.T) {
 		pt := e.pendiente(clave)
 		sinPermiso := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), e.sup, 1, nucleo.PermIntegracionesResolverPendiente, nucleo.PermIntegracionesVerPendientes)
 		_, err := e.pend.ResolverManual.Ejecutar(sinPermiso, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave), Motivo: "Lo corregí en Argos"})
+		problema(t, err, 403, "prohibido")
+		// Un supervisor con el permiso pero de otra zona (sin alcance sobre la orden): tampoco.
+		otraZona := map[string][]contexto.Alcance{}
+		for _, pm := range permisosDe("supervisor") {
+			otraZona[string(pm)] = []contexto.Alcance{{ZonaID: 987654}}
+		}
+		deOtraZona := contexto.ConActor(e.cs, contexto.ActorDe(e.cs), contexto.NuevosPermisos(otraZona))
+		_, err = e.pend.ResolverManual.Ejecutar(deOtraZona, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave), Motivo: "Lo corregí en Argos"})
 		problema(t, err, 403, "prohibido")
 		e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
 		deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),

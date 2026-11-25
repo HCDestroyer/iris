@@ -98,12 +98,42 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
 Emite `prospecto.creado`, `prospecto.actualizado`, `prospecto.asignado`, `prospecto.estado_cambiado`,
 `prospecto.actividad_registrada`, `prospecto.perdido`, `prospecto.ganado`,
 `prospecto.alta_actualizada`, `factibilidad.evaluada`, `factibilidad.umbrales_cambiados`,
-`cotizacion.creada`, `cotizacion.aceptada`, `contrato.creado`, `contrato.firmado` y
-`contrato.anulado` (detalle en `.claude/integration/contratos/eventos.md`, «Comercial»). Ganar y el
+`cotizacion.creada`, `cotizacion.aceptada`, `contrato.creado`, `contrato.firmado`,
+`contrato.anulado` y `prospecto.venta_revisada` (detalle en `.claude/integration/contratos/eventos.md`, «Comercial»). Ganar y el
 alta emiten además, por sus casos de uso, `orden.creada` (campo), `adjunto.*` (los PDF) y los de la
 cola de pendientes.
 
 Consume `integracion.pendiente_hecho` (entidad `prospecto`) para avanzar el alta en Argos.
+
+De la venta a la instalación (contrato argosisp.md 0.10.0 §3.4.8):
+
+- **B17, alta pendiente hasta activar** (`alta_activacion.go`): con el servicio creado, el alta queda
+  `esperando_activacion` («ganado, alta pendiente»), ligada al cliente y al servicio; pasa a
+  `completa` con `integracion.pendiente_hecho` de `activar_instalacion` de su orden (o en el barrido
+  periódico). `argos.titular_cambiado` (webhook `servicio.titular_cambiado` confirmado) la pasa al
+  cliente nuevo. Ambos emiten `prospecto.alta_actualizada`.
+- **B20, cotización y contrato al cambiar** (`venta_revisada.go`): `integracion.pendiente_hecho` de
+  `cambiar_plan` o `cambiar_titular` (entidad `orden`) crea una revisión nueva de la cotización,
+  **vigente** y con vigencia nueva, con el plan nuevo y su precio de Argos (si Argos no publica el
+  precio, conserva el anterior) y a nombre del titular confirmado en la orden, y regenera el contrato
+  en borrador (`contenido.ordenId`). La cotización aceptada y el contrato firmado siguen vivos hasta
+  que el titular firma el regenerado en la orden (`FirmarEnOrdenEnTx`, operación del lote
+  `orden.firmar_contrato`; `POST /contratos/{id}/firmar` lo rechaza con `409 se_firma_en_la_orden`):
+  ahí el firmado se anula, la aceptada queda reemplazada y la revisión aceptada (la firma en sitio
+  cubre la subida de precio). Con la orden cancelada, fallida o cerrada (`orden.estado_cambiada`,
+  `orden_terminada.go`), el regenerado se anula, la revisión queda sin aceptar y el firmado sigue
+  vivo; una revisión que llegue después se crea sin contrato. Al reabrirla o reprogramarla (de
+  cancelada o fallida a un estado abierto), el contrato se regenera para esa orden con la última
+  revisión sin aceptar (vigencia y PDF nuevos si venció). Con la orden cerrada, cada cambio sin la firma (regenerado
+  anulado, revisión creada sin contrato, orden reabierta cerrada antes de regenerar) y cada cambio
+  hecho cuya revisión no se pudo crear (sin cotización, sin plan, error de negocio) emiten
+  `orden.contrato_sin_firma` para la campana de supervisión. Un `cambiar_plan` o `cambiar_titular`
+  en `fallido_negocio` que un supervisor resolvió a mano (`resuelto_como = manual`) también revisa
+  la venta (`integracion.pendiente_resuelto_manual`). Estos casos y `RevisarVenta` leen la orden con `FOR SHARE` antes de tomar el prospecto. Una revisión sin firmar la reemplaza la siguiente. Emite
+  `prospecto.venta_revisada`, que notificaciones pone en la campana del vendedor; el detalle del
+  prospecto trae `porFirmarEnOrden`. Idempotente por la clave del pendiente.
+- **B17, titular en orden**: `argos.titular_cambiado` pasa el prospecto solo si la instantánea dice
+  que el servicio es de `a_cliente_id` (un aviso atrasado no lo devuelve).
 
 ## Pruebas
 

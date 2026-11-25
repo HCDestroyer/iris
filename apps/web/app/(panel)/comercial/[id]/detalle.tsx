@@ -1,6 +1,6 @@
 "use client";
 
-import { Aviso, Boton, cn, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, BotonManualPantalla, cn, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { Check, CircleX, ExternalLink, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -99,7 +99,10 @@ function Detalle({ id }: { id: number }) {
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="grid min-w-0 gap-1">
                         <span className="font-mono text-sm text-muted-foreground tabular-nums">{d.numero}</span>
-                        <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{d.nombre}</h1>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                            <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{d.nombre}</h1>
+                            <BotonManualPantalla />
+                        </div>
                     </div>
                     <InsigniaProspecto estado={d.estado} />
                 </div>

@@ -275,7 +275,7 @@ func guardar(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, antes, de
 		ProgramadaFin: despues.ProgramadaFin, EnCaminoEn: despues.EnCaminoEn, EnSitioEn: despues.EnSitioEn,
 		FinalizadaEn: despues.FinalizadaEn, Resultado: despues.Resultado, MotivoFalla: despues.MotivoFalla,
 		Motivo: despues.Motivo, PausadaDesde: despues.PausadaDesde, PausadaEn: despues.PausadaEn,
-		PausadaSeg: despues.PausadaSeg, ID: antes.ID, Version: antes.Version,
+		PausadaSeg: despues.PausadaSeg, ClienteID: despues.ClienteID, ID: antes.ID, Version: antes.Version,
 	})
 	if err != nil {
 		return f, nucleo.VerificarVersion(err, "orden", antes.ID)

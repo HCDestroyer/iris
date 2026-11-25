@@ -1,5 +1,5 @@
 import type { Schema } from "@iris/contratos";
-import { Activity, Bell, Gauge, PhoneMissed, RefreshCw, Server, ShieldAlert, Sparkles, type LucideIcon } from "lucide-react";
+import { Activity, Bell, BriefcaseBusiness, FileWarning, Gauge, PhoneMissed, RefreshCw, Server, ShieldAlert, Sparkles, UserCog, type LucideIcon } from "lucide-react";
 import { textoPausado } from "./asistente/presentacion";
 
 /*
@@ -9,7 +9,11 @@ import { textoPausado } from "./asistente/presentacion";
  * (contratos/voz.md §4.12): uno por episodio, a quien administra la instalación. `argos_certificado`
  * (contrato con Argos 0.8.0 §1.5): cambió el certificado de la API de Argos; solo informa.
  * `posible_falla_general` (contrato con Argos 0.13.0 §3.11): muchas caídas en pocos minutos; enlace al ticket.
- * `verificacion_vencida`: el cliente no confirmó tras una falla general y el ticket volvió a abierto. El texto
+ * `verificacion_vencida`: el cliente no confirmó tras una falla general y el ticket volvió a abierto. `venta_revisada`
+ * (0.10.0 §3.4.8, B20): la instalación cambió el plan o el titular de una venta del vendedor. A los
+ * supervisores de la orden: `paso_titular` (Argos aplicó un paso del titular con la orden ya
+ * cancelada, fallida o cerrada) y `contrato_sin_firma` (la orden se cerró sin la firma del contrato
+ * regenerado). El texto
  * (`titulo`) lo arma el servidor; aquí solo cómo se pinta.
  */
 
@@ -20,7 +24,7 @@ export function tonoAvisoPanel(nivel: AvisoPanel["nivel"]): "info" | "warning" |
     return nivel === "peligro" ? "error" : nivel === "alerta" ? "warning" : "info";
 }
 
-const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert, posible_falla_general: Activity, verificacion_vencida: PhoneMissed };
+const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert, posible_falla_general: Activity, verificacion_vencida: PhoneMissed, venta_revisada: BriefcaseBusiness, paso_titular: UserCog, contrato_sin_firma: FileWarning };
 
 /** El icono del tipo; uno que este panel aún no conoce (o un nombre heredado como «constructor») lleva la campana. */
 export function iconoAvisoPanel(tipo: AvisoPanel["tipo"]): LucideIcon {
@@ -63,6 +67,8 @@ export function detalleAvisoPanel(a: Pick<AvisoPanel, "tipo" | "nivel" | "datos"
     if (tipo === "servidor_ia_incompatible") return `El asistente no lo usa hasta actualizar. El tablero dice qué hay que actualizar.${repetido}`;
     if (tipo === "servidor_ia_umbral") return `${detalleUmbral(a.datos)}${repetido}`;
     if (tipo === "argos_certificado") return "Lo normal es la renovación automática del certificado. Iris no detuvo nada; si no la esperabas, revisa el servidor de Argos.";
+    if (tipo === "paso_titular") return "Lo hecho en Argos no se deshace solo: revisa la orden y, si hace falta, corrígelo en Argos.";
+    if (tipo === "contrato_sin_firma") return "Argos ya tiene el cambio, pero el titular no firmó el contrato nuevo: consigue su firma o corrígelo en Argos.";
     if (tipo !== "asistente_tope") return null;
     if (a.nivel === "peligro") {
         const mes = mesDe(a.datos);

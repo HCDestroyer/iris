@@ -554,3 +554,18 @@ internos que consume soporte:
 - Omitidos (quedan en la auditoría): `payload_invalido` (sin `incidente_id`, empresa, `desde`, o con
   un `alcance` fuera de `router|olt|pon|zona`), `empresa_fuera_de_alcance`, `servicio_de_otra_empresa`.
 - El conector necesita el permiso `incidentes_red.leer` en Argos (§1.1) para la lectura paginada.
+
+## Cambio de titular (contrato 0.10.0 §3.4.4, B17; 0.14.1)
+
+- **`servicio.titular_cambiado`** (`titular_cambiado.go`): Iris relee al titular nuevo y, si Argos
+  confirma que el servicio ya es suyo, refresca la instantánea y emite `argos.titular_cambiado`
+  (con `tipo_titular`: `persona` o `empresa`, 0.14.1). La fila del servicio se bloquea
+  (`BloquearArgos`, como en las eliminaciones) y guarda `titular_cambiado_en` (el `ocurrido_en` de
+  Argos del último cambio aplicado): un aviso atrasado (A→B que llega después de B→C) no reescribe
+  el servicio ni emite (`titular: atrasado` en la auditoría). Solo cuentan horas de Argos
+  (`integracion.entrantes.ocurrido_origen = argos`, que guarda el conector) y nunca más allá de la
+  recepción + 5 minutos; sin hora de Argos no se compara ni se guarda: manda la ficha releída. Comercial y campo, además, solo mueven si
+  la instantánea dice que el servicio es de `a_cliente_id`.
+- **Titular empresa (0.14.1):** `TitularEmpresaDisponible` dice si el conector activo informa un
+  contrato ≥ 0.14.1; si no, campo no ofrece el cambio a una empresa y el estado de la conexión lo
+  lista en `funcionesApagadas` (`titular_empresa`).
