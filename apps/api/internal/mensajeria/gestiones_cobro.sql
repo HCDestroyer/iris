@@ -34,8 +34,8 @@ SELECT (EXISTS (SELECT 1 FROM mensajeria.promesas p WHERE p.conversacion_id = @c
                   AND b.comprobante_id IS NOT NULL AND b.estado IN ('registrada', 'aprobada')))::boolean;
 
 -- name: ServicioDelClienteInstantanea :one
--- El servicio es de ese cliente según la instantánea de Argos.
-SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.id = @servicio_id AND s.cliente_id = @cliente_id)::boolean;
+-- El servicio es de ese cliente y de esa empresa según la instantánea de Argos.
+SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.id = @servicio_id AND s.cliente_id = @cliente_id AND s.empresa_id = @empresa)::boolean;
 
 -- name: ContratoArgosActivo :one
 SELECT contrato_remoto FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo' LIMIT 1;

@@ -285,10 +285,18 @@ Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «A
   recientes, con `conversaciones.ver`). `tipo` y `resultado` son las listas cerradas de §3.12; sin texto
   libre, montos ni teléfonos (un campo de más es 422). `ocurridoEn` entre ahora − 7 días y ahora + 5 min
   (422, regla `ventana`). `servicioId` debe ser del cliente según la instantánea.
-- **Quién habla** sale del número de la conversación (B22), nunca del cuerpo: el teléfono o el móvil del
-  titular → sin `X-Iris-Contacto`; un contacto de la caché de Argos → su `contacto_id` (solo sobre sus
-  servicios: 403 `servicio_fuera_del_contacto`); otro número asociado a mano → 422
-  `contacto_desconocido` (nunca sale a nombre del titular).
+- **Quién habla** sale del rol de la conversación (`rolDeConversacion`, B22), nunca del cuerpo:
+  - titular → sin `X-Iris-Contacto`: el teléfono o el móvil del cliente y también **un número cuyo
+    cliente confirmó un supervisor** (`verificado_por`) o que pasó la verificación fuerte, como en el
+    resto de la atención;
+  - un contacto de la caché de Argos (el de `contacto_argos_id` si la conversación se asoció por él) →
+    su `contacto_id`. Necesita el permiso «pagar» (403 `permiso_de_contacto`) y solo sus servicios
+    (403 `servicio_fuera_del_contacto`). Con servicios acotados, la gestión lleva el servicio: el único
+    suyo o, si tiene varios, 422 en `servicioId`;
+  - sin rol (otro número «verificado» sin `verificado_por`, o asociado por un contacto que ya no tiene
+    el número) → 422 `cliente_sin_confirmar`: nunca sale a nombre del titular.
+- `Idempotency-Key` obligatoria (400 `idempotency_key_requerida`). `servicioId` debe ser del cliente
+  **y de la empresa** de la conversación según la instantánea.
 - Solo con el **cliente confirmado** (422 `sin_cliente`, `cliente_sin_confirmar`) y con Argos en
   contrato ≥ 0.13.0 (409 `argos_sin_gestiones`; sin conector, 409 `argos_apagado`).
 - Se guarda en `mensajeria.gestiones_cobro` (id UUID v7 = `gestion_id`) y sale a Argos por

@@ -238,17 +238,18 @@ func (q *Queries) RespaldoPagoEnConversacion(ctx context.Context, arg RespaldoPa
 }
 
 const servicioDelClienteInstantanea = `-- name: ServicioDelClienteInstantanea :one
-SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.id = $1 AND s.cliente_id = $2)::boolean
+SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.id = $1 AND s.cliente_id = $2 AND s.empresa_id = $3)::boolean
 `
 
 type ServicioDelClienteInstantaneaParams struct {
 	ServicioID int64
 	ClienteID  int64
+	Empresa    int64
 }
 
-// El servicio es de ese cliente según la instantánea de Argos.
+// El servicio es de ese cliente y de esa empresa según la instantánea de Argos.
 func (q *Queries) ServicioDelClienteInstantanea(ctx context.Context, arg ServicioDelClienteInstantaneaParams) (bool, error) {
-	row := q.db.QueryRow(ctx, servicioDelClienteInstantanea, arg.ServicioID, arg.ClienteID)
+	row := q.db.QueryRow(ctx, servicioDelClienteInstantanea, arg.ServicioID, arg.ClienteID, arg.Empresa)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err

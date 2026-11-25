@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -44,6 +45,14 @@ func (b *bandeja) conCliente() (conv string, cliente int64) {
 	}
 	b.texto(num, fmt.Sprintf("wamid.g%d", cliente), "Hola")
 	return cid(b.conv(num)), cliente
+}
+
+var claveGestion atomic.Int64
+
+// gestionar registra una gestión con una Idempotency-Key nueva (la ruta la exige).
+func (b *bandeja) gestionar(p persona, ruta string, cuerpo any) respuesta {
+	b.t.Helper()
+	return b.apiClave(p, http.MethodPost, ruta, fmt.Sprintf("gestion-%d", claveGestion.Add(1)), cuerpo)
 }
 
 type pendienteGestion struct {
@@ -104,8 +113,17 @@ func TestGestionesCobro(t *testing.T) {
 		t.Fatalf("clave reutilizada: %d %v", r.status, r.cuerpo)
 	}
 
+	// Sin Idempotency-Key: 400.
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta, cuerpo), http.StatusBadRequest, "type", "urn:iris:problema:idempotency_key_requerida")
+	// Un servicio del mismo cliente en otra empresa (instantánea): no es de este cliente en esta empresa.
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_nombre, sincronizado_en)
+		VALUES ($1, 2, $2, 'S-X', 'Fibra', 'activo', 'Zona 1', now())`, cliente*10+5, cliente); err != nil {
+		t.Fatal(err)
+	}
+	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": cliente*10 + 5}),
+		http.StatusUnprocessableEntity)
 	// contactoId en el cuerpo: no existe (el contacto sale de la conversación, nunca de quien la registra).
-	if r := b.api(b.supervisor, http.MethodPost, ruta, map[string]any{"tipo": "mensaje", "resultado": "contesto", "ocurridoEn": ahora, "contactoId": "77"}); r.status != http.StatusUnprocessableEntity {
+	if r := b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "mensaje", "resultado": "contesto", "ocurridoEn": ahora, "contactoId": "77"}); r.status != http.StatusUnprocessableEntity {
 		t.Fatalf("contactoId en el cuerpo: %d %v", r.status, r.cuerpo)
 	}
 
@@ -117,16 +135,16 @@ func TestGestionesCobro(t *testing.T) {
 		{"tipo": "llamada", "resultado": "pago 250", "ocurridoEn": ahora},
 		{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "nota": "texto libre"},
 	} {
-		if r := b.api(b.supervisor, http.MethodPost, ruta, c); r.status != http.StatusUnprocessableEntity {
+		if r := b.gestionar(b.supervisor, ruta, c); r.status != http.StatusUnprocessableEntity {
 			t.Fatalf("%v: %d %v", c, r.status, r.cuerpo)
 		}
 	}
 	// Servicio de otro cliente: 422.
-	b.exigir(b.api(b.supervisor, http.MethodPost, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": 987654321}),
+	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": 987654321}),
 		http.StatusUnprocessableEntity)
 
 	// Sin permiso (lectura) y la lista.
-	b.exigir(b.api(b.lectura, http.MethodPost, ruta, cuerpo2), http.StatusForbidden)
+	b.exigir(b.gestionar(b.lectura, ruta, cuerpo2), http.StatusForbidden)
 	l := b.api(b.supervisor, http.MethodGet, ruta, nil)
 	b.exigir(l, http.StatusOK)
 	if len(l.cuerpo["data"].([]any)) != 1 {
@@ -137,16 +155,16 @@ func TestGestionesCobro(t *testing.T) {
 	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_verificado = false WHERE id = $1`, conv); err != nil {
 		t.Fatal(err)
 	}
-	b.exigir(b.api(b.supervisor, http.MethodPost, ruta, cuerpo2), http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
+	b.exigir(b.gestionar(b.supervisor, ruta, cuerpo2), http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
 	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = NULL, asociacion = NULL WHERE id = $1`, conv); err != nil {
 		t.Fatal(err)
 	}
-	b.exigir(b.api(b.supervisor, http.MethodPost, ruta, cuerpo2), http.StatusUnprocessableEntity, "type", "urn:iris:problema:sin_cliente")
+	b.exigir(b.gestionar(b.supervisor, ruta, cuerpo2), http.StatusUnprocessableEntity, "type", "urn:iris:problema:sin_cliente")
 
 	// Argos con un contrato anterior a 0.13.0: 409.
 	conv2, _ := b.conCliente()
 	b.contratoArgos("0.12.1")
-	b.exigir(b.api(b.supervisor, http.MethodPost, "/conversaciones/"+conv2+"/gestiones-cobro", cuerpo2), http.StatusConflict,
+	b.exigir(b.gestionar(b.supervisor, "/conversaciones/"+conv2+"/gestiones-cobro", cuerpo2), http.StatusConflict,
 		"type", "urn:iris:problema:argos_sin_gestiones")
 }
 
@@ -194,9 +212,9 @@ func TestGestionesCobroAsistente(t *testing.T) {
 	}
 }
 
-// El contacto sale del número de la conversación (B22): un contacto conocido va con X-Iris-Contacto
-// (solo sobre sus servicios); un número que no es del titular ni de un contacto conocido, 422
-// contacto_desconocido (nunca a nombre del titular).
+// Quién habla sale del rol de la conversación (B22): un contacto va con X-Iris-Contacto, necesita
+// «pagar» y solo sus servicios (el único suyo si no dice cuál); el titular sin cabecera; sin rol, 422
+// cliente_sin_confirmar (nunca a nombre del titular).
 func TestGestionesCobroContacto(t *testing.T) {
 	b := nuevaBandeja(t, nil)
 	b.contratoArgos("0.13.0")
@@ -230,16 +248,54 @@ func TestGestionesCobroContacto(t *testing.T) {
 	}
 	ruta := "/conversaciones/" + conv + "/gestiones-cobro"
 	ahora := *b.reloj
-	r := b.api(b.supervisor, http.MethodPost, ruta, map[string]any{"tipo": "llamada", "resultado": "promete_pagar", "ocurridoEn": ahora, "servicioId": cliente * 10})
+	r := b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "promete_pagar", "ocurridoEn": ahora, "servicioId": cliente * 10})
 	b.exigir(r, http.StatusCreated, "contactoId", fmt.Sprint(contacto))
 	if p := b.pendienteDeGestion(fmt.Sprint(r.cuerpo["id"])); p.contacto == nil || *p.contacto != fmt.Sprint(contacto) {
 		t.Fatalf("X-Iris-Contacto: %+v", p)
 	}
 	// Un servicio del cliente que no es del contacto: 403.
-	b.exigir(b.api(b.supervisor, http.MethodPost, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": cliente*10 + 1}),
+	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": cliente*10 + 1}),
 		http.StatusForbidden, "type", "urn:iris:problema:servicio_fuera_del_contacto")
 
-	// Otro número asociado a mano al mismo cliente, sin ser su teléfono ni un contacto: 422.
+	// Sin servicio: el único del contacto (sus servicios están acotados).
+	r = b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora})
+	b.exigir(r, http.StatusCreated)
+	if r.cuerpo["servicioId"] != float64(cliente*10) {
+		t.Fatalf("el único servicio del contacto: %v", r.cuerpo["servicioId"])
+	}
+	// Con dos servicios acotados y sin decir cuál: 422 en servicioId.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET servicios = $2 WHERE contacto_id = $1`, contacto, []int64{cliente * 10, cliente*10 + 1}); err != nil {
+		t.Fatal(err)
+	}
+	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora}), http.StatusUnprocessableEntity)
+	// Sin el permiso «pagar»: 403 permiso_de_contacto.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET pagar = false WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": cliente * 10}),
+		http.StatusForbidden, "type", "urn:iris:problema:permiso_de_contacto")
+	// Otro contacto del mismo número (de todos los servicios): si la conversación se asoció por él
+	// (contacto_argos_id), la gestión sale a su nombre, no a nombre del primero del número.
+	contacto2 := cliente*100 + 2
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, servicios)
+		VALUES ($1, $2, 1, 'Ana', 'familiar', NULL)`, contacto2, cliente); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos) VALUES ($1, $2, $3)`,
+		contacto2, "+"+num, num); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET contacto_argos_id = $2 WHERE id = $1`, conv, contacto2); err != nil {
+		t.Fatal(err)
+	}
+	r = b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": cliente*10 + 1})
+	b.exigir(r, http.StatusCreated, "contactoId", fmt.Sprint(contacto2))
+	if p := b.pendienteDeGestion(fmt.Sprint(r.cuerpo["id"])); p.contacto == nil || *p.contacto != fmt.Sprint(contacto2) {
+		t.Fatalf("X-Iris-Contacto del contacto asociado: %+v", p)
+	}
+
+	// Otro número asociado a mano al mismo cliente («verificado» sin verificado_por), sin ser su teléfono
+	// ni un contacto: 422 cliente_sin_confirmar, nunca a nombre del titular.
 	otro := numeroCliente()
 	b.texto(otro, fmt.Sprintf("wamid.d%d", cliente), "Hola")
 	conv2 := cid(b.conv(otro))
@@ -247,9 +303,29 @@ func TestGestionesCobroContacto(t *testing.T) {
 		conv2, cliente); err != nil {
 		t.Fatal(err)
 	}
-	b.exigir(b.api(b.supervisor, http.MethodPost, "/conversaciones/"+conv2+"/gestiones-cobro", map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora}),
-		http.StatusUnprocessableEntity, "type", "urn:iris:problema:contacto_desconocido")
+	ruta2 := "/conversaciones/" + conv2 + "/gestiones-cobro"
+	b.exigir(b.gestionar(b.supervisor, ruta2, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora}),
+		http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
 	if n := b.contar(`SELECT count(*) FROM mensajeria.gestiones_cobro WHERE conversacion_id = $1`, conv2); n != 0 {
 		t.Fatalf("no se registra: %d", n)
 	}
+	// Un supervisor confirmó el cliente: el número es del titular también en B31 (sin X-Iris-Contacto).
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET verificado_por = $2 WHERE id = $1`, conv2, b.supervisor.id); err != nil {
+		t.Fatal(err)
+	}
+	r = b.gestionar(b.supervisor, ruta2, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora})
+	b.exigir(r, http.StatusCreated)
+	if r.cuerpo["contactoId"] != nil {
+		t.Fatalf("titular sin contacto: %v", r.cuerpo["contactoId"])
+	}
+	if p := b.pendienteDeGestion(fmt.Sprint(r.cuerpo["id"])); p.contacto != nil {
+		t.Fatalf("titular sin X-Iris-Contacto: %+v", p)
+	}
+	// Asociada por un contacto que ya no tiene este número (sin rol): nunca sale como titular, aunque un
+	// supervisor la haya confirmado.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET contacto_argos_id = $2 WHERE id = $1`, conv2, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.exigir(b.gestionar(b.supervisor, ruta2, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora}),
+		http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
 }
