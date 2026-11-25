@@ -325,6 +325,22 @@ func (c *CasoResolverManual) Ejecutar(ctx context.Context, in EntradaResolverMan
 // versión no es la leída o si quien lo pide no lo puede resolver, no consulta a Argos (el caso
 // responde con su error, auditado).
 func (m *Modulo) confirmarCliente(ctx context.Context, in EntradaResolverManual) *confirmacionCliente {
+	// Primero lo barato y lo que el caso mira al autorizar (el permiso de la acción, que sea una
+	// persona y, si entró desde Argos, que se haya reautenticado) y la forma de la entrada: si algo
+	// falla, no se consulta a Argos y el caso responde su error, auditado.
+	if a := contexto.ActorDe(ctx); !a.EsUsuario() || !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermIntegracionesResolverPendiente)) {
+		return nil
+	}
+	if s := contexto.SesionDe(ctx); s.EsSSO() && !s.Reautenticada &&
+		auditoria.RequiereReautenticacion("integraciones.resolver_pendiente", nucleo.PermIntegracionesResolverPendiente) {
+		return nil
+	}
+	if n := utf8.RuneCountInString(strings.TrimSpace(in.Motivo)); n < 5 || n > 1000 {
+		return nil
+	}
+	if in.Cargo != "" && in.Cargo != CargoLiberar && in.Cargo != CargoResolverTambien {
+		return nil
+	}
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
 		return nil

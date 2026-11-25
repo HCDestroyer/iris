@@ -362,17 +362,14 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 // su PDF en borrador.
 func (m *Modulo) OrdenReabierta(ctx context.Context, in EntradaOrdenTerminada) (ResultadoOrdenReabierta, error) {
 	r, err := m.ordenReabierta.Ejecutar(ctx, in)
-	if err != nil {
+	// Solo se renueva la revisión cuando se regenera el contrato (sin titular, ni una cosa ni otra).
+	if err != nil || r.ContratoID == nil {
 		return r, err
 	}
-	// La revisión renovada tiene un PDF nuevo por armar, haya contrato regenerado o no.
 	if r.Renovada != nil {
 		if cot, err := m.VerCotizacion.Ejecutar(ctx, EntradaVerCotizacion{ID: *r.Renovada}); err == nil {
 			m.conPDFCotizacion(ctx, cot)
 		}
-	}
-	if r.ContratoID == nil {
-		return r, nil
 	}
 	if ct, err := m.VerContrato.Ejecutar(ctx, EntradaVerContrato{ID: *r.ContratoID}); err == nil {
 		m.conPDFBorrador(ctx, ct)

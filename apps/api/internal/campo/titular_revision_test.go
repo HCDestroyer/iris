@@ -255,6 +255,26 @@ func TestTitularResueltoAManoConfirmaElCliente(t *testing.T) {
 		}
 		e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
 		if cliente != nil {
+			// Con ordenes.validar_identidad pero sin integraciones.resolver_pendiente: 403 sin
+			// consultar a Argos.
+			sinResolver := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), e.sup, 1, nucleo.PermOrdenesValidarIdentidad, nucleo.PermIntegracionesVerPendientes)
+			antesSinResolver := e.falso.lecturas()
+			_, err = e.pend.ResolverManual.Ejecutar(sinResolver, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
+				Motivo: "Lo corregí en Argos", ClienteID: cliente})
+			problema(t, err, 403, "prohibido")
+			if e.falso.lecturas() != antesSinResolver {
+				t.Fatal("se consultó a Argos sin el permiso de la acción")
+			}
+			// Argos dice que el servicio es de otro cliente: 422, y el rechazo queda en la auditoría.
+			e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":777}`)
+			_, err = e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
+				Motivo: "Lo corregí en Argos", ClienteID: cliente})
+			problema(t, err, 422, "cliente_no_es_titular")
+			if n := contar(t, `SELECT count(*) FROM auditoria.acciones WHERE accion = 'integraciones.resolver_pendiente' AND resultado = 'error'
+				AND entidad = 'pendiente' AND entidad_id = $1 AND error::text LIKE '%cliente_no_es_titular%'`, strconv.FormatInt(pt.ID, 10)); n != 1 {
+				t.Fatalf("el rechazo de Argos no quedó en la auditoría: %d", n)
+			}
+			e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
 			// Con una versión vieja, 409 sin consultar a Argos.
 			antes := e.falso.lecturas()
 			_, err = e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave) - 1,
