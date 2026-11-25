@@ -45,3 +45,48 @@ Este archivo es la memoria del líder entre sesiones. La conversación se compri
 ## Maquetas
 
 Las maquetas viven en el scratchpad de la sesión y se pierden con ella. Las pantallas reales y sus reglas quedan en `docs/ui/guia.md`.
+
+## Rediseño de Iris (pedido del PM, 2026-11-21)
+
+- Iris adopta el rediseño de Argos con sus mismas reglas. **El teal ya no es el color**: se usa la paleta del rediseño de Argos (índigo #4F46E5, falta que Argos confirme cuáles son los tokens vigentes).
+- **Regla principal del PM:** «sistema visual» = HeroUI v3 envuelto en `@iris/ui`. Todo se arma con componentes de HeroUI; lo que hoy no lo use se audita y se migra (agente `agente/ui-heroui`). Un control propio solo si HeroUI no lo trae, con su motivo escrito.
+- Se puede personalizar con CSS propio cuando haga falta, dentro de los envoltorios de `packages/ui`.
+- Los modales se usan según haga falta (Argos los mejoró). Se agregan menús contextuales e íconos de Lucide donde ayuden.
+- Campos de formulario: los componentes que trae HeroUI v3, envueltos en `@iris/ui` (DatePicker y DateRangePicker para fechas, NumberField con moneda para precios, TextField, TextArea, Select, ComboBox, Switch, etc.). Nunca campos hechos a mano.
+- Flujo: maqueta y capturas al PM → aprobación → actualizar §10 de CLAUDE.md, `docs/ui/guia.md` y la regla de ESLint → implementar.
+- **21 nov, aprobado por el PM:** maqueta del rediseño (capturas en el scratchpad `rediseno-iris/`), logo en degradado índigo → cian y un manual dentro de Iris (botón «?» por pantalla → `/manual/<clave>`). Fase 1 (tokens, logo, componentes base, marco y app del técnico) en `agente/rediseno`, apilada sobre #272. Manual en `agente/manual`. Fase 2: pasar las 11 tablas a listas y las fichas a `FranjaFicha`.
+- **App del técnico:** casi todo es visual (colores, barra inferior flotante, tarjetas con «Cómo llegar» y «Continuar», pestañas Hoy/Mañana/Semana). La lógica y la sincronización no cambian.
+
+## Pausa (22 nov 2026, ~07:30 UTC) — terminó el 25 nov: el PM pidió retomar el rediseño y todo lo planificado
+
+El PM pausó Iris para darle prioridad a Argos. No hay agentes trabajando ni revisiones programadas. Al decir «continúa», retomar en este orden:
+
+1. Fila de fusión, cada PR con CI en verde y behind=0. Avisar a Argos al fusionar #284 y #288.
+   - #284 (contrato 0.14.2, con el arreglo de la prueba de ubicación portado).
+   - #277 (rediseño fase 1, en verde, behind=1).
+   - #289 (reloj de la prueba de ubicación; puede quedar vacía).
+   - #288 (contrato 0.14.3, sha final `8c1a7913…a07b`; base lider/contrato-0142 → main después de #284). Argos tiene el espejo en #312 y A6 implementa en #313.
+2. PRs aprobadas por seguridad que esperan el CI y marcarse listas:
+   - #280 (3c4c6dc)
+   - #279 (2669be9)
+   - #285 (16c4115)
+   - cadena de bodega #265/#268/#271/#276, ya listas; #278 (e737f35) con CI pendiente. Trae su propio arreglo de la prueba de ubicación: dejar uno solo.
+3. Por verificar:
+   - #283 (b4f027a): cambio de permisos `portal_argos.*` en las comparaciones de escalada de tokens (c9d6019, b4f027a). Revisión de seguridad antes de fusionar.
+   - #287 (0c4eff9): verificar los medios M1–M3 y los bajos. Pendiente del PM: si la plantilla de Meta del aviso de cobro exige el nombre del titular, ¿plantilla sin nombre para contactos o se acepta?
+   - #282: integrar venta-b22 cuando #287 esté aprobada y reescribir `contactoDeGestion` (instrucciones ya enviadas).
+   - #286: commit local sin subir `986c7a4` («wip: pausa») en el worktree contrato-09e. **No borrar ese worktree.** A1-ter escrito sin probar. Faltan M2 (`exige_por_anular`), los bajos 2, 5, 7, 8 y 9, las pruebas, el lint y el push.
+4. Pendientes del PM: aviso de «falla resuelta» con el tope de 6 h (#285), plantillas `falla_general` en Meta, maquetas (bodega, venta, portal, cobro por confirmar, cierre sin firma, contactos) y las respuestas que ya estaban abiertas.
+
+## Maquetas aprobadas (25 nov 2026)
+
+El PM aprobó las 7 maquetas (`scratchpad/maquetas-pendientes/`): bloques de la orden (activación, equipo, cobro, bienvenida), conciliar el cobro por confirmar, cerrar sin firma, `/wifi/{token}`, portal (evidencia, motivoPlan, ajuste), ficha del contacto y umbrales y falla general. Decisiones:
+- **Cambio de Wi-Fi desde el panel:** varias formas de verificar al titular, para no limitar: código de un solo uso al teléfono o correo registrado, desafío de datos del titular (§7.5) y presencial del técnico en sitio. Todas son métodos del §12.4.
+- **Por defecto del líder** (el PM no los cambió):
+  - señal con calificación y número (rangos de fábrica, configurables);
+  - `/wifi` con el nombre y el logo de la empresa;
+  - «Cerrar sin firma» como acción de peligro;
+  - reintentar la activación directo si no cambia nada;
+  - «Pide a un supervisor» para quien no confirma;
+  - decir qué dato no coincide si la API lo indica.
+- **Copias de avisos de cobro a contactos:** no salen mientras la plantilla lleve datos del titular. Pendiente del PM: una plantilla neutra aprobada en Meta.
