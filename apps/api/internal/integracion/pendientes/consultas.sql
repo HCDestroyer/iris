@@ -524,3 +524,43 @@ SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, 
     ultimo_error = @motivo::text, codigo_error = 'cobro_a36_vigente', version = version + 1, updated_at = now()
 WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
 RETURNING *;
+
+-- name: CargosVivosDeOrden :many
+-- Cargos de la orden que aún no salieron a Argos (sin primer envío) y que pueden esperar a un paso del
+-- titular nuevo; no los que esperan al consumo (nunca salen).
+SELECT * FROM integracion.pendientes
+WHERE entidad = 'orden' AND entidad_id = @orden::text AND operacion = 'cargo'
+  AND estado IN ('pendiente', 'bloqueado') AND primer_envio_en IS NULL AND NOT espera_consumo
+ORDER BY id FOR UPDATE;
+
+-- name: CargosYaEnviadosDeOrden :many
+SELECT idempotency_key FROM integracion.pendientes
+WHERE entidad = 'orden' AND entidad_id = @orden::text AND operacion = 'cargo'
+  AND (primer_envio_en IS NOT NULL OR estado IN ('en_curso', 'hecho')) AND NOT factura_anulada
+  AND NOT (estado = 'fallido_negocio' AND NOT por_confirmar);
+
+-- name: AtarCargoAlTitular :one
+-- El cargo espera al paso del titular nuevo y va a nombre del titular final (marcador en el cuerpo).
+UPDATE integracion.pendientes
+SET depende_de = @depende_de, payload = @plantilla, plantilla = @plantilla, por_resolver = true,
+    proximo_intento = @nunca::timestamptz, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado') AND primer_envio_en IS NULL
+RETURNING *;
+
+-- name: ActualizarClienteCobro :exec
+-- El cobro de A36 guarda el titular efectivo al fijarse el cuerpo de su cargo.
+UPDATE campo.cobros SET cliente_id = @cliente_id::bigint, version = version + 1, updated_at = now()
+WHERE idempotency_key = @clave::text AND cliente_id <> @cliente_id::bigint;
+
+-- name: FijarCuerpoCargo :one
+-- El cuerpo del cargo sin la línea de instalación, antes de liberarlo (B-a).
+UPDATE integracion.pendientes SET payload = @payload, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: FijarClienteResuelto :one
+-- Un cambio de titular resuelto a mano sin el cliente final: un supervisor lo indica después (B-d).
+UPDATE integracion.pendientes SET resuelto_cliente_id = @cliente_id::bigint, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND estado = 'resuelto_manual' AND operacion = 'cambiar_titular'
+  AND resuelto_cliente_id IS NULL
+RETURNING *;

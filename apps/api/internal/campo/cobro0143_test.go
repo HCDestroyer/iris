@@ -14,6 +14,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
@@ -788,5 +789,153 @@ func TestLiberarCargoConA36Vigente(t *testing.T) {
 	e.procesar()
 	if l := e.falso.porClave("iris:cargo:" + orden); l != nil {
 		t.Fatalf("no sale: %+v", l)
+	}
+}
+
+// M-a y B-e: el A36 registrado antes del cambio de titular (sin pasos) pasa a esperar el cambio que el
+// técnico sincroniza después y sale al titular nuevo; el cobro guarda ese titular. Si ya había salido,
+// el cambio no lo rechaza: queda un aviso en la orden (las facturas no se mueven, §3.4.4).
+func TestA36AntesDelCambioDeTitular(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), "DELETE FROM campo.orden_eventos WHERE tipo = 'cobro'")
+	})
+	tec, ct := e.tecnicoEnEmpresa()
+	cobro := func(o campo.Orden) campo.Cobro {
+		return deber(e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID, ConceptoID: ptr(int64(5)), PrecioUnitario: ptr("350"),
+			MotivoPrecio: ptr("Cobro de la instalación acordado")}))(t)
+	}
+	o := e.instalacion(tec, ct, true)
+	c := cobro(o)
+	clave := "iris:cargo:" + strconv.FormatInt(o.ID, 10) + ":" + c.ID.String()
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o.ID, datosCambioTitular())), "aplicada")
+	if p := e.pendienteDe(clave); len(p.DependeDe) != 1 || !p.PorResolver {
+		t.Fatalf("el A36 espera al cambio de titular: %+v", p)
+	}
+	e.procesar()
+	if l := e.falso.porClave(clave); l == nil || l.JSON["cliente_id"] != 777.0 {
+		t.Fatalf("A36 al titular nuevo: %+v", l)
+	}
+	if cs := deber(e.m.VerCobros.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t); len(cs) != 1 ||
+		contar(t, "SELECT count(*) FROM campo.cobros WHERE id = $1 AND cliente_id = 777", cs[0].ID) != 1 {
+		t.Fatalf("el cobro guarda el titular efectivo: %+v", cs)
+	}
+
+	// Ya salió a Argos: el cambio no se rechaza y queda el aviso.
+	o2 := e.instalacion(tec, ct, true)
+	cobro(o2)
+	e.procesar()
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o2.ID, datosCambioTitular())), "aplicada")
+	if n := contar(t, "SELECT count(*) FROM campo.orden_eventos WHERE orden_id = $1 AND tipo = 'cobro' AND a = 'cobro_titular_anterior'", o2.ID); n != 1 {
+		t.Fatalf("aviso del cobro ya enviado: %d", n)
+	}
+}
+
+// B-a: liberar un cargo [instalación, otra línea] que esperaba al consumo, con un A36 de instalación
+// vigente: sale solo la otra línea (el cuerpo nuevo se guarda antes de liberarlo).
+func TestLiberarCargoGuardaElCuerpoSinInstalacion(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	orden := strconv.FormatInt(o.ID, 10)
+	pool := pruebas.Pool(t)
+	var consumo int64
+	if err := pool.QueryRow(context.Background(), `INSERT INTO integracion.pendientes (empresa_id, sistema, operacion, idempotency_key, entidad,
+		entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, proximo_intento, ultimo_error)
+		VALUES (1, 'argosisp', 'consumo', $1, 'orden', $2, 'POST', '/inventario/consumos', '{"lineas":[{"producto_id":5,"cantidad":1}]}', '{}',
+		false, 'fallido_negocio', now(), 'HTTP 422') RETURNING id`, "iris:consumo:"+orden, orden).Scan(&consumo); err != nil {
+		t.Fatal(err)
+	}
+	cuerpo := `{"cliente_id":990,"servicio_id":` + strconv.FormatInt(*o.ServicioID, 10) + `,"producto_id":5,"origen_tipo":"iris_orden","origen_id":"` + orden +
+		`","lineas":[{"concepto_id":5,"precio_unitario":"350.00"},{"concepto_id":9,"precio_unitario":"100.00"}]}`
+	if _, err := pool.Exec(context.Background(), `INSERT INTO integracion.pendientes (empresa_id, sistema, operacion, idempotency_key, entidad,
+		entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, proximo_intento, espera_consumo)
+		VALUES (1, 'argosisp', 'cargo', $1, 'orden', $2, 'POST', '/facturas/cargo-unico', $3, ARRAY[$4::bigint], false, 'bloqueado', now(), true)`,
+		"iris:cargo:"+orden, orden, cuerpo, consumo); err != nil {
+		t.Fatal(err)
+	}
+	a36Vigente(t, o)
+	p := e.pendienteDe("iris:consumo:" + orden)
+	deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: p.ID, Version: p.Version,
+		Motivo: "Consumo rehecho en Argos", Cargo: pendientes.CargoLiberar}))(t)
+	e.procesar()
+	l := e.falso.porClave("iris:cargo:" + orden)
+	if l == nil {
+		t.Fatal("la otra línea sale")
+	}
+	if lineas, _ := l.JSON["lineas"].([]any); len(lineas) != 1 || lineas[0].(map[string]any)["concepto_id"] != 9.0 {
+		t.Fatalf("sin la línea de instalación: %+v", l.JSON)
+	}
+}
+
+// B-d: un cambio de titular resuelto a mano sin cliente deja el A36 en 409 titular_por_confirmar hasta
+// que un supervisor indica el cliente final en ese paso (comprobado en Argos); después el A36 sale a él.
+// También B4: el técnico asignado y un supervisor de otra zona no reintentan el paso (403).
+func TestTitularPorConfirmarTieneSalida(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacion(tec, ct, true)
+	orden := strconv.FormatInt(o.ID, 10)
+	e.falso.rechazar("/cambiar-titular", "servicio_no_pendiente")
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o.ID, datosCambioTitular())), "aplicada")
+	e.procesar()
+	clave := "iris:titular:" + orden + ":1"
+	pt := e.pendienteDe(clave)
+	// M1 «nace bloqueado»: el A36 registrado con el paso del titular fallido.
+	c := deber(e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID, ConceptoID: ptr(int64(5)), PrecioUnitario: ptr("350"),
+		MotivoPrecio: ptr("Cobro de la instalación acordado")}))(t)
+	cargo := "iris:cargo:" + orden + ":" + c.ID.String()
+	if p := e.pendienteDe(cargo); p.Estado != pendientes.EstadoBloqueado {
+		t.Fatalf("el A36 nace bloqueado: %+v", p)
+	}
+	// B4: el técnico asignado (aunque tuviera los permisos) y un supervisor de otra zona: 403.
+	tecConPermisos := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), tec, 1, nucleo.PermIntegracionesReintentar, nucleo.PermOrdenesValidarIdentidad)
+	_, err := e.pend.Reintentar.Ejecutar(tecConPermisos, pendientes.EntradaReintentar{ID: pt.ID, Version: pt.Version})
+	problema(t, err, 403, "prohibido")
+	otraZona := map[string][]contexto.Alcance{}
+	for _, pm := range permisosDe("supervisor") {
+		otraZona[string(pm)] = []contexto.Alcance{{ZonaID: 987654}}
+	}
+	deOtraZona := contexto.ConActor(e.cs, contexto.ActorDe(e.cs), contexto.NuevosPermisos(otraZona))
+	_, err = e.pend.Reintentar.Ejecutar(deOtraZona, pendientes.EntradaReintentar{ID: pt.ID, Version: pt.Version})
+	problema(t, err, 403, "prohibido")
+	// Resuelto a mano sin cliente: el cobro de A36 nuevo no puede salir.
+	deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave), Motivo: "Lo corregí en Argos a mano"}))(t)
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE campo.cobros SET estado = 'anulado' WHERE id = $1", c.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.pendientes SET factura_anulada = true WHERE idempotency_key = $1", cargo); err != nil {
+		t.Fatal(err)
+	}
+	cobrar := func() (campo.Cobro, error) {
+		return e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID, ConceptoID: ptr(int64(5)), PrecioUnitario: ptr("350"),
+			MotivoPrecio: ptr("Cobro de la instalación acordado")})
+	}
+	_, err = cobrar()
+	problema(t, err, 409, "titular_por_confirmar")
+	// La salida: el supervisor indica el cliente final en ese paso (comprobado en Argos).
+	e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
+	deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
+		Motivo: "El titular final es el cliente 888", ClienteID: ptr(int64(888))}))(t)
+	c2 := deber(cobrar())(t)
+	e.procesar()
+	if l := e.falso.porClave("iris:cargo:" + orden + ":" + c2.ID.String()); l == nil || l.JSON["cliente_id"] != 888.0 {
+		t.Fatalf("A36 al cliente confirmado: %+v", l)
+	}
+}
+
+// B5: un supervisor no cierra sin la activación por sync (403).
+func TestSinActivacionPorSyncEsProhibido(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoExigirLista)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	trabajo := trabajoDeInstalacion(o.ID)[2:]
+	esperar(t, e.lote(ct, trabajo[:len(trabajo)-1]...), repetir(len(trabajo)-1, "aplicada")...)
+	r := e.lote(e.cs, op(campo.OpCerrar, o.ID, map[string]any{"resultado": "exitosa", "sinActivacionMotivo": "Argos no responde desde la mañana"}))
+	if r.Resultados[0].Error == nil || r.Resultados[0].Error.Status != 403 {
+		t.Fatalf("supervisor por sync: %+v", r.Resultados[0])
 	}
 }

@@ -285,11 +285,8 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 			if f.EmpresaID != nil {
 				t.FijarEmpresa(*f.EmpresaID)
 			}
-			if err := nucleo.ExigirVersion(f.Version, in.Version, "pendiente", f.ID); err != nil {
-				return Pendiente{}, err
-			}
 			if orden, ok := ordenDePasoTitular(f); ok {
-				// B4: reintentar un paso del titular (§3.4.8) exige lo mismo que resolverlo a mano: un
+				// B4 (y B-f: el 403 antes que el 409 de versión): reintentar un paso del titular (§3.4.8) exige lo mismo que resolverlo a mano: un
 				// supervisor con ordenes.validar_identidad y alcance de su rol sobre la orden.
 				permitido, err := supervisaOrden(ctx, q, orden)
 				if err != nil {
@@ -298,6 +295,9 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 				if !permitido {
 					return Pendiente{}, nucleo.Prohibido("Un paso del titular lo reintenta un supervisor con ordenes.validar_identidad sobre la orden")
 				}
+			}
+			if err := nucleo.ExigirVersion(f.Version, in.Version, "pendiente", f.ID); err != nil {
+				return Pendiente{}, err
 			}
 			switch {
 			case f.CargoTerminal:
@@ -455,6 +455,24 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 				return Pendiente{}, nucleo.Conflicto("cobro_por_confirmar",
 					"Este cobro está por confirmar: di si la factura existe en Argos (confirmar-cobro)")
 			}
+			if f.Estado == EstadoResueltoManual && f.Operacion == OpCambiarTitular && f.ResueltoClienteID == nil && in.ClienteID != nil {
+				// B-d: un cambio de titular ya resuelto a mano sin el cliente final: el supervisor (con alcance,
+				// comprobado arriba) lo indica después, comprobado en Argos. Así sale el cobro de A36 que
+				// respondía 409 titular_por_confirmar.
+				if err := m.clienteEsTitular(ctx, t, f, *in.ClienteID); err != nil {
+					return Pendiente{}, err
+				}
+				g, err := q.FijarClienteResuelto(ctx, pendientesbd.FijarClienteResueltoParams{ClienteID: *in.ClienteID, ID: f.ID, Version: in.Version})
+				if errors.Is(err, pgx.ErrNoRows) {
+					return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)
+				}
+				if err != nil {
+					return Pendiente{}, err
+				}
+				t.RegistrarCambios("pendiente", g.ID, map[string]any{"resuelto_cliente_id": nil},
+					map[string]any{"resuelto_cliente_id": *in.ClienteID, "motivo": motivo})
+				return aPendiente(g), nil
+			}
 			if f.Estado != EstadoFallidoNegocio {
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_resoluble",
 					"Solo se resuelve a mano lo que Argos rechazó (fallido_negocio); está "+f.Estado+
@@ -516,13 +534,22 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 					if err := bloquearOrden(ctx, q, c); err != nil {
 						return Pendiente{}, err
 					}
-					if _, motivo, err := lineaAlResolver(ctx, q, c, c.Payload); err != nil {
+					nuevo, motivo, err := lineaAlResolver(ctx, q, c, c.Payload)
+					if err != nil {
 						return Pendiente{}, err
-					} else if motivo != "" {
+					}
+					if motivo != "" {
 						if err := fallarPorInstalacion(ctx, t, q, c, motivo); err != nil {
 							return Pendiente{}, err
 						}
 						continue
+					}
+					if !mismoJSON(nuevo, c.Payload) {
+						// B-a: sin la línea de instalación; el cuerpo nuevo se guarda antes de liberarlo.
+						if _, err := q.FijarCuerpoCargo(ctx, pendientesbd.FijarCuerpoCargoParams{Payload: nuevo, ID: c.ID}); err != nil {
+							return Pendiente{}, err
+						}
+						t.RegistrarCambios("pendiente", c.ID, map[string]any{"payload": string(c.Payload)}, map[string]any{"payload": string(nuevo)})
 					}
 					if err := q.LiberarEsperaConsumo(ctx, c.ID); err != nil {
 						return Pendiente{}, err

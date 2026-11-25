@@ -236,6 +236,15 @@ sigue tomando la orden FOR SHARE (#280); con un cargo en juego la toma FOR UPDAT
 subir el candado a mitad de la transacción. Antes de fijar o liberar el cuerpo de un cargo (marcadores, cliente
 del titular resuelto a mano, espera del consumo) se vuelve a decidir la línea de instalación (`lineaAlResolver`).
 
+Los pasos del titular toman la orden FOR UPDATE siempre (B-b). La red de seguridad usa una transacción por
+pendiente (B-c).
+
+**A36 y el titular (§3.4.8):** si el cambio de titular se abre después de registrar el cobro, los cargos de la orden
+que aún no salieron pasan a esperar ese paso con el marcador `titular.cliente_id` (`AtarCobrosAlTitular`); los que
+ya salieron no se mueven (Argos no mueve facturas, §3.4.4) y la orden lo avisa (`cobro_titular_anterior`). El cobro
+de campo guarda el titular efectivo al fijarse el cuerpo. Un cambio resuelto a mano sin cliente se completa después
+con resolver a mano y `clienteId` (supervisor con alcance, comprobado en Argos).
+
 **A36 y el titular (§3.4.8):** el cobro de A36 de una orden con pasos del titular vivos espera a esos pasos y va a
 nombre del titular final (`TrasElTitular`, la misma lógica que el cargo del cierre); con el cambio resuelto a mano
 sin cliente, 409 `titular_por_confirmar`.

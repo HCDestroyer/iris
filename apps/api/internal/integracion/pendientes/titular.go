@@ -465,6 +465,9 @@ func titularAManoEnDependientes(ctx context.Context, t *auditoria.Tx, f pendient
 		if err != nil {
 			return nil, err
 		}
+		if err := actualizarClienteCobro(ctx, q, g, nuevo); err != nil {
+			return nil, err
+		}
 		t.RegistrarCambios("pendiente", g.ID, map[string]any{"cliente_id": "titular"}, map[string]any{"cliente_id": *cliente})
 	}
 	return tocados, nil

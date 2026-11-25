@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1046,4 +1047,64 @@ func fallarPorInstalacion(ctx context.Context, t *auditoria.Tx, q *pendientesbd.
 		return err
 	}
 	return bloquearDependientes(ctx, t, g.ID, g.Estado)
+}
+
+// AtarCobrosAlTitular: se abrió un cambio de titular (paso) en la orden después de registrar cobros
+// (M-a, §3.4.8). Los cargos de la orden que aún no salieron pasan a depender del paso nuevo y a ir a
+// nombre del titular final (marcador titular.cliente_id). Devuelve las claves de los que ya salieron a
+// Argos: esas facturas no se mueven (las rehace una persona en Argos, §3.4.4); quien llama lo avisa.
+func AtarCobrosAlTitular(ctx context.Context, t *auditoria.Tx, orden int64, paso int64) ([]string, error) {
+	q := pendientesbd.New(t)
+	id := strconv.FormatInt(orden, 10)
+	vivos, err := q.CargosVivosDeOrden(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range vivos {
+		if slices.Contains(c.DependeDe, paso) {
+			continue
+		}
+		base := c.Payload
+		if c.PorResolver && len(c.Plantilla) > 0 {
+			base = c.Plantilla
+		}
+		var cuerpo map[string]any
+		if err := json.Unmarshal(base, &cuerpo); err != nil {
+			return nil, err
+		}
+		depende := append(append([]int64{}, c.DependeDe...), paso)
+		cuerpo["cliente_id"] = Ref(len(depende)-1, "titular.cliente_id")
+		plantilla, err := json.Marshal(cuerpo)
+		if err != nil {
+			return nil, err
+		}
+		g, err := q.AtarCargoAlTitular(ctx, pendientesbd.AtarCargoAlTitularParams{DependeDe: depende, Plantilla: plantilla, Nunca: NuncaVence, ID: c.ID})
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		t.RegistrarCambios("pendiente", g.ID, map[string]any{"depende_de": c.DependeDe}, map[string]any{"depende_de": g.DependeDe,
+			"cliente_id": "titular", "paso": paso})
+	}
+	return q.CargosYaEnviadosDeOrden(ctx, id)
+}
+
+// actualizarClienteCobro: el cobro de A36 (campo.cobros) guarda el titular efectivo del cuerpo fijado.
+func actualizarClienteCobro(ctx context.Context, q *pendientesbd.Queries, f pendientesbd.IntegracionPendiente, cuerpo []byte) error {
+	if f.Operacion != OpCargo {
+		return nil
+	}
+	var c struct {
+		ClienteID json.Number `json:"cliente_id"`
+	}
+	if json.Unmarshal(cuerpo, &c) != nil {
+		return nil
+	}
+	cliente, err := c.ClienteID.Int64()
+	if err != nil || cliente <= 0 {
+		return nil
+	}
+	return q.ActualizarClienteCobro(ctx, pendientesbd.ActualizarClienteCobroParams{ClienteID: cliente, Clave: f.IdempotencyKey})
 }

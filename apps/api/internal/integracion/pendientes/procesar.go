@@ -35,9 +35,20 @@ const maxPorCorrida = 500
 // Devuelve cuántos procesó. ctx debe traer el pool (nucleo.ConBD) y el actor sistema.
 func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 	ahora := m.ahora()
-	// Red de seguridad: dependientes con marcadores que quedaron sin resolver (no debería haber).
-	if _, err := m.resolverListos.Ejecutar(ctx, ahora); err != nil {
+	// Red de seguridad: dependientes con marcadores que quedaron sin resolver (no debería haber). B-c:
+	// los ids sin candado y una transacción por pendiente (la orden y luego el pendiente).
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return 0, nucleo.ErrSinBD
+	}
+	ids, err := pendientesbd.New(bd).PorResolverListosSinCandado(ctx, 200)
+	if err != nil {
 		return 0, fmt.Errorf("pendientes: resolver dependientes listos: %w", err)
+	}
+	for _, r := range ids {
+		if _, err := m.resolverListos.Ejecutar(ctx, atascado{ID: r.ID, Entidad: r.Entidad, EntidadID: r.EntidadID, ahora: ahora}); err != nil {
+			return 0, fmt.Errorf("pendientes: resolver dependientes listos: %w", err)
+		}
 	}
 	n := 0
 	for n < maxPorCorrida {
@@ -466,21 +477,18 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			if err != nil {
 				return Pendiente{}, err
 			}
-			cargo := false
-			if previo.Entidad == "orden" {
-				cargo = previo.Operacion == OpCargo
-				if !cargo {
-					if cargo, err = q.HayCargoDependiente(ctx, previo.ID); err != nil {
-						return Pendiente{}, err
-					}
-				}
-			}
-			if cargo {
-				if err := bloquearOrden(ctx, q, previo); err != nil {
+			// B-b: un paso del titular toma siempre la orden FOR UPDATE (antes FOR SHARE): uno de sus
+			// dependientes puede ser un cargo cuyo cuerpo se fija aquí con la orden bloqueada, y leer eso sin
+			// candado para elegir el nivel podría subir de SHARE a UPDATE a mitad de la transacción.
+			_, esPaso := ordenDePasoTitular(previo)
+			cargo := previo.Entidad == "orden" && previo.Operacion == OpCargo
+			if !cargo && !esPaso && previo.Entidad == "orden" {
+				if cargo, err = q.HayCargoDependiente(ctx, previo.ID); err != nil {
 					return Pendiente{}, err
 				}
-			} else if orden, ok := ordenDePasoTitular(previo); ok {
-				if _, err := q.EstadoDeOrdenCompartido(ctx, orden); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			}
+			if cargo || esPaso {
+				if err := bloquearOrden(ctx, q, previo); err != nil {
 					return Pendiente{}, err
 				}
 			}

@@ -265,13 +265,18 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			depende, cliente, err := pendientes.TrasElTitular(ctx, t, strconv.FormatInt(f.ID, 10))
 			if errors.Is(err, pendientes.ErrTitularPorConfirmar) {
 				return Cobro{}, nucleo.Conflicto("titular_por_confirmar",
-					"El cambio de titular se resolvió a mano sin indicar el cliente final: confírmalo antes de cobrar")
+					"El cambio de titular se resolvió a mano sin indicar el cliente final: un supervisor lo indica en ese paso (resolver a mano con clienteId) antes de cobrar")
 			}
 			if err != nil {
 				return Cobro{}, err
 			}
+			// B-e: el cobro guarda el titular efectivo (el de un cambio resuelto a mano, o el de la orden; con un
+			// cambio en curso, se actualiza al fijarse el cuerpo del cargo).
+			clienteCobro := *f.ClienteID
 			if cliente == nil {
 				cliente = *f.ClienteID
+			} else if c, ok := cliente.(int64); ok {
+				clienteCobro = c
 			}
 			cuerpo, err := json.Marshal(map[string]any{"servicio_id": *f.ServicioID, "cliente_id": cliente, "lineas": []any{linea},
 				"origen_tipo": pendientes.OrigenTipo, "origen_id": strconv.FormatInt(f.ID, 10)})
@@ -295,8 +300,19 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			if !creado {
 				return Cobro{}, errors.New("campo: la clave del cobro ya existía")
 			}
+			if !reg.PorResolver {
+				// El cuerpo ya quedó fijo (el titular ya estaba confirmado): su cliente es el efectivo.
+				var fijo struct {
+					ClienteID json.Number `json:"cliente_id"`
+				}
+				if json.Unmarshal(reg.Payload, &fijo) == nil {
+					if v, err := fijo.ClienteID.Int64(); err == nil && v > 0 {
+						clienteCobro = v
+					}
+				}
+			}
 			c, err := q.CrearCobro(ctx, campobd.CrearCobroParams{ID: id, OrdenID: f.ID, EmpresaID: f.EmpresaID, ServicioID: *f.ServicioID,
-				ClienteID: *f.ClienteID, ConceptoID: *concepto, PrecioUnitario: precio, PrecioPlantilla: plantilla, MotivoPrecio: motivo,
+				ClienteID: clienteCobro, ConceptoID: *concepto, PrecioUnitario: precio, PrecioPlantilla: plantilla, MotivoPrecio: motivo,
 				Descripcion: descripcion, RegistradoPor: &a.ID, IdempotencyKey: clave, PendienteID: &reg.ID, EsInstalacion: esInstalacion})
 			if esViolacionUnica(err) {
 				return Cobro{}, nucleo.Conflicto("cobro_registrado", "La instalación ya tiene un cobro")

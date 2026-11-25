@@ -690,6 +690,19 @@ func (m *Modulo) nuevoCambiarTitular() *auditoria.Caso[EntradaCambiarTitular, Or
 			if err := reemplazar(ctx, t, &tit, previo, r.ID, motivoReemplazoToma, &p.actor, m.ahora()); err != nil {
 				return p.f, "", err
 			}
+			// M-a (§3.4.8): los cobros de la orden que aún no salieron esperan a este cambio y van al
+			// titular final; los que ya salieron no se mueven (los rehace una persona en Argos): aviso.
+			enviados, err := pendientes.AtarCobrosAlTitular(ctx, t, p.f.ID, r.ID)
+			if err != nil {
+				return p.f, "", err
+			}
+			for _, clave := range enviados {
+				situacion, motivo := "cobro_titular_anterior",
+					"El cobro ya salió a Argos a nombre del titular anterior: si hace falta, rehazlo en Argos a nombre del titular nuevo"
+				if err := historial(ctx, t, q, p.f.ID, "cobro", nil, &situacion, &motivo, map[string]any{"idempotency_key": clave, "paso": r.ID}, m.ahora()); err != nil {
+					return p.f, "", err
+				}
+			}
 			tipoTitular := argos.TitularPersona
 			if v.empresa {
 				tipoTitular = argos.TitularEmpresa

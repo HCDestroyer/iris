@@ -286,6 +286,10 @@ func resolverSiListo(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integr
 	if err != nil {
 		return f, err
 	}
+	// B-e: el cobro de A36 guarda el titular efectivo.
+	if err := actualizarClienteCobro(ctx, q, g, cuerpo); err != nil {
+		return g, err
+	}
 	t.RegistrarCambios("pendiente", g.ID, map[string]any{"por_resolver": true}, map[string]any{"por_resolver": false})
 	return g, nil
 }
@@ -327,32 +331,33 @@ func mismaEmpresa(a, b *int64) bool {
 
 // resolverAtascados es la red de seguridad del job: resuelve los por resolver cuyas
 // dependencias ya están todas hechas. Devuelve cuántos tocó.
-func resolverAtascados(ctx context.Context, t *auditoria.Tx, ahora time.Time) (int, error) {
+// atascado: un cargo por resolver cuyas dependencias ya están hechas (red de seguridad).
+type atascado struct {
+	ID        int64  `json:"pendiente_id"`
+	Entidad   string `json:"entidad"`
+	EntidadID string `json:"entidad_id"`
+	ahora     time.Time
+}
+
+// resolverAtascado resuelve uno, en su propia transacción: la orden y luego el pendiente (SKIP
+// LOCKED, volviendo a comprobar su estado; si otro lo tiene, la pasada siguiente).
+func resolverAtascado(ctx context.Context, t *auditoria.Tx, a atascado) (int, error) {
 	q := pendientesbd.New(t)
-	// B3, orden de candados: los ids sin candado; para cada uno, la orden y luego el pendiente (SKIP
-	// LOCKED), volviendo a comprobar su estado.
-	ids, err := q.PorResolverListosSinCandado(ctx, 200)
+	if err := bloquearOrden(ctx, q, pendientesbd.IntegracionPendiente{Entidad: a.Entidad, EntidadID: a.EntidadID}); err != nil {
+		return 0, err
+	}
+	f, err := q.TomarPorResolverListo(ctx, a.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
-	n := 0
-	for _, r := range ids {
-		if err := bloquearOrden(ctx, q, pendientesbd.IntegracionPendiente{Entidad: r.Entidad, EntidadID: r.EntidadID}); err != nil {
-			return n, err
-		}
-		f, err := q.TomarPorResolverListo(ctx, r.ID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			return n, err
-		}
-		if _, err := resolverSiListo(ctx, t, f, ahora); err != nil {
-			return n, err
-		}
-		n++
+	t.FijarEntidad("pendiente", f.ID)
+	if _, err := resolverSiListo(ctx, t, f, a.ahora); err != nil {
+		return 0, err
 	}
-	return n, nil
+	return 1, nil
 }
 
 // CompletarEsperando fija el cuerpo final de un pendiente que esperaba algo de Iris (Accion.Esperando

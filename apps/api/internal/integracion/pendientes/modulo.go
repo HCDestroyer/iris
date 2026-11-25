@@ -95,7 +95,7 @@ type Modulo struct {
 	confirmarCobro     *auditoria.Caso[EntradaConfirmarCobro, Pendiente]
 	quitarPorAnular    *auditoria.Caso[EntradaQuitarPorAnular, Pendiente]
 	resolver           *auditoria.Caso[resultadoIntento, Pendiente]
-	resolverListos     *auditoria.Caso[time.Time, int]
+	resolverListos     *auditoria.Caso[atascado, int]
 }
 
 // Nuevo arma el módulo.
@@ -114,11 +114,11 @@ func Nuevo(cfg Config) *Modulo {
 	m.confirmarCobro = nuevoConfirmarCobro(m)
 	m.quitarPorAnular = nuevoQuitarPorAnular(m)
 	m.resolver = nuevoResolver(m)
-	m.resolverListos = auditoria.Nuevo(auditoria.Caso[time.Time, int]{
+	m.resolverListos = auditoria.Nuevo(auditoria.Caso[atascado, int]{
 		Accion: "integraciones.resolver_pendientes", Acceso: auditoria.Autenticado,
 		AuditarExito: func(n int) bool { return n > 0 },
-		Logica: func(ctx context.Context, t *auditoria.Tx, ahora time.Time) (int, error) {
-			return resolverAtascados(ctx, t, ahora)
+		Logica: func(ctx context.Context, t *auditoria.Tx, a atascado) (int, error) {
+			return resolverAtascado(ctx, t, a)
 		},
 	})
 	return m
