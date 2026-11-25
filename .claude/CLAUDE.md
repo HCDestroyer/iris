@@ -32,7 +32,7 @@ El plan está en `.claude/PLAN.md`, el modelo de datos en `.claude/modelo-datos.
 | API | Go 1.24, `chi` (rutas), `pgx/v5` + `sqlc` (SQL tipado), `goose` (migraciones), `River` (colas sobre Postgres) |
 | Base de datos | PostgreSQL 16, un schema por módulo: `nucleo`, `soporte`, `campo`, `agenda`, `comercial`, `integracion`, `auditoria` |
 | Caché | Redis 7, solo como caché, con invalidación por evento |
-| Panel web | Next.js 15 (App Router) con React 19, TypeScript estricto, Tailwind 4 y HeroUI v3 (React Aria) envuelto en `packages/ui` con los tokens de la identidad Horus |
+| Panel web | Next.js 15 (App Router) con React 19, TypeScript estricto, Tailwind 4 y HeroUI v3 (React Aria) envuelto en `packages/ui` con los tokens de Iris (`--iris-*`: índigo y cian, logo en degradado) |
 | App de campo | PWA en Next.js (`/campo`) con IndexedDB y service worker, que funciona sin señal. Fase 2: Expo (React Native) que reutiliza `packages/`. App nativa: HeroUI Native (Uniwind) en la fase 5 |
 | Contrato | OpenAPI 3.1 generado desde la API (`make openapi`) → `packages/contratos` (tipos y cliente con `openapi-typescript` y `openapi-fetch`) |
 | Mapas | MapLibre GL con teselas OSM; rutas con OSRM (servicio propio en Docker) |
@@ -45,7 +45,7 @@ apps/api            Go: cmd/iris (servidor), cmd/worker (River), internal/<modul
 apps/web            Next.js: panel (/), app de campo (/campo), portal de tickets (/soporte)
 apps/movil          Expo (fase 2)
 packages/contratos  OpenAPI generado y cliente TS
-packages/ui         componentes compartidos e identidad Horus (tokens, logo)
+packages/ui         componentes compartidos e identidad de Iris (tokens `--iris-*`, logo en degradado)
 packages/sync       motor de sincronización sin conexión (cola local, conflictos), compartido con la app nativa
 infra/              docker-compose, OSRM, seeds, CI
 .claude/            reglas, plan, modelo de datos, contratos y agentes
@@ -112,19 +112,24 @@ Cada agente es dueño de las carpetas que indica su brief y no toca las de otro.
 
 ### 10. Frontend
 
-- Componentes de HeroUI v3 (React Aria) envueltos en `packages/ui` con los tokens de la identidad Horus (`docs/marca/horus-tokens.css`): un solo color de marca (teal) y estados con icono + texto + color. Las pantallas importan de `@iris/ui`, nunca de `@heroui/react`. Íconos solo de Lucide. Guía y mapa de componentes: `docs/ui/guia.md`.
-- **HeroUI primero:** toda pieza de interfaz es un componente de HeroUI envuelto en `@iris/ui`; un control propio solo si HeroUI no lo trae, con su motivo escrito en `docs/ui/guia.md` (ESLint prohíbe importar `@heroui/*` fuera de `packages/ui`).
-- Nada de `<button>`, `<input>`, `<select>`, `<textarea>`, `<table>` ni `<dialog>` crudos fuera de `packages/ui`.
-- Indentación de 4 espacios. TypeScript estricto, sin `any`.
-- Tipos y cliente HTTP desde `packages/contratos`; nada de interfaces duplicadas a mano.
-- Formularios con `react-hook-form` + `zod`, espejo del validador del backend.
-- Modo claro y oscuro funcionando; revisar en 390 px y 1280 px.
+**Sistema visual:** HeroUI v3 (React Aria) envuelto en `packages/ui` (`@iris/ui`), con los tokens `--iris-*` de `packages/ui/src/estilos/iris-tokens.css` (copia de `docs/marca/iris-tokens.css`): índigo `#4F46E5` como color principal (`#818CF8` en oscuro, con texto `#0B0F1A` encima), cian `#06B6D4` como secundario y el logo en degradado índigo → cian (`#4F46E5 → #4338CA → #0E7490` cuando lleva texto blanco encima). Ningún teal. Guía, reglas, contraste y mapa de componentes: `docs/ui/guia.md`.
+
+- **Solo componentes del kit.** Las pantallas importan de `@iris/ui`, nunca de `@heroui/react`. Nada de `<button>`, `<input>`, `<select>`, `<textarea>`, `<table>` ni `<dialog>` crudos fuera de `packages/ui` (lo revisa ESLint). Si falta una pieza, se agrega a `packages/ui` con nombre en español y prueba.
+- **HeroUI primero:** toda pieza de interfaz es un componente de HeroUI envuelto en `@iris/ui`; un control propio solo si HeroUI no lo trae, con su motivo escrito en `docs/ui/guia.md` (ESLint prohíbe importar `@heroui/*` fuera de `packages/ui`). El CSS propio que haga falta para lograr el diseño va en los envoltorios de `packages/ui`, no regado en cada pantalla.
+- **Campos de HeroUI:** fechas y horas con `CampoFecha`, `SelectorRangoFechas`, `CampoHora`; montos con `CampoMoneda` (NumberField en GTQ, con su paso); texto con `Campo` (TextField), `CampoArea`, `CampoBusqueda`; elección con `CampoSelector`, `Autocompletar`, `GrupoOpciones`, `Casilla` e `Interruptor`; archivos con `SelectorArchivo` / `MenuArchivos`.
+- **Marco del panel:** menú como isla flotante a 16 px del borde (`MenuIsla`), compacto o expandido, con el botón `‹ ›` de 28 px sobre el borde derecho a la altura del logo. Encabezado sin barra (`EncabezadoPanel`): a la izquierda lo que haces (Buscar Ctrl K, accesos rápidos y «Más»), a la derecha lo que vigilas (Argos y Horus, avisos y la cuenta, `MenuCuenta`). En el teléfono, la isla va abajo con el botón redondo de la acción principal.
+- **Íconos de Lucide** en menú, botones, pestañas y filas; los botones de solo ícono llevan `aria-label` y globo. **Cada estado lleva ícono + texto + color**; el punto discreto solo crece cuando hay que actuar.
+- **Qué contenedor usar:** modal para acciones cortas de 1 a 3 campos (nunca uno encima de otro); panel lateral (`PanelLateral`, con telón si es un formulario) para hacer algo sin perder la lista; vista rápida (`VistaRapida`) en las listas, sin quitarle ancho; página propia (`FormularioPagina`) para formularios de más de 3 campos o con pasos. «Atrás» vuelve a donde estabas y salir con cambios sin guardar pregunta antes.
+- **Listas en lugar de cuadros** (`ListaFilas`), con buscador y filtros cuando pueden crecer, vista rápida y menú `⋯` por fila (`MenuAcciones`: frecuentes primero; peligrosas al final, separadas y en rojo; filtrado por permisos).
+- **Fichas:** franja con la identidad, sus contadores, una sola acción principal y «Más» (`FranjaFicha`). Pestañas segmentadas (`PestanasSegmentadas`) dentro de la misma tarjeta que su contenido.
+- **Un solo campo destacado a la vez. Un mismo dato aparece una sola vez por pantalla.**
+- **El scroll va dentro del contenedor,** nunca en la página.
+- **Un «?» del manual en cada pantalla,** junto al título (`BotonManual`, enlace a `/manual/<clave>`; dentro de `/campo`, a `/campo/manual/<pantalla>`). Las claves son las de `docs/manual/claves.md`.
+- **Teléfono:** cada pantalla a pantalla completa, con la acción principal fija abajo (`AccionFija`).
+- Modo claro y oscuro; revisar en 390 px y 1280 px, sin desbordes.
 - Errores visibles con «Reintentar». Nunca mostrar totales ni estados calculados sobre datos que no se pudieron leer.
-- Formularios de más de 3 campos: pantalla propia con su ruta (`FormularioPagina`), nunca en un diálogo. Un formulario no se abre encima de otro; «Atrás» vuelve a donde estabas y salir con cambios sin guardar pregunta antes.
-- Diálogos solo para confirmaciones y acciones cortas (1 a 3 campos).
-- Migas (`Migas`) en cada pantalla del panel.
-- Aviso emergente (`avisar`) después de cada acción que cambia algo.
-- Indicadores de estado discretos (un punto) que solo crecen cuando hace falta actuar.
+- Migas (`Migas`) en cada pantalla del panel. Aviso emergente (`avisar`) después de cada acción que cambia algo.
+- Indentación de 4 espacios. TypeScript estricto, sin `any`. Tipos y cliente HTTP desde `packages/contratos`; nada de interfaces duplicadas a mano. Formularios con `react-hook-form` + `zod`, espejo del validador del backend.
 
 ### 11. Pruebas y Definition of Done
 

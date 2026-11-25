@@ -11,7 +11,7 @@ import { LUIS, simularChat } from "./api-chat";
  * fecha, «Hola» y, a la derecha, la nube de sincronización y el GPS (discretos con todo bien, crecen
  * cuando hay que actuar) junto a buscar, también en la barra compacta; cada uno abre solo su hoja
  * («Ubicación» con el interruptor, «Conexión y envíos» con «Enviar ahora»), que cierra con la X y con
- * «Atrás». Isla Hoy · Chat · «+» · Agenda · Yo, sin nada encima. Con IRIS_CAPTURAS_CHAT=<carpeta>
+ * «Atrás». Isla Hoy · Por recibir · «+» · Agenda · Yo (el chat, arriba), sin nada encima. Con IRIS_CAPTURAS_CHAT=<carpeta>
  * deja las capturas para el PM.
  */
 
@@ -52,10 +52,10 @@ async function quieta(page: Page) {
 }
 
 /**
- * La isla del PM: la activa es una píldora en «tinta» con icono y nombre; las demás, solo el icono
- * en gris; el «+» sin relleno ni borde (icono de 26 px en color de texto). Zonas de 48 px o más.
+ * La isla del rediseño: cada botón con ícono y nombre; la activa en índigo tenue; el «+» es un
+ * círculo índigo. Zonas de 48 px o más.
  */
-/** Una directa con un mensaje sin leer (el punto teal del chat en la isla). */
+/** Una directa con un mensaje sin leer (el punto del chat en el encabezado). */
 function conUnMensaje(s: ServidorChatFalso) {
     s.crearConversacion({ id: 41, tipo: "directa", titulo: LUIS.nombre, otro_usuario: LUIS });
     s.recibir(41, LUIS, "¿Tienes conectores SC/APC?");
@@ -69,30 +69,32 @@ async function revisarIsla(page: Page, activa: string) {
         const caja = await enlace.boundingBox();
         expect(caja?.height ?? 0).toBeGreaterThanOrEqual(48);
         expect(caja?.width ?? 0).toBeGreaterThanOrEqual(48);
+        // Rediseño: cada botón lleva su ícono y su nombre a la vista.
+        await expect(nombre).toBeVisible();
         if (texto === activa) {
             await expect(enlace).toHaveAttribute("aria-current", "page");
-            await expect(nombre).toBeVisible();
-            await expect.poll(() => nombre.evaluate((e) => e.getBoundingClientRect().width)).toBeGreaterThan(16);
             const colores = await enlace.evaluate((e) => ({ fondo: getComputedStyle(e).backgroundColor, texto: getComputedStyle(e).color }));
             expect(colores.fondo).not.toBe("rgba(0, 0, 0, 0)");
             expect(colores.fondo).not.toBe(colores.texto);
         } else {
             await expect(enlace).not.toHaveAttribute("aria-current", "page");
-            await expect.poll(() => nombre.evaluate((e) => e.getBoundingClientRect().width)).toBe(0);
-            expect(await enlace.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
+            // Sin relleno (tras la transición de 200 ms al cambiar de sección).
+            await expect.poll(() => enlace.evaluate((e) => getComputedStyle(e).backgroundColor)).toBe("rgba(0, 0, 0, 0)");
         }
     }
+    // «+»: círculo índigo de 52 px con el ícono sobre el primario.
     const mas = isla(page).getByRole("button", { name: "Acciones rápidas" });
     const caja = await mas.boundingBox();
     expect(caja?.height ?? 0).toBeGreaterThanOrEqual(48);
     const estilo = await mas.evaluate((e) => {
-        const c = getComputedStyle(e);
-        const svg = e.querySelector("svg")?.getBoundingClientRect();
-        return { fondo: c.backgroundColor, borde: c.borderTopWidth, icono: Math.round(svg?.width ?? 0) };
+        const muestra = document.createElement("div");
+        muestra.style.background = "var(--iris-primario)";
+        document.body.append(muestra);
+        const indigo = getComputedStyle(muestra).backgroundColor;
+        muestra.remove();
+        return { fondo: getComputedStyle(e).backgroundColor, indigo };
     });
-    expect(estilo.fondo).toBe("rgba(0, 0, 0, 0)");
-    expect(["0px", ""]).toContain(estilo.borde);
-    expect(estilo.icono).toBe(26);
+    expect(estilo.fondo).toBe(estilo.indigo);
 }
 
 async function abrirHoy(page: Page) {
@@ -121,10 +123,13 @@ test("arriba: fecha, «Hola», nube y GPS discretos y buscar; sin avatar ni «no
     // Hoy · Mañana · Semana en una barra segmentada.
     await expect(page.getByRole("radiogroup", { name: "Día" }).getByRole("radio")).toHaveText(["Hoy · 3", "Mañana", "Semana"]);
     await expect(page.getByRole("radio", { name: "Hoy · 3" })).toBeChecked();
-    // La isla: Hoy · Chat · «+» · Agenda · Yo, sin nada flotando encima.
+    // La isla (rediseño): Hoy · Por recibir · «+» · Agenda · Yo, sin nada flotando encima.
     await expect(isla(page).getByRole("link")).toHaveCount(4);
     const nombres = await isla(page).getByRole("link").evaluateAll((ls) => ls.map((l) => l.getAttribute("aria-label")));
-    expect(nombres).toEqual(["Hoy", "Chat", "Agenda", `Yo · ${TECNICO.nombre}`]);
+    expect(nombres).toEqual(["Hoy", "Por recibir", "Agenda", `Yo · ${TECNICO.nombre}`]);
+    // Arriba, el «?» del manual de Hoy (dentro de /campo: abre sin señal) y el chat.
+    await expect(encabezado(page).getByRole("link", { name: "Manual de esta pantalla" })).toHaveAttribute("href", "/campo/manual/hoy");
+    await expect(encabezado(page).getByRole("button", { name: /^Chat/ })).toBeVisible();
     await expect(isla(page).getByRole("button", { name: "Acciones rápidas" })).toBeVisible();
     await revisarIsla(page, "Hoy");
     const yo = await isla(page).getByRole("link", { name: /^Yo · / }).boundingBox();
@@ -256,16 +261,19 @@ test("la barra compacta lleva los indicadores; «Yo» de la isla abre la cuenta;
     await expect(page.getByRole("heading", { name: "Por recibir" })).toBeVisible();
 });
 
-test("isla: la activa en «tinta» con su nombre, que se mueve al cambiar; el punto teal del chat se oculta en Chat", async ({ page }) => {
+test("isla: la activa en índigo tenue, cada una con su nombre; el punto del chat (arriba) se oculta en Chat", async ({ page }) => {
     await simularApiCampo(page, { permisos: PERMISOS });
     await simularChat(page, conUnMensaje);
     await abrirHoy(page);
-    const punto = isla(page).locator('[data-slot="punto-no-leidos"]');
+    const punto = encabezado(page).locator('[data-slot="punto-no-leidos"]');
     await expect(punto).toHaveCount(1);
     await revisarIsla(page, "Hoy");
+    await pestanaCampo(page, "Por recibir");
+    await expect(page.getByRole("heading", { name: "Por recibir" })).toBeVisible();
+    await revisarIsla(page, "Por recibir");
     await pestanaCampo(page, "Chat");
     await expect(page.getByRole("heading", { level: 1, name: "Chat del equipo" })).toBeVisible();
-    await revisarIsla(page, "Chat");
+    await revisarIsla(page, "");
     await expect(punto).toHaveCount(0);
     await pestanaCampo(page, "Agenda");
     await revisarIsla(page, "Agenda");
@@ -309,7 +317,7 @@ test("capturas del encabezado y la hoja de estado (390 px)", async ({ page, cont
     await page.getByRole("dialog", { name: "Ubicación" }).getByRole("button", { name: "Cerrar" }).click();
     await context.setOffline(false);
     // La isla en cada sección (recorte con margen).
-    for (const [seccion, archivo] of [["Hoy", "14-isla-hoy"], ["Chat", "15-isla-chat"], ["Yo", "16-isla-yo"]] as const) {
+    for (const [seccion, archivo] of [["Hoy", "14-isla-hoy"], ["Por recibir", "15-isla-recibir"], ["Yo", "16-isla-yo"]] as const) {
         await pestanaCampo(page, seccion);
         await expect(isla(page).locator('[data-activa="true"] [data-slot="nombre-pestana"]')).toHaveText(seccion);
         await quieta(page);

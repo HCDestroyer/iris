@@ -16,14 +16,14 @@ test.beforeEach(async ({ context, baseURL }) => {
     await conSesion(context, baseURL ?? "", "ana@iris.test");
 });
 
-test("el tema Horus pinta los componentes de HeroUI (teal único, claro y oscuro)", async ({ page }, info) => {
+test("el tema de Iris pinta los componentes de HeroUI (índigo, claro y oscuro)", async ({ page }, info) => {
     await page.goto("/demo-ui");
     const crear = page.getByRole("button", { name: "Crear orden" });
     await expect(crear).toBeVisible();
     await expect(crear).toHaveClass(/button--primary/);
     const oscuro = info.project.name.includes("oscuro");
-    // Teal 700 en claro, teal 400 (la «luz») en oscuro: el mismo token --hx-primary.
-    await expect(crear).toHaveCSS("background-color", oscuro ? "rgb(45, 212, 191)" : "rgb(15, 118, 110)");
+    // Índigo #4F46E5 en claro y #818CF8 en oscuro: el mismo token --iris-primario (y su alias --hx-primary).
+    await expect(crear).toHaveCSS("background-color", oscuro ? "rgb(129, 140, 248)" : "rgb(79, 70, 229)");
     await expect(page.locator("html")).toHaveClass(oscuro ? /\bdark\b/ : /\blight\b/);
     await sinDesborde(page);
 });

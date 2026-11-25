@@ -10,10 +10,12 @@
  * las migas, «Cancelar» y «Atrás», que preguntan si hay cambios) y el contenido no reserva su
  * espacio. Lo que se enfoca o se desplaza a la vista no queda debajo de la barra de guardar.
  */
-html:has([data-slot="formulario-pagina"]) {
+html:has([data-slot="formulario-pagina"]),
+#contenido:has([data-slot="formulario-pagina"]) {
     scroll-padding-bottom: 7rem;
 }
-body:has([data-slot="formulario-pagina"]) [data-slot="barra-inferior"] {
+body:has([data-slot="formulario-pagina"]) [data-slot="barra-inferior"],
+body:has([data-slot="formulario-pagina"]) [data-slot="barra-inferior"] + div {
     display: none;
 }
 body:has([data-slot="formulario-pagina"]) #contenido {
@@ -21,29 +23,36 @@ body:has([data-slot="formulario-pagina"]) #contenido {
 }
 
 /*
- * Bandeja de conversaciones (pantalla de ancho completo): ocupa el alto que queda entre la barra
- * superior (3.5rem) y, en el teléfono, la barra inferior. Con una conversación abierta en el
- * teléfono la barra inferior se oculta (se vuelve con «Atrás») y la bandeja toma ese alto. Igual la
- * página «Equipo» (chat del equipo).
+ * Marco del panel (rediseño): el área de trabajo (`#contenido`) empieza bajo el encabezado sin
+ * barra (escritorio: 16 + 44 + 16 px = 4.75rem; teléfono: 8 + 44 + 8 px = 3.75rem) y se desplaza por
+ * dentro; en escritorio termina a 16 px del borde de abajo y en el teléfono deja lugar a la isla del
+ * menú (16 px + 62 px + aire).
+ *
+ * Bandeja de conversaciones y «Equipo» (ancho completo): toman todo el alto del área de trabajo
+ * (en escritorio, menos la fila de las migas, 1.75rem).
+ * Con una conversación abierta en el teléfono la isla se oculta (se vuelve con «Atrás») y la
+ * bandeja toma ese alto.
  */
 [data-slot="bandeja"],
 [data-slot="equipo"] {
-    height: calc(100dvh - 3.5rem - 3.5rem - 1px - env(safe-area-inset-bottom) - var(--alto-llamada, 0px));
+    height: calc(100dvh - 3.75rem - 5.75rem - env(safe-area-inset-bottom) - var(--alto-llamada, 0px));
 }
 @media (min-width: 1024px) {
     [data-slot="bandeja"],
     [data-slot="equipo"] {
-        height: calc(100dvh - 3.5rem - var(--alto-llamada, 0px));
+        height: calc(100dvh - 4.75rem - 1rem - 1.75rem - var(--alto-llamada, 0px));
     }
 }
 @media (max-width: 1023.98px) {
     body:has([data-slot="bandeja"][data-vista="conversacion"]) [data-slot="barra-inferior"],
-    body:has([data-slot="equipo"][data-vista="conversacion"]) [data-slot="barra-inferior"] {
+    body:has([data-slot="equipo"][data-vista="conversacion"]) [data-slot="barra-inferior"],
+    body:has([data-slot="bandeja"][data-vista="conversacion"]) [data-slot="barra-inferior"] + div,
+    body:has([data-slot="equipo"][data-vista="conversacion"]) [data-slot="barra-inferior"] + div {
         display: none;
     }
     [data-slot="bandeja"][data-vista="conversacion"],
     [data-slot="equipo"][data-vista="conversacion"] {
-        height: calc(100dvh - 3.5rem - var(--alto-llamada, 0px));
+        height: calc(100dvh - 3.75rem - var(--alto-llamada, 0px));
     }
 }
 
@@ -63,7 +72,7 @@ body:has([data-slot="barra-llamada"]) {
  */
 @media (min-width: 1024px) {
     body:has([data-slot="panel-lateral"]) [data-region="avisos-emergentes"][data-ubicacion="bottom end"] {
-        inset-inline-end: calc(23.75rem + 1.5rem);
+        inset-inline-end: calc(29.375rem + 2rem);
     }
 }
 
