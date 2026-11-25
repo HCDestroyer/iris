@@ -2,7 +2,7 @@
 
 import type { OrdenVista } from "@iris/sync";
 import { estadoPasos, faltantesAntesDeFirmar, llego, PASOS_ORDEN, progresoPasos, puedeReanudar, TITULOS_PASO, urlDeVista, type PasoOrden } from "@iris/sync/campo";
-import { Aviso, Boton, Cargando, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo, cn } from "@iris/ui";
+import { Aviso, BarraProgreso, Boton, Cargando, cn, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import {
     ArrowLeft,
     CircleCheck,
@@ -63,7 +63,7 @@ export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | unde
 
 /**
  * Resumen (decisión del PM): ← | número y «● Estado · Tipo · ventana» | «⋯»; la acción principal
- * en «tinta» con [Pausar | No se pudo] debajo (o el aviso de pausa y «Reanudar»), el cliente con
+ * en índigo (rediseño) con [Pausar | No se pudo] debajo (o el aviso de pausa y «Reanudar»), el cliente con
  * «Cómo llegar» y «Llamar», el avance y las notas.
  */
 function ResumenOrden({ orden }: { orden: OrdenVista }) {
@@ -228,20 +228,7 @@ function ProgresoOrden({ orden, actual, compacto = false }: { orden: OrdenVista;
         navegar({ tipo: "orden", id: orden.id, paso: p });
     };
     const barra = (
-        <div
-            role="progressbar"
-            aria-label="Avance de la orden"
-            aria-valuemin={0}
-            aria-valuemax={total}
-            aria-valuenow={listos}
-            aria-valuetext={texto}
-            className="grid gap-1.5"
-            style={{ gridTemplateColumns: `repeat(${total}, minmax(0, 1fr))` }}
-        >
-            {Array.from({ length: total }, (_, i) => (
-                <span key={i} className={cn("h-1.5 rounded-full", i < listos ? "bg-primary" : "bg-[var(--campo-anillo)]")} />
-            ))}
-        </div>
+        <BarraProgreso pasos valor={listos} maximo={total} etiqueta="Avance de la orden" textoValor={texto} clasePendiente="bg-[var(--campo-anillo)]" />
     );
     const estadoDe = (p: (typeof pasos)[number]) => {
         const bloqueado = p.paso === "cierre" && !listaParaFirmar && orden.estado !== "cerrada";

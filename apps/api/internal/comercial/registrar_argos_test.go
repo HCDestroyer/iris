@@ -408,7 +408,7 @@ func TestGanarProspectoDesdeArgos(t *testing.T) {
 			t.Errorf("X-Iris-Actor del contacto: %q", a.actores[clave2])
 		}
 	})
-	if o := contar(t, `SELECT count(*) FROM comercial.prospectos WHERE id = $1 AND alta_estado = 'completa' AND orden_id IS NOT NULL`, id2); o != 1 {
+	if o := contar(t, `SELECT count(*) FROM comercial.prospectos WHERE id = $1 AND alta_estado = 'esperando_activacion' AND orden_id IS NOT NULL`, id2); o != 1 {
 		t.Fatal("el alta con el cliente existente crea la orden")
 	}
 }

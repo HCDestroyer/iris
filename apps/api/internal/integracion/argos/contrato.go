@@ -113,6 +113,28 @@ func (m *Modulo) ReconexionSinPersonal(ctx context.Context, q conector.DBTX) (bo
 	return SoportaSinPersonal(contrato), err
 }
 
+// ContratoTitularEmpresa es el primer contrato con el que Argos acepta un titular empresa en el
+// cambio de titular (A39 con cliente.tipo = empresa y representante; §3.4.4, 0.14.1). Con uno
+// anterior, Iris no ofrece el cambio de titular a una empresa.
+const ContratoTitularEmpresa = "0.14.1"
+
+// SoportaTitularEmpresa indica si Argos (por el contrato que informa) acepta un titular empresa.
+func SoportaTitularEmpresa(contrato *string) bool {
+	return conector.VersionAlMenos(contrato, ContratoTitularEmpresa)
+}
+
+// TitularEmpresaDisponible indica si el conector Argos activo informa contrato ≥ 0.14.1 (false
+// sin conector activo: falla cerrado). q puede ser una transacción o el pool.
+func TitularEmpresaDisponible(ctx context.Context, q conector.DBTX) (bool, error) {
+	var contrato *string
+	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return SoportaTitularEmpresa(contrato), err
+}
+
 // SoportaInventarioTecnico indica si Argos (por su version_argos) entiende `tecnico`.
 func SoportaInventarioTecnico(version *string) bool {
 	return conector.VersionAlMenos(version, VersionInventarioTecnico)

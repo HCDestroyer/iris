@@ -1,6 +1,6 @@
 "use client";
 
-import { avisar, Aviso, Boton, Cargando, Casilla, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie } from "@iris/ui";
+import { avisar, Aviso, BarraProgreso, Boton, Cargando, Casilla, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie } from "@iris/ui";
 import { BookPlus, RotateCw } from "lucide-react";
 import { useRef, useState } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -182,16 +182,7 @@ function ContenidoCarga({ alOcupar, alTerminar }: { alOcupar: (ocupado: boolean)
                             <p role="status" className="text-sm" data-slot="avance-carga">
                                 {error ? `Se detuvo en ${avance.hechos + 1} de ${avance.total}.` : avance.actual ? `Creando ${Math.min(avance.hechos + 1, avance.total)} de ${avance.total}: «${avance.actual}»` : "Revisando la biblioteca…"}
                             </p>
-                            <span
-                                role="progressbar"
-                                aria-label="Avance de la carga"
-                                aria-valuemin={0}
-                                aria-valuemax={avance.total}
-                                aria-valuenow={avance.hechos}
-                                className="h-1.5 overflow-hidden rounded-full bg-elevated"
-                            >
-                                <span className="block h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none" style={{ width: `${avance.total > 0 ? (avance.hechos / avance.total) * 100 : 0}%` }} />
-                            </span>
+                            <BarraProgreso valor={avance.hechos} maximo={avance.total} etiqueta="Avance de la carga" textoValor={`${avance.hechos} de ${avance.total}`} />
                         </div>
                     ) : null}
                     {error && lista ? (

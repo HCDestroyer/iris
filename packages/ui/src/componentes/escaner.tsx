@@ -162,7 +162,7 @@ export type PropsVisorEscaner = {
 };
 
 /**
- * Visor del escáner a pantalla completa: cámara trasera oscurecida con un recuadro de esquinas teal
+ * Visor del escáner a pantalla completa: cámara trasera oscurecida con un recuadro de esquinas índigo
  * al centro, encabezado «Escaneando: …», «Detectados: N», linterna (si la cámara la tiene),
  * «Escribir a mano» y «Cerrar». Lee cada 200 ms y entrega todo lo que ve con su geometría: qué
  * cuenta, cuándo se muestra la lista y qué se llena lo decide quien lo usa (`@iris/sync/campo`).
@@ -339,7 +339,7 @@ export function VisorEscaner({ objetivo, ayuda, detectados, pausado = false, alD
                     </Aviso>
                 ) : (
                     <>
-                        {/* El recuadro: lo de afuera se oscurece con su sombra; esquinas en teal. */}
+                        {/* El recuadro: lo de afuera se oscurece con su sombra; esquinas en índigo. */}
                         <div ref={recuadro} data-slot="recuadro" aria-hidden className="relative aspect-[5/3] w-[min(80%,340px)] rounded-lg shadow-[0_0_0_100vmax_rgb(0_0_0/0.6)]">
                             {(["top-0 left-0 border-t-4 border-l-4 rounded-tl-lg", "top-0 right-0 border-t-4 border-r-4 rounded-tr-lg", "bottom-0 left-0 border-b-4 border-l-4 rounded-bl-lg", "right-0 bottom-0 border-r-4 border-b-4 rounded-br-lg"] as const).map((esquina) => (
                                 <span key={esquina} className={cn("absolute size-8 border-primary", esquina)} />
@@ -361,4 +361,29 @@ export function VisorEscaner({ objetivo, ayuda, detectados, pausado = false, alD
         </div>
     );
     return montado ? createPortal(contenido, document.body) : null;
+}
+
+export type PropsHojaEscaner = {
+    /** Nombre para lectores de pantalla («Códigos detectados»). */
+    etiqueta: string;
+    children: ReactNode;
+};
+
+/**
+ * Hoja sobre el video del escáner (los códigos detectados, para confirmar o elegir). Es parte del
+ * visor, que ya es la capa modal con el foco atrapado: por eso no es un `Drawer` de HeroUI (otro
+ * modal encima, con su telón, taparía el video que sigue a la vista) sino una sección con
+ * `role="dialog"` dentro de `VisorEscaner`.
+ */
+export function HojaEscaner({ etiqueta, children }: PropsHojaEscaner) {
+    return (
+        <section
+            role="dialog"
+            aria-label={etiqueta}
+            data-slot="hoja-escaner"
+            className="absolute inset-x-0 bottom-0 z-20 mx-auto grid max-h-[80%] max-w-xl gap-3 overflow-y-auto rounded-t-2xl border-t border-border bg-background p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-foreground shadow-2xl"
+        >
+            {children}
+        </section>
+    );
 }

@@ -13,6 +13,25 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const alcanceDeOrden = `-- name: AlcanceDeOrden :one
+SELECT zona_id, cuadrilla_id, tecnico_id FROM campo.ordenes WHERE id = $1::bigint
+`
+
+type AlcanceDeOrdenRow struct {
+	ZonaID      *int64
+	CuadrillaID *int64
+	TecnicoID   *int64
+}
+
+// La zona, la cuadrilla y el técnico de la orden: resolver a mano un paso del titular exige
+// ordenes.validar_identidad con alcance sobre ella (como campo).
+func (q *Queries) AlcanceDeOrden(ctx context.Context, id int64) (AlcanceDeOrdenRow, error) {
+	row := q.db.QueryRow(ctx, alcanceDeOrden, id)
+	var i AlcanceDeOrdenRow
+	err := row.Scan(&i.ZonaID, &i.CuadrillaID, &i.TecnicoID)
+	return i, err
+}
+
 const bloquearDependientes = `-- name: BloquearDependientes :many
 UPDATE integracion.pendientes
 SET estado = 'bloqueado', ultimo_error = $1, version = version + 1, updated_at = now()
@@ -744,6 +763,19 @@ SELECT estado FROM campo.ordenes WHERE id = $1::bigint
 
 func (q *Queries) EstadoDeOrden(ctx context.Context, id int64) (string, error) {
 	row := q.db.QueryRow(ctx, estadoDeOrden, id)
+	var estado string
+	err := row.Scan(&estado)
+	return estado, err
+}
+
+const estadoDeOrdenCompartido = `-- name: EstadoDeOrdenCompartido :one
+SELECT estado FROM campo.ordenes WHERE id = $1::bigint FOR SHARE
+`
+
+// El estado de la orden con candado compartido (verificación de #280): un paso del titular hecho no
+// se cruza con el cierre de la orden, que la toma FOR UPDATE.
+func (q *Queries) EstadoDeOrdenCompartido(ctx context.Context, id int64) (string, error) {
+	row := q.db.QueryRow(ctx, estadoDeOrdenCompartido, id)
 	var estado string
 	err := row.Scan(&estado)
 	return estado, err

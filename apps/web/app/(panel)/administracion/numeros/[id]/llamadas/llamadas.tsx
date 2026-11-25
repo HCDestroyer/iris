@@ -2,7 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Schema } from "@iris/contratos";
-import { avisar, Aviso, Boton, Campo, CampoArea, CampoNumero, CampoSelector, cn, FormularioPagina, Interruptor, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, BotonManualPantalla, Campo, CampoArea, CampoNumero, CampoSelector, cn, FormularioPagina, Interruptor, liberarProteccion, SeccionFormulario } from "@iris/ui";
 import { ArrowLeft, CircleAlert, CircleCheck, CircleHelp, CircleX, PhoneIncoming, RefreshCw, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -71,7 +71,10 @@ function NumeroPorQr({ numero }: { numero: NumeroCorto }) {
     return (
         <div className="mx-auto grid max-w-2xl gap-4" data-slot="llamadas-qr">
             <div className="grid gap-1">
-                <h1 className="text-xl font-bold">Llamadas de {numero.nombre}</h1>
+                <div className="flex min-w-0 items-center gap-1.5">
+                    <h1 className="text-xl font-bold">Llamadas de {numero.nombre}</h1>
+                    <BotonManualPantalla />
+                </div>
                 <p className="text-sm text-muted-foreground">{formatearNumero(numero.numero)}</p>
             </div>
             <FranjaEnPruebas />

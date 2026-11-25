@@ -424,6 +424,15 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 		Accion: "integraciones.procesar_pendiente", Acceso: auditoria.Autenticado,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in resultadoIntento) (Pendiente, error) {
 			q := pendientesbd.New(t)
+			// Paso del titular: la orden (FOR SHARE) antes que el pendiente, en el mismo orden que campo
+			// (orden → pendiente): sin interbloqueo con cerrar o cancelar la orden.
+			if previo, err := q.PendientePorID(ctx, in.ID); err != nil {
+				return Pendiente{}, err
+			} else if orden, ok := ordenDePasoTitular(previo); ok {
+				if _, err := q.EstadoDeOrdenCompartido(ctx, orden); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return Pendiente{}, err
+				}
+			}
 			antes, err := q.PendientePorIDParaActualizar(ctx, in.ID)
 			if err != nil {
 				return Pendiente{}, err

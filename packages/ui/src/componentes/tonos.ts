@@ -36,8 +36,20 @@ export const superficiePorTono: Record<Tono, string> = {
 };
 
 /**
+ * Fondo de la insignia (píldora del rediseño): el `-fondo` del estado, sin borde. Los textos pasan
+ * 4,5:1 sobre su fondo en los dos temas (`docs/ui/guia.md`, «Contraste»).
+ */
+export const fondoInsigniaPorTono: Record<Tono, string> = {
+    neutral: "border-transparent bg-neutro-fondo text-neutro",
+    info: "border-transparent bg-info-fondo",
+    success: "border-transparent bg-exito-fondo",
+    warning: "border-transparent bg-atencion-fondo",
+    error: "border-transparent bg-peligro-fondo",
+};
+
+/**
  * Tono de Iris → estado de HeroUI (`Alert`, `Toast`). HeroUI no tiene «info» ni «neutral» y su
- * `accent` es el teal de la marca (nunca un estado): los dos van a `default` con el color del tono.
+ * `accent` es el índigo de la marca (nunca un estado): los dos van a `default` con el color del tono.
  */
 export const estadoHeroui = {
     neutral: "default",

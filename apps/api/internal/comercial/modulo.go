@@ -105,9 +105,16 @@ type Modulo struct {
 	crearContrato        *auditoria.Caso[EntradaCrearContrato, Contrato]
 	datosPDFBorrador     *auditoria.Caso[EntradaVerContrato, datosContratoPDF]
 	prepararFirma        *auditoria.Caso[EntradaFirmar, datosContratoPDF]
+	prepararFirmaEnOrden *auditoria.Caso[campo.EntradaFirmaContratoSync, datosContratoPDF]
 	firmar               *auditoria.Caso[entradaFirmaLista, Contrato]
 	registrarCliente     *auditoria.Caso[entradaAltaArgos, Prospecto]
 	completarAlta        *auditoria.Caso[entradaAltaArgos, Prospecto]
+	altaActivada         *auditoria.Caso[EntradaAltaActivada, ResultadoAlta]
+	moverTitular         *auditoria.Caso[EntradaTitularCambiado, ResultadoAlta]
+	revisarVenta         *auditoria.Caso[EntradaRevisarVenta, ResultadoRevisarVenta]
+	ordenTerminada       *auditoria.Caso[EntradaOrdenTerminada, ResultadoOrdenTerminada]
+	ordenReabierta       *auditoria.Caso[EntradaOrdenTerminada, ResultadoOrdenReabierta]
+	sinRevision          *auditoria.Caso[EntradaSinRevision, bool]
 	marcarErrorAlta      *auditoria.Caso[entradaErrorAlta, Prospecto]
 
 	prepararRegistroArgos *auditoria.Caso[EntradaRegistrarArgos, previoRegistroArgos]
@@ -164,9 +171,16 @@ func Nuevo(cfg Config) *Modulo {
 	m.crearContrato = m.nuevoCrearContratoCaso()
 	m.datosPDFBorrador = m.nuevoDatosPDFBorrador()
 	m.prepararFirma = m.nuevoPrepararFirma()
+	m.prepararFirmaEnOrden = m.nuevoPrepararFirmaEnOrden()
 	m.firmar = m.nuevoFirmar()
 	m.registrarCliente = m.nuevoRegistrarCliente()
 	m.completarAlta = m.nuevoCompletarAlta()
+	m.altaActivada = m.nuevoAltaActivada()
+	m.moverTitular = m.nuevoMoverTitular()
+	m.revisarVenta = m.nuevoRevisarVenta()
+	m.ordenTerminada = m.nuevoOrdenTerminada()
+	m.ordenReabierta = m.nuevoOrdenReabierta()
+	m.sinRevision = m.nuevoSinRevision()
 	m.marcarErrorAlta = m.nuevoMarcarErrorAlta()
 	m.prepararRegistroArgos = m.nuevoPrepararRegistroArgos()
 	m.registrarArgos = m.nuevoRegistrarArgos()

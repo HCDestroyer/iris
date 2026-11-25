@@ -743,10 +743,12 @@ func TestEmbudoConArgos(t *testing.T) {
 		t.Fatalf("envíos de POST /clientes: %q", env)
 	}
 	d = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p.ID}))(t)
-	if d.Alta.Estado != comercial.AltaCompleta || d.Alta.ClienteArgosID == nil || d.Alta.ServicioArgosID == nil ||
+	// B17: «ganado, alta pendiente» hasta que la activación de la orden llegue a Argos.
+	if d.Alta.Estado != comercial.AltaEsperandoActivacion || d.Alta.ClienteArgosID == nil || d.Alta.ServicioArgosID == nil ||
 		d.Alta.OrdenID == nil || d.Alta.OrdenNumero == nil || len(d.Pendientes) != 2 {
-		t.Fatalf("alta completa: %+v %+v", d.Alta, d.Pendientes)
+		t.Fatalf("alta esperando activación: %+v %+v", d.Alta, d.Pendientes)
 	}
+	ventaEnLaInstalacion(t, e, ctx, p.ID, d)
 	srv := e.falso.cuerpo(comercial.ClaveServicio(p.ID))
 	esperadoSrv := map[string]any{"cliente_id": float64(*d.Alta.ClienteArgosID), "router_id": float64(51), "plan_id": float64(300),
 		"empresa_id": float64(1), "estado_inicial": "pendiente_instalacion", "direccion": "Calzada 5-10", "coordenadas": fmt.Sprintf("%v,-90.5", cerca)}
@@ -827,7 +829,7 @@ func TestEmbudoConArgos(t *testing.T) {
 	e.relay()
 	e.procesar()
 	d5 = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p5.ID}))(t)
-	if d5.Alta.Estado != comercial.AltaCompleta || d5.Alta.Error != nil || d5.Alta.OrdenID == nil {
+	if d5.Alta.Estado != comercial.AltaEsperandoActivacion || d5.Alta.Error != nil || d5.Alta.OrdenID == nil {
 		t.Fatalf("alta vieja por el respaldo: %+v", d5.Alta)
 	}
 	if env := e.falso.envios(comercial.ClaveCliente(p5.ID)); len(env) != 2 {

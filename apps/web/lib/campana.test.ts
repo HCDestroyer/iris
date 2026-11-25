@@ -27,6 +27,11 @@ describe("avisos del Servidor de IA en la campana", () => {
         expect(detalleAvisoPanel({ tipo: "constructor" as AvisoPanel["tipo"], nivel: "info", datos: {} })).toBeNull();
         expect(iconoAvisoPanel("servidor_ia_caido")).not.toBe(campana);
         expect(iconoAvisoPanel("asistente_tope")).not.toBe(campana);
+        // Supervisión de la instalación (B20): icono propio y qué hacer.
+        expect(iconoAvisoPanel("paso_titular")).not.toBe(campana);
+        expect(iconoAvisoPanel("contrato_sin_firma")).not.toBe(campana);
+        expect(detalleAvisoPanel({ tipo: "paso_titular", nivel: "alerta", datos: {} })).toContain("no se deshace solo");
+        expect(detalleAvisoPanel({ tipo: "contrato_sin_firma", nivel: "alerta", datos: {} })).toContain("no firmó el contrato nuevo");
         expect(iconoAvisoPanel(sia("servidor_ia_incompatible").tipo)).not.toBe(iconoAvisoPanel(sia("servidor_ia_umbral").tipo));
         expect(detalleAvisoPanel(sia("servidor_ia_caido"))).toContain("pasa a personas");
         expect(detalleAvisoPanel(sia("servidor_ia_incompatible"))).toContain("qué hay que actualizar");

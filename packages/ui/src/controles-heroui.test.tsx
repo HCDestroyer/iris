@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import { Autocompletar } from "./componentes/autocompletar";
 import { AvatarUsuario, inicialesDe } from "./componentes/avatar-usuario";
 import { CampoBusqueda } from "./componentes/campo-busqueda";
+import { Cargando } from "./componentes/cargando";
 import { aNumero, CampoNumero, deNumero } from "./componentes/campo-numero";
 import { asignarRef, conAvisoValor } from "./componentes/control-nativo";
+import { Desplegable } from "./componentes/desplegable";
 import { Interruptor } from "./componentes/interruptor";
 import { ListaOpciones } from "./componentes/lista-opciones";
 import { CampoSelector, leerOpciones, Selector } from "./componentes/selector";
@@ -242,5 +244,35 @@ describe("ListaOpciones (ListBox) y Autocompletar con opciones ricas", () => {
         expect(html).toContain('value="Ana"');
         expect(html).toMatch(/maxLength="100"|maxlength="100"/);
         expect(html).toContain("lucide-search");
+    });
+});
+
+describe("Desplegable (Disclosure)", () => {
+    it("es un botón con `aria-expanded` dentro de un encabezado, cerrado por omisión, con el chevron de Lucide", () => {
+        const html = renderToStaticMarkup(<Desplegable titulo="Avanzado">Puerto 5039</Desplegable>);
+        expect(html).toContain('class="disclosure');
+        expect(html).toMatch(/<h3[^>]*>/);
+        expect(html).toMatch(/<button[^>]*aria-expanded="false"/);
+        expect(html).toContain("lucide-chevron-down");
+        expect(html).toContain("Avanzado");
+        const abierto = renderToStaticMarkup(
+            <Desplegable titulo="Avanzado" abierto nivel={2}>
+                Puerto 5039
+            </Desplegable>,
+        );
+        expect(abierto).toMatch(/<h2[^>]*>/);
+        expect(abierto).toMatch(/<button[^>]*aria-expanded="true"/);
+    });
+});
+
+describe("Cargando (Spinner)", () => {
+    it("anuncia su texto; decorativo queda oculto para lectores y del tamaño pedido", () => {
+        const html = renderToStaticMarkup(<Cargando visible texto="Preparando el PDF…" />);
+        expect(html).toContain('role="status"');
+        expect(html).toContain("Preparando el PDF…");
+        const deco = renderToStaticMarkup(<Cargando decorativo tamano="lg" />);
+        expect(deco).not.toContain('role="status"');
+        expect(deco).toMatch(/^<span aria-hidden="true"/);
+        expect(deco).toContain("size-7");
     });
 });

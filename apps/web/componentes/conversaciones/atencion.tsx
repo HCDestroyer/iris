@@ -109,7 +109,7 @@ export function AvisoAtencion({ conv, ahora, alHecho, compacto = false, classNam
                     </span>
                 </div>
                 {compacto ? null : (
-                    <span className="hidden shrink-0 items-center gap-1 text-xs font-semibold whitespace-nowrap text-warning @min-[34rem]/conv:inline-flex" aria-live="polite">
+                    <span className="hidden shrink-0 items-center gap-1 text-xs font-semibold whitespace-nowrap text-warning @min-[30rem]/conv:inline-flex" aria-live="polite">
                         <Clock aria-hidden className="size-3.5" />
                         {textoCuentaRegresiva(min)}
                     </span>
