@@ -1,7 +1,7 @@
 "use client";
 
-import { avisar, Aviso, Boton, BotonManualPantalla, DialogoConfirmar, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { Ban, CircleCheck, Eye, History, RotateCw, SearchX, SquarePen } from "lucide-react";
+import { avisar, Aviso, Boton, BotonManualPantalla, DialogoConfirmar, Esqueleto, EstadoVacio, FranjaFicha, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Ban, CircleCheck, ClipboardCheck, Eye, History, RotateCw, SearchX, SquarePen } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -132,40 +132,42 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
     return (
         <>
             <header className="mb-4 grid gap-2">
-                <span className="font-mono text-sm text-muted-foreground">{p.codigo}</span>
-                <div className="flex min-w-0 items-center gap-1.5">
-                    <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{p.nombre}</h1>
-                    <BotonManualPantalla />
-                </div>
-                <InsigniasPlantilla p={p} />
-                {p.descripcion ? <p className="text-sm text-muted-foreground">{p.descripcion}</p> : null}
-                {!editando && !vieja ? (
-                    <div className="flex flex-wrap gap-2" role="group" aria-label="Acciones de la plantilla">
-                        {puedeEditar ? (
-                            <Boton
-                                tamano="sm"
-                                onClick={() => {
-                                    setGuardada(null);
-                                    setEditando(true);
-                                }}
-                            >
-                                <SquarePen />
-                                Editar
-                            </Boton>
-                        ) : null}
-                        {puedeEstado ? (
-                            <Boton
-                                variante={p.activa ? "peligro" : "secundario"}
-                                tamano="sm"
-                                onClick={p.activa ? () => setConfirmar(true) : cambiarEstado}
-                                disabled={cambiando || conflicto(errorEstado)}
-                            >
-                                {p.activa ? <Ban /> : <CircleCheck />}
-                                {cambiando ? "Guardando…" : p.activa ? "Desactivar" : "Activar"}
-                            </Boton>
-                        ) : null}
-                    </div>
-                ) : null}
+                <FranjaFicha
+                    icono={ClipboardCheck}
+                    titulo={p.nombre}
+                    detalle={[p.codigo, p.descripcion].filter(Boolean).join(" · ")}
+                    manual={<BotonManualPantalla />}
+                    insignias={<InsigniasPlantilla p={p} />}
+                    accion={
+                        !editando && !vieja ? (
+                            <div className="flex flex-wrap gap-2" role="group" aria-label="Acciones de la plantilla">
+                                {puedeEditar ? (
+                                    <Boton
+                                        tamano="sm"
+                                        onClick={() => {
+                                            setGuardada(null);
+                                            setEditando(true);
+                                        }}
+                                    >
+                                        <SquarePen />
+                                        Editar
+                                    </Boton>
+                                ) : null}
+                                {puedeEstado ? (
+                                    <Boton
+                                        variante={p.activa ? "peligro" : "secundario"}
+                                        tamano="sm"
+                                        onClick={p.activa ? () => setConfirmar(true) : cambiarEstado}
+                                        disabled={cambiando || conflicto(errorEstado)}
+                                    >
+                                        {p.activa ? <Ban /> : <CircleCheck />}
+                                        {cambiando ? "Guardando…" : p.activa ? "Desactivar" : "Activar"}
+                                    </Boton>
+                                ) : null}
+                            </div>
+                        ) : null
+                    }
+                />
                 <DialogoConfirmar
                     open={confirmar}
                     onOpenChange={setConfirmar}
