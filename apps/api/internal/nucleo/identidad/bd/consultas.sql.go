@@ -3060,7 +3060,7 @@ func (q *Queries) TokenVigentePorHash(ctx context.Context, hash []byte) (TokenVi
 }
 
 const tokenVigentePorID = `-- name: TokenVigentePorID :one
-SELECT t.permisos, u.id AS usuario_id
+SELECT t.permisos, u.id AS usuario_id, t.token_padre_id
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
 WHERE t.id = $1 AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo
@@ -3070,15 +3070,16 @@ WHERE t.id = $1 AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expi
 `
 
 type TokenVigentePorIDRow struct {
-	Permisos  []string
-	UsuarioID int64
+	Permisos     []string
+	UsuarioID    int64
+	TokenPadreID *int64
 }
 
 // Revalidar un flujo largo (SSE del chat) autenticado con este token.
 func (q *Queries) TokenVigentePorID(ctx context.Context, id int64) (TokenVigentePorIDRow, error) {
 	row := q.db.QueryRow(ctx, tokenVigentePorID, id)
 	var i TokenVigentePorIDRow
-	err := row.Scan(&i.Permisos, &i.UsuarioID)
+	err := row.Scan(&i.Permisos, &i.UsuarioID, &i.TokenPadreID)
 	return i, err
 }
 

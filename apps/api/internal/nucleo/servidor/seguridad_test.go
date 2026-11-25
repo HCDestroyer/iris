@@ -383,3 +383,18 @@ func TestIdempotenciaRetomaClaveAbandonada(t *testing.T) {
 		t.Fatalf("tras retomarla, se repite: %d %s", rep.status, rep.crudo)
 	}
 }
+
+// Revisión B1 (d): la sesión del panel no trae portal_argos.* aunque el rol (admin) los tenga.
+func TestSesionSinPermisosPortalArgos(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, correo := e.usuario("admin")
+	c := e.cliente()
+	c.entrar(correo)
+	yo := c.pedir(http.MethodGet, "/api/v1/yo", nil)
+	if yo.status != http.StatusOK || !strings.Contains(string(yo.crudo), "tickets.ver") {
+		t.Fatalf("yo: %d %s", yo.status, yo.crudo)
+	}
+	if strings.Contains(string(yo.crudo), "portal_argos.") {
+		t.Fatalf("la sesión trae portal_argos.*: %s", yo.crudo)
+	}
+}

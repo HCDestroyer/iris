@@ -200,6 +200,29 @@ func exigirCrearIntegracion(ctx context.Context, roles []AsignacionRol) error {
 	return nil
 }
 
+// exigirRolesDePersona: a un usuario de tipo persona no se le dan roles de integración
+// (integracion_argos, integracion_horus): sus permisos son los de un conector (422).
+func exigirRolesDePersona(tipo, campo string, roles []AsignacionRol) error {
+	if tipo == "integracion" {
+		return nil
+	}
+	var errores []nucleo.ErrorCampo
+	for i, r := range roles {
+		if soloRolesDeIntegracion([]AsignacionRol{r}) {
+			f := campo
+			if len(roles) > 1 || campo == "roles" {
+				f = fmt.Sprintf("%s[%d].rol", campo, i)
+			}
+			errores = append(errores, nucleo.ErrorCampo{Field: f,
+				Message: "El rol " + r.Rol + " es de un conector: solo se da a usuarios de tipo integración", Rule: "rol_integracion"})
+		}
+	}
+	if len(errores) > 0 {
+		return nucleo.Validacion(errores...)
+	}
+	return nil
+}
+
 // soloRolesDeIntegracion: todas las asignaciones son roles de integración (RolesIntegracion).
 func soloRolesDeIntegracion(roles []AsignacionRol) bool {
 	for _, r := range roles {

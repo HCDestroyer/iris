@@ -205,7 +205,7 @@ WHERE t.hash = @hash AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t
 
 -- name: TokenVigentePorID :one
 -- Revalidar un flujo largo (SSE del chat) autenticado con este token.
-SELECT t.permisos, u.id AS usuario_id
+SELECT t.permisos, u.id AS usuario_id, t.token_padre_id
 FROM nucleo.tokens_api t
 JOIN nucleo.usuarios u ON u.id = t.usuario_id
 WHERE t.id = @id AND t.eliminado_en IS NULL AND t.revocado_en IS NULL AND (t.expira_en IS NULL OR t.expira_en > now()) AND u.activo

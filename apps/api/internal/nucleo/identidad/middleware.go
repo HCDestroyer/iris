@@ -144,6 +144,8 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 							nucleo.EscribirProblema(w, nucleo.ErrorInterno())
 							return
 						}
+						// portal_argos.* solo valen en el token_portal (contrato con Argos 0.9.0 §1.2).
+						permisos = permisos.SinPrefijo(prefijoPortalArgos)
 						ctx = contexto.ConActor(ctx, contexto.Actor{Tipo: contexto.ActorUsuario, ID: u.ID, Nombre: u.Nombre}, permisos)
 						ctx = contexto.ConCanal(ctx, canalDeSesion(r))
 						if err := q.TocarSesion(ctx, s.ID); err != nil {
