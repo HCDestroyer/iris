@@ -293,7 +293,8 @@ test.describe("reiniciar MFA desde Usuarios", () => {
         await conSesion(context, baseURL ?? "", SOPORTE.correo);
         await page.goto("/usuarios");
         await expect(page.locator("main").getByText(CON_MFA.correo).filter({ visible: true })).toBeVisible();
-        await expect(page.getByRole("button", { name: /^Reiniciar MFA/ })).toHaveCount(0);
+        // Sin el permiso, el menú de la fila no lo ofrece.
+        await ofreceAccionFila(page, CON_MFA.nombre, "Reiniciar MFA", false);
     });
 });
 

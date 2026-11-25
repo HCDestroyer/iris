@@ -207,89 +207,88 @@ function Bandeja({ clienteId, vistaInicial }: { clienteId: number | null; vistaI
                             maxLength={120}
                             valor={filtros.q}
                             alCambiar={(q) => cambiar({ q })}
-                    />
-                    <Chip etiqueta="Estado" activo={filtros.estado !== FILTROS_INICIALES.estado}>
-                        {(id) => (
-                            <Selector
-                                id={id}
-                                tamano="sm"
-                                className={claseSelectorChip}
-                                value={filtros.estado}
-                                onChange={(e) => cambiar({ estado: e.target.value as Filtros["estado"] })}
-                            >
-                                <option value="activos">Activos</option>
-                                {ORDEN_ESTADOS.map((e) => (
-                                    <option key={e} value={e}>
-                                        {ESTADOS[e].texto}
-                                    </option>
-                                ))}
-                                <option value="todos">Todos</option>
-                            </Selector>
-                        )}
-                    </Chip>
-                    <Chip etiqueta="Prioridad" activo={filtros.prioridad !== "todas"}>
-                        {(id) => (
-                            <Selector
-                                id={id}
-                                tamano="sm"
-                                className={claseSelectorChip}
-                                value={filtros.prioridad}
-                                onChange={(e) => cambiar({ prioridad: e.target.value as Filtros["prioridad"] })}
-                            >
-                                <option value="todas">Todas</option>
-                                {[...ORDEN_PRIORIDADES].reverse().map((p) => (
-                                    <option key={p} value={p}>
-                                        {PRIORIDADES[p].texto}
-                                    </option>
-                                ))}
-                            </Selector>
-                        )}
-                    </Chip>
-                    <Chip etiqueta="Categoría" activo={filtros.categoria !== "todas"}>
-                        {(id) => (
-                            <Selector
-                                id={id}
-                                tamano="sm"
-                                className={claseSelectorChip}
-                                value={String(filtros.categoria)}
-                                disabled={categorias.estado !== "listo"}
-                                title={categorias.estado === "error" ? "No se pudieron cargar las categorías." : undefined}
-                                onChange={(e) => cambiar({ categoria: e.target.value === "todas" ? "todas" : Number(e.target.value) })}
-                            >
-                                <option value="todas">Todas</option>
-                                {listaCategorias.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                        {c.nombre}
-                                    </option>
-                                ))}
-                            </Selector>
-                        )}
-                    </Chip>
-                    <Chip etiqueta="Asignación" activo={filtros.asignacion !== "todos"}>
-                        {(id) => (
-                            <Selector
-                                id={id}
-                                tamano="sm"
-                                className={claseSelectorChip}
-                                value={filtros.asignacion}
-                                onChange={(e) => cambiar({ asignacion: e.target.value as Filtros["asignacion"] })}
-                            >
-                                <option value="todos">Todos</option>
-                                <option value="mios">Asignados a mí</option>
-                                <option value="sin_asignar">Sin asignar</option>
-                            </Selector>
-                        )}
-                    </Chip>
-                    {!mismosFiltros(filtros, FILTROS_INICIALES) ? (
-                        <Boton variante="fantasma" tamano="sm" className="h-8 text-xs text-muted-foreground" onClick={() => setFiltros(FILTROS_INICIALES)}>
-                            <X />
-                            Quitar filtros
-                        </Boton>
-                    ) : null}
-                    {categorias.estado === "error" ? <span className="text-xs text-muted-foreground">No se pudieron cargar las categorías.</span> : null}
-                </div>
+                        />
+                        <Chip etiqueta="Estado" activo={filtros.estado !== FILTROS_INICIALES.estado}>
+                            {(id) => (
+                                <Selector
+                                    id={id}
+                                    tamano="sm"
+                                    className={claseSelectorChip}
+                                    value={filtros.estado}
+                                    onChange={(e) => cambiar({ estado: e.target.value as Filtros["estado"] })}
+                                >
+                                    <option value="activos">Activos</option>
+                                    {ORDEN_ESTADOS.map((e) => (
+                                        <option key={e} value={e}>
+                                            {ESTADOS[e].texto}
+                                        </option>
+                                    ))}
+                                    <option value="todos">Todos</option>
+                                </Selector>
+                            )}
+                        </Chip>
+                        <Chip etiqueta="Prioridad" activo={filtros.prioridad !== "todas"}>
+                            {(id) => (
+                                <Selector
+                                    id={id}
+                                    tamano="sm"
+                                    className={claseSelectorChip}
+                                    value={filtros.prioridad}
+                                    onChange={(e) => cambiar({ prioridad: e.target.value as Filtros["prioridad"] })}
+                                >
+                                    <option value="todas">Todas</option>
+                                    {[...ORDEN_PRIORIDADES].reverse().map((p) => (
+                                        <option key={p} value={p}>
+                                            {PRIORIDADES[p].texto}
+                                        </option>
+                                    ))}
+                                </Selector>
+                            )}
+                        </Chip>
+                        <Chip etiqueta="Categoría" activo={filtros.categoria !== "todas"}>
+                            {(id) => (
+                                <Selector
+                                    id={id}
+                                    tamano="sm"
+                                    className={claseSelectorChip}
+                                    value={String(filtros.categoria)}
+                                    disabled={categorias.estado !== "listo"}
+                                    title={categorias.estado === "error" ? "No se pudieron cargar las categorías." : undefined}
+                                    onChange={(e) => cambiar({ categoria: e.target.value === "todas" ? "todas" : Number(e.target.value) })}
+                                >
+                                    <option value="todas">Todas</option>
+                                    {listaCategorias.map((c) => (
+                                        <option key={c.id} value={c.id}>
+                                            {c.nombre}
+                                        </option>
+                                    ))}
+                                </Selector>
+                            )}
+                        </Chip>
+                        <Chip etiqueta="Asignación" activo={filtros.asignacion !== "todos"}>
+                            {(id) => (
+                                <Selector
+                                    id={id}
+                                    tamano="sm"
+                                    className={claseSelectorChip}
+                                    value={filtros.asignacion}
+                                    onChange={(e) => cambiar({ asignacion: e.target.value as Filtros["asignacion"] })}
+                                >
+                                    <option value="todos">Todos</option>
+                                    <option value="mios">Asignados a mí</option>
+                                    <option value="sin_asignar">Sin asignar</option>
+                                </Selector>
+                            )}
+                        </Chip>
+                        {!mismosFiltros(filtros, FILTROS_INICIALES) ? (
+                            <Boton variante="fantasma" tamano="sm" className="h-8 text-xs text-muted-foreground" onClick={() => setFiltros(FILTROS_INICIALES)}>
+                                <X />
+                                Quitar filtros
+                            </Boton>
+                        ) : null}
+                        {categorias.estado === "error" ? <span className="text-xs text-muted-foreground">No se pudieron cargar las categorías.</span> : null}
+                    </div>
                 }
-                key={JSON.stringify(consulta)}
                 consulta={consulta}
                 categorias={categorias.estado === "listo" ? categorias.datos : undefined}
                 usuarios={usuarios.estado === "listo" ? usuarios.datos : undefined}

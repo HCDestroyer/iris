@@ -109,49 +109,31 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
         reintentar();
     }, [clave, reintentar]);
 
-    if (primera.estado === "cargando") {
-        return (
-            <ListaFilas
-                etiqueta="Tickets"
-                cabecera={cabecera}
-                vacio={
-                    <div className="grid gap-3" aria-busy="true">
-                        <span className="sr-only" role="status">
-                            Cargando tickets…
-                        </span>
-                        {Array.from({ length: 5 }, (_, i) => (
-                            <Esqueleto key={i} className="h-11" />
-                        ))}
-                    </div>
-                }
-            >
-                {[]}
-            </ListaFilas>
-        );
-    }
-    if (primera.estado === "error") {
-        return (
-            <ListaFilas
-                etiqueta="Tickets"
-                cabecera={cabecera}
-                vacio={
-                    <ErrorLectura
-                        error={primera.error}
-                        que="los tickets"
-                        reintentar={() => {
-                            setExtra(null);
-                            primera.reintentar();
-                        }}
-                    />
-                }
-            >
-                {[]}
-            </ListaFilas>
-        );
-    }
+    // Cargando, error y vacío se muestran dentro de la misma lista: la cabecera (buscador y filtros)
+    // no se remonta al volver a leer.
+    const leyendo =
+        primera.estado === "cargando" ? (
+            <div className="grid gap-3" aria-busy="true">
+                <span className="sr-only" role="status">
+                    Cargando tickets…
+                </span>
+                {Array.from({ length: 5 }, (_, i) => (
+                    <Esqueleto key={i} className="h-11" />
+                ))}
+            </div>
+        ) : primera.estado === "error" ? (
+            <ErrorLectura
+                error={primera.error}
+                que="los tickets"
+                reintentar={() => {
+                    setExtra(null);
+                    primera.reintentar();
+                }}
+            />
+        ) : null;
 
-    const tickets = [...(primera.datos.data ?? []), ...(extra?.tickets ?? [])];
-    const siguiente = extra ? extra.cursor : primera.datos.nextCursor;
+    const tickets = primera.estado === "listo" ? [...(primera.datos.data ?? []), ...(extra?.tickets ?? [])] : [];
+    const siguiente = primera.estado !== "listo" ? null : extra ? extra.cursor : primera.datos.nextCursor;
     const asignables = tickets.filter((t) => t.estado !== "cerrado");
     const seleccion = asignables.filter((t) => elegidos.has(t.id));
     const enVista = tickets.find((t) => t.id === vistaId) ?? null;
@@ -224,15 +206,14 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
             </div>
         ) : null;
     // Sin selección, «Seleccionar todos» va al final de la cabecera; con selección, en su barra.
-    const cabeceraLista =
-        seleccionable && seleccion.length === 0 && asignables.length > 0 ? (
-            <>
-                {cabecera}
-                <span className="ml-auto">{casillaTodos}</span>
-            </>
-        ) : (
-            cabecera
-        );
+    // Misma forma siempre (la casilla va o no en el segundo hueco): si cambiara, React remontaría
+    // el buscador y los filtros, que perderían el foco y la lista abierta.
+    const cabeceraLista = (
+        <>
+            {cabecera}
+            {seleccionable && seleccion.length === 0 && asignables.length > 0 ? <span className="ml-auto">{casillaTodos}</span> : null}
+        </>
+    );
 
     return (
         <>
@@ -240,13 +221,15 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
                 etiqueta="Tickets"
                 cabecera={cabeceraLista}
                 seleccion={barraSeleccion}
-                {...pie}
+                {...(leyendo ? {} : pie)}
                 vacio={
-                    <EstadoVacio
-                        icono={Inbox}
-                        titulo={hayFiltros ? "Ningún ticket coincide con los filtros" : "No hay tickets"}
-                        descripcion={hayFiltros ? "Prueba con otra vista o quita algún filtro." : "Cuando entren tickets aparecerán aquí."}
-                    />
+                    leyendo ?? (
+                        <EstadoVacio
+                            icono={Inbox}
+                            titulo={hayFiltros ? "Ningún ticket coincide con los filtros" : "No hay tickets"}
+                            descripcion={hayFiltros ? "Prueba con otra vista o quita algún filtro." : "Cuando entren tickets aparecerán aquí."}
+                        />
+                    )
                 }
             >
                 {fallidos.length > 0 ? (

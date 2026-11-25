@@ -24,6 +24,9 @@ test.describe("restablecer contraseña desde Usuarios", () => {
         await ofreceAccionFila(page, LECTOR.nombre, "Restablecer contraseña", true);
         await ofreceAccionFila(page, CON_MFA.nombre, "Restablecer contraseña", true);
         await ofreceAccionFila(page, ADMIN.nombre, "Restablecer contraseña", false);
+        // La integración está en la página siguiente: antes la prueba solo miraba que no hubiera botón.
+        await page.getByRole("button", { name: "Cargar más" }).click();
+        await expect(page.getByRole("link", { name: /^Integración Argos/ })).toBeVisible();
         await ofreceAccionFila(page, "Integración Argos", "Restablecer contraseña", false);
 
         await accionFila(page, LECTOR.nombre, "Restablecer contraseña");
@@ -124,14 +127,15 @@ test.describe("restablecer contraseña desde Usuarios", () => {
         await conSesion(context, baseURL ?? "", SOPORTE.correo);
         await page.goto("/usuarios");
         await expect(page.locator("main").getByText(LECTOR.correo).filter({ visible: true })).toBeVisible();
-        await expect(page.getByRole("button", { name: /^Restablecer contraseña/ })).toHaveCount(0);
+        // Sin el permiso, el menú de la fila no lo ofrece.
+        await ofreceAccionFila(page, LECTOR.nombre, "Restablecer contraseña", false);
     });
 
     test("desde la ficha del usuario", async ({ page, context, baseURL }) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto(`/usuarios/${LECTOR.id}`);
-        await accionFila(page, LECTOR.nombre, "Restablecer contraseña");
+        await page.getByRole("button", { name: `Restablecer contraseña de ${LECTOR.nombre}` }).click();
         const dialogo = page.getByRole("dialog", { name: `Restablecer contraseña de ${LECTOR.nombre}` });
         await dialogo.getByLabel("Motivo").fill("Olvidó su contraseña");
         await dialogo.getByRole("button", { name: "Restablecer", exact: true }).click();
