@@ -1,7 +1,7 @@
 "use client";
 
-import { Aviso, Boton, cn, Esqueleto, Globo, LogoIris, MarcaIris, ProveedorAvisosEmergentes, ProveedorRutas } from "@iris/ui";
-import { PanelLeftClose, PanelLeftOpen, RotateCw } from "lucide-react";
+import { Aviso, Boton, cn, EncabezadoPanel, Esqueleto, LogoIris, MarcaIris, MenuIsla, ProveedorAvisosEmergentes, ProveedorManual, ProveedorRutas, type GrupoIsla } from "@iris/ui";
+import { RotateCw } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Suspense, useCallback, useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -13,14 +13,16 @@ import { useNoLeidosConversaciones } from "@/lib/conversaciones/contador";
 import { ProveedorDisponibilidad, useDisponibilidad } from "@/lib/conversaciones/disponibilidad";
 import { requiereCambio, rutaCambiarContrasena, suscribirCambioRequerido } from "@/lib/cuenta/sesion";
 import { guardarEmpresa, limpiarEmpresa, suscribirProblemasEmpresa } from "@/lib/empresa";
-import { menuAgrupado, repartoTelefono } from "@/lib/menu";
+import { claveManualDeRuta } from "@/lib/manual/claves";
+import { entradaActiva, menuAgrupado, repartoTelefono, type GrupoVisible } from "@/lib/menu";
 import { ProveedorSesion, useSesion, useYo } from "@/lib/sesion";
-import { contadorDe, ProveedorResumenTickets, useResumenTickets } from "@/lib/tickets/resumen";
+import { contadorDe, ProveedorResumenTickets, useResumenTickets, type ContextoResumen } from "@/lib/tickets/resumen";
 import { BarraInferior } from "./barra-inferior";
 import { ControlDisponibilidad } from "./conversaciones/disponibilidad";
 import { BuscadorGlobal } from "./buscador-global";
-import { MenuCuentaLista, MenuUsuarioLateral, ProveedorCuenta } from "./cuenta/menu-usuario";
-import { BotonAvisos, BotonCrear } from "./barra-superior";
+import { CuentaEncabezado, MenuCuentaLista, ProveedorCuenta } from "./cuenta/menu-usuario";
+import { BotonAvisos } from "./barra-superior";
+import { AccesosRapidos, EstadoConexiones } from "./marco/encabezado";
 import { BotonChatEquipo, PanelChatEquipo } from "./chat/panel-chat";
 import { ProveedorChatEquipo, useChatEquipo } from "./chat/proveedor";
 import { MigasPanel, ProveedorMigas } from "./migas-panel";
@@ -137,22 +139,23 @@ export function Panel({ children }: { children: ReactNode }) {
 
 function EsqueletoPanel() {
     return (
-        <div className="min-h-dvh lg:pl-60" aria-busy="true">
+        <div className="h-dvh overflow-hidden bg-background-secondary" aria-busy="true">
             <span className="sr-only" role="status">
                 Cargando tu sesión…
             </span>
-            <aside className="glass-material fixed inset-y-0 left-0 hidden w-60 flex-col gap-3 border-r p-4 lg:flex">
-                <MarcaIris />
+            <aside className="fixed top-4 bottom-4 left-4 hidden w-62 flex-col gap-3 rounded-[var(--iris-radio-isla)] border border-border bg-[var(--iris-tarjeta)] p-4 shadow-[var(--iris-sombra-flotante)] lg:flex">
+                <MarcaIris className="[&_svg]:size-[2.375rem]" />
                 <div className="mt-4 grid gap-2">
                     {Array.from({ length: 6 }, (_, i) => (
                         <Esqueleto key={i} className="h-8" />
                     ))}
                 </div>
             </aside>
-            <header className="glass-material sticky top-0 z-30 flex h-14 items-center border-b px-4 lg:px-6">
-                <MarcaIris className="lg:hidden" />
-            </header>
-            <main className="mx-auto max-w-6xl p-4 sm:p-6">
+            <div className="fixed top-2 right-4 left-4 flex h-11 items-center gap-2.5 lg:top-4 lg:left-[18.5rem]">
+                <LogoIris className="size-10 lg:hidden" />
+                <Esqueleto className="h-11 w-60 rounded-full" />
+            </div>
+            <main className="fixed inset-x-0 top-[3.75rem] bottom-0 px-4 lg:top-[4.75rem] lg:right-4 lg:left-[18.5rem]">
                 <Esqueleto className="mb-5 h-8 w-48" />
                 <Esqueleto className="h-40" />
             </main>
@@ -256,12 +259,13 @@ const RUTAS_ANCHO_COMPLETO = ["/conversaciones", "/equipo"];
 export const esAnchoCompleto = (ruta: string) => RUTAS_ANCHO_COMPLETO.includes(ruta);
 
 /**
- * Región de avisos en el teléfono: dentro de la barra superior (56 px), desde el borde izquierdo
- * hasta antes del buscador (y de «Avisos» y «Crear», a su derecha); el texto en letra pequeña y hasta dos líneas para que quepa.
+ * Región de avisos en el teléfono (rediseño): sobre la fila del encabezado (44 px, a lo ancho), unos
+ * segundos: nunca tapa las migas, la isla del menú, «Guardar» ni el panel lateral (que empieza bajo
+ * el encabezado). El texto en letra pequeña y hasta dos líneas.
  */
 const CLASES_AVISOS_TELEFONO = [
-    "top-[calc(env(safe-area-inset-top)+0.25rem)] left-2 right-[9.5rem] w-auto translate-x-0 sm:w-auto",
-    "[&_[data-slot=toast]]:min-h-0 [&_[data-slot=toast]]:max-h-12 [&_[data-slot=toast]]:py-1.5",
+    "top-[calc(env(safe-area-inset-top)+0.5rem)] inset-x-2 w-auto translate-x-0 sm:w-auto",
+    "[&_[data-slot=toast]]:min-h-0 [&_[data-slot=toast]]:max-h-11 [&_[data-slot=toast]]:py-1.5",
     "[&_.toast__title]:text-xs [&_.toast__title]:leading-4 [&_.toast__title]:line-clamp-2",
 ].join(" ");
 
@@ -272,9 +276,9 @@ function suscribirAncho(avisar: () => void) {
 }
 
 /**
- * Avisos emergentes: abajo a la derecha en escritorio. En el teléfono, sobre la propia barra
- * superior (a la altura del logo, dejando libre el botón del buscador): así no tapan la miga
- * «‹ …» de la pantalla, ni la barra inferior, ni «Guardar», ni las hojas que suben desde abajo.
+ * Avisos emergentes: abajo a la derecha en escritorio. En el teléfono, sobre la fila del
+ * encabezado: así no tapan la miga «‹ …» de la pantalla, ni la isla del menú, ni «Guardar», ni las
+ * hojas que suben desde abajo.
  */
 function AvisosDelPanel() {
     const escritorio = useSyncExternalStore(
@@ -287,6 +291,31 @@ function AvisosDelPanel() {
     ) : (
         <ProveedorAvisosEmergentes ubicacion="top" className={CLASES_AVISOS_TELEFONO} />
     );
+}
+
+/**
+ * Grupos del menú para la isla: la operación arriba (sin título), Negocio, «Administración» al pie.
+ * Tickets lleva su contador en ámbar si hay SLA en riesgo o vencidos; los demás, en índigo.
+ */
+function aGruposIsla(grupos: readonly GrupoVisible[], ruta: string, contadores: Readonly<Record<string, number | undefined>>, resumen: ContextoResumen): GrupoIsla[] {
+    const activa = entradaActiva(ruta);
+    const urgentes = resumen?.estado === "listo" ? resumen.datos.slaVencidos + resumen.datos.slaEnRiesgo : 0;
+    return grupos.map((g) => ({
+        id: g.id,
+        etiqueta: g.etiqueta,
+        ...(g.tituloOculto ? { tituloOculto: true } : {}),
+        ...(g.id === "administracion" ? { alPie: true } : {}),
+        entradas: g.entradas.map((e) => ({
+            href: e.href,
+            etiqueta: e.etiqueta,
+            ...(e.etiquetaCorta ? { etiquetaCorta: e.etiquetaCorta } : e.href === "/conversaciones" ? { etiquetaCorta: "Bandeja" } : e.href === "/administracion" ? { etiquetaCorta: "Admin." } : {}),
+            icono: e.icono,
+            contador: contadores[e.href],
+            ...(e.href === "/tickets" && urgentes > 0 ? { tonoContador: "atencion" as const } : {}),
+            actual: activa?.href === e.href,
+            ...(e.proximamente ? { proximamente: true } : {}),
+        })),
+    }));
 }
 
 function EstructuraPanel({ children }: { children: ReactNode }) {
@@ -353,145 +382,148 @@ function EstructuraPanel({ children }: { children: ReactNode }) {
     const noLeidos = useNoLeidosConversaciones(puede(["conversaciones.ver"]) && (yo.modoEmpresa === "sin_conector" || yo.empresaActiva !== undefined), `${yo.empresaActiva?.id ?? 0}`);
     const contadores = { "/tickets": contadorDe(resumen, "activos"), "/conversaciones": noLeidos, "/equipo": chat?.contadores.todas };
 
+    const gruposIsla = aGruposIsla(grupos, ruta, contadores, resumen);
+    const claveManual = claveManualDeRuta(ruta);
+
     return (
-        <div className={cn("min-h-dvh bg-background-secondary text-[0.875rem]", contraida ? "lg:pl-16" : "lg:pl-60")}>
-            <aside
-                id={idBarra}
-                aria-label="Barra lateral"
-                data-contraida={contraida || undefined}
-                className={cn(
-                    "glass-material fixed inset-y-0 left-0 z-30 hidden flex-col gap-4 overflow-y-auto border-r py-3.5 lg:flex",
-                    contraida ? "w-16 px-2" : "w-60 px-3",
-                )}
-            >
-                <div className={cn("grid gap-2", contraida ? "justify-items-center" : "px-1")}>
-                    <Link href="/" className="rounded-md" aria-label="Iris, inicio">
-                        {contraida ? <LogoIris className="mx-auto" /> : <MarcaIris />}
-                    </Link>
-                    {contraida ? null : <SelectorEmpresa />}
-                </div>
-                <Navegacion grupos={grupos} contraida={contraida} contadores={contadores} />
-                {contraida ? null : (
-                    <Suspense>
-                        <MisVistas />
-                    </Suspense>
-                )}
-                <div className={cn("mt-auto grid gap-2 border-t pt-2", contraida ? "justify-items-center" : "")}>
-                    <MenuUsuarioLateral cerrando={cerrando} cerrarSesion={cerrarSesion} contraida={contraida} />
-                    <div className={cn("flex items-center gap-2", contraida ? "flex-col" : "justify-between px-1")}>
-                        {contraida ? null : <SelectorTema />}
-                        <Globo texto={contraida ? "Expandir menú" : "Contraer menú"} lado="end">
-                            <Boton
-                                variante="fantasma"
-                                tamano="icono-sm"
-                                className="text-muted-foreground"
-                                aria-label={contraida ? "Expandir menú" : "Contraer menú"}
-                                aria-expanded={!contraida}
-                                aria-controls={idBarra}
-                                onClick={alternarContraida}
-                            >
-                                {contraida ? <PanelLeftOpen /> : <PanelLeftClose />}
-                            </Boton>
-                        </Globo>
-                    </div>
-                </div>
-            </aside>
+        <ProveedorManual clave={claveManual}>
+            <div data-slot="marco-panel" data-contraida={contraida || undefined} className="relative min-h-dvh bg-background-secondary text-[0.875rem] lg:h-dvh lg:overflow-hidden">
+                <MenuIsla
+                    id={idBarra}
+                    grupos={gruposIsla}
+                    compacta={contraida}
+                    alAlternar={alternarContraida}
+                    marca={
+                        <Link href="/" className="block rounded-xl" aria-label="Iris, inicio">
+                            {contraida ? <LogoIris className="size-[2.375rem]" /> : <MarcaIris className="[&_svg]:size-[2.375rem]" />}
+                        </Link>
+                    }
+                    extra={
+                        <Suspense>
+                            <MisVistas />
+                        </Suspense>
+                    }
+                />
 
-            <header className="glass-material sticky top-0 z-20 flex h-14 items-center gap-2 border-b px-3 sm:px-4 lg:gap-3 lg:px-6">
-                <Link href="/" className="rounded-md lg:hidden" aria-label="Iris, inicio">
-                    <MarcaIris />
-                </Link>
-                <div className="hidden min-w-0 flex-1 lg:block">
-                    <MigasPanel className="mb-0" />
-                </div>
-                <div className="ml-auto flex min-w-0 items-center justify-end gap-2 lg:ml-0 lg:flex-[0_1_21.25rem]">
-                    <BuscadorGlobal />
-                </div>
-                <BotonTelefono />
-                <BotonRecibir />
-                <BotonChatEquipo />
-                <BotonAvisos />
-                <BotonCrear />
-            </header>
-            {ruta !== "/equipo" ? <PanelChatEquipo /> : null}
-            <BarraTelefono />
-            <CapaTelefono />
-            {voz ? (
-                <>
-                    <Suspense>
-                        <BarraLlamada />
-                    </Suspense>
-                    <AvisoLlamada />
-                    <NotaLlamada />
-                </>
-            ) : null}
-
-            <main
-                id="contenido"
-                data-ancho-completo={anchoCompleto || undefined}
-                className={cn(
-                    anchoCompleto
-                        ? "min-w-0"
-                        : "mx-auto max-w-[96rem] p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-5 sm:pb-[calc(5.5rem+env(safe-area-inset-bottom))] lg:pb-7",
-                )}
-            >
-                {anchoCompleto ? null : (
-                    <div className="lg:hidden">
-                        <MigasPanel />
-                    </div>
-                )}
-                {errorCerrar ? (
-                    <Aviso
-                        tono="error"
-                        titulo="No se pudo cerrar la sesión"
-                        className={anchoCompleto ? "m-3" : "mb-4"}
-                        accion={
-                            <Boton variante="secundario" tamano="sm" onClick={cerrarSesion}>
-                                <RotateCw />
-                                Reintentar
-                            </Boton>
+                {/* Encabezado sin barra: botones sueltos, cada uno una isla. */}
+                <div className={cn("absolute top-2 right-4 left-4 z-20 lg:fixed lg:top-4", contraida ? "lg:left-[7rem]" : "lg:left-[18.5rem]")}>
+                    <EncabezadoPanel
+                        izquierda={
+                            <>
+                                <Link href="/" className="rounded-xl lg:hidden" aria-label="Iris, inicio">
+                                    <LogoIris className="size-10" />
+                                </Link>
+                                <BuscadorGlobal />
+                                <AccesosRapidos />
+                            </>
                         }
-                    >
-                        {mensajeDeError(errorCerrar).detalle}
-                    </Aviso>
-                ) : null}
-                <AvisoTelefono />
-                {avisoAdopcion ? <AvisoDatosSinEmpresa /> : null}
-                {children}
-            </main>
-
-            {/* Teléfono: la barra lateral entera va en la hoja «Más». */}
-            <BarraInferior entradas={telefono.barra} masAbierto={masAbierto} alCambiarMas={setMasAbierto}>
-                <div className="mt-2 flex flex-1 flex-col gap-6">
-                    {disponibilidad ? (
-                        <section aria-label="Tu disponibilidad" className="grid gap-2 rounded-xl border border-border bg-card p-3">
-                            <span className="text-xs font-medium text-dimmed">Conversaciones</span>
-                            <ControlDisponibilidad />
-                        </section>
-                    ) : null}
-                    {voz ? (
-                        <section aria-label="Llamadas" className="grid gap-2 rounded-xl border border-border bg-card p-3">
-                            <span className="text-xs font-medium text-dimmed">Llamadas</span>
-                            <ControlRecibir />
-                        </section>
-                    ) : null}
-                    <Navegacion grupos={grupos} contadores={contadores} alNavegar={() => setMasAbierto(false)} />
-                    <Suspense>
-                        <MisVistas alNavegar={() => setMasAbierto(false)} />
-                    </Suspense>
-                    {conEmpresa ? (
-                        <div className="grid gap-2">
-                            <span className="text-xs font-medium text-dimmed">Empresa</span>
-                            <SelectorEmpresa />
-                        </div>
-                    ) : null}
-                    <MenuCuentaLista cerrando={cerrando} cerrarSesion={cerrarSesion} antes={() => setMasAbierto(false)} />
-                    <div className="mt-auto grid gap-2">
-                        <span className="text-xs text-muted-foreground">Tema</span>
-                        <SelectorTema className="justify-self-start" />
-                    </div>
+                        derecha={
+                            <>
+                                <BotonTelefono />
+                                <BotonRecibir />
+                                <BotonChatEquipo />
+                                <EstadoConexiones />
+                                <BotonAvisos />
+                                <CuentaEncabezado cerrando={cerrando} cerrarSesion={cerrarSesion} />
+                            </>
+                        }
+                    />
                 </div>
-            </BarraInferior>
-        </div>
+                {ruta !== "/equipo" ? <PanelChatEquipo /> : null}
+                <CapaTelefono />
+                {voz ? (
+                    <>
+                        <AvisoLlamada />
+                        <NotaLlamada />
+                    </>
+                ) : null}
+
+                {/*
+                  * El área de trabajo. Escritorio: la página no se desplaza, el contenido sí (por dentro).
+                  * Teléfono: cada pantalla a pantalla completa y se desplaza la página (las listas de
+                  * React Aria se cierran si se desplaza un contenedor que no sea la página).
+                  */}
+                <main
+                    id="contenido"
+                    data-ancho-completo={anchoCompleto || undefined}
+                    className={cn(
+                        // Teléfono: la página es el contenedor (pantalla completa) y se desplaza bajo el
+                        // encabezado; escritorio: el área de trabajo se desplaza por dentro.
+                        "pt-[3.75rem] lg:fixed lg:inset-x-0 lg:top-[4.75rem] lg:bottom-0 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-contain lg:pt-0 lg:[scrollbar-width:thin]",
+                        contraida ? "lg:left-[7rem]" : "lg:left-[18.5rem]",
+                        "lg:right-4 lg:bottom-4",
+                        anchoCompleto ? "min-w-0" : "px-4 pb-[calc(6.5rem+env(safe-area-inset-bottom))] lg:pr-1 lg:pb-4 lg:pl-1",
+                    )}
+                >
+                    {voz ? (
+                        <Suspense>
+                            <BarraLlamada />
+                        </Suspense>
+                    ) : null}
+                    <BarraTelefono />
+                    <div className={cn(anchoCompleto ? "min-w-0" : "mx-auto max-w-[96rem] pt-1")}>
+                        {/* En la bandeja y en «Equipo» las migas van solo en escritorio, en una fila de 28 px. */}
+                        {anchoCompleto ? (
+                            <div className="hidden h-7 items-start overflow-hidden px-1 lg:flex">
+                                <MigasPanel className="mb-0" />
+                            </div>
+                        ) : (
+                            <MigasPanel className="mb-1.5" />
+                        )}
+                        {errorCerrar ? (
+                            <Aviso
+                                tono="error"
+                                titulo="No se pudo cerrar la sesión"
+                                className={anchoCompleto ? "m-3" : "mb-4"}
+                                accion={
+                                    <Boton variante="secundario" tamano="sm" onClick={cerrarSesion}>
+                                        <RotateCw />
+                                        Reintentar
+                                    </Boton>
+                                }
+                            >
+                                {mensajeDeError(errorCerrar).detalle}
+                            </Aviso>
+                        ) : null}
+                        <AvisoTelefono />
+                        {avisoAdopcion ? <AvisoDatosSinEmpresa /> : null}
+                        {children}
+                    </div>
+                </main>
+
+                {/* Teléfono: isla de menú abajo; «Más» es la barra lateral entera en una hoja. */}
+                <BarraInferior entradas={telefono.barra} contadores={contadores} masAbierto={masAbierto} alCambiarMas={setMasAbierto}>
+                    <div className="mt-2 flex flex-1 flex-col gap-6">
+                        {disponibilidad ? (
+                            <section aria-label="Tu disponibilidad" className="grid gap-2 rounded-xl border border-border bg-card p-3">
+                                <span className="text-xs font-medium text-dimmed">Conversaciones</span>
+                                <ControlDisponibilidad />
+                            </section>
+                        ) : null}
+                        {voz ? (
+                            <section aria-label="Llamadas" className="grid gap-2 rounded-xl border border-border bg-card p-3">
+                                <span className="text-xs font-medium text-dimmed">Llamadas</span>
+                                <ControlRecibir />
+                            </section>
+                        ) : null}
+                        <Navegacion grupos={grupos} contadores={contadores} alNavegar={() => setMasAbierto(false)} />
+                        <Suspense>
+                            <MisVistas alNavegar={() => setMasAbierto(false)} />
+                        </Suspense>
+                        {conEmpresa ? (
+                            <div className="grid gap-2">
+                                <span className="text-xs font-medium text-dimmed">Empresa</span>
+                                <SelectorEmpresa />
+                            </div>
+                        ) : null}
+                        <MenuCuentaLista cerrando={cerrando} cerrarSesion={cerrarSesion} antes={() => setMasAbierto(false)} />
+                        <div className="mt-auto grid gap-2">
+                            <span className="text-xs text-muted-foreground">Tema</span>
+                            <SelectorTema className="justify-self-start" />
+                        </div>
+                    </div>
+                </BarraInferior>
+            </div>
+        </ProveedorManual>
     );
 }

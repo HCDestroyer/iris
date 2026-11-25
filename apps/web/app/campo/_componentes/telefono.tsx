@@ -308,14 +308,14 @@ export function ProveedorTelefonoCampo({ children, registrar }: { children: Reac
 }
 
 /** El botón «Llamar» de la orden: abre la hoja (o, sin proveedor, el `tel:` de siempre). */
-export function BotonLlamarOrden({ orden, className, etiqueta = "Llamar" }: { orden: OrdenVista; className: string; etiqueta?: string }) {
+export function BotonLlamarOrden({ orden, className, etiqueta = "Llamar", variante = "secundario" }: { orden: OrdenVista; className: string; etiqueta?: string; variante?: "secundario" | "contorno" }) {
     const t = useTelefonoCampo();
     const numeros = numerosDeOrden(orden);
     if (numeros.length === 0) return null;
     if (!t?.puede) {
         const primero = numeros[0];
         return primero ? (
-            <Boton asChild variante="secundario" className={className}>
+            <Boton asChild variante={variante} className={className}>
                 <a href={enlaceTelefono(primero.telefono)} aria-label={etiqueta} title={etiqueta}>
                     <Phone aria-hidden />
                 </a>
@@ -323,7 +323,7 @@ export function BotonLlamarOrden({ orden, className, etiqueta = "Llamar" }: { or
         ) : null;
     }
     return (
-        <Boton variante="secundario" className={className} aria-label="Llamar al cliente" title="Llamar al cliente" data-slot="llamar-cliente" onClick={() => t.abrirHoja(orden)}>
+        <Boton variante={variante} className={className} aria-label="Llamar al cliente" title="Llamar al cliente" data-slot="llamar-cliente" onClick={() => t.abrirHoja(orden)}>
             <Phone aria-hidden />
         </Boton>
     );
@@ -405,7 +405,7 @@ function HojaPermiso({ abierto, alCerrar, alPermitir, alCelular }: { abierto: bo
     return (
         <HojaCampo abierto={abierto} alCambiar={(a) => (a ? undefined : alCerrar())} titulo="Iris Campo necesita el micrófono para esta llamada">
             <div className="grid gap-3" data-slot="hoja-permiso">
-                <span aria-hidden className="grid size-16 place-content-center justify-self-center rounded-full bg-[var(--hx-teal-soft,var(--campo-panel-2))] text-primary">
+                <span aria-hidden className="grid size-16 place-content-center justify-self-center rounded-full bg-[var(--iris-primario-suave)] text-primary">
                     <Mic className="size-6" />
                 </span>
                 <p className="text-center text-sm text-muted-foreground">
@@ -515,7 +515,7 @@ function PantallaLlamada({ activa, local, extension, motor }: { activa: Activa; 
     const enCurso = fase === "en_curso";
     const tipo = activa.numero.telefono.tipo === "movil" ? " · móvil" : "";
     return (
-        <PantallaCompleta etiqueta={`Llamada con ${nombre}`} data-slot="pantalla-llamada" data-fase={fase} className="flex flex-col gap-4 overflow-y-auto bg-background px-5 pt-[calc(env(safe-area-inset-top)+1.5rem)] pb-[calc(env(safe-area-inset-bottom)+1.75rem)]">
+        <PantallaCompleta etiqueta={`Llamada con ${nombre}`} data-slot="pantalla-llamada" data-fase={fase} className="flex flex-col gap-4 overflow-y-auto bg-[var(--campo-lienzo)] px-5 pt-[calc(env(safe-area-inset-top)+1.5rem)] pb-[calc(env(safe-area-inset-bottom)+1.75rem)]">
             {teclado ? (
                 <div className="grid justify-items-center gap-1 text-center">
                     <b className="text-xl font-semibold">{nombre}</b>
@@ -617,7 +617,7 @@ export function IndicadorTelefono() {
                 <span aria-hidden className="grid size-8 place-content-center rounded-full border border-border">
                     <Phone className="size-[1.125rem]" />
                 </span>
-                <span aria-hidden className={cn("absolute top-1 right-1 size-2.5 rounded-full ring-2 ring-[var(--campo-lienzo)]", listo ? "bg-success" : "bg-[var(--hx-text-dim)]")} />
+                <span aria-hidden className={cn("absolute top-1 right-1 size-2.5 rounded-full ring-2 ring-[var(--campo-lienzo)]", listo ? "bg-success" : "bg-[var(--iris-texto-apagado)]")} />
             </Boton>
             <HojaCampo abierto={abierta} alCambiar={setAbierta} titulo="Teléfono">
                 <ul className="grid divide-y divide-border text-sm" data-slot="hoja-telefono">
