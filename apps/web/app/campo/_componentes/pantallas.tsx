@@ -231,7 +231,7 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
     return (
         <ProveedorBorradores>
         <ProveedorAccionPie>
-        <div className="campo-app relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col pb-[calc(11rem+env(safe-area-inset-bottom))]">
+        <div className="campo-app relative mx-auto flex min-h-dvh w-full max-w-[30rem] flex-col pb-[calc(11rem+env(safe-area-inset-bottom))] min-[30rem]:border-x min-[30rem]:border-border">
             <FranjaSuperior />
             <EncabezadoCampo ref={encabezado} empresa={nombreEmpresa} pedirEmpresa={pedirEmpresa} />
             <BarraCompacta visible={desplazamiento.compacto} pedirEmpresa={pedirEmpresa} />
@@ -265,7 +265,7 @@ export function Pantallas({ empresa, pedirEmpresa }: { empresa: number | null; p
                     </Aviso>
                 </div>
             ) : null}
-            <main className="flex-1 px-[1.125rem] pt-4">
+            <main className="min-w-0 flex-1 px-[1.125rem] pt-4">
                 {vista.tipo === "orden" ? (
                     <DetalleOrden id={vista.id} paso={vista.paso} />
                 ) : vista.tipo === "pendientes" ? (

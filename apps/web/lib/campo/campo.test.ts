@@ -150,7 +150,7 @@ describe("varios", () => {
         expect(enlaceComoLlegar(null, null, " ")).toBeNull();
     });
     it("manifest: Iris Campo, standalone, alcance /campo y el logo", () => {
-        expect(MANIFEST_CAMPO).toMatchObject({ name: "Iris Campo", display: "standalone", start_url: "/campo", scope: "/campo", theme_color: "#0f766e" });
+        expect(MANIFEST_CAMPO).toMatchObject({ name: "Iris Campo", display: "standalone", start_url: "/campo", scope: "/campo", theme_color: "#4f46e5" });
         expect(MANIFEST_CAMPO.icons[0]?.src).toBe("/icon.svg");
     });
 });

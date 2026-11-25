@@ -1,21 +1,6 @@
 "use client";
 
-import {
-    avisar,
-    Aviso,
-    Boton,
-    BotonEnviar,
-    CampoSelector,
-    cn,
-    DialogoCerrar,
-    DialogoContenido,
-    DialogoPie,
-    DialogoProtegido,
-    EstadoVacio,
-    GrupoSegmentado,
-    InsigniaEstado,
-    useCambiosSinGuardar,
-} from "@iris/ui";
+import { avisar, Aviso, Boton, BotonEnviar, BotonManualPantalla, CampoSelector, cn, DialogoCerrar, DialogoContenido, DialogoPie, DialogoProtegido, EstadoVacio, GrupoSegmentado, InsigniaEstado, useCambiosSinGuardar } from "@iris/ui";
 import { Network, Route, UserRoundPlus, X } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
@@ -158,7 +143,10 @@ export function PantallaMapa() {
             >
                 <div className="grid gap-2.5 border-b border-border px-3.5 py-3">
                     <div className="flex items-center justify-between gap-2">
-                        <h1 className="text-lg font-semibold">Mapa</h1>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                            <h1 className="text-lg font-semibold">Mapa</h1>
+                            <BotonManualPantalla />
+                        </div>
                         {veAgenda ? (
                             <Boton asChild variante="fantasma" tamano="sm" className="text-[0.8125rem] text-muted-foreground">
                                 <Link href="/despacho">

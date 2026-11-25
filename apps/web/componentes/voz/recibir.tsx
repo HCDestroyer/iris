@@ -214,7 +214,7 @@ export function BotonRecibir() {
             alCambiar={setAbierto}
             className="w-80 max-w-[calc(100vw-2rem)]"
             disparador={
-                <Boton variante="secundario" tamano="icono-sm" className="relative hidden size-9 rounded-lg sm:inline-flex" aria-label={nombre} title="Llamadas" data-recibir={resumen ?? "cargando"}>
+                <Boton variante="secundario" tamano="icono-sm" className="relative hidden size-11 min-w-11 rounded-full border border-border bg-[var(--iris-tarjeta)] p-0 text-muted-foreground shadow-[var(--iris-sombra-flotante)] md:size-11 [&_svg]:size-[1.125rem] sm:inline-flex" aria-label={nombre} title="Llamadas" data-recibir={resumen ?? "cargando"}>
                     <Phone />
                     {resumen === "encendido" ? <span aria-hidden className="absolute top-2 right-2 size-[0.4375rem] rounded-full bg-success" /> : null}
                     {resumen === "atencion" ? <span aria-hidden className="absolute top-1.5 right-1.5 size-2.5 rounded-full bg-warning ring-2 ring-card" /> : null}

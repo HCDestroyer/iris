@@ -1,18 +1,6 @@
 "use client";
 
-import {
-    avisar,
-    Aviso,
-    Boton,
-    DialogoConfirmar,
-    Esqueleto,
-    EstadoVacio,
-    InsigniaEstado,
-    Tarjeta,
-    TarjetaContenido,
-    TarjetaEncabezado,
-    TarjetaTitulo,
-} from "@iris/ui";
+import { avisar, Aviso, Boton, BotonManualPantalla, DialogoConfirmar, Esqueleto, EstadoVacio, InsigniaEstado, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { Ban, CircleCheck, Eye, History, RotateCw, SearchX, SquarePen } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -145,7 +133,10 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
         <>
             <header className="mb-4 grid gap-2">
                 <span className="font-mono text-sm text-muted-foreground">{p.codigo}</span>
-                <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{p.nombre}</h1>
+                <div className="flex min-w-0 items-center gap-1.5">
+                    <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{p.nombre}</h1>
+                    <BotonManualPantalla />
+                </div>
                 <InsigniasPlantilla p={p} />
                 {p.descripcion ? <p className="text-sm text-muted-foreground">{p.descripcion}</p> : null}
                 {!editando && !vieja ? (

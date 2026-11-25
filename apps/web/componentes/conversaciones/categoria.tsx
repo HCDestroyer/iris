@@ -188,7 +188,7 @@ export function BarraCategoria({ conv, alActualizar, recargar, bloqueada, asiste
 }
 
 /**
- * «El asistente está atendiendo»: discreta, en teal, con «Tomar». Con `espera`, el asistente ya la
+ * «El asistente está atendiendo»: discreta, en índigo, con «Tomar». Con `espera`, el asistente ya la
  * pasó a una persona y está en la cola: aquí sí hace falta que alguien actúe.
  */
 function FranjaAsistente({ conv, espera, alHecho, recargar, puedeTomar }: { conv: Conversacion; espera: boolean; alHecho: (c: Conversacion) => void; recargar: () => Promise<void>; puedeTomar: boolean }) {

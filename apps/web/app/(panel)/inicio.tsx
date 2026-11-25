@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { AvatarUsuario, BarraProgreso, Boton, cn, Esqueleto, InsigniaEstado, Medidor, Tarjeta } from "@iris/ui";
+import { AvatarUsuario, BarraProgreso, Boton, BotonManualPantalla, cn, Esqueleto, InsigniaEstado, Medidor, Tarjeta } from "@iris/ui";
 import { ChevronRight, ClipboardList, Inbox, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -77,7 +77,10 @@ export function Inicio() {
         <div className="grid gap-4 [&>*]:min-w-0">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="grid gap-1">
-                    <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Hola, {nombre}</h1>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                        <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Hola, {nombre}</h1>
+                        <BotonManualPantalla />
+                    </div>
                     <p className="text-sm text-muted-foreground first-letter:uppercase">
                         {etiquetaDiaLarga(hoy)}
                         {actualizado ? ` · actualizado ${haceCuanto(actualizado, ahora)}` : ""}
