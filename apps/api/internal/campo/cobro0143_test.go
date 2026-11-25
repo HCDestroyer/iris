@@ -700,3 +700,93 @@ func TestCobroA36EsperaAlTitular(t *testing.T) {
 	_, err = cobro(o2)
 	problema(t, err, 409, "titular_por_confirmar")
 }
+
+// a36Vigente deja un cobro de A36 de instalación vigente en la orden (como si hubiera nacido entretanto).
+func a36Vigente(t *testing.T, o campo.Orden) {
+	t.Helper()
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO campo.cobros (id, orden_id, empresa_id, servicio_id, cliente_id, concepto_id,
+		precio_unitario, estado, idempotency_key, es_instalacion) VALUES (gen_random_uuid(), $1, 1, $2, 990, 5, 350, 'facturado', $3, true)`,
+		o.ID, *o.ServicioID, "iris:cargo:"+strconv.FormatInt(o.ID, 10)+":"+pruebas.Unico()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), "DELETE FROM campo.cobros WHERE orden_id = $1", o.ID)
+	})
+}
+
+// B1: el titular resuelto a mano fija el cliente del cargo del cierre; con un A36 de instalación vigente,
+// el cargo (solo con esa línea) queda fallido e incompleto con cobro_a36_vigente y no sale.
+func TestTitularAManoConA36Vigente(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacion(tec, ct, true)
+	orden := strconv.FormatInt(o.ID, 10)
+	e.falso.rechazar("/cambiar-titular", "servicio_no_pendiente")
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o.ID, datosCambioTitular())), "aplicada")
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES (gen_random_uuid(), 'orden.cerrada', 1, $1)",
+		`{"orden_id":"`+orden+`","tipo":"instalacion","resultado":"exitosa","cliente_id":990,"servicio_id":9901,"empresa_id":1,`+
+			`"cargo":{"descripcion":"Cobro","lineas":[{"concepto_id":5,"precio_unitario":"350.00"}]}}`); err != nil {
+		t.Fatal(err)
+	}
+	e.relay()
+	e.procesar()
+	a36Vigente(t, o)
+	clave := "iris:titular:" + orden + ":1"
+	pt := e.pendiente(clave)
+	e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
+	deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
+		Motivo: "Lo corregí en Argos a mano", ClienteID: ptr(int64(888))}))(t)
+	var estado, codigo string
+	var incompleto bool
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT estado, coalesce(codigo_error, ''), datos_incompletos FROM integracion.pendientes
+		WHERE idempotency_key = $1`, "iris:cargo:"+orden).Scan(&estado, &codigo, &incompleto); err != nil {
+		t.Fatal(err)
+	}
+	if estado != pendientes.EstadoFallidoNegocio || codigo != "cobro_a36_vigente" || !incompleto {
+		t.Fatalf("cargo del cierre con A36 vigente: %s %s %v", estado, codigo, incompleto)
+	}
+	e.procesar()
+	if l := e.falso.porClave("iris:cargo:" + orden); l != nil {
+		t.Fatalf("no sale: %+v", l)
+	}
+}
+
+// B2: liberar el cargo (consumible_cobro) que esperaba a un consumo resuelto a mano, con un A36 de
+// instalación vigente: no sale.
+func TestLiberarCargoConA36Vigente(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	orden := strconv.FormatInt(o.ID, 10)
+	e.falso.rechazar("/inventario/consumos", "existencia_insuficiente")
+	crudo, _ := json.Marshal(map[string]any{"orden_id": o.ID, "tipo": "instalacion", "resultado": "exitosa", "cliente_id": 990,
+		"servicio_id": *o.ServicioID, "empresa_id": 1, "bodega_id": 9, "activacion": map[string]any{"modo": "al_cerrar", "estado": "ninguna"},
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 9, "modalidad": "consumible_cobro"}},
+		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"}})
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES (gen_random_uuid(), 'orden.cerrada', 1, $1)",
+		crudo); err != nil {
+		t.Fatal(err)
+	}
+	e.relay()
+	e.procesar()
+	consumo := e.pendienteDe("iris:consumo:" + orden)
+	if consumo.Estado != pendientes.EstadoFallidoNegocio {
+		t.Fatalf("consumo rechazado: %+v", consumo)
+	}
+	if c := e.pendienteDe("iris:cargo:" + orden); !c.EsperaConsumo {
+		t.Fatalf("el cargo espera al consumo: %+v", c)
+	}
+	a36Vigente(t, o)
+	deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: consumo.ID, Version: consumo.Version,
+		Motivo: "Consumo rehecho en Argos", Cargo: pendientes.CargoLiberar}))(t)
+	c := e.pendienteDe("iris:cargo:" + orden)
+	if c.Estado != pendientes.EstadoFallidoNegocio || c.CodigoError == nil || *c.CodigoError != "cobro_a36_vigente" || c.EsperaConsumo {
+		t.Fatalf("liberado con A36 vigente: no sale: %+v", c)
+	}
+	e.procesar()
+	if l := e.falso.porClave("iris:cargo:" + orden); l != nil {
+		t.Fatalf("no sale: %+v", l)
+	}
+}
