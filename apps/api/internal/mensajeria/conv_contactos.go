@@ -353,8 +353,14 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 				if _, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, *c.ClienteID); err != nil {
 					return err
 				} else if contacto != nil {
+					cambio := c.ContactoArgosID == nil || *c.ContactoArgosID != *contacto
 					if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
 						return err
+					}
+					if cambio {
+						// El trigger borró la verificación fuerte de la fila: la copia en memoria también,
+						// para que esta confirmación la dé de nuevo (y emita cliente_confirmado).
+						c.IdentidadVerificadaEn, c.IdentidadVenceEn = nil, nil
 					}
 				}
 				// La confirmación de una persona da la verificación fuerte de este periodo (se pierde al
@@ -473,9 +479,13 @@ func nuevoDesasociar(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionC
 	return auditoria.Nuevo(auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]{
 		Accion: "conversaciones.desasociar", Permiso: nucleo.PermConversacionesAsociar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAccionConv) (ConversacionClienteDetalle, error) {
-			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				c.ClienteID, c.ServicioID, c.ContactoIrisID, c.ProspectoID, c.Asociacion = nil, nil, nil, nil, nil
 				c.ClienteVerificado, c.VerificadoPor = false, nil
+				// Sin cliente, sin el contacto de Argos con que se había asociado (§3.5).
+				if err := fijarContactoConv(ctx, q, c, nil); err != nil {
+					return err
+				}
 				return t.Emitir("conversacion.cliente_asociado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "cliente_id": nil,
 					"servicio_id": nil, "asociacion": nil, "actor_id": a.usuario})
 			})

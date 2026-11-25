@@ -339,3 +339,28 @@ func TestUltimoMensajeAutomaticoYVariablesObligatorias(t *testing.T) {
 		t.Fatalf("variables: %v", vs)
 	}
 }
+
+// Bajo 2 de la aprobación de #287: iniciar una conversación recalcula el contacto de Argos igual que
+// asociar: al número del titular, ninguno (un contacto viejo no queda pegado).
+func TestConvIniciarRecalculaContactoArgos(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	movil := fmt.Sprintf("5%07d", siguienteCliente.Add(1)%10_000_000)
+	cliente := b.cliente(1, movil)
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, movil, codigo, sincronizado_en, empresas)
+		VALUES ($1, 1, 'Cliente R', $2, 'C-R', now(), '{1}')`, cliente, movil); err != nil {
+		t.Fatal(err)
+	}
+	b.exigir(b.consentir(cliente, "acepta", b.reloj.Add(-time.Hour)), http.StatusCreated)
+	num := "502" + movil
+	b.texto(num, "wamid.ir1", "Hola")
+	c := b.conv(num)
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET contacto_argos_id = 987654 WHERE id = $1`, cid(c)); err != nil {
+		t.Fatal(err)
+	}
+	pl := map[string]any{"codigo": "bienvenida", "variables": map[string]string{"plan": "Fibra"}}
+	b.exigir(b.api(b.supervisor, http.MethodPost, "/conversaciones/iniciar", map[string]any{"id": nuevoID(), "canalId": b.canal.ID, "clienteId": cliente,
+		"plantilla": pl}), http.StatusCreated, "nueva", "false")
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id IS NULL`, cid(c)); n != 1 {
+		t.Fatal("iniciar recalcula el contacto (el número es del titular)")
+	}
+}

@@ -554,6 +554,9 @@ func TestNumeroDeServicioYContacto(t *testing.T) {
 	c := b.conv(num)
 	ruta := "/conversaciones/" + cid(c)
 	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/desasociar", map[string]any{"version": ver(c)}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id IS NULL`, cid(c)); n != 1 {
+		t.Fatal("al desasociar se quita el contacto de Argos")
+	}
 	r := b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(b.conv(num)), "clienteId": cliente})
 	b.exigir(r, http.StatusOK)
 	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2`, cid(c), contacto); n != 1 {
@@ -649,4 +652,27 @@ func TestReasociarNoHeredaVerificacionFuerte(t *testing.T) {
 		t.Fatal("asociar a mano empieza sin verificación fuerte y sin contacto")
 	}
 	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+}
+
+// Bajo 1 de la aprobación: confirmar una conversación cuyo contacto cambia (el número pasó a ser de un
+// contacto del cliente) vuelve a dar la verificación fuerte y emite cliente_confirmado otra vez.
+func TestConfirmarConContactoNuevo(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, _ := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	b.texto(num, "wamid.cc1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(c), "clienteId": cliente}), http.StatusOK)
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2 AND identidad_verificada_en IS NOT NULL`,
+		cid(c), contacto); n != 1 {
+		t.Fatal("confirma al contacto nuevo con verificación fuerte")
+	}
+	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.cliente_confirmado' AND payload->>'conversacion_id' = $1`, cid(c)); n != 2 {
+		t.Fatalf("cliente_confirmado de cada confirmación: %d", n)
+	}
 }
