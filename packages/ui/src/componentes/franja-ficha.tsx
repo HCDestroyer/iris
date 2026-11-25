@@ -51,7 +51,7 @@ export function FranjaFicha({ titulo, detalle, icono: Icono, avatar, insignias, 
                     ) : null)}
                 <div className="grid min-w-0 gap-0.5">
                     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                        <h1 className="min-w-0 truncate text-xl leading-tight font-bold tracking-[-0.015em]">{titulo}</h1>
+                        <h1 className="line-clamp-2 min-w-0 text-xl leading-tight font-bold tracking-[-0.015em] break-words">{titulo}</h1>
                         {manual}
                         {insignias}
                     </div>
@@ -69,7 +69,7 @@ export function FranjaFicha({ titulo, detalle, icono: Icono, avatar, insignias, 
                 </dl>
             ) : null}
             {accion || mas ? (
-                <div className="ml-auto flex flex-none items-center gap-2">
+                <div data-slot="acciones-ficha" className="ml-auto flex max-w-full min-w-0 flex-wrap items-center gap-2">
                     {accion}
                     {mas}
                 </div>
