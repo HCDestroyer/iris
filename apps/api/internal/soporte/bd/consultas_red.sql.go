@@ -616,8 +616,8 @@ type HijosAbiertosDeIncidenteParams struct {
 	GeneralID int64
 }
 
-// Los hijos de un incidente anterior que siguen colgando del ticket general y en espera de verificar
-// (al reusar el general vuelven a abierto y pasan al incidente nuevo).
+// Los hijos abiertos de un incidente anterior que siguen colgando del ticket general (al reusar el
+// general pasan al incidente nuevo; los que esperaban verificar vuelven a abierto).
 func (q *Queries) HijosAbiertosDeIncidente(ctx context.Context, arg HijosAbiertosDeIncidenteParams) ([]SoporteTicket, error) {
 	rows, err := q.db.Query(ctx, hijosAbiertosDeIncidente, arg.Incidente, arg.GeneralID)
 	if err != nil {
