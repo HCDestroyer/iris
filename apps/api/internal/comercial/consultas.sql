@@ -50,6 +50,8 @@ SET origen_detalle      = sqlc.narg(origen_detalle),
     orden_id            = sqlc.narg(orden_id),
     router_id           = sqlc.narg(router_id),
     alta_error          = sqlc.narg(alta_error),
+    cliente_validado    = sqlc.narg(cliente_validado),
+    ganado_por          = sqlc.narg(ganado_por),
     version             = version + 1,
     updated_at          = now()
 WHERE id = @id AND version = @version
@@ -88,7 +90,7 @@ SELECT * FROM comercial.prospecto_eventos WHERE prospecto_id = @prospecto_id ORD
 -- name: ProspectosConAltaPendiente :many
 -- Ganados con el alta en Argos sin terminar (barrido del worker).
 SELECT id FROM comercial.prospectos
-WHERE alta_estado IN ('esperando_cliente', 'esperando_servicio') AND alta_error IS NULL AND id > @despues_de
+WHERE alta_estado IN ('esperando_cliente', 'esperando_servicio', 'esperando_activacion') AND alta_error IS NULL AND id > @despues_de
 ORDER BY id
 LIMIT @limite;
 
@@ -188,10 +190,23 @@ SELECT * FROM comercial.factibilidades WHERE prospecto_id = @prospecto_id ORDER 
 SELECT (coalesce(max(revision), 0) + 1)::integer AS revision FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id;
 
 -- name: CotizacionVivaParaActualizar :one
-SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado IN ('vigente', 'aceptada') FOR UPDATE;
+-- La vigente o aceptada. Con una revisión de la instalación por firmar (B20), la aceptada.
+SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado IN ('vigente', 'aceptada')
+ORDER BY (estado = 'aceptada') DESC, id DESC LIMIT 1 FOR UPDATE;
 
 -- name: CotizacionViva :one
-SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado IN ('vigente', 'aceptada');
+-- La vigente o aceptada. Con una revisión de la instalación por firmar (B20), la aceptada.
+SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado IN ('vigente', 'aceptada')
+ORDER BY (estado = 'aceptada') DESC, id DESC LIMIT 1;
+
+-- name: RevisionPorFirmar :one
+-- B20: la revisión de la instalación (cambio de plan o de titular hecho en Argos) que espera la
+-- firma del contrato regenerado en la orden.
+SELECT * FROM comercial.cotizaciones
+WHERE prospecto_id = @prospecto_id AND estado = 'vigente' AND idempotencia LIKE 'iris:venta:%';
+
+-- name: CotizacionAceptadaDe :one
+SELECT * FROM comercial.cotizaciones WHERE prospecto_id = @prospecto_id AND estado = 'aceptada';
 
 -- name: CotizacionPorIdempotencia :one
 SELECT * FROM comercial.cotizaciones WHERE idempotencia = @idempotencia;
@@ -258,7 +273,17 @@ SELECT * FROM comercial.contratos WHERE id = @id;
 SELECT * FROM comercial.contratos WHERE id = @id FOR UPDATE;
 
 -- name: ContratoVivoDeProspecto :one
-SELECT * FROM comercial.contratos WHERE prospecto_id = @prospecto_id AND estado IN ('borrador', 'firmado');
+-- El borrador o firmado. Con un contrato regenerado en la instalación por firmar (B20), el firmado.
+SELECT * FROM comercial.contratos WHERE prospecto_id = @prospecto_id AND estado IN ('borrador', 'firmado')
+ORDER BY (estado = 'firmado') DESC, id DESC LIMIT 1;
+
+-- name: ContratoPorFirmarEnOrden :one
+-- B20: el contrato regenerado en la instalación, en borrador, que se firma en la orden.
+SELECT * FROM comercial.contratos
+WHERE prospecto_id = @prospecto_id AND estado = 'borrador' AND (contenido->>'ordenId') IS NOT NULL;
+
+-- name: ContratoFirmadoDe :one
+SELECT * FROM comercial.contratos WHERE prospecto_id = @prospecto_id AND estado = 'firmado';
 
 -- name: FirmarContrato :one
 UPDATE comercial.contratos
@@ -295,3 +320,153 @@ SELECT EXISTS (SELECT 1 FROM nucleo.empresas WHERE id = @id);
 
 -- name: ResumenOrden :one
 SELECT o.id, o.numero, o.estado FROM campo.ordenes o WHERE o.id = @id;
+
+-- --- Prospectos registrados desde Argos (contrato 0.10.0 §3.6, A44) -------------------------
+
+-- name: CrearProspectoArgos :one
+INSERT INTO comercial.prospectos (
+    empresa_id, origen, origen_detalle, nombre, telefono, direccion, lat, lon, zona_id, plan_interes_id,
+    vendedor_id, notas, modo, registrado_por_argos, cliente_existente_id, cliente_validado, idempotencia
+) VALUES (
+    @empresa_id, 'argos_panel', @origen_detalle, @nombre, @telefono, @direccion, sqlc.narg(lat), sqlc.narg(lon),
+    sqlc.narg(zona_id), sqlc.narg(plan_interes_id), sqlc.narg(vendedor_id), @notas, @modo, @registrado_por_argos,
+    sqlc.narg(cliente_existente_id), sqlc.narg(cliente_validado), sqlc.narg(idempotencia)
+)
+RETURNING *;
+
+-- name: CrearTelefonoProspecto :one
+INSERT INTO comercial.prospecto_telefonos (prospecto_id, empresa_id, posicion, numero, whatsapp, principal, nombre, relacion)
+VALUES (@prospecto_id, sqlc.narg(empresa_id), @posicion, @numero, @whatsapp, @principal, sqlc.narg(nombre), sqlc.narg(relacion))
+RETURNING *;
+
+-- name: TelefonosDeProspecto :many
+SELECT * FROM comercial.prospecto_telefonos WHERE prospecto_id = @prospecto_id ORDER BY posicion, id;
+
+-- name: ProspectoAbiertoConNumeros :one
+-- El prospecto abierto (ni ganado ni perdido) más antiguo de la empresa con cualquiera de los
+-- números: en su tabla de teléfonos (E.164) o, para los de antes, en prospectos.telefono (formato
+-- de Argos). FOR UPDATE: el pedido se suma como actividad.
+SELECT p.* FROM comercial.prospectos p
+WHERE p.empresa_id = @empresa_id AND p.estado NOT IN ('ganado', 'perdido')
+    AND (EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = p.id AND t.numero = ANY(@numeros::text[]))
+         OR p.telefono = ANY(@telefonos::text[]))
+ORDER BY p.id
+LIMIT 1
+FOR UPDATE OF p;
+
+-- name: NumerosRegistradosArgos :one
+-- Números aceptados en el último minuto por el actor de Argos y por la empresa (§3.6: 30 y 300).
+SELECT
+    coalesce(sum(numeros) FILTER (WHERE actor = @actor), 0)::bigint AS por_actor,
+    coalesce(sum(numeros) FILTER (WHERE empresa_id = @empresa_id), 0)::bigint AS por_empresa
+FROM comercial.registros_argos
+WHERE created_at > @desde AND (actor = @actor OR empresa_id = @empresa_id);
+
+-- name: AnotarRegistroArgos :exec
+INSERT INTO comercial.registros_argos (actor, empresa_id, numeros, created_at) VALUES (@actor, @empresa_id, @numeros, @ahora);
+
+-- name: PurgarRegistrosArgos :exec
+DELETE FROM comercial.registros_argos WHERE created_at < @antes;
+
+-- name: VendedoresDeZona :many
+-- Candidatos a vendedor de un prospecto de la zona: personas activas que ven prospectos con un
+-- alcance de esa zona (no global: supervisión no recibe asignaciones automáticas) y pueden
+-- trabajarlos (prospectos.contactar), de menos prospectos abiertos a más.
+SELECT u.id
+FROM nucleo.usuarios u
+WHERE u.activo AND u.tipo = 'persona'
+    AND EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles r ON r.id = ur.rol_id AND r.activo
+        JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+        WHERE ur.usuario_id = u.id AND rp.permiso = 'prospectos.contactar' AND ur.zona_id = @zona_id)
+ORDER BY (SELECT count(*) FROM comercial.prospectos p WHERE p.vendedor_id = u.id AND p.estado NOT IN ('ganado', 'perdido')), u.id
+LIMIT 20;
+
+-- name: ClienteEnEmpresaInstantanea :one
+-- ¿La instantánea de Argos dice que el cliente es de la empresa (por su ficha o por un servicio)?
+-- existe = Iris lo tiene en la instantánea.
+SELECT
+    EXISTS (SELECT 1 FROM integracion.argos_clientes c WHERE c.id = @cliente_id) AS existe,
+    (EXISTS (SELECT 1 FROM integracion.argos_clientes c WHERE c.id = @cliente_id AND c.empresa_id = @empresa_id)
+     OR EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.cliente_id = @cliente_id AND s.empresa_id = @empresa_id)) AS de_la_empresa;
+
+-- name: BloquearRegistrosArgos :exec
+-- Un registro desde Argos a la vez por empresa: el aviso de duplicado y los límites no se saltan
+-- con dos peticiones simultáneas.
+SELECT pg_advisory_xact_lock(hashtextextended('comercial.registro_argos:' || @empresa_id::bigint, 0));
+
+-- name: ContratoArgosRemoto :one
+-- La versión del contrato que informó el conector Argos (null si no la informó o no hay).
+SELECT contrato_remoto FROM integracion.conectores
+WHERE sistema = 'argosisp' AND eliminado_en IS NULL
+ORDER BY (estado = 'activo') DESC, id DESC
+LIMIT 1;
+
+-- name: ProspectosEsperandoActivacion :many
+-- B17: los prospectos «ganado, alta pendiente» de una orden de instalación (la activación llegó a
+-- Argos).
+SELECT id FROM comercial.prospectos WHERE orden_id = @orden_id AND alta_estado = 'esperando_activacion' ORDER BY id;
+
+-- name: ProspectosDeServicioArgos :many
+-- B17: los prospectos ligados a un servicio de Argos (servicio.titular_cambiado los pasa al cliente
+-- nuevo).
+SELECT id FROM comercial.prospectos WHERE servicio_argos_id = @servicio_id AND alta_modo = 'argos' ORDER BY id;
+
+-- name: TitularDeServicioArgos :one
+-- B17 (MEDIA 2 de #280): el titular del servicio en la instantánea de Argos, con candado
+-- compartido: el prospecto solo pasa si sigue siendo el del evento.
+SELECT cliente_id FROM integracion.argos_servicios WHERE id = @id FOR SHARE;
+
+-- name: ProspectoGanadoDeOrden :one
+-- B20: el prospecto ganado de la orden de instalación (si la venta fue en Iris).
+SELECT id FROM comercial.prospectos WHERE orden_id = @orden_id AND estado = 'ganado' ORDER BY id LIMIT 1;
+
+-- name: NombreTitularDeOrden :one
+-- B20: el nombre del titular confirmado en la orden (campo.orden_titular; nunca el documento).
+SELECT nombre FROM campo.orden_titular WHERE orden_id = @orden_id;
+
+-- name: NumeroDeOrden :one
+SELECT numero FROM campo.ordenes WHERE id = @id;
+
+-- name: OrdenParaFirmarContrato :one
+-- B20: la orden donde se firma el contrato regenerado (el técnico asignado, en sitio).
+SELECT id, numero, estado, tecnico_id, prospecto_id, empresa_id FROM campo.ordenes WHERE id = @id;
+
+-- name: OrdenEstadoCompartido :one
+-- B20 (verificación de #280): el estado de la orden de instalación con candado compartido. Lo toman
+-- antes que el prospecto los casos de sistema que dependen de él (revisar la venta, anular o
+-- regenerar el contrato por firmar), así no se cruzan con cancelar o reabrir la orden.
+SELECT id, numero, estado FROM campo.ordenes WHERE id = @id FOR SHARE;
+
+-- name: RenovarVigencia :one
+-- B20: la revisión que espera la firma en una orden reabierta vuelve a tener vigencia, con un PDF
+-- nuevo (el anterior decía la vigencia vencida).
+UPDATE comercial.cotizaciones SET vigente_hasta = @vigente_hasta, pdf_adjunto_id = sqlc.narg(pdf_adjunto_id),
+    version = version + 1, updated_at = now()
+WHERE id = @id RETURNING *;
+
+-- name: AnularBorrador :one
+-- B20: anula el contrato solo si sigue en borrador (sin fila si ya se firmó o se anuló).
+UPDATE comercial.contratos
+SET estado = 'anulado', motivo_anulacion = @motivo, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'borrador'
+RETURNING *;
+
+-- name: AvisoSinFirmaPrevio :one
+-- B20: ¿ya salió orden.contrato_sin_firma con ese motivo para esa clave de pendiente o esa
+-- cotización? (los reintentos del relay no repiten el aviso ni la auditoría).
+-- Solo de la misma empresa. La outbox no se purga: la deduplicación depende de eso.
+SELECT EXISTS (
+    SELECT 1 FROM integracion.outbox
+    WHERE evento = 'orden.contrato_sin_firma' AND payload->>'motivo' = @motivo::text
+      AND coalesce((payload->>'empresa_id')::bigint, 0) = coalesce(sqlc.narg('empresa')::bigint, 0)
+      AND ((@clave::text <> '' AND payload->>'clave' = @clave::text)
+           OR (@cotizacion_id::bigint > 0 AND (payload->>'cotizacion_id')::bigint = @cotizacion_id::bigint))
+)::boolean;
+
+-- name: NombreClienteArgos :one
+-- B20: el nombre del cliente de Argos en la instantánea (el titular final de un cambio de titular
+-- resuelto a mano con resuelto_cliente_id).
+-- Solo un cliente de la empresa de la venta (o de cualquiera, sin empresa).
+SELECT nombre FROM integracion.argos_clientes
+WHERE id = @id AND (sqlc.narg('empresa')::bigint IS NULL OR empresa_id = sqlc.narg('empresa')::bigint
+                    OR sqlc.narg('empresa')::bigint = ANY (empresas));

@@ -57,6 +57,11 @@ type Config struct {
 	// Encolar avisa a la cola de pendientes (pendientes.ArgsProcesar) al encolar el alta. nil =
 	// la toma el periódico de la cola (cada minuto).
 	Encolar Encolador
+	// Clientes valida en Argos el cliente elegido al registrar un prospecto desde Argos
+	// (argos.Modulo). nil = sin validar (cliente_validado false).
+	Clientes ValidadorClientes
+	// URLBase es IRIS_BASE_URL: arma url_iris de §3.6 (enlace plano al prospecto).
+	URLBase string
 	// VigenciaCotizacion: días que vale una cotización si no se indica (15).
 	VigenciaCotizacion time.Duration
 }
@@ -100,10 +105,22 @@ type Modulo struct {
 	crearContrato        *auditoria.Caso[EntradaCrearContrato, Contrato]
 	datosPDFBorrador     *auditoria.Caso[EntradaVerContrato, datosContratoPDF]
 	prepararFirma        *auditoria.Caso[EntradaFirmar, datosContratoPDF]
+	prepararFirmaEnOrden *auditoria.Caso[campo.EntradaFirmaContratoSync, datosContratoPDF]
 	firmar               *auditoria.Caso[entradaFirmaLista, Contrato]
 	registrarCliente     *auditoria.Caso[entradaAltaArgos, Prospecto]
 	completarAlta        *auditoria.Caso[entradaAltaArgos, Prospecto]
+	altaActivada         *auditoria.Caso[EntradaAltaActivada, ResultadoAlta]
+	moverTitular         *auditoria.Caso[EntradaTitularCambiado, ResultadoAlta]
+	revisarVenta         *auditoria.Caso[EntradaRevisarVenta, ResultadoRevisarVenta]
+	ordenTerminada       *auditoria.Caso[EntradaOrdenTerminada, ResultadoOrdenTerminada]
+	ordenReabierta       *auditoria.Caso[EntradaOrdenTerminada, ResultadoOrdenReabierta]
+	sinRevision          *auditoria.Caso[EntradaSinRevision, bool]
 	marcarErrorAlta      *auditoria.Caso[entradaErrorAlta, Prospecto]
+
+	prepararRegistroArgos *auditoria.Caso[EntradaRegistrarArgos, previoRegistroArgos]
+	registrarArgos        *auditoria.Caso[entradaRegistroArgos, resultadoRegistroArgos]
+	contarRegistroArgos   *auditoria.Caso[entradaRegistroArgos, struct{}]
+	confirmarCliente      *auditoria.Caso[entradaConfirmarCliente, struct{}]
 }
 
 // Nuevo arma el módulo.
@@ -154,10 +171,21 @@ func Nuevo(cfg Config) *Modulo {
 	m.crearContrato = m.nuevoCrearContratoCaso()
 	m.datosPDFBorrador = m.nuevoDatosPDFBorrador()
 	m.prepararFirma = m.nuevoPrepararFirma()
+	m.prepararFirmaEnOrden = m.nuevoPrepararFirmaEnOrden()
 	m.firmar = m.nuevoFirmar()
 	m.registrarCliente = m.nuevoRegistrarCliente()
 	m.completarAlta = m.nuevoCompletarAlta()
+	m.altaActivada = m.nuevoAltaActivada()
+	m.moverTitular = m.nuevoMoverTitular()
+	m.revisarVenta = m.nuevoRevisarVenta()
+	m.ordenTerminada = m.nuevoOrdenTerminada()
+	m.ordenReabierta = m.nuevoOrdenReabierta()
+	m.sinRevision = m.nuevoSinRevision()
 	m.marcarErrorAlta = m.nuevoMarcarErrorAlta()
+	m.prepararRegistroArgos = m.nuevoPrepararRegistroArgos()
+	m.registrarArgos = m.nuevoRegistrarArgos()
+	m.contarRegistroArgos = m.nuevoContarRegistroArgos()
+	m.confirmarCliente = m.nuevoConfirmarCliente()
 	return m
 }
 

@@ -41,14 +41,15 @@ LIMIT @limite;
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
     ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono,
-    precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta
+    precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre
 )
 SELECT @id, @empresa_id, @cliente_id, @codigo, @plan_id, @plan_nombre, @router_id, @router_nombre, @zona_id, @zona_nombre,
     @ip, @direccion, @lat, @lon, @estado, @sincronizado_en, @user_ppp, @tipo_conexion, @referencia, @contacto_nombre, @contacto_telefono,
-    CAST(sqlc.narg('precio_mensual')::text AS numeric), sqlc.narg('moneda')::text, @prefijo_enlace_v6, @prefijo_delegado_v6, sqlc.narg('planta')::jsonb
+    CAST(sqlc.narg('precio_mensual')::text AS numeric), sqlc.narg('moneda')::text, @prefijo_enlace_v6, @prefijo_delegado_v6, sqlc.narg('planta')::jsonb,
+    @nombre
 WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = @id)
 ON CONFLICT (id) DO UPDATE SET
-    empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo,
+    empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo, nombre = excluded.nombre,
     plan_id = excluded.plan_id, plan_nombre = excluded.plan_nombre, router_id = excluded.router_id,
     router_nombre = excluded.router_nombre, zona_id = excluded.zona_id, zona_nombre = excluded.zona_nombre,
     ip = excluded.ip, direccion = excluded.direccion, lat = excluded.lat, lon = excluded.lon,
@@ -587,3 +588,10 @@ UPDATE integracion.argos_certificados
 SET visto_en = @visto_en, ultimo_visto_en = @visto_en, cambiado = true, anterior_id = @anterior_id
 WHERE id = @id
 RETURNING *;
+
+-- name: MarcarTitularCambiado :execrows
+-- servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora de Argos (ocurrido_en, solo con
+-- ocurrido_origen = argos y dentro de la tolerancia) del último
+-- cambio de titular; nunca retrocede. Llamar con BloquearArgos del servicio tomado.
+UPDATE integracion.argos_servicios SET titular_cambiado_en = @en
+WHERE id = @id AND (titular_cambiado_en IS NULL OR titular_cambiado_en <= @en);

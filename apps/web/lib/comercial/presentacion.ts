@@ -70,6 +70,7 @@ export const ORIGENES: Record<OrigenProspecto, string> = {
     web: "Sitio web",
     referido: "Referido",
     argos: "Argos",
+    argos_panel: "Registrado en Argos",
     otro: "Otro",
 };
 /** Orígenes que una persona puede elegir al crear (`argos` es solo de la integración). */
@@ -137,6 +138,7 @@ export const ESTADOS_CONTRATO: Record<Contrato["estado"], Presentacion> = {
 export const ESTADOS_ALTA: Record<Alta["estado"], Presentacion> = {
     esperando_cliente: { tono: "info", icono: LoaderCircle, texto: "Creando el cliente en Argos" },
     esperando_servicio: { tono: "info", icono: LoaderCircle, texto: "Creando el servicio en Argos" },
+    esperando_activacion: { tono: "info", icono: Clock, texto: "Ganado, alta pendiente: falta activar en la instalación" },
     completa: { tono: "success", icono: CircleCheck, texto: "Alta completa" },
 };
 

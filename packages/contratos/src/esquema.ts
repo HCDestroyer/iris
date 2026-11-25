@@ -1340,6 +1340,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/integraciones/argosisp/plantillas-whatsapp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Plantillas de WhatsApp que puede usar una empresa (contrato Iris ↔ ArgosISP 0.13.0 §6.7)
+         * @description Permiso: `plantillas_whatsapp.leer_integracion`. Solo el token de integración de Argos (otro actor: 403 `solo_integracion_argos`) y solo empresas de su alcance (403 `empresa_no_permitida`). Sin `limit` devuelve todas hasta 500 (`{ data }`, como §6.7) y `nextCursor` solo si hay más; con `limit`, por páginas (cursor atado a la empresa: el de otra, 422). Con `Cache-Control: no-store`. Devuelve las plantillas con el uso «avisos» de las cuentas de WhatsApp de la empresa (con un número suyo activo y conectado en esa cuenta) y, de un número prestado, solo si el préstamo la autoriza a mandar avisos. Sin borradores ni borradas; las de marketing solo con marketing activado. Nunca el id de la cuenta (WABA), el id de Meta ni el motivo de un rechazo. Las plantillas se editan y se aprueban solo en Iris.
+         */
+        get: operations["listarPlantillasWhatsAppArgos"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/integraciones/argosisp/prospectos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Registrar un prospecto desde Argos
+         * @description Permiso: `prospectos.registrar_integracion`. Contrato con Argos 0.10.0 §3.6 (A44): solo el token de integración de Argos (403 `solo_integracion_argos`); ese token no lee, lista ni edita prospectos. Crea el prospecto con origen `argos_panel`, sus `telefonos[]` (1 a 5, exactamente un `principal`; si no, 422 `telefonos_invalidos` con `errors[]` por posición, sin repetir el número), vendedor por zona y la factibilidad si trae coordenadas. 409 `prospecto_duplicado { url_iris }` si cualquiera de los números ya está en un prospecto abierto de la empresa (el pedido se suma como actividad; no dice cuál coincidió). 409 `argos_apagado` con el conector apagado. 422 `plan_no_permitido` (plan no aplicable al modo) y `cliente_no_valido` (cliente de otra empresa); si Iris no tiene el cliente y Argos no responde, se crea con `cliente_validado: false`. 429 `demasiados_registros` (con `Retry-After`) al pasar 30 números por minuto por actor o 300 por empresa. Idempotencia: misma clave y huella, la respuesta original; otra huella, 422 `idempotency_key_reutilizada`; la primera en curso, 409 `idempotencia_en_proceso`. 400 `cabecera_iris_requerida` si `X-Iris-Actor` no es `usuario:<id>`.
+         */
+        post: operations["registrarProspectoArgos"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/integraciones/argosisp/sso/tickets": {
         parameters: {
             query?: never;
@@ -6445,6 +6485,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/cambiar-plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cambiar el plan de una instalación desde el panel
+         * @description Permiso: `ordenes.cambiar_plan`. Despacho o supervisor con `ordenes.cambiar_plan` y alcance sobre la orden, en una instalación no terminada con el servicio pendiente en Argos; con `version` (409 si cambió) e `Idempotency-Key`. Uno de los planes permitidos (Argos lo vuelve a comprobar: `plan_no_permitido`), con motivo. Encola A40 en orden, como `orden.cambiar_plan` del lote; al quedar hecho, la venta (si es de Iris) tiene una cotización nueva y un contrato regenerado, y el vendedor recibe aviso. Emite `orden.cambio_plan_registrado`.
+         */
+        post: operations["cambiarPlanOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/cancelar": {
         parameters: {
             query?: never;
@@ -6499,6 +6559,26 @@ export interface paths {
          * @description Permiso: `ordenes.registrar`. Gana la marca más reciente (por hora del hecho); la otra queda en el historial (`aviso: checklist_no_vigente`).
          */
         post: operations["marcarChecklistOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/completar-datos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Completar los datos del titular y del lugar desde el panel
+         * @description Permiso: `ordenes.completar_datos`. Despacho o supervisor con `ordenes.completar_datos` y alcance sobre la orden, en una instalación no terminada con el servicio pendiente en Argos; con `version` (409 si cambió) e `Idempotency-Key`. Encola A43 detrás de la identidad o del cambio de titular, como `orden.completar_datos` del lote. Teléfono, correo y NIT/CUI van solo al depósito de tránsito (`***` en la auditoría). 422 `orden_no_es_instalacion`, `argos_sin_conector`, `transicion_invalida`. Emite `orden.datos_completados`.
+         */
+        post: operations["completarDatosOrden"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6705,6 +6785,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/levantar-revision-titular": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Levantar la revisión del titular
+         * @description Permiso: `ordenes.validar_identidad`. Un supervisor, con motivo (10 a 500), cuando Argos respondió `titular_no_coincide`: mientras la orden está en revisión no se toma otra identidad ni otro titular (422 `titular_en_revision`). No manda nada a Argos. 409 `sin_revision`. Emite `orden.revision_titular_levantada`.
+         */
+        post: operations["levantarRevisionTitularOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/llegar": {
         parameters: {
             query?: never;
@@ -6905,6 +7005,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/titular": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado del paso «Confirmar titular y plan»
+         * @description Permiso: `ordenes.ver` u `ordenes.ver_propias` (la orden que el actor ve). Quién firma, el tipo de documento y el nombre (nunca el número, el teléfono, el correo ni las fotos), si la identidad está registrada o validada, el último plan pedido y cada paso hacia Argos con su estado: `enviando`, `hecho`, `rechazado` (con `codigo`), `agotado`, `bloqueado` o `resuelto`. `enRevision`: Argos respondió `titular_no_coincide` (lo resuelve un supervisor); `pendienteEnArgos`: un paso no llegó y la activación no sale. Sin datos del cliente de Argos ni `posible_duplicado`.
+         */
+        get: operations["verTitularOrden"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/tomar": {
         parameters: {
             query?: never;
@@ -6919,6 +7039,26 @@ export interface paths {
          * @description Permiso: `ordenes.tomar`. Si la empresa lo permite (403 `libres_apagado`), el técnico se asigna una orden pendiente y sin técnico con la lógica de `ordenes.asignar`. Una orden con cuadrilla solo es libre para los técnicos de ESA cuadrilla; sin cuadrilla vale la zona, y al tomarla queda con la cuadrilla del técnico. Fuera de su cuadrilla o de sus zonas, o en un estado que no sea abierto (pendiente, programada, en camino), el mismo 404 que una orden inexistente (sin número ni nombre). Abierta y ya tomada por otro (o asignada por despacho): 409 `orden_ya_tomada` con `tomadaPor` (id y nombre). Ya tuya: 200 sin cambios. Requiere conexión (no va por el lote). Emite `orden.asignada` (origen `tomar`, motivo `tomada`).
          */
         post: operations["tomarOrden"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ordenes/{id}/validar-identidad": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validar la identidad del titular desde el panel
+         * @description Permiso: `ordenes.validar_identidad`. Un supervisor, con motivo (10 a 500), en una instalación no cancelada. Solo sirve para activar: nunca cambia el titular ni toma una identidad. Sin identidad tomada, la orden se puede cerrar y activar sin ella. Con la identidad del mismo titular rechazada o agotada en Argos y su foto aún en el depósito de tránsito (7 días), la manda otra vez como `revision_panel` (la foto tomada en sitio, que nadie ve en Iris); si la foto ya se borró, el paso queda resuelto y la activación sale sin ella. 409 `identidad_registrada`, `identidad_en_envio` o `identidad_ya_validada`; 422 `titular_en_revision` (un cambio de titular no se valida), `orden_no_es_instalacion`, `argos_sin_conector`. Emite `orden.identidad_validada`.
+         */
+        post: operations["validarIdentidadOrden"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7464,7 +7604,7 @@ export interface paths {
         put?: never;
         /**
          * Ganar el prospecto
-         * @description Permiso: `prospectos.ganar`. Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales. Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`.
+         * @description Permiso: `prospectos.ganar`. Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales. Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`. Con un cliente elegido en Argos sin validar (Argos no respondía al registrarlo), lo confirma antes con Argos: de otra empresa, 422 `cliente_no_valido`; Argos sin responder, 422 `cliente_sin_confirmar`.
          */
         post: operations["ganarProspecto"];
         delete?: never;
@@ -9807,8 +9947,11 @@ export interface components {
             clienteArgosId: number | null;
             /** @description El alta no pudo avanzar y necesita revisión manual (no se reintenta sola) */
             error: string | null;
-            /** @enum {string} */
-            estado: "esperando_cliente" | "esperando_servicio" | "completa";
+            /**
+             * @description esperando_activacion: «ganado, alta pendiente»: el servicio existe en Argos y falta activarlo en la instalación
+             * @enum {string}
+             */
+            estado: "esperando_cliente" | "esperando_servicio" | "esperando_activacion" | "completa";
             /**
              * @description local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes
              * @enum {string}
@@ -10030,10 +10173,10 @@ export interface components {
              */
             nivel: "info" | "alerta" | "peligro";
             /**
-             * @description argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
+             * @description paso_titular: un paso del titular quedó hecho en Argos con la orden ya cancelada, fallida o cerrada (datos: orden_id, pendiente_id, operacion, estado_orden); a los supervisores de la orden. contrato_sin_firma: la orden se cerró con el contrato regenerado sin firmar (datos: orden_id, contrato_id, prospecto_id, operacion, motivo cierre_sin_firma|cambio_tras_cierre); a los supervisores de la orden. venta_revisada: la instalación cambió el plan o el titular de una venta del vendedor (B20; datos: prospecto_id, orden_id, motivo plan|titular, cotizacion_id). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
              * @enum {string}
              */
-            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado";
+            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado" | "venta_revisada" | "paso_titular" | "contrato_sin_firma";
             /** @description Texto en español, listo para mostrar */
             titulo: string;
         };
@@ -10773,6 +10916,18 @@ export interface components {
             /** @description Teléfono y móvil de Argos normalizados para mostrar (+502 5512 3344) y llamar (e164), con el original */
             telefonos?: components["schemas"]["Telefono"][] | null;
         };
+        ClienteCompletar: {
+            email?: string;
+            nitCui?: string;
+            /** @description Solo para corregirlo como en el documento (con la identidad registrada en esta orden) */
+            nombre?: string;
+            /** @enum {string} */
+            relacion?: "titular" | "familiar" | "otro";
+            telefono?: string;
+            /** @enum {string} */
+            tipoDocumentoFiscal?: "cf" | "nit" | "cui";
+            whatsapp?: boolean;
+        };
         ClientePortal: {
             /**
              * Format: int64
@@ -11324,6 +11479,13 @@ export interface components {
             plantilla: string;
             /** Format: int64 */
             prospectoId: number;
+            /** Format: int32 */
+            version: number;
+        };
+        ContratoPorFirmar: {
+            /** Format: int64 */
+            id: number;
+            numero: string;
             /** Format: int32 */
             version: number;
         };
@@ -12816,6 +12978,32 @@ export interface components {
             /** @description Nueva contraseña: mínimo 12 caracteres y distinta de la actual */
             nueva: string;
         };
+        EntradaCambiarPlan: {
+            /** @enum {string} */
+            motivo: "mas_velocidad" | "menos_velocidad" | "otro";
+            /** @description Obligatorio con otro */
+            motivoTexto?: string;
+            /**
+             * Format: int64
+             * @description Uno de los planes permitidos (mismo modo y router); Argos lo vuelve a comprobar (plan_no_permitido)
+             */
+            planId: number;
+            /**
+             * Format: int32
+             * @description Desde el panel (POST /ordenes/{id}/cambiar-plan): versión leída de la orden, obligatoria (409 si cambió). En el lote no se usa
+             */
+            version?: number;
+        };
+        EntradaCambiarTitular: {
+            /** @description «Coincide con el titular»: debe ser true */
+            coincide: boolean;
+            frente: components["schemas"]["FotoDocumento"];
+            motivo: string;
+            /** @enum {string} */
+            motivoCodigo: "menor_de_edad" | "otro";
+            reverso?: components["schemas"]["FotoDocumento"];
+            titular: components["schemas"]["TitularNuevo"];
+        };
         EntradaCambioCentralita: {
             /** Format: int32 */
             version: number;
@@ -12899,6 +13087,8 @@ export interface components {
             lat?: number;
             /** Format: double */
             lon?: number;
+            /** @description Solo desde el panel y con ordenes.validar_identidad (supervisor) sobre la orden: cierra la instalación aunque el titular no haya firmado el contrato regenerado (B20). Queda en la auditoría y avisa a supervisión (orden.contrato_sin_firma) */
+            motivoSinContratoFirmado?: string;
             /**
              * @description exitosa por defecto. Solo una instalación exitosa activa el servicio en Argos
              * @enum {string}
@@ -12960,6 +13150,15 @@ export interface components {
             error?: string;
             /** @description state de la vuelta */
             state: string;
+        };
+        EntradaCompletarDatos: {
+            cliente?: components["schemas"]["ClienteCompletar"];
+            servicio?: components["schemas"]["LugarServicio"];
+            /**
+             * Format: int32
+             * @description Desde el panel (POST /ordenes/{id}/completar-datos): versión leída de la orden, obligatoria (409 si cambió). En el lote no se usa
+             */
+            version?: number;
         };
         EntradaCompletarTarea: {
             /**
@@ -14000,6 +14199,23 @@ export interface components {
              */
             version: number;
         };
+        EntradaFirmarContrato: {
+            /**
+             * Format: int64
+             * @description El contrato regenerado de la orden (GET /ordenes/{id}/titular, contratoPorFirmar)
+             */
+            contratoId: number;
+            /** @description Opcional; nunca va en eventos ni en la auditoría */
+            firmanteDocumento?: string;
+            /** @description El titular (o el representante de la empresa titular) */
+            firmanteNombre: string;
+            /** Format: double */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
+            /** @description Firma en SVG: <svg width="…" height="…"> con <path d="…"> (comandos M, L, C, Q, H, V, Z) */
+            svg: string;
+        };
         EntradaFusionarTickets: {
             /**
              * Format: int64
@@ -14114,6 +14330,15 @@ export interface components {
         };
         EntradaLeerConv: {
             hastaMensajeId: string;
+        };
+        EntradaLevantarRevision: {
+            /** @description Qué se revisó (queda en la auditoría) */
+            motivo: string;
+            /**
+             * Format: int32
+             * @description Versión leída de la orden; si cambió, 409
+             */
+            version: number;
         };
         EntradaLinea: {
             /** @description Por defecto 1 */
@@ -14650,6 +14875,30 @@ export interface components {
              */
             version?: number;
         };
+        EntradaRegistrarArgos: {
+            /**
+             * Format: int64
+             * @description Cliente existente que eligió quien lo registró (de la empresa)
+             */
+            cliente_id?: number | null;
+            comentario?: string | null;
+            /** @description "lat,lng" */
+            coordenadas?: string | null;
+            direccion: string;
+            /** @enum {string} */
+            modo: "residencial" | "empresarial";
+            nombre: string;
+            /** @enum {string} */
+            origen: "oficina" | "llamada" | "whatsapp" | "referido" | "otro";
+            /**
+             * Format: int64
+             * @description Plan de Argos aplicable al modo
+             */
+            plan_interes_id?: number | null;
+            telefonos: components["schemas"]["TelefonoArgosEntrada"][] | null;
+            /** Format: int64 */
+            zona_id?: number | null;
+        };
         EntradaRegistrarAusencia: {
             detalle?: string;
             /**
@@ -14672,6 +14921,20 @@ export interface components {
             plataforma: "android";
             /** @description Token nativo de FCM (getDevicePushTokenAsync) */
             token: string;
+        };
+        EntradaRegistrarIdentidad: {
+            /** @description «Coincide con el titular»: el técnico comprobó que la foto es de quien está presente; debe ser true */
+            coincide: boolean;
+            /** @description DPI: 13 dígitos con verificador, departamento y municipio. Pasaporte: 5 a 20 letras o dígitos. Nunca se devuelve ni va en eventos, logs ni auditoría */
+            documentoNumero: string;
+            /** @enum {string} */
+            documentoTipo: "dpi" | "pasaporte";
+            frente: components["schemas"]["FotoDocumento"];
+            /** @description «El titular es mayor de edad»: debe ser true */
+            mayorDeEdad: boolean;
+            /** @description Como aparece en el documento */
+            nombre: string;
+            reverso?: components["schemas"]["FotoDocumento"];
         };
         EntradaReiniciarMFA: {
             /** @description Contraseña temporal (mínimo 12 caracteres, distinta de la actual) que el administrador entrega al usuario fuera de banda. Reemplaza la actual; al entrar con ella, el usuario debe cambiarla antes de cualquier otra cosa. Nunca se audita ni va en eventos */
@@ -14702,6 +14965,11 @@ export interface components {
              * @enum {string}
              */
             cargo?: "liberar" | "resolver_tambien";
+            /**
+             * Format: int64
+             * @description Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro y el contrato regenerado van a su nombre). Resolver a mano un cambiar_plan o cambiar_titular significa que el cambio se aplicó en Argos
+             */
+            clienteId?: number;
             /** @description Qué se hizo en Argos (si se rehízo el consumo, con origen_tipo/origen_id de la orden) */
             motivo: string;
             /** Format: int32 */
@@ -14986,6 +15254,15 @@ export interface components {
             /** Format: int32 */
             version: number;
         };
+        EntradaValidarIdentidad: {
+            /** @description Por qué se valida (queda en la auditoría) */
+            motivo: string;
+            /**
+             * Format: int32
+             * @description Versión leída; si cambió, 409
+             */
+            version: number;
+        };
         EntradaValidarPWA: {
             /** @enum {string} */
             categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
@@ -15259,6 +15536,58 @@ export interface components {
              */
             tomadoEn: string | null;
             version: string | null;
+        };
+        EstadoTitular: {
+            /** @description La orden se canceló o falló, pero el titular o el plan ya cambiaron en Argos (no se deshace solo) */
+            cambiadoEnArgos: boolean;
+            /** @description El contrato regenerado en la instalación (cambio de plan o de titular aceptado por Argos), en borrador: se firma en sitio con orden.firmar_contrato. Ausente si no hay */
+            contratoPorFirmar?: components["schemas"]["ContratoPorFirmar"];
+            /**
+             * @description El documento de la identidad (con empresa, el del representante)
+             * @enum {string|null}
+             */
+            documentoTipo: "dpi" | "pasaporte" | null;
+            /** @description El titular está en revisión de un supervisor: no se toma otra identidad ni otro titular hasta que la levante (POST /ordenes/{id}/levantar-revision-titular) */
+            enRevision: boolean;
+            /**
+             * @description registrada: tomada en sitio y en la cola hacia Argos; validada: un supervisor la validó desde el panel (solo para activar)
+             * @enum {string}
+             */
+            identidad: "falta" | "registrada" | "validada";
+            /**
+             * @description Modo de la venta (del prospecto; residencial sin prospecto)
+             * @enum {string}
+             */
+            modo: "residencial" | "empresarial";
+            /** @description Del titular, como en el documento; con empresa, la razón social (nunca el número) */
+            nombre: string | null;
+            /** Format: int64 */
+            ordenId: number;
+            pasos: components["schemas"]["PasoTitularVista"][] | null;
+            /** @description Algún paso no llegó a Argos y no saldrá solo: la activación queda bloqueada */
+            pendienteEnArgos: boolean;
+            /**
+             * Format: int64
+             * @description El último plan pedido
+             */
+            planId: number | null;
+            /**
+             * @description misma: la persona de la venta (A41); otra: cambio de titular (A39)
+             * @enum {string|null}
+             */
+            quienFirma: "misma" | "otra" | null;
+            /**
+             * @description empresa: la identidad (documentoTipo) es la del representante
+             * @enum {string|null}
+             */
+            tipoTitular: "persona" | "empresa" | null;
+            /** @description false: Argos informa un contrato < 0.14.1 y el cambio de titular a una empresa no se ofrece (422 titular_empresa_no_disponible) */
+            titularEmpresaDisponible: boolean;
+            /**
+             * Format: int32
+             * @description 0 si la orden aún no tiene el paso
+             */
+            version: number;
         };
         EtapaSincronizacion: {
             /** @description Último error, en español y sin datos de clientes (hasta 300 caracteres) */
@@ -15887,6 +16216,12 @@ export interface components {
             /** Format: int64 */
             versionId: number;
         };
+        FotoDocumento: {
+            /** @description La imagen en base64 (hasta 1 MiB: el teléfono la comprime). Nunca se devuelve ni queda en la auditoría */
+            base64: string;
+            /** @enum {string} */
+            mime: "image/jpeg" | "image/png";
+        };
         Franja: {
             /** Format: date-time */
             fin: string;
@@ -16289,6 +16624,11 @@ export interface components {
             data: components["schemas"]["PlantillaVigente"][] | null;
             nextCursor: string | null;
         };
+        ListaPlantillasArgos: {
+            data: components["schemas"]["PlantillaArgos"][] | null;
+            /** @description Solo si hay más: cursor de la página siguiente */
+            nextCursor?: string;
+        };
         ListaPlantillasConv: {
             data: components["schemas"]["PlantillaDisponible"][];
             nextCursor: string | null;
@@ -16470,6 +16810,19 @@ export interface components {
             version: number;
             /** @description Si los ajustes del número ya están aplicados en WhatsApp */
             whatsapp: components["schemas"]["EstadoEnWhatsApp"];
+        };
+        LugarServicio: {
+            direccion?: string;
+            /** Format: double */
+            lat?: number;
+            /** Format: double */
+            lon?: number;
+            /**
+             * Format: double
+             * @description Precisión del GPS en metros
+             */
+            precisionM?: number;
+            referencia?: string;
         };
         MFAConfigurado: {
             /** @description Secreto TOTP en base32 */
@@ -17015,7 +17368,7 @@ export interface components {
              */
             ordenId?: number;
             /** @enum {string} */
-            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular";
+            tipo: "orden.iniciar_camino" | "orden.llegar" | "checklist.marcar" | "nota.agregar" | "nota.editar" | "nota.eliminar" | "material.usar" | "equipo.instalar" | "equipo.retirar" | "firma.capturar" | "adjunto.registrar" | "orden.cerrar" | "orden.fallar" | "orden.pausar" | "orden.reanudar" | "orden.agregar_formulario" | "orden.quitar_formulario" | "traslado.recibir" | "tarea.crear" | "tarea.completar" | "tarea.anular" | "llamada.directa" | "orden.registrar_identidad" | "orden.cambiar_titular" | "orden.completar_datos" | "orden.cambiar_plan" | "orden.firmar_contrato";
             /**
              * Format: int32
              * @description Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)
@@ -17235,6 +17588,8 @@ export interface components {
             pausadaEn?: string;
             /** @description Pausas de la orden (la en curso, con fin null) */
             pausas?: components["schemas"]["PausaOrden"][] | null;
+            /** @description Planes permitidos (GET /planes?router_id=&modo= de Argos) para orden.cambiar_plan; solo en una instalación con el servicio pendiente_instalacion */
+            planes?: components["schemas"]["PlanesOrden"];
             /**
              * Format: int64
              * @description Plantilla de checklist
@@ -18021,6 +18376,21 @@ export interface components {
             /** Format: int64 */
             ms: number;
         };
+        PasoTitularVista: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** @description Código del rechazo (titular_no_coincide, foto_vencida, validacion…) */
+            codigo?: string;
+            /**
+             * @description enviando: en la cola; rechazado: Argos lo rechazó (codigo); agotado: Argos no respondió tras los reintentos; bloqueado: espera un paso anterior que falló; resuelto: reemplazado por otra toma, resuelto a mano o detenido al cancelar; en_revision: la identidad está en revisión de un supervisor (sin más detalle)
+             * @enum {string}
+             */
+            estado: "enviando" | "hecho" | "rechazado" | "agotado" | "bloqueado" | "resuelto" | "en_revision";
+            /** @enum {string} */
+            operacion: "registrar_identidad" | "cambiar_titular" | "completar_datos" | "cambiar_plan";
+            /** Format: int64 */
+            pendienteId: number;
+        };
         PausaAsistente: {
             /** Format: date-time */
             en: string;
@@ -18206,7 +18576,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cambiar_plan" | "ordenes.cambiar_titular" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.completar_datos" | "ordenes.crear" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.validar_identidad" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.leer_integracion" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.registrar_integracion" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -18286,12 +18656,31 @@ export interface components {
             /** @description Mensualidad (decimal, 2 cifras); null si Argos no la publica */
             precio: string | null;
         };
+        PlanOrden: {
+            /** Format: int64 */
+            id: number;
+            moneda: string | null;
+            nombre: string;
+            /** @description Precio mensual como lo da Argos (texto decimal); la orden lo muestra antes de confirmar */
+            precio: string | null;
+        };
         PlanesDisponibles: {
             data: components["schemas"]["PlanComercial"][] | null;
             /** @description false = sin conector (cotizar con descripción y precio a mano) o Argos no disponible (motivo) */
             disponible: boolean;
             /** @description sin_conector, conector_apagado, argos_no_disponible… */
             motivo: string | null;
+        };
+        PlanesOrden: {
+            data: components["schemas"]["PlanOrden"][] | null;
+            disponible: boolean;
+            /**
+             * @description Modo de la venta: el de los planes y el del titular (empresarial: NIT de la empresa y representante con DPI)
+             * @enum {string}
+             */
+            modo: "residencial" | "empresarial";
+            /** @enum {string|null} */
+            motivo: "sin_conector" | "argos_no_disponible" | "sin_router" | null;
         };
         Planta: {
             caja: string | null;
@@ -18309,6 +18698,20 @@ export interface components {
             items: components["schemas"]["ItemPlantilla"][] | null;
             nombre: string;
             requiereFirma: boolean;
+        };
+        PlantillaArgos: {
+            /** @enum {string} */
+            categoria: "UTILITY" | "MARKETING" | "AUTHENTICATION";
+            /** @description Códigos de §6.3 que atiende (factura_por_vencer…) */
+            codigos_aviso: string[] | null;
+            /** @description Estado en Meta (APPROVED, PENDING, REJECTED, PAUSED, DISABLED, FLAGGED…). Un aviso sale solo con APPROVED o FLAGGED y sin pausa */
+            estado: string;
+            /** @description Idioma en Meta (es, es_MX…) */
+            idioma: string;
+            /** @description Nombre de la plantilla en Meta */
+            nombre: string;
+            /** @description Texto del mensaje con las variables como {{nombre}} */
+            vista_previa: string;
         };
         PlantillaCreadaPWA: {
             /** @enum {string|null} */
@@ -18830,6 +19233,8 @@ export interface components {
             tomadaPor?: components["schemas"]["PersonaProblema"];
             /** @description URI estable del tipo de problema (urn:iris:problema:<codigo>) */
             type: string;
+            /** @description prospecto_duplicado: enlace al prospecto existente (contrato con Argos §3.6) */
+            url_iris?: string;
         };
         PromesaConv: {
             /** Format: date-time */
@@ -18866,6 +19271,13 @@ export interface components {
             actualizadoEn: string;
             /** @description Alta del cliente (solo ganado) */
             alta?: components["schemas"]["Alta"];
+            /**
+             * Format: int64
+             * @description Cliente de Argos que eligió quien lo registró en Argos: al ganar, Iris no lo crea ni lo edita
+             */
+            clienteExistenteId: number | null;
+            /** @description false: Argos no respondió al registrarlo (se confirma después) */
+            clienteValidado: boolean | null;
             correo: string | null;
             /** Format: date-time */
             creadoEn: string;
@@ -18887,6 +19299,11 @@ export interface components {
             lat: number | null;
             /** Format: double */
             lon: number | null;
+            /**
+             * @description Solo los registrados desde Argos
+             * @enum {string|null}
+             */
+            modo: "residencial" | "empresarial" | null;
             motivoPerdida: string | null;
             nombre: string;
             notas: string;
@@ -18894,8 +19311,11 @@ export interface components {
             numero: string;
             /** @description Se ganó con factibilidad requiere_obra confirmada */
             obraConfirmada: boolean;
-            /** @enum {string} */
-            origen: "panel" | "web" | "referido" | "argos" | "otro";
+            /**
+             * @description argos_panel: lo registró una persona en el panel de Argos (contrato §3.6)
+             * @enum {string}
+             */
+            origen: "panel" | "web" | "referido" | "argos" | "argos_panel" | "otro";
             /** @description Quién lo refirió, campaña… */
             origenDetalle: string | null;
             /** Format: date-time */
@@ -18924,7 +19344,14 @@ export interface components {
             actualizadoEn: string;
             /** @description Alta del cliente (solo ganado) */
             alta?: components["schemas"]["Alta"];
-            /** @description El borrador o firmado */
+            /**
+             * Format: int64
+             * @description Cliente de Argos que eligió quien lo registró en Argos: al ganar, Iris no lo crea ni lo edita
+             */
+            clienteExistenteId: number | null;
+            /** @description false: Argos no respondió al registrarlo (se confirma después) */
+            clienteValidado: boolean | null;
+            /** @description El borrador o firmado (con una revisión de la instalación por firmar, el firmado: sigue vivo hasta que se firma el regenerado) */
             contrato?: components["schemas"]["Contrato"];
             correo: string | null;
             /** @description La vigente o aceptada */
@@ -18951,6 +19378,11 @@ export interface components {
             lat: number | null;
             /** Format: double */
             lon: number | null;
+            /**
+             * @description Solo los registrados desde Argos
+             * @enum {string|null}
+             */
+            modo: "residencial" | "empresarial" | null;
             motivoPerdida: string | null;
             nombre: string;
             notas: string;
@@ -18958,8 +19390,11 @@ export interface components {
             numero: string;
             /** @description Se ganó con factibilidad requiere_obra confirmada */
             obraConfirmada: boolean;
-            /** @enum {string} */
-            origen: "panel" | "web" | "referido" | "argos" | "otro";
+            /**
+             * @description argos_panel: lo registró una persona en el panel de Argos (contrato §3.6)
+             * @enum {string}
+             */
+            origen: "panel" | "web" | "referido" | "argos" | "argos_panel" | "otro";
             /** @description Quién lo refirió, campaña… */
             origenDetalle: string | null;
             /** @description Acciones en Argos del alta (POST /clientes y POST /servicios) */
@@ -18972,7 +19407,11 @@ export interface components {
              */
             planInteresId: number | null;
             planInteresNombre: string | null;
+            /** @description Cambio de plan o de titular aceptado por Argos en la instalación: la cotización nueva (vigente) y el contrato regenerado (borrador) que el titular firma en la orden. Hasta esa firma no se da por aceptado */
+            porFirmarEnOrden?: components["schemas"]["RevisionEnOrden"];
             telefono: string | null;
+            /** @description Números del prospecto registrado desde Argos (vacío en los demás: usan telefono) */
+            telefonos: components["schemas"]["TelefonoProspecto"][] | null;
             /**
              * Format: int64
              * @description Responsable de ventas (usuario de Iris)
@@ -18982,6 +19421,16 @@ export interface components {
             version: number;
             /** Format: int64 */
             zonaId: number | null;
+        };
+        ProspectoRegistrado: {
+            /** @description Ya tiene vendedor */
+            asignado: boolean;
+            estado: string;
+            numero: string;
+            /** Format: int64 */
+            prospecto_id: number;
+            /** @description Enlace plano al prospecto en Iris (el autologin se pide al hacer clic, §1.3) */
+            url_iris: string;
         };
         PruebaAsistente: {
             /** @description En español, sin secretos */
@@ -19354,6 +19803,19 @@ export interface components {
             periodo: components["schemas"]["Periodo"];
             total: components["schemas"]["FilaTecnico"];
         };
+        Representante: {
+            /** @description Nunca se devuelve ni va en eventos, logs ni auditoría */
+            documentoNumero: string;
+            /**
+             * @description DPI o pasaporte (decisión del PM)
+             * @enum {string}
+             */
+            documentoTipo: "dpi" | "pasaporte";
+            /** @description «El representante es mayor de edad»: debe ser true */
+            mayorDeEdad: boolean;
+            /** @description Como aparece en su documento */
+            nombre: string;
+        };
         RequisitoLlamadas: {
             aviso: boolean;
             /** @enum {string} */
@@ -19471,6 +19933,8 @@ export interface components {
             /** @enum {string} */
             estado: "aplicada" | "duplicada" | "rechazada";
             id: string;
+            /** @description llamada.directa: la llamada anotada en la orden (el mismo id de la operación) */
+            llamadaId?: string;
             /** @description Versión y estado de la orden (también en los rechazos, si el técnico la ve o la tuvo) */
             orden?: components["schemas"]["EstadoOrden"];
             /** @description traslado.recibir: la recepción encolada hacia Argos (su estado sigue en GET /campo/cambios, recepciones[]) */
@@ -19612,6 +20076,13 @@ export interface components {
         };
         RevisionCuentas: {
             data: components["schemas"]["TextoConCuenta"][] | null;
+        };
+        RevisionEnOrden: {
+            /** @description El contrato regenerado en borrador, que el titular firma en la orden */
+            contrato: components["schemas"]["Contrato"];
+            cotizacion: components["schemas"]["Cotizacion"];
+            /** Format: int64 */
+            ordenId: number;
         };
         Rol: {
             /** @description Un rol desactivado no da permisos ni se puede asignar */
@@ -19915,6 +20386,7 @@ export interface components {
         Servicio: {
             /** Format: int64 */
             clienteId: number;
+            /** @description Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce) */
             codigo: string;
             /** @description Quien atiende en el sitio; solo con servicios.ver_ubicacion */
             contactoNombre?: string;
@@ -19944,6 +20416,8 @@ export interface components {
             lon?: number;
             /** @description Moneda de precioMensual (GTQ); ausente si no hay precio */
             moneda?: string;
+            /** @description Nombre que eligió el cliente o el personal en Argos («Casa»; ausente si no tiene). Texto del cliente: se muestra escapado; nunca va a la IA */
+            nombre?: string;
             /**
              * Format: int64
              * @description Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA
@@ -20044,6 +20518,7 @@ export interface components {
         ServicioResumenConversacion: {
             /** Format: int64 */
             clienteId: number;
+            /** @description Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce) */
             codigo: string;
             /** @description Quien atiende en el sitio; solo con servicios.ver_ubicacion */
             contactoNombre?: string;
@@ -20073,6 +20548,8 @@ export interface components {
             lon?: number;
             /** @description Moneda de precioMensual (GTQ); ausente si no hay precio */
             moneda?: string;
+            /** @description Nombre que eligió el cliente o el personal en Argos («Casa»; ausente si no tiene). Texto del cliente: se muestra escapado; nunca va a la IA */
+            nombre?: string;
             /**
              * Format: int64
              * @description Orden del servicio en la lista del cliente (1, 2, 3…, por id; la de la empresa activa): «Servicio 2». Es la misma numeración que usa el asistente de IA
@@ -20542,6 +21019,17 @@ export interface components {
              */
             tipo: "telefono" | "movil";
         };
+        TelefonoArgosEntrada: {
+            /** @description De quién es el número si no es del prospecto (al ganar, contacto del cliente) */
+            nombre?: string | null;
+            /** @description E.164 (+50255123344) */
+            numero: string;
+            /** @description Exactamente uno */
+            principal: boolean;
+            /** @description titular (solo el principal), familiar u otro */
+            relacion?: string | null;
+            whatsapp: boolean;
+        };
         TelefonoCentralita: {
             activo: boolean;
             /** @description SHA-256 del certificado del WSS que confirmó un administrador */
@@ -20577,6 +21065,16 @@ export interface components {
             /** @enum {string|null} */
             motivo: "sin_centralita" | "sin_extension" | "extension_escritorio" | "sin_credencial" | "registro_sin_probar" | "telefono_apagado" | "turn_no_configurado" | null;
             puede: components["schemas"]["PuedeTelefono"];
+        };
+        TelefonoProspecto: {
+            /** @description De quién es (al ganar, contacto del cliente) */
+            nombre: string | null;
+            /** @description E.164 */
+            numero: string;
+            principal: boolean;
+            /** @enum {string|null} */
+            relacion: "titular" | "familiar" | "otro" | null;
+            whatsapp: boolean;
         };
         TextoConCuenta: {
             /**
@@ -20786,6 +21284,42 @@ export interface components {
             mencion: boolean;
             /** @description Órdenes asignadas a ti o reprogramadas */
             orden: boolean;
+        };
+        TitularNuevo: {
+            /** @description Persona: DPI o pasaporte. Empresa: no va. Nunca se devuelve ni va en eventos, logs ni auditoría */
+            documentoNumero?: string;
+            /**
+             * @description Persona: obligatorio. Empresa: no va (la identidad es la del representante)
+             * @enum {string}
+             */
+            documentoTipo?: "dpi" | "pasaporte";
+            email?: string;
+            /** @description Persona: debe ser true. Empresa: no va (lo marca el representante) */
+            mayorDeEdad?: boolean;
+            /** @description NIT (con verificador, K permitido) o CUI; vacío con cf */
+            nitCui?: string;
+            /** @description Como aparece en el documento; con empresa, la razón social */
+            nombre: string;
+            /**
+             * @description Relación con quien pidió el servicio
+             * @enum {string}
+             */
+            relacion?: "titular" | "familiar" | "otro";
+            /** @description Obligatorio con titular empresa (y solo ahí). En la auditoría y los pendientes, todo menos documentoTipo sale como *** */
+            representante?: components["schemas"]["Representante"];
+            /** @description 8 dígitos de Guatemala (+502 opcional) */
+            telefono: string;
+            /**
+             * @description persona (por defecto) o empresa (contrato 0.14.1; no depende del modo de la venta ni del plan). Con Argos < 0.14.1, 422 titular_empresa_no_disponible
+             * @enum {string}
+             */
+            tipo?: "persona" | "empresa";
+            /**
+             * @description «Facturar a» (FEL)
+             * @enum {string}
+             */
+            tipoDocumentoFiscal: "cf" | "nit" | "cui";
+            whatsapp: boolean;
         };
         TokenAPI: {
             /** Format: date-time */
@@ -26796,6 +27330,164 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    listarPlantillasWhatsAppArgos: {
+        parameters: {
+            query: {
+                /** @description Empresa de Argos (del alcance del conector; si no, 403 empresa_no_permitida) */
+                empresa_id: number;
+                /** @description Cursor opaco que devolvió la página anterior (nextCursor); va atado a la empresa */
+                cursor?: string;
+                /** @description Tamaño de página; sin él, todas hasta 500 (como §6.7, que no pagina) */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListaPlantillasArgos"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    registrarProspectoArgos: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description argos:prospecto:<uuid>; Iris la guarda 30 días y la huella incluye el cuerpo, X-Iris-Empresa y X-Iris-Actor */
+                "Idempotency-Key": string;
+                /** @description Empresa del prospecto (dentro del alcance del token; si no, 403 empresa_no_permitida) */
+                "X-Iris-Empresa": string;
+                /** @description usuario:<id de Argos> de quien lo registró */
+                "X-Iris-Actor": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaRegistrarArgos"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProspectoRegistrado"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -47068,6 +47760,89 @@ export interface operations {
             };
         };
     };
+    cambiarPlanOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCambiarPlan"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     cancelarOrden: {
         parameters: {
             query?: never;
@@ -47249,6 +48024,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaMarcarChecklist"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    completarDatosOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaCompletarDatos"];
             };
         };
         responses: {
@@ -48070,6 +48928,89 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["EntradaPosicion"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    levantarRevisionTitularOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaLevantarRevision"];
             };
         };
         responses: {
@@ -48972,6 +49913,73 @@ export interface operations {
             };
         };
     };
+    verTitularOrden: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstadoTitular"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
     tomarOrden: {
         parameters: {
             query?: never;
@@ -48985,6 +49993,89 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Orden"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    validarIdentidadOrden: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EntradaValidarIdentidad"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -50314,7 +51405,7 @@ export interface operations {
                 limit?: number;
                 /** @description Uno o varios separados por coma: nuevo, contactado, factibilidad, cotizado, contrato, ganado, perdido */
                 estado?: string;
-                origen?: "panel" | "web" | "referido" | "argos" | "otro" | "";
+                origen?: "panel" | "web" | "referido" | "argos" | "argos_panel" | "otro" | "";
                 vendedorId?: number;
                 sinVendedor?: boolean;
                 zonaId?: number;

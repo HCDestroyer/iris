@@ -125,3 +125,39 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   cuerpo y emite `integracion.pendiente_corregido`; sin vínculo, 422 `tecnico_sin_vincular`).
   `producto_es_comodato`, `cobro_sin_cliente` y `existencia_insuficiente` son de negocio (no se
   reintentan solos; a mano, sí).
+
+## Paso «Confirmar titular y plan» (contrato 0.10.0 §3.4, B18 y B19; `titular.go`, `transito.go`)
+
+- Operaciones `registrar_identidad` (A41, multipart), `cambiar_titular` (A39, multipart con la parte
+  `datos`), `completar_datos` (A43) y `cambiar_plan` (A40), con `X-Iris-Actor: usuario:<id>` y las
+  claves `iris:identidad:<orden>:<toma>`, `iris:titular:<orden>:<cambio>`, `iris:datos:<orden>:<n>` e
+  `iris:plan:<orden>:<cambio>`. Campo las encola con `EncolarPaso`; nacen bloqueadas si un paso
+  anterior ya falló.
+- Lo sensible va en `integracion.datos_transito` (AES-GCM, datos asociados `transito:<id>`), nunca en
+  `payload`; se mezcla con el cuerpo solo al enviar. Se borra al 2xx (`entregado`), al resolverse a mano
+  (`resuelto_manual`) o a los 7 días de tomado (`vencido`, en cada pasada de la cola); un paso sin su
+  depósito queda `fallido_negocio` con `foto_vencida`. El panel ve `documento_numero`, `telefono`,
+  `email` y `nit_cui` como `***` si llegaran al payload.
+- La activación y el cargo de una orden cerrada dependen de todos los pasos vivos del titular; el cargo
+  va a `titular.cliente_id` de la respuesta del último cambio de titular (`objetosRespuesta`).
+- `ReemplazarPaso`: otra toma de la identidad reemplaza a la rechazada (lo que la esperaba pasa a
+  esperar a la nueva; la vieja queda `resuelto_manual`). `DarPorValidado`: la validación desde el panel
+  sin la foto deja el paso resuelto y libera la activación.
+- Revisión de seguridad (#273): el consumo también espera a los pasos; cada depósito con su llave de
+  datos (`llave_cifrada`, cifrada con IRIS_CLAVE_CIFRADO y borrada con el depósito; como viven en la
+  misma fila, el WAL y los respaldos anteriores conservan las dos: ver `docs/runbooks/respaldos.md`; datos asociados
+  `transito:<uuid>:<orden>:<empresa>` verificados con la orden y la empresa del pendiente; la rotación
+  solo vuelve a cifrar la llave); purga en un job diario propio (`ArgsPurgarTransito`);
+  `resuelto_como` distingue a mano, reemplazado, cancelado y validado; un A39 resuelto a mano deja el
+  cobro y el consumo incompletos salvo `clienteId` al resolver; resolver un paso del titular exige
+  `ordenes.validar_identidad`; `titular_no_coincide` marca la orden en revisión; un paso hecho con la
+  orden cancelada o fallida emite `orden.paso_titular_tras_cancelar` (con la orden cerrada ya no, desde
+  la verificación de #280: un cambio de plan o de titular de una venta de Iris lo avisa comercial con
+  `orden.contrato_sin_firma`, y las órdenes sin venta de Iris no avisan); `motivo` (A39) y
+  `motivo_texto` (A40) no se ven en el panel.
+- Segunda revisión (#273): un paso del titular de una orden cancelada o fallida nunca sale (se mira
+  antes de enviar y al guardar el resultado: lo que no salió bien queda `resuelto_manual` con
+  `orden_cancelada` u `orden_fallida` y se borra su depósito); resolver a mano un `cambiar_titular`
+  deja su consumo y su cobro incompletos o, con `clienteId`, reescribe el cobro; `clienteId` debe ser
+  el titular actual del servicio leído en vivo de Argos en la empresa del pendiente
+  (`422 cliente_no_es_titular`; Argos sin responder: `503 no_disponible`, sin guardar nada).

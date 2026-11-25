@@ -245,3 +245,20 @@ export function recordarUsuario(u: UsuarioRecordado): void {
 export function olvidarUsuarioRecordado(): void {
     borrarLocal(CLAVE_USUARIO_RECORDADO);
 }
+
+/**
+ * Datos del titular de la cola (contrato argosisp.md 0.10.0 §3.4.8): qué bases de campo olvidan lo
+ * sensible según cómo arrancó la app. Sin sesión (vencida, revocada con 401, sin entrar o cerrada sin
+ * señal): todas.
+ * Con la sesión de una persona: las de las demás (entró otra persona en este teléfono). null = nada.
+ */
+export function sensiblesAOlvidar(fase: string, usuarioId?: number, motivo?: string): { excepto?: string } | null {
+    // Sin sesión, o tras cerrarla sin señal: de todas.
+    if (fase === "sin_sesion" || (fase === "conectate" && motivo === "sesion_cerrada")) {
+        return {};
+    }
+    if (fase === "lista" && usuarioId !== undefined) {
+        return { excepto: `iris-campo-${usuarioId}-` };
+    }
+    return null;
+}

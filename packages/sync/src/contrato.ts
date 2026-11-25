@@ -98,7 +98,12 @@ export const TIPOS_OPERACION = [
     "orden.reanudar",
     "orden.agregar_formulario",
     "orden.quitar_formulario",
+    "llamada.directa",
 ] as const satisfies readonly TipoOperacion[];
+
+/** Qué número de la orden llamó el técnico (`llamada.directa`); el servidor pone el número. */
+export const TELEFONOS_ORDEN = ["contacto", "movil", "principal"] as const;
+export type TelefonoOrden = (typeof TELEFONOS_ORDEN)[number];
 
 export const MOTIVOS_PAUSA = ["esperando_material", "cliente_ausente", "clima", "acceso", "otro"] as const satisfies readonly MotivoPausa[];
 
@@ -139,6 +144,22 @@ export interface DatosPorTipo {
     "orden.reanudar": SinVersion<Schema<"EntradaReanudar">>;
     "orden.agregar_formulario": Schema<"EntradaAgregarFormularioCampo">;
     "orden.quitar_formulario": Schema<"EntradaQuitarFormularioCampo">;
+    /**
+     * «Llamar desde mi celular» (E4c): el teléfono ya abrió `tel:`; la operación la anota en la orden
+     * con la hora real (`ocurridoEn`). No cambia la orden. `datos` de `DatosLlamadaDirectaLote` en la API.
+     */
+    "llamada.directa": { telefono?: TelefonoOrden };
+    // Paso «Confirmar titular y plan» (contrato argosisp.md 0.10.0 §3.4; `contratos/sync.md` §3b). Las
+    // fotos del documento van solo en la cola local, cifradas, hasta que la operación queda aplicada.
+    "orden.registrar_identidad": Schema<"EntradaRegistrarIdentidad">;
+    "orden.cambiar_titular": Schema<"EntradaCambiarTitular">;
+    "orden.completar_datos": Schema<"EntradaCompletarDatos">;
+    "orden.cambiar_plan": Schema<"EntradaCambiarPlan">;
+    /**
+     * La firma del contrato regenerado a nombre del titular final (B20), en sitio: el contrato viene en
+     * `GET /ordenes/{id}/titular` (`contratoPorFirmar`). La firma cubre la subida de precio.
+     */
+    "orden.firmar_contrato": Schema<"EntradaFirmarContrato">;
 }
 
 /** Una operación tal como viaja en `POST /sync/lote` (`OperacionLote` con `datos` tipados). */

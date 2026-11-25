@@ -16,6 +16,10 @@ import (
 //   - El precio mensual del plan (con IVA) solo si el número de la conversación está registrado como
 //     del cliente; nunca como total de la factura.
 //   - Si dos servicios tienen el mismo plan y la misma zona, el asistente no adivina: pasa a una persona.
+//   - Desde el contrato 0.10.0 (§3.7, A45; §10.5 ajuste ag) la etiqueta es «<codigo> · <plan> · <zona>»
+//     con el código del servicio (S-000412), que el cliente conoce y sí puede ir al modelo. Un código
+//     con otra forma (Argos anterior) deja «Servicio <n>». El nombre del servicio («Casa») es texto
+//     del cliente y nunca va al modelo.
 
 // sinComillas: lo que viene de Argos no puede cerrar el delimitador «…» del dato.
 var sinComillas = strings.NewReplacer("«", "", "»", "", "\"", "'", "`", "'")
@@ -29,9 +33,20 @@ func datoIA(s string, n int) string {
 	return ""
 }
 
-// etiquetaServicioIA arma la etiqueta corta del servicio: Servicio n · «plan» · «zona».
+// reCodigoServicio: el código de A45 (S-000412: al menos 6 cifras).
+var reCodigoServicio = regexp.MustCompile(`^S-[0-9]{6,12}$`)
+
+// nombreCortoServicioIA: el código de A45 o, sin él, «Servicio n».
+func nombreCortoServicioIA(s mensajeriabd.ServiciosClienteAsistenteRow) string {
+	if c := strings.TrimSpace(s.Codigo); reCodigoServicio.MatchString(c) {
+		return c
+	}
+	return fmt.Sprintf("Servicio %d", s.Numero)
+}
+
+// etiquetaServicioIA arma la etiqueta corta del servicio: S-000412 (o Servicio n) · «plan» · «zona».
 func etiquetaServicioIA(s mensajeriabd.ServiciosClienteAsistenteRow) string {
-	partes := []string{fmt.Sprintf("Servicio %d", s.Numero)}
+	partes := []string{nombreCortoServicioIA(s)}
 	if p := datoIA(s.PlanNombre, 60); p != "" {
 		partes = append(partes, p)
 	}
@@ -85,7 +100,7 @@ func describirServiciosIA(svs []mensajeriabd.ServiciosClienteAsistenteRow, regis
 	iguales := map[string][]string{}
 	for _, s := range svs {
 		b.WriteString(lineaServicioIA(s, registrado))
-		iguales[claveServicioIA(s)] = append(iguales[claveServicioIA(s)], fmt.Sprintf("Servicio %d", s.Numero))
+		iguales[claveServicioIA(s)] = append(iguales[claveServicioIA(s)], nombreCortoServicioIA(s))
 	}
 	for _, s := range svs {
 		if mismos := iguales[claveServicioIA(s)]; len(mismos) > 1 {

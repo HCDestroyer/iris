@@ -177,7 +177,7 @@ export function EntrarCampo({ alEntrar, motivo = null, sinConexion = null }: Pro
                             <CampoCodigo etiqueta="Escribe los 6 dígitos de tu app de autenticación" valor={field.value} alCambiar={field.onChange} error={errors.codigo?.message} name="codigo" />
                         )}
                     />
-                    <Boton type="submit" variante="tinta" tamano="lg" disabled={isSubmitting} className="h-12 w-full text-base md:h-12">
+                    <Boton type="submit" variante="primario" tamano="lg" disabled={isSubmitting} className="h-12 w-full text-base md:h-12">
                         {isSubmitting ? "Verificando…" : "Verificar"}
                     </Boton>
                 </Tarjeta>
@@ -251,7 +251,7 @@ export function EntrarCampo({ alEntrar, motivo = null, sinConexion = null }: Pro
                         error={errors.contrasena?.message}
                         {...credenciales.register("contrasena")}
                     />
-                    <Boton type="submit" variante="tinta" tamano="lg" disabled={isSubmitting || bloqueado} className="h-12 w-full text-base md:h-12">
+                    <Boton type="submit" variante="primario" tamano="lg" disabled={isSubmitting || bloqueado} className="h-12 w-full text-base md:h-12">
                         {isSubmitting ? "Entrando…" : "Entrar"}
                     </Boton>
                     <Boton variante="fantasma" tamano="lg" className="h-12 w-full text-primary md:h-12" onClick={() => setOlvido(true)}>
@@ -270,7 +270,7 @@ export function EntrarCampo({ alEntrar, motivo = null, sinConexion = null }: Pro
                         <CircleHelp aria-hidden className="mt-0.5 size-5 shrink-0 text-primary" />
                         <span>Pídele a tu supervisor o al administrador de Iris que te asigne una contraseña temporal. Al entrar con ella, Iris te pedirá cambiarla.</span>
                     </p>
-                    <Boton variante="tinta" tamano="lg" className="h-12 w-full" onClick={() => setOlvido(false)}>
+                    <Boton variante="primario" tamano="lg" className="h-12 w-full" onClick={() => setOlvido(false)}>
                         Entendido
                     </Boton>
                 </div>

@@ -72,16 +72,18 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
       Agenda con borde punteado, «Hecha» y «Anular». «Agregar formulario» ya no está en el «+»: va
       al menú «⋯» de la orden.
     - **Agenda «Mañana» y «Semana»** (`?vista=agenda[&dia=]`, `?vista=semana`): tira de 7 días con
-      el día elegido en teal y las citas en bloques (en curso en tinta, sin formulario en aviso).
+      el día elegido en índigo y las citas en bloques (en curso en tinta, sin formulario en aviso).
       El técnico no tiene `agenda.ver`: se lee `GET /campo/paquete?fecha=<hoy+6>` con señal y queda
       en memoria; hoy usa las órdenes del teléfono. Sin leer no hay contadores; sin señal lo dice
       con «Reintentar» y se relee sola al volver la señal.
     - **Pasos:** chips de pasos (listo en marca suave, el actual en tinta), barra por pasos,
-      tarjetas de 28 px de radio, − / + junto a «Cantidad» en materiales (`pasoCantidad`) y los
+      tarjetas de 22 px de radio, − / + junto a «Cantidad» en materiales (`pasoCantidad`) y los
       avisos que entran desde arriba con su acción («Deshacer»; un rechazo nuevo del servidor,
       con «Revisar»).
-    - **Tema:** los dos de C-Hoy llevados a los tokens (`color-mix` de `--hx-*`), un solo teal
-      (claro `#0f766e`, oscuro `#2dd4bf`), claro y oscuro según el teléfono.
+    - **Tema (rediseño, nov. 2026):** los tokens `--iris-*` (índigo `#4F46E5`, `#818CF8` en
+      oscuro), tarjetas de 22 px, la isla Hoy · Por recibir · «+» · Agenda · Yo, el chat y el «?»
+      del manual arriba (`/campo/manual/<pantalla>`), la acción principal de la orden fija abajo y
+      una columna de 480 px en escritorio. Claro y oscuro según el teléfono.
 - **La orden paso a paso:** resumen → «Empezar trabajo» → llegada · checklist · materiales y
   equipos · fotos → «Firma del cliente y cierre» (paso final y único; solo con lo obligatorio listo).
   En los pasos, la **isla de pasos** (`IslaPasos` en `_componentes/isla.tsx`, la misma píldora que la
@@ -175,6 +177,22 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
   de `@iris/sync/campo`, con `navigator.vibrate` si existe) y la hoja muestra lo detectado con lo
   que parece; un solo candidato se confirma, un QR con serie y MAC llena los dos, la serie o MAC ya
   registrada en la orden se avisa antes de usarla. Linterna con `torch` si la pista lo admite.
+- **Llamar al cliente** (E4c fase 3, `_componentes/telefono.tsx`, `lib/campo/telefono.ts`; contratos/voz.md
+  §3.12; maqueta aprobada, pantallas 23 a 36). Con `centralita.llamar`, «Llamar» abre la hoja «Llamar a…»:
+  el número de la orden (contacto en sitio, móvil, principal) y dos formas.
+  - «Llamar por la empresa»: con la extensión del técnico, por el puente de Iris y con el motor del
+    panel (`@iris/telefono`). Abre con `dispositivo: app` y solo marca: sin REGISTER ni entrantes. La
+    conexión se abre al llamar y se cierra al colgar. Solo se ofrece con señal y con el teléfono
+    disponible para la app (`GET /telefono`).
+  - El micrófono se pide al usarlo, con una explicación antes del permiso. La llamada ocupa la pantalla
+    completa (silenciar, teclado por INFO, colgar).
+  - Los avisos en llano de la orden: sin centralita, señal débil (2G), micrófono, no contestó, ocupado
+    y límite del día. Todos ofrecen «Desde mi celular».
+  - «Llamar desde mi celular»: encola `llamada.directa` (la hora real; se anota en la orden al volver
+    la señal) y abre `tel:`. Funciona también sin señal.
+  - La tarjeta «Llamadas» de la orden muestra las del servidor y las directas que siguen en la cola.
+    El teléfono del encabezado tiene su punto y su hoja.
+  - Sin el permiso, «Llamar» sigue siendo el `tel:` de siempre.
 - **Avisos del servidor** (`version_anterior`, `pausa_ajustada`) en el detalle de la orden hasta
   «Entendido»: ningún ajuste pasa en silencio.
 - **Contraseña temporal:** con `usuario.cambioContrasenaRequerido` en `GET /yo` o un 403
@@ -203,7 +221,9 @@ permiso, un punto por minuto con el reloj de Playwright, sin señal y de vuelta,
 `Retry-After`, permiso negado y «Ahora no», orden por cita y por ruta; `e2e/campo-diseno.spec.ts`: el diseño «combinada» (Hoy, encabezado y isla al desplazar, píldora,
 «+» con y sin permiso, Mañana y Semana con y sin señal, pasos con chips y − / +; con
 `IRIS_CAPTURAS=<carpeta>` deja las capturas); `e2e/campo-turno.spec.ts`:
-turno de la agenda con el reloj de Playwright; `e2e/campo-formularios.spec.ts`: formularios y pausa
+turno de la agenda con el reloj de Playwright; `e2e/campo-telefono.spec.ts`: llamar por la empresa con
+JsSIP contra una Issabel falsa (sin REGISTER, teclado, colgar), no contestó, sin centralita, señal débil,
+límite, sin extensión, el permiso del micrófono y la llamada directa con y sin señal; `e2e/campo-formularios.spec.ts`: formularios y pausa
 sin señal, rechazos y cierre incompleto por formulario; `e2e/campo-escaner.spec.ts`: escáner por campo
 con cámara y `BarcodeDetector` simulados, en escritorio y teléfono, claro y oscuro (con
 `IRIS_CAPTURAS=<carpeta>` deja capturas); `e2e/campo-yo.spec.ts`: «Yo» con la apariencia (los

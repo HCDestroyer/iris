@@ -219,21 +219,34 @@ Panel web de Iris (Next.js 15, App Router, React 19, Tailwind 4) con la identida
   Préstamo de números: `/[id]/compartir` (dueña) y `/[id]/prestamo` (quien lo recibe); en la bandeja,
   «Desde el teléfono», «Pasar a otra empresa» y conversaciones «Solo lectura».
 
-- **Teléfono de Iris** (E4c, `lib/telefono`, `componentes/telefono`, contratos/voz.md §3.12): la
+- **Teléfono de Iris** (E4c, `@iris/telefono` —el motor, compartido con `/campo`—, `lib/telefono` —API y administración—, `componentes/telefono`, contratos/voz.md §3.12): la
   extensión `navegador` de cada persona contesta y llama en el panel por el puente SIP de Iris. JsSIP
-  3.13 (import dinámico al encender) con un socket propio (`lib/telefono/socket.ts`: ticket de un uso
+  3.13 (import dinámico al encender) con un socket propio (`packages/telefono/src/socket.ts`: ticket de un uso
   como subprotocolo, uno nuevo por conexión) y `contact_uri` `sip:<usuario>@<azar>.invalid;transport=ws`;
   audio siempre por el TURN de Iris (`relay`). `MotorTelefono` es la fuente única del punto de la barra
   superior, la ventana de la entrante (la misma de E4a, con «Contestar» y «Rechazar»), la barra y el
   panel de la llamada (silenciar, en espera, teclado por INFO, transferir a la lista de la empresa,
   nota que se guarda sola, colgar) y «Llamar» en la ficha del cliente, la conversación y el teclado
   (Guatemala y extensiones). Una sola pestaña con `navigator.locks` + `BroadcastChannel`
-  (`lib/telefono/pestanas.ts`); los cierres `4001`/`4003` del puente detienen el agente y la
+  (`packages/telefono/src/pestanas.ts`); los cierres `4001`/`4003` del puente detienen el agente y la
   contraseña rechazada no se reintenta sola. Errores en llano con «Reintentar». Administración:
   «Teléfono en Iris» (`/administracion/integraciones/centralita/telefono`: WSS, huella, prefijo,
   límites y la guía de la Issabel), grupos para transferir y la credencial de cada extensión
-  (`/extensiones/[id]`: la contraseña SIP una vez y «Probar registro»). Pruebas: `lib/telefono/*.test.ts`
+  (`/extensiones/[id]`: la contraseña SIP una vez y «Probar registro»). Pruebas: `packages/telefono/src/*.test.ts`, `lib/telefono/*.test.ts`
   y `e2e/telefono.spec.ts` (JsSIP contra una Issabel falsa, `e2e/sip-falso.ts`).
+
+- **Manual de Iris** (`/manual`, `/manual/<modulo>/<pantalla>` y `/campo/manual/<pantalla>`): la ayuda
+  de cada pantalla, para quien usa Iris. El texto vive en `docs/manual/<modulo>/<pantalla>.md` (índice en
+  `docs/manual/indice.md`, claves en `docs/manual/claves.md`) y llega al panel como
+  `lib/manual/contenido.generado.json` (`pnpm --filter @iris/web manual`; la imagen de Docker no copia
+  `docs/`). Convertidor propio y seguro (`componentes/manual/markdown.tsx`: títulos, párrafos, listas,
+  negritas, código y enlaces; nada de HTML), buscador en el navegador (`lib/manual/busqueda.ts`), marco a
+  pantalla completa con «Atrás». Lo ve cualquier usuario con sesión; la sección del técnico va en
+  `/campo/manual`, precacheada por el service worker para leerla sin señal (como todo `/campo`, el
+  middleware no la cubre: es texto estático, sin datos de clientes). Una clave sin página muestra
+  «Esta pantalla todavía no tiene manual». Pruebas: `componentes/manual/markdown.test.tsx`,
+  `lib/manual/contenido.test.ts` (JSON al día, cinco partes por página, enlaces y claves) y
+  `e2e/manual.spec.ts`.
 
 No emite ni consume eventos.
 
@@ -243,6 +256,7 @@ No emite ni consume eventos.
 cp apps/web/.env.example apps/web/.env.local     # IRIS_API_URL=http://localhost:8080
 pnpm --filter @iris/web dev                       # http://localhost:3000
 pnpm --filter @iris/web lint | typecheck | test   # eslint, tsc, Vitest
+pnpm --filter @iris/web manual                    # regenera el manual desde docs/manual
 pnpm --filter @iris/web e2e                       # build + Playwright (escritorio/teléfono, claro/oscuro)
 IRIS_E2E_SIN_BUILD=1 pnpm --filter @iris/web e2e  # reutiliza el build
 IRIS_CAPTURAS=/ruta pnpm --filter @iris/web e2e capturas   # capturas para revisión visual

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.37.0](https://github.com/HCDestroyer/iris/compare/v0.36.0...v0.37.0) (2026-11-22)
+
+
+### Funcionalidades
+
+* **campo:** B18/B19 paso «Confirmar titular y plan» sin señal (servidor) ([#273](https://github.com/HCDestroyer/iris/issues/273)) ([3089c14](https://github.com/HCDestroyer/iris/commit/3089c14df37eeb8e8ebe44c3e83a5cf92f87b9bc))
+* **campo:** E4c fase 3, llamar desde la app de campo ([#258](https://github.com/HCDestroyer/iris/issues/258)) ([d40fe0f](https://github.com/HCDestroyer/iris/commit/d40fe0fabf985c0645319adfa56dc5e99a64f87c))
+* **comercial:** prospectos registrados desde Argos (B23) ([#266](https://github.com/HCDestroyer/iris/issues/266)) ([6c938ec](https://github.com/HCDestroyer/iris/commit/6c938ec992341b34369c15e8452e307a845551aa))
+* **integracion:** nombre del servicio de Argos y código en el asistente (B24) ([#267](https://github.com/HCDestroyer/iris/issues/267)) ([1db83a9](https://github.com/HCDestroyer/iris/commit/1db83a9da21db6e40a32bb3fa913f00b522cab17))
+* **mensajeria:** plantillas de WhatsApp, fase 1 servidor ([#255](https://github.com/HCDestroyer/iris/issues/255)) ([5623100](https://github.com/HCDestroyer/iris/commit/5623100280b25deb949f692a5d8295cd8a844276))
+* **web:** manual de Iris con ayuda por pantalla ([#275](https://github.com/HCDestroyer/iris/issues/275)) ([7a6a05f](https://github.com/HCDestroyer/iris/commit/7a6a05fbfa22ced8b9a8e1e2a969f3c839942d28))
+* **web:** panel de plantillas de WhatsApp (fase 2) ([#259](https://github.com/HCDestroyer/iris/issues/259)) ([d403391](https://github.com/HCDestroyer/iris/commit/d40339182f45d6ac36677b2c86efba7f07f07468))
+
 ## [0.36.0](https://github.com/HCDestroyer/iris/compare/v0.35.0...v0.36.0) (2026-11-21)
 
 

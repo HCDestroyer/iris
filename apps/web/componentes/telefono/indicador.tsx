@@ -1,11 +1,11 @@
 "use client";
 
-import { Aviso, Boton, cn, Dialogo, DialogoContenido, DialogoPie, PanelEmergente } from "@iris/ui";
+import { Aviso, Boton, cn, Dialogo, DialogoContenido, DialogoPie, PanelEmergente, Desplegable } from "@iris/ui";
 import { AppWindow, Grid3x3, KeyRound, Lock, Mic, MicOff, Phone, PhoneCall, PhoneOff, RotateCw, Unplug, Volume2, WifiOff } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { avisoError, puntoTelefono, textoMotivo } from "@/lib/telefono/presentacion";
-import type { ErrorTelefono } from "@/lib/telefono/tipos";
+import { avisoError, puntoTelefono, textoMotivo } from "@iris/telefono";
+import type { ErrorTelefono } from "@iris/telefono";
 import { sonarTimbre } from "@/lib/voz/timbre";
 import { useTelefono, type ContextoTelefono } from "./proveedor";
 
@@ -35,7 +35,7 @@ export function BotonTelefono() {
                 data-slot="boton-telefono"
                 data-estado={c.fase === "error" ? c.error.tipo : c.fase}
                 aria-label={`Teléfono: ${punto.texto}`}
-                className={cn("h-9 max-w-[9.5rem] gap-1.5 rounded-lg px-2.5", punto.tono === "danger" ? "text-error shadow-[0_0_0_1px_color-mix(in_oklab,var(--hx-error)_45%,transparent)]" : "text-warning shadow-[0_0_0_1px_color-mix(in_oklab,var(--hx-warning)_45%,transparent)]")}
+                className={cn("h-11 max-w-[9.5rem] gap-1.5 rounded-full bg-[var(--iris-tarjeta)] px-3.5 shadow-[var(--iris-sombra-flotante)]", punto.tono === "danger" ? "text-error shadow-[0_0_0_1px_color-mix(in_oklab,var(--hx-error)_45%,transparent)]" : "text-warning shadow-[0_0_0_1px_color-mix(in_oklab,var(--hx-warning)_45%,transparent)]")}
             >
                 <Icono />
                 <span className="truncate text-xs font-semibold">{punto.corto}</span>
@@ -47,10 +47,10 @@ export function BotonTelefono() {
                 data-slot="boton-telefono"
                 data-estado={c.fase}
                 aria-label={`Teléfono: ${punto.texto}`}
-                className="relative size-9 rounded-lg"
+                className="relative size-11 min-w-11 rounded-full border border-border bg-[var(--iris-tarjeta)] p-0 text-muted-foreground shadow-[var(--iris-sombra-flotante)] md:size-11 [&_svg]:size-[1.125rem]"
             >
                 <PhoneCall />
-                <span aria-hidden className={cn("absolute top-1.5 right-1.5 size-2 rounded-full ring-2 ring-card", punto.tono === "success" ? "bg-success" : "bg-[var(--hx-text-dim)]", c.fase === "conectando" && "motion-safe:animate-pulse")} />
+                <span aria-hidden className={cn("absolute top-1.5 right-1.5 size-2 rounded-full ring-2 ring-card", punto.tono === "success" ? "bg-success" : "bg-[var(--iris-texto-apagado)]", c.fase === "conectando" && "motion-safe:animate-pulse")} />
             </Boton>
         );
     return (
@@ -132,15 +132,14 @@ function EstadoTelefono({ t, alCerrar }: { t: ContextoTelefono; alCerrar: () => 
             ) : (
                 <p className="text-sm text-muted-foreground">{textoMotivo(c.motivo)}</p>
             )}
-            <details className="text-xs text-muted-foreground">
-                <summary className="cursor-pointer font-medium">¿Qué significa el punto del teléfono?</summary>
+            <Desplegable titulo="¿Qué significa el punto del teléfono?" className="text-xs text-muted-foreground" claseTitulo="text-xs font-medium">
                 <ul className="mt-2 grid gap-1.5">
                     <li className="flex items-center gap-2">
                         <span aria-hidden className="size-2 shrink-0 rounded-full bg-success" />
                         Verde: listo, tus llamadas suenan aquí
                     </li>
                     <li className="flex items-center gap-2">
-                        <span aria-hidden className="size-2 shrink-0 rounded-full bg-[var(--hx-text-dim)]" />
+                        <span aria-hidden className="size-2 shrink-0 rounded-full bg-[var(--iris-texto-apagado)]" />
                         Gris: apagado en este navegador
                     </li>
                     <li className="flex items-center gap-2">
@@ -148,7 +147,7 @@ function EstadoTelefono({ t, alCerrar }: { t: ContextoTelefono; alCerrar: () => 
                         Si hay un problema, el punto se vuelve un aviso con lo que tienes que hacer
                     </li>
                 </ul>
-            </details>
+            </Desplegable>
             {c.fase === "listo" || c.fase === "conectando" || (c.fase === "error" && c.error.tipo !== "pestana") ? (
                 <Boton
                     tamano="sm"

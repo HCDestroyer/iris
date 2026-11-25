@@ -14,7 +14,10 @@ type Prospecto struct {
 	ID                int64      `json:"id"`
 	Numero            string     `json:"numero" doc:"PR-000001"`
 	EmpresaID         *int64     `json:"empresaId" nullable:"true" doc:"Empresa en Argos (null sin conector)"`
-	Origen            string     `json:"origen" enum:"panel,web,referido,argos,otro"`
+	Origen            string     `json:"origen" enum:"panel,web,referido,argos,argos_panel,otro" doc:"argos_panel: lo registró una persona en el panel de Argos (contrato §3.6)"`
+	Modo              *string    `json:"modo" nullable:"true" enum:"residencial,empresarial" doc:"Solo los registrados desde Argos"`
+	ClienteExistente  *int64     `json:"clienteExistenteId" nullable:"true" doc:"Cliente de Argos que eligió quien lo registró en Argos: al ganar, Iris no lo crea ni lo edita"`
+	ClienteValidado   *bool      `json:"clienteValidado" nullable:"true" doc:"false: Argos no respondió al registrarlo (se confirma después)"`
 	OrigenDetalle     *string    `json:"origenDetalle" nullable:"true" doc:"Quién lo refirió, campaña…"`
 	Nombre            string     `json:"nombre"`
 	Documento         *string    `json:"documento" nullable:"true" doc:"NIT o DPI"`
@@ -42,7 +45,7 @@ type Prospecto struct {
 // Alta es el resultado de ganar.
 type Alta struct {
 	Modo            string  `json:"modo" enum:"local,argos" doc:"local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes"`
-	Estado          string  `json:"estado" enum:"esperando_cliente,esperando_servicio,completa"`
+	Estado          string  `json:"estado" enum:"esperando_cliente,esperando_servicio,esperando_activacion,completa" doc:"esperando_activacion: «ganado, alta pendiente»: el servicio existe en Argos y falta activarlo en la instalación"`
 	ClienteArgosID  *int64  `json:"clienteArgosId" nullable:"true"`
 	ServicioArgosID *int64  `json:"servicioArgosId" nullable:"true"`
 	OrdenID         *int64  `json:"ordenId" nullable:"true" doc:"Orden de instalación (al completarse el alta)"`
@@ -58,6 +61,7 @@ func aProspecto(f comercialbd.ComercialProspecto) Prospecto {
 		ZonaID: f.ZonaID, PlanInteresID: f.PlanInteresID, PlanInteresNombre: f.PlanInteresNombre, VendedorID: f.VendedorID,
 		Estado: f.Estado, Notas: f.Notas, MotivoPerdida: f.MotivoPerdida, PerdidoEn: f.PerdidoEn, GanadoEn: f.GanadoEn,
 		ObraConfirmada: f.ObraConfirmada, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt, Version: f.Version,
+		Modo: f.Modo, ClienteExistente: f.ClienteExistenteID, ClienteValidado: f.ClienteValidado,
 	}
 	if f.AltaModo != nil {
 		p.Alta = &Alta{Modo: *f.AltaModo, Estado: deref(f.AltaEstado), ClienteArgosID: f.ClienteArgosID,
@@ -70,11 +74,30 @@ func aProspecto(f comercialbd.ComercialProspecto) Prospecto {
 // vivo y las acciones hacia Argos (pendientes) del alta.
 type ProspectoDetalle struct {
 	Prospecto
-	Factibilidad *Factibilidad      `json:"factibilidad,omitempty" doc:"La última evaluación"`
-	Cotizacion   *Cotizacion        `json:"cotizacion,omitempty" doc:"La vigente o aceptada"`
-	Contrato     *Contrato          `json:"contrato,omitempty" doc:"El borrador o firmado"`
-	Pendientes   []PendienteArgos   `json:"pendientes" doc:"Acciones en Argos del alta (POST /clientes y POST /servicios)"`
-	Acciones     AccionesDisponible `json:"acciones" doc:"Qué acción del embudo corresponde ahora (para los botones del panel; el servidor valida igual)"`
+	Factibilidad *Factibilidad `json:"factibilidad,omitempty" doc:"La última evaluación"`
+	Cotizacion   *Cotizacion   `json:"cotizacion,omitempty" doc:"La vigente o aceptada"`
+	Contrato     *Contrato     `json:"contrato,omitempty" doc:"El borrador o firmado (con una revisión de la instalación por firmar, el firmado: sigue vivo hasta que se firma el regenerado)"`
+	// PorFirmarEnOrden: B20, la revisión de la instalación que espera la firma en la orden.
+	PorFirmarEnOrden *RevisionEnOrden    `json:"porFirmarEnOrden,omitempty" doc:"Cambio de plan o de titular aceptado por Argos en la instalación: la cotización nueva (vigente) y el contrato regenerado (borrador) que el titular firma en la orden. Hasta esa firma no se da por aceptado"`
+	Pendientes       []PendienteArgos    `json:"pendientes" doc:"Acciones en Argos del alta (POST /clientes y POST /servicios)"`
+	Telefonos        []TelefonoProspecto `json:"telefonos" doc:"Números del prospecto registrado desde Argos (vacío en los demás: usan telefono)"`
+	Acciones         AccionesDisponible  `json:"acciones" doc:"Qué acción del embudo corresponde ahora (para los botones del panel; el servidor valida igual)"`
+}
+
+// RevisionEnOrden: la revisión de la venta en la instalación por firmar (B20).
+type RevisionEnOrden struct {
+	OrdenID    int64      `json:"ordenId"`
+	Cotizacion Cotizacion `json:"cotizacion"`
+	Contrato   Contrato   `json:"contrato" doc:"El contrato regenerado en borrador, que el titular firma en la orden"`
+}
+
+// TelefonoProspecto es un número de un prospecto registrado desde Argos (§3.6).
+type TelefonoProspecto struct {
+	Numero    string  `json:"numero" doc:"E.164"`
+	Whatsapp  bool    `json:"whatsapp"`
+	Principal bool    `json:"principal"`
+	Nombre    *string `json:"nombre" nullable:"true" doc:"De quién es (al ganar, contacto del cliente)"`
+	Relacion  *string `json:"relacion" nullable:"true" enum:"titular,familiar,otro"`
 }
 
 // AccionesDisponible: guía para el panel.

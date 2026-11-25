@@ -976,7 +976,7 @@ func (k *corrida) servicios(crudo []json.RawMessage) (guardarFilas, error) {
 			}
 			v := AServicio(s, zona)
 			if err := guardarServicio(ctx, t, q, argosbd.GuardarServicioParams{
-				ID: v.ID, EmpresaID: v.EmpresaID, ClienteID: v.ClienteID, Codigo: v.Codigo,
+				ID: v.ID, EmpresaID: v.EmpresaID, ClienteID: v.ClienteID, Codigo: v.Codigo, Nombre: v.Nombre,
 				PlanID: v.PlanID, PlanNombre: v.PlanNombre, RouterID: v.RouterID, RouterNombre: v.RouterNombre,
 				ZonaID: v.ZonaID, ZonaNombre: v.ZonaNombre, Ip: v.IP, Direccion: v.Direccion, Lat: v.Lat, Lon: v.Lon,
 				Estado: v.Estado, SincronizadoEn: leidoEn, UserPpp: v.UserPPP, TipoConexion: v.TipoConexion,

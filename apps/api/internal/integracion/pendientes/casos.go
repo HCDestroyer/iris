@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -88,8 +89,15 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 	if p.Payload == nil {
 		p.Payload = map[string]any{}
 	}
-	ocultarSensible(p.Payload)
-	ocultarSensible(p.PayloadConflicto)
+	ocultos := camposOcultos
+	switch {
+	case f.Operacion == OpCambiarTitular:
+		ocultos = camposOcultosCambioTitular
+	case slices.Contains(OperacionesTitular, f.Operacion):
+		ocultos = camposOcultosTitular
+	}
+	ocultarCampos(p.Payload, ocultos)
+	ocultarCampos(p.PayloadConflicto, ocultos)
 	return p
 }
 
@@ -97,20 +105,47 @@ func aPendiente(f pendientesbd.IntegracionPendiente) Pendiente {
 // recepción; su sha256 sí, para cotejarla). Se manda a Argos tal cual: solo se oculta al leer.
 var camposOcultos = map[string]bool{"png_base64": true}
 
-// ocultarSensible reemplaza por *** los camposOcultos en cualquier nivel del cuerpo.
-func ocultarSensible(v any) {
+// camposOcultosTitular: en los pasos del titular (contrato 0.10.0 §3.4.8) el documento, el teléfono,
+// el correo y el NIT/CUI nunca van en el payload (viajan en el depósito de tránsito); si alguno
+// llegara, el panel lo ve como ***.
+var camposOcultosTitular = map[string]bool{"png_base64": true, "documento_numero": true, "telefono": true, "movil": true,
+	"email": true, "nit_cui": true, "frente": true, "reverso": true,
+	// El texto libre del motivo del cambio de plan (A40): solo va a Argos.
+	"motivo_texto": true}
+
+// camposOcultosCambioTitular: en A39 también el motivo (texto libre; va a Argos y queda en su
+// auditoría, B1). motivo_codigo sí se ve.
+var camposOcultosCambioTitular = func() map[string]bool {
+	m := map[string]bool{"motivo": true}
+	for k := range camposOcultosTitular {
+		m[k] = true
+	}
+	return m
+}()
+
+// ocultarCampos reemplaza por *** esos campos en cualquier nivel del cuerpo. Del representante de
+// una empresa titular (A39, contrato 0.14.1) todo sale como *** salvo documento_tipo.
+func ocultarCampos(v any, ocultos map[string]bool) {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, hijo := range x {
-			if camposOcultos[k] {
+			if ocultos[k] {
 				x[k] = "***"
 				continue
 			}
-			ocultarSensible(hijo)
+			if r, ok := hijo.(map[string]any); ok && k == "representante" {
+				for rk := range r {
+					if rk != "documento_tipo" {
+						r[rk] = "***"
+					}
+				}
+				continue
+			}
+			ocultarCampos(hijo, ocultos)
 		}
 	case []any:
 		for _, hijo := range x {
-			ocultarSensible(hijo)
+			ocultarCampos(hijo, ocultos)
 		}
 	}
 }
@@ -256,6 +291,10 @@ type EntradaResolverManual struct {
 	Motivo  string `json:"motivo" minLength:"5" maxLength:"1000" doc:"Qué se hizo en Argos (queda en la auditoría y en el pendiente)"`
 	// Cargo: obligatorio si un cargo único esperaba a este consumo por un producto del consumo.
 	Cargo string `json:"cargo,omitempty" required:"false" enum:"liberar,resolver_tambien" doc:"Solo al resolver un consumo con un cargo de un producto del consumo esperándolo (si no, 422 decision_cargo_requerida). liberar: el cargo sale hacia Argos (el consumo hecho en Argos no lo cobró). resolver_tambien: el cargo también queda resuelto_manual con el mismo motivo y no sale (Argos ya lo cobró al consumir un consumible_cobro)"`
+	// ClienteID: solo al resolver un cambio de titular (cambiar_titular): el cliente que quedó como
+	// titular en Argos. Sin él, el cobro y el consumo de la instalación nacen fallido_negocio
+	// (titular resuelto a mano: confirma el cliente).
+	ClienteID *int64 `json:"clienteId,omitempty" required:"false" minimum:"1" doc:"Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro va a su nombre)"`
 }
 
 // Decisiones sobre el cargo que esperaba al consumo resuelto a mano.
@@ -315,10 +354,29 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if in.Cargo != "" && in.Cargo != CargoLiberar && in.Cargo != CargoResolverTambien {
 				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "cargo", Message: "liberar o resolver_tambien", Rule: "enum"})
 			}
+			if orden, ok := ordenDePasoTitular(f); ok {
+				// Paso del titular (§3.4.8): solo un supervisor con ordenes.validar_identidad y alcance
+				// de su rol sobre la orden (global, su zona o su cuadrilla; nunca el técnico asignado).
+				permitido, err := supervisaOrden(ctx, q, orden)
+				if err != nil {
+					return Pendiente{}, err
+				}
+				if !permitido {
+					return Pendiente{}, nucleo.Prohibido("Un paso del titular lo resuelve a mano un supervisor con ordenes.validar_identidad sobre la orden")
+				}
+			}
+			if in.ClienteID != nil && f.Operacion != OpCambiarTitular {
+				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "clienteId", Message: "Solo al resolver un cambio de titular", Rule: "solo_titular"})
+			}
 			if f.Estado != EstadoFallidoNegocio {
 				return Pendiente{}, nucleo.ReglaNegocio("pendiente_no_resoluble",
 					"Solo se resuelve a mano lo que Argos rechazó (fallido_negocio); está "+f.Estado+
 						": lo agotado se reintenta y lo bloqueado espera a su dependencia")
+			}
+			if in.ClienteID != nil {
+				if err := m.clienteEsTitular(ctx, t, f, *in.ClienteID); err != nil {
+					return Pendiente{}, err
+				}
 			}
 			dependientes, err := q.DependientesAbiertos(ctx, f.ID)
 			if err != nil {
@@ -343,7 +401,7 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			}
 			ahora := m.ahora()
 			nueva, err := q.ResolverManual(ctx, pendientesbd.ResolverManualParams{
-				Motivo: motivo, ResueltoPor: usuario, Ahora: ahora, ID: f.ID, Version: in.Version,
+				Motivo: motivo, ResueltoPor: usuario, Ahora: ahora, ID: f.ID, Version: in.Version, ResueltoClienteID: in.ClienteID,
 			})
 			if errors.Is(err, pgx.ErrNoRows) {
 				return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)
@@ -359,6 +417,10 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			}); err != nil {
 				return Pendiente{}, err
 			}
+			// Lo sensible del paso del titular ya no sale: se borra (§3.4.8).
+			if err := borrarTransito(ctx, t, nueva, "resuelto_manual", ahora); err != nil {
+				return Pendiente{}, err
+			}
 			if in.Cargo == CargoResolverTambien {
 				for _, c := range cargos {
 					if err := m.resolverCargoTambien(ctx, t, q, c, motivo, usuario, ahora); err != nil {
@@ -366,8 +428,13 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 					}
 				}
 			}
+			// Un cambio de titular resuelto a mano: su consumo y su cobro esperan el cliente final.
+			tocados, err := titularAManoEnDependientes(ctx, t, f, dependientes, in.ClienteID, ahora)
+			if err != nil {
+				return Pendiente{}, err
+			}
 			for _, d := range dependientes {
-				if d.PorResolver {
+				if d.PorResolver && !tocados[d.ID] {
 					if err := m.fallarPorResolucionManual(ctx, t, q, d, f.ID); err != nil {
 						return Pendiente{}, err
 					}
@@ -437,6 +504,11 @@ func (m *Modulo) resolverCargoTambien(ctx context.Context, t *auditoria.Tx, q *p
 
 // fallarPorResolucionManual: el dependiente esperaba la respuesta del pendiente resuelto a mano.
 func (m *Modulo) fallarPorResolucionManual(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries,
+	d pendientesbd.IntegracionPendiente, padre int64) error {
+	return fallarDependienteResuelto(ctx, t, q, d, padre)
+}
+
+func fallarDependienteResuelto(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries,
 	d pendientesbd.IntegracionPendiente, padre int64) error {
 	motivo := fmt.Sprintf("%s: el pendiente %d se resolvió a mano y este esperaba su respuesta; resuélvelo también a mano o corrígelo con los datos reales",
 		MotivoDependenciaResueltaAMano, padre)
@@ -591,4 +663,26 @@ func (m *Modulo) bodegaDe(ctx context.Context, q *pendientesbd.Queries, f pendie
 		return 0, err
 	}
 	return *b, nil
+}
+
+// supervisaOrden: ordenes.validar_identidad con el alcance de su rol sobre la orden (como
+// campo.supervisaOrden): global, su zona o su cuadrilla, y nunca el técnico asignado.
+func supervisaOrden(ctx context.Context, q *pendientesbd.Queries, orden int64) (bool, error) {
+	a := contexto.ActorDe(ctx)
+	p := contexto.PermisosDe(ctx)
+	if !a.EsUsuario() || !p.Tiene(string(nucleo.PermOrdenesValidarIdentidad)) {
+		return false, nil
+	}
+	o, err := q.AlcanceDeOrden(ctx, orden)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if o.TecnicoID != nil && *o.TecnicoID == a.ID {
+		return false, nil
+	}
+	global, zonas, cuadrillas := p.Alcances(string(nucleo.PermOrdenesValidarIdentidad))
+	return global || (o.ZonaID != nil && slices.Contains(zonas, *o.ZonaID)) || (o.CuadrillaID != nil && slices.Contains(cuadrillas, *o.CuadrillaID)), nil
 }

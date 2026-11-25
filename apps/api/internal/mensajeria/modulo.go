@@ -190,15 +190,17 @@ type Modulo struct {
 	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
 	RegistrarConsentimiento *RegistrarConsentimiento
 	ListarPlantillas        *auditoria.Caso[EntradaPlantillas, ListaPlantillas]
-	CrearCanal              *CasoCanal[EntradaCrearCanal]
-	ActualizarCanal         *CasoCanal[EntradaActualizarCanal]
-	ActivarCanal            *auditoria.Caso[EntradaCambioCanal, Canal]
-	DesactivarCanal         *auditoria.Caso[EntradaCambioCanal, Canal]
-	ListarCanales           *auditoria.Caso[struct{}, ListaCanales]
-	VerCanal                *auditoria.Caso[EntradaVerCanal, Canal]
-	ProbarCanal             *ProbarCanal
-	RecibirMeta             *auditoria.Caso[EntradaMeta, MetaRecibido]
-	VerificarMeta           *auditoria.Caso[EntradaVerificarMeta, string]
+	// PlantillasArgos: lo que Argos lee de las plantillas de WhatsApp de una empresa (§6.7, B32).
+	PlantillasArgos *auditoria.Caso[EntradaPlantillasArgos, ListaPlantillasArgos]
+	CrearCanal      *CasoCanal[EntradaCrearCanal]
+	ActualizarCanal *CasoCanal[EntradaActualizarCanal]
+	ActivarCanal    *auditoria.Caso[EntradaCambioCanal, Canal]
+	DesactivarCanal *auditoria.Caso[EntradaCambioCanal, Canal]
+	ListarCanales   *auditoria.Caso[struct{}, ListaCanales]
+	VerCanal        *auditoria.Caso[EntradaVerCanal, Canal]
+	ProbarCanal     *ProbarCanal
+	RecibirMeta     *auditoria.Caso[EntradaMeta, MetaRecibido]
+	VerificarMeta   *auditoria.Caso[EntradaVerificarMeta, string]
 
 	// Chat interno del equipo.
 	Chat casosChat
@@ -391,6 +393,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
 	m.ListarPlantillas = nuevoListarPlantillas(m)
+	m.PlantillasArgos = m.nuevoPlantillasArgos()
 	m.CrearCanal = nuevoCasoCrearCanal(m)
 	m.ActualizarCanal = nuevoCasoActualizarCanal(m)
 	m.ActivarCanal = nuevoCambioCanal(m, "mensajeria.activar_canal", true)

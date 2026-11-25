@@ -57,13 +57,17 @@ type argosFalso struct {
 	altaAjena  bool // POST /clientes responde con otro codigo_externo
 	repetidas  int  // respuestas con Idempotent-Replayed
 	porID      map[string]map[string]any
+	// lecturaCaida: GET /clientes/{id} y GET /servicios responden 503.
+	lecturaCaida bool
+	actores      map[string]string // Idempotency-Key → X-Iris-Actor recibido
+	serviciosDe  map[string]string // cliente_id → servicios (JSON) de GET /servicios?cliente_id=
 }
 
 // Argos 1.2 (lo que respondió su equipo): huella del cuerpo crudo, repetición con el 2xx original
 // y Idempotent-Replayed, misma clave con otro cuerpo → 422 idempotency_key_reutilizada.
 func nuevoArgos(t *testing.T) *argosFalso {
 	a := &argosFalso{altas: map[string]int64{}, huellas: map[string]string{}, crudos: map[string][][]byte{},
-		porID: map[string]map[string]any{}, siguiente: 9000}
+		porID: map[string]map[string]any{}, siguiente: 9000, serviciosDe: map[string]string{}, actores: map[string]string{}}
 	json200 := func(w http.ResponseWriter, v string) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(v))
@@ -116,6 +120,7 @@ func nuevoArgos(t *testing.T) *argosFalso {
 				return
 			}
 			a.crudos[clave] = append(a.crudos[clave], crudo)
+			a.actores[clave] = r.Header.Get("X-Iris-Actor")
 			if previa, ok := a.huellas[clave]; ok {
 				if previa != huella {
 					problema(w, http.StatusUnprocessableEntity, "idempotency_key_reutilizada")
@@ -158,10 +163,19 @@ func nuevoArgos(t *testing.T) *argosFalso {
 		}
 	}
 	mux.HandleFunc("POST /api/v1/clientes", alta([]string{"nombre"}, []string{"empresa_id", "origen_tipo", "origen_id"}))
+	mux.HandleFunc("POST /api/v1/clientes/{id}/contactos", alta([]string{"nombre", "relacion", "telefonos", "permisos"}, []string{"es_titular", "cliente_id"}))
 	mux.HandleFunc("POST /api/v1/servicios", alta([]string{"cliente_id", "router_id", "plan_id", "empresa_id"}, []string{"origen_tipo", "origen_id"}))
 	leer := func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
+		if a.lecturaCaida {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if r.PathValue("id") == "8803" {
+			problema(w, http.StatusForbidden, "prohibido")
+			return
+		}
 		c, ok := a.porID[r.PathValue("id")]
 		if !ok {
 			http.NotFound(w, r)
@@ -178,6 +192,16 @@ func nuevoArgos(t *testing.T) *argosFalso {
 		json200(w, string(b))
 	}
 	mux.HandleFunc("GET /api/v1/clientes/{id}", leer)
+	// Servicios de un cliente de Argos (para validar su empresa): los fijados en serviciosDe.
+	mux.HandleFunc("GET /api/v1/servicios", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		if a.lecturaCaida {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		json200(w, `{"data":[`+a.serviciosDe[r.URL.Query().Get("cliente_id")]+`],"nextCursor":null}`)
+	})
 	mux.HandleFunc("GET /api/v1/servicios/{id}", leer)
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
@@ -719,10 +743,12 @@ func TestEmbudoConArgos(t *testing.T) {
 		t.Fatalf("envíos de POST /clientes: %q", env)
 	}
 	d = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p.ID}))(t)
-	if d.Alta.Estado != comercial.AltaCompleta || d.Alta.ClienteArgosID == nil || d.Alta.ServicioArgosID == nil ||
+	// B17: «ganado, alta pendiente» hasta que la activación de la orden llegue a Argos.
+	if d.Alta.Estado != comercial.AltaEsperandoActivacion || d.Alta.ClienteArgosID == nil || d.Alta.ServicioArgosID == nil ||
 		d.Alta.OrdenID == nil || d.Alta.OrdenNumero == nil || len(d.Pendientes) != 2 {
-		t.Fatalf("alta completa: %+v %+v", d.Alta, d.Pendientes)
+		t.Fatalf("alta esperando activación: %+v %+v", d.Alta, d.Pendientes)
 	}
+	ventaEnLaInstalacion(t, e, ctx, p.ID, d)
 	srv := e.falso.cuerpo(comercial.ClaveServicio(p.ID))
 	esperadoSrv := map[string]any{"cliente_id": float64(*d.Alta.ClienteArgosID), "router_id": float64(51), "plan_id": float64(300),
 		"empresa_id": float64(1), "estado_inicial": "pendiente_instalacion", "direccion": "Calzada 5-10", "coordenadas": fmt.Sprintf("%v,-90.5", cerca)}
@@ -803,7 +829,7 @@ func TestEmbudoConArgos(t *testing.T) {
 	e.relay()
 	e.procesar()
 	d5 = deber(e.com.VerProspecto.Ejecutar(ctx, comercial.EntradaVerProspecto{ID: p5.ID}))(t)
-	if d5.Alta.Estado != comercial.AltaCompleta || d5.Alta.Error != nil || d5.Alta.OrdenID == nil {
+	if d5.Alta.Estado != comercial.AltaEsperandoActivacion || d5.Alta.Error != nil || d5.Alta.OrdenID == nil {
 		t.Fatalf("alta vieja por el respaldo: %+v", d5.Alta)
 	}
 	if env := e.falso.envios(comercial.ClaveCliente(p5.ID)); len(env) != 2 {

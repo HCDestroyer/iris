@@ -1,10 +1,11 @@
 /*
- * Tema Horus para HeroUI v3. Cada variable de HeroUI apunta a un token `--hx-*` de
- * horus-tokens.css (la única fuente de color): aquí no hay ningún color nuevo.
+ * Tema de Iris para HeroUI v3 (rediseño, nov. 2026). Cada variable de HeroUI apunta a un token
+ * `--iris-*` de iris-tokens.css (la única fuente de color) o a su alias `--hx-*`: aquí no hay
+ * ningún color nuevo.
  *
  * Va sin capa (`@layer`) a propósito: el tema por defecto de HeroUI vive en `@layer base`, así que
- * estas reglas ganan siempre. Los tokens `--hx-*` ya cambian con `.dark` / `[data-theme]`, por eso
- * basta con un bloque: las variables se recalculan en cada elemento que cambia de tema.
+ * estas reglas ganan siempre. Los tokens ya cambian con `.dark` / `[data-theme]`, por eso basta con
+ * un bloque: las variables se recalculan en cada elemento que cambia de tema.
  */
 :root,
 :host,
@@ -12,18 +13,18 @@
 .dark,
 [data-theme="light"],
 [data-theme="dark"] {
-    /* Marca: un solo color (teal). HeroUI lo llama `accent`. */
-    --accent: var(--hx-primary);
-    --accent-foreground: var(--hx-on-primary);
-    --accent-hover: var(--hx-primary-hover);
-    --accent-soft: color-mix(in oklab, var(--hx-primary) 10%, transparent);
-    --accent-soft-hover: color-mix(in oklab, var(--hx-primary) 16%, transparent);
-    --accent-soft-foreground: var(--hx-primary);
-    --focus: var(--hx-primary);
-    --link: var(--hx-primary);
+    /* Marca: índigo (HeroUI lo llama `accent`); el cian solo va en el degradado. */
+    --accent: var(--iris-primario);
+    --accent-foreground: var(--iris-sobre-primario);
+    --accent-hover: var(--iris-primario-hover);
+    --accent-soft: var(--iris-primario-suave);
+    --accent-soft-hover: color-mix(in oklab, var(--iris-primario) 20%, transparent);
+    --accent-soft-foreground: var(--iris-primario-texto);
+    --focus: var(--iris-primario);
+    --link: var(--iris-primario);
 
-    /* Lienzo, texto y neutros (zinc). */
-    --background: var(--hx-bg);
+    /* Lienzo, texto y neutros (slate). */
+    --background: var(--iris-fondo);
     --foreground: var(--hx-text);
     --background-secondary: var(--hx-bg-muted);
     --background-tertiary: var(--hx-bg-elevated);
@@ -34,7 +35,7 @@
     --default-soft: var(--hx-bg-elevated);
     --default-soft-hover: color-mix(in oklab, var(--hx-bg-elevated) 88%, var(--hx-text) 6%);
     --default-soft-foreground: var(--hx-text);
-    --segment: var(--hx-bg);
+    --segment: var(--iris-tarjeta);
     --segment-foreground: var(--hx-text);
     --border: var(--hx-border);
     --separator: var(--hx-border);
@@ -43,66 +44,65 @@
     --separator-secondary: var(--hx-border);
     --separator-tertiary: var(--hx-border);
 
-    /* Tarjetas casi sólidas (contenido). */
-    --surface: var(--hx-card);
+    /* Tarjetas sólidas (contenido): radio 12 px y sombra suave. */
+    --surface: var(--iris-tarjeta);
     --surface-foreground: var(--hx-text);
     --surface-hover: var(--hx-bg-muted);
     --surface-secondary: var(--hx-bg-muted);
     --surface-secondary-foreground: var(--hx-text);
     --surface-tertiary: var(--hx-bg-elevated);
     --surface-tertiary-foreground: var(--hx-text);
-    --surface-shadow: 0 0 0 1px var(--hx-border), inset 0 1px 0 var(--hx-glass-edge);
+    --surface-shadow: 0 0 0 1px var(--iris-borde), var(--iris-sombra-tarjeta);
 
     /*
      * Capa flotante (modales, hojas, popovers, menús, listas, globos y avisos emergentes): color
      * SÓLIDO de superficie, con borde y sombra. Nada de vidrio translúcido en lo flotante: sobre un
-     * contenido cargado (o donde el desenfoque no se aplica) se confundiría con lo de atrás. En claro
-     * es la tarjeta (`--hx-card`, blanca y opaca); en oscuro, la superficie elevada de Horus
-     * (`--hx-bg-elevated`, opaca y más clara que el lienzo y las tarjetas). Ver el bloque oscuro abajo.
+     * contenido cargado (o donde el desenfoque no se aplica) se confundiría con lo de atrás. Es
+     * `--iris-flotante`: blanco en claro y azul noche más claro que el lienzo y las tarjetas en oscuro.
      */
-    --overlay: var(--hx-card);
-    --overlay-foreground: var(--hx-text);
-    --overlay-hover: var(--hx-bg-elevated);
-    --overlay-shadow: 0 0 0 1px var(--hx-border), 0 16px 40px rgb(0 0 0 / 0.16);
+    --overlay: var(--iris-flotante);
+    --overlay-foreground: var(--iris-texto);
+    --overlay-hover: var(--iris-relleno);
+    --overlay-shadow: 0 0 0 1px var(--iris-borde), var(--iris-sombra-flotante);
     /* Telón de toda capa modal (modal, hoja y confirmación): oscurece lo de atrás. */
-    --backdrop: rgb(0 0 0 / 0.45);
+    --backdrop: var(--iris-telon);
 
-    /* Estados: verde, ámbar y rojo de Horus (tonos que pasan 4,5:1 en cada tema). El texto sobre
-       el relleno es el fondo del tema: blanco en claro, azul noche en oscuro. */
+    /* Estados: verde, ámbar y rojo (tonos que pasan 4,5:1 en cada tema). El texto sobre el relleno
+       es la tarjeta del tema: blanco en claro, azul noche en oscuro. */
     --success: var(--hx-success);
     --success-foreground: var(--hx-bg);
     --success-hover: color-mix(in oklab, var(--hx-success) 88%, var(--hx-text) 12%);
-    --success-soft: color-mix(in oklab, var(--hx-success) 10%, transparent);
+    --success-soft: var(--iris-exito-fondo);
     --success-soft-hover: color-mix(in oklab, var(--hx-success) 16%, transparent);
     --success-soft-foreground: var(--hx-success);
     --warning: var(--hx-warning);
     --warning-foreground: var(--hx-bg);
     --warning-hover: color-mix(in oklab, var(--hx-warning) 88%, var(--hx-text) 12%);
-    --warning-soft: color-mix(in oklab, var(--hx-warning) 10%, transparent);
+    --warning-soft: var(--iris-atencion-fondo);
     --warning-soft-hover: color-mix(in oklab, var(--hx-warning) 16%, transparent);
     --warning-soft-foreground: var(--hx-warning);
     --danger: var(--hx-error);
     --danger-foreground: var(--hx-bg);
     --danger-hover: color-mix(in oklab, var(--hx-error) 88%, var(--hx-text) 12%);
-    --danger-soft: color-mix(in oklab, var(--hx-error) 10%, transparent);
+    --danger-soft: var(--iris-peligro-fondo);
     --danger-soft-hover: color-mix(in oklab, var(--hx-error) 16%, transparent);
     --danger-soft-foreground: var(--hx-error);
 
-    /* Campos de formulario: borde visible de 1 px y radio de Horus (6 px). */
-    --field-background: var(--hx-bg);
+    /* Campos de formulario: sobre la tarjeta, borde de 1 px y radio de 10 px. */
+    --field-background: var(--iris-tarjeta);
     --field-foreground: var(--hx-text);
     --field-placeholder: var(--hx-text-dimmed);
     --field-border: var(--hx-border);
     --field-border-width: 1px;
-    --field-radius: var(--hx-radius);
-    --field-hover: var(--hx-bg);
-    --field-focus: var(--hx-bg);
+    --field-radius: var(--iris-radio-control);
+    --field-hover: var(--iris-tarjeta);
+    --field-focus: var(--iris-tarjeta);
     --field-border-hover: color-mix(in oklab, var(--hx-border) 70%, var(--hx-text) 30%);
-    --field-border-focus: var(--hx-primary);
+    --field-border-focus: var(--iris-primario);
     --field-shadow: 0 0 0 0 transparent;
 
     /* Forma y movimiento. */
-    --radius: var(--hx-radius);
+    --radius: var(--iris-radio-control);
     --ring-offset-width: 2px;
     --disabled-opacity: 0.55;
     --skeleton-animation: pulse;
@@ -110,13 +110,10 @@
     --tooltip-close-delay: 200ms;
 }
 
-/* Oscuro: la capa flotante es la superficie elevada (opaca); el telón oscurece más. */
+/* Oscuro: lo flotante se separa del lienzo con un tono más claro; el relleno al pasar, más aún. */
 .dark,
 [data-theme="dark"] {
-    --overlay: var(--hx-bg-elevated);
-    --overlay-hover: color-mix(in oklab, var(--hx-bg-elevated) 86%, var(--hx-text) 14%);
-    --overlay-shadow: 0 0 0 1px var(--hx-border), 0 18px 48px rgb(0 0 0 / 0.55);
-    --backdrop: rgb(0 0 0 / 0.62);
+    --overlay-hover: color-mix(in oklab, var(--iris-flotante) 86%, var(--iris-texto) 14%);
 }
 
 /*
@@ -149,8 +146,6 @@
         backdrop-filter: none;
     }
 
-    .modal__dialog,
-    .alert-dialog__dialog,
     .popover,
     .dropdown__popover,
     .select__popover,
@@ -159,7 +154,16 @@
     .date-picker__popover,
     .date-range-picker__popover,
     .toast {
-        border-radius: var(--hx-radius-card);
+        border-radius: var(--iris-radio-tarjeta);
+    }
+
+    /* Modales y confirmaciones: radio de 16 px y la sombra marcada de lo modal. */
+    .modal__dialog,
+    .alert-dialog__dialog {
+        border-radius: var(--iris-radio-modal);
+        box-shadow:
+            0 0 0 1px var(--iris-borde),
+            var(--iris-sombra-modal);
     }
 
     /*
@@ -220,18 +224,17 @@
     }
 }
 
-/* Botones de HeroUI con el radio de Horus (no píldora); el primario lleva el halo (solo oscuro). */
-.button {
-    border-radius: var(--hx-radius);
-}
-
+/*
+ * Botones de HeroUI en píldora (rediseño): el `rounded-3xl` de HeroUI, y `Boton` pone
+ * `rounded-full` como utilidad (quien necesita otra forma pasa su `rounded-*`). Sin halo.
+ */
 .button--primary {
-    box-shadow: 0 0 18px var(--hx-glow-brand);
+    box-shadow: none;
 }
 
 /*
- * Foco de Horus en los botones: el contorno global de horus-tokens (2 px de marca, separación de
- * 2 px) en lugar del anillo de HeroUI, para no pintar los dos.
+ * Foco en los botones: el contorno global (2 px del color principal, separación de 2 px) en lugar
+ * del anillo de HeroUI, para no pintar los dos.
  */
 .button:focus-visible,
 .button[data-focus-visible="true"] {
@@ -242,14 +245,15 @@
 }
 
 /*
- * Campos: un solo indicador de foco, el contorno de Horus sobre el borde (como antes), sin el
- * anillo de HeroUI encima. Los inválidos conservan su borde de error.
+ * Campos: un solo indicador de foco, el del diseño (borde índigo y un halo de 3 px al 22 %), sin el
+ * anillo de HeroUI encima. Es el «único campo destacado»: el que tiene el foco. Los inválidos
+ * conservan su borde de error.
  */
 .input:focus-visible,
 .input[data-focus-visible="true"],
 .textarea:focus-visible,
 .textarea[data-focus-visible="true"] {
-    outline: 2px solid var(--hx-primary);
+    outline: 2px solid var(--iris-primario);
     outline-offset: 0;
     --tw-ring-shadow: 0 0 transparent;
     --tw-ring-offset-shadow: 0 0 transparent;

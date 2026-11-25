@@ -25,7 +25,7 @@ var origenes = []string{"panel", "web", "referido", "argos", "otro"}
 type EntradaListarProspectos struct {
 	nucleo.ParamsPagina
 	Estado         string `query:"estado" maxLength:"200" doc:"Uno o varios separados por coma: nuevo, contactado, factibilidad, cotizado, contrato, ganado, perdido"`
-	Origen         string `query:"origen" enum:"panel,web,referido,argos,otro,"`
+	Origen         string `query:"origen" enum:"panel,web,referido,argos,argos_panel,otro,"`
 	VendedorID     int64  `query:"vendedorId" minimum:"0"`
 	SinVendedor    bool   `query:"sinVendedor"`
 	ZonaID         int64  `query:"zonaId" minimum:"0"`
@@ -535,7 +535,15 @@ func (m *Modulo) nuevoVerProspecto() *auditoria.Caso[EntradaVerProspecto, Prospe
 
 // detalle arma el prospecto con su embudo.
 func (m *Modulo) detalle(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, f comercialbd.ComercialProspecto) (ProspectoDetalle, error) {
-	d := ProspectoDetalle{Prospecto: aProspecto(f), Pendientes: []PendienteArgos{}}
+	d := ProspectoDetalle{Prospecto: aProspecto(f), Pendientes: []PendienteArgos{}, Telefonos: []TelefonoProspecto{}}
+	tels, err := q.TelefonosDeProspecto(ctx, f.ID)
+	if err != nil {
+		return d, err
+	}
+	for _, tel := range tels {
+		d.Telefonos = append(d.Telefonos, TelefonoProspecto{Numero: tel.Numero, Whatsapp: tel.Whatsapp, Principal: tel.Principal,
+			Nombre: tel.Nombre, Relacion: tel.Relacion})
+	}
 	if fa, err := q.UltimaFactibilidad(ctx, f.ID); err == nil {
 		v := aFactibilidad(fa)
 		d.Factibilidad = &v
@@ -558,6 +566,26 @@ func (m *Modulo) detalle(ctx context.Context, t *auditoria.Tx, q *comercialbd.Qu
 		}
 		d.Contrato = &v
 	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return d, err
+	}
+	// Solo mientras el contrato regenerado espera la firma (anulado con la orden cancelada o
+	// fallida, la revisión queda sin aceptar y no se muestra como por firmar).
+	if c, err := q.RevisionPorFirmar(ctx, f.ID); err == nil && f.OrdenID != nil {
+		ct, err := q.ContratoPorFirmarEnOrden(ctx, f.ID)
+		if err == nil {
+			v, err := m.aCotizacion(ctx, q, c)
+			if err != nil {
+				return d, err
+			}
+			vc, err := aContrato(ctx, q, ct)
+			if err != nil {
+				return d, err
+			}
+			d.PorFirmarEnOrden = &RevisionEnOrden{OrdenID: *f.OrdenID, Cotizacion: v, Contrato: vc}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return d, err
+		}
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return d, err
 	}
 	ps, err := pendientes.DeEntidad(ctx, t, EntidadPendientes, idTexto(f.ID))

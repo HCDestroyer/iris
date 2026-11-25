@@ -1,19 +1,23 @@
 "use client";
 
 import { buscarOrdenes, CHIPS_DIA, chipDe, ESPERA_BUSQUEDA_MS, citasDelDia, esVistaDeDia, fechaEncabezado, mananaEnGuatemala, nombreCliente, primerNombre, resumenHoy, type ChipDia } from "@iris/sync/campo";
-import { Boton, Campo, GrupoSegmentado, cn } from "@iris/ui";
-import { ChevronRight, Search } from "lucide-react";
+import { Boton, BotonManual, Campo, GrupoSegmentado, cn } from "@iris/ui";
+import { ChevronRight, MessageCircle, Search } from "lucide-react";
 import { forwardRef, useMemo, useState } from "react";
+import { fechaEncabezadoCorta } from "@/lib/campo/fechas";
 import { TIPOS_ORDEN } from "@/lib/campo/textos";
+import { claveManualCampo } from "@/lib/manual/campo";
+import { useChatOpcional } from "./chat-datos";
 import { useAgenda } from "./agenda-datos";
 import { IndicadoresEstado } from "./estado";
 import { useCampo } from "./contexto";
 import { HojaCampo } from "./hoja";
 import { useDemorado } from "./teclado";
 import { InsigniaOrden } from "./insignias";
+import { IndicadorTelefono } from "./telefono";
 
-/** Botón redondo de 48 px del encabezado (buscar, cuenta). */
-const REDONDO = "size-12 shrink-0 rounded-full p-0 md:size-12";
+/** Botón redondo de 44 px del encabezado (manual, chat, buscar). */
+const REDONDO = "size-11 shrink-0 rounded-full p-0 md:size-11";
 
 /**
  * Encabezado de la app de campo (opción elegida por el PM, nov 2026). No queda fijo: se va con el
@@ -27,14 +31,16 @@ export const EncabezadoCampo = forwardRef<HTMLElement, { empresa?: string | unde
     const { sesion, vista } = useCampo();
     const deDia = esVistaDeDia(vista);
     return (
-        <header ref={ref} data-slot="encabezado-campo" className="grid gap-3 px-[1.125rem] pt-[calc(env(safe-area-inset-top)+1rem)] pb-1">
-            <div className="flex items-start justify-between gap-3">
-                <div className="grid min-w-0 gap-1.5">
-                    <p className="truncate text-[0.8125rem] font-medium text-muted-foreground">{fechaEncabezado()}</p>
-                    {deDia ? <h1 className="text-[2rem] leading-[1.05] font-bold tracking-[-0.03em]">Hola, {primerNombre(sesion.nombre)}</h1> : null}
-                </div>
+        <header ref={ref} data-slot="encabezado-campo" className="grid grid-cols-[minmax(0,1fr)] gap-3 px-[1.125rem] pt-[calc(env(safe-area-inset-top)+1rem)] pb-1">
+            <div className="flex items-center justify-between gap-2">
+                {/* En el teléfono (menos de 640 px), siempre «Sáb 21 nov»: cabe con cualquier fuente. La larga, en pantallas anchas. */}
+                <p data-slot="fecha-encabezado" className="min-w-0 truncate text-[0.8125rem] font-medium text-[var(--iris-texto-apagado)]">
+                    <span className="sm:hidden">{fechaEncabezadoCorta()}</span>
+                    <span className="hidden sm:inline">{fechaEncabezado()}</span>
+                </p>
                 <BotonesCuenta pedirEmpresa={pedirEmpresa} />
             </div>
+            {deDia ? <h1 className="-mt-1 text-[1.625rem] leading-[1.1] font-bold tracking-[-0.02em]">Hola, {primerNombre(sesion.nombre)}</h1> : null}
             {deDia ? <ChipsDia /> : null}
         </header>
     );
@@ -42,9 +48,30 @@ export const EncabezadoCampo = forwardRef<HTMLElement, { empresa?: string | unde
 
 function BotonesCuenta({ pedirEmpresa, compacta = false }: { pedirEmpresa: () => void; compacta?: boolean }) {
     const [buscando, setBuscando] = useState(false);
+    const { vista, navegar } = useCampo();
+    const chat = useChatOpcional();
+    const noLeidos = chat?.estado.noLeidos ?? 0;
+    const enChat = vista.tipo === "chat" || vista.tipo === "chat_nuevo" || vista.tipo === "conversacion";
     return (
         <div className="flex shrink-0 items-center gap-1.5">
             <IndicadoresEstado pedirEmpresa={pedirEmpresa} compacta={compacta} />
+            {compacta ? null : <IndicadorTelefono />}
+            {/* El «?» del manual de esta vista: dentro de /campo, para que abra sin señal. */}
+            <BotonManual clave={claveManualCampo(vista)} base="/campo/manual" tamano="md" className={cn(REDONDO, "border border-border bg-[var(--campo-panel)] shadow-[var(--campo-sombra)]")} />
+            {chat ? (
+                <Boton
+                    variante="secundario"
+                    aria-label={noLeidos > 0 ? `Chat (${noLeidos} sin leer)` : "Chat"}
+                    title="Chat del equipo"
+                    aria-current={enChat ? "page" : undefined}
+                    data-slot="boton-chat"
+                    className={cn(REDONDO, "relative bg-[var(--campo-panel)] [&_svg]:size-5", enChat && "bg-[var(--campo-tinta)] text-[var(--campo-sobre-tinta)]")}
+                    onClick={() => navegar({ tipo: "chat" })}
+                >
+                    <MessageCircle aria-hidden />
+                    {noLeidos > 0 && !enChat ? <span aria-hidden data-slot="punto-no-leidos" className="absolute top-2 right-2 size-2.5 rounded-full bg-primary ring-2 ring-[var(--campo-panel)]" /> : null}
+                </Boton>
+            ) : null}
             <Boton variante="secundario" aria-label="Buscar orden" title="Buscar orden" className={cn(REDONDO, "bg-[var(--campo-panel)] [&_svg]:size-5")} onClick={() => setBuscando(true)}>
                 <Search aria-hidden />
             </Boton>
@@ -98,7 +125,7 @@ export function BarraCompacta({ visible, pedirEmpresa }: { visible: boolean; ped
             className={cn(
                 // Sólida siempre (el panel del tema) y solo se desliza: nunca queda a medio
                 // transparentar sobre el contenido. Oculta, sube entera (con su sombra) fuera de vista.
-                "campo-desliza fixed inset-x-0 top-0 z-30 mx-auto w-full max-w-2xl border-b border-border bg-[var(--campo-panel)] px-[1.125rem] pt-[env(safe-area-inset-top)] shadow-[var(--campo-sombra)]",
+                "campo-desliza fixed inset-x-0 top-0 z-30 mx-auto w-full max-w-[30rem] border-b border-border bg-[var(--campo-panel)] px-[1.125rem] pt-[env(safe-area-inset-top)] shadow-[var(--campo-sombra)]",
                 visible ? "translate-y-0" : "pointer-events-none -translate-y-[calc(100%+2.5rem)]",
             )}
         >

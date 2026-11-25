@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -39,6 +40,11 @@ type Accion struct {
 	Verificar []string
 	// TecnicoUsuarioID: el técnico cuyo vínculo con Argos va en el cuerpo (contrato 0.5.0 §3.3).
 	TecnicoUsuarioID *int64
+	// Actor: X-Iris-Actor de la llamada (usuario:<id>, contrato §3.4, §3.5 y §7.1); vacío = sin cabecera.
+	Actor string
+	// TransitoID: el depósito de tránsito con lo sensible de la llamada (documento, contacto, fotos;
+	// §3.4.8). El cuerpo nunca lo lleva: se agrega al enviar (GuardarTransito).
+	TransitoID *uuid.UUID
 	// Esperando: el cuerpo aún no está completo (p. ej. esperando_firma: falta que suba la firma).
 	// El pendiente nace bloqueado con ese motivo y no sale hacia Argos hasta CompletarEsperando.
 	Esperando string
@@ -62,6 +68,10 @@ type Registro struct {
 	DependeDe []int64
 	// UltimoError: resumen del último fallo (p. ej. respuesta_inconsistente: …).
 	UltimoError *string
+	// ResueltoComo: con resuelto_manual, cómo (manual, reemplazado, orden_cancelada…).
+	ResueltoComo *string
+	// ResueltoClienteID: el cliente final que indicó quien lo resolvió a mano (cambio de titular).
+	ResueltoClienteID *int64
 	// CodigoError: type del último error de Argos (o el código local, p. ej. firma_invalida).
 	CodigoError      *string
 	EmpresaID        *int64
@@ -78,7 +88,8 @@ func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 		Payload: json.RawMessage(f.Payload), PorResolver: f.PorResolver, Respuesta: json.RawMessage(f.Respuesta),
 		HechoEn: f.HechoEn, DependeDe: f.DependeDe, UltimoError: f.UltimoError,
 		CodigoError: f.CodigoError, EmpresaID: f.EmpresaID, EntidadID: f.EntidadID, TecnicoUsuarioID: f.TecnicoUsuarioID,
-		ActualizadoEn: f.UpdatedAt, Version: f.Version,
+		ActualizadoEn: f.UpdatedAt, Version: f.Version, ResueltoComo: f.ResueltoComo,
+		ResueltoClienteID: f.ResueltoClienteID,
 	}
 }
 
@@ -156,6 +167,7 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 		Entidad: n.Entidad, EntidadID: n.EntidadID, Metodo: n.Metodo, Ruta: n.Ruta, Payload: n.Cuerpo,
 		DependeDe: n.DependeDe, Estado: estado, UltimoError: ultimo, ProximoIntento: proximo,
 		Plantilla: plantilla, PorResolver: porResolver, Verificar: n.Verificar, TecnicoUsuarioID: n.TecnicoUsuarioID,
+		Actor: actorONil(n.Actor), TransitoID: uuidPG(n.TransitoID),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		f, err = q.PendientePorClave(ctx, n.IdempotencyKey)
@@ -399,4 +411,14 @@ func RehacerEsperando(ctx context.Context, t *auditoria.Tx, id int64, motivo str
 	t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": antes.Estado, "tecnico_usuario_id": antes.TecnicoUsuarioID},
 		map[string]any{"estado": f.Estado, "esperando": motivo, "tecnico_usuario_id": f.TecnicoUsuarioID})
 	return aRegistro(f), true, t.Emitir(EventoCorregido, eventoDe(f))
+}
+
+// CabeceraActorIris: la persona de Iris que actúa (contrato §7.1).
+const CabeceraActorIris = "X-Iris-Actor"
+
+func actorONil(a string) *string {
+	if a == "" {
+		return nil
+	}
+	return &a
 }

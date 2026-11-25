@@ -95,6 +95,14 @@ type resultadoIntento struct {
 // intentar hace la llamada a Argos y clasifica el resultado.
 func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendiente) resultadoIntento {
 	r := resultadoIntento{ID: f.ID}
+	// Un paso del titular de una orden ya cancelada o fallida no sale (lo detiene el resolver).
+	if como, err := ordenTerminada(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f); err != nil {
+		r.Error = "no se pudo leer la orden: " + err.Error()
+		return r
+	} else if como != "" {
+		r.Error = "la orden se canceló o falló: el paso del titular no sale"
+		return r
+	}
 	if m.cfg.Argos == nil {
 		r.Error = "conector Argos no configurado en el worker"
 		return r
@@ -113,7 +121,41 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		// Sin servicio, Argos toma la bodega del técnico en la empresa de X-Empresa-Id (0.5.0 §3.3).
 		cli = cli.ConCabecera(argos.CabeceraEmpresaArgos, strconv.FormatInt(*f.EmpresaID, 10))
 	}
-	err = cli.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, &crudo)
+	if f.Actor != nil {
+		// La persona que actúa (contrato §3.4, §3.5 y §7.1): Argos audita con ella.
+		cli = cli.ConCabecera(CabeceraActorIris, *f.Actor)
+	}
+	var partes []conector.Parte
+	if f.TransitoID.Valid {
+		d, err := m.leerTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f)
+		if errors.Is(err, errVencido) {
+			// Se borró a los 7 días (o al resolverse): no se manda nada; hay que tomarlo otra vez.
+			r.Negocio, r.Codigo, r.Error = true, CodigoFotoVencida, "los datos del titular se borraron (7 días): hay que tomarlos otra vez"
+			return r
+		}
+		if err != nil {
+			r.Error = err.Error()
+			return r
+		}
+		if esMultipart(f.Operacion) {
+			if partes, err = partesMultipart(f.Operacion, f.Payload, d); err != nil {
+				r.Error = "no se pudo armar el multipart: " + err.Error()
+				return r
+			}
+		} else {
+			mezcla, err := cuerpoConTransito(f.Payload, d)
+			if err != nil {
+				r.Error = "no se pudo armar el cuerpo: " + err.Error()
+				return r
+			}
+			cuerpo = mezcla
+		}
+	}
+	if partes != nil {
+		err = cli.EscribirPartes(ctx, f.Ruta, partes, f.IdempotencyKey, &crudo)
+	} else {
+		err = cli.Escribir(ctx, f.Metodo, f.Ruta, cuerpo, f.IdempotencyKey, &crudo)
+	}
 	if err == nil {
 		r.Exito, r.respuesta = true, limpiarRespuesta(crudo)
 		if len(crudo) > 0 && r.respuesta == nil {
@@ -363,6 +405,15 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 		Accion: "integraciones.procesar_pendiente", Acceso: auditoria.Autenticado,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in resultadoIntento) (Pendiente, error) {
 			q := pendientesbd.New(t)
+			// Paso del titular: la orden (FOR SHARE) antes que el pendiente, en el mismo orden que campo
+			// (orden → pendiente): sin interbloqueo con cerrar o cancelar la orden.
+			if previo, err := q.PendientePorID(ctx, in.ID); err != nil {
+				return Pendiente{}, err
+			} else if orden, ok := ordenDePasoTitular(previo); ok {
+				if _, err := q.EstadoDeOrdenCompartido(ctx, orden); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return Pendiente{}, err
+				}
+			}
 			antes, err := q.PendientePorIDParaActualizar(ctx, in.ID)
 			if err != nil {
 				return Pendiente{}, err
@@ -370,6 +421,17 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			t.FijarEntidad("pendiente", antes.ID)
 			if antes.EmpresaID != nil {
 				t.FijarEmpresa(*antes.EmpresaID)
+			}
+			// Paso del titular de una orden cancelada o fallida: si no salió bien, queda detenido (no
+			// vuelve a la cola: un 503 lo reintentaría con la orden ya terminada).
+			if !in.Exito && antes.Estado == EstadoEnCurso {
+				como, err := ordenTerminada(ctx, q, antes)
+				if err != nil {
+					return Pendiente{}, err
+				}
+				if como != "" {
+					return detenerEnCurso(ctx, t, antes, como, in.ahora)
+				}
 			}
 			p := pendientesbd.ResolverPendienteParams{ID: in.ID, ProximoIntento: in.ahora, UltimoStatus: in.Status}
 			evento, payload := "", any(nil)
@@ -413,6 +475,10 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			}
 			switch f.Estado {
 			case EstadoHecho:
+				// Lo sensible del paso del titular se borra al recibir el 2xx (§3.4.8).
+				if err := borrarTransito(ctx, t, f, "entregado", in.ahora); err != nil {
+					return Pendiente{}, err
+				}
 				// Primero los cuerpos con marcadores (con la respuesta recién guardada), una vez.
 				if err := resolverDependientes(ctx, t, f.ID, in.ahora); err != nil {
 					return Pendiente{}, err
@@ -424,6 +490,9 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				if err := bloquearDependientes(ctx, t, f.ID, f.Estado); err != nil {
 					return Pendiente{}, err
 				}
+			}
+			if err := despuesDelPasoTitular(ctx, t, f, in.ahora); err != nil {
+				return Pendiente{}, err
 			}
 			if deref(f.CodigoError) == CodigoBodegaRequerida && m.cfg.Argos != nil {
 				// Argos volvió a 1.5.x: se relee su versión ya (no al próximo periodo), para que lo
@@ -472,6 +541,7 @@ func (w *trabajador) Timeout(*river.Job[ArgsProcesar]) time.Duration { return 10
 // RegistrarWorkers agrega el worker de la cola al cliente de River.
 func (m *Modulo) RegistrarWorkers(workers *river.Workers, bd nucleo.BD) {
 	river.AddWorker(workers, &trabajador{m: m, bd: bd})
+	river.AddWorker(workers, &trabajadorPurga{m: m, bd: bd})
 }
 
 // TrabajoPeriodico procesa la cola cada intervalo (1 min por defecto: la espera más corta del

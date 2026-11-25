@@ -287,6 +287,57 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   emite agenda en la misma transacción. Empresa del sobre = la de la orden (o de la plantilla).
 - **Consume:** `argos.servicio_retirado` (orden de retiro automática).
 
+## Paso «Confirmar titular y plan» (`titular.go`; contrato argosisp.md 0.10.0 §3.4, B18 y B19)
+
+- Operaciones del lote `orden.registrar_identidad` (A41), `orden.cambiar_titular` (A39),
+  `orden.completar_datos` (A43) y `orden.cambiar_plan` (A40), en una instalación en sitio del
+  técnico (reglas en `contratos/sync.md` §3b). Permisos `ordenes.cambiar_titular`,
+  `ordenes.completar_datos` y `ordenes.cambiar_plan` (técnico, despacho, supervisor) y
+  `ordenes.validar_identidad` (supervisor): `POST /ordenes/{id}/validar-identidad`, solo para activar.
+- Cada acción encola su llamada en `integracion.pendientes` (`pendientes.EncolarPaso`, con
+  `X-Iris-Actor`) en cadena identidad → datos → plan; la activación y el cobro, al cerrar, esperan a
+  todos. Lo sensible (documento, teléfono, correo, NIT/CUI y fotos) va solo al depósito de tránsito
+  cifrado (`integracion.datos_transito`): la auditoría lo guarda como `***` (`auditoria:"sensible"`),
+  y no va en la orden (`campo.orden_titular` guarda quién firma, tipo de documento, nombre, contadores
+  y la validación), en los eventos, en los logs ni en el payload del pendiente.
+- Una instalación de una venta (con prospecto) no cierra con éxito sin la identidad registrada o
+  validada (`identidad_requerida`). `GET /ordenes/{id}/titular` da el estado de cada paso en Argos.
+- **Emite** `orden.identidad_registrada`, `orden.cambio_titular_registrado`, `orden.datos_completados`,
+  `orden.cambio_plan_registrado` y `orden.identidad_validada` (nunca el número ni datos de contacto).
+- Revisión de seguridad (#273): solo el técnico asignado (`propia`); `titular_no_coincide` deja la
+  orden **en revisión** (`campo.orden_titular.en_revision`, la pone la cola) y solo un supervisor la
+  levanta (`POST /ordenes/{id}/levantar-revision-titular`, `orden.revision_titular_levantada`); A41
+  nunca reemplaza a un A39 rechazado; lo agotado no se reemplaza; cancelar o fallar detiene los
+  pasos (`pendientes.DetenerPasos`) y reabrir los reinicia; el cierre exige la identidad en toda
+  instalación con el servicio `pendiente_instalacion` (o sin instantánea); las fotos pasan por
+  `image.DecodeConfig` (hasta 8000 × 8000); `GET /titular` se audita y nunca muestra
+  `titular_no_coincide`.
+- Configuración: `campo.Config.Titular` (cifrador, conector de Argos y aviso a la cola).
+- **Titular empresa** (contrato 0.14.1 §3.4.4): con `titular.tipo: empresa`, el cambio de titular
+  (A39) va con `cliente.tipo: empresa` (razón social, `tipo_documento_fiscal: nit` y `nit_cui`, sin
+  documento ni `mayor_de_edad`) y `representante` (nombre, DPI o pasaporte y `mayor_de_edad`; su
+  número solo al depósito de tránsito); con un cliente empresa, la identidad (A41) es la del
+  representante. El tipo no depende del modo de la venta (el plan va aparte). Con Argos < 0.14.1, 422
+  `titular_empresa_no_disponible` (`titularEmpresaDisponible` en `GET /ordenes/{id}/titular`).
+  `titular_empresa_en_revision` deja la orden en revisión como `titular_no_coincide`. En la
+  auditoría (`Representante.MarshalJSON`) y en los pendientes, `representante.*` es `***` salvo
+  `documento_tipo`. La orden guarda `tipo_titular` (`campo.orden_titular`).
+- **Desde el panel**: `POST /ordenes/{id}/completar-datos` y `POST /ordenes/{id}/cambiar-plan`
+  (despacho y supervisor, con `version`), en una orden no terminada; mismas reglas y cola. El nombre
+  del titular no se cambia desde el panel (422 `nombre_solo_en_sitio`): va ligado a la identidad.
+- **B20, firma del contrato regenerado** (`firma_contrato.go`): `orden.firmar_contrato` del lote
+  (técnico asignado, orden en sitio) firma el contrato que comercial regeneró al aceptar Argos un
+  cambio de plan o de titular (`contratoPorFirmar` en `GET /ordenes/{id}/titular`). Comercial arma
+  el PDF firmado antes (`campo.Config.Contratos`, `ConectarContratos`) y lo marca firmado en la
+  transacción de la operación; emite `contrato.firmado` con `orden_id`.
+- **B21, planes permitidos** (`planes_orden.go`): el paquete y los cambios traen `planes` en cada
+  instalación con el servicio `pendiente_instalacion` (`campo.Config.Planes` =
+  `argos.Modulo.PlanesPermitidos`, `GET /planes?router_id=&modo=`; uno por router y modo).
+- **B17** (`titular_argos.go`): `argos.titular_cambiado` pasa las órdenes abiertas del servicio al
+  titular nuevo con `guardar` (versión, feed y diff) y emite `orden.titular_movido`, solo si la
+  instantánea (`integracion.argos_servicios.cliente_id`, leída con candado) dice que el servicio es
+  de `a_cliente_id`: un aviso atrasado no devuelve las órdenes.
+
 ## Desarrollo
 
 `go run ./cmd/iris campo semilla [--correo tecnico@iris.local] [--empresa N] [--ordenes 3]`: crea

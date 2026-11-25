@@ -234,7 +234,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// La orden acepta adjuntos (campo decide quién ve y sube); el cierre cuenta los completos.
 	campo.RegistrarAdjuntos()
 	adj := adjuntos.Nuevo(configAdjuntos(cfg, almacen))
-	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
+	pend := pendientes.Nuevo(pendientes.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola), Cifrador: acfg.Cifrador})
 	// Inventario del técnico (contrato 0.5.0 §3.3): mi bodega, traslados y traslado.recibir del lote.
 	// La firma es un adjunto de la entidad «traslado».
 	inv := inventario.Nuevo(inventario.Config{Argos: conectorArgos, Encolar: integracion.Encolar(cola)})
@@ -249,9 +249,14 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
-	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
+	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop, Recepciones: inv,
-		Agenda: agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
+		// Paso «Confirmar titular y plan» (contrato 0.10.0 §3.4): lo sensible va cifrado al depósito
+		// de tránsito y sale a Argos por la cola de pendientes.
+		Titular: campo.ConfigTitular{Cifrador: acfg.Cifrador, Conector: campo.ConectorDeArgos(conectorArgos), Encolar: integracion.Encolar(cola)},
+		// llamada.directa del lote: la anota la mensajería (fila y evento) en la transacción de la operación.
+		LlamadasDirectas: mensajeria.LlamadasDirectas{},
+		Agenda:           agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
 	// (pendientes hacia Argos y orden de instalación en campo).
 	comercial.RegistrarAdjuntos()
@@ -259,7 +264,10 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	// mensajería valida la foto al recibir el mensaje).
 	mensajeria.RegistrarAdjuntos()
 	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
-		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola)})
+		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola),
+		Clientes: conectorArgos, URLBase: cfg.BaseURL})
+	// La firma del contrato regenerado en la orden (orden.firmar_contrato, B20) la hace comercial.
+	cmp.ConectarContratos(com)
 	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
 	// (y la anterior, para comparar durante una rotación).
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
@@ -296,7 +304,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		NotificacionesPush: func() string { return estPush.Estado },
-		Idempotencia:       nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem},
+		Idempotencia:       nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem, Regla: comercial.ReglaIdempotenciaArgos},
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,
@@ -312,7 +320,8 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			legal.Nuevo(legal.Config{}).Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
-		Delegados:         map[string]http.Handler{mensajeria.Prefijo: proxyMsj},
+		// Las plantillas de WhatsApp que lee Argos (contrato 0.13.0 §6.7) también las sirve la mensajería.
+		Delegados: map[string]http.Handler{mensajeria.Prefijo: proxyMsj, mensajeria.RutaPlantillasArgos: proxyMsj},
 	})
 
 	srv := &http.Server{

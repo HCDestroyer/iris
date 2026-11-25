@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, Campo, CampoNumero, Casilla, Esqueleto, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoNumero, Casilla, Esqueleto, FormularioPagina, liberarProteccion, SeccionFormulario, Desplegable } from "@iris/ui";
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -16,7 +16,7 @@ import { useClaveIdempotencia } from "@/lib/idempotencia";
 import { useLectura } from "@/lib/lectura";
 import { esquemaTelefono, textoPruebaTelefono, valoresTelefono, type ValoresTelefono } from "@/lib/telefono/administracion";
 import { activarTelefono, guardarTelefonoCentralita, probarTelefonoCentralita } from "@/lib/telefono/api";
-import type { PruebaTelefono } from "@/lib/telefono/tipos";
+import type { PruebaTelefono } from "@iris/telefono";
 
 const VOLVER = "/administracion/integraciones/centralita";
 const CAMPOS = ["wssPuerto", "wssRuta", "sipDominio", "prefijoSalida", "llamadasPorUsuarioDia", "llamadasSimultaneas"] as const;
@@ -203,12 +203,11 @@ function Formulario({ centralita: c }: { centralita: Centralita }) {
                         <span className="font-mono">+.</span>, <span className="font-mono">1XXX</span> ni <span className="font-mono">_X.</span>
                     </li>
                 </ol>
-                <details>
-                    <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">Cómo comprobarlo desde la consola de la Issabel</summary>
+                <Desplegable titulo="Cómo comprobarlo desde la consola de la Issabel">
                     <pre data-desborde-permitido className="mt-2 overflow-x-auto rounded-lg bg-elevated p-3 font-mono text-xs text-foreground">
                         {'asterisk -rx "dialplan show 0019005551234@from-iris"   # sin coincidencia\nasterisk -rx "dialplan show 955551234@from-iris"       # sale por from-internal\nasterisk -rx "pjsip show endpoint 201" | grep context  # from-iris\nasterisk -rx "database show" | grep -i dial_options     # sin T ni t'}
                     </pre>
-                </details>
+                </Desplegable>
                 <Casilla etiqueta="Confirmo que la Issabel está configurada como dice la guía" checked={confirmo} onChange={(e) => form.setValue("confirmoRestricciones", e.target.checked, { shouldDirty: true })} />
                 {!confirmo && t?.activo ? <p className="text-sm text-warning">Sin esta confirmación el teléfono se apaga al guardar.</p> : null}
             </SeccionFormulario>

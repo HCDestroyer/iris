@@ -60,6 +60,29 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
     encolado lo encola con el id ya conocido.
   - **Sin conector** (nunca se conectó Argos): crea la orden con los datos capturados; el prospecto
     queda ganado sin ids de Argos (`alta.modo = local`).
+- **Prospectos registrados desde Argos** (contrato con Argos 0.10.0 §3.6, A44 / B23):
+  `POST /api/v1/integraciones/argosisp/prospectos`, solo el token de integración de Argos (permiso
+  `prospectos.registrar_integracion` del rol `integracion_argos`; una persona, 403
+  `solo_integracion_argos`), que no lee, lista ni edita prospectos. `X-Iris-Empresa`, `X-Iris-Actor`
+  (`usuario:<id de Argos>`; si no, 400 `cabecera_iris_requerida`) e `Idempotency-Key` obligatorias: la
+  regla del núcleo `ReglaIdempotenciaArgos` guarda la clave 30 días, mete las dos cabeceras en la huella y
+  responde 422 `idempotency_key_reutilizada`. Origen `argos_panel` (`origen_detalle` = oficina, llamada…),
+  `modo`, `registrado_por_argos`, `telefonos[]` en `comercial.prospecto_telefonos` (E.164, índice por
+  empresa y número; 422 `telefonos_invalidos` con `errors[]` por posición y sin el número), vendedor por
+  zona (la persona con `prospectos.contactar` en esa zona y en la empresa con menos prospectos abiertos) y
+  factibilidad si trae coordenadas. Plan aplicable al modo (`GET /planes?activo=true&modo=`; 422
+  `plan_no_permitido`; Argos caído no lo bloquea). `cliente_id`: de la instantánea de la empresa o
+  confirmado con Argos (422 `cliente_no_valido`; Argos sin respuesta, `cliente_validado: false`). 409
+  `prospecto_duplicado { url_iris }` si cualquiera de los números está en un prospecto abierto de la
+  empresa (el pedido se suma como actividad); 409 `argos_apagado`; 429 `demasiados_registros` al pasar 30
+  números por minuto por actor o 300 por empresa (`comercial.registros_argos`, un registro por empresa a la
+  vez con un candado de la transacción). La auditoría guarda los números enmascarados.
+  **Al ganar** con Argos ≥ 0.10.0: los números sin nombre van como `telefonos_adicionales[]` del mismo
+  `POST /clientes` y los que tienen nombre, como contactos (`POST /clientes/{id}/contactos`, clave
+  `iris:contacto:<cliente_id>:pt<id del teléfono>`); con `cliente_id`, Iris no crea ni edita el cliente: el
+  servicio sale con ese id y el alta empieza en `esperando_servicio`. `prospecto.estado_cambiado` lleva
+  `empresa_id` y `origen`: la mensajería lo manda a Argos (§6.6) solo de los `argos_panel` y con contrato
+  ≥ 0.10.0, sin el motivo escrito.
 - **Permisos y alcance:** `prospectos.*`, `factibilidad.evaluar|configurar`,
   `cotizaciones.crear|aceptar`, `contratos.crear|firmar`. Un prospecto se ve con `prospectos.ver`
   si el alcance es global, cubre su zona o el actor es su vendedor; si no, 404 (falla cerrado: un
@@ -75,12 +98,42 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
 Emite `prospecto.creado`, `prospecto.actualizado`, `prospecto.asignado`, `prospecto.estado_cambiado`,
 `prospecto.actividad_registrada`, `prospecto.perdido`, `prospecto.ganado`,
 `prospecto.alta_actualizada`, `factibilidad.evaluada`, `factibilidad.umbrales_cambiados`,
-`cotizacion.creada`, `cotizacion.aceptada`, `contrato.creado`, `contrato.firmado` y
-`contrato.anulado` (detalle en `.claude/integration/contratos/eventos.md`, «Comercial»). Ganar y el
+`cotizacion.creada`, `cotizacion.aceptada`, `contrato.creado`, `contrato.firmado`,
+`contrato.anulado` y `prospecto.venta_revisada` (detalle en `.claude/integration/contratos/eventos.md`, «Comercial»). Ganar y el
 alta emiten además, por sus casos de uso, `orden.creada` (campo), `adjunto.*` (los PDF) y los de la
 cola de pendientes.
 
 Consume `integracion.pendiente_hecho` (entidad `prospecto`) para avanzar el alta en Argos.
+
+De la venta a la instalación (contrato argosisp.md 0.10.0 §3.4.8):
+
+- **B17, alta pendiente hasta activar** (`alta_activacion.go`): con el servicio creado, el alta queda
+  `esperando_activacion` («ganado, alta pendiente»), ligada al cliente y al servicio; pasa a
+  `completa` con `integracion.pendiente_hecho` de `activar_instalacion` de su orden (o en el barrido
+  periódico). `argos.titular_cambiado` (webhook `servicio.titular_cambiado` confirmado) la pasa al
+  cliente nuevo. Ambos emiten `prospecto.alta_actualizada`.
+- **B20, cotización y contrato al cambiar** (`venta_revisada.go`): `integracion.pendiente_hecho` de
+  `cambiar_plan` o `cambiar_titular` (entidad `orden`) crea una revisión nueva de la cotización,
+  **vigente** y con vigencia nueva, con el plan nuevo y su precio de Argos (si Argos no publica el
+  precio, conserva el anterior) y a nombre del titular confirmado en la orden, y regenera el contrato
+  en borrador (`contenido.ordenId`). La cotización aceptada y el contrato firmado siguen vivos hasta
+  que el titular firma el regenerado en la orden (`FirmarEnOrdenEnTx`, operación del lote
+  `orden.firmar_contrato`; `POST /contratos/{id}/firmar` lo rechaza con `409 se_firma_en_la_orden`):
+  ahí el firmado se anula, la aceptada queda reemplazada y la revisión aceptada (la firma en sitio
+  cubre la subida de precio). Con la orden cancelada, fallida o cerrada (`orden.estado_cambiada`,
+  `orden_terminada.go`), el regenerado se anula, la revisión queda sin aceptar y el firmado sigue
+  vivo; una revisión que llegue después se crea sin contrato. Al reabrirla o reprogramarla (de
+  cancelada o fallida a un estado abierto), el contrato se regenera para esa orden con la última
+  revisión sin aceptar (vigencia y PDF nuevos si venció). Con la orden cerrada, cada cambio sin la firma (regenerado
+  anulado, revisión creada sin contrato, orden reabierta cerrada antes de regenerar) y cada cambio
+  hecho cuya revisión no se pudo crear (sin cotización, sin plan, error de negocio) emiten
+  `orden.contrato_sin_firma` para la campana de supervisión. Un `cambiar_plan` o `cambiar_titular`
+  en `fallido_negocio` que un supervisor resolvió a mano (`resuelto_como = manual`) también revisa
+  la venta (`integracion.pendiente_resuelto_manual`). Estos casos y `RevisarVenta` leen la orden con `FOR SHARE` antes de tomar el prospecto. Una revisión sin firmar la reemplaza la siguiente. Emite
+  `prospecto.venta_revisada`, que notificaciones pone en la campana del vendedor; el detalle del
+  prospecto trae `porFirmarEnOrden`. Idempotente por la clave del pendiente.
+- **B17, titular en orden**: `argos.titular_cambiado` pasa el prospecto solo si la instantánea dice
+  que el servicio es de `a_cliente_id` (un aviso atrasado no lo devuelve).
 
 ## Pruebas
 

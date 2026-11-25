@@ -1,7 +1,7 @@
 "use client";
 
-import { Boton, Cargando, PaletaBusqueda, type SeccionPaleta } from "@iris/ui";
-import { RotateCw, Search } from "lucide-react";
+import { Boton, BotonBuscar, Cargando, PaletaBusqueda, type SeccionPaleta } from "@iris/ui";
+import { RotateCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, resolver } from "@/lib/api/cliente";
@@ -138,29 +138,8 @@ export function BuscadorGlobal() {
 
     return (
         <>
-            {/* Una sola instancia: ícono en el teléfono, campo con atajo en escritorio. */}
-            <Boton
-                variante="fantasma"
-                tamano="icono"
-                className="lg:hidden"
-                aria-label="Buscador global"
-                title="Buscar (Ctrl + K)"
-                aria-keyshortcuts="Control+K Meta+K"
-                onClick={() => setAbierta(true)}
-            >
-                <Search />
-            </Boton>
-            <Boton
-                variante="contorno"
-                className="hidden h-9 w-full max-w-[21.25rem] justify-start gap-2 rounded-lg bg-background px-2.5 text-[0.8125rem] font-normal text-muted-foreground lg:inline-flex"
-                aria-label="Buscador global"
-                aria-keyshortcuts="Control+K Meta+K"
-                onClick={() => setAbierta(true)}
-            >
-                <Search />
-                <span className="flex-1 truncate text-left">Buscar cliente, ticket, orden o prospecto</span>
-                <kbd className="rounded-[0.3125rem] border border-border px-1.5 font-mono text-[0.6875rem] text-dimmed">Ctrl K</kbd>
-            </Boton>
+            {/* Una sola instancia: redonda en el teléfono, «Buscar… Ctrl K» desde 640 px. */}
+            <BotonBuscar alAbrir={() => setAbierta(true)} />
             <PaletaBusqueda
                 abierta={abierta}
                 alCambiarAbierta={cambiarAbierta}

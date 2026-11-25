@@ -521,3 +521,28 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
 - **Emite** `argos.cuenta_bancaria_cambiada` (cuenta, empresa, `campos[]`, `activa`, `creada`,
   `entrante_id` o null): con el webhook siempre; con una relectura, solo si la cuenta cambió. Nunca
   el número ni el titular. **Consume** `cuenta_bancaria.cambiada` de Argos.
+
+## Contrato 0.10.0: código y nombre del servicio (A45 / B24)
+
+- La instantánea guarda `nombre` del servicio (`integracion.argos_servicios.nombre`): el decodificador
+  lo lee de `GET /servicios` (lista blanca), lo deja en una línea y hasta 60 caracteres
+  (`NombreServicio`). Es texto del cliente: la API lo devuelve en `Servicio.nombre` (ausente si no
+  tiene) y el panel lo muestra escapado («S-000412 · Casa»). Nunca va a los logs ni al proveedor de IA
+  (`ServiciosClienteAsistente` no lo lee).
+- `codigo` ya se guardaba. Con el formato de A45 (`S-000412`) el asistente lo usa en la etiqueta corta
+  (`<codigo> · «plan» · «zona»`, §10.5 ajuste ag); con otra forma sigue «Servicio n».
+
+## Cambio de titular (contrato 0.10.0 §3.4.4, B17; 0.14.1)
+
+- **`servicio.titular_cambiado`** (`titular_cambiado.go`): Iris relee al titular nuevo y, si Argos
+  confirma que el servicio ya es suyo, refresca la instantánea y emite `argos.titular_cambiado`
+  (con `tipo_titular`: `persona` o `empresa`, 0.14.1). La fila del servicio se bloquea
+  (`BloquearArgos`, como en las eliminaciones) y guarda `titular_cambiado_en` (el `ocurrido_en` de
+  Argos del último cambio aplicado): un aviso atrasado (A→B que llega después de B→C) no reescribe
+  el servicio ni emite (`titular: atrasado` en la auditoría). Solo cuentan horas de Argos
+  (`integracion.entrantes.ocurrido_origen = argos`, que guarda el conector) y nunca más allá de la
+  recepción + 5 minutos; sin hora de Argos no se compara ni se guarda: manda la ficha releída. Comercial y campo, además, solo mueven si
+  la instantánea dice que el servicio es de `a_cliente_id`.
+- **Titular empresa (0.14.1):** `TitularEmpresaDisponible` dice si el conector activo informa un
+  contrato ≥ 0.14.1; si no, campo no ofrece el cambio a una empresa y el estado de la conexión lo
+  lista en `funcionesApagadas` (`titular_empresa`).
