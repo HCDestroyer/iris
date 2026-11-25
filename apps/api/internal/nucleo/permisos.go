@@ -313,6 +313,9 @@ const (
 	PermPlantillasWhatsAppCrear       Permiso = "plantillas_whatsapp.crear"
 	PermPlantillasWhatsAppEditar      Permiso = "plantillas_whatsapp.editar"
 	PermPlantillasWhatsAppBorrar      Permiso = "plantillas_whatsapp.borrar"
+	// PermPlantillasWhatsAppLeerIntegracion: Argos lee las plantillas que puede usar una empresa de
+	// su alcance (contrato 0.13.0 §6.7, B32). Solo del rol integracion_argos; no edita nada.
+	PermPlantillasWhatsAppLeerIntegracion Permiso = "plantillas_whatsapp.leer_integracion"
 )
 
 // Voz, etapa E1 (contratos/voz.md §8.2): llamadas entrantes de WhatsApp contestadas en el panel.
@@ -669,6 +672,7 @@ var Catalogo = []DefPermiso{
 	{PermPlantillasWhatsAppBorrar, "Borrar plantillas de WhatsApp (también en Meta)"},
 	{PermPlantillasWhatsAppCrear, "Crear plantillas de WhatsApp y enviarlas a Meta"},
 	{PermPlantillasWhatsAppEditar, "Editar plantillas de WhatsApp, decidir dónde se usan y cambiar sus ajustes"},
+	{PermPlantillasWhatsAppLeerIntegracion, "Leer las plantillas de WhatsApp que puede usar una empresa (lo usa Argos con su token de integración; no edita nada)"},
 	{PermPlantillasWhatsAppSincronizar, "Sincronizar con Meta las plantillas de WhatsApp de una cuenta"},
 	{PermPlantillasWhatsAppVer, "Ver las plantillas de WhatsApp de las cuentas de la empresa, su estado en Meta y su historial"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
@@ -876,7 +880,9 @@ var RolesBase = []DefRol{
 			PermIntegracionesVerCapacidades,
 			// Portal del cliente de Argos (0.9.0 §11): solo los usa el token_portal, recortado a estos.
 			PermPortalArgosVerTickets, PermPortalArgosCrearTicket, PermPortalArgosResponderTicket,
-			PermPortalArgosConfirmarSolucion, PermPortalArgosSolicitarServicio, PermPortalArgosVerSolicitudes}},
+			PermPortalArgosConfirmarSolucion, PermPortalArgosSolicitarServicio, PermPortalArgosVerSolicitudes,
+			// Plantillas de WhatsApp que puede usar cada empresa (contrato 0.13.0 §6.7, B32): solo leer.
+			PermPlantillasWhatsAppLeerIntegracion}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }

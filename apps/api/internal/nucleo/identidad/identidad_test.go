@@ -86,7 +86,7 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 		t.Fatalf("lectura: %v", porCodigo["lectura"].Permisos)
 	}
 	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermIntegracionesVerCapacidades, nucleo.PermMensajeriaEnviar, nucleo.PermMensajeriaRegistrarConsentimiento,
-		nucleo.PermMensajeriaVer, nucleo.PermOrdenesVer, nucleo.PermPortalEmitir,
+		nucleo.PermMensajeriaVer, nucleo.PermOrdenesVer, nucleo.PermPlantillasWhatsAppLeerIntegracion, nucleo.PermPortalEmitir,
 		// Portal del cliente de Argos (0.9.0 §11): solo valen en el token_portal.
 		nucleo.PermPortalArgosConfirmarSolucion, nucleo.PermPortalArgosCrearTicket, nucleo.PermPortalArgosResponderTicket,
 		nucleo.PermPortalArgosSolicitarServicio, nucleo.PermPortalArgosVerSolicitudes, nucleo.PermPortalArgosVerTickets,
