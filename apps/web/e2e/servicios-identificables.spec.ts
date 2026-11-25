@@ -119,7 +119,10 @@ test.describe("servicios identificables", () => {
         // Viewport real (sin página completa): el selector arriba, la barra fija al pie.
         await grupo.evaluate((e) => {
             e.scrollIntoView({ block: "start" });
-            window.scrollBy(0, -96);
+            // En escritorio el área de trabajo se desplaza por dentro (rediseño); en el teléfono, la página.
+            const contenido = document.querySelector("#contenido");
+            if (contenido && getComputedStyle(contenido).overflowY === "auto") contenido.scrollBy(0, -96);
+            else window.scrollBy(0, -96);
         });
         await captura(page, "orden-selector", false);
         // La tarjeta elegida, centrada en la pantalla, no queda tapada por la barra.
@@ -127,7 +130,11 @@ test.describe("servicios identificables", () => {
         await elegida.evaluate((e) => e.scrollIntoView({ block: "center" }));
         await noTapado(page, elegida, "la tarjeta elegida");
         // Al final del scroll, el último campo queda por encima de la barra (hay espacio al pie).
-        await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+        await page.evaluate(() => {
+            const contenido = document.querySelector("#contenido");
+            if (contenido && getComputedStyle(contenido).overflowY === "auto") contenido.scrollTo(0, contenido.scrollHeight);
+            else window.scrollTo(0, document.documentElement.scrollHeight);
+        });
         await noTapado(page, page.getByRole("combobox", { name: "Zona (opcional)" }).or(page.getByLabel("Zona (opcional)")).first(), "el último campo");
         await captura(page, "orden-final", false);
         await grupo.getByRole("radio", { name: /Servicio 3 · Negocio 30 Mbps/ }).click();

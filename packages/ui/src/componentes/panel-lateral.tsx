@@ -1,12 +1,15 @@
 "use client";
 
+import { Drawer } from "@heroui/react";
 import { useEffect, useRef, type ComponentProps, type KeyboardEvent, type ReactNode } from "react";
 import { cn } from "../utilidades";
 
 /*
- * Panel lateral flotante sin telón (excepción aprobada por el PM a la regla de `Hoja`, nov. 2026):
- * una tarjeta elevada a la derecha, bajo la barra superior, que **flota sobre la pantalla** y la deja
- * a la vista y usable. La página de atrás no se corre ni se reacomoda al abrirlo (pedido del PM:
+ * Panel lateral flotante (rediseño, nov. 2026): una isla a 16 px de los bordes, radio de 20 px y
+ * 470 px de ancho, a la derecha. Dos formas:
+ *
+ * - **Sin telón** (por omisión; excepción aprobada por el PM a la regla de `Hoja`): **flota sobre la
+ *   pantalla** y la deja a la vista y usable. La página de atrás no se corre ni se reacomoda al abrirlo (pedido del PM:
  * la agenda quedaba apretada) y los clics fuera del panel le llegan a ella. Lo usa el chat del
  * equipo del panel.
  *
@@ -16,23 +19,58 @@ import { cn } from "../utilidades";
  *   cerrar, vuelve a donde estaba (el disparador), si sigue en la página.
  * - Escape lo cierra mientras el foco está dentro, salvo que algo de adentro ya lo haya usado
  *   (una lista abierta, un diálogo encima).
- * - Panel sólido (la capa flotante del tema, `--overlay`), con borde, sombra y esquinas redondeadas,
- *   separado 12 px de los bordes (desde `sm`, 380 px de ancho). En el teléfono ocupa toda la
- *   pantalla bajo la barra superior, sin esquinas. La cabecera de quien lo usa (con «Cerrar») va
- *   fuera de lo que se desplaza: siempre hay salida.
+ * - Panel sólido (la capa flotante del tema, `--overlay`), con borde, sombra marcada y esquinas de
+ *   20 px, separado 16 px de los bordes (desde `sm`, 470 px de ancho). En el teléfono ocupa toda la
+ *   pantalla. La cabecera de quien lo usa (con «Cerrar») va fuera de lo que se desplaza: siempre
+ *   hay salida.
+ *
+ * - **Con telón** (`telon`): para registrar o editar algo sin perder la lista de fondo. Es el
+ *   `Drawer` de HeroUI (modal: atrapa el foco, Escape y tocar el telón lo cierran) con la misma
+ *   isla flotante; lo de atrás se oscurece.
  */
+
+/** Geometría de la isla: a pantalla completa en el teléfono; desde `sm`, 470 px a 16 px de los bordes. */
+const ISLA_PANEL = [
+    "flex min-w-0 flex-col overflow-hidden outline-none",
+    "bg-[var(--overlay)] text-[var(--overlay-foreground)] shadow-[0_0_0_1px_var(--iris-borde),var(--iris-sombra-modal)]",
+    "sm:rounded-[var(--iris-radio-isla)] sm:border sm:border-border",
+].join(" ");
 
 export type PropsPanelLateral = Omit<ComponentProps<"section">, "role" | "title"> & {
     abierto: boolean;
     alCerrar: () => void;
     /** Nombre accesible del panel (la cabecera visible la pone quien lo usa). */
     etiqueta: string;
+    /** Con telón oscurecido y modal (un formulario corto sin perder la lista); por omisión, sin telón. */
+    telon?: boolean;
     children: ReactNode;
 };
 
 const FOCO_INICIAL = "[data-foco-inicial]";
 
-export function PanelLateral({ abierto, alCerrar, etiqueta, className, children, onKeyDown, ...props }: PropsPanelLateral) {
+export function PanelLateral({ telon = false, ...props }: PropsPanelLateral) {
+    return telon ? <PanelConTelon {...props} /> : <PanelSinTelon {...props} />;
+}
+
+/** Con telón: el `Drawer` de HeroUI con la geometría de la isla. */
+function PanelConTelon({ abierto, alCerrar, etiqueta, className, children }: Omit<PropsPanelLateral, "telon">) {
+    return (
+        <Drawer.Backdrop isOpen={abierto} onOpenChange={(a) => (a ? undefined : alCerrar())} isDismissable variant="opaque" className="data-exiting:transition-none">
+            <Drawer.Content placement="right" className="sm:p-4">
+                <Drawer.Dialog
+                    aria-label={etiqueta}
+                    data-slot="panel-lateral"
+                    data-telon="true"
+                    className={cn(ISLA_PANEL, "h-dvh w-screen p-0 sm:h-full sm:w-[min(29.375rem,calc(100vw-2rem))]", className)}
+                >
+                    {children}
+                </Drawer.Dialog>
+            </Drawer.Content>
+        </Drawer.Backdrop>
+    );
+}
+
+function PanelSinTelon({ abierto, alCerrar, etiqueta, className, children, onKeyDown, ...props }: Omit<PropsPanelLateral, "telon">) {
     const panel = useRef<HTMLElement>(null);
     const previo = useRef<HTMLElement | null>(null);
 
@@ -73,12 +111,12 @@ export function PanelLateral({ abierto, alCerrar, etiqueta, className, children,
             tabIndex={-1}
             data-slot="panel-lateral"
             className={cn(
-                // Teléfono: a pantalla completa bajo la barra superior.
-                "fixed inset-x-0 top-14 bottom-0 z-40 flex min-w-0 flex-col overflow-hidden outline-none",
-                "border-t border-border bg-[var(--overlay)] text-[var(--overlay-foreground)] shadow-[var(--overlay-shadow)]",
-                // Desde `sm`: tarjeta flotante de 380 px, a 12 px de la barra y de los bordes.
-                "sm:top-[calc(3.5rem+0.75rem)] sm:right-3 sm:bottom-3 sm:left-auto sm:w-[min(23.75rem,calc(100vw-1.5rem))]",
-                "sm:rounded-[var(--hx-radius-card)] sm:border",
+                // Teléfono: a pantalla completa bajo el encabezado del panel (3.75rem).
+                "fixed inset-x-0 top-[3.75rem] bottom-0 z-40",
+                ISLA_PANEL,
+                // Desde `sm`: isla flotante de 470 px, a 16 px de los bordes (bajo el encabezado hasta
+                // `lg`, donde los avisos emergentes van arriba).
+                "sm:top-[3.75rem] sm:right-4 sm:bottom-4 sm:left-auto sm:w-[min(29.375rem,calc(100vw-2rem))] lg:top-4",
                 className,
             )}
             onKeyDown={alTeclear}

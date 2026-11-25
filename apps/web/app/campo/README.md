@@ -72,16 +72,18 @@ todo lo que hace se guarda primero en el teléfono con `@iris/sync` (IndexedDB) 
       Agenda con borde punteado, «Hecha» y «Anular». «Agregar formulario» ya no está en el «+»: va
       al menú «⋯» de la orden.
     - **Agenda «Mañana» y «Semana»** (`?vista=agenda[&dia=]`, `?vista=semana`): tira de 7 días con
-      el día elegido en teal y las citas en bloques (en curso en tinta, sin formulario en aviso).
+      el día elegido en índigo y las citas en bloques (en curso en tinta, sin formulario en aviso).
       El técnico no tiene `agenda.ver`: se lee `GET /campo/paquete?fecha=<hoy+6>` con señal y queda
       en memoria; hoy usa las órdenes del teléfono. Sin leer no hay contadores; sin señal lo dice
       con «Reintentar» y se relee sola al volver la señal.
     - **Pasos:** chips de pasos (listo en marca suave, el actual en tinta), barra por pasos,
-      tarjetas de 28 px de radio, − / + junto a «Cantidad» en materiales (`pasoCantidad`) y los
+      tarjetas de 22 px de radio, − / + junto a «Cantidad» en materiales (`pasoCantidad`) y los
       avisos que entran desde arriba con su acción («Deshacer»; un rechazo nuevo del servidor,
       con «Revisar»).
-    - **Tema:** los dos de C-Hoy llevados a los tokens (`color-mix` de `--hx-*`), un solo teal
-      (claro `#0f766e`, oscuro `#2dd4bf`), claro y oscuro según el teléfono.
+    - **Tema (rediseño, nov. 2026):** los tokens `--iris-*` (índigo `#4F46E5`, `#818CF8` en
+      oscuro), tarjetas de 22 px, la isla Hoy · Por recibir · «+» · Agenda · Yo, el chat y el «?»
+      del manual arriba (`/campo/manual/<pantalla>`), la acción principal de la orden fija abajo y
+      una columna de 480 px en escritorio. Claro y oscuro según el teléfono.
 - **La orden paso a paso:** resumen → «Empezar trabajo» → llegada · checklist · materiales y
   equipos · fotos → «Firma del cliente y cierre» (paso final y único; solo con lo obligatorio listo).
   En los pasos, la **isla de pasos** (`IslaPasos` en `_componentes/isla.tsx`, la misma píldora que la

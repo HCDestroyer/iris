@@ -11,8 +11,10 @@ import {
     MenuDesplegableElemento,
     MenuDesplegableEtiqueta,
     MenuDesplegableSeparador,
+    MenuCuenta,
     MenuEnLinea,
     PanelEmergente,
+    type OpcionCuenta,
 } from "@iris/ui";
 import { ChevronDown, CircleCheck, CircleUserRound, KeyRound, Link2, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
@@ -22,6 +24,8 @@ import { rutaConfigurarMfa } from "@/lib/cuenta/sesion";
 import { listaColas, useDisponibilidad } from "@/lib/conversaciones/disponibilidad";
 import { rutaEntrar, useSesion } from "@/lib/sesion";
 import { AvatarDisponible, ControlDisponibilidad, MiEstadoCorto, useEstoyDisponible } from "../conversaciones/disponibilidad";
+import { SelectorEmpresa } from "../selector-empresa";
+import { SelectorTema } from "../selector-tema";
 import { BloqueoContrasena, FormularioContrasena } from "./formulario-contrasena";
 
 type Props = {
@@ -105,6 +109,62 @@ function OpcionesCuenta({ cerrando, cerrarSesion, antes, soloCorreo = false }: P
             {cerrando ? "Cerrando sesión…" : "Cerrar sesión"}
         </MenuDesplegableElemento>,
     ];
+}
+
+/**
+ * La cuenta en el encabezado del panel (rediseño): `MenuCuenta` de @iris/ui con el nombre, el rol y
+ * la empresa; dentro, la disponibilidad en la bandeja (si atiende conversaciones), la empresa activa
+ * (si hay varias), el tema y las opciones de siempre, «Manual y atajos» y «Cerrar sesión» al final.
+ */
+export function CuentaEncabezado({ cerrando, cerrarSesion }: Props) {
+    const { yo, puede, empresas } = useSesion();
+    const router = useRouter();
+    const ruta = usePathname();
+    const cuenta = useContext(Cuenta);
+    const disponibilidad = useDisponibilidad();
+    const disponible = useEstoyDisponible();
+    const rol = textoRol(yo.usuario.roles?.[0]?.rol);
+    const varias = yo.modoEmpresa !== "sin_conector" && empresas.length > 1;
+    const unica = yo.modoEmpresa !== "sin_conector" && empresas.length === 1 ? empresas[0]?.nombre : undefined;
+    const nombreEmpresa = yo.empresaActiva?.nombre ?? unica;
+    const empresa = nombreEmpresa ? <span data-testid={unica ? "empresa-activa" : undefined}>{nombreEmpresa}</span> : undefined;
+    const opciones: OpcionCuenta[] = [
+        { id: "perfil", texto: "Mi perfil", icono: CircleUserRound, alElegir: () => router.push("/cuenta") },
+        { id: "contrasena", texto: "Cambiar contraseña", icono: KeyRound, alElegir: () => cuenta?.abrirCambioContrasena() },
+        yo.usuario.mfaActivo
+            ? { id: "mfa", texto: "Verificación en dos pasos activa", icono: CircleCheck, deshabilitada: true, alElegir: () => undefined }
+            : { id: "mfa", texto: "Configurar verificación en dos pasos", icono: ShieldCheck, alElegir: () => router.push(rutaConfigurarMfa(ruta)) },
+        ...(puede([PERMISO_ABRIR_ARGOS]) ? [{ id: "argos", texto: "Vincular mi usuario de Argos", icono: Link2, alElegir: () => router.push("/cuenta#argos") }] : []),
+    ];
+    return (
+        <MenuCuenta
+            nombre={yo.usuario.nombre}
+            correo={yo.usuario.correo}
+            {...(rol ? { rol } : {})}
+            {...(empresa ? { empresa } : {})}
+            {...(disponibilidad ? { disponible } : {})}
+            titulo={disponibilidad ? "Tu cuenta y disponibilidad" : "Tu cuenta"}
+            controles={
+                <>
+                    {disponibilidad ? <ControlDisponibilidad /> : null}
+                    {varias ? (
+                        <div className="grid gap-1.5">
+                            <span className="text-xs font-medium text-dimmed">Empresa</span>
+                            <SelectorEmpresa />
+                        </div>
+                    ) : null}
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-medium text-dimmed">Tema</span>
+                        <SelectorTema />
+                    </div>
+                </>
+            }
+            opciones={opciones}
+            alAbrirManual={() => router.push("/manual")}
+            alCerrarSesion={cerrarSesion}
+            cerrando={cerrando}
+        />
+    );
 }
 
 /**

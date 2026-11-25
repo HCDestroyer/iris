@@ -61,12 +61,19 @@ export async function alResumen(page: Page) {
     await page.getByRole("button", { name: /^Resumen de OT-/ }).click();
 }
 
-/** Botón de la isla de menú (opción del PM: Hoy · Chat · «+» · Agenda · Yo). «Yo» se llama «Yo · <nombre>». */
-export async function pestanaCampo(page: Page, nombre: "Hoy" | "Chat" | "Agenda" | "Yo") {
-    await page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: new RegExp(`^${nombre}( \\(\\d+ sin leer\\)| · .+)?$`) }).click();
+/**
+ * Botón de la isla de menú (rediseño: Hoy · Por recibir · «+» · Agenda · Yo). «Yo» se llama
+ * «Yo · <nombre>». «Chat» está en el encabezado (con «(N sin leer)» en su nombre).
+ */
+export async function pestanaCampo(page: Page, nombre: "Hoy" | "Por recibir" | "Chat" | "Agenda" | "Yo") {
+    if (nombre === "Chat") {
+        await page.locator('[data-slot="encabezado-campo"] [data-slot="boton-chat"]').click();
+        return;
+    }
+    await page.getByRole("navigation", { name: "Secciones de la app" }).getByRole("link", { name: new RegExp(`^${nombre}( · .+)?$`) }).click();
 }
 
-/** «Por recibir» ya no está en la isla: se abre desde su mosaico en Hoy. */
+/** «Por recibir» desde su mosaico en Hoy (también está en la isla: `pestanaCampo(page, "Por recibir")`). */
 export async function abrirPorRecibir(page: Page) {
     await pestanaCampo(page, "Hoy");
     await page.locator('[data-slot="mosaico-recibir"]').click();

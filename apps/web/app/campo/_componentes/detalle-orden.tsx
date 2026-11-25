@@ -63,7 +63,7 @@ export function DetalleOrden({ id, paso }: { id: number; paso?: PasoOrden | unde
 
 /**
  * Resumen (decisión del PM): ← | número y «● Estado · Tipo · ventana» | «⋯»; la acción principal
- * en «tinta» con [Pausar | No se pudo] debajo (o el aviso de pausa y «Reanudar»), el cliente con
+ * en índigo (rediseño) con [Pausar | No se pudo] debajo (o el aviso de pausa y «Reanudar»), el cliente con
  * «Cómo llegar» y «Llamar», el avance y las notas.
  */
 function ResumenOrden({ orden }: { orden: OrdenVista }) {

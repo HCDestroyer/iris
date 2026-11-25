@@ -1,6 +1,6 @@
 "use client";
 
-import { Boton, cn, Esqueleto, Globo } from "@iris/ui";
+import { Boton, BotonManualPantalla, cn, Esqueleto, Globo } from "@iris/ui";
 import { MessageCircle, SquarePen } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -81,7 +81,10 @@ function Equipo() {
                     hrefDe={(id) => urlEquipo(ruta, filtro, id)}
                     encabezado={
                         <div className="flex min-w-0 items-center gap-2">
-                            <h1 className="text-xl font-bold">Equipo</h1>
+                            <div className="flex min-w-0 items-center gap-1.5">
+                                <h1 className="text-xl font-bold">Equipo</h1>
+                                <BotonManualPantalla />
+                            </div>
                             <IndicadorEnVivo estado={chat.enVivo} />
                             <span className="flex-1" />
                             {chat.puedeEnviar ? (

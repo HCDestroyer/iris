@@ -245,7 +245,7 @@ export function BarraLlamada() {
                 data-slot="barra-llamada"
                 data-fase="llamando"
                 data-paso={estado.paso}
-                className="sticky top-14 z-[15] flex h-[3.25rem] min-w-0 items-center gap-2 border-b border-primary/40 bg-[color-mix(in_oklab,var(--hx-primary)_12%,var(--hx-bg))] px-3 sm:gap-3 sm:px-4 lg:px-6"
+                className="sticky top-0 z-[15] mb-3 flex h-[3.25rem] rounded-xl border min-w-0 items-center gap-2 border-b border-primary/40 bg-[color-mix(in_oklab,var(--hx-primary)_12%,var(--hx-bg))] px-3 sm:gap-3 sm:px-4 lg:px-6"
             >
                 <span aria-hidden className="size-2 shrink-0 rounded-full bg-warning motion-safe:animate-pulse" />
                 <PhoneOutgoing aria-hidden className="size-4 shrink-0 text-primary" />
@@ -277,7 +277,7 @@ export function BarraLlamada() {
             aria-label="Llamada en curso"
             data-slot="barra-llamada"
             data-silenciada={silenciada || undefined}
-            className="sticky top-14 z-[15] flex h-[3.25rem] min-w-0 items-center gap-2 border-b border-primary/40 bg-[color-mix(in_oklab,var(--hx-primary)_12%,var(--hx-bg))] px-3 sm:gap-3 sm:px-4 lg:px-6"
+            className="sticky top-0 z-[15] mb-3 flex h-[3.25rem] rounded-xl border min-w-0 items-center gap-2 border-b border-primary/40 bg-[color-mix(in_oklab,var(--hx-primary)_12%,var(--hx-bg))] px-3 sm:gap-3 sm:px-4 lg:px-6"
         >
             <span aria-hidden className="size-2 shrink-0 rounded-full bg-success motion-safe:animate-pulse" />
             <PhoneCall aria-hidden className="size-4 shrink-0 text-primary" />

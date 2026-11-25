@@ -159,7 +159,7 @@ export function NuevaTarea() {
                 </p>
                 <Boton
                     type="submit"
-                    variante="tinta"
+                    variante="primario"
                     tamano="lg"
                     className={BOTON_TINTA}
                     disabled={form.formState.isSubmitting}

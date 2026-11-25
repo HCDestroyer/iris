@@ -1,5 +1,5 @@
 // Manifest de la PWA «Iris Campo» (I4). Logo de Iris (docs/marca/logo-mark.svg, servido en
-// /icon.svg) y colores de la identidad Horus: teal 700 de marca, fondo blanco / azul noche.
+// /icon.svg, en degradado índigo → cian) y colores del rediseño: índigo de marca y el lienzo #F8F9FA.
 import { MANIFEST_CAMPO } from "@/lib/campo/manifest";
 
 export const dynamic = "force-static";
