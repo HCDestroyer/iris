@@ -141,6 +141,23 @@ ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
                     'venta_revisada', 'paso_titular', 'contrato_sin_firma', 'posible_falla_general', 'verificacion_vencida'));
 
 -- +goose Down
+-- La categoría caidas_repetidas que agregó el Up (misma clave): si algún ticket la usa, el Down falla y
+-- dice cuántos (reasignarlos es una decisión explícita, nunca huérfanos).
+-- +goose StatementBegin
+DO $$
+DECLARE
+    n integer;
+BEGIN
+    SELECT count(*) INTO n FROM soporte.tickets t
+    JOIN soporte.categorias c ON c.id = t.categoria_id
+    WHERE c.empresa_id IS NULL AND c.codigo = 'caidas_repetidas';
+    IF n > 0 THEN
+        RAISE EXCEPTION 'soporte_falla_general down: % tickets usan la categoría caidas_repetidas; reasígnalos antes de bajar', n;
+    END IF;
+END
+$$;
+-- +goose StatementEnd
+DELETE FROM soporte.categorias WHERE empresa_id IS NULL AND codigo = 'caidas_repetidas';
 DELETE FROM notificaciones.avisos WHERE tipo IN ('posible_falla_general', 'verificacion_vencida');
 ALTER TABLE notificaciones.avisos DROP CONSTRAINT avisos_tipo_check;
 ALTER TABLE notificaciones.avisos ADD CONSTRAINT avisos_tipo_check
