@@ -37,7 +37,7 @@ function Vendedor({ id, usuarios }: { id: number | null; usuarios: readonly Usua
     );
 }
 
-/** Tarjeta de un prospecto (columna del embudo y lista del teléfono). */
+/** Tarjeta de un prospecto en una columna del embudo (la lista usa `ListaFilas`). */
 export function TarjetaProspecto({ p, catalogos, conEstado }: { p: Prospecto; catalogos: Catalogos; conEstado?: boolean }) {
     const zona = nombreZona(catalogos.zonas, p.zonaId);
     return (

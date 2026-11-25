@@ -135,7 +135,7 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
                 <FranjaFicha
                     icono={ClipboardCheck}
                     titulo={p.nombre}
-                    detalle={[p.codigo, p.descripcion].filter(Boolean).join(" · ")}
+                    detalle={p.codigo}
                     manual={<BotonManualPantalla />}
                     insignias={<InsigniasPlantilla p={p} />}
                     accion={
@@ -168,6 +168,7 @@ function Detalle({ id, numeroVersion }: { id: number; numeroVersion: number | nu
                         ) : null
                     }
                 />
+                {p.descripcion ? <p className="text-sm text-muted-foreground">{p.descripcion}</p> : null}
                 <DialogoConfirmar
                     open={confirmar}
                     onOpenChange={setConfirmar}

@@ -273,7 +273,9 @@ describe("FranjaFicha", () => {
             />,
         );
         expect(html).toMatch(/<section data-slot="franja-ficha" class="surface-card flex/);
-        expect(html).toMatch(/<h1[^>]*>José López<\/h1>/);
+        expect(html).toMatch(/<h1[^>]*title="José López"[^>]*>José López<\/h1>/);
+        // Título y detalle cortados: el texto completo queda en `title`.
+        expect(html).toMatch(/<p class="truncate[^"]*" title="CLI-00412 · Zona Norte">/);
         expect(html).toMatch(/<dt[^>]*>Tickets abiertos<\/dt><dd[^>]*>2<\/dd>/);
         expect(html).toContain('data-clave="clientes/ficha"');
         expect(html).toMatch(/ml-auto.*Crear orden.*más/s);

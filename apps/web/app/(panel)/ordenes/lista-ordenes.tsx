@@ -19,6 +19,7 @@ import type { Lectura } from "@/lib/lectura";
 import type { ConsultaOrdenes } from "@/lib/ordenes/filtros";
 import { COLUMNAS, resumirPendientes, type Orden } from "@/lib/ordenes/presentacion";
 import { usePaginado } from "@/lib/paginado";
+import { useSesion } from "@/lib/sesion";
 
 const TAMANO_PAGINA = 30;
 
@@ -179,6 +180,9 @@ const TONO_TIPO = { instalacion: "marca", visita: "info", retiro: "neutro", camb
 function Lista({ ordenes, pie, ...props }: PropsTarjeta & { ordenes: readonly Orden[]; pie: ReturnType<typeof piePaginado> }) {
     const { marca, tecnico, ahora } = props;
     const router = useRouter();
+    const { puede } = useSesion();
+    // «Abrir el ticket» solo con permiso para verlo.
+    const veTickets = puede(["tickets.ver"]);
     const [vistaId, setVistaId] = useState<number | null>(null);
     const enVista = ordenes.find((o) => o.id === vistaId) ?? null;
     return (
@@ -223,7 +227,7 @@ function Lista({ ordenes, pie, ...props }: PropsTarjeta & { ordenes: readonly Or
                                         id: "ticket",
                                         texto: "Abrir el ticket",
                                         icono: LifeBuoy,
-                                        permitida: o.ticketId !== null,
+                                        permitida: o.ticketId !== null && veTickets,
                                         alElegir: () => router.push(`/tickets/${o.ticketId}`),
                                     },
                                 ]}
@@ -232,13 +236,28 @@ function Lista({ ordenes, pie, ...props }: PropsTarjeta & { ordenes: readonly Or
                     />
                 ))}
             </ListaFilas>
-            {enVista ? <VistaOrden orden={enVista} tecnico={tecnico(enVista)} marca={marca(enVista)} ahora={ahora} alCerrar={() => setVistaId(null)} /> : null}
+            {enVista ? <VistaOrden orden={enVista} tecnico={tecnico(enVista)} marca={marca(enVista)} ahora={ahora} veTicket={veTickets} alCerrar={() => setVistaId(null)} /> : null}
         </>
     );
 }
 
 /** Vista rápida de una orden: dónde, cuándo y quién, sin salir de la lista. */
-function VistaOrden({ orden: o, tecnico, marca, ahora, alCerrar }: { orden: Orden; tecnico: string | undefined; marca: ReactNode; ahora: number; alCerrar: () => void }) {
+function VistaOrden({
+    orden: o,
+    tecnico,
+    marca,
+    ahora,
+    veTicket,
+    alCerrar,
+}: {
+    orden: Orden;
+    tecnico: string | undefined;
+    marca: ReactNode;
+    ahora: number;
+    /** Con `tickets.ver`: «Abrir el ticket». */
+    veTicket: boolean;
+    alCerrar: () => void;
+}) {
     const datos: [string, ReactNode][] = [
         ["Dirección", o.direccion || "Sin dirección"],
         ["Contacto", o.contacto.nombre ?? "—"],
@@ -267,7 +286,7 @@ function VistaOrden({ orden: o, tecnico, marca, ahora, alCerrar }: { orden: Orde
                             Abrir ficha
                         </Link>
                     </Boton>
-                    {o.ticketId !== null ? (
+                    {o.ticketId !== null && veTicket ? (
                         <Boton asChild variante="contorno">
                             <Link href={`/tickets/${o.ticketId}`}>
                                 <LifeBuoy />

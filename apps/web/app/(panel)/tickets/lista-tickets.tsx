@@ -77,7 +77,9 @@ type Props = {
 export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, cabecera, alCambiar }: Props) {
     const { puede } = useSesion();
     const router = useRouter();
-    const primera = useLectura((signal) => leerPagina(consulta, undefined, signal));
+    const clave = JSON.stringify(consulta);
+    // Cada lectura guarda la consulta con la que se hizo: lo leído con otros filtros no se muestra.
+    const primera = useLectura((signal) => leerPagina(consulta, undefined, signal).then((pagina) => ({ clave, pagina })));
     const [extra, setExtra] = useState<{ tickets: Ticket[]; cursor: string | null } | null>(null);
     const [cargandoMas, setCargandoMas] = useState(false);
     const [errorMas, setErrorMas] = useState<unknown>(null);
@@ -87,8 +89,9 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
     const [fallidos, setFallidos] = useState<ResultadoLote["fallidos"]>([]);
     const ahora = useAhora();
     const seleccionable = puede(["tickets.asignar"]);
-    const clave = JSON.stringify(consulta);
     const claveLeida = useRef(clave);
+    // Mientras lo leído es de la consulta anterior no se muestra (ni un instante): «Cargando…».
+    const desactualizada = primera.estado === "listo" && primera.datos.clave !== clave;
     // «Cargar más» en curso: se cancela si cambian los filtros (su página sería de otra consulta).
     const [, setEnCurso] = useState<AbortController | null>(null);
     const { reintentar } = primera;
@@ -112,7 +115,7 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
     // Cargando, error y vacío se muestran dentro de la misma lista: la cabecera (buscador y filtros)
     // no se remonta al volver a leer.
     const leyendo =
-        primera.estado === "cargando" ? (
+        primera.estado === "cargando" || desactualizada ? (
             <div className="grid gap-3" aria-busy="true">
                 <span className="sr-only" role="status">
                     Cargando tickets…
@@ -132,8 +135,8 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
             />
         ) : null;
 
-    const tickets = primera.estado === "listo" ? [...(primera.datos.data ?? []), ...(extra?.tickets ?? [])] : [];
-    const siguiente = primera.estado !== "listo" ? null : extra ? extra.cursor : primera.datos.nextCursor;
+    const tickets = primera.estado === "listo" && !desactualizada ? [...(primera.datos.pagina.data ?? []), ...(extra?.tickets ?? [])] : [];
+    const siguiente = primera.estado !== "listo" || desactualizada ? null : extra ? extra.cursor : primera.datos.pagina.nextCursor;
     const asignables = tickets.filter((t) => t.estado !== "cerrado");
     const seleccion = asignables.filter((t) => elegidos.has(t.id));
     const enVista = tickets.find((t) => t.id === vistaId) ?? null;
@@ -171,8 +174,8 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
     /** Reemplaza en la lista los tickets que devolvió la API. */
     function reemplazar(nuevos: readonly Ticket[]) {
         const porId = new Map(nuevos.map((t) => [t.id, t]));
-        const pagina = primera.estado === "listo" ? primera.datos : null;
-        if (pagina) primera.reemplazar({ ...pagina, data: (pagina.data ?? []).map((t) => porId.get(t.id) ?? t) });
+        const leido = primera.estado === "listo" ? primera.datos : null;
+        if (leido) primera.reemplazar({ ...leido, pagina: { ...leido.pagina, data: (leido.pagina.data ?? []).map((t) => porId.get(t.id) ?? t) } });
         setExtra((prev) => (prev ? { ...prev, tickets: prev.tickets.map((t) => porId.get(t.id) ?? t) } : prev));
     }
 
@@ -206,6 +209,29 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
             </div>
         ) : null;
     // Sin selección, «Seleccionar todos» va al final de la cabecera; con selección, en su barra.
+    // Los que no se pudieron asignar: aviso en la barra de la selección (no entre las filas, donde
+    // taparía el estado vacío). Quedan elegidos para reintentar.
+    const avisoFallidos =
+        fallidos.length > 0 ? (
+            <Aviso
+                tono="error"
+                className="w-full"
+                titulo={fallidos.length === 1 ? "1 ticket no se pudo asignar" : `${fallidos.length} tickets no se pudieron asignar`}
+                accion={
+                    <Boton variante="secundario" tamano="sm" onClick={() => setFallidos([])}>
+                        Entendido
+                    </Boton>
+                }
+            >
+                <ul className="grid gap-0.5">
+                    {fallidos.map((f) => (
+                        <li key={f.ticket.id}>
+                            {f.ticket.numero}: {f.motivo}
+                        </li>
+                    ))}
+                </ul>
+            </Aviso>
+        ) : null;
     // Misma forma siempre (la casilla va o no en el segundo hueco): si cambiara, React remontaría
     // el buscador y los filtros, que perderían el foco y la lista abierta.
     const cabeceraLista = (
@@ -220,7 +246,14 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
             <ListaFilas
                 etiqueta="Tickets"
                 cabecera={cabeceraLista}
-                seleccion={barraSeleccion}
+                seleccion={
+                    avisoFallidos || barraSeleccion ? (
+                        <>
+                            {avisoFallidos}
+                            {barraSeleccion}
+                        </>
+                    ) : null
+                }
                 {...(leyendo ? {} : pie)}
                 vacio={
                     leyendo ?? (
@@ -232,27 +265,6 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, c
                     )
                 }
             >
-                {fallidos.length > 0 ? (
-                    <li className="p-3">
-                        <Aviso
-                            tono="error"
-                            titulo={fallidos.length === 1 ? "1 ticket no se pudo asignar" : `${fallidos.length} tickets no se pudieron asignar`}
-                            accion={
-                                <Boton variante="secundario" tamano="sm" onClick={() => setFallidos([])}>
-                                    Entendido
-                                </Boton>
-                            }
-                        >
-                            <ul className="grid gap-0.5">
-                                {fallidos.map((f) => (
-                                    <li key={f.ticket.id}>
-                                        {f.ticket.numero}: {f.motivo}
-                                    </li>
-                                ))}
-                            </ul>
-                        </Aviso>
-                    </li>
-                ) : null}
                 {tickets.map((t) => {
                     const { tipo, reloj } = relojPrincipal(t);
                     const marcado = elegidos.has(t.id);

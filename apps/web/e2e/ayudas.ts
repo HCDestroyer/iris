@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 type Nombre = string | RegExp;
 
@@ -146,4 +146,22 @@ export async function ofreceAccionFila(page: Page, nombre: string, accion: strin
     await expect(menu.getByRole("menuitem", { name: accion, exact: true })).toHaveCount(ofrece ? 1 : 0);
     await page.keyboard.press("Escape");
     await expect(menu).toHaveCount(0);
+}
+
+/**
+ * Ningún menú `⋯` de las filas visibles de `lista` ofrece `accion`: abre cada uno, mira y lo cierra.
+ * Exige que haya al menos una fila con menú (si no, la prueba no probaría nada).
+ */
+export async function ningunaFilaOfrece(page: Page, lista: Locator, accion: string) {
+    const botones = lista.getByRole("button", { name: /^Acciones de / }).filter({ visible: true });
+    await expect(botones.first()).toBeVisible();
+    const n = await botones.count();
+    for (let i = 0; i < n; i++) {
+        await botones.nth(i).click();
+        const menu = page.getByRole("menu").filter({ visible: true });
+        await expect(menu).toBeVisible();
+        await expect(menu.getByRole("menuitem", { name: accion, exact: true })).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await expect(menu).toHaveCount(0);
+    }
 }

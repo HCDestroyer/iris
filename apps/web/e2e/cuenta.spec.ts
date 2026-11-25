@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ACTUAL_BLOQUEA, CODIGO_ACTIVAR } from "./api-cuenta";
 import { ADMIN, CON_MFA, CONTRASENA, CSRF, ELENA, LECTOR, SOPORTE, TEMPORAL, conSesion, simularApi } from "./api-falsa";
-import { abrirCuenta, accionFila, avisoError, entrar, esTelefono, ofreceAccionFila } from "./ayudas";
+import { abrirCuenta, accionFila, avisoError, entrar, esTelefono, ningunaFilaOfrece, ofreceAccionFila } from "./ayudas";
 
 /*
  * Cuenta propia y reinicio de MFA (PR #21 de I1): cambio de contraseña obligatorio con una
@@ -293,8 +293,8 @@ test.describe("reiniciar MFA desde Usuarios", () => {
         await conSesion(context, baseURL ?? "", SOPORTE.correo);
         await page.goto("/usuarios");
         await expect(page.locator("main").getByText(CON_MFA.correo).filter({ visible: true })).toBeVisible();
-        // Sin el permiso, el menú de la fila no lo ofrece.
-        await ofreceAccionFila(page, CON_MFA.nombre, "Reiniciar MFA", false);
+        // Sin el permiso, ningún menú de las filas lo ofrece.
+        await ningunaFilaOfrece(page, page.getByRole("list", { name: "Usuarios" }), "Reiniciar MFA");
     });
 });
 

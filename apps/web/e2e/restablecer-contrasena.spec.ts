@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { ADMIN, CON_MFA, CSRF, ELENA, LECTOR, SOPORTE, conSesion, simularApi } from "./api-falsa";
-import { accionFila, avisoError, ofreceAccionFila } from "./ayudas";
+import { accionFila, avisoError, ningunaFilaOfrece, ofreceAccionFila } from "./ayudas";
 
 /*
  * «Restablecer contraseña» de otra persona (`usuarios.restablecer_contrasena`): desde la lista
@@ -127,8 +127,8 @@ test.describe("restablecer contraseña desde Usuarios", () => {
         await conSesion(context, baseURL ?? "", SOPORTE.correo);
         await page.goto("/usuarios");
         await expect(page.locator("main").getByText(LECTOR.correo).filter({ visible: true })).toBeVisible();
-        // Sin el permiso, el menú de la fila no lo ofrece.
-        await ofreceAccionFila(page, LECTOR.nombre, "Restablecer contraseña", false);
+        // Sin el permiso, ningún menú de las filas lo ofrece.
+        await ningunaFilaOfrece(page, page.getByRole("list", { name: "Usuarios" }), "Restablecer contraseña");
     });
 
     test("desde la ficha del usuario", async ({ page, context, baseURL }) => {
