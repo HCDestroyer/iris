@@ -211,17 +211,37 @@ func nuevoCrearOrdenConv(m *Modulo) *CrearOrdenConv {
 				var acc *accesoServicio
 				if c.ClienteID != nil {
 					servicio := in.ServicioID
-					if servicio == nil && in.TicketID != nil {
-						// Con ticket, el permiso se comprueba sobre el servicio del ticket.
-						tk, err := q.TicketParaOrden(ctx, *in.TicketID)
-						if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					var ticketCliente *int64
+					if in.TicketID != nil {
+						// Con ticket, el permiso se comprueba sobre el servicio del ticket, que debe ser de la
+						// empresa y del cliente de la conversación (o de uno a su cargo, §3.8).
+						rol, err := m.rolDeConversacion(ctx, q, *c)
+						if err != nil {
 							return err
 						}
-						servicio = tk.ServicioID
+						clientes := []int64{*c.ClienteID}
+						for _, k := range rol.ACargo {
+							clientes = append(clientes, k.ClienteID)
+						}
+						tk, err := q.TicketParaOrden(ctx, mensajeriabd.TicketParaOrdenParams{ID: *in.TicketID, Empresa: empresaDeConv(*c), Clientes: clientes})
+						if errors.Is(err, pgx.ErrNoRows) {
+							return reglaConv("ticket_ajeno", "El ticket no es del cliente de la conversación")
+						}
+						if err != nil {
+							return err
+						}
+						ticketCliente = tk.ClienteID
+						if servicio == nil {
+							servicio = tk.ServicioID
+						}
 					}
 					x, err := m.accesoAServicio(ctx, q, *c, servicio, PermisoContactoReportar)
 					if err != nil {
 						return err
+					}
+					// Un contacto no usa el ticket de otro cliente (ni el del titular sobre un servicio que no es suyo).
+					if in.TicketID != nil && x.Contacto != argos.ContactoTitular && (ticketCliente == nil || *ticketCliente != x.ClienteID) {
+						return reglaConv("ticket_ajeno", "El ticket no es del servicio de quien escribe")
 					}
 					acc = &x
 				}
@@ -960,7 +980,11 @@ func nuevasPromesas(m *Modulo) *Promesas {
 					return nucleo.Conflicto("cliente_cambiado", "El cliente de la conversación cambió mientras se pedía la promesa; revisa en Argos y vuelve a intentarlo")
 				}
 				// Quien la pidió sigue siendo el mismo (titular o el mismo contacto con «pagar»).
-				if acc, err := m.accesoAServicio(ctx, q, *c, &in.ServicioID, PermisoContactoPagar); err != nil || acc.Contacto != in.contacto {
+				acc, err := m.accesoAServicio(ctx, q, *c, &in.ServicioID, PermisoContactoPagar)
+				if err != nil {
+					return err
+				}
+				if acc.Contacto != in.contacto || acc.ClienteID != in.dueno {
 					return nucleo.Conflicto("cliente_cambiado", "Quien escribe en la conversación cambió mientras se pedía la promesa; revisa en Argos y vuelve a intentarlo")
 				}
 				estado := in.r.Estado

@@ -537,3 +537,57 @@ func TestBajaDeUnContactoNoEsDelTitular(t *testing.T) {
 		t.Fatalf("la baja queda por número: %d", n)
 	}
 }
+
+// M1-bis de la verificación: un número que es a la vez el contacto en sitio de un servicio
+// (por_servicio) y un contacto del mismo cliente en la caché: al asociar y confirmar a mano se guarda
+// el contacto; si después Argos lo quita, la conversación queda sin rol y sin verificar (nunca titular).
+func TestNumeroDeServicioYContacto(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, ss := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_servicios SET contacto_telefono = $2 WHERE id = $1`, ss[0], "+"+num); err != nil {
+		t.Fatal(err)
+	}
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.ps1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/desasociar", map[string]any{"version": ver(c)}), http.StatusOK)
+	r := b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(b.conv(num)), "clienteId": cliente})
+	b.exigir(r, http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2`, cid(c), contacto); n != 1 {
+		t.Fatal("al asociar a mano se guarda el contacto, no el por_servicio")
+	}
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.emitirContactos(cliente, contacto, "quitado")
+	c = b.conv(num)
+	if rol := c["rolContacto"].(map[string]any); rol["rol"] != "sin_confirmar" {
+		t.Fatalf("sin el contacto, sin rol (nunca titular por el número del servicio): %v", rol)
+	}
+	if k := c["contacto"].(map[string]any); k["verificado"] != false {
+		t.Fatalf("desverificada: %v", k)
+	}
+}
+
+// Bajo 5 de la verificación: una orden con ticket desde la conversación de un contacto solo con un
+// ticket de su cliente; el de otro cliente se rechaza.
+func TestOrdenConTicketAjeno(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, _ := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	otro, so := b.clienteArgos("Otro", "", codigoUnico())
+	b.sembrarContacto(contactoSembrado{id: siguienteCliente.Add(1), cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.tk1", "Hola")
+	c := b.conv(num)
+	var ticket int64
+	if err := b.bd.QueryRow(b.ctx, `INSERT INTO soporte.tickets (empresa_id, cliente_id, servicio_id, asunto, prioridad, estado, origen, sla_inicio)
+		VALUES (1, $1, $2, 'Ajeno', 'media', 'abierto', 'panel', now()) RETURNING id`, otro, so[0]).Scan(&ticket); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirProblema(b.apiClave(b.supervisor, http.MethodPost, "/conversaciones/"+cid(c)+"/crear-orden", "or-aj-"+cid(c),
+		map[string]any{"tipo": "visita", "ticketId": ticket, "descripcion": "Sin internet"}), http.StatusUnprocessableEntity, "ticket_ajeno")
+}

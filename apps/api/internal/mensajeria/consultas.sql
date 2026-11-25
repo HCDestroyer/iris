@@ -271,11 +271,10 @@ SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo';
 
 -- name: ContarAvisosNumeroDelDia :one
--- Copias a un número de contacto desde el inicio del día (los bloqueados no cuentan): el mismo límite
--- diario que un cliente (§6.5).
+-- Avisos a un número en la empresa desde el inicio del día (los bloqueados no cuentan), originales y
+-- copias: el mismo límite diario que un cliente para el número de un contacto (§6.5).
 SELECT count(*)::bigint FROM mensajeria.avisos
-WHERE empresa_id = @empresa_id AND destino = @destino::text AND created_at >= @desde AND estado <> 'bloqueado'
-  AND aviso_padre_id IS NOT NULL;
+WHERE empresa_id = @empresa_id AND destino = @destino::text AND created_at >= @desde AND estado <> 'bloqueado';
 
 -- name: BloquearAvisosNumero :exec
 -- Serializa la cuenta del límite diario de un número de contacto.

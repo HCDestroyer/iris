@@ -385,6 +385,21 @@ func (q *Queries) InsertarEleccionCliente(ctx context.Context, arg InsertarElecc
 	return err
 }
 
+const marcarCopiasAviso = `-- name: MarcarCopiasAviso :exec
+UPDATE mensajeria.avisos SET copias_motivo = $1 WHERE id = $2
+`
+
+type MarcarCopiasAvisoParams struct {
+	CopiasMotivo *string
+	ID           uuid.UUID
+}
+
+// Por qué un aviso de cobro no salió a los contactos (historial del aviso, no es un fallo).
+func (q *Queries) MarcarCopiasAviso(ctx context.Context, arg MarcarCopiasAvisoParams) error {
+	_, err := q.db.Exec(ctx, marcarCopiasAviso, arg.CopiasMotivo, arg.ID)
+	return err
+}
+
 const marcarNumeroBuscado = `-- name: MarcarNumeroBuscado :exec
 INSERT INTO mensajeria.contactos_buscados (empresa, digitos, buscado_en) VALUES ($1, $2, $3)
 ON CONFLICT (empresa, digitos) DO UPDATE SET buscado_en = EXCLUDED.buscado_en
@@ -517,17 +532,25 @@ func (q *Queries) ServiciosDeClientesInstantanea(ctx context.Context, arg Servic
 }
 
 const ticketParaOrden = `-- name: TicketParaOrden :one
-SELECT cliente_id, servicio_id FROM soporte.tickets WHERE id = $1
+SELECT cliente_id, servicio_id FROM soporte.tickets
+WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint AND (cliente_id IS NULL OR cliente_id = ANY ($3::bigint[]))
 `
+
+type TicketParaOrdenParams struct {
+	ID       int64
+	Empresa  int64
+	Clientes []int64
+}
 
 type TicketParaOrdenRow struct {
 	ClienteID  *int64
 	ServicioID *int64
 }
 
-// El cliente y el servicio de un ticket (orden con ticket desde la conversación: permiso del contacto).
-func (q *Queries) TicketParaOrden(ctx context.Context, id int64) (TicketParaOrdenRow, error) {
-	row := q.db.QueryRow(ctx, ticketParaOrden, id)
+// El servicio de un ticket de la empresa y de uno de esos clientes (orden con ticket desde la
+// conversación: permiso del contacto sobre el servicio del ticket).
+func (q *Queries) TicketParaOrden(ctx context.Context, arg TicketParaOrdenParams) (TicketParaOrdenRow, error) {
+	row := q.db.QueryRow(ctx, ticketParaOrden, arg.ID, arg.Empresa, arg.Clientes)
 	var i TicketParaOrdenRow
 	err := row.Scan(&i.ClienteID, &i.ServicioID)
 	return i, err

@@ -100,5 +100,11 @@ SELECT EXISTS (
 )::boolean;
 
 -- name: TicketParaOrden :one
--- El cliente y el servicio de un ticket (orden con ticket desde la conversación: permiso del contacto).
-SELECT cliente_id, servicio_id FROM soporte.tickets WHERE id = @id;
+-- El servicio de un ticket de la empresa y de uno de esos clientes (orden con ticket desde la
+-- conversación: permiso del contacto sobre el servicio del ticket).
+SELECT cliente_id, servicio_id FROM soporte.tickets
+WHERE id = @id AND coalesce(empresa_id, 0) = @empresa::bigint AND (cliente_id IS NULL OR cliente_id = ANY (@clientes::bigint[]));
+
+-- name: MarcarCopiasAviso :exec
+-- Por qué un aviso de cobro no salió a los contactos (historial del aviso, no es un fallo).
+UPDATE mensajeria.avisos SET copias_motivo = @copias_motivo WHERE id = @id;

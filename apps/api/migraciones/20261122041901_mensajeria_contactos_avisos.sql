@@ -15,10 +15,14 @@ CREATE INDEX consentimientos_vigente_idx ON mensajeria.consentimientos (empresa_
 -- Idempotency-Key ni webhooks hacia Argos (origen iris).
 ALTER TABLE mensajeria.avisos ADD COLUMN aviso_padre_id uuid REFERENCES mensajeria.avisos (id);
 ALTER TABLE mensajeria.avisos ADD COLUMN contacto_argos_id bigint CHECK (contacto_argos_id IS NULL OR contacto_argos_id > 0);
+-- copias_motivo: por qué un aviso de cobro no salió a los contactos (p. ej. sin_plantilla_contacto: la
+-- plantilla de Meta lleva datos del titular). Historial, no un fallo.
+ALTER TABLE mensajeria.avisos ADD COLUMN copias_motivo text CHECK (copias_motivo IS NULL OR copias_motivo IN ('sin_plantilla_contacto'));
 CREATE UNIQUE INDEX avisos_contacto_uk ON mensajeria.avisos (aviso_padre_id, contacto_argos_id) WHERE aviso_padre_id IS NOT NULL;
 
 -- +goose Down
 DROP INDEX mensajeria.avisos_contacto_uk;
+ALTER TABLE mensajeria.avisos DROP COLUMN copias_motivo;
 ALTER TABLE mensajeria.avisos DROP COLUMN contacto_argos_id;
 ALTER TABLE mensajeria.avisos DROP COLUMN aviso_padre_id;
 DROP INDEX mensajeria.consentimientos_vigente_idx;

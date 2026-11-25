@@ -296,18 +296,25 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 	return k
 }
 
-// numeroDelCliente: el número es el teléfono, el móvil o el contacto de un servicio del cliente en
-// la instantánea de la empresa, o el de un contacto de ese cliente en la caché de Argos (§3.5; con
-// ese contacto, que se guarda en la conversación).
+// numeroDelCliente: el número es del cliente y, si es de un contacto suyo en la caché de Argos, cuál
+// (se guarda en la conversación). Orden (§3.5): el teléfono o el móvil del cliente (titular) gana;
+// después, un contacto del mismo cliente; al final, el contacto de un servicio en la instantánea
+// (por_servicio), que verifica el número pero nunca da rol de titular (rolDeConversacion).
 func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, cliente int64) (bool, *int64, error) {
 	cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil {
 		return false, nil, err
 	}
+	porServicio := false
 	for _, x := range cs {
-		if x.ID == cliente {
+		if x.ID != cliente {
+			continue
+		}
+		// Mismo criterio que titularesDelNumero.
+		if x.PorTelefono || x.PorMovil {
 			return true, nil, nil
 		}
+		porServicio = true
 	}
 	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil {
@@ -322,7 +329,7 @@ func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int6
 			return true, &id, nil
 		}
 	}
-	return false, nil, nil
+	return porServicio, nil, nil
 }
 
 func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle] {
@@ -335,13 +342,13 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 				}
 				// Si el número es de un contacto del cliente (§3.5), se confirma ese contacto, no el
 				// titular: la conversación queda con él y su rol sale de sus permisos.
-				if c.ContactoArgosID == nil {
-					if _, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, *c.ClienteID); err != nil {
+				// Si el contacto ya no está, se queda el que tenía (sin rol): para dejarla como titular, un
+				// supervisor la vuelve a asociar.
+				if _, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, *c.ClienteID); err != nil {
+					return err
+				} else if contacto != nil {
+					if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
 						return err
-					} else if contacto != nil {
-						if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
-							return err
-						}
 					}
 				}
 				// La confirmación de una persona da la verificación fuerte de este periodo (se pierde al

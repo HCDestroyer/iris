@@ -1365,6 +1365,7 @@ type MensajeriaAviso struct {
 	UpdatedAt       time.Time
 	AvisoPadreID    *uuid.UUID
 	ContactoArgosID *int64
+	CopiasMotivo    *string
 }
 
 type MensajeriaBoleta struct {

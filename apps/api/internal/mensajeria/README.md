@@ -876,3 +876,13 @@ AMI adopta la fila de una saliente del puente.
   contacto, no al titular. La baja que un contacto pide en el chat es solo de su número (nunca la del
   titular ni `contacto.baja`). Las copias de avisos salen solo de un original en cola, con límite diario
   por número, se revisan otra vez al enviar y no llevan el nombre ni el código del titular.
+- **Asociar y confirmar a mano:** si el número es de un contacto del cliente en la caché, la conversación
+  guarda ese contacto (su rol sale de sus permisos); `numeroDelCliente` mira primero el teléfono o el móvil
+  del titular, después los contactos y al final el contacto de un servicio (`por_servicio`), que nunca da
+  rol de titular. Un supervisor que vuelve a asociar la conversación a un cliente cuyo número no es de un
+  contacto la deja como titular (sin contacto); queda auditado (`conversaciones.asociar` y
+  `conversacion.cliente_asociado`).
+- **Copias sin plantilla neutra:** si la plantilla de Meta de avisos lleva datos del titular, no hay
+  copias y el aviso original guarda `copias_motivo = sin_plantilla_contacto`. Los candados de los números
+  se toman ordenados; el límite diario de un número cuenta todos sus avisos (originales y copias) y un
+  aviso urgente tiene tope duro (`TopeUrgenteNumero` veces el límite).

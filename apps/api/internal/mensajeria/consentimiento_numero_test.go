@@ -195,3 +195,27 @@ func TestAvisosAContactosLimites(t *testing.T) {
 		t.Fatal("la copia de un contacto que ya no está no sale")
 	}
 }
+
+// Bajo 2 de la verificación: el límite diario de un número cuenta todos los avisos a ese número en la
+// empresa (los del cliente que lo tiene de móvil y las copias), no solo las copias.
+func TestLimiteDelNumeroCuentaOriginales(t *testing.T) {
+	e := nuevoEntorno(t, nil)
+	titular := e.cliente(1, "5598-7766")
+	numero := "+50255987766"
+	otro := e.cliente(1, "5512-0101")
+	e.sembrarContactoAviso(otro, siguienteCliente.Add(1)*100, numero, true, nil)
+	cuando := e.reloj.Add(-time.Hour)
+	e.exigir(e.consentirNumero(otro, numero, "acepta", cuando, claveNumero(otro, numero, cuando)), http.StatusCreated)
+	for _, c := range []int64{titular, otro} {
+		e.exigir(e.consentir(c, "acepta", e.reloj.Add(-time.Hour)), http.StatusCreated)
+	}
+	for i := range 3 {
+		e.exigir(e.avisar(fmt.Sprintf("argos:aviso:tit:%d:%d", titular, i), avisoPorVencer(titular, "2026-11-10")), http.StatusAccepted, "estado", "en_cola")
+	}
+	r := e.avisar(fmt.Sprintf("argos:aviso:otro:%d", otro), avisoPorVencer(otro, "2026-11-10"))
+	e.exigir(r, http.StatusAccepted, "estado", "en_cola")
+	if n := e.contar(`SELECT count(*) FROM mensajeria.avisos WHERE aviso_padre_id = $1 AND estado = 'bloqueado' AND motivo = 'limite_diario'`,
+		r.cuerpo["aviso_id"].(string)); n != 1 {
+		t.Fatal("la copia al número que ya recibió 3 avisos queda bloqueada por el límite diario")
+	}
+}

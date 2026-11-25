@@ -409,6 +409,22 @@ func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensa
 	if r == nil || !r.a.PermiteAvisos() || !r.a.Aprobada(p.Codigo) {
 		return nil
 	}
+	if len(ks) > 0 && plantillaConDatosTitular(r, p.Codigo) {
+		// La plantilla de Meta lleva datos del titular (nombre, código o plan): no sale a contactos.
+		// Queda en el historial del aviso; no es un fallo (pendiente del PM: plantilla neutra).
+		motivo := CopiasSinPlantillaContacto
+		if err := q.MarcarCopiasAviso(ctx, mensajeriabd.MarcarCopiasAvisoParams{ID: padre.ID, CopiasMotivo: &motivo}); err != nil {
+			return err
+		}
+		t.Anotar(map[string]any{"copias_contactos": motivo})
+		return nil
+	}
+	// 1. Elegir el número de cada contacto (el principal o el siguiente con permiso).
+	type destinoContacto struct {
+		contacto int64
+		numero   string
+	}
+	var destinos []destinoContacto
 	hecho := map[int64]bool{}
 	for _, k := range ks {
 		if hecho[k.ContactoID] {
@@ -419,18 +435,30 @@ func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensa
 			return err
 		}
 		if !ok {
-			// Sin permiso o con baja: se prueba el siguiente número del mismo contacto.
 			continue
 		}
 		hecho[k.ContactoID] = true
-		if err := q.BloquearAvisosNumero(ctx, mensajeriabd.BloquearAvisosNumeroParams{EmpresaID: padre.EmpresaID, Destino: k.Numero}); err != nil {
+		destinos = append(destinos, destinoContacto{contacto: k.ContactoID, numero: k.Numero})
+	}
+	// 2. Los candados de todos los números, en orden, antes de contar (sin bloqueo mutuo entre dos
+	// avisos que comparten números).
+	numeros := make([]string, 0, len(destinos))
+	for _, d := range destinos {
+		numeros = append(numeros, d.numero)
+	}
+	slices.Sort(numeros)
+	for _, n := range slices.Compact(numeros) {
+		if err := q.BloquearAvisosNumero(ctx, mensajeriabd.BloquearAvisosNumeroParams{EmpresaID: padre.EmpresaID, Destino: n}); err != nil {
 			return err
 		}
+	}
+	// 3. Las copias.
+	for _, d := range destinos {
 		id, err := uuid.NewV7()
 		if err != nil {
 			return err
 		}
-		numero, medio := k.Numero, CanalWhatsApp
+		numero, medio := d.numero, CanalWhatsApp
 		fila := base
 		fila.ID, fila.Origen, fila.IdempotencyKey, fila.HashPeticion, fila.Estado, fila.Motivo, fila.FinalizadoEn = id, "iris", nil, nil, EstadoEnCola, nil, nil
 		fila.Canal, fila.CanalID, fila.Remitente, fila.Destino, fila.ProgramadoEn = &medio, r.canalID, &r.remitente, &numero, nil
@@ -439,7 +467,12 @@ func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensa
 		if err != nil {
 			return err
 		}
-		if padre.Prioridad != "urgente" && n >= int64(m.cfg.LimiteDiario) {
+		// Urgente salta el límite diario, pero no el tope duro de un número.
+		limite := int64(m.cfg.LimiteDiario)
+		if padre.Prioridad == "urgente" {
+			limite = int64(m.cfg.LimiteDiario * TopeUrgenteNumero)
+		}
+		if n >= limite {
 			motivo := MotivoLimiteDiario
 			fila.Estado, fila.Motivo, fila.FinalizadoEn = EstadoBloqueado, &motivo, &ahora
 		} else {
@@ -451,7 +484,7 @@ func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensa
 			return err
 		}
 		if err := q.FijarAvisoContacto(ctx, mensajeriabd.FijarAvisoContactoParams{ID: a.ID, AvisoPadreID: pgtype.UUID{Bytes: padre.ID, Valid: true},
-			ContactoArgosID: &k.ContactoID}); err != nil {
+			ContactoArgosID: &d.contacto}); err != nil {
 			return err
 		}
 		t.RegistrarCambios("aviso", a.ID, nil, auditable(a))
@@ -468,6 +501,24 @@ func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensa
 		}
 	}
 	return nil
+}
+
+// CopiasSinPlantillaContacto: la plantilla de Meta del aviso lleva datos del titular; no hay copias.
+const CopiasSinPlantillaContacto = "sin_plantilla_contacto"
+
+// TopeUrgenteNumero: un aviso urgente salta el límite diario de un número de contacto, pero nunca
+// pasa de este múltiplo del límite.
+const TopeUrgenteNumero = 2
+
+// plantillaConDatosTitular: la plantilla de Meta de avisos para ese código lleva el nombre, el código o
+// el plan del titular.
+func plantillaConDatosTitular(r *resuelto, codigo string) bool {
+	if w, ok := r.a.(*whatsappCloud); ok {
+		if pm, ok := w.avisos[codigo]; ok {
+			return necesitaDatosCliente(pm)
+		}
+	}
+	return false
 }
 
 // numeroPuedeRecibir: el número de un contacto tiene permiso por número vigente (§6.4) y no pidió la
