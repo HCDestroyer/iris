@@ -185,6 +185,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	huma.Register(api, plant, func(ctx context.Context, in *EntradaPlantillas) (*cuerpo[ListaPlantillas], error) {
 		return responder(m.ListarPlantillas.Ejecutar(ctx, *in))
 	})
+	m.registrarPlantillasArgos(api)
 
 	huma.Register(api, op("listarCanalesMensajeria", http.MethodGet, "/canales", "Canales de mensajería configurados (sin credenciales)",
 		nucleo.PermMensajeriaConfigurar, http.StatusOK), func(ctx context.Context, _ *struct{}) (*cuerpo[ListaCanales], error) {
