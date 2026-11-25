@@ -170,6 +170,10 @@ Una tarea está terminada solo si:
 | `encuesta.respondida` | soporte (público) | encuesta_id, entidad, entidad_id, calificacion, alerta (true si ≤ 2) |
 | `encuesta.anulada` | soporte | encuesta_id, entidad (ticket), entidad_id, motivo (reabierto \| fusionado) |
 | `soporte.horus_descartado` | soporte (Horus) | evento, entrante_id, empresa_id (o null), motivo, detalle |
+| `soporte.posible_falla_general` | soporte (caídas de Argos) | ticket_id, empresa_id, tickets, agrupados |
+| `soporte.caidas_ajustes_cambiados` | soporte | empresa_id, campos[], caidas_umbral, caidas_ventana_min, falla_umbral, verificacion_horas |
+| `soporte.aviso_falla` | soporte (falla general) | incidente, empresa_id, cliente_id, tipo (apertura, cierre), ticket_id; nunca servicio ni dirección |
+| `soporte.verificacion_vencida` | soporte (falla general) | ticket_id, numero, empresa_id, asignado_a (o null) |
 | `correo.recibido` | soporte (worker de correo) | correo_id, buzon_id, estado, resultado (o null), ticket_id (o null), mensaje_id (o null), motivo (o null) |
 | `buzon.creado` / `buzon.actualizado` / `buzon.activado` / `buzon.desactivado` | soporte | buzon_id; correo (creado) |
 | `orden.creada` | campo | orden_id, tipo, ticket_id (o null), cliente_id, servicio_id, zona_id, origen (panel, api, argos, sistema, asistente) |
@@ -217,6 +221,9 @@ Una tarea está terminada solo si:
 | `argos.comprobante_resuelto` | integracion (argos, webhook de Argos) | comprobante_id, estado (aprobado, rechazado), empresa_id, cliente_id, servicio_id (o null), canal, pago_id (o null), servicio_estado (o null), entrante_id; es solo un aviso (sin monto, motivo ni causa) |
 | `argos.promesa_cambiada` | integracion (argos, webhooks promesa.*) | promesa_id, estado, tipo, empresa_id, cliente_id, servicio_id, comprobante_id (o null), canal, vence, motivo_reconexion (o null), motivo (cancelada), entrante_id; nunca el monto |
 | `argos.contactos_cambiados` | integracion (argos, webhook `cliente.contactos_cambiados`) | cliente_id, empresa_id (o null), contacto_id (o null), accion (creado, editado, quitado), persona_cliente_id (o null), entrante_id; nunca números ni nombres |
+| `argos.caidas_repetidas` | integracion (argos, webhook servicio.caidas_repetidas) | servicio_id, empresa_id, cliente_id (o null), router_id (o null), sesiones, ventana_minutos, desde, hasta, entrante_id |
+| `argos.falla_general_abierta` / `argos.falla_general_cerrada` | integracion (argos, webhooks red.falla_general_*) | incidente_id, empresa_id, alcance, alcance_id, desde, hasta (o null), entrante_id; servicios[] (los de la instantánea), descartados, por_verificar, paginando (abierta); nunca nombres ni direcciones |
+| `argos.falla_general_servicios` | integracion (argos, job argos.verificar_incidente) | incidente_id, empresa_id, entrante_id, servicios[] (verificados en Argos), descartados, no_verificados |
 | `argos.cuenta_bancaria_cambiada` | integracion (argos, webhook de Argos y relecturas) | cuenta_bancaria_id, empresa_id, campos[], activa, creada, entrante_id (o null); nunca el número de cuenta ni el titular |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
 | `argos.titular_cambiado` | integracion (argos, webhook servicio.titular_cambiado confirmado con Argos; B17) | servicio_id, empresa_id (o null), de_cliente_id (o null), a_cliente_id, de_cliente_eliminado, origen_tipo (o null), origen_id (o null), tipo_titular (persona, empresa), entrante_id; nunca el documento ni el motivo |

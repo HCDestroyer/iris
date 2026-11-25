@@ -94,6 +94,8 @@ type Modulo struct {
 	guardarCuentas *auditoria.Caso[lecturaCuentas, ResultadoCuentas]
 	// guardarContactos guarda en la caché los contactos leídos de Argos (§3.5).
 	guardarContactos *auditoria.Caso[entradaGuardarContactos, int]
+	// guardarVerificacion: una tanda de servicios de una falla general leídos en Argos (0.13.0 §3.11).
+	guardarVerificacion *auditoria.Caso[tandaVerificada, int]
 	// cargaCuentas y cargaBancos: la instantánea de cuentas y bancos (B5); nil = solo contar.
 	cargaCuentas, cargaBancos CargaCatalogoBancario
 	cfg                       Config
@@ -203,6 +205,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.DesactivarConector = m.nucleo.DesactivarConector
 	m.ListarConectores = m.nucleo.ListarConectores
 	m.ProcesarEntrante = nuevoProcesarEntrante(m)
+	m.guardarVerificacion = m.nuevoGuardarVerificacion()
 	m.BuscarClientes = nuevoBuscarClientes(m)
 	m.ObtenerFicha = nuevoObtenerFicha(m)
 	m.ResolverIP = nuevoResolverIP(m)

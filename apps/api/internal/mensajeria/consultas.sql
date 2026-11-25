@@ -279,3 +279,8 @@ WHERE empresa_id = @empresa_id AND destino = @destino::text AND created_at >= @d
 -- name: BloquearAvisosNumero :exec
 -- Serializa la cuenta del límite diario de un número de contacto.
 SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.aviso_numero:' || @empresa_id::bigint || ':' || @destino::text, 0));
+
+-- name: AvisoSistemaExiste :one
+-- Un aviso que pidió el sistema (sin usuario) con esa clave (el aviso de una falla general: uno por
+-- cliente, incidente y tipo, aunque el evento llegue dos veces).
+SELECT EXISTS (SELECT 1 FROM mensajeria.avisos WHERE usuario_id IS NULL AND idempotency_key = @idempotency_key::text)::boolean;

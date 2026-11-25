@@ -112,6 +112,11 @@ type argosFalso struct {
 	retryAfter map[string]string
 	// sso: autologin Iris → Argos (contrato 0.7.0 §1.3; contrato070_test.go).
 	sso ssoFalso
+	// incidentes: servicios de cada incidente de red por empresa («<incidente>:<empresa>»; contrato
+	// 0.13.0 §3.11, red_test.go). Sin entrada: 404.
+	incidentes map[string][]int64
+	// cursorFijo: el incidente devuelve siempre el mismo nextCursor (Argos con un error de paginación).
+	cursorFijo map[string]string
 }
 
 type usoToken struct {
@@ -174,6 +179,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	a.rutas050(mux)
 	a.rutas070(mux)
 	a.rutas080(mux)
+	mux.HandleFunc("GET /api/v1/incidentes-red/{id}/servicios", a.conToken(a.serviciosIncidente))
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 	return a
