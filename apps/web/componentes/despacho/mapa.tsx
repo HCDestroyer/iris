@@ -68,7 +68,7 @@ function estilo(oscuro: boolean): StyleSpecification {
                 type: "line",
                 source: "rutas",
                 filter: ["==", ["get", "id"], "propuesta"],
-                paint: { "line-color": token("--hx-primary", "#0f766e"), "line-width": 4, "line-opacity": 0.85 },
+                paint: { "line-color": token("--hx-primary", "#4f46e5"), "line-width": 4, "line-opacity": 0.85 },
                 layout: { "line-cap": "round", "line-join": "round" },
             },
             {
@@ -172,7 +172,7 @@ export function MapaDespacho({
         // Los tokens cambian con la clase .dark: se leen después de que next-themes la aplica.
         requestAnimationFrame(() => {
             if (mapa.current !== m) return;
-            m.setPaintProperty("ruta-propuesta", "line-color", token("--hx-primary", "#0f766e"));
+            m.setPaintProperty("ruta-propuesta", "line-color", token("--hx-primary", "#4f46e5"));
             m.setPaintProperty("ruta-real", "line-color", token("--hx-text-muted", "#6b7280"));
         });
     }, [oscuro, listo]);

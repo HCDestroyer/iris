@@ -123,8 +123,9 @@ test("cerrar sesión sin señal con pendientes: avisa, conserva solo la cola y n
     await empezarTrabajo(page);
     await page.getByRole("button", { name: "En camino" }).click();
     await declinarUbicacion(page);
-    // En un paso de la orden no hay isla: al resumen y de ahí «Yo».
+    // En un paso de la orden no hay isla, ni en el resumen (acción fija): a «Mis órdenes» y de ahí «Yo».
     await alResumen(page);
+    await page.getByRole("button", { name: "Mis órdenes" }).click();
     await pestanaCampo(page, "Yo");
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
     const aviso = page.getByText("Tienes 1 cambio sin enviar");

@@ -25,11 +25,19 @@ export async function abrirMenu(page: Page) {
     }
 }
 
-/** Cierra «Más» si está abierta. */
+/** Panel de la cuenta en el encabezado (escritorio): identidad, empresa, disponibilidad y tema. */
+export function panelCuenta(page: Page) {
+    return page.getByRole("dialog", { name: /^Tu cuenta/ });
+}
+
+/** Cierra «Más» (teléfono) o el panel de la cuenta (escritorio) si está abierto. */
 export async function cerrarMenu(page: Page) {
     if (esTelefono(page) && (await hojaMas(page).count()) > 0) {
         await page.keyboard.press("Escape");
         await expect(hojaMas(page)).toHaveCount(0);
+    } else if (!esTelefono(page) && (await panelCuenta(page).count()) > 0) {
+        await page.keyboard.press("Escape");
+        await expect(panelCuenta(page)).toHaveCount(0);
     }
 }
 
@@ -82,9 +90,14 @@ export async function abrirCuenta(page: Page) {
     }
 }
 
-/** Selector de la empresa activa (en el teléfono está en «Más»). */
+/** Selector de la empresa activa: en el teléfono está en «Más»; en escritorio, en el panel de la cuenta. */
 export async function selectorEmpresa(page: Page) {
-    await abrirMenu(page);
+    if (esTelefono(page)) {
+        await abrirMenu(page);
+    } else if ((await panelCuenta(page).count()) === 0) {
+        await page.getByRole("button", { name: /^Tu cuenta/ }).click();
+        await expect(panelCuenta(page)).toBeVisible();
+    }
     return page.getByLabel("Empresa activa").filter({ visible: true });
 }
 

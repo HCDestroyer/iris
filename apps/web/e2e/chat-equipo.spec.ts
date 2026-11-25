@@ -117,17 +117,17 @@ test.describe("chat del equipo", () => {
         const caja = await panel.boundingBox();
         if (!caja) throw new Error("sin panel");
         if (vista.width < 640) {
-            // Teléfono: a pantalla completa bajo la barra superior.
+            // Teléfono: a pantalla completa bajo el encabezado (3.75rem).
             expect(Math.round(caja.x)).toBe(0);
             expect(Math.round(caja.width)).toBe(vista.width);
-            expect(Math.round(caja.y)).toBe(56);
+            expect(Math.round(caja.y)).toBe(60);
             expect(Math.round(caja.y + caja.height)).toBe(vista.height);
         } else {
-            // Escritorio: tarjeta flotante de 380 px a 12 px de los bordes, con esquinas y sombra.
-            expect(Math.round(caja.width)).toBe(380);
-            expect(Math.round(vista.width - (caja.x + caja.width))).toBe(12);
-            expect(Math.round(caja.y)).toBe(56 + 12);
-            expect(Math.round(vista.height - (caja.y + caja.height))).toBe(12);
+            // Escritorio (rediseño): isla flotante de 470 px a 16 px de los bordes, con esquinas y sombra.
+            expect(Math.round(caja.width)).toBe(470);
+            expect(Math.round(vista.width - (caja.x + caja.width))).toBe(16);
+            expect(Math.round(caja.y)).toBe(16);
+            expect(Math.round(vista.height - (caja.y + caja.height))).toBe(16);
             const estilo = await panel.evaluate((n) => {
                 const e = getComputedStyle(n);
                 return { radio: Number.parseFloat(e.borderTopLeftRadius), sombra: e.boxShadow, borde: e.borderLeftWidth };
@@ -158,7 +158,8 @@ test.describe("chat del equipo", () => {
         for (const ancho of anchos) {
             if (ancho) await page.setViewportSize({ width: ancho, height: 800 });
             if (!(await panel.isVisible())) await botonChat(page).click();
-            if (await fila(page, CONV.ordenViva).isVisible()) await fila(page, CONV.ordenViva).click();
+            // Abre la conversación si todavía no está abierta (la lista puede tardar en llegar: se espera la fila).
+            if (!(await compositor(page).isVisible())) await fila(page, CONV.ordenViva).click();
             await compositor(page).fill(`Aviso a ${ancho ?? "teléfono"}`);
             await page.keyboard.press("Enter");
             const mensaje = page.locator("[data-mensaje]").filter({ hasText: `Aviso a ${ancho ?? "teléfono"}` });
@@ -243,7 +244,7 @@ test.describe("chat del equipo", () => {
         await fila(page, CONV.ordenViva).click();
         await expect(panel.getByRole("heading", { name: "OT-000005 · Mantenimiento" })).toBeVisible();
         await expect(panel.locator('[data-slot="franja-interno"]')).toContainText("Chat interno: el cliente no lo ve");
-        // Mensajes recibidos con nombre y rol; los propios en teal con «visto».
+        // Mensajes recibidos con nombre y rol; los propios en índigo con «visto».
         await expect(panel.getByText("Técnico asignado").first()).toBeVisible();
         await expect(panel.locator('[data-slot="estado-envio"]').filter({ hasText: "visto" })).toBeVisible();
         await panel.getByRole("button", { name: "Atrás" }).click();

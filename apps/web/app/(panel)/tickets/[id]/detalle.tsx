@@ -1,19 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import {
-    Aviso,
-    Boton,
-    cn,
-    Pestanas,
-    Esqueleto,
-    EstadoVacio,
-    InsigniaEstado,
-    Tarjeta,
-    TarjetaContenido,
-    TarjetaEncabezado,
-    TarjetaTitulo,
-} from "@iris/ui";
+import { Aviso, Boton, BotonManualPantalla, cn, Esqueleto, EstadoVacio, InsigniaEstado, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import {
     GitMerge,
     Lock,
@@ -242,9 +230,10 @@ function Detalle({ id }: { id: number }) {
                             )}
                             {verHorus ? <BotonVerEn enlace={verHorus} /> : null}
                         </div>
-                        <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em] break-words">
-                            {t.asunto}
-                        </h1>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                            <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em] break-words">{t.asunto}</h1>
+                            <BotonManualPantalla />
+                        </div>
                         <p className="text-sm text-muted-foreground">
                             {[
                                 t.contacto.nombre,
