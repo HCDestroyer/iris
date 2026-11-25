@@ -57,7 +57,7 @@ Las maquetas viven en el scratchpad de la sesión y se pierden con ella. Las pan
 - **21 nov, aprobado por el PM:** maqueta del rediseño (capturas en el scratchpad `rediseno-iris/`), logo en degradado índigo → cian y un manual dentro de Iris (botón «?» por pantalla → `/manual/<clave>`). Fase 1 (tokens, logo, componentes base, marco y app del técnico) en `agente/rediseno`, apilada sobre #272. Manual en `agente/manual`. Fase 2: pasar las 11 tablas a listas y las fichas a `FranjaFicha`.
 - **App del técnico:** casi todo es visual (colores, barra inferior flotante, tarjetas con «Cómo llegar» y «Continuar», pestañas Hoy/Mañana/Semana). La lógica y la sincronización no cambian.
 
-## Pausa (22 nov 2026, ~07:30 UTC)
+## Pausa (22 nov 2026, ~07:30 UTC) — terminó el 25 nov: el PM pidió retomar el rediseño y todo lo planificado
 
 El PM pausó Iris para darle prioridad a Argos. No hay agentes trabajando ni revisiones programadas. Al decir «continúa», retomar en este orden:
 
@@ -77,3 +77,16 @@ El PM pausó Iris para darle prioridad a Argos. No hay agentes trabajando ni rev
    - #282: integrar venta-b22 cuando #287 esté aprobada y reescribir `contactoDeGestion` (instrucciones ya enviadas).
    - #286: commit local sin subir `986c7a4` («wip: pausa») en el worktree contrato-09e. **No borrar ese worktree.** A1-ter escrito sin probar. Faltan M2 (`exige_por_anular`), los bajos 2, 5, 7, 8 y 9, las pruebas, el lint y el push.
 4. Pendientes del PM: aviso de «falla resuelta» con el tope de 6 h (#285), plantillas `falla_general` en Meta, maquetas (bodega, venta, portal, cobro por confirmar, cierre sin firma, contactos) y las respuestas que ya estaban abiertas.
+
+## Maquetas aprobadas (25 nov 2026)
+
+El PM aprobó las 7 maquetas (`scratchpad/maquetas-pendientes/`): bloques de la orden (activación, equipo, cobro, bienvenida), conciliar el cobro por confirmar, cerrar sin firma, `/wifi/{token}`, portal (evidencia, motivoPlan, ajuste), ficha del contacto y umbrales y falla general. Decisiones:
+- **Cambio de Wi-Fi desde el panel:** varias formas de verificar al titular, para no limitar: código de un solo uso al teléfono o correo registrado, desafío de datos del titular (§7.5) y presencial del técnico en sitio. Todas son métodos del §12.4.
+- **Por defecto del líder** (el PM no los cambió):
+  - señal con calificación y número (rangos de fábrica, configurables);
+  - `/wifi` con el nombre y el logo de la empresa;
+  - «Cerrar sin firma» como acción de peligro;
+  - reintentar la activación directo si no cambia nada;
+  - «Pide a un supervisor» para quien no confirma;
+  - decir qué dato no coincide si la API lo indica.
+- **Copias de avisos de cobro a contactos:** no salen mientras la plantilla lleve datos del titular. Pendiente del PM: una plantilla neutra aprobada en Meta.
