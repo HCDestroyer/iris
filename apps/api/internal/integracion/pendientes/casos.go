@@ -288,6 +288,17 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 			if err := nucleo.ExigirVersion(f.Version, in.Version, "pendiente", f.ID); err != nil {
 				return Pendiente{}, err
 			}
+			if orden, ok := ordenDePasoTitular(f); ok {
+				// B4: reintentar un paso del titular (§3.4.8) exige lo mismo que resolverlo a mano: un
+				// supervisor con ordenes.validar_identidad y alcance de su rol sobre la orden.
+				permitido, err := supervisaOrden(ctx, q, orden)
+				if err != nil {
+					return Pendiente{}, err
+				}
+				if !permitido {
+					return Pendiente{}, nucleo.Prohibido("Un paso del titular lo reintenta un supervisor con ordenes.validar_identidad sobre la orden")
+				}
+			}
 			switch {
 			case f.CargoTerminal:
 				// 0.14.3 §3: Argos no guarda la clave en un 4xx; reintentarla crearía la factura completa.
@@ -398,6 +409,13 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 		Accion: "integraciones.resolver_pendiente",
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaResolverManual) (Pendiente, error) {
 			q := pendientesbd.New(t)
+			// Orden de candados: la orden antes que el pendiente (resolverlo puede fijar o liberar un cargo
+			// que depende de él, con la línea de instalación decidida con la orden bloqueada).
+			if previo, err := q.PendientePorID(ctx, in.ID); err == nil {
+				if err := bloquearOrden(ctx, q, previo); err != nil {
+					return Pendiente{}, err
+				}
+			}
 			f, err := q.PendientePorIDParaActualizar(ctx, in.ID)
 			if err != nil {
 				return Pendiente{}, err
@@ -493,6 +511,19 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if in.Cargo == CargoLiberar {
 				// Un cargo que esperaba la confirmación del consumo (consumible_cobro) sale si se libera.
 				for _, c := range cargos {
+					// B2: con la orden bloqueada, vuelve a decidir la línea de instalación: con un cobro de A36
+					// de instalación vigente, el cargo no sale.
+					if err := bloquearOrden(ctx, q, c); err != nil {
+						return Pendiente{}, err
+					}
+					if _, motivo, err := lineaAlResolver(ctx, q, c, c.Payload); err != nil {
+						return Pendiente{}, err
+					} else if motivo != "" {
+						if err := fallarPorInstalacion(ctx, t, q, c, motivo); err != nil {
+							return Pendiente{}, err
+						}
+						continue
+					}
 					if err := q.LiberarEsperaConsumo(ctx, c.ID); err != nil {
 						return Pendiente{}, err
 					}

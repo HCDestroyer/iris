@@ -225,3 +225,17 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   clave cifrada se descarta y el intento de campo sigue con la nueva clave.
 - **Activado fuera de la orden:** solo la unidad que devuelve `GET /servicios/:id/equipo` cuenta como aprovisionada; el
   resto lleva comodato.
+
+## Orden de candados (cobro de la instalación)
+
+Siempre **la orden (`campo.ordenes` FOR UPDATE) y después el pendiente**, como el cierre y el registro de A36:
+encolar el cierre, reintentar, resolver a mano, conciliar, quitar la factura por anular, procesar un resultado
+con un cargo en juego (el propio o uno que depende de él) y la red de seguridad `resolverAtascados` (lee los ids
+sin candado y toma cada uno con `SKIP LOCKED` después de su orden). Un paso del titular sin cargos dependientes
+sigue tomando la orden FOR SHARE (#280); con un cargo en juego la toma FOR UPDATE desde el principio, para no
+subir el candado a mitad de la transacción. Antes de fijar o liberar el cuerpo de un cargo (marcadores, cliente
+del titular resuelto a mano, espera del consumo) se vuelve a decidir la línea de instalación (`lineaAlResolver`).
+
+**A36 y el titular (§3.4.8):** el cobro de A36 de una orden con pasos del titular vivos espera a esos pasos y va a
+nombre del titular final (`TrasElTitular`, la misma lógica que el cargo del cierre); con el cambio resuelto a mano
+sin cliente, 409 `titular_por_confirmar`.

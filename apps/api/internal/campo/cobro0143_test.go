@@ -662,3 +662,41 @@ func TestCargoPorResolverCuentaComoVigente(t *testing.T) {
 		_, _ = pruebas.Pool(t).Exec(context.Background(), "DELETE FROM campo.cobros WHERE orden_id = $1", o2.ID)
 	})
 }
+
+// M1: el cobro de A36 registrado con un cambio de titular pendiente sale después del titular, a nombre
+// del titular nuevo (§3.4.8); con el cambio resuelto a mano sin el cliente final, 409.
+func TestCobroA36EsperaAlTitular(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	tec, ct := e.tecnicoEnEmpresa()
+	cobro := func(o campo.Orden) (campo.Cobro, error) {
+		return e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID, ConceptoID: ptr(int64(5)), PrecioUnitario: ptr("350"),
+			MotivoPrecio: ptr("Cobro de la instalación acordado")})
+	}
+	o := e.instalacion(tec, ct, true)
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o.ID, datosCambioTitular())), "aplicada")
+	c := deber(cobro(o))(t)
+	clave := "iris:cargo:" + strconv.FormatInt(o.ID, 10) + ":" + c.ID.String()
+	if p := e.pendienteDe(clave); len(p.DependeDe) == 0 {
+		t.Fatalf("el cobro espera al titular: %+v", p)
+	}
+	e.procesar()
+	l := e.falso.porClave(clave)
+	if l == nil || l.JSON["cliente_id"] != 777.0 {
+		t.Fatalf("cobro al titular nuevo: %+v", l)
+	}
+
+	// Reintentar un paso del titular sin alcance sobre la orden: 403 (B4).
+	o2 := e.instalacion(tec, ct, true)
+	e.falso.rechazar("/cambiar-titular", "servicio_no_pendiente")
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o2.ID, datosCambioTitular())), "aplicada")
+	e.procesar()
+	pt := e.pendienteDe("iris:titular:" + strconv.FormatInt(o2.ID, 10) + ":1")
+	sinAlcance := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), e.sup, 1, nucleo.PermIntegracionesReintentar)
+	_, err := e.pend.Reintentar.Ejecutar(sinAlcance, pendientes.EntradaReintentar{ID: pt.ID, Version: pt.Version})
+	problema(t, err, 403, "prohibido")
+	// Resuelto a mano sin el cliente final: el cobro no puede salir.
+	deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: pt.Version, Motivo: "Lo corregí en Argos a mano"}))(t)
+	_, err = cobro(o2)
+	problema(t, err, 409, "titular_por_confirmar")
+}

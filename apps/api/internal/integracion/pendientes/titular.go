@@ -450,6 +450,17 @@ func titularAManoEnDependientes(ctx context.Context, t *auditoria.Tx, f pendient
 		if tieneMarcadores(nuevo) {
 			return nil, fmt.Errorf("pendientes: el cargo %d tiene otros marcadores", d.ID)
 		}
+		// B1: con la orden bloqueada, la línea de instalación se vuelve a decidir antes de fijar el cuerpo.
+		nuevo, motivo, err := lineaAlResolver(ctx, q, d, nuevo)
+		if err != nil {
+			return nil, err
+		}
+		if motivo != "" {
+			if err := fallarPorInstalacion(ctx, t, q, d, motivo); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		g, err := q.FijarClienteCargo(ctx, pendientesbd.FijarClienteCargoParams{Payload: nuevo, Ahora: ahora, ID: d.ID})
 		if err != nil {
 			return nil, err

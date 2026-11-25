@@ -328,16 +328,31 @@ func mismaEmpresa(a, b *int64) bool {
 // resolverAtascados es la red de seguridad del job: resuelve los por resolver cuyas
 // dependencias ya están todas hechas. Devuelve cuántos tocó.
 func resolverAtascados(ctx context.Context, t *auditoria.Tx, ahora time.Time) (int, error) {
-	filas, err := pendientesbd.New(t).PorResolverListos(ctx, 200)
+	q := pendientesbd.New(t)
+	// B3, orden de candados: los ids sin candado; para cada uno, la orden y luego el pendiente (SKIP
+	// LOCKED), volviendo a comprobar su estado.
+	ids, err := q.PorResolverListosSinCandado(ctx, 200)
 	if err != nil {
 		return 0, err
 	}
-	for _, f := range filas {
-		if _, err := resolverSiListo(ctx, t, f, ahora); err != nil {
-			return 0, err
+	n := 0
+	for _, r := range ids {
+		if err := bloquearOrden(ctx, q, pendientesbd.IntegracionPendiente{Entidad: r.Entidad, EntidadID: r.EntidadID}); err != nil {
+			return n, err
 		}
+		f, err := q.TomarPorResolverListo(ctx, r.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return n, err
+		}
+		if _, err := resolverSiListo(ctx, t, f, ahora); err != nil {
+			return n, err
+		}
+		n++
 	}
-	return len(filas), nil
+	return n, nil
 }
 
 // CompletarEsperando fija el cuerpo final de un pendiente que esperaba algo de Iris (Accion.Esperando

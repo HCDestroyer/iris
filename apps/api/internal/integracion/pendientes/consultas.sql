@@ -494,3 +494,33 @@ SELECT estado FROM campo.ordenes WHERE id = @id::bigint FOR SHARE;
 -- La zona, la cuadrilla y el técnico de la orden: resolver a mano un paso del titular exige
 -- ordenes.validar_identidad con alcance sobre ella (como campo).
 SELECT zona_id, cuadrilla_id, tecnico_id FROM campo.ordenes WHERE id = @id::bigint;
+
+-- name: PorResolverListosSinCandado :many
+-- Los ids de PorResolverListos, sin candado: cada uno se toma después de bloquear su orden (orden de
+-- candados: la orden y luego el pendiente).
+SELECT p.id, p.entidad, p.entidad_id, p.operacion FROM integracion.pendientes p
+WHERE p.por_resolver AND p.estado IN ('pendiente', 'bloqueado')
+  AND NOT EXISTS (
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+ORDER BY p.id
+LIMIT @limite;
+
+-- name: TomarPorResolverListo :one
+-- Vuelve a comprobar el estado con el candado (SKIP LOCKED: otro worker ya lo está resolviendo).
+SELECT p.* FROM integracion.pendientes p
+WHERE p.id = @id AND p.por_resolver AND p.estado IN ('pendiente', 'bloqueado')
+  AND NOT EXISTS (
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+FOR UPDATE OF p SKIP LOCKED;
+
+-- name: HayCargoDependiente :one
+SELECT EXISTS (SELECT 1 FROM integracion.pendientes WHERE @id::bigint = ANY (depende_de) AND operacion = 'cargo')::boolean;
+
+-- name: FallarCargoPorInstalacion :one
+-- El cargo llevaría la línea de instalación con otro cobro vigente con ella: no sale (incompleto,
+-- visible al supervisor).
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, espera_consumo = false,
+    ultimo_error = @motivo::text, codigo_error = 'cobro_a36_vigente', version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;

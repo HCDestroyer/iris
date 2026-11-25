@@ -989,3 +989,61 @@ func lineaAlResolver(ctx context.Context, q *pendientesbd.Queries, f pendientesb
 	b, err := json.Marshal(base)
 	return b, "", err
 }
+
+// ErrTitularPorConfirmar: el último cambio de titular de la orden se resolvió a mano sin indicar el
+// cliente final: el cobro no puede salir (iría al cliente equivocado).
+var ErrTitularPorConfirmar = errors.New("pendientes: titular resuelto a mano sin cliente")
+
+// TrasElTitular: para un cobro de la orden que nace después del cierre (A36), los pasos del titular de
+// los que depende (§3.4.8: el cobro sale después de confirmar el titular) y a qué cliente va, con la
+// misma lógica que el cargo del cierre (despuesDelTitular): el titular.cliente_id de la respuesta del
+// último cambiar_titular vivo (un marcador), el cliente que indicó quien lo resolvió a mano, o nil
+// (el de la orden) si no hay cambio de titular. Un cambio resuelto a mano sin cliente:
+// ErrTitularPorConfirmar.
+func TrasElTitular(ctx context.Context, q pendientesbd.DBTX, orden string) ([]int64, any, error) {
+	pasos, err := pendientesbd.New(q).PasosTitularDeOrden(ctx, orden)
+	if err != nil {
+		return nil, nil, err
+	}
+	ids := []int64{}
+	titular := -1
+	var aMano *pendientesbd.IntegracionPendiente
+	for i, p := range pasos {
+		if p.Estado == EstadoResueltoManual {
+			if p.Operacion == OpCambiarTitular && (p.ResueltoComo == nil || *p.ResueltoComo == ComoManual) {
+				titular, aMano = -1, &pasos[i]
+			}
+			continue
+		}
+		ids = append(ids, p.ID)
+		if p.Operacion == OpCambiarTitular {
+			titular, aMano = len(ids)-1, nil
+		}
+	}
+	switch {
+	case aMano != nil && aMano.ResueltoClienteID == nil:
+		return nil, nil, ErrTitularPorConfirmar
+	case aMano != nil:
+		return ids, *aMano.ResueltoClienteID, nil
+	case titular >= 0:
+		return ids, Ref(titular, "titular.cliente_id"), nil
+	}
+	return ids, nil, nil
+}
+
+// fallarPorInstalacion deja el cargo fallido e incompleto (no sale) porque llevaría la línea de
+// instalación con otro cobro vigente con ella; avisa y bloquea lo que dependa de él.
+func fallarPorInstalacion(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries, d pendientesbd.IntegracionPendiente, motivo string) error {
+	g, err := q.FallarCargoPorInstalacion(ctx, pendientesbd.FallarCargoPorInstalacionParams{Motivo: motivo, ID: d.ID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	t.RegistrarCambios("pendiente", g.ID, map[string]any{"estado": d.Estado}, map[string]any{"estado": g.Estado, "codigo_error": "cobro_a36_vigente"})
+	if err := t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(g), Intentos: g.Intentos, Detalle: motivo}); err != nil {
+		return err
+	}
+	return bloquearDependientes(ctx, t, g.ID, g.Estado)
+}

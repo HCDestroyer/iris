@@ -261,18 +261,36 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			if descripcion != nil {
 				linea["descripcion"] = *descripcion
 			}
-			cuerpo, err := json.Marshal(map[string]any{"servicio_id": *f.ServicioID, "cliente_id": *f.ClienteID, "lineas": []any{linea},
+			// §3.4.8: el cobro sale después de confirmar el titular, a nombre del titular final.
+			depende, cliente, err := pendientes.TrasElTitular(ctx, t, strconv.FormatInt(f.ID, 10))
+			if errors.Is(err, pendientes.ErrTitularPorConfirmar) {
+				return Cobro{}, nucleo.Conflicto("titular_por_confirmar",
+					"El cambio de titular se resolvió a mano sin indicar el cliente final: confírmalo antes de cobrar")
+			}
+			if err != nil {
+				return Cobro{}, err
+			}
+			if cliente == nil {
+				cliente = *f.ClienteID
+			}
+			cuerpo, err := json.Marshal(map[string]any{"servicio_id": *f.ServicioID, "cliente_id": cliente, "lineas": []any{linea},
 				"origen_tipo": pendientes.OrigenTipo, "origen_id": strconv.FormatInt(f.ID, 10)})
 			if err != nil {
 				return Cobro{}, err
 			}
 			reg, creado, err := pendientes.Encolar(ctx, t, pendientes.Accion{
 				EmpresaID: f.EmpresaID, Operacion: pendientes.OpCargo, IdempotencyKey: clave, Entidad: "orden",
-				EntidadID: strconv.FormatInt(f.ID, 10), Ruta: "/facturas/cargo-unico", Cuerpo: cuerpo, Desde: m.ahora(),
+				EntidadID: strconv.FormatInt(f.ID, 10), Ruta: "/facturas/cargo-unico", Cuerpo: cuerpo, DependeDe: depende, Desde: m.ahora(),
 				Actor: pendientes.ActorUsuario(a.ID),
 			}, m.cfg.Titular.Encolar)
 			if err != nil {
 				return Cobro{}, err
+			}
+			if len(depende) > 0 && reg.Estado == pendientes.EstadoPendiente {
+				// Un paso del titular ya rechazado o agotado: el cobro nace bloqueado (visible).
+				if err := pendientes.BloquearSiDependenciaFallida(ctx, t, depende); err != nil {
+					return Cobro{}, err
+				}
 			}
 			if !creado {
 				return Cobro{}, errors.New("campo: la clave del cobro ya existía")

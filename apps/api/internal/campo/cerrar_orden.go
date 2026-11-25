@@ -114,6 +114,21 @@ func supervisaOrden(ctx context.Context, f campobd.CampoOrden) bool {
 	return global || (f.ZonaID != nil && slices.Contains(zonas, *f.ZonaID)) || (f.CuadrillaID != nil && slices.Contains(cuadrillas, *f.CuadrillaID))
 }
 
+// alcanceDeRol: el permiso con el alcance de su rol sobre la orden (global, su zona o su cuadrilla),
+// nunca por ser el técnico asignado («propia»).
+func alcanceDeRol(ctx context.Context, perm nucleo.Permiso, f campobd.CampoOrden) bool {
+	a := contexto.ActorDe(ctx)
+	if !a.EsUsuario() || (f.TecnicoID != nil && *f.TecnicoID == a.ID) {
+		return false
+	}
+	p := contexto.PermisosDe(ctx)
+	if !p.Tiene(string(perm)) {
+		return false
+	}
+	global, zonas, cuadrillas := p.Alcances(string(perm))
+	return global || (f.ZonaID != nil && slices.Contains(zonas, *f.ZonaID)) || (f.CuadrillaID != nil && slices.Contains(cuadrillas, *f.CuadrillaID))
+}
+
 // cierreIncompleto: faltan requisitos de la plantilla o del tipo (422 con la lista).
 func cierreIncompleto(errores []nucleo.ErrorCampo) *nucleo.Problema {
 	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "cierre_incompleto", "Cierre incompleto",
@@ -185,7 +200,7 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			}
 			// Activación desde la orden (0.9.0 §12.2): con «exigir lista», la activación lista (o un
 			// supervisor con motivo); en cualquier modo, lo que el cierre le dice a la cola.
-			act, err := m.activacionAlCerrar(ctx, t, q, antes, tipo.Codigo, resultado, in.SinActivacionMotivo)
+			act, err := m.activacionAlCerrar(ctx, t, q, antes, tipo.Codigo, resultado, in.SinActivacionMotivo, in.Sync != nil)
 			if err != nil {
 				return antes, "", err
 			}

@@ -1061,7 +1061,7 @@ func mismoEquipo(a campobd.CampoActivacione, e map[string]any) bool {
 //     enviada porque el cliente no acepta avisos (422 bienvenida_requerida);
 //   - pendiente_agente: cierra sin ella; un agente la termina desde el panel.
 func (m *Modulo) activacionAlCerrar(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f campobd.CampoOrden, tipo, resultado string,
-	motivo *string) (activacionCierre, error) {
+	motivo *string, porSync bool) (activacionCierre, error) {
 	r := activacionCierre{instalacion: tipo == tipoInstalacion, estado: ActivacionNinguna}
 	if !r.instalacion {
 		return r, nil
@@ -1123,8 +1123,10 @@ func (m *Modulo) activacionAlCerrar(ctx context.Context, t *auditoria.Tx, q *cam
 		}
 		return r, nucleo.ReglaNegocio("activacion_requerida", "La empresa exige la activación lista para cerrar la instalación como exitosa (o un supervisor con motivo)")
 	}
-	if !cubre(ctx, nucleo.PermOrdenesCerrarSinActivacion, f) {
-		return r, fueraDeAlcance("Cerrar sin la activación lista lo hace un supervisor (ordenes.cerrar_sin_activacion)")
+	// B5: solo un supervisor desde el panel (nunca por sync), con el alcance de su rol sobre la orden
+	// (sin «propia»), como motivoSinContratoFirmado.
+	if porSync || !alcanceDeRol(ctx, nucleo.PermOrdenesCerrarSinActivacion, f) {
+		return r, nucleo.Prohibido("Cerrar sin la activación lista lo hace un supervisor desde el panel (ordenes.cerrar_sin_activacion sobre la orden)")
 	}
 	if utf8.RuneCountInString(*m2) < 10 {
 		return r, campoInvalido("sinActivacionMotivo", "Escribe el motivo (10 a 500 caracteres)", "minLength")
