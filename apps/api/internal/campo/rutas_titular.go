@@ -38,6 +38,22 @@ func (m *Modulo) registrarTitular(api huma.API) {
 			"identidad ni otro titular (422 `titular_en_revision`). No manda nada a Argos. 409 `sin_revision`. Emite `orden.revision_titular_levantada`.",
 		nucleo.PermOrdenesValidarIdentidad), m.Titular.LevantarRevision.Ejecutar, func(e *EntradaLevantarRevision, id int64) { e.ID = id })
 
+	// Desde el panel (§3.4, «Quién»): completar datos y cambiar el plan, fuera del lote. La identidad y
+	// el cambio de titular solo se toman en sitio (lote), con la foto del documento.
+	registrarAccion(api, accion("completarDatosOrden", "completar-datos", "Completar los datos del titular y del lugar desde el panel",
+		"Despacho o supervisor con `ordenes.completar_datos` y alcance sobre la orden, en una instalación no terminada con el servicio "+
+			"pendiente en Argos; con `version` (409 si cambió) e `Idempotency-Key`. Encola A43 detrás de la identidad o del cambio de titular, como "+
+			"`orden.completar_datos` del lote. Teléfono, correo y NIT/CUI van solo al depósito de tránsito (`***` en la auditoría). 422 "+
+			"`orden_no_es_instalacion`, `argos_sin_conector`, `transicion_invalida`. Emite `orden.datos_completados`.",
+		nucleo.PermOrdenesCompletarDatos), m.Titular.CompletarDatos.Ejecutar, func(e *EntradaCompletarDatos, id int64) { e.ID = id })
+
+	registrarAccion(api, accion("cambiarPlanOrden", "cambiar-plan", "Cambiar el plan de una instalación desde el panel",
+		"Despacho o supervisor con `ordenes.cambiar_plan` y alcance sobre la orden, en una instalación no terminada con el servicio "+
+			"pendiente en Argos; con `version` (409 si cambió) e `Idempotency-Key`. Uno de los planes permitidos (Argos lo vuelve a comprobar: "+
+			"`plan_no_permitido`), con motivo. Encola A40 en orden, como `orden.cambiar_plan` del lote; al quedar hecho, la venta (si es de Iris) "+
+			"tiene una cotización nueva y un contrato regenerado, y el vendedor recibe aviso. Emite `orden.cambio_plan_registrado`.",
+		nucleo.PermOrdenesCambiarPlan), m.Titular.CambiarPlan.Ejecutar, func(e *EntradaCambiarPlan, id int64) { e.ID = id })
+
 	for _, v := range datosTitularLote {
 		api.OpenAPI().Components.Schemas.Schema(reflect.TypeOf(v), true, "")
 	}

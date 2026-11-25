@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { AvatarUsuario, Boton, cn, Esqueleto, InsigniaEstado, Tarjeta } from "@iris/ui";
+import { AvatarUsuario, BarraProgreso, Boton, BotonManualPantalla, cn, Esqueleto, InsigniaEstado, Medidor, Tarjeta } from "@iris/ui";
 import { ChevronRight, ClipboardList, Inbox, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -77,7 +77,10 @@ export function Inicio() {
         <div className="grid gap-4 [&>*]:min-w-0">
             <div className="flex flex-wrap items-end justify-between gap-3">
                 <div className="grid gap-1">
-                    <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Hola, {nombre}</h1>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                        <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Hola, {nombre}</h1>
+                        <BotonManualPantalla />
+                    </div>
                     <p className="text-sm text-muted-foreground first-letter:uppercase">
                         {etiquetaDiaLarga(hoy)}
                         {actualizado ? ` · actualizado ${haceCuanto(actualizado, ahora)}` : ""}
@@ -506,7 +509,6 @@ function EquipoHoy({
                 <ul aria-label="Técnicos" className="grid gap-0.5 py-1.5">
                     {filas.slice(0, 8).map((f) => {
                         const e = ESTADOS_TECNICO[f.estado];
-                        const pct = f.total > 0 ? Math.round((f.terminadas / f.total) * 100) : 0;
                         return (
                             <li
                                 key={f.usuarioId}
@@ -522,16 +524,7 @@ function EquipoHoy({
                                             {f.total > 0 ? `${f.terminadas} de ${f.total}` : "—"}
                                         </span>
                                     </span>
-                                    <span
-                                        role="progressbar"
-                                        aria-label={`Avance de ${f.nombre}`}
-                                        aria-valuemin={0}
-                                        aria-valuemax={f.total}
-                                        aria-valuenow={f.terminadas}
-                                        className="h-1.5 overflow-hidden rounded-full bg-elevated"
-                                    >
-                                        <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
-                                    </span>
+                                    <BarraProgreso valor={f.terminadas} maximo={f.total} etiqueta={`Avance de ${f.nombre}`} textoValor={f.total > 0 ? `${f.terminadas} de ${f.total}` : "Sin órdenes hoy"} />
                                 </span>
                                 <InsigniaEstado tono={e.tono} icono={e.icono} texto={e.texto} />
                             </li>
@@ -632,16 +625,7 @@ function SlaPorCategoria({ sla }: { sla: Lectura<Schema<"ReporteSLA"> | null> })
                                     className="grid grid-cols-[minmax(0,8.75rem)_minmax(0,1fr)_2.75rem] items-center gap-2.5 text-[0.8125rem] font-medium"
                                 >
                                     <span className="truncate">{c.categoria ?? "Sin categoría"}</span>
-                                    <span
-                                        role="meter"
-                                        aria-label={`SLA cumplido en ${c.categoria ?? "Sin categoría"}`}
-                                        aria-valuemin={0}
-                                        aria-valuemax={100}
-                                        aria-valuenow={pct}
-                                        className="h-2 overflow-hidden rounded-full bg-elevated"
-                                    >
-                                        <span className="block h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
-                                    </span>
+                                    <Medidor parte={pct / 100} etiqueta={`SLA cumplido en ${c.categoria ?? "Sin categoría"}`} texto={`${pct} %`} claseRiel="h-2" />
                                     <span className="text-right font-semibold tabular-nums">{pct} %</span>
                                 </li>
                             );

@@ -20,10 +20,10 @@ import { CircleCheck } from "lucide-react";
 
 const leer = (ruta: string) => readFileSync(fileURLToPath(new URL(ruta, import.meta.url)), "utf8");
 
-describe("tema Horus para HeroUI", () => {
+describe("tema de Iris para HeroUI", () => {
     const tema = leer("./estilos/tema-heroui.css");
 
-    it("cada color que usan los componentes de HeroUI apunta a un token de Horus", () => {
+    it("cada color que usan los componentes de HeroUI apunta a un token de Iris (o a su alias de Horus)", () => {
         const requeridas = [
             "accent",
             "accent-foreground",
@@ -48,35 +48,59 @@ describe("tema Horus para HeroUI", () => {
         for (const nombre of requeridas) {
             const declaracion = new RegExp(`--${nombre}:\\s*([^;]+);`).exec(tema);
             expect(declaracion, `falta --${nombre}`).not.toBeNull();
-            expect(declaracion?.[1], `--${nombre} no usa un token --hx-*`).toContain("--hx-");
+            expect(declaracion?.[1], `--${nombre} no usa un token --iris-* ni --hx-*`).toMatch(/--(iris|hx)-/);
         }
     });
 
-    it("la marca es un solo color: accent y focus son el teal de Horus", () => {
-        expect(tema).toMatch(/--accent:\s*var\(--hx-primary\);/);
-        expect(tema).toMatch(/--focus:\s*var\(--hx-primary\);/);
+    it("la marca es el índigo de Iris: accent, focus y link son el primario; el suave es índigo tenue", () => {
+        expect(tema).toMatch(/--accent:\s*var\(--iris-primario\);/);
+        expect(tema).toMatch(/--accent-foreground:\s*var\(--iris-sobre-primario\);/);
+        expect(tema).toMatch(/--focus:\s*var\(--iris-primario\);/);
+        expect(tema).toMatch(/--link:\s*var\(--iris-primario\);/);
+        expect(tema).toMatch(/--accent-soft:\s*var\(--iris-primario-suave\);/);
+    });
+
+    it("ningún teal queda en el tema, los tokens ni los alias de Horus", () => {
+        const tokens = leer("./estilos/iris-tokens.css");
+        for (const teal of ["#0f766e", "#115e59", "#2dd4bf", "#14b8a6", "#042f2e", "#0d9488"]) {
+            expect(tema.toLowerCase()).not.toContain(teal);
+            expect(tokens.toLowerCase()).not.toContain(teal);
+        }
+        // Cada color de Horus que usa el código apunta a su token de Iris.
+        for (const [hx, iris] of [
+            ["primary", "primario"],
+            ["on-primary", "sobre-primario"],
+            ["bg-muted", "fondo"],
+            ["card", "tarjeta"],
+            ["border", "borde"],
+            ["text", "texto"],
+        ]) {
+            expect(tokens).toMatch(new RegExp(`--hx-${hx}:\\s*var\\(--iris-${iris}\\);`));
+        }
     });
 
     it("sin colores crudos: ningún hexadecimal en el tema", () => {
         expect(tema).not.toMatch(/#[0-9a-f]{3,8}\b/i);
     });
 
-    it("estilos.css importa HeroUI, luego los tokens y luego el tema (en ese orden)", () => {
+    it("estilos.css importa HeroUI, luego los tokens de Horus, los de Iris y el tema (en ese orden)", () => {
         const estilos = leer("./estilos/estilos.css");
         const heroui = estilos.indexOf('@import "@heroui/styles"');
         const tokens = estilos.indexOf('@import "./horus-tokens.css"');
+        const iris = estilos.indexOf('@import "./iris-tokens.css"');
         const temaHeroui = estilos.indexOf('@import "./tema-heroui.css"');
         expect(heroui).toBeGreaterThanOrEqual(0);
         expect(tokens).toBeGreaterThan(heroui);
-        expect(temaHeroui).toBeGreaterThan(tokens);
+        expect(iris).toBeGreaterThan(tokens);
+        expect(temaHeroui).toBeGreaterThan(iris);
         // `muted` es de HeroUI (texto atenuado): Iris no lo redefine como fondo.
         expect(estilos).not.toMatch(/--color-muted:/);
     });
 
-    it("lo flotante es sólido: superficie opaca de Horus, sin vidrio ni desenfoque, y telón oscurecido", () => {
-        // Claro: la tarjeta (blanca y opaca). Oscuro: la superficie elevada (opaca).
-        expect(tema).toMatch(/--overlay:\s*var\(--hx-card\);/);
-        expect(tema).toMatch(/\.dark,\s*\[data-theme="dark"\]\s*\{\s*--overlay:\s*var\(--hx-bg-elevated\);/);
+    it("lo flotante es sólido: `--iris-flotante`, sin vidrio ni desenfoque, y telón oscurecido", () => {
+        // Blanco en claro, #18203A en oscuro (los dos opacos; el token cambia con el tema).
+        expect(tema).toMatch(/--overlay:\s*var\(--iris-flotante\);/);
+        expect(tema).toMatch(/--backdrop:\s*var\(--iris-telon\);/);
         expect(tema).not.toMatch(/--overlay:\s*var\(--hx-glass/);
         expect(tema).not.toMatch(/blur\(/);
         expect(tema).toMatch(/\.modal__backdrop,\s*\.alert-dialog__backdrop,\s*\.drawer__backdrop\s*\{\s*background-color:\s*var\(--backdrop\);/);
@@ -100,7 +124,7 @@ describe("tema Horus para HeroUI", () => {
 });
 
 describe("componentes de siempre, por dentro HeroUI", () => {
-    it("Boton es un <button> nativo con las clases de HeroUI y el radio de Horus", () => {
+    it("Boton es un <button> nativo con las clases de HeroUI, en píldora", () => {
         const html = renderToStaticMarkup(
             <Boton title="Guardar cambios" data-testid="g">
                 Guardar
@@ -108,7 +132,7 @@ describe("componentes de siempre, por dentro HeroUI", () => {
         );
         expect(html).toMatch(/^<button[^>]*type="button"/);
         expect(html).toContain("button--primary");
-        expect(html).toContain("rounded-md");
+        expect(html).toContain("rounded-full");
         expect(html).toContain('title="Guardar cambios"');
         expect(html).toContain('data-testid="g"');
         expect(html).toContain('data-slot="boton"');
@@ -131,6 +155,13 @@ describe("componentes de siempre, por dentro HeroUI", () => {
         expect(variantesBoton({ variante: "fantasma", tamano: "icono" })).toContain("button--icon-only");
         expect(variantesBoton({ variante: "peligro" })).toContain("text-error");
         expect(variantesBoton({ variante: "secundario", tamano: "sm" })).toContain("button--sm");
+        // «suave»: el relleno índigo tenue del rediseño, con texto índigo.
+        const suave = variantesBoton({ variante: "suave" });
+        expect(suave).toContain("button--secondary");
+        expect(suave).toContain("[--button-bg:var(--iris-primario-suave)]");
+        expect(suave).toContain("[--button-fg:var(--iris-primario-texto)]");
+        // Quien necesita otra forma pasa su `rounded-*` y gana.
+        expect(renderToStaticMarkup(<Boton className="rounded-lg">x</Boton>)).not.toContain("rounded-full");
     });
 
     it("Boton asChild pasa estilo y props al hijo (p. ej. un enlace)", () => {
@@ -156,9 +187,12 @@ describe("componentes de siempre, por dentro HeroUI", () => {
         expect(unidas.className).toBe("a b");
     });
 
-    it("Campo usa el Input de HeroUI y conserva etiqueta, ayuda y error enlazados", () => {
+    it("Campo es el TextField de HeroUI con su Input y conserva etiqueta, ayuda y error enlazados", () => {
         const html = renderToStaticMarkup(<Campo id="c" etiqueta="Correo" error="Escribe un correo" ayuda="El de trabajo" />);
+        expect(html).toMatch(/data-slot="textfield"|data-slot="campo"/);
+        expect(html).toMatch(/class="[^"]*\btextfield\b/);
         expect(html).toMatch(/<label[^>]*for="c"/);
+        expect(html).toMatch(/<input[^>]*id="c"/);
         expect(html).toMatch(/<input[^>]*class="[^"]*\binput\b/);
         expect(html).toMatch(/<input[^>]*aria-invalid="true"/);
         expect(html).toMatch(/<input[^>]*aria-describedby="c-ayuda c-error"/);

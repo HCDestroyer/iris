@@ -12,7 +12,7 @@ describe("quién atiende la conversación (franja)", () => {
         expect(puntoAtencion(undefined)).toBeNull();
     });
 
-    it("el asistente atiende: en teal, con «Pausar» y «Tomar»", () => {
+    it("el asistente atiende: en índigo, con «Pausar» y «Tomar»", () => {
         expect(franjaAtencion(con({ atiende: true }), AHORA)).toMatchObject({ estado: "atiende", tono: "marca", texto: "El asistente atiende esta conversación", acciones: ["pausar", "tomar"] });
     });
 

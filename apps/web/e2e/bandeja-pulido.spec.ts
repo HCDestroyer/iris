@@ -598,14 +598,20 @@ test.describe("bandeja › adjuntos: revisión de la PR", () => {
 
     test("«La atiendo» de otra conversación con una subida en curso: pregunta, y al salir corta la subida, no envía nada y el comentario queda de borrador", async ({ page }) => {
         test.skip(esTelefono(page), "En el teléfono la lista no se ve con una conversación abierta: se sale por el enlace «Volver» (cubierto arriba).");
-        const { api, adjuntos } = await abrir(page, undefined, {}, { demoraParteMs: 700 });
+        // Las partes quedan retenidas hasta salir: la subida sigue en curso aunque la máquina vaya lenta
+        // (con una demora fija, una máquina cargada alcanzaba a terminar el primer archivo y enviar el
+        // comentario con él antes de «Salir»).
+        const { api, adjuntos } = await abrir(page, undefined, {}, { retenerPartes: true });
         const tamano = 2_000_000; // 4 partes
         await compositor(page)
             .locator('input[data-archivos="fotos"]')
             .setInputFiles([{ name: "plano.png", mimeType: "image/png", buffer: Buffer.concat([png(30, 30), Buffer.alloc(tamano - png(30, 30).length, 3)]) }, foto("otra.png")]);
         await caja(page).fill("Comentario que no debe perderse");
+        const primeraParte = page.waitForRequest((r) => r.method() === "PATCH" && /\/adjuntos\/[0-9a-f-]{36}\/subida$/.test(r.url()));
         await compositor(page).getByRole("button", { name: /^Enviar/ }).click();
         await expect(vista(page).locator("[data-archivo]").first()).toHaveAttribute("data-estado", "subiendo");
+        // La primera parte ya salió y queda retenida: la subida está en vuelo.
+        const enVuelo = await primeraParte;
         // Desde la lista, «La atiendo» de otra conversación (cambia por código, sin enlace).
         const atender = page.getByRole("button", { name: /^La atiendo/ }).first();
         await atender.click();
@@ -624,8 +630,11 @@ test.describe("bandeja › adjuntos: revisión de la PR", () => {
         const partesAlSalir = adjuntos.partes.length;
         await page.locator('[data-conversacion="41"]').click();
         await expect(caja(page)).toHaveValue("Comentario que no debe perderse");
-        // La subida se cortó: no llegan las 4 partes, no se registra el segundo archivo y no sale ningún mensaje.
-        await page.waitForTimeout(2_500);
+        // Se contesta la parte que quedó en vuelo y se espera esa respuesta: el compositor ya no está,
+        // así que la subida se corta ahí (no pide la parte siguiente). No llegan las 4 partes, no se
+        // registra el segundo archivo y no sale ningún mensaje.
+        adjuntos.soltarPartes();
+        await enVuelo.response();
         await expect(caja(page)).toHaveValue("Comentario que no debe perderse");
         expect(adjuntos.partes.length).toBeLessThanOrEqual(partesAlSalir + 1);
         expect(adjuntos.partes.length).toBeLessThan(4);

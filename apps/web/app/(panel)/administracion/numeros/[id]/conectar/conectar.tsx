@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, BarraGuardar, Boton, CampoSecreto, DialogoConfirmar, SeccionFormulario, useProteccionSalida } from "@iris/ui";
+import { avisar, Aviso, BarraGuardar, Boton, BotonManualPantalla, CampoSecreto, DialogoConfirmar, SeccionFormulario, useProteccionSalida } from "@iris/ui";
 import { RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
@@ -118,7 +118,10 @@ function Conectar({ inicial, reciente }: { inicial: Canal; reciente: RecienCread
         // Con su propio pie fijo: como `FormularioPagina`, oculta la barra inferior del teléfono.
         <div data-slot="formulario-pagina" className="mx-auto grid w-full max-w-3xl min-w-0 gap-4 [&>*]:min-w-0">
             <header className="grid gap-1">
-                <h1 className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">Conectar {canal.nombre}</h1>
+                <div className="flex min-w-0 items-center gap-1.5">
+                    <h1 className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">Conectar {canal.nombre}</h1>
+                    <BotonManualPantalla />
+                </div>
                 <p className="font-mono text-sm text-muted-foreground">{formatearNumero(canal.numero)}</p>
             </header>
 

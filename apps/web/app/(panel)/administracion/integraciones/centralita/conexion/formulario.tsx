@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { avisar, Aviso, Boton, Campo, CampoSecreto, Casilla, Esqueleto, FormularioPagina, liberarProteccion, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, Campo, CampoSecreto, Casilla, Esqueleto, FormularioPagina, liberarProteccion, SeccionFormulario, Desplegable } from "@iris/ui";
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -169,12 +169,11 @@ function Formulario({ centralita: c }: { centralita: Centralita | null }) {
                         <CampoSecreto etiqueta="Contraseña" ayuda="Se guarda cifrada y nadie la vuelve a ver." error={errores.secreto?.message} {...form.register("secreto")} />
                     )}
                 </div>
-                <details className="border-t border-border pt-3">
-                    <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">Avanzado</summary>
+                <Desplegable titulo="Avanzado" className="border-t border-border pt-3">
                     <p className="mt-2 text-sm text-muted-foreground">
                         Puerto <span className="font-mono">{v.puerto}</span>: el AMI cifrado (TLS). El 5038 sin cifrar no se acepta.
                     </p>
-                </details>
+                </Desplegable>
             </SeccionFormulario>
             <SeccionFormulario titulo="Probar">
                 <p className="text-sm text-muted-foreground">Iris se conecta, entra con el usuario y comprueba que solo pueda leer. No guarda nada.</p>
@@ -198,8 +197,7 @@ function Formulario({ centralita: c }: { centralita: Centralita | null }) {
                 ) : null}
             </SeccionFormulario>
             <SeccionFormulario titulo="Cómo preparar Issabel">
-                <details>
-                    <summary className="cursor-pointer text-sm font-semibold text-muted-foreground">Para quien administra la centralita</summary>
+                <Desplegable titulo="Para quien administra la centralita">
                     <div className="mt-2 grid gap-2 text-sm text-muted-foreground">
                         <p>
                             En <span className="font-mono">/etc/asterisk/manager_custom.conf</span>, un usuario solo para Iris, que entre solo desde la IP de Iris y solo pueda leer
@@ -214,7 +212,7 @@ function Formulario({ centralita: c }: { centralita: Centralita | null }) {
                             «Centralita Issabel» de los manuales de instalación.
                         </p>
                     </div>
-                </details>
+                </Desplegable>
             </SeccionFormulario>
         </FormularioPagina>
     );

@@ -57,6 +57,11 @@ export type OpcionesAdjuntos = {
     demoraParteMs?: number;
     /** Las primeras `n` partes que se suben fallan con 500. */
     fallarPartes?: number;
+    /**
+     * Las partes no se contestan hasta `soltarPartes()`: la subida sigue «en curso» todo lo que la
+     * prueba necesite, sin depender de cuánto tarde la máquina.
+     */
+    retenerPartes?: boolean;
     /** Las primeras `n` altas (`POST /adjuntos`) fallan con 500. */
     fallarAltas?: number;
 };
@@ -67,10 +72,22 @@ export type AdjuntosFalsos = {
     /** Partes recibidas: id, desde qué offset y cuántos bytes. */
     partes: { id: string; offset: number; bytes: number }[];
     descargas: string[];
+    /** Contesta las partes retenidas (`retenerPartes`) y deja de retener. */
+    soltarPartes: () => void;
 };
 
 export async function simularAdjuntos(page: Page, opciones: OpcionesAdjuntos = {}): Promise<AdjuntosFalsos> {
-    const estado: AdjuntosFalsos = { altas: [], partes: [], descargas: [] };
+    let soltar: () => void = () => undefined;
+    let retenidas: Promise<void> | null = opciones.retenerPartes ? new Promise((r) => (soltar = r)) : null;
+    const estado: AdjuntosFalsos = {
+        altas: [],
+        partes: [],
+        descargas: [],
+        soltarPartes: () => {
+            retenidas = null;
+            soltar();
+        },
+    };
     let fallarPartes = opciones.fallarPartes ?? 0;
     let fallarAltas = opciones.fallarAltas ?? 0;
     const foto = png(600, 800);
@@ -101,6 +118,7 @@ export async function simularAdjuntos(page: Page, opciones: OpcionesAdjuntos = {
         if (!registro) return route.fulfill(problema(404, "no_encontrado", "No existe"));
         const offset = Number((await req.headerValue("upload-offset")) ?? "x");
         if (offset !== registro.recibido) return route.fulfill({ ...problema(409, "offset_distinto", "Offset distinto"), headers: { "Upload-Offset": String(registro.recibido) } });
+        if (retenidas) await retenidas;
         if (opciones.demoraParteMs) await new Promise((r) => setTimeout(r, opciones.demoraParteMs));
         if (fallarPartes > 0) {
             fallarPartes--;

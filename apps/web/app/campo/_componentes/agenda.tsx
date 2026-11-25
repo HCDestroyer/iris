@@ -76,7 +76,7 @@ function EstadoLectura({ sinDatos }: { sinDatos: boolean }) {
 }
 
 /**
- * Agenda de un día (por defecto, mañana) con la tira de la semana: el día elegido en teal y las
+ * Agenda de un día (por defecto, mañana) con la tira de la semana: el día elegido en índigo y las
  * citas en bloques de color. Se lee con señal; sin leer no hay contadores ni citas inventadas.
  */
 export function AgendaDia({ dia }: { dia: string | undefined }) {
@@ -160,7 +160,7 @@ function TareasDelDia({ tareas }: { tareas: readonly TareaVista[] }) {
     );
 }
 
-/** Tira de 7 días: el elegido en teal; un punto bajo el número si ese día tiene citas. */
+/** Tira de 7 días: el elegido en índigo; un punto bajo el número si ese día tiene citas. */
 function TiraSemana({ elegido, dias, cuentas }: { elegido: string | null; dias: ReturnType<typeof tiraSemana>; cuentas: Record<string, number> | null }) {
     const { navegar } = useCampo();
     return (

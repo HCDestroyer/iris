@@ -333,6 +333,30 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   `image.DecodeConfig` (hasta 8000 × 8000); `GET /titular` se audita y nunca muestra
   `titular_no_coincide`.
 - Configuración: `campo.Config.Titular` (cifrador, conector de Argos y aviso a la cola).
+- **Titular empresa** (contrato 0.14.1 §3.4.4): con `titular.tipo: empresa`, el cambio de titular
+  (A39) va con `cliente.tipo: empresa` (razón social, `tipo_documento_fiscal: nit` y `nit_cui`, sin
+  documento ni `mayor_de_edad`) y `representante` (nombre, DPI o pasaporte y `mayor_de_edad`; su
+  número solo al depósito de tránsito); con un cliente empresa, la identidad (A41) es la del
+  representante. El tipo no depende del modo de la venta (el plan va aparte). Con Argos < 0.14.1, 422
+  `titular_empresa_no_disponible` (`titularEmpresaDisponible` en `GET /ordenes/{id}/titular`).
+  `titular_empresa_en_revision` deja la orden en revisión como `titular_no_coincide`. En la
+  auditoría (`Representante.MarshalJSON`) y en los pendientes, `representante.*` es `***` salvo
+  `documento_tipo`. La orden guarda `tipo_titular` (`campo.orden_titular`).
+- **Desde el panel**: `POST /ordenes/{id}/completar-datos` y `POST /ordenes/{id}/cambiar-plan`
+  (despacho y supervisor, con `version`), en una orden no terminada; mismas reglas y cola. El nombre
+  del titular no se cambia desde el panel (422 `nombre_solo_en_sitio`): va ligado a la identidad.
+- **B20, firma del contrato regenerado** (`firma_contrato.go`): `orden.firmar_contrato` del lote
+  (técnico asignado, orden en sitio) firma el contrato que comercial regeneró al aceptar Argos un
+  cambio de plan o de titular (`contratoPorFirmar` en `GET /ordenes/{id}/titular`). Comercial arma
+  el PDF firmado antes (`campo.Config.Contratos`, `ConectarContratos`) y lo marca firmado en la
+  transacción de la operación; emite `contrato.firmado` con `orden_id`.
+- **B21, planes permitidos** (`planes_orden.go`): el paquete y los cambios traen `planes` en cada
+  instalación con el servicio `pendiente_instalacion` (`campo.Config.Planes` =
+  `argos.Modulo.PlanesPermitidos`, `GET /planes?router_id=&modo=`; uno por router y modo).
+- **B17** (`titular_argos.go`): `argos.titular_cambiado` pasa las órdenes abiertas del servicio al
+  titular nuevo con `guardar` (versión, feed y diff) y emite `orden.titular_movido`, solo si la
+  instantánea (`integracion.argos_servicios.cliente_id`, leída con candado) dice que el servicio es
+  de `a_cliente_id`: un aviso atrasado no devuelve las órdenes.
 
 ## Desarrollo
 

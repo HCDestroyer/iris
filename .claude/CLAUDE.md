@@ -32,7 +32,7 @@ El plan está en `.claude/PLAN.md`, el modelo de datos en `.claude/modelo-datos.
 | API | Go 1.24, `chi` (rutas), `pgx/v5` + `sqlc` (SQL tipado), `goose` (migraciones), `River` (colas sobre Postgres) |
 | Base de datos | PostgreSQL 16, un schema por módulo: `nucleo`, `soporte`, `campo`, `agenda`, `comercial`, `integracion`, `auditoria` |
 | Caché | Redis 7, solo como caché, con invalidación por evento |
-| Panel web | Next.js 15 (App Router) con React 19, TypeScript estricto, Tailwind 4 y HeroUI v3 (React Aria) envuelto en `packages/ui` con los tokens de la identidad Horus |
+| Panel web | Next.js 15 (App Router) con React 19, TypeScript estricto, Tailwind 4 y HeroUI v3 (React Aria) envuelto en `packages/ui` con los tokens de Iris (`--iris-*`: índigo y cian, logo en degradado) |
 | App de campo | PWA en Next.js (`/campo`) con IndexedDB y service worker, que funciona sin señal. Fase 2: Expo (React Native) que reutiliza `packages/`. App nativa: HeroUI Native (Uniwind) en la fase 5 |
 | Contrato | OpenAPI 3.1 generado desde la API (`make openapi`) → `packages/contratos` (tipos y cliente con `openapi-typescript` y `openapi-fetch`) |
 | Mapas | MapLibre GL con teselas OSM; rutas con OSRM (servicio propio en Docker) |
@@ -45,7 +45,7 @@ apps/api            Go: cmd/iris (servidor), cmd/worker (River), internal/<modul
 apps/web            Next.js: panel (/), app de campo (/campo), portal de tickets (/soporte)
 apps/movil          Expo (fase 2)
 packages/contratos  OpenAPI generado y cliente TS
-packages/ui         componentes compartidos e identidad Horus (tokens, logo)
+packages/ui         componentes compartidos e identidad de Iris (tokens `--iris-*`, logo en degradado)
 packages/sync       motor de sincronización sin conexión (cola local, conflictos), compartido con la app nativa
 infra/              docker-compose, OSRM, seeds, CI
 .claude/            reglas, plan, modelo de datos, contratos y agentes
@@ -112,18 +112,24 @@ Cada agente es dueño de las carpetas que indica su brief y no toca las de otro.
 
 ### 10. Frontend
 
-- Componentes de HeroUI v3 (React Aria) envueltos en `packages/ui` con los tokens de la identidad Horus (`docs/marca/horus-tokens.css`): un solo color de marca (teal) y estados con icono + texto + color. Las pantallas importan de `@iris/ui`, nunca de `@heroui/react`. Íconos solo de Lucide. Guía y mapa de componentes: `docs/ui/guia.md`.
-- Nada de `<button>` o `<input>` crudos fuera de `packages/ui`.
-- Indentación de 4 espacios. TypeScript estricto, sin `any`.
-- Tipos y cliente HTTP desde `packages/contratos`; nada de interfaces duplicadas a mano.
-- Formularios con `react-hook-form` + `zod`, espejo del validador del backend.
-- Modo claro y oscuro funcionando; revisar en 390 px y 1280 px.
+**Sistema visual:** HeroUI v3 (React Aria) envuelto en `packages/ui` (`@iris/ui`), con los tokens `--iris-*` de `packages/ui/src/estilos/iris-tokens.css` (copia de `docs/marca/iris-tokens.css`): índigo `#4F46E5` como color principal (`#818CF8` en oscuro, con texto `#0B0F1A` encima), cian `#06B6D4` como secundario y el logo en degradado índigo → cian (`#4F46E5 → #4338CA → #0E7490` cuando lleva texto blanco encima). Ningún teal. Guía, reglas, contraste y mapa de componentes: `docs/ui/guia.md`.
+
+- **Solo componentes del kit.** Las pantallas importan de `@iris/ui`, nunca de `@heroui/react`. Nada de `<button>`, `<input>`, `<select>`, `<textarea>`, `<table>` ni `<dialog>` crudos fuera de `packages/ui` (lo revisa ESLint). Si falta una pieza, se agrega a `packages/ui` con nombre en español y prueba.
+- **HeroUI primero:** toda pieza de interfaz es un componente de HeroUI envuelto en `@iris/ui`; un control propio solo si HeroUI no lo trae, con su motivo escrito en `docs/ui/guia.md` (ESLint prohíbe importar `@heroui/*` fuera de `packages/ui`). El CSS propio que haga falta para lograr el diseño va en los envoltorios de `packages/ui`, no regado en cada pantalla.
+- **Campos de HeroUI:** fechas y horas con `CampoFecha`, `SelectorRangoFechas`, `CampoHora`; montos con `CampoMoneda` (NumberField en GTQ, con su paso); texto con `Campo` (TextField), `CampoArea`, `CampoBusqueda`; elección con `CampoSelector`, `Autocompletar`, `GrupoOpciones`, `Casilla` e `Interruptor`; archivos con `SelectorArchivo` / `MenuArchivos`.
+- **Marco del panel:** menú como isla flotante a 16 px del borde (`MenuIsla`), compacto o expandido, con el botón `‹ ›` de 28 px sobre el borde derecho a la altura del logo. Encabezado sin barra (`EncabezadoPanel`): a la izquierda lo que haces (Buscar Ctrl K, accesos rápidos y «Más»), a la derecha lo que vigilas (Argos y Horus, avisos y la cuenta, `MenuCuenta`). En el teléfono, la isla va abajo con el botón redondo de la acción principal.
+- **Íconos de Lucide** en menú, botones, pestañas y filas; los botones de solo ícono llevan `aria-label` y globo. **Cada estado lleva ícono + texto + color**; el punto discreto solo crece cuando hay que actuar.
+- **Qué contenedor usar:** modal para acciones cortas de 1 a 3 campos (nunca uno encima de otro); panel lateral (`PanelLateral`, con telón si es un formulario) para hacer algo sin perder la lista; vista rápida (`VistaRapida`) en las listas, sin quitarle ancho; página propia (`FormularioPagina`) para formularios de más de 3 campos o con pasos. «Atrás» vuelve a donde estabas y salir con cambios sin guardar pregunta antes.
+- **Listas en lugar de cuadros** (`ListaFilas`), con buscador y filtros cuando pueden crecer, vista rápida y menú `⋯` por fila (`MenuAcciones`: frecuentes primero; peligrosas al final, separadas y en rojo; filtrado por permisos).
+- **Fichas:** franja con la identidad, sus contadores, una sola acción principal y «Más» (`FranjaFicha`). Pestañas segmentadas (`PestanasSegmentadas`) dentro de la misma tarjeta que su contenido.
+- **Un solo campo destacado a la vez. Un mismo dato aparece una sola vez por pantalla.**
+- **El scroll va dentro del contenedor,** nunca en la página.
+- **Un «?» del manual en cada pantalla,** junto al título (`BotonManual`, enlace a `/manual/<clave>`; dentro de `/campo`, a `/campo/manual/<pantalla>`). Las claves son las de `docs/manual/claves.md`.
+- **Teléfono:** cada pantalla a pantalla completa, con la acción principal fija abajo (`AccionFija`).
+- Modo claro y oscuro; revisar en 390 px y 1280 px, sin desbordes.
 - Errores visibles con «Reintentar». Nunca mostrar totales ni estados calculados sobre datos que no se pudieron leer.
-- Formularios de más de 3 campos: pantalla propia con su ruta (`FormularioPagina`), nunca en un diálogo. Un formulario no se abre encima de otro; «Atrás» vuelve a donde estabas y salir con cambios sin guardar pregunta antes.
-- Diálogos solo para confirmaciones y acciones cortas (1 a 3 campos).
-- Migas (`Migas`) en cada pantalla del panel.
-- Aviso emergente (`avisar`) después de cada acción que cambia algo.
-- Indicadores de estado discretos (un punto) que solo crecen cuando hace falta actuar.
+- Migas (`Migas`) en cada pantalla del panel. Aviso emergente (`avisar`) después de cada acción que cambia algo.
+- Indentación de 4 espacios. TypeScript estricto, sin `any`. Tipos y cliente HTTP desde `packages/contratos`; nada de interfaces duplicadas a mano. Formularios con `react-hook-form` + `zod`, espejo del validador del backend.
 
 ### 11. Pruebas y Definition of Done
 
@@ -170,7 +176,7 @@ Una tarea está terminada solo si:
 | `orden.asignada` | campo | orden_id, tecnico_id (o null), cuadrilla_id (o null), tecnico_anterior_id (o null), origen (asignar, tomar, programar, reprogramar, crear), motivo (o null) |
 | `orden.programada` | agenda | orden_id, tecnico_id, cuadrilla_id, inicio, fin, ventana_inicio/ventana_fin (o null), reprogramada, origen (programar, reprogramar, asignar), motivo (o null) |
 | `orden.estado_cambiada` | campo | orden_id, de, a, motivo |
-| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id), equipos[] (accion: instalar \| retirar \| cambio \| no_recuperado, unidad_id, serie, mac, condicion, bodega_id; cambio: sale_unidad_id, entra, motivo, destino_sale, cobro_propuesto?; no_recuperado: motivo, foto_ref?), cargo (o null: producto_id?, monto?, descripcion) |
+| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id, usuario_id), equipos[] (accion: instalar \| retirar \| cambio \| no_recuperado, unidad_id, serie, mac, condicion, bodega_id, usuario_id en instalar y retirar; cambio: sale_unidad_id, entra, motivo, destino_sale, cobro_propuesto?; no_recuperado: motivo, foto_ref; cambio y no_recuperado solo resumen: salen a Argos al aplicarse), cargo (o null: producto_id?, monto?, descripcion) |
 | `orden.pausada` / `orden.reanudada` | campo | orden_id, pausa_id; motivo, nota (o null), desde (pausada); a, duracion_seg, tiempo_pausado_seg (reanudada) |
 | `orden.formulario_agregado` / `orden.formulario_quitado` | campo | orden_id, formulario_id, plantilla_id, origen; version_id, numero_version (agregado) |
 | `campo.ajustes_cambiados` | campo | empresa_id (o null), campos[], tecnicos_toman_libres |
@@ -179,17 +185,18 @@ Una tarea está terminada solo si:
 | `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id, empresa_id, version, miembros[] (usuario_id, id_externo o null), jefe_usuario_id (o null); nombre, zonas[] (creada); campos[], activa (actualizada); van también a Argos |
 | `tecnico.creado` / `tecnico.actualizado` | agenda | tecnico_id (ficha), usuario_id; cuadrilla_id (creado); campos[], activo (actualizado) |
 | `tecnico.ausencia_registrada` / `tecnico.ausencia_anulada` | agenda | tecnico_id, usuario_id, ausencia_id; inicio, fin, motivo, citas_en_conflicto (registrada); motivo (anulada) |
-| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, id_externo; anterior_id_externo (vinculado); motivo (desvinculado) |
+| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, empresa_id, version, id_externo; anterior_id_externo (vinculado); motivo, p. ej. desactivado (desvinculado); van también a Argos (contrato ≥ 0.14.0) |
 | `tarea.creada` / `tarea.completada` / `tarea.anulada` | agenda | tarea_id, empresa_id, tecnico_id; creada_por, inicio, fin, duracion_min, orden_id (o null), cliente_id (o null), origen, solapa_con (creada); completada_por, completada_en (completada); anulada_por, motivo (o null) (anulada) |
 | `ruta.propuesta` / `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[], motor, degradada; modo, motivo_motor (propuesta); reemplaza_id, version (publicada) |
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id (creado); modo (local, argos), contrato_id, cotizacion_id, orden_id (o null), pendientes[] (ganado); motivo (perdido) |
 | `prospecto.actualizado` / `prospecto.asignado` / `prospecto.estado_cambiado` / `prospecto.actividad_registrada` | comercial | prospecto_id; campos[] (actualizado); vendedor_id, vendedor_anterior_id (asignado); de, a, motivo (estado); actividad_id, tipo (actividad) |
-| `prospecto.alta_actualizada` | comercial (alta en Argos) | prospecto_id, estado (esperando_servicio, completa), cliente_id, servicio_id (o null), orden_id (o null) |
+| `prospecto.alta_actualizada` | comercial (alta en Argos) | prospecto_id, estado (esperando_servicio, esperando_activacion, completa), cliente_id, servicio_id (o null), orden_id (o null); también al pasar al titular nuevo (B17) |
+| `prospecto.venta_revisada` | comercial (B20, cambio de plan o titular hecho en Argos) | prospecto_id, empresa_id, vendedor_id (o null), orden_id, motivo (plan, titular), cotizacion_id (la revisión, vigente), contrato_id (regenerado en borrador, se firma en la orden; o null con la orden cancelada, fallida o cerrada) |
 | `factibilidad.evaluada` | comercial | prospecto_id, factibilidad_id, resultado (viable, no_viable, requiere_obra, indeterminado), motor, motivo (o null), router_id/caja (o null), distancia_m |
 | `factibilidad.umbrales_cambiados` | comercial | empresa_id, viable_m, obra_m |
 | `cotizacion.creada` / `cotizacion.aceptada` | comercial | cotizacion_id, prospecto_id, numero; revision, plan_id, total_mensual, total_unico, moneda, reemplaza_id (creada) |
-| `contrato.creado` / `contrato.firmado` / `contrato.anulado` | comercial | contrato_id, prospecto_id; cotizacion_id (creado); adjunto_id, sha256 (firmado); de, motivo (anulado) |
+| `contrato.creado` / `contrato.firmado` / `contrato.anulado` | comercial | contrato_id, prospecto_id; cotizacion_id (creado); adjunto_id, sha256, orden_id (o null: regenerado firmado en la orden) (firmado); de, motivo (anulado) |
 | `horus.router_estado_cambiado` / `horus.servicio_infra_cambiado` | integracion (horus) | router_id / infra_id, nombre, estado (caido, arriba), empresa_id (o null) |
 | `horus.hallazgo_abierto` / `horus.hallazgo_resuelto` | integracion (horus) | hallazgo_id, categoria, severidad, ip, cliente_id/servicio_id/empresa_id (o null + motivo_sin_cliente), url_horus |
 | `usuario.creado` / `usuario.actualizado` / `usuario.desactivado` | identidad (núcleo) | usuario_id; tipo (creado), campos[] (actualizado), motivo (desactivado) |
@@ -211,7 +218,11 @@ Una tarea está terminada solo si:
 | `argos.promesa_cambiada` | integracion (argos, webhooks promesa.*) | promesa_id, estado, tipo, empresa_id, cliente_id, servicio_id, comprobante_id (o null), canal, vence, motivo_reconexion (o null), motivo (cancelada), entrante_id; nunca el monto |
 | `argos.cuenta_bancaria_cambiada` | integracion (argos, webhook de Argos y relecturas) | cuenta_bancaria_id, empresa_id, campos[], activa, creada, entrante_id (o null); nunca el número de cuenta ni el titular |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
+| `argos.titular_cambiado` | integracion (argos, webhook servicio.titular_cambiado confirmado con Argos; B17) | servicio_id, empresa_id (o null), de_cliente_id (o null), a_cliente_id, de_cliente_eliminado, origen_tipo (o null), origen_id (o null), tipo_titular (persona, empresa), entrante_id; nunca el documento ni el motivo |
+| `orden.titular_movido` | campo (B17) | orden_id, numero, servicio_id, de_cliente_id (o null), a_cliente_id, tipo_titular (o null), entrante_id |
+| `orden.identidad_registrada` / `orden.cambio_titular_registrado` | campo (paso «Confirmar titular y plan», §3.4) | orden_id, pendiente_id, documento_tipo (dpi, pasaporte), reemplaza_id (o null); toma, metodo (identidad); cambio, tipo_titular (persona, empresa), motivo_codigo (cambio); nunca el número, el nombre ni la foto |
 | `orden.revision_titular_levantada` | campo (panel, §3.4.8) | orden_id, usuario_id; nunca el motivo |
+| `orden.contrato_sin_firma` | comercial y campo (B20: cambio de plan o titular sin la firma del contrato nuevo; campo, al cerrar el supervisor con el cambio en la cola) | orden_id, prospecto_id, empresa_id, contrato_id (o null), cotizacion_id (o null), operacion (cambiar_plan, cambiar_titular o null), motivo (cierre_sin_firma, cambio_tras_cierre, sin_regenerar; diagnósticos sin_cotizacion_viva, sin_plan, revision_rechazada, sin_titular), clave y detalle (diagnósticos) |
 | `orden.paso_titular_tras_cancelar` | integracion (pendientes) | orden_id, pendiente_id, operacion, estado_orden (cancelada, fallida) |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |
@@ -302,7 +313,7 @@ Una tarea está terminada solo si:
 | `centralita.creada` / `centralita.actualizada` / `centralita.estado_cambiado` / `extension.asignada` / `extension.quitada` | mensajeria (voz, E4) | centralita_id, empresa_id; tipo, modo (creada); campos[], activa (actualizada); de, a (estado); extension_id, usuario_id (extensión); nunca el secreto |
 | `llamada.vinculada` | mensajeria (voz, E4a) | llamada_id, empresa_id, ticket_id, cliente_id (o null), usuario_id, origen (centralita) |
 | `llamada.cliente_asociado` | mensajeria (voz, E4a) | llamada_id, empresa_id, cliente_id, servicio_id (o null), usuario_id, origen (centralita) |
-| `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
+| `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope, venta_revisada…), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
 | `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | notificaciones (correo del sistema) | correo_id, usuario_id, tipo, clave, motivo (o null) |
 | `correo_sistema.ajustes_cambiados` | notificaciones (correo del sistema) | empresa_id (o null = global), campos[], activo; nunca la contraseña |
 | `correo_sistema.probado` | notificaciones (correo del sistema) | empresa_id (o null), estado (ok, error), causa (o null), usuario_id; nunca el host, el destino ni credenciales |

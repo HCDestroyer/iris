@@ -268,13 +268,33 @@ const (
 // CodigoTitularNoCoincide: Argos encontró el documento en otro cliente con otro nombre (A39, A41).
 const CodigoTitularNoCoincide = "titular_no_coincide"
 
+// CodigoTitularEmpresaEnRevision: Argos encontró el NIT en otra empresa con otra razón social, o
+// dejó en revisión el cambio a una empresa (A39 con titular empresa, contrato 0.14.1). Se trata
+// igual que titular_no_coincide.
+const CodigoTitularEmpresaEnRevision = "titular_empresa_en_revision"
+
+// Errores de A39 con titular empresa (0.14.1): empresa sin representante o sin NIT, o persona con
+// representante. Son de negocio (fallido_negocio): el técnico rehace el cambio de titular.
+const (
+	CodigoRepresentanteRequerido   = "representante_requerido"
+	CodigoNITRequerido             = "nit_requerido"
+	CodigoRepresentanteNoPermitido = "representante_no_permitido"
+)
+
+// EsCodigoRevisionTitular: el rechazo deja la orden en revisión de un supervisor (la marca
+// en_revision no se levanta sola) y nunca se le muestra al técnico (sin oráculo).
+func EsCodigoRevisionTitular(codigo string) bool {
+	return codigo == CodigoTitularNoCoincide || codigo == CodigoTitularEmpresaEnRevision
+}
+
 // EventoPasoTrasCancelar: un paso del titular que estaba saliendo cuando la orden se canceló o
-// falló quedó hecho en Argos: supervisión revisa (no se deshace solo).
+// falló quedó hecho en Argos: supervisión revisa (no se deshace solo). Un cambio de plan o de
+// titular hecho con la orden ya cerrada lo avisa comercial (orden.contrato_sin_firma).
 const EventoPasoTrasCancelar = "orden.paso_titular_tras_cancelar"
 
 // despuesDelPasoTitular, en la transacción del resultado de un intento:
-//   - titular_no_coincide (A39 o A41): la orden queda en revisión de un supervisor (marca persistente
-//     en campo.orden_titular);
+//   - titular_no_coincide (A39 o A41) o titular_empresa_en_revision (A39 con empresa, 0.14.1): la
+//     orden queda en revisión de un supervisor (marca persistente en campo.orden_titular);
 //   - hecho con la orden ya cancelada o fallida: avisa a supervisión (lo hecho no se deshace).
 func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, ahora time.Time) error {
 	if !slices.Contains(OperacionesTitular, f.Operacion) || f.Entidad != "orden" {
@@ -286,20 +306,24 @@ func despuesDelPasoTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.
 	}
 	q := pendientesbd.New(t)
 	switch {
-	case f.Estado == EstadoFallidoNegocio && EsPasoIdentidad(f.Operacion) && deref(f.CodigoError) == CodigoTitularNoCoincide:
+	case f.Estado == EstadoFallidoNegocio && EsPasoIdentidad(f.Operacion) && EsCodigoRevisionTitular(deref(f.CodigoError)):
 		n, err := q.MarcarTitularEnRevision(ctx, pendientesbd.MarcarTitularEnRevisionParams{Ahora: ahora, OrdenID: orden})
 		if err != nil || n == 0 {
 			return err
 		}
 		t.RegistrarCambios("orden_titular", orden, map[string]any{"en_revision": false}, map[string]any{"en_revision": true})
 	case f.Estado == EstadoHecho:
-		estado, err := q.EstadoDeOrden(ctx, orden)
+		// Con candado compartido: el cierre de la orden (FOR UPDATE) espera a este paso o este paso
+		// ve la orden ya cerrada y avisa.
+		estado, err := q.EstadoDeOrdenCompartido(ctx, orden)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
+		// Con la orden cerrada, un cambio de plan o de titular lo avisa comercial
+		// (orden.contrato_sin_firma, una sola campana); aquí solo cancelada o fallida.
 		if estado == "cancelada" || estado == "fallida" {
 			slog.WarnContext(ctx, "pendientes: paso del titular hecho en Argos con la orden ya terminada", "pendiente", f.ID, "orden", orden, "estado_orden", estado)
 			return t.Emitir(EventoPasoTrasCancelar, map[string]any{"orden_id": orden, "pendiente_id": f.ID, "operacion": f.Operacion, "estado_orden": estado})
@@ -519,4 +543,13 @@ func TrabajoPurgaTransito() *river.PeriodicJob {
 	return river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour),
 		func() (river.JobArgs, *river.InsertOpts) { return ArgsPurgarTransito{}, nil },
 		&river.PeriodicJobOpts{RunOnStart: true})
+}
+
+// ordenDePasoTitular: la orden de un paso del titular (false si no lo es).
+func ordenDePasoTitular(f pendientesbd.IntegracionPendiente) (int64, bool) {
+	if !slices.Contains(OperacionesTitular, f.Operacion) || f.Entidad != "orden" {
+		return 0, false
+	}
+	orden, err := strconv.ParseInt(f.EntidadID, 10, 64)
+	return orden, err == nil
 }

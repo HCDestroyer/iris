@@ -90,7 +90,9 @@ una `Conexion` con sus casos de uso. El núcleo lo crea `argos.Nuevo`; `horus.Nu
   firmado, obligatorio e igual a `X-Webhook-Id`, deduplicación por él, `integracion.entrantes` y el
   job del sistema (`Sistema.TrabajoEntrante`) en la misma transacción. Los 401 anónimos no se
   auditan (se cuentan y van al log con muestreo). `TomarEntrante` / `MarcarEntrante` ayudan al job
-  de cada sistema a ser idempotente.
+  de cada sistema a ser idempotente. `ocurrido_en` es la hora del cuerpo si es RFC 3339
+  (`ocurrido_origen = argos`, el reloj del remitente) o la de recepción (`iris`): quien ordene
+  avisos por hora compara solo las del remitente.
 - **Cliente HTTP** (`cliente.go`) y **SSRF** (`red.go`): `net.Dialer` que bloquea IPs internas ya
   resueltas (salvo las redes permitidas del sistema), sin proxy ni redirecciones; problem+json
   mapeado a `<codigo>_no_disponible|_sin_permiso|_rechazo` sin filtrar el `detail` del otro lado.

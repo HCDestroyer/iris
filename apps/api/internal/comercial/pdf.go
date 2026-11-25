@@ -52,6 +52,8 @@ type ContenidoContrato struct {
 	Lineas       []LineaCotizacion `json:"lineas"`
 	Clausulas    []string          `json:"clausulas"`
 	RequiereObra bool              `json:"requiereObra"`
+	// OrdenID: contrato regenerado en la instalación (B20), a firmar en esa orden.
+	OrdenID *int64 `json:"ordenId,omitempty"`
 }
 
 // firmaPDF: la firma capturada (solo en el PDF firmado).

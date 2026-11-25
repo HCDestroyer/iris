@@ -1,6 +1,6 @@
 "use client";
 
-import { avisar, Aviso, Boton, Cargando, Casilla, cn, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, BotonManualPantalla, Cargando, Casilla, cn, SeccionFormulario } from "@iris/ui";
 import {
     AppWindow,
     Ban,
@@ -10,7 +10,6 @@ import {
     EyeOff,
     Gauge,
     Info,
-    LoaderCircle,
     Megaphone,
     QrCode,
     RotateCw,
@@ -200,7 +199,7 @@ function Flujo({ registro }: { registro: RegistroMeta }) {
             <Pantalla subtitulo={creando ? "Meta respondió. Conectando el número…" : "Completa los pasos en la ventana de Meta."}>
                 <section className="surface-card grid justify-items-center gap-3 p-6 text-center sm:p-8" data-fase={estado.fase} aria-live="polite">
                     <span className="grid size-14 place-items-center rounded-full bg-primary/10 text-primary">
-                        <LoaderCircle aria-hidden className="size-7 animate-spin motion-reduce:animate-none" />
+                        <Cargando decorativo tamano="lg" />
                     </span>
                     <h2 className="text-lg font-semibold">{creando ? "Conectando el número…" : "Esperando a Meta…"}</h2>
                     <p className="max-w-prose text-sm text-muted-foreground">
@@ -299,7 +298,7 @@ function Flujo({ registro }: { registro: RegistroMeta }) {
                     <Link href="/administracion/numeros/nuevo">Cancelar</Link>
                 </Boton>
                 <Boton onClick={conectar} disabled={!leido || sdk.estado !== "listo"} title={!leido ? "Marca «Leí lo que cambia en la app del teléfono»" : undefined}>
-                    {sdk.estado === "cargando" ? <LoaderCircle aria-hidden className="animate-spin motion-reduce:animate-none" /> : <SquareArrowOutUpRight aria-hidden />}
+                    {sdk.estado === "cargando" ? <Cargando decorativo /> : <SquareArrowOutUpRight aria-hidden />}
                     {sdk.estado === "cargando" ? "Preparando…" : "Conectar con Meta"}
                 </Boton>
             </PiePagina>
@@ -312,7 +311,10 @@ function Pantalla({ subtitulo, children }: { subtitulo: string; children: ReactN
         // Con su propio pie fijo: como `FormularioPagina`, oculta la barra inferior del teléfono.
         <div data-slot="formulario-pagina" className="mx-auto grid w-full max-w-3xl min-w-0 gap-4 [&>*]:min-w-0">
             <header className="grid gap-1">
-                <h1 className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">Conectar con QR</h1>
+                <div className="flex min-w-0 items-center gap-1.5">
+                    <h1 className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">Conectar con QR</h1>
+                    <BotonManualPantalla />
+                </div>
                 <p className="text-sm text-muted-foreground">{subtitulo}</p>
             </header>
             {children}
