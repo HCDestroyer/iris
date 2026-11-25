@@ -200,7 +200,8 @@ func (q *Queries) ContactosConAvisos(ctx context.Context, arg ContactosConAvisos
 }
 
 const desverificarConvsSinContacto = `-- name: DesverificarConvsSinContacto :many
-UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_por = NULL, version = c.version + 1, updated_at = now()
+UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_por = NULL, identidad_verificada_en = NULL,
+    identidad_vence_en = NULL, version = c.version + 1, updated_at = now()
 WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
   AND (c.cliente_id = $1 OR c.contacto_argos_id = $2::bigint)
   AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id
@@ -385,8 +386,18 @@ func (q *Queries) InsertarEleccionCliente(ctx context.Context, arg InsertarElecc
 	return err
 }
 
+const limpiarVerificacionFuerte = `-- name: LimpiarVerificacionFuerte :exec
+UPDATE mensajeria.conversaciones SET identidad_verificada_en = NULL, identidad_vence_en = NULL WHERE id = $1
+`
+
+// Asociar a mano (aunque sea al mismo cliente) empieza sin verificación fuerte (§3.5).
+func (q *Queries) LimpiarVerificacionFuerte(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, limpiarVerificacionFuerte, id)
+	return err
+}
+
 const marcarCopiasAviso = `-- name: MarcarCopiasAviso :exec
-UPDATE mensajeria.avisos SET copias_motivo = $1 WHERE id = $2
+UPDATE mensajeria.avisos SET copias_motivo = $1, updated_at = now() WHERE id = $2
 `
 
 type MarcarCopiasAvisoParams struct {

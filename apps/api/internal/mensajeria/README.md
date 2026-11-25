@@ -879,9 +879,14 @@ AMI adopta la fila de una saliente del puente.
 - **Asociar y confirmar a mano:** si el número es de un contacto del cliente en la caché, la conversación
   guarda ese contacto (su rol sale de sus permisos); `numeroDelCliente` mira primero el teléfono o el móvil
   del titular, después los contactos y al final el contacto de un servicio (`por_servicio`), que nunca da
-  rol de titular. Un supervisor que vuelve a asociar la conversación a un cliente cuyo número no es de un
-  contacto la deja como titular (sin contacto); queda auditado (`conversaciones.asociar` y
-  `conversacion.cliente_asociado`).
+  rol de titular. Asociar es un permiso de agente (`conversaciones.asociar`): volver a asociar a un
+  cliente cuyo número no es de un contacto deja la conversación sin contacto y **siempre** sin
+  verificación fuerte (aunque sea el mismo cliente), así que queda `sin_confirmar` (sin permisos) salvo
+  que el número sea el teléfono o el móvil del titular; para dejarla como titular, un supervisor la
+  confirma (`confirmar-cliente`) o el titular pasa la verificación fuerte. Todo queda auditado
+  (`conversaciones.asociar`, `conversacion.cliente_asociado`, `conversaciones.confirmar_cliente`).
+- **La verificación fuerte es de quien la pasó:** el trigger `conv_contacto_verificacion` la borra si
+  cambia el contacto con que se asoció la conversación o si se pierde la verificación del número.
 - **Copias sin plantilla neutra:** si la plantilla de Meta de avisos lleva datos del titular, no hay
   copias y el aviso original guarda `copias_motivo = sin_plantilla_contacto`. Los candados de los números
   se toman ordenados; el límite diario de un número cuenta todos sus avisos (originales y copias) y un

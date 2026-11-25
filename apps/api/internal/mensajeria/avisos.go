@@ -353,6 +353,15 @@ func (k *EnviarAviso) crear(ctx context.Context, t *auditoria.Tx, in entradaFina
 		_, fin := m.cfg.Silencio.enSilencio(ahora, m.cfg.Zona)
 		fila.ProgramadoEn = &fin
 	}
+	// Las copias a contactos se deciden antes de insertar: el original y las copias toman los candados
+	// de sus números juntos y en orden (el límite por número cuenta los dos).
+	plan, err := m.planDeCopias(ctx, q, fila, p)
+	if err != nil {
+		return AvisoCreado{}, err
+	}
+	if err := bloquearNumeros(ctx, q, fila.EmpresaID, fila.Destino, plan); err != nil {
+		return AvisoCreado{}, err
+	}
 	a, err := q.InsertarAviso(ctx, fila)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// La misma clave entró a la vez (ON CONFLICT): se devuelve ese aviso.
@@ -380,7 +389,7 @@ func (k *EnviarAviso) crear(ctx context.Context, t *auditoria.Tx, in entradaFina
 	}); err != nil {
 		return AvisoCreado{}, err
 	}
-	return aCreado(a, false), m.avisosAContactos(ctx, t, q, a, fila, p, ahora)
+	return aCreado(a, false), m.avisosAContactos(ctx, t, q, a, fila, plan, ahora)
 }
 
 // PlantillasCobro son las plantillas de §6.3 que también salen a los contactos con «avisos» (§3.5).
@@ -393,67 +402,97 @@ var PlantillasCobro = map[string]bool{"factura_por_vencer": true, "factura_venci
 // diario por número (el mismo de un cliente, bajo su candado). Un original bloqueado no genera
 // copias. Las copias se auditan y emiten aviso.creado (con aviso_padre_id), sin Idempotency-Key ni
 // webhooks hacia Argos (origen iris).
-func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, padre mensajeriabd.MensajeriaAviso,
-	base mensajeriabd.InsertarAvisoParams, p Plantilla, ahora time.Time) error {
-	if !PlantillasCobro[padre.Plantilla] || padre.CanalPreferido != CanalWhatsApp || padre.Estado != EstadoEnCola {
-		return nil
+// destinoContacto: el número elegido de un contacto para su copia.
+type destinoContacto struct {
+	contacto int64
+	numero   string
+}
+
+// planCopias: a quién sale la copia de un aviso de cobro (se calcula antes de insertar el original,
+// para tomar todos los candados de números juntos y en orden). motivo: por qué no hay copias.
+type planCopias struct {
+	r        *resuelto
+	destinos []destinoContacto
+	motivo   string
+}
+
+func (m *Modulo) planDeCopias(ctx context.Context, q *mensajeriabd.Queries, fila mensajeriabd.InsertarAvisoParams, p Plantilla) (planCopias, error) {
+	var plan planCopias
+	if !PlantillasCobro[fila.Plantilla] || fila.CanalPreferido != CanalWhatsApp || fila.Estado != EstadoEnCola {
+		return plan, nil
 	}
-	ks, err := q.ContactosConAvisos(ctx, mensajeriabd.ContactosConAvisosParams{ClienteID: padre.ClienteID, Empresa: padre.EmpresaID, ServicioID: padre.ServicioID})
-	if err != nil {
-		return err
+	ks, err := q.ContactosConAvisos(ctx, mensajeriabd.ContactosConAvisosParams{ClienteID: fila.ClienteID, Empresa: fila.EmpresaID, ServicioID: fila.ServicioID})
+	if err != nil || len(ks) == 0 {
+		return plan, err
 	}
-	r, err := m.resolver(ctx, q, padre.EmpresaID, CanalWhatsApp)
+	r, err := m.resolver(ctx, q, fila.EmpresaID, CanalWhatsApp)
 	if err != nil {
-		return err
+		return plan, err
 	}
 	if r == nil || !r.a.PermiteAvisos() || !r.a.Aprobada(p.Codigo) {
-		return nil
+		return plan, nil
 	}
-	if len(ks) > 0 && plantillaConDatosTitular(r, p.Codigo) {
+	if plantillaConDatosTitular(r, p.Codigo) {
 		// La plantilla de Meta lleva datos del titular (nombre, código o plan): no sale a contactos.
-		// Queda en el historial del aviso; no es un fallo (pendiente del PM: plantilla neutra).
-		motivo := CopiasSinPlantillaContacto
+		plan.motivo = CopiasSinPlantillaContacto
+		return plan, nil
+	}
+	plan.r = r
+	hecho := map[int64]bool{}
+	for _, k := range ks {
+		if hecho[k.ContactoID] {
+			continue
+		}
+		ok, err := m.numeroPuedeRecibir(ctx, q, fila.EmpresaID, fila.ClienteID, k.Numero)
+		if err != nil {
+			return plan, err
+		}
+		if !ok {
+			// Sin permiso o con baja: se prueba el siguiente número del mismo contacto.
+			continue
+		}
+		hecho[k.ContactoID] = true
+		plan.destinos = append(plan.destinos, destinoContacto{contacto: k.ContactoID, numero: k.Numero})
+	}
+	return plan, nil
+}
+
+// bloquearNumeros toma los candados de los números (el del original y los de las copias) juntos y en
+// orden: dos avisos que comparten números nunca se bloquean entre sí.
+func bloquearNumeros(ctx context.Context, q *mensajeriabd.Queries, empresa int64, original *string, plan planCopias) error {
+	numeros := []string{}
+	if original != nil {
+		numeros = append(numeros, *original)
+	}
+	for _, d := range plan.destinos {
+		numeros = append(numeros, d.numero)
+	}
+	slices.Sort(numeros)
+	for _, n := range slices.Compact(numeros) {
+		if err := q.BloquearAvisosNumero(ctx, mensajeriabd.BloquearAvisosNumeroParams{EmpresaID: empresa, Destino: n}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// avisosAContactos crea las copias del plan (los candados ya están tomados). Un aviso de cobro en cola
+// sale también a los contactos del cliente con «avisos» que cubren el servicio (§3.5, A42/B22), uno por
+// contacto, al número de la caché, con su permiso por número y el límite diario por número. Las
+// copias se auditan y emiten aviso.creado (con aviso_padre_id), sin Idempotency-Key ni webhooks hacia
+// Argos (origen iris). Si la plantilla lleva datos del titular, queda en el historial del original.
+func (m *Modulo) avisosAContactos(ctx context.Context, t *auditoria.Tx, q *mensajeriabd.Queries, padre mensajeriabd.MensajeriaAviso,
+	base mensajeriabd.InsertarAvisoParams, plan planCopias, ahora time.Time) error {
+	if plan.motivo != "" {
+		motivo := plan.motivo
 		if err := q.MarcarCopiasAviso(ctx, mensajeriabd.MarcarCopiasAvisoParams{ID: padre.ID, CopiasMotivo: &motivo}); err != nil {
 			return err
 		}
 		t.Anotar(map[string]any{"copias_contactos": motivo})
 		return nil
 	}
-	// 1. Elegir el número de cada contacto (el principal o el siguiente con permiso).
-	type destinoContacto struct {
-		contacto int64
-		numero   string
-	}
-	var destinos []destinoContacto
-	hecho := map[int64]bool{}
-	for _, k := range ks {
-		if hecho[k.ContactoID] {
-			continue
-		}
-		ok, err := m.numeroPuedeRecibir(ctx, q, padre.EmpresaID, padre.ClienteID, k.Numero)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			continue
-		}
-		hecho[k.ContactoID] = true
-		destinos = append(destinos, destinoContacto{contacto: k.ContactoID, numero: k.Numero})
-	}
-	// 2. Los candados de todos los números, en orden, antes de contar (sin bloqueo mutuo entre dos
-	// avisos que comparten números).
-	numeros := make([]string, 0, len(destinos))
-	for _, d := range destinos {
-		numeros = append(numeros, d.numero)
-	}
-	slices.Sort(numeros)
-	for _, n := range slices.Compact(numeros) {
-		if err := q.BloquearAvisosNumero(ctx, mensajeriabd.BloquearAvisosNumeroParams{EmpresaID: padre.EmpresaID, Destino: n}); err != nil {
-			return err
-		}
-	}
-	// 3. Las copias.
-	for _, d := range destinos {
+	r := plan.r
+	for _, d := range plan.destinos {
 		id, err := uuid.NewV7()
 		if err != nil {
 			return err

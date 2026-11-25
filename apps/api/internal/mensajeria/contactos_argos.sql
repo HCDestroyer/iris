@@ -58,7 +58,8 @@ UPDATE mensajeria.conversaciones SET contacto_argos_id = sqlc.narg('contacto_arg
 -- Las conversaciones asociadas por un contacto que ya no está en la caché (Argos lo quitó, dejó de
 -- devolverlo o la caché del cliente se olvidó), que ya no tiene el número de la conversación o que
 -- pasó a titular: pierden la verificación del número.
-UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_por = NULL, version = c.version + 1, updated_at = now()
+UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_por = NULL, identidad_verificada_en = NULL,
+    identidad_vence_en = NULL, version = c.version + 1, updated_at = now()
 WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
   AND (c.cliente_id = @cliente_id OR c.contacto_argos_id = sqlc.narg('contacto_id')::bigint)
   AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id
@@ -107,4 +108,8 @@ WHERE id = @id AND coalesce(empresa_id, 0) = @empresa::bigint AND (cliente_id IS
 
 -- name: MarcarCopiasAviso :exec
 -- Por qué un aviso de cobro no salió a los contactos (historial del aviso, no es un fallo).
-UPDATE mensajeria.avisos SET copias_motivo = @copias_motivo WHERE id = @id;
+UPDATE mensajeria.avisos SET copias_motivo = @copias_motivo, updated_at = now() WHERE id = @id;
+
+-- name: LimpiarVerificacionFuerte :exec
+-- Asociar a mano (aunque sea al mismo cliente) empieza sin verificación fuerte (§3.5).
+UPDATE mensajeria.conversaciones SET identidad_verificada_en = NULL, identidad_vence_en = NULL WHERE id = @id;

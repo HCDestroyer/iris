@@ -211,7 +211,7 @@ func nuevoCrearOrdenConv(m *Modulo) *CrearOrdenConv {
 				var acc *accesoServicio
 				if c.ClienteID != nil {
 					servicio := in.ServicioID
-					var ticketCliente *int64
+					var ticketCliente, ticketServicio *int64
 					if in.TicketID != nil {
 						// Con ticket, el permiso se comprueba sobre el servicio del ticket, que debe ser de la
 						// empresa y del cliente de la conversación (o de uno a su cargo, §3.8).
@@ -230,7 +230,7 @@ func nuevoCrearOrdenConv(m *Modulo) *CrearOrdenConv {
 						if err != nil {
 							return err
 						}
-						ticketCliente = tk.ClienteID
+						ticketCliente, ticketServicio = tk.ClienteID, tk.ServicioID
 						if servicio == nil {
 							servicio = tk.ServicioID
 						}
@@ -239,9 +239,15 @@ func nuevoCrearOrdenConv(m *Modulo) *CrearOrdenConv {
 					if err != nil {
 						return err
 					}
-					// Un contacto no usa el ticket de otro cliente (ni el del titular sobre un servicio que no es suyo).
-					if in.TicketID != nil && x.Contacto != argos.ContactoTitular && (ticketCliente == nil || *ticketCliente != x.ClienteID) {
-						return reglaConv("ticket_ajeno", "El ticket no es del servicio de quien escribe")
+					// Un contacto no usa el ticket de otro cliente, uno sin cliente ni uno de un servicio que no
+					// cubre (el servicio del ticket también tiene que ser suyo).
+					if in.TicketID != nil && x.Contacto != argos.ContactoTitular {
+						if ticketCliente == nil || *ticketCliente != x.ClienteID || ticketServicio == nil {
+							return reglaConv("ticket_ajeno", "El ticket no es del servicio de quien escribe")
+						}
+						if _, err := m.accesoAServicio(ctx, q, *c, ticketServicio, PermisoContactoReportar); err != nil {
+							return reglaConv("ticket_ajeno", "El ticket no es del servicio de quien escribe")
+						}
 					}
 					acc = &x
 				}

@@ -590,4 +590,63 @@ func TestOrdenConTicketAjeno(t *testing.T) {
 	}
 	b.exigirProblema(b.apiClave(b.supervisor, http.MethodPost, "/conversaciones/"+cid(c)+"/crear-orden", "or-aj-"+cid(c),
 		map[string]any{"tipo": "visita", "ticketId": ticket, "descripcion": "Sin internet"}), http.StatusUnprocessableEntity, "ticket_ajeno")
+	// B-d: un ticket de su cliente pero de un servicio que el contacto no cubre, y uno sin cliente.
+	_ = cliente
+	propio, sp := b.clienteArgos("Dueña", "", codigoUnico(), codigoUnico())
+	num2 := numeroCliente()
+	b.sembrarContacto(contactoSembrado{id: siguienteCliente.Add(1), cliente: propio, relacion: "familiar", servicios: []int64{sp[0]}, consultar: true, reportar: true, pagar: true, numero: num2})
+	b.texto(num2, "wamid.tk2", "Hola")
+	c2 := b.conv(num2)
+	for i, tk := range []struct {
+		cliente  *int64
+		servicio *int64
+		status   int
+		codigo   string
+	}{{&propio, &sp[1], http.StatusForbidden, "servicio_fuera_del_contacto"}, {nil, nil, http.StatusUnprocessableEntity, "ticket_ajeno"}} {
+		var id int64
+		if err := b.bd.QueryRow(b.ctx, `INSERT INTO soporte.tickets (empresa_id, cliente_id, servicio_id, asunto, prioridad, estado, origen, sla_inicio)
+			VALUES (1, $1, $2, 'Otro servicio', 'media', 'abierto', 'panel', now()) RETURNING id`, tk.cliente, tk.servicio).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		b.exigirProblema(b.apiClave(b.supervisor, http.MethodPost, "/conversaciones/"+cid(c2)+"/crear-orden", fmt.Sprintf("or-bd-%s-%d", cid(c2), i),
+			map[string]any{"tipo": "visita", "ticketId": id, "descripcion": "Sin internet"}), tk.status, tk.codigo)
+	}
+}
+
+// M-A de la verificación: un contacto confirmado (con verificación fuerte) al que Argos quita, y que
+// después se vuelve a asociar a mano con un número que solo es el contacto en sitio del servicio
+// (por_servicio): la verificación fuerte vieja se borra y nunca queda como titular.
+func TestReasociarNoHeredaVerificacionFuerte(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, ss := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_servicios SET contacto_telefono = $2 WHERE id = $1`, ss[0], "+"+num); err != nil {
+		t.Fatal(err)
+	}
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.ma1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(c)}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND identidad_verificada_en IS NOT NULL`, cid(c)); n != 1 {
+		t.Fatal("la confirmación del supervisor da la verificación fuerte")
+	}
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.emitirContactos(cliente, contacto, "quitado")
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND identidad_verificada_en IS NULL AND NOT cliente_verificado`, cid(c)); n != 1 {
+		t.Fatal("al quitar el contacto se pierden la verificación del número y la fuerte")
+	}
+	// Vuelta a asociar a mano, al mismo cliente: el número solo es el del servicio (por_servicio).
+	r := b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(b.conv(num)), "clienteId": cliente})
+	b.exigir(r, http.StatusOK)
+	if rol := r.cuerpo["rolContacto"].(map[string]any); rol["rol"] != "sin_confirmar" {
+		t.Fatalf("un por_servicio nunca es titular: %v", rol)
+	}
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND identidad_verificada_en IS NULL AND contacto_argos_id IS NULL`, cid(c)); n != 1 {
+		t.Fatal("asociar a mano empieza sin verificación fuerte y sin contacto")
+	}
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
 }

@@ -283,6 +283,12 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 				if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
 					return err
 				}
+				// Asociar a mano (aunque sea al mismo cliente) empieza sin verificación fuerte: la que
+				// hubiera era de otra asociación (§3.5).
+				if err := q.LimpiarVerificacionFuerte(ctx, c.ID); err != nil {
+					return err
+				}
+				c.IdentidadVerificadaEn, c.IdentidadVenceEn = nil, nil
 				c.ClienteVerificado, c.VerificadoPor = coincide, nil
 				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "cliente_asociado", ActorNombre: actorNombre(ctx, q, a.usuario),
 					EntidadID: nombrePtr(strconv.FormatInt(in.ClienteID, 10))}); err != nil {

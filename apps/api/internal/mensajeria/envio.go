@@ -148,9 +148,14 @@ func nuevoPrepararEnvio(m *Modulo) *auditoria.Caso[entradaPreparar, preparado] {
 				return preparado{}, err
 			}
 			if a.AvisoPadreID.Valid {
-				// La copia a un contacto no lleva el nombre ni el código del titular: saludo neutro.
+				// La copia a un contacto nunca lleva datos del titular: si la plantilla de Meta los pide,
+				// no sale (la empresa cambió de plantilla después de crear la copia).
+				if plantillaConDatosTitular(r, p.Codigo) {
+					return preparado{Accion: accionNada, Final: true}, m.fallar(ctx, t, a, MotivoRechazado, texto(CopiasSinPlantillaContacto))
+				}
 				delete(datos, "cliente_nombre")
 				delete(datos, "cliente_codigo")
+				delete(datos, "plan")
 			}
 			return preparado{Accion: accionEnviar, r: r, mensaje: Mensaje{AvisoID: a.ID, Destino: *a.Destino, Plantilla: p, Variables: variables, Datos: datos}}, nil
 		},
