@@ -293,9 +293,12 @@ Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «A
     su `contacto_id`. Necesita el permiso «pagar» (403 `permiso_de_contacto`) y solo sus servicios
     (403 `servicio_fuera_del_contacto`). Con servicios acotados, la gestión lleva el servicio: el único
     suyo o, si tiene varios, 422 en `servicioId`;
+  - un servicio de otro cliente a cargo de quien habla (§3.8, B25: José y el servicio de su mamá) →
+    la gestión va a `POST /clientes/<dueño>/gestiones-cobro` con `X-Iris-Contacto` = el contacto de
+    quien habla en ese cliente, con el permiso «pagar» de ese vínculo (403 `permiso_de_contacto`);
   - sin rol (otro número «verificado» sin `verificado_por`, o asociado por un contacto que ya no tiene
     el número) → 422 `cliente_sin_confirmar`: nunca sale a nombre del titular.
-- `Idempotency-Key` obligatoria (400 `idempotency_key_requerida`). `servicioId` debe ser del cliente
+- `Idempotency-Key` obligatoria (400 `idempotency_key_requerida`, con su propio mensaje). `servicioId` debe ser del cliente
   **y de la empresa** de la conversación según la instantánea.
 - Solo con el **cliente confirmado** (422 `sin_cliente`, `cliente_sin_confirmar`) y con Argos en
   contrato ≥ 0.13.0 (409 `argos_sin_gestiones`; sin conector, 409 `argos_apagado`).

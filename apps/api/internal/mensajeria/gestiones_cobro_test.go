@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -53,6 +54,21 @@ var claveGestion atomic.Int64
 func (b *bandeja) gestionar(p persona, ruta string, cuerpo any) respuesta {
 	b.t.Helper()
 	return b.apiClave(p, http.MethodPost, ruta, fmt.Sprintf("gestion-%d", claveGestion.Add(1)), cuerpo)
+}
+
+// exigirCampo: el 422 de validación con ese campo y esa regla.
+func (b *bandeja) exigirCampo(r respuesta, campo, regla string) {
+	b.t.Helper()
+	if r.status != http.StatusUnprocessableEntity || r.cuerpo["type"] != "urn:iris:problema:validacion" {
+		b.t.Fatalf("esperaba 422 validacion, llegó %d %v", r.status, r.cuerpo)
+	}
+	errs, _ := r.cuerpo["errors"].([]any)
+	for _, e := range errs {
+		if m, ok := e.(map[string]any); ok && m["field"] == campo && m["rule"] == regla {
+			return
+		}
+	}
+	b.t.Fatalf("esperaba el campo %s (%s): %v", campo, regla, r.cuerpo)
 }
 
 type pendienteGestion struct {
@@ -114,14 +130,18 @@ func TestGestionesCobro(t *testing.T) {
 	}
 
 	// Sin Idempotency-Key: 400.
-	b.exigir(b.api(b.supervisor, http.MethodPost, ruta, cuerpo), http.StatusBadRequest, "type", "urn:iris:problema:idempotency_key_requerida")
+	sinClave := b.api(b.supervisor, http.MethodPost, ruta, cuerpo)
+	b.exigir(sinClave, http.StatusBadRequest, "type", "urn:iris:problema:idempotency_key_requerida")
+	if d := fmt.Sprint(sinClave.cuerpo["detail"]); !strings.Contains(d, "gestión de cobro") || strings.Contains(d, "argos:aviso") {
+		t.Fatalf("mensaje propio del 400: %q", d)
+	}
 	// Un servicio del mismo cliente en otra empresa (instantánea): no es de este cliente en esta empresa.
 	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_nombre, sincronizado_en)
 		VALUES ($1, 2, $2, 'S-X', 'Fibra', 'activo', 'Zona 1', now())`, cliente*10+5, cliente); err != nil {
 		t.Fatal(err)
 	}
-	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": cliente*10 + 5}),
-		http.StatusUnprocessableEntity)
+	b.exigirCampo(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": cliente*10 + 5}),
+		"servicioId", "servicio_del_cliente")
 	// contactoId en el cuerpo: no existe (el contacto sale de la conversación, nunca de quien la registra).
 	if r := b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "mensaje", "resultado": "contesto", "ocurridoEn": ahora, "contactoId": "77"}); r.status != http.StatusUnprocessableEntity {
 		t.Fatalf("contactoId en el cuerpo: %d %v", r.status, r.cuerpo)
@@ -140,8 +160,8 @@ func TestGestionesCobro(t *testing.T) {
 		}
 	}
 	// Servicio de otro cliente: 422.
-	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": 987654321}),
-		http.StatusUnprocessableEntity)
+	b.exigirCampo(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": 987654321}),
+		"servicioId", "servicio_del_cliente")
 
 	// Sin permiso (lectura) y la lista.
 	b.exigir(b.gestionar(b.lectura, ruta, cuerpo2), http.StatusForbidden)
@@ -267,7 +287,7 @@ func TestGestionesCobroContacto(t *testing.T) {
 	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET servicios = $2 WHERE contacto_id = $1`, contacto, []int64{cliente * 10, cliente*10 + 1}); err != nil {
 		t.Fatal(err)
 	}
-	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora}), http.StatusUnprocessableEntity)
+	b.exigirCampo(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora}), "servicioId", "required")
 	// Sin el permiso «pagar»: 403 permiso_de_contacto.
 	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET pagar = false WHERE contacto_id = $1`, contacto); err != nil {
 		t.Fatal(err)
@@ -328,4 +348,67 @@ func TestGestionesCobroContacto(t *testing.T) {
 	}
 	b.exigir(b.gestionar(b.supervisor, ruta2, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora}),
 		http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
+}
+
+// B25 (§3.8): José está a cargo del servicio de su mamá. Desde su conversación (su número, titular de
+// su cliente), una gestión sobre ese servicio va al cliente de la mamá con X-Iris-Contacto = el
+// contacto de José en ella, y exige el permiso «pagar» de ese vínculo.
+func TestGestionesCobroACargo(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	b.contratoArgos("0.13.0")
+	conv, jose := b.conCliente()
+	var numero string
+	if err := b.bd.QueryRow(b.ctx, `SELECT numero FROM mensajeria.conversaciones WHERE id = $1`, conv).Scan(&numero); err != nil {
+		t.Fatal(err)
+	}
+	mama := siguienteCliente.Add(1)
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, movil, codigo, sincronizado_en, empresas)
+		VALUES ($1, 1, 'Rosa', '+502 5888-0000', 'C-3', now(), '{1}')`, mama); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_nombre, sincronizado_en)
+		VALUES ($1, 1, $2, 'S-412', 'Fibra', 'activo', 'Zona 1', now())`, mama*10, mama); err != nil {
+		t.Fatal(err)
+	}
+	contacto := mama*100 + 1
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, servicios, persona_cliente_id)
+		VALUES ($1, $2, 1, 'José', 'familiar', NULL, $3)`, contacto, mama, jose); err != nil {
+		t.Fatal(err)
+	}
+	digitos := soloDigitosPrueba(numero)
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos) VALUES ($1, $2, $3)`,
+		contacto, "+"+digitos, digitos); err != nil {
+		t.Fatal(err)
+	}
+	ruta := "/conversaciones/" + conv + "/gestiones-cobro"
+	ahora := *b.reloj
+	r := b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "promete_pagar", "ocurridoEn": ahora, "servicioId": mama * 10})
+	b.exigir(r, http.StatusCreated, "contactoId", fmt.Sprint(contacto))
+	p := b.pendienteDeGestion(fmt.Sprint(r.cuerpo["id"]))
+	if p.ruta != fmt.Sprintf("/clientes/%d/gestiones-cobro", mama) || p.contacto == nil || *p.contacto != fmt.Sprint(contacto) ||
+		p.cuerpo["servicio_id"] != float64(mama*10) {
+		t.Fatalf("a cargo: %+v", p)
+	}
+	// Su propio servicio sigue saliendo como titular, sin cabecera.
+	r = b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": jose * 10})
+	b.exigir(r, http.StatusCreated)
+	if p := b.pendienteDeGestion(fmt.Sprint(r.cuerpo["id"])); p.contacto != nil || p.ruta != fmt.Sprintf("/clientes/%d/gestiones-cobro", jose) {
+		t.Fatalf("propio: %+v", p)
+	}
+	// Sin «pagar» en ese vínculo: 403.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET pagar = false WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": mama * 10}),
+		http.StatusForbidden, "type", "urn:iris:problema:permiso_de_contacto")
+}
+
+func soloDigitosPrueba(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

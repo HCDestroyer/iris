@@ -192,14 +192,14 @@ func (m *Modulo) nuevoRegistrarGestionCobro() *auditoria.Caso[entradaGestionInte
 					"El Argos conectado todavía no recibe gestiones de cobro (necesita el contrato "+ContratoGestionesCobro+" o posterior)")
 			}
 			// Quién habla sale de la conversación (su número), nunca del cuerpo (§3.12, §7.1).
-			quien, servicio, err := m.contactoDeGestion(ctx, q, c, in.ServicioID)
+			quien, err := m.contactoDeGestion(ctx, q, c, in.ServicioID)
 			if err != nil {
 				return GestionCobro{}, err
 			}
-			in.ServicioID = servicio
+			in.ServicioID = quien.ServicioID
 			contacto := quien.ContactoID
 			if in.ServicioID != nil {
-				ok, err := q.ServicioDelClienteInstantanea(ctx, mensajeriabd.ServicioDelClienteInstantaneaParams{ServicioID: *in.ServicioID, ClienteID: *c.ClienteID,
+				ok, err := q.ServicioDelClienteInstantanea(ctx, mensajeriabd.ServicioDelClienteInstantaneaParams{ServicioID: *in.ServicioID, ClienteID: quien.ClienteID,
 					Empresa: *c.EmpresaID})
 				if err != nil {
 					return GestionCobro{}, err
@@ -211,7 +211,7 @@ func (m *Modulo) nuevoRegistrarGestionCobro() *auditoria.Caso[entradaGestionInte
 			// El asistente solo informa un pago o una promesa si hay una promesa o un comprobante real en
 			// la conversación (§3.12).
 			if a.asistente && resultadosConRespaldo[in.Resultado] {
-				ok, err := q.RespaldoPagoEnConversacion(ctx, mensajeriabd.RespaldoPagoEnConversacionParams{ConversacionID: c.ID, ClienteID: *c.ClienteID})
+				ok, err := q.RespaldoPagoEnConversacion(ctx, mensajeriabd.RespaldoPagoEnConversacionParams{ConversacionID: c.ID, ClienteID: quien.ClienteID})
 				if err != nil {
 					return GestionCobro{}, err
 				}
@@ -223,7 +223,7 @@ func (m *Modulo) nuevoRegistrarGestionCobro() *auditoria.Caso[entradaGestionInte
 			if err != nil {
 				return GestionCobro{}, err
 			}
-			params := mensajeriabd.InsertarGestionCobroParams{ID: id, EmpresaID: *c.EmpresaID, ConversacionID: c.ID, ClienteID: *c.ClienteID,
+			params := mensajeriabd.InsertarGestionCobroParams{ID: id, EmpresaID: *c.EmpresaID, ConversacionID: c.ID, ClienteID: quien.ClienteID,
 				ServicioID: in.ServicioID, ContactoID: contacto, Tipo: in.Tipo, Resultado: in.Resultado, OcurridoEn: in.OcurridoEn.UTC(),
 				OrigenTipo: "conversacion", OrigenID: origenConversacion(c.ID), UsuarioID: a.usuarioPtr(), Asistente: a.asistente, HashPeticion: in.hash}
 			if in.Clave != "" {
@@ -248,10 +248,8 @@ func (m *Modulo) nuevoRegistrarGestionCobro() *auditoria.Caso[entradaGestionInte
 			accion := pendientes.Accion{EmpresaID: c.EmpresaID, Operacion: OpGestionCobro, IdempotencyKey: "iris:gestion:" + f.ID.String(),
 				Entidad: "gestion_cobro", EntidadID: f.ID.String(), Ruta: "/clientes/" + strconv.FormatInt(f.ClienteID, 10) + "/gestiones-cobro",
 				Cuerpo: crudo, Actor: actorGestion(a)}
-			if !quien.esTitular() {
-				// Solo si quien habla es un contacto; el titular va sin la cabecera.
-				accion.Contacto = quien.cabecera()
-			}
+			// Solo si quien habla es un contacto (también a cargo); el titular va sin la cabecera.
+			accion.Contacto = quien.Contacto
 			var aviso pendientes.Encolador
 			if m.cfg.Encolar != nil {
 				aviso = pendientes.Encolador(m.cfg.Encolar)
@@ -342,17 +340,18 @@ type GestionesCobro struct {
 func (m *Modulo) registrarRutasGestionesCobro(api huma.API, base string) {
 	reg := op("registrarGestionCobroConversacion", http.MethodPost, base+"/{id}/gestiones-cobro",
 		"Registrar en Argos una gestión de cobro (contrato con Argos 0.13.0 §3.12)", nucleo.PermConversacionesRegistrarGestionCobro,
-		http.StatusCreated, http.StatusNotFound, http.StatusConflict)
+		http.StatusCreated, http.StatusBadRequest, http.StatusNotFound, http.StatusConflict)
 	reg.Description += " Solo informativa: nunca cambia estados, cortes ni promesas en Argos. Sin texto libre, montos ni teléfonos. " +
 		"Solo con el cliente confirmado (422 `sin_cliente`, `cliente_sin_confirmar`). `ocurridoEn` entre ahora − 7 días y ahora + 5 min " +
 		"(422 `validacion`, regla `ventana`). Sale a Argos por la cola de pendientes (`iris:gestion:<id>`, X-Iris-Actor y, si quien habla es un contacto del cliente, " +
 		"X-Iris-Contacto). 409 `argos_apagado` y `argos_sin_gestiones` (Argos con contrato anterior a 0.13.0). Con el asistente de IA, " +
 		"`promete_pagar` y `pago_informado` exigen una promesa o un comprobante en la conversación (422 `sin_respaldo`). Quien habla sale del rol de la conversación: " +
 		"sin rol, 422 `cliente_sin_confirmar`; un contacto necesita el permiso «pagar» (403 `permiso_de_contacto`), solo sus servicios (403 `servicio_fuera_del_contacto`) " +
-		"y, si sus servicios están acotados, el servicio (el único suyo o 422 en `servicioId`). Idempotency-Key obligatoria (400 `idempotency_key_requerida`)."
+		"y, si sus servicios están acotados, el servicio (el único suyo o 422 en `servicioId`). Un servicio de otro cliente a cargo de quien habla (§3.8, B25) " +
+		"va a nombre de ese cliente, con X-Iris-Contacto = su contacto en él y el permiso «pagar» de ese vínculo. Idempotency-Key obligatoria (400 `idempotency_key_requerida`)."
 	huma.Register(api, reg, func(ctx context.Context, in *idCuerpoHTTP[EntradaGestionCobro]) (*cuerpo[GestionCobro], error) {
 		if in.IdempotencyKey == "" {
-			return nil, claveRequerida()
+			return nil, gestionSinClave()
 		}
 		in.Body.ID, in.Body.Clave = in.ID, in.IdempotencyKey
 		return responder(m.RegistrarGestionCobro(ctx, in.Body))
@@ -365,47 +364,88 @@ func (m *Modulo) registrarRutasGestionesCobro(api huma.API, base string) {
 	})
 }
 
-// contactoDeGestion: quién habla en la conversación respecto de su cliente (B22), con el mismo rol que
-// el resto de la atención (rolDeConversacion, que respeta contacto_argos_id y falla cerrado):
+// gestionSinClave: la ruta exige Idempotency-Key (cualquier valor de hasta 200 caracteres: la usa
+// para no registrar dos veces la misma gestión).
+func gestionSinClave() *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusBadRequest, "idempotency_key_requerida", "Falta Idempotency-Key",
+		"Registrar una gestión de cobro exige la cabecera Idempotency-Key: repetirla devuelve la misma gestión",
+		nucleo.ErrorCampo{Field: nucleo.CabeceraIdempotencia, Message: "Obligatoria", Rule: "required"})
+}
+
+// gestionDe es a nombre de quién va una gestión de cobro en Argos.
+type gestionDe struct {
+	// ClienteID: el cliente de la ruta en Argos (el de la conversación o, a cargo, el dueño del servicio).
+	ClienteID int64
+	// ContactoID: el contacto de Argos que habló (nil = el titular).
+	ContactoID *int64
+	// Contacto: el valor de X-Iris-Contacto ("" = el titular, sin la cabecera).
+	Contacto   string
+	ServicioID *int64
+	ACargo     bool
+}
+
+// contactoDeGestion: quién habla en la conversación (B22), con el mismo rol que el resto de la atención
+// (rolDeConversacion, que respeta contacto_argos_id y falla cerrado):
 //   - sin rol (nadie confirmó quién habla): 422 cliente_sin_confirmar; nunca sale a nombre del titular;
 //   - el titular (su número, o un cliente que confirmó un supervisor o la verificación fuerte): sin
 //     X-Iris-Contacto;
 //   - un contacto: necesita el permiso «pagar» (403 permiso_de_contacto) y solo registra sobre sus
 //     servicios (403 servicio_fuera_del_contacto); si sus servicios están acotados, la gestión lleva
-//     el servicio: el único suyo o, si tiene varios, 422 en servicioId.
-//
-// Devuelve el rol (para la cabecera y el contacto_id) y el servicio de la gestión.
-func (m *Modulo) contactoDeGestion(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, servicio *int64) (rolEnCliente, *int64, error) {
+//     el servicio: el único suyo o, si tiene varios, 422 en servicioId;
+//   - un servicio de otro cliente a cargo de quien habla (§3.8, B25): la gestión va al cliente dueño
+//     del servicio, con X-Iris-Contacto = el contacto de quien habla en ese cliente y su permiso «pagar».
+func (m *Modulo) contactoDeGestion(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, servicio *int64) (gestionDe, error) {
 	rol, err := m.rolDeConversacion(ctx, q, c)
 	if err != nil {
-		return rolEnCliente{}, nil, err
+		return gestionDe{}, err
 	}
 	if rol.Propio == nil || rol.Propio.SinRol {
-		return rolEnCliente{}, nil, clienteSinConfirmar()
+		return gestionDe{}, clienteSinConfirmar()
 	}
 	p := *rol.Propio
+	if servicio != nil && len(rol.ACargo) > 0 {
+		s, err := q.ServicioInstantaneaPorID(ctx, *servicio)
+		switch {
+		case err == nil && s.ClienteID != *c.ClienteID:
+			for _, k := range rol.ACargo {
+				if k.ClienteID != s.ClienteID || !k.cubre(s.ID) {
+					continue
+				}
+				// Verificación heredada: solo con los permisos de ese vínculo.
+				if !k.permite(PermisoContactoPagar) {
+					return gestionDe{}, permisoDeContacto(PermisoContactoPagar)
+				}
+				return gestionDe{ClienteID: s.ClienteID, ContactoID: k.ContactoID, Contacto: k.cabecera(), ServicioID: &s.ID, ACargo: true}, nil
+			}
+			return gestionDe{}, servicioFueraDelContacto()
+		case err != nil && !errors.Is(err, pgx.ErrNoRows):
+			return gestionDe{}, err
+		}
+	}
 	if p.esTitular() {
-		return p, servicio, nil
+		return gestionDe{ClienteID: *c.ClienteID, ServicioID: servicio}, nil
 	}
 	if !p.permite(PermisoContactoPagar) {
-		return rolEnCliente{}, nil, permisoDeContacto(PermisoContactoPagar)
+		return gestionDe{}, permisoDeContacto(PermisoContactoPagar)
 	}
+	g := gestionDe{ClienteID: *c.ClienteID, ContactoID: p.ContactoID, Contacto: p.cabecera(), ServicioID: servicio}
 	if servicio != nil {
 		if !p.cubre(*servicio) {
-			return rolEnCliente{}, nil, servicioFueraDelContacto()
+			return gestionDe{}, servicioFueraDelContacto()
 		}
-		return p, servicio, nil
+		return g, nil
 	}
 	if p.Servicios == nil {
 		// Contacto de todos los servicios del cliente: la gestión puede ir sin servicio.
-		return p, nil, nil
+		return g, nil
 	}
 	unico, err := servicioUnicoDe(ctx, q, empresaDeConv(c), p)
 	if err != nil {
-		return rolEnCliente{}, nil, err
+		return gestionDe{}, err
 	}
 	if unico == nil {
-		return rolEnCliente{}, nil, servicioRequeridoContacto()
+		return gestionDe{}, servicioRequeridoContacto()
 	}
-	return p, unico, nil
+	g.ServicioID = unico
+	return g, nil
 }

@@ -62379,7 +62379,7 @@
         "x-permiso": "conversaciones.ver"
       },
       "post": {
-        "description": "Permiso: `conversaciones.registrar_gestion_cobro`. Solo informativa: nunca cambia estados, cortes ni promesas en Argos. Sin texto libre, montos ni teléfonos. Solo con el cliente confirmado (422 `sin_cliente`, `cliente_sin_confirmar`). `ocurridoEn` entre ahora − 7 días y ahora + 5 min (422 `validacion`, regla `ventana`). Sale a Argos por la cola de pendientes (`iris:gestion:\u003cid\u003e`, X-Iris-Actor y, si quien habla es un contacto del cliente, X-Iris-Contacto). 409 `argos_apagado` y `argos_sin_gestiones` (Argos con contrato anterior a 0.13.0). Con el asistente de IA, `promete_pagar` y `pago_informado` exigen una promesa o un comprobante en la conversación (422 `sin_respaldo`). Quien habla sale del rol de la conversación: sin rol, 422 `cliente_sin_confirmar`; un contacto necesita el permiso «pagar» (403 `permiso_de_contacto`), solo sus servicios (403 `servicio_fuera_del_contacto`) y, si sus servicios están acotados, el servicio (el único suyo o 422 en `servicioId`). Idempotency-Key obligatoria (400 `idempotency_key_requerida`).",
+        "description": "Permiso: `conversaciones.registrar_gestion_cobro`. Solo informativa: nunca cambia estados, cortes ni promesas en Argos. Sin texto libre, montos ni teléfonos. Solo con el cliente confirmado (422 `sin_cliente`, `cliente_sin_confirmar`). `ocurridoEn` entre ahora − 7 días y ahora + 5 min (422 `validacion`, regla `ventana`). Sale a Argos por la cola de pendientes (`iris:gestion:\u003cid\u003e`, X-Iris-Actor y, si quien habla es un contacto del cliente, X-Iris-Contacto). 409 `argos_apagado` y `argos_sin_gestiones` (Argos con contrato anterior a 0.13.0). Con el asistente de IA, `promete_pagar` y `pago_informado` exigen una promesa o un comprobante en la conversación (422 `sin_respaldo`). Quien habla sale del rol de la conversación: sin rol, 422 `cliente_sin_confirmar`; un contacto necesita el permiso «pagar» (403 `permiso_de_contacto`), solo sus servicios (403 `servicio_fuera_del_contacto`) y, si sus servicios están acotados, el servicio (el único suyo o 422 en `servicioId`). Un servicio de otro cliente a cargo de quien habla (§3.8, B25) va a nombre de ese cliente, con X-Iris-Contacto = su contacto en él y el permiso «pagar» de ese vínculo. Idempotency-Key obligatoria (400 `idempotency_key_requerida`).",
         "operationId": "registrarGestionCobroConversacion",
         "parameters": [
           {
@@ -62423,6 +62423,16 @@
               }
             },
             "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Bad Request"
           },
           "401": {
             "content": {
