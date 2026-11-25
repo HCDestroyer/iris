@@ -191,6 +191,10 @@ type EntradaConfirmarCobro struct {
 	leida       bool
 	concepto    int64
 	errConcepto error
+	// porAnular: con existe y una factura por anular guardada, su lectura en esta misma acción.
+	porAnular      argos.FacturaArgos
+	errPorAnular   error
+	porAnularLeida bool
 }
 
 // ConfirmarCobro lee Argos fuera de la transacción (la factura indicada, la factura por anular o el
@@ -211,6 +215,12 @@ func (m *Modulo) ConfirmarCobro(ctx context.Context, in EntradaConfirmarCobro) (
 		}
 		in.factura, in.errFactura = m.cfg.Argos.LeerFacturaOrigenIris(ctx, deref64(f.EmpresaID), f.EntidadID, b, a.ID)
 		in.leida = true
+		if f.FacturaPorAnularID != nil && *f.FacturaPorAnularID != b.FacturaID {
+			// Con una factura por anular guardada, «existe» exige verla anulada (o quitarla antes).
+			in.porAnular, in.errPorAnular = m.cfg.Argos.LeerFacturaOrigenIris(ctx, deref64(f.EmpresaID), f.EntidadID,
+				argos.BuscarFactura{FacturaID: *f.FacturaPorAnularID}, a.ID)
+			in.porAnularLeida = true
+		}
 	} else {
 		if f.FacturaPorAnularID != nil {
 			if !a.EsUsuario() {
@@ -324,6 +334,11 @@ func nuevoConfirmarCobro(m *Modulo) *auditoria.Caso[EntradaConfirmarCobro, Pendi
 				if err := porAnularAnulada(in, *f.FacturaPorAnularID); err != nil {
 					return Pendiente{}, err
 				}
+			} else if f.ExigePorAnular {
+				// Tuvo una factura por anular y se quitó: «no existe» sigue bloqueado hasta que otra factura por
+				// anular se lea anulada.
+				return Pendiente{}, nucleo.ReglaNegocio("factura_por_anular_vigente",
+					"Este cobro tuvo una factura por anular: indica la factura por anular y confirma que está anulada en Argos")
 			}
 			concepto := in.concepto
 			if in.errConcepto != nil {
@@ -391,6 +406,19 @@ func (m *Modulo) confirmarEmitido(ctx context.Context, t *auditoria.Tx, f pendie
 	case in.errFactura != nil:
 		slog.WarnContext(ctx, "pendientes: no se pudo leer la factura de Argos para conciliar el cobro", "pendiente", f.ID, "err", in.errFactura)
 		return Pendiente{}, nucleo.NoDisponible("No se pudo leer la factura en Argos: reintenta")
+	}
+	if f.FacturaPorAnularID != nil && *f.FacturaPorAnularID != in.factura.ID {
+		// Bajo 7: con una factura por anular guardada, «existe» exige que una lectura de esta acción la vea
+		// anulada; si no, primero se quita.
+		switch {
+		case !in.porAnularLeida:
+			return Pendiente{}, nucleo.ReglaNegocio("factura_por_anular_vigente", "El cobro tiene una factura por anular: quítala o anúlala primero")
+		case in.errPorAnular != nil && !errors.Is(in.errPorAnular, argos.ErrFacturaNoEncontrada):
+			return Pendiente{}, nucleo.NoDisponible("No se pudo leer la factura por anular en Argos: reintenta")
+		case in.errPorAnular != nil || !strings.EqualFold(in.porAnular.Estado, "anulada"):
+			return Pendiente{}, nucleo.ReglaNegocio("factura_por_anular_vigente",
+				"El cobro tiene una factura por anular que no está anulada en Argos: quítala o anúlala primero")
+		}
 	}
 	q := pendientesbd.New(t)
 	campo := facturaDistinta(f, in.factura, in.factura.SinConcepto)
@@ -688,6 +716,19 @@ func despuesDeHecho(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integra
 		}
 		if ligadas == 0 {
 			slog.WarnContext(ctx, "pendientes: la factura del cargo ya está ligada a otro cobro de Iris", "pendiente", f.ID, "factura", id)
+			return nil
+		}
+		// Bajo 9: un factura.anulada que llegó como aviso antes de ligarla se aplica ahora.
+		if orden, err := strconv.ParseInt(f.EntidadID, 10, 64); err == nil {
+			avisos, err := q.AvisosDeFactura(ctx, pendientesbd.AvisosDeFacturaParams{OrdenID: orden, Factura: strconv.FormatInt(id, 10)})
+			if err != nil {
+				return err
+			}
+			for _, w := range avisos {
+				if w == "factura.anulada" {
+					return MarcarFacturaAnulada(ctx, t, id, "")
+				}
+			}
 		}
 	case OpConsumo:
 		esperan, err := q.CargosQueEsperanConsumo(ctx, f.ID)
@@ -849,9 +890,14 @@ func nuevoQuitarPorAnular(m *Modulo) *auditoria.Caso[EntradaQuitarPorAnular, Pen
 				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "motivo", Message: "Escribe por qué se quita (5 a 1000 caracteres)", Rule: "longitud"})
 			}
 			switch {
-			case in.errFactura != nil && !errors.Is(in.errFactura, argos.ErrFacturaNoEncontrada):
+			case errors.Is(in.errFactura, argos.ErrFacturaNoEncontrada), errors.Is(in.errFactura, argos.ErrLecturaNoDisponible):
+				// Solo una lectura 200 con estado distinto de anulada permite quitarla (M2).
+				return Pendiente{}, nucleo.ReglaNegocio("factura_no_encontrada", "No se pudo comprobar la factura por anular en Argos: no se quita")
+			case in.errFactura != nil:
 				return Pendiente{}, nucleo.NoDisponible("No se pudo leer la factura en Argos: reintenta")
-			case in.errFactura == nil && in.factura.ID == *f.FacturaPorAnularID && strings.EqualFold(in.factura.Estado, "anulada"):
+			case in.factura.ID != *f.FacturaPorAnularID:
+				return Pendiente{}, nucleo.ReglaNegocio("factura_no_encontrada", "Argos devolvió otra factura: no se quita")
+			case strings.EqualFold(in.factura.Estado, "anulada"):
 				return Pendiente{}, nucleo.Conflicto("factura_anulada",
 					"Argos ya la ve anulada: no se quita; confirma que la factura del cobro no existe")
 			}
@@ -867,4 +913,24 @@ func nuevoQuitarPorAnular(m *Modulo) *auditoria.Caso[EntradaQuitarPorAnular, Pen
 			return aPendiente(g), nil
 		},
 	})
+}
+
+// MarcarFacturaAnulada: Argos anuló la factura ligada a un cargo (factura.anulada): el cargo deja de
+// contar como vigente. Por factura_id, o por la clave del cargo (cobro de A36 anulado).
+func MarcarFacturaAnulada(ctx context.Context, t *auditoria.Tx, factura int64, clave string) error {
+	q := pendientesbd.New(t)
+	var n int64
+	var err error
+	if clave != "" {
+		n, err = q.MarcarFacturaAnuladaPorClave(ctx, clave)
+	} else {
+		n, err = q.MarcarFacturaAnulada(ctx, factura)
+	}
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		t.Anotar(map[string]any{"factura_anulada": factura, "clave": clave})
+	}
+	return nil
 }

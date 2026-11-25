@@ -540,6 +540,16 @@ func TestConsumibleCobroSinConfirmar(t *testing.T) {
 	if f.Estado != "fallido_negocio" || !f.Incompleto || !strings.Contains(f.Error, "consumible_cobro") {
 		t.Fatalf("visible al supervisor: %+v", f)
 	}
+	// Bajo 2: un cierre repetido no lo revive.
+	e.cerrar(map[string]any{
+		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20, "bodega_id": 3,
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_cobro"}},
+		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"},
+	})
+	e.procesar()
+	if f := e.pendientes(orden)["iris:cargo:"+orden]; f.Estado != "fallido_negocio" || !f.Incompleto {
+		t.Fatalf("sigue visible al supervisor: %+v", f)
+	}
 	for _, l := range e.argos.copia() {
 		if l.Clave == "iris:cargo:"+orden {
 			t.Fatal("no sale")

@@ -242,16 +242,17 @@ func (m *Modulo) nuevoActualizarBienvenida() *auditoria.Caso[entradaBienvenidaAr
 					return nil, nil
 				}
 				// La hora en que llegó el aviso (el webhook en integracion.entrantes), no la de ahora.
-				recibido := m.ahora()
+				// Sin el entrante (un evento interno sin él), no se filtra por la creación de la orden.
+				recibido, creadaAntes := m.ahora(), time.Date(9999, 1, 1, 0, 0, 0, 0, time.UTC)
 				if in.EntranteID != nil {
 					if r, err := q.RecibidoDeEntrante(ctx, *in.EntranteID); err == nil {
-						recibido = r
+						recibido, creadaAntes = r, r
 					} else if !errors.Is(err, pgx.ErrNoRows) {
 						return nil, err
 					}
 				}
 				ids, err := q.OrdenesParaBienvenidaSinOrigen(ctx, campobd.OrdenesParaBienvenidaSinOrigenParams{ServicioID: &in.ServicioID,
-					ClienteID: in.ClienteID, Recibido: recibido, Desde: recibido.Add(-7 * 24 * time.Hour)})
+					ClienteID: in.ClienteID, Recibido: recibido, Desde: recibido.Add(-7 * 24 * time.Hour), CreadaAntes: creadaAntes})
 				if err != nil {
 					return nil, err
 				}

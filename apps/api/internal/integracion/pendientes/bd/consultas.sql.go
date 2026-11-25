@@ -14,7 +14,7 @@ import (
 )
 
 const avisosDeFactura = `-- name: AvisosDeFactura :many
-SELECT datos->>'webhook' AS webhook FROM campo.orden_eventos
+SELECT coalesce(datos->>'webhook', '')::text AS webhook FROM campo.orden_eventos
 WHERE orden_id = $1::bigint AND tipo = 'cobro' AND datos->>'factura_id' = $2::text ORDER BY id
 `
 
@@ -24,15 +24,15 @@ type AvisosDeFacturaParams struct {
 }
 
 // Avisos factura.* / pago.* que llegaron antes de ligar esa factura (historial de la orden), en orden.
-func (q *Queries) AvisosDeFactura(ctx context.Context, arg AvisosDeFacturaParams) ([]interface{}, error) {
+func (q *Queries) AvisosDeFactura(ctx context.Context, arg AvisosDeFacturaParams) ([]string, error) {
 	rows, err := q.db.Query(ctx, avisosDeFactura, arg.OrdenID, arg.Factura)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []interface{}
+	var items []string
 	for rows.Next() {
-		var webhook interface{}
+		var webhook string
 		if err := rows.Scan(&webhook); err != nil {
 			return nil, err
 		}

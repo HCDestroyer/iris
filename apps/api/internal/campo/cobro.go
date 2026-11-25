@@ -443,6 +443,30 @@ func (m *Modulo) nuevoSeguirCobro() *auditoria.Caso[entradaCobroArgos, *Cobro] {
 			if d.Estado == antes.Estado && mismoID(d.FacturaID, antes.FacturaID) {
 				return &r, nil
 			}
+			if antes.FacturaID == nil && d.FacturaID != nil {
+				// Bajo 9: los factura.* / pago.* de esta factura que llegaron como aviso antes de ligarla.
+				avisos, err := q.AvisosDeFacturaOrden(ctx, campobd.AvisosDeFacturaOrdenParams{OrdenID: d.OrdenID, Factura: strconv.FormatInt(*d.FacturaID, 10)})
+				if err != nil {
+					return nil, err
+				}
+				for _, w := range avisos {
+					e := estadoDeWebhook(w)
+					if e == "" || e == d.Estado || !transicionCobro(d.Estado, e) {
+						continue
+					}
+					g := campobd.GuardarCobroParams{ID: d.ID, Estado: e, FacturaID: d.FacturaID, Numero: d.Numero, Total: d.Total, Moneda: d.Moneda, Detalle: d.Detalle}
+					if d, err = q.GuardarCobro(ctx, g); err != nil {
+						return nil, err
+					}
+				}
+				r = aCobro(d)
+			}
+			if d.Estado == CobroAnulado && antes.Estado != CobroAnulado {
+				// La factura anulada deja de contar como vigente también en la cola.
+				if err := pendientes.MarcarFacturaAnulada(ctx, t, deref(d.FacturaID), d.IdempotencyKey); err != nil {
+					return nil, err
+				}
+			}
 			t.RegistrarCambios("cobro", d.ID, map[string]any{"estado": antes.Estado, "factura_id": antes.FacturaID},
 				map[string]any{"estado": d.Estado, "factura_id": d.FacturaID})
 			if d.Estado == antes.Estado {
@@ -531,8 +555,7 @@ func (m *Modulo) SuscribirCobros(bus *integracion.Bus, bd nucleo.BD) {
 		if err != nil {
 			return nil
 		}
-		estado := map[string]string{argos.EventoFacturaEmitida: CobroFacturado, argos.EventoFacturaAnulada: CobroAnulado,
-			argos.EventoPagoRegistrado: CobroPagado, argos.EventoPagoAnulado: CobroFacturado}[p.Webhook]
+		estado := estadoDeWebhook(p.Webhook)
 		if estado == "" {
 			return nil
 		}
@@ -674,7 +697,12 @@ func (m *Modulo) nuevoAvisoFactura() *auditoria.Caso[avisoFacturaEntrada, bool] 
 				case p.FacturaPorAnular != nil && *p.FacturaPorAnular == in.FacturaID:
 					situacion = "factura_por_anular"
 				case p.EntidadID == strconv.FormatInt(f.ID, 10):
-					return false, nil // la factura de un cargo de la orden (cierre o reemplazo): nada que avisar
+					// La factura de un cargo de la orden (cierre o reemplazo): su anulación lo deja de contar como
+					// vigente; nada que avisar.
+					if in.Webhook == argos.EventoFacturaAnulada {
+						return false, pendientes.MarcarFacturaAnulada(ctx, t, in.FacturaID, "")
+					}
+					return false, nil
 				}
 			} else if !errors.Is(err, pgx.ErrNoRows) {
 				return false, err
@@ -697,4 +725,10 @@ func (m *Modulo) nuevoAvisoFactura() *auditoria.Caso[avisoFacturaEntrada, bool] 
 				map[string]any{"factura_id": strconv.FormatInt(in.FacturaID, 10), "webhook": in.Webhook}, m.ahora())
 		},
 	})
+}
+
+// estadoDeWebhook: el estado del cobro que trae un factura.* / pago.* de Argos ("" si ninguno).
+func estadoDeWebhook(w string) string {
+	return map[string]string{argos.EventoFacturaEmitida: CobroFacturado, argos.EventoFacturaAnulada: CobroAnulado,
+		argos.EventoPagoRegistrado: CobroPagado, argos.EventoPagoAnulado: CobroFacturado}[w]
 }

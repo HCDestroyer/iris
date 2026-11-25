@@ -406,3 +406,48 @@ func TestReemplazoSinConceptoQuedaPorResolver(t *testing.T) {
 		t.Fatalf("solo salió el original: %d", n)
 	}
 }
+
+// M2 y bajos 3 y 7: una vez indicada una factura por anular, quitarla no libera «no existe»; quitarla
+// exige una lectura 200 no anulada; «existe» con otra factura exige ver anulada la por anular; un saldo
+// desconocido cuenta como con pagos.
+func TestFacturaPorAnularQuitadaSigueExigiendo(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.contrato0143(true)
+	orden, p := e.porConfirmar()
+	emitida := e.reloj.Format(time.RFC3339)
+	sup := e.supervisorCon(nucleo.PermIntegracionesConfirmarCobro)
+	sinConcepto := `[{"concepto_id":null,"precio_unitario":"350.00","cantidad":1},{"concepto_id":null,"precio_unitario":"100.00","cantidad":1}]`
+	e.fijarFactura(facturaArgos(903, orden, "emitida", emitida, sinConcepto))
+	r, err := e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, FacturaID: ptrEntero(903), Motivo: "La factura vieja"})
+	if err != nil || r.FacturaPorAnular == nil {
+		t.Fatalf("por anular: %+v %v", r, err)
+	}
+	// «Existe» con otra factura mientras la por anular no está anulada: 422.
+	e.fijarFactura(facturaArgos(904, orden, "emitida", emitida, lineasArgos))
+	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: true, FacturaID: ptrEntero(904), Motivo: "Otra factura"})
+	codigoDe(t, err, 422, "factura_por_anular_vigente")
+	// Quitar con un 404 no se permite.
+	e.fijarFactura("")
+	_, err = e.m.QuitarFacturaPorAnular(sup, pendientes.EntradaQuitarPorAnular{ID: p.ID, Version: r.Version, Motivo: "Era otra factura"})
+	codigoDe(t, err, 422, "factura_no_encontrada")
+	// Quitarla con una lectura no anulada y luego «no existe»: sigue bloqueado.
+	e.fijarFactura(facturaArgos(903, orden, "emitida", emitida, sinConcepto))
+	r, err = e.m.QuitarFacturaPorAnular(sup, pendientes.EntradaQuitarPorAnular{ID: p.ID, Version: r.Version, Motivo: "Era otra factura"})
+	if err != nil || r.FacturaPorAnular != nil {
+		t.Fatalf("quitada: %+v %v", r, err)
+	}
+	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: false, Motivo: "No hay factura"})
+	codigoDe(t, err, 422, "factura_por_anular_vigente")
+	// Otra vez indicada y anulada en Argos, con saldo desconocido: cuenta como con pagos.
+	r, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: true, FacturaID: ptrEntero(903), Motivo: "La factura vieja"})
+	if err != nil || r.FacturaPorAnular == nil {
+		t.Fatalf("por anular otra vez: %+v %v", r, err)
+	}
+	e.fijarFactura(strings.Replace(facturaArgos(903, orden, "anulada", emitida, sinConcepto), `"saldo":"450.00",`, ``, 1))
+	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: false, Motivo: "Anulada"})
+	codigoDe(t, err, 422, "pagos_por_confirmar")
+	r, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: false, PagosAnulados: true, Motivo: "Anulada"})
+	if err != nil || r.PorConfirmar {
+		t.Fatalf("no existe: %+v %v", r, err)
+	}
+}

@@ -15663,10 +15663,10 @@ export interface components {
             /** @description Clave nueva (8 a 63). Nunca se devuelve ni queda en Iris: viaja cifrada hasta Argos y se borra */
             clave?: string;
             /**
-             * @description Cómo se comprobó que quien pide es el titular. El técnico: presencial (se pone solo); un agente: llamada_verificada
+             * @description Cómo se comprobó que quien pide es el titular. datos_titular: la verificación §7.5 (verificacionId); presencial: solo el técnico en sitio, en su orden en curso. codigo_telefono y codigo_correo aún no están disponibles (422 metodo_no_disponible). Sin metodo: presencial para el técnico, datos_titular desde el panel. llamada_verificada: nombre anterior de datos_titular
              * @enum {string}
              */
-            metodo?: "presencial" | "llamada_verificada";
+            metodo?: "datos_titular" | "presencial" | "codigo_telefono" | "codigo_correo" | "llamada_verificada";
             /** @description Nombre nuevo del Wi-Fi (1 a 32 caracteres) */
             ssid?: string;
             /**

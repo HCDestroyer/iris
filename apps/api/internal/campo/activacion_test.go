@@ -429,7 +429,14 @@ func TestEquipoYWifiDesdeLaOrden(t *testing.T) {
 	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "llamada_verificada"})
 	problema(t, err, 422, "verificacion_requerida")
 	verif := verificacionDePrueba(t, 990)
-	deber(e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "llamada_verificada", VerificacionID: &verif}))(t)
+	deber(e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "datos_titular", VerificacionID: &verif}))(t)
+	// Métodos del PM: el código al teléfono o al correo aún no; presencial solo el técnico.
+	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "codigo_telefono"})
+	problema(t, err, 422, "metodo_no_disponible")
+	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "codigo_correo"})
+	problema(t, err, 422, "metodo_no_disponible")
+	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "presencial"})
+	problema(t, err, 422, "validacion")
 	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel 2"), Metodo: "llamada_verificada", VerificacionID: &verif})
 	problema(t, err, 422, "verificacion_requerida")
 	otra := verificacionDePrueba(t, 991) // de otro cliente

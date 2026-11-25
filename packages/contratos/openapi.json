@@ -16949,9 +16949,12 @@
             "type": "string"
           },
           "metodo": {
-            "description": "Cómo se comprobó que quien pide es el titular. El técnico: presencial (se pone solo); un agente: llamada_verificada",
+            "description": "Cómo se comprobó que quien pide es el titular. datos_titular: la verificación §7.5 (verificacionId); presencial: solo el técnico en sitio, en su orden en curso. codigo_telefono y codigo_correo aún no están disponibles (422 metodo_no_disponible). Sin metodo: presencial para el técnico, datos_titular desde el panel. llamada_verificada: nombre anterior de datos_titular",
             "enum": [
+              "datos_titular",
               "presencial",
+              "codigo_telefono",
+              "codigo_correo",
               "llamada_verificada"
             ],
             "type": "string"

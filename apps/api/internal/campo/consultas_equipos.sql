@@ -155,8 +155,14 @@ SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios WHERE id = @servicio_id
 -- hay exactamente una. Nunca por updated_at ni por la hora en que se procesa.
 SELECT o.id FROM campo.ordenes o JOIN campo.tipos_orden t ON t.id = o.tipo_id
 WHERE o.servicio_id = @servicio_id AND o.cliente_id = @cliente_id AND t.codigo = 'instalacion' AND o.estado <> 'cancelada'
+  AND o.created_at <= sqlc.arg(creada_antes)::timestamptz
   AND (o.finalizada_en IS NULL OR (o.finalizada_en >= sqlc.arg(desde)::timestamptz AND o.finalizada_en <= sqlc.arg(recibido)::timestamptz))
 LIMIT 2;
 
 -- name: RecibidoDeEntrante :one
 SELECT recibido_en FROM integracion.entrantes WHERE id = @id;
+
+-- name: AvisosDeFacturaOrden :many
+-- factura.* / pago.* de esa factura que llegaron como aviso antes de ligarla al cobro, en orden.
+SELECT coalesce(datos->>'webhook', '')::text AS webhook FROM campo.orden_eventos
+WHERE orden_id = @orden_id::bigint AND tipo = 'cobro' AND datos->>'factura_id' = @factura::text ORDER BY id;

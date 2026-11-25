@@ -985,10 +985,21 @@ func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pen
 				Operaciones: []string{previo.IdempotencyKey}})
 		}
 	}
+	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && deref(previo.CodigoError) == CodigoConsumibleSinConfirmar {
+		// Bajo 2: el consumo no confirmó el cobro del consumible_cobro; un cierre repetido no lo revive (lo
+		// resuelve el supervisor).
+		return false, nil
+	}
 	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && p.incompleto == "" {
 		f, err := q.CorregirPendiente(ctx, pendientesbd.CorregirPendienteParams{Payload: cuerpo, Ruta: p.ruta, DependeDe: depende, Ahora: ahora, ID: previo.ID})
 		if err != nil {
 			return false, err
+		}
+		if p.esperaConsumo && f.Estado == EstadoPendiente {
+			// Corregido, sigue sin salir: espera a que el consumo confirme el cobro.
+			if f, err = q.FijarEsperaConsumo(ctx, f.ID); err != nil {
+				return false, err
+			}
 		}
 		t.RegistrarCambios("pendiente", f.ID,
 			map[string]any{"estado": previo.Estado, "ruta": previo.Ruta, "payload": string(previo.Payload), "datos_incompletos": true},
@@ -1020,6 +1031,9 @@ func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pen
 	return false, t.Emitir(EventoConflicto, eventoConflicto{eventoPendiente: eventoDe(f), Estado: f.Estado, Motivo: motivo,
 		PayloadAnterior: anterior, PayloadNuevo: nuevo})
 }
+
+// CodigoConsumibleSinConfirmar: el consumo no confirmó el cobro del consumible_cobro del cargo.
+const CodigoConsumibleSinConfirmar = "consumible_cobro_sin_confirmar"
 
 // ConflictoCierreRepetido: la orden se volvió a cerrar con otros datos para una acción que no se
 // puede pisar.

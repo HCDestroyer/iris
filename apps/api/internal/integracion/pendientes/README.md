@@ -212,6 +212,10 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   `cobro_a36_vigente`). Con solo `monto` y el concepto de instalación informado por Argos, se manda como `lineas[]` con
   ese concepto. Un A36 vigente con otro concepto quita esa misma línea del cierre; sin el concepto de instalación
   conocido no se quita nada a ciegas (con un A36 de instalación vigente, el cargo nace por resolver).
+- **Vigencia (revisión de 53928a7):** reintentar el cargo de un A36 fallido vuelve su cobro a `pendiente` en la
+  misma transacción (409 `cobro_vigente` si hay otro vivo). Cuentan como vigentes todos los cargos de la orden con la
+  línea de instalación, salvo fallidos (sin «por confirmar»), con `factura_anulada`, `esperaConsumo` o por resolver.
+  Una factura por anular indicada una vez deja `exige_por_anular`: «no existe» espera a que una se lea anulada.
 - **Reemplazo sin concepto de instalación:** nace por resolver (fallido incompleto, con todas las líneas).
 - **`consumible_cobro` (forma anterior):** el cargo se encola `esperaConsumo` (nunca sale): queda `resuelto_manual`
   (`cobrado_con_consumo`) si el consumo confirma su cobro en `cargos[]`; si no, fallido incompleto, visible.

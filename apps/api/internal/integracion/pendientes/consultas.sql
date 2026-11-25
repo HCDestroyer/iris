@@ -482,5 +482,5 @@ WHERE idempotency_key = @clave::text AND NOT factura_anulada;
 
 -- name: AvisosDeFactura :many
 -- Avisos factura.* / pago.* que llegaron antes de ligar esa factura (historial de la orden), en orden.
-SELECT datos->>'webhook' AS webhook FROM campo.orden_eventos
+SELECT coalesce(datos->>'webhook', '')::text AS webhook FROM campo.orden_eventos
 WHERE orden_id = @orden_id::bigint AND tipo = 'cobro' AND datos->>'factura_id' = @factura::text ORDER BY id;

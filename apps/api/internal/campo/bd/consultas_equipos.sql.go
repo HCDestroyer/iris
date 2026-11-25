@@ -451,6 +451,37 @@ func (q *Queries) AsegurarOrdenActivacion(ctx context.Context, arg AsegurarOrden
 	return i, err
 }
 
+const avisosDeFacturaOrden = `-- name: AvisosDeFacturaOrden :many
+SELECT coalesce(datos->>'webhook', '')::text AS webhook FROM campo.orden_eventos
+WHERE orden_id = $1::bigint AND tipo = 'cobro' AND datos->>'factura_id' = $2::text ORDER BY id
+`
+
+type AvisosDeFacturaOrdenParams struct {
+	OrdenID int64
+	Factura string
+}
+
+// factura.* / pago.* de esa factura que llegaron como aviso antes de ligarla al cobro, en orden.
+func (q *Queries) AvisosDeFacturaOrden(ctx context.Context, arg AvisosDeFacturaOrdenParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, avisosDeFacturaOrden, arg.OrdenID, arg.Factura)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var webhook string
+		if err := rows.Scan(&webhook); err != nil {
+			return nil, err
+		}
+		items = append(items, webhook)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const bienvenidasSinEnviar = `-- name: BienvenidasSinEnviar :many
 
 SELECT o.id, o.numero, o.empresa_id, o.cliente_id, o.servicio_id, o.estado, o.finalizada_en, o.zona_id, o.cuadrilla_id, o.tecnico_id,
@@ -1140,15 +1171,17 @@ func (q *Queries) OrdenesDeServicioParaBienvenida(ctx context.Context, servicioI
 const ordenesParaBienvenidaSinOrigen = `-- name: OrdenesParaBienvenidaSinOrigen :many
 SELECT o.id FROM campo.ordenes o JOIN campo.tipos_orden t ON t.id = o.tipo_id
 WHERE o.servicio_id = $1 AND o.cliente_id = $2 AND t.codigo = 'instalacion' AND o.estado <> 'cancelada'
-  AND (o.finalizada_en IS NULL OR (o.finalizada_en >= $3::timestamptz AND o.finalizada_en <= $4::timestamptz))
+  AND o.created_at <= $3::timestamptz
+  AND (o.finalizada_en IS NULL OR (o.finalizada_en >= $4::timestamptz AND o.finalizada_en <= $5::timestamptz))
 LIMIT 2
 `
 
 type OrdenesParaBienvenidaSinOrigenParams struct {
-	ServicioID *int64
-	ClienteID  *int64
-	Desde      time.Time
-	Recibido   time.Time
+	ServicioID  *int64
+	ClienteID   *int64
+	CreadaAntes time.Time
+	Desde       time.Time
+	Recibido    time.Time
 }
 
 // Bienvenida sin origen (0.14.3 §12.5): instalaciones del servicio y del titular actual cerradas en los 7
@@ -1158,6 +1191,7 @@ func (q *Queries) OrdenesParaBienvenidaSinOrigen(ctx context.Context, arg Ordene
 	rows, err := q.db.Query(ctx, ordenesParaBienvenidaSinOrigen,
 		arg.ServicioID,
 		arg.ClienteID,
+		arg.CreadaAntes,
 		arg.Desde,
 		arg.Recibido,
 	)

@@ -32,9 +32,11 @@ type EntradaWifiOrden struct {
 	ID    int64   `json:"-"`
 	SSID  *string `json:"ssid,omitempty" minLength:"1" maxLength:"32" doc:"Nombre nuevo del Wi-Fi (1 a 32 caracteres)"`
 	Clave *string `json:"clave,omitempty" minLength:"8" maxLength:"63" auditoria:"sensible" doc:"Clave nueva (8 a 63). Nunca se devuelve ni queda en Iris: viaja cifrada hasta Argos y se borra"`
-	// Metodo: el técnico en sitio es presencial; un agente confirma al titular con el desafío de
-	// §7.5 (llamada_verificada).
-	Metodo string `json:"metodo,omitempty" enum:"presencial,llamada_verificada" doc:"Cómo se comprobó que quien pide es el titular. El técnico: presencial (se pone solo); un agente: llamada_verificada"`
+	// Metodo: cómo se comprobó que quien pide es el titular (decisión del PM: varias formas). Hoy:
+	// datos_titular (la verificación §7.5, verificacionId) y presencial (el técnico en sitio, en su orden
+	// en curso). codigo_telefono y codigo_correo (código de un solo uso) llegan en otra PR: 422
+	// metodo_no_disponible. llamada_verificada se acepta como el nombre anterior de datos_titular.
+	Metodo string `json:"metodo,omitempty" enum:"datos_titular,presencial,codigo_telefono,codigo_correo,llamada_verificada" doc:"Cómo se comprobó que quien pide es el titular. datos_titular: la verificación §7.5 (verificacionId); presencial: solo el técnico en sitio, en su orden en curso. codigo_telefono y codigo_correo aún no están disponibles (422 metodo_no_disponible). Sin metodo: presencial para el técnico, datos_titular desde el panel. llamada_verificada: nombre anterior de datos_titular"`
 	// VerificacionID: un agente manda la verificación §7.5 del titular (de menos de 10 min, sin usar).
 	VerificacionID *int64 `json:"verificacionId,omitempty" minimum:"1" doc:"Desde el panel, obligatoria: la verificación de identidad del titular (desafío de Argos, §7.5) de menos de 10 minutos y de un solo uso. Sin ella, 422 verificacion_requerida"`
 }
@@ -140,15 +142,29 @@ func (m *Modulo) nuevoCambiarWifi() *auditoria.Caso[EntradaWifiOrden, equipos.Ca
 			} else if !ok {
 				return equipos.CambioWifi{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "Cambiar el Wi-Fi no está disponible para esta empresa")
 			}
+			pedido := in.Metodo
+			if pedido == "" {
+				pedido = equipos.MetodoDatosTitular
+				if esTecnico(ctx) {
+					pedido = equipos.MetodoPresencial
+				}
+			}
+			// A Argos (§12.4, «Persona»): presencial, o llamada_verificada para la verificación §7.5 que
+			// confirmó una persona de Iris.
 			metodo := equipos.MetodoLlamadaVerificada
-			if esTecnico(ctx) {
-				// El técnico en sitio, en su orden en curso (§12.4, «Persona»).
+			switch pedido {
+			case equipos.MetodoCodigoTelefono, equipos.MetodoCodigoCorreo:
+				return equipos.CambioWifi{}, nucleo.ReglaNegocio("metodo_no_disponible",
+					"La verificación por código al teléfono o al correo del titular aún no está disponible: usa datos_titular o presencial")
+			case equipos.MetodoPresencial:
+				// Solo el técnico en sitio, en su orden en curso.
+				if !esTecnico(ctx) {
+					return equipos.CambioWifi{}, campoInvalido("metodo", "presencial es solo del técnico en sitio; desde el panel usa datos_titular", "enum")
+				}
 				if f.Estado != EstadoEnSitio {
 					return equipos.CambioWifi{}, transicionInvalida("cambiar el Wi-Fi de", f.Estado)
 				}
 				metodo = equipos.MetodoPresencial
-			} else if in.Metodo == equipos.MetodoPresencial {
-				return equipos.CambioWifi{}, campoInvalido("metodo", "Desde el panel, confirma al titular con el desafío y usa llamada_verificada", "enum")
 			}
 			var verificacion *int64
 			if metodo != equipos.MetodoPresencial {

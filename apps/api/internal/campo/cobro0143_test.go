@@ -520,3 +520,97 @@ func TestFacturaSinCobroLigadoEsAviso(t *testing.T) {
 		t.Fatalf("aviso en la orden (una vez): %d", n)
 	}
 }
+
+// A1-ter: reintentar un A36 fallido lo vuelve vivo en la misma transacción; registrar otro da 409.
+func TestReintentarA36LoVuelveVigente(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	e.m.SuscribirCobros(e.bus, pruebas.Pool(t))
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	plantillaConCobro(t, o.ID)
+	e.falso.rechazar("/facturas/cargo-unico", "validacion", "503")
+	c := deber(e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID}))(t)
+	e.procesar()
+	e.relay()
+	if cs := deber(e.m.VerCobros.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t); cs[0].Estado != campo.CobroFallido {
+		t.Fatalf("fallido: %+v", cs[0])
+	}
+	p := e.pendienteDe("iris:cargo:" + strconv.FormatInt(o.ID, 10) + ":" + c.ID.String())
+	deber(e.pend.Reintentar.Ejecutar(e.cs, pendientes.EntradaReintentar{ID: p.ID, Version: p.Version}))(t)
+	if cs := deber(e.m.VerCobros.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t); cs[0].Estado != campo.CobroPendiente {
+		t.Fatalf("vivo al reintentar: %+v", cs[0])
+	}
+	_, err := e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID})
+	problema(t, err, 409, "cobro_registrado")
+}
+
+// Bajo 6: un reemplazo «por resolver» resuelto a mano cuenta como vigente con la línea de instalación.
+func TestReemplazoResueltoAManoCuentaComoVigente(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	plantillaConCobro(t, o.ID)
+	orden := strconv.FormatInt(o.ID, 10)
+	if _, err := pruebas.Pool(t).Exec(context.Background(), `INSERT INTO integracion.pendientes (empresa_id, sistema, operacion, idempotency_key,
+		entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, proximo_intento, resuelto_como, resuelto_motivo, resuelto_en)
+		VALUES (1, 'argosisp', 'cargo', $1, 'orden', $2, 'POST', '/facturas/cargo-unico',
+		'{"lineas":[{"concepto_id":5,"precio_unitario":"350.00"},{"concepto_id":9,"precio_unitario":"100.00"}]}', '{}', true,
+		'resuelto_manual', now(), 'manual', 'Cobrado a mano en Argos', now())`, "iris:cargo:"+orden+":"+pruebas.Unico(), orden); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID})
+	problema(t, err, 409, "cargo_instalacion_vigente")
+}
+
+// Bajo 5: factura.anulada del cargo del cierre (ligado por factura_id) lo deja de contar como vigente.
+func TestFacturaAnuladaDelCierreLiberaA36(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	e.m.SuscribirCobros(e.bus, pruebas.Pool(t))
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), "DELETE FROM campo.orden_eventos WHERE tipo = 'cobro'")
+	})
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	plantillaConCobro(t, o.ID)
+	orden := strconv.FormatInt(o.ID, 10)
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.pendientes SET factura_id = NULL WHERE factura_id = 555"); err != nil {
+		t.Fatal(err)
+	}
+	cierreConCargo(t, o, 5, 9)
+	e.relay()
+	e.procesar()
+	if n := contar(t, "SELECT count(*) FROM integracion.pendientes WHERE idempotency_key = $1 AND factura_id = 555", "iris:cargo:"+orden); n != 1 {
+		t.Fatalf("cargo del cierre ligado a su factura: %d", n)
+	}
+	_, err := e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID})
+	problema(t, err, 409, "cobro_al_cerrar")
+	e.eventoArgos("argos.factura_cambiada", map[string]any{"webhook": "factura.anulada", "factura_id": 555, "origen_id": orden, "empresa_id": 1})
+	deber(e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID}))(t)
+}
+
+// Bajo 9: un pago.registrado que llegó como aviso antes de ligar la factura se aplica al ligarla.
+func TestAvisoDeFacturaSeAplicaAlLigarla(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	e.m.SuscribirCobros(e.bus, pruebas.Pool(t))
+	t.Cleanup(func() {
+		_, _ = pruebas.Pool(t).Exec(context.Background(), "DELETE FROM campo.orden_eventos WHERE tipo = 'cobro'")
+	})
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.pendientes SET factura_id = NULL WHERE factura_id = 555"); err != nil {
+		t.Fatal(err)
+	}
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacionPropia(tec, ct)
+	plantillaConCobro(t, o.ID)
+	deber(e.m.RegistrarCobro.Ejecutar(e.cs, campo.EntradaRegistrarCobro{ID: o.ID}))(t)
+	e.eventoArgos("argos.factura_cambiada", map[string]any{"webhook": "pago.registrado", "factura_id": 555,
+		"origen_id": strconv.FormatInt(o.ID, 10), "empresa_id": 1})
+	e.procesar()
+	e.relay()
+	if cs := deber(e.m.VerCobros.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t); cs[0].Estado != campo.CobroPagado {
+		t.Fatalf("pagado al ligar la factura: %+v", cs[0])
+	}
+}
