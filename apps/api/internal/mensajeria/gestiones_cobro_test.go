@@ -395,6 +395,49 @@ func TestGestionesCobroACargo(t *testing.T) {
 	if p := b.pendienteDeGestion(fmt.Sprint(r.cuerpo["id"])); p.contacto != nil || p.ruta != fmt.Sprintf("/clientes/%d/gestiones-cobro", jose) {
 		t.Fatalf("propio: %+v", p)
 	}
+	gestion := func(ruta string, servicio int64) respuesta {
+		return b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": servicio})
+	}
+	// Un servicio de otro cliente sin vínculo y uno que no existe: el mismo 422 (no dice si existe).
+	otro := siguienteCliente.Add(1)
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, movil, codigo, sincronizado_en, empresas)
+		VALUES ($1, 1, 'Otro', '+502 5777-0000', 'C-4', now(), '{1}')`, otro); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_nombre, sincronizado_en)
+		VALUES ($1, 1, $2, 'S-7', 'Fibra', 'activo', 'Zona 1', now())`, otro*10, otro); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirCampo(gestion(ruta, otro*10), "servicioId", "servicio_del_cliente")
+	b.exigirCampo(gestion(ruta, 987654321), "servicioId", "servicio_del_cliente")
+	// Un servicio de la mamá en otra empresa: igual.
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_servicios (id, empresa_id, cliente_id, codigo, plan_nombre, estado, zona_nombre, sincronizado_en)
+		VALUES ($1, 2, $2, 'S-8', 'Fibra', 'activo', 'Zona 1', now())`, mama*10+5, mama); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirCampo(gestion(ruta, mama*10+5), "servicioId", "servicio_del_cliente")
+	// Una conversación de José confirmada por un supervisor desde un número que no es el suyo (aunque sea
+	// de su contacto en la mamá): titular por la confirmación, pero no abre «a cargo».
+	otroNum := numeroCliente()
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos) VALUES ($1, $2, $3)`,
+		contacto, "+"+otroNum, otroNum); err != nil {
+		t.Fatal(err)
+	}
+	b.texto(otroNum, fmt.Sprintf("wamid.ac%d", jose), "Hola")
+	conv2 := cid(b.conv(otroNum))
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, cliente_verificado = true, asociacion = 'manual', verificado_por = $3, contacto_argos_id = NULL
+		WHERE id = $1`, conv2, jose, b.supervisor.id); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirCampo(gestion("/conversaciones/"+conv2+"/gestiones-cobro", mama*10), "servicioId", "servicio_del_cliente")
+	// Un vínculo acotado a otro servicio de la mamá: el pedido no está a cargo, el mismo 422.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET servicios = $2 WHERE contacto_id = $1`, contacto, []int64{mama*10 + 1}); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirCampo(gestion(ruta, mama*10), "servicioId", "servicio_del_cliente")
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET servicios = NULL WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
 	// Sin «pagar» en ese vínculo: 403.
 	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET pagar = false WHERE contacto_id = $1`, contacto); err != nil {
 		t.Fatal(err)

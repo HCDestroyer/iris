@@ -205,7 +205,7 @@ func (m *Modulo) nuevoRegistrarGestionCobro() *auditoria.Caso[entradaGestionInte
 					return GestionCobro{}, err
 				}
 				if !ok {
-					return GestionCobro{}, campoConv("servicioId", "El servicio no es de este cliente", "servicio_del_cliente")
+					return GestionCobro{}, servicioNoDelCliente()
 				}
 			}
 			// El asistente solo informa un pago o una promesa si hay una promesa o un comprobante real en
@@ -372,6 +372,12 @@ func gestionSinClave() *nucleo.Problema {
 		nucleo.ErrorCampo{Field: nucleo.CabeceraIdempotencia, Message: "Obligatoria", Rule: "required"})
 }
 
+// servicioNoDelCliente: el mismo 422 para un servicio que no es del cliente ni está a cargo de quien
+// habla, exista o no.
+func servicioNoDelCliente() *nucleo.Problema {
+	return campoConv("servicioId", "El servicio no es de este cliente", "servicio_del_cliente")
+}
+
 // gestionDe es a nombre de quién va una gestión de cobro en Argos.
 type gestionDe struct {
 	// ClienteID: el cliente de la ruta en Argos (el de la conversación o, a cargo, el dueño del servicio).
@@ -406,7 +412,9 @@ func (m *Modulo) contactoDeGestion(ctx context.Context, q *mensajeriabd.Queries,
 	if servicio != nil && len(rol.ACargo) > 0 {
 		s, err := q.ServicioInstantaneaPorID(ctx, *servicio)
 		switch {
-		case err == nil && s.ClienteID != *c.ClienteID:
+		case err == nil && s.EmpresaID == empresaDeConv(c) && s.ClienteID != *c.ClienteID:
+			// Solo servicios de la empresa de la conversación: uno ajeno (de otro cliente sin vínculo, de
+			// otra empresa o inexistente) responde lo mismo, 422 en servicioId, sin decir si existe.
 			for _, k := range rol.ACargo {
 				if k.ClienteID != s.ClienteID || !k.cubre(s.ID) {
 					continue
@@ -417,7 +425,7 @@ func (m *Modulo) contactoDeGestion(ctx context.Context, q *mensajeriabd.Queries,
 				}
 				return gestionDe{ClienteID: s.ClienteID, ContactoID: k.ContactoID, Contacto: k.cabecera(), ServicioID: &s.ID, ACargo: true}, nil
 			}
-			return gestionDe{}, servicioFueraDelContacto()
+			return gestionDe{}, servicioNoDelCliente()
 		case err != nil && !errors.Is(err, pgx.ErrNoRows):
 			return gestionDe{}, err
 		}
