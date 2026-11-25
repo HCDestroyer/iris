@@ -314,6 +314,24 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 			if err != nil {
 				return r, err
 			}
+			var cliente clientePDF
+			if err := json.Unmarshal(rev.Cliente, &cliente); err != nil {
+				return r, err
+			}
+			t.FijarEmpresa(deref(p.EmpresaID))
+			// Sin el nombre del titular (cambio de titular sin nombre) no se regenera ni se renueva la
+			// vigencia: avisa sin_titular, una vez por revisión.
+			if cliente.Nombre == "" {
+				previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: MotivoSinTitular, CotizacionID: rev.ID, Empresa: p.EmpresaID})
+				if err != nil || previo {
+					return r, err
+				}
+				t.FijarEntidad("prospecto", p.ID)
+				t.Anotar(map[string]any{"aviso": MotivoSinTitular, "cotizacion_id": rev.ID})
+				r.Aviso = ptr(MotivoSinTitular)
+				return r, emitirContratoSinFirma(t, sinFirma{orden: in.OrdenID, p: p, cotizacion: &rev.ID, operacion: operacionDeRevision(rev.Idempotencia),
+					motivo: MotivoSinTitular})
+			}
 			if !rev.VigenteHasta.After(m.ahora()) {
 				antes, pdfAntes := rev.VigenteHasta, rev.PdfAdjuntoID
 				pdfID, err := m.nuevoPDFID()
@@ -327,24 +345,6 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 				t.RegistrarCambios("cotizacion", rev.ID, map[string]any{"vigente_hasta": antes, "pdf_adjunto_id": pdfAntes},
 					map[string]any{"vigente_hasta": rev.VigenteHasta, "pdf_adjunto_id": rev.PdfAdjuntoID})
 				r.Renovada = &rev.ID
-			}
-			var cliente clientePDF
-			if err := json.Unmarshal(rev.Cliente, &cliente); err != nil {
-				return r, err
-			}
-			t.FijarEmpresa(deref(p.EmpresaID))
-			// Sin el nombre del titular (cambio de titular sin nombre) no se regenera: avisa
-			// sin_titular, una vez por revisión.
-			if cliente.Nombre == "" {
-				previo, err := q.AvisoSinFirmaPrevio(ctx, comercialbd.AvisoSinFirmaPrevioParams{Motivo: MotivoSinTitular, CotizacionID: rev.ID, Empresa: p.EmpresaID})
-				if err != nil || previo {
-					return r, err
-				}
-				t.FijarEntidad("prospecto", p.ID)
-				t.Anotar(map[string]any{"aviso": MotivoSinTitular, "cotizacion_id": rev.ID})
-				r.Aviso = ptr(MotivoSinTitular)
-				return r, emitirContratoSinFirma(t, sinFirma{orden: in.OrdenID, p: p, cotizacion: &rev.ID, operacion: operacionDeRevision(rev.Idempotencia),
-					motivo: MotivoSinTitular})
 			}
 			ct, err := m.regenerarContrato(ctx, t, q, p, rev, cliente, in.OrdenID)
 			if err != nil {
@@ -362,13 +362,17 @@ func (m *Modulo) nuevoOrdenReabierta() *auditoria.Caso[EntradaOrdenTerminada, Re
 // su PDF en borrador.
 func (m *Modulo) OrdenReabierta(ctx context.Context, in EntradaOrdenTerminada) (ResultadoOrdenReabierta, error) {
 	r, err := m.ordenReabierta.Ejecutar(ctx, in)
-	if err != nil || r.ContratoID == nil {
+	if err != nil {
 		return r, err
 	}
+	// La revisión renovada tiene un PDF nuevo por armar, haya contrato regenerado o no.
 	if r.Renovada != nil {
 		if cot, err := m.VerCotizacion.Ejecutar(ctx, EntradaVerCotizacion{ID: *r.Renovada}); err == nil {
 			m.conPDFCotizacion(ctx, cot)
 		}
+	}
+	if r.ContratoID == nil {
+		return r, nil
 	}
 	if ct, err := m.VerContrato.Ejecutar(ctx, EntradaVerContrato{ID: *r.ContratoID}); err == nil {
 		m.conPDFBorrador(ctx, ct)

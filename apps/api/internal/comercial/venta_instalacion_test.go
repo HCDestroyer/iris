@@ -708,12 +708,19 @@ func ventaEnLaInstalacion(t *testing.T, e *entorno, ctx context.Context, prospec
 	if r17.CotizacionID == nil || r17.ContratoID != nil {
 		t.Fatalf("titular sin nombre con la orden cancelada: %+v", r17)
 	}
+	// Vencida: sin titular tampoco se renueva (ni se arma un PDF que nadie va a firmar).
+	if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE comercial.cotizaciones SET vigente_hasta = now() - interval '1 day' WHERE id = $1", *r17.CotizacionID); err != nil {
+		t.Fatal(err)
+	}
 	deber(e.cmp.ReabrirOrden.Ejecutar(cs, campo.EntradaMotivo{ID: orden, Version: version(), Motivo: "El cliente ya puede recibirnos"}))(t)
 	e.relay()
 	for range 2 {
-		if rr := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t); rr.ContratoID != nil {
-			t.Fatalf("contrato regenerado sin titular: %+v", rr)
+		if rr := deber(e.com.OrdenReabierta(sistema(t), comercial.EntradaOrdenTerminada{OrdenID: orden, Estado: "pendiente", De: "cancelada"}))(t); rr.ContratoID != nil || rr.Renovada != nil {
+			t.Fatalf("contrato regenerado o revisión renovada sin titular: %+v", rr)
 		}
+	}
+	if n := contar(t, "SELECT count(*) FROM comercial.cotizaciones WHERE id = $1 AND vigente_hasta < now()", *r17.CotizacionID); n != 1 {
+		t.Fatal("la revisión sin titular se renovó")
 	}
 	if pf := porFirmar(); pf != nil {
 		t.Fatalf("por firmar sin titular: %+v", pf)

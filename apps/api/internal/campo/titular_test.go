@@ -66,6 +66,8 @@ type argosTitular struct {
 	alRecibir func(ruta string)
 	// lecturasServicio: cuántos GET /servicios/{id} recibió.
 	lecturasServicio int
+	// alLeerServicio corre al recibir GET /servicios/{id}, antes de responder.
+	alLeerServicio func()
 }
 
 func nuevoArgosTitular(t *testing.T) *argosTitular {
@@ -83,7 +85,11 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 		a.mu.Lock()
 		cuerpo, ok := a.servicios[r.PathValue("id")]
 		a.lecturasServicio++
+		alLeer := a.alLeerServicio
 		a.mu.Unlock()
+		if alLeer != nil {
+			alLeer()
+		}
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -779,4 +785,10 @@ func (a *argosTitular) lecturas() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.lecturasServicio
+}
+
+func (a *argosTitular) fijarAlLeerServicio(f func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.alLeerServicio = f
 }

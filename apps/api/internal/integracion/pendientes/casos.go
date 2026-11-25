@@ -295,6 +295,50 @@ type EntradaResolverManual struct {
 	// titular en Argos. Sin él, el cobro y el consumo de la instalación nacen fallido_negocio
 	// (titular resuelto a mano: confirma el cliente).
 	ClienteID *int64 `json:"clienteId,omitempty" required:"false" minimum:"1" doc:"Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro va a su nombre)"`
+	// confirmacion: el resultado de confirmar ClienteID con Argos, fuera de la transacción.
+	confirmacion *confirmacionCliente
+}
+
+// confirmacionCliente: la versión del pendiente sobre la que se consultó a Argos y el resultado.
+type confirmacionCliente struct {
+	version int32
+	err     error
+}
+
+// CasoResolverManual: integraciones.resolver_pendiente. Con clienteId (cambio de titular), la
+// lectura del pendiente y la consulta a Argos van fuera de la transacción (sin dejar una conexión
+// «idle in transaction» mientras Argos responde); el caso, dentro, solo comprueba la versión.
+type CasoResolverManual struct {
+	m    *Modulo
+	caso *auditoria.Caso[EntradaResolverManual, Pendiente]
+}
+
+// Ejecutar confirma el cliente final (si viene) y corre el caso de uso.
+func (c *CasoResolverManual) Ejecutar(ctx context.Context, in EntradaResolverManual) (Pendiente, error) {
+	if in.ClienteID != nil {
+		in.confirmacion = c.m.confirmarCliente(ctx, in)
+	}
+	return c.caso.Ejecutar(ctx, in)
+}
+
+// confirmarCliente: sin transacción. Si el pendiente no es un cambio de titular rechazado, si la
+// versión no es la leída o si quien lo pide no lo puede resolver, no consulta a Argos (el caso
+// responde con su error, auditado).
+func (m *Modulo) confirmarCliente(ctx context.Context, in EntradaResolverManual) *confirmacionCliente {
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return nil
+	}
+	q := pendientesbd.New(bd)
+	previo, err := q.PendientePorID(ctx, in.ID)
+	if err != nil || !visible(ctx, previo.EmpresaID) || previo.Version != in.Version ||
+		previo.Operacion != OpCambiarTitular || previo.Estado != EstadoFallidoNegocio {
+		return nil
+	}
+	if exigirSupervisorDelPaso(ctx, q, previo) != nil {
+		return nil
+	}
+	return &confirmacionCliente{version: previo.Version, err: m.clienteEsTitular(ctx, bd, previo, *in.ClienteID)}
 }
 
 // Decisiones sobre el cargo que esperaba al consumo resuelto a mano.
@@ -335,27 +379,6 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 		Accion: "integraciones.resolver_pendiente",
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaResolverManual) (Pendiente, error) {
 			q := pendientesbd.New(t)
-			// El cliente final de un cambio de titular se confirma con Argos (una llamada HTTP) antes
-			// de tomar el candado del pendiente; dentro, solo se comprueba que la versión no cambió.
-			var confirmado *pendientesbd.IntegracionPendiente
-			if in.ClienteID != nil {
-				previo, err := q.PendientePorID(ctx, in.ID)
-				if err != nil {
-					return Pendiente{}, err
-				}
-				if !visible(ctx, previo.EmpresaID) {
-					return Pendiente{}, nucleo.NoEncontrado("")
-				}
-				if previo.Operacion == OpCambiarTitular && previo.Estado == EstadoFallidoNegocio {
-					if err := exigirSupervisorDelPaso(ctx, q, previo); err != nil {
-						return Pendiente{}, err
-					}
-					if err := m.clienteEsTitular(ctx, t, previo, *in.ClienteID); err != nil {
-						return Pendiente{}, err
-					}
-					confirmado = &previo
-				}
-			}
 			f, err := q.PendientePorIDParaActualizar(ctx, in.ID)
 			if err != nil {
 				return Pendiente{}, err
@@ -388,9 +411,15 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 					"Solo se resuelve a mano lo que Argos rechazó (fallido_negocio); está "+f.Estado+
 						": lo agotado se reintenta y lo bloqueado espera a su dependencia")
 			}
-			if in.ClienteID != nil && (confirmado == nil || confirmado.Version != f.Version) {
-				// Cambió entre la consulta a Argos y el candado: que lo vuelvan a intentar.
-				return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)
+			if in.ClienteID != nil {
+				// El cliente final se confirmó con Argos fuera de la transacción (ResolverManual.Ejecutar):
+				// aquí solo que fue sobre esta misma versión del pendiente.
+				if in.confirmacion == nil || in.confirmacion.version != f.Version {
+					return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)
+				}
+				if in.confirmacion.err != nil {
+					return Pendiente{}, in.confirmacion.err
+				}
 			}
 			dependientes, err := q.DependientesAbiertos(ctx, f.ID)
 			if err != nil {

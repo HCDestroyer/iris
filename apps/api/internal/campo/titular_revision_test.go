@@ -254,6 +254,29 @@ func TestTitularResueltoAManoConfirmaElCliente(t *testing.T) {
 			t.Fatal("se consultó a Argos sin permiso")
 		}
 		e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
+		if cliente != nil {
+			// Con una versión vieja, 409 sin consultar a Argos.
+			antes := e.falso.lecturas()
+			_, err = e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave) - 1,
+				Motivo: "Lo corregí en Argos", ClienteID: cliente})
+			problema(t, err, 409, "conflicto_version")
+			if e.falso.lecturas() != antes {
+				t.Fatal("se consultó a Argos con una versión vieja")
+			}
+			// El pendiente cambia mientras Argos responde: 409 y no se guarda nada.
+			e.falso.fijarAlLeerServicio(func() {
+				if _, err := pruebas.Pool(t).Exec(context.Background(), "UPDATE integracion.pendientes SET version = version + 1 WHERE id = $1", pt.ID); err != nil {
+					t.Error(err)
+				}
+			})
+			_, err = e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
+				Motivo: "Lo corregí en Argos", ClienteID: cliente})
+			e.falso.fijarAlLeerServicio(nil)
+			problema(t, err, 409, "conflicto_version")
+			if p := e.pendiente(clave); p.Estado != pendientes.EstadoFallidoNegocio {
+				t.Fatalf("se guardó con la versión cambiada: %+v", p)
+			}
+		}
 		deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
 			Motivo: "Lo corregí en Argos a mano", ClienteID: cliente}))(t)
 		e.cerradaConCargo(orden)
