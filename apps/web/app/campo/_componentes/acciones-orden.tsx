@@ -5,6 +5,7 @@ import { accionesPantallaOrden, encabezadoOrden, motivoSinFormulario, ESTADOS_TE
 import { ErrorTransporte } from "@iris/sync";
 import { textoContador } from "@iris/sync/chat";
 import {
+    AccionFija,
     Aviso,
     Boton,
     Cargando,
@@ -20,7 +21,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import { useAbrirChatOrden } from "./chat";
 import { HojaAgregarFormulario } from "./checklist";
 import { HojaFallar } from "./cierre";
-import { useCampo } from "./contexto";
+import { useCampo, useOrden } from "./contexto";
 import { HojaCampo } from "./hoja";
 import { HojaPausar, useReanudar } from "./pausa";
 import { AVISO_TURNO_INICIADO, useUbicacion } from "./ubicacion";
@@ -174,12 +175,12 @@ export function useMarcarEstado(orden: OrdenVista) {
 }
 
 /**
- * Lo de arriba del resumen (decisión del PM): la acción principal en «tinta» a todo el ancho y,
+ * Lo de arriba del resumen (decisión del PM): la acción principal en índigo a todo el ancho y,
  * debajo, [En camino | No se pudo] (programada) o [Pausar | No se pudo] (en camino o en sitio).
  * Pausada: solo el aviso naranja «En pausa desde HH:MM · motivo» y «Reanudar».
  */
 export function AccionesPrincipales({ orden }: { orden: OrdenVista }) {
-    const { navegar, sesion } = useCampo();
+    const { sesion } = useCampo();
     const a = accionesPantallaOrden(orden, puedeReanudar(sesion.permisos));
     const { correr, ocupado } = useMarcarEstado(orden);
     const reanudar = useReanudar(orden);
@@ -193,7 +194,7 @@ export function AccionesPrincipales({ orden }: { orden: OrdenVista }) {
                     {a.pausa.texto}
                 </p>
                 {a.reanudar ? (
-                    <Boton variante="tinta" tamano="lg" data-slot="reanudar-orden" className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]" onClick={() => void reanudar()}>
+                    <Boton variante="primario" tamano="lg" data-slot="reanudar-orden" className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]" onClick={() => void reanudar()}>
                         <Play aria-hidden />
                         Reanudar
                     </Boton>
@@ -203,23 +204,12 @@ export function AccionesPrincipales({ orden }: { orden: OrdenVista }) {
             </div>
         );
     }
-    if (!a.principal && a.grupo.length === 0) {
+    // La acción principal va fija abajo (`AccionFijaOrden`); aquí, el resto.
+    if (a.grupo.length === 0) {
         return null;
     }
     return (
         <div className="grid gap-3">
-            {a.principal ? (
-                <Boton
-                    variante="tinta"
-                    tamano="lg"
-                    data-slot="accion-principal"
-                    className="h-[3.25rem] w-full rounded-full text-base md:h-[3.25rem]"
-                    onClick={() => navegar({ tipo: "orden", id: orden.id, paso: a.principal?.empezado ? siguientePaso(orden) : "llegada" })}
-                >
-                    {a.principal.empezado ? <ListChecks aria-hidden /> : <Play aria-hidden />}
-                    {a.principal.texto}
-                </Boton>
-            ) : null}
             {a.grupo.length > 0 ? (
                 <GrupoBotones etiqueta="Más acciones de la orden" anchoCompleto>
                     {a.grupo.map((g) =>
@@ -322,5 +312,40 @@ function HojaHistorial({ abierto, orden, clienteId, alCerrar }: { abierto: boole
                 </ul>
             )}
         </HojaCampo>
+    );
+}
+
+/**
+ * Acción fija abajo en el resumen de la orden (rediseño, captura «campo-orden»): la acción principal
+ * («Empezar trabajo» / «Continuar trabajo») a lo ancho, en índigo, en el lugar de la isla de menú.
+ * «Volver» ya está arriba (un dato, una vez). Sin acción principal (en pausa: «Reanudar» va en el
+ * resumen; terminada) no se dibuja.
+ */
+export function AccionFijaOrden({ id }: { id: number }) {
+    const { navegar, sesion } = useCampo();
+    const orden = useOrden(id);
+    if (!orden) return null;
+    const a = accionesPantallaOrden(orden, puedeReanudar(sesion.permisos));
+    const principal = a.pausa ? null : a.principal;
+    if (!principal) return null;
+    return (
+        <AccionFija
+            etiqueta={`Acciones de ${orden.numero}`}
+            modo="siempre"
+            data-slot="accion-fija-orden"
+            className="fixed bottom-0 left-1/2 w-full max-w-[30rem] -translate-x-1/2 min-[30rem]:border-x"
+        >
+            {principal ? (
+                <Boton
+                    variante="primario"
+                    data-slot="accion-principal"
+                    className="h-[3.125rem] min-w-0 flex-1 rounded-full text-[0.9375rem] font-semibold md:h-[3.125rem]"
+                    onClick={() => navegar({ tipo: "orden", id: orden.id, paso: principal.empezado ? siguientePaso(orden) : "llegada" })}
+                >
+                    {principal.empezado ? <ListChecks aria-hidden /> : <Play aria-hidden />}
+                    <span className="truncate">{principal.texto}</span>
+                </Boton>
+            ) : null}
+        </AccionFija>
     );
 }

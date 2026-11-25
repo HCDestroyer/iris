@@ -250,7 +250,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	}
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
 	// Equipos: con un Argos ≥ 0.14.0, cambios e intentos salen al aplicarse (contrato §3.10).
-	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
+	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop, Recepciones: inv,
 		// Paso «Confirmar titular y plan» (contrato 0.10.0 §3.4): lo sensible va cifrado al depósito
 		// de tránsito y sale a Argos por la cola de pendientes.
@@ -267,6 +267,8 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
 		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola),
 		Clientes: conectorArgos, URLBase: cfg.BaseURL})
+	// La firma del contrato regenerado en la orden (orden.firmar_contrato, B20) la hace comercial.
+	cmp.ConectarContratos(com)
 	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
 	// (y la anterior, para comparar durante una rotación).
 	clavesIdem, err := nucleo.ClavesIdempotencia(cfg.ClaveCifrado, cfg.ClaveCifradoAnterior)
@@ -319,7 +321,8 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 			legal.Nuevo(legal.Config{}).Registrar,
 		},
 		ProxiesConfiables: cfg.ProxiesConfiables,
-		Delegados:         map[string]http.Handler{mensajeria.Prefijo: proxyMsj},
+		// Las plantillas de WhatsApp que lee Argos (contrato 0.13.0 §6.7) también las sirve la mensajería.
+		Delegados: map[string]http.Handler{mensajeria.Prefijo: proxyMsj, mensajeria.RutaPlantillasArgos: proxyMsj},
 	})
 
 	srv := &http.Server{

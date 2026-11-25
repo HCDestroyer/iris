@@ -161,6 +161,11 @@ export interface DatosPorTipo {
     "orden.cambiar_titular": Schema<"EntradaCambiarTitular">;
     "orden.completar_datos": Schema<"EntradaCompletarDatos">;
     "orden.cambiar_plan": Schema<"EntradaCambiarPlan">;
+    /**
+     * La firma del contrato regenerado a nombre del titular final (B20), en sitio: el contrato viene en
+     * `GET /ordenes/{id}/titular` (`contratoPorFirmar`). La firma cubre la subida de precio.
+     */
+    "orden.firmar_contrato": Schema<"EntradaFirmarContrato">;
 }
 
 /** Una operación tal como viaja en `POST /sync/lote` (`OperacionLote` con `datos` tipados). */

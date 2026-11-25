@@ -89,16 +89,24 @@ test("encabezado: ←, número con «● Estado · Tipo · ventana» y «⋯» c
     await expect(hoja(page, "Historial del cliente")).toHaveCount(0);
 });
 
-test("en sitio: «Continuar trabajo» en tinta y [Pausar | No se pudo]; el cliente con «Cómo llegar» y «Llamar»", async ({ page }) => {
+test("en sitio: «Continuar trabajo» fija abajo en índigo y [Pausar | No se pudo]; el cliente con «Cómo llegar» y «Llamar»", async ({ page }) => {
     await abrir(page, conEstado("en_sitio"));
     const principal = page.locator('[data-slot="accion-principal"]');
     await expect(principal).toHaveText("Continuar trabajo");
     const box = await principal.boundingBox();
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(48);
-    // Tinta: el fondo es el color del texto de la página (negro en claro, casi blanco en oscuro), no el teal.
-    const colores = await principal.evaluate((b) => ({ fondo: getComputedStyle(b).backgroundColor, texto: getComputedStyle(document.body).color }));
-    const oscuro = (rgb: string) => (rgb.match(/\d+/g) ?? []).slice(0, 3).reduce((s, v) => s + Number(v), 0) < 3 * 128;
-    expect(oscuro(colores.fondo)).toBe(oscuro(colores.texto));
+    // Rediseño: la acción principal en índigo (`--iris-primario`), fija abajo en lugar de la isla.
+    const colores = await principal.evaluate((b) => {
+        const muestra = document.createElement("div");
+        muestra.style.background = "var(--iris-primario)";
+        document.body.append(muestra);
+        const indigo = getComputedStyle(muestra).backgroundColor;
+        muestra.remove();
+        return { fondo: getComputedStyle(b).backgroundColor, indigo };
+    });
+    expect(colores.fondo).toBe(colores.indigo);
+    await expect(page.locator('[data-slot="accion-fija-orden"]')).toBeInViewport();
+    await expect(page.locator('[data-slot="isla-menu"]')).toHaveCount(0);
     const grupo = page.getByRole("group", { name: "Más acciones de la orden" });
     await expect(grupo.getByRole("button")).toHaveText(["Pausar", "No se pudo"]);
     for (const b of await grupo.getByRole("button").all()) {
@@ -134,19 +142,16 @@ test("programada: «Empezar trabajo» y [En camino | No se pudo]; «En camino» 
 test("pausada: solo el aviso naranja «En pausa desde HH:MM · motivo» y «Reanudar»", async ({ page }) => {
     await abrir(page, conEstado("pausada", PAUSADA));
     await expect(page.getByTestId("pausa-orden")).toHaveText("En pausa desde 12:10 · Almuerzo");
-    // «Reanudar» en «tinta», como «Continuar trabajo» (no teal): su fondo es el color del texto (`--hx-text`).
+    // «Reanudar» en índigo, como «Continuar trabajo» (rediseño): su fondo es `--iris-primario`.
     const reanudar = await page.locator('[data-slot="reanudar-orden"]').evaluate((b) => {
         const muestra = document.createElement("div");
-        muestra.style.background = "var(--hx-text)";
+        muestra.style.background = "var(--iris-primario)";
         document.body.append(muestra);
-        const tinta = getComputedStyle(muestra).backgroundColor;
-        muestra.style.background = "var(--hx-primary)";
-        const teal = getComputedStyle(muestra).backgroundColor;
+        const indigo = getComputedStyle(muestra).backgroundColor;
         muestra.remove();
-        return { fondo: getComputedStyle(b).backgroundColor, tinta, teal };
+        return { fondo: getComputedStyle(b).backgroundColor, indigo };
     });
-    expect(reanudar.fondo).toBe(reanudar.tinta);
-    expect(reanudar.fondo).not.toBe(reanudar.teal);
+    expect(reanudar.fondo).toBe(reanudar.indigo);
     await expect(page.locator('[data-slot="accion-principal"]')).toHaveCount(0);
     await expect(page.getByRole("group", { name: "Más acciones de la orden" })).toHaveCount(0);
     await page.getByRole("button", { name: "Reanudar" }).click();

@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ComponentProps } from "react";
 import { cn } from "../utilidades";
 import { ChipEstado } from "./chip-estado";
-import { colorChipHeroui, iconoPorTono, superficiePorTono, textoPorTono, type Tono } from "./tonos";
+import { colorChipHeroui, fondoInsigniaPorTono, iconoPorTono, textoPorTono, type Tono } from "./tonos";
 
 export type PropsInsigniaEstado = Omit<ComponentProps<"span">, "children"> & {
     tono: Tono;
@@ -24,9 +24,9 @@ export function InsigniaEstado({ tono, texto, icono, className, ...props }: Prop
             color={colorChipHeroui[tono]}
             tono={tono}
             className={cn(
-                "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
-                superficiePorTono[tono],
+                "inline-flex min-h-6 items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap",
                 textoPorTono[tono],
+                fondoInsigniaPorTono[tono],
                 className,
             )}
             texto={texto}

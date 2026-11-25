@@ -32,7 +32,7 @@
             [
                 "expo-notifications",
                 {
-                    "color": "#0f766e"
+                    "color": "#4f46e5"
                 }
             ],
             "expo-sqlite",

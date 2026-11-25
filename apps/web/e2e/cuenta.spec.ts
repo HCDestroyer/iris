@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ACTUAL_BLOQUEA, CODIGO_ACTIVAR } from "./api-cuenta";
 import { ADMIN, CON_MFA, CONTRASENA, CSRF, ELENA, LECTOR, SOPORTE, TEMPORAL, conSesion, simularApi } from "./api-falsa";
-import { abrirCuenta, avisoError, entrar } from "./ayudas";
+import { abrirCuenta, avisoError, entrar, esTelefono } from "./ayudas";
 
 /*
  * Cuenta propia y reinicio de MFA (PR #21 de I1): cambio de contraseña obligatorio con una
@@ -121,7 +121,8 @@ test.describe("cambiar contraseña desde el menú del usuario", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/usuarios");
         await abrirCuenta(page);
-        await expect(page.getByRole("menu").getByText(ADMIN.correo)).toBeVisible();
+        // En escritorio el correo va en el panel de la cuenta (rediseño); en el teléfono, en el menú de «Más».
+        await expect(page.getByRole(esTelefono(page) ? "menu" : "dialog", { name: /^Tu cuenta/ }).getByText(ADMIN.correo)).toBeVisible();
         await page.getByRole("menuitem", { name: "Cambiar contraseña" }).click();
         const dialogo = page.getByRole("dialog", { name: "Cambiar contraseña" });
         await expect(dialogo).toBeVisible();

@@ -131,6 +131,8 @@ type Config struct {
 	Adjuntos Adjuntos
 	// Inventario de Argos para el paquete y el aviso de existencia (nil = sin conector).
 	Inventario Inventario
+	// Planes: los planes permitidos de Argos para el paquete del día (B21); nil = sin conector.
+	Planes PlanesArgos
 	// Recepciones de órdenes de traslado (traslado.recibir del lote y su estado en cambios;
 	// inventario.Modulo de I1). nil = la operación se rechaza con conector_apagado.
 	Recepciones Recepciones
@@ -150,6 +152,9 @@ type Config struct {
 	// LlamadasDirectas anota llamada.directa del lote (mensajeria.LlamadasDirectas). nil = la
 	// operación se rechaza con 503 no_disponible.
 	LlamadasDirectas LlamadasDirectas
+	// Contratos firma el contrato regenerado en la orden (orden.firmar_contrato; comercial.Modulo,
+	// con ConectarContratos). nil = la operación se rechaza con 503 no_disponible.
+	Contratos ContratosEnOrden
 }
 
 // Modulo reúne los casos de uso de campo.
@@ -214,6 +219,8 @@ type Modulo struct {
 	RetiroDesdeArgos    *auditoria.Caso[EntradaRetiroArgos, *Orden]
 	// MarcarDatosArgos: argos.datos_cambiados marca las órdenes abiertas (contrato 0.5.0; I1).
 	MarcarDatosArgos *auditoria.Caso[EntradaDatosArgos, ResultadoDatosArgos]
+	// MoverAlTitular: argos.titular_cambiado pasa las órdenes abiertas al titular nuevo (B17).
+	MoverAlTitular *auditoria.Caso[EntradaTitularArgos, ResultadoTitularArgos]
 	// AplicarDatosArgos / DescartarDatosArgos: despacho atiende «Dato de Argos cambió».
 	AplicarDatosArgos   *auditoria.Caso[EntradaAplicarDatosArgos, Orden]
 	DescartarDatosArgos *auditoria.Caso[EntradaDescartarDatosArgos, Orden]
@@ -315,6 +322,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.MantenerPosiciones = m.nuevoMantenerPosiciones()
 	m.RetiroDesdeArgos = m.nuevoRetiroDesdeArgos()
 	m.MarcarDatosArgos = m.nuevoMarcarDatosArgos()
+	m.MoverAlTitular = m.nuevoMoverAlTitular()
 	m.AplicarDatosArgos = m.nuevoAplicarDatosArgos()
 	m.DescartarDatosArgos = m.nuevoDescartarDatosArgos()
 	m.CrearOrdenDeTicket = m.nuevoCrearOrdenDeTicket()

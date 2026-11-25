@@ -93,6 +93,7 @@ export const OPERACIONES: Record<TipoOperacionLote, string> = {
     "orden.cambiar_titular": "Cambio de titular",
     "orden.completar_datos": "Datos del titular y del lugar",
     "orden.cambiar_plan": "Cambio de plan",
+    "orden.firmar_contrato": "Firma del contrato",
 };
 
 /** Motivo de un rechazo o error de la API, en palabras del técnico. */
@@ -103,6 +104,7 @@ const PROBLEMAS: Record<string, string> = {
     bloqueada_por_rechazo: "Quedó detenida por un rechazo anterior de la misma orden.",
     faltan_adjuntos: "Faltan fotos o la firma por terminar de subir.",
     cierre_incompleto: "Falta completar el trabajo antes de cerrar.",
+    contrato_por_firmar: "Falta la firma del contrato nuevo.",
     validacion: "Algún dato no es válido.",
     tarea_anulada: "Tu supervisor anuló la tarea.",
     tarea_completada: "La tarea ya estaba hecha.",

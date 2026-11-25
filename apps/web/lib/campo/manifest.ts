@@ -10,8 +10,8 @@ export const MANIFEST_CAMPO = {
     scope: "/campo",
     display: "standalone",
     orientation: "portrait",
-    theme_color: "#0f766e",
-    background_color: "#ffffff",
+    theme_color: "#4f46e5",
+    background_color: "#f8f9fa",
     categories: ["business", "productivity"],
     icons: [
         { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
