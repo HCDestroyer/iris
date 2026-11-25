@@ -1,6 +1,6 @@
 "use client";
 
-import { avisar, Aviso, Boton, Cargando, Casilla, cn, SeccionFormulario } from "@iris/ui";
+import { avisar, Aviso, Boton, BotonManualPantalla, Cargando, Casilla, cn, SeccionFormulario } from "@iris/ui";
 import {
     AppWindow,
     Ban,
@@ -311,7 +311,10 @@ function Pantalla({ subtitulo, children }: { subtitulo: string; children: ReactN
         // Con su propio pie fijo: como `FormularioPagina`, oculta la barra inferior del teléfono.
         <div data-slot="formulario-pagina" className="mx-auto grid w-full max-w-3xl min-w-0 gap-4 [&>*]:min-w-0">
             <header className="grid gap-1">
-                <h1 className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">Conectar con QR</h1>
+                <div className="flex min-w-0 items-center gap-1.5">
+                    <h1 className="text-xl font-semibold tracking-[-0.015em] sm:text-2xl">Conectar con QR</h1>
+                    <BotonManualPantalla />
+                </div>
                 <p className="text-sm text-muted-foreground">{subtitulo}</p>
             </header>
             {children}

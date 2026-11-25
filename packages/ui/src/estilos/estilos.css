@@ -1,17 +1,21 @@
 /*
- * Identidad Horus para Tailwind 4 sobre HeroUI v3. La app la importa después de `tailwindcss`:
+ * Identidad de Iris (rediseño, nov. 2026) para Tailwind 4 sobre HeroUI v3. La app la importa
+ * después de `tailwindcss`:
  *
  *   @import "tailwindcss";
  *   @import "@iris/ui/estilos.css";
  *   @source "<ruta a>/packages/ui/src";
  *
- * Orden: estilos de HeroUI (componentes y su tema por defecto) → tokens de Horus → tema Horus para
- * HeroUI (sus variables apuntan a `--hx-*`) → utilidades de Iris. horus-tokens.css es copia exacta
- * de docs/marca/horus-tokens.css (una prueba lo verifica): es la única fuente de color.
+ * Orden: estilos de HeroUI (componentes y su tema por defecto) → tokens de Horus (base de la familia:
+ * foco, materiales, preferencias del sistema) → tokens de Iris (`--iris-*`, la única fuente de color,
+ * y los alias `--hx-*` que apuntan a ellos) → tema de Iris para HeroUI → utilidades de Iris.
+ * horus-tokens.css es copia exacta de docs/marca/horus-tokens.css e iris-tokens.css de
+ * docs/marca/iris-tokens.css (una prueba lo verifica).
  * Nunca colores crudos en componentes: solo estos nombres semánticos.
  */
 @import "@heroui/styles";
 @import "./horus-tokens.css";
+@import "./iris-tokens.css";
 @import "./tema-heroui.css";
 
 /*
@@ -49,10 +53,36 @@
     --color-grafico-1: var(--hx-grafico-1);
     --color-grafico-2: var(--hx-grafico-2);
 
+    /* Nombres del rediseño (`bg-primario-suave`, `text-primario-texto`, `bg-relleno`…). */
+    --color-primario-suave: var(--iris-primario-suave);
+    --color-primario-texto: var(--iris-primario-texto);
+    --color-secundario: var(--iris-secundario);
+    --color-relleno: var(--iris-relleno);
+    --color-flotante: var(--iris-flotante);
+    --color-exito-fondo: var(--iris-exito-fondo);
+    --color-atencion-fondo: var(--iris-atencion-fondo);
+    --color-peligro-fondo: var(--iris-peligro-fondo);
+    --color-info-fondo: var(--iris-info-fondo);
+    --color-neutro: var(--iris-neutro);
+    --color-neutro-fondo: var(--iris-neutro-fondo);
+    --color-grafica-1: var(--iris-grafica-1);
+    --color-grafica-2: var(--iris-grafica-2);
+    --color-grafica-3: var(--iris-grafica-3);
+    --color-grafica-4: var(--iris-grafica-4);
+    --color-grafica-5: var(--iris-grafica-5);
+
     --radius-sm: calc(var(--hx-radius) * 0.75);
     --radius-md: var(--hx-radius);
     --radius-lg: calc(var(--hx-radius) * 1.5);
     --radius-card: var(--hx-radius-card);
+    --radius-modal: var(--iris-radio-modal);
+    --radius-isla: var(--iris-radio-isla);
+
+    --shadow-tarjeta: var(--iris-sombra-tarjeta);
+    --shadow-flotante: var(--iris-sombra-flotante);
+    --shadow-modal: var(--iris-sombra-modal);
+    --background-image-gradiente: var(--iris-gradiente);
+    --background-image-gradiente-texto: var(--iris-gradiente-texto);
 
     --shadow-glow: 0 0 18px var(--hx-glow-brand);
     --shadow-glow-fuerte: 0 0 26px var(--hx-glow-brand);
@@ -77,17 +107,13 @@
 }
 
 /*
- * Series de gráficos: paleta categórica de la identidad Horus (assets/chart-palette.ts de la
- * skill), orden fijo, validada para daltonismo por tema (ΔE CVD ≥ 24 entre las dos ranuras,
- * ≥ 3:1 contra la superficie). Nunca los colores de estado como serie; siempre con leyenda o
- * etiqueta y tabla.
+ * Series de gráficas: la paleta `--iris-grafica-1…5` (iris-tokens.css), orden fijo, ≥ 3:1 contra
+ * la tarjeta. Nunca los colores de estado como serie; siempre con leyenda o etiqueta y tabla.
+ * `--hx-grafico-1/2` quedan como alias para `GraficaSerie`.
  */
-:root {
-    --hx-grafico-1: #2a78d6;
-    --hx-grafico-2: #eb6834;
-}
+:root,
 .dark,
 [data-theme="dark"] {
-    --hx-grafico-1: #3987e5;
-    --hx-grafico-2: #d95926;
+    --hx-grafico-1: var(--iris-grafica-1);
+    --hx-grafico-2: var(--iris-grafica-2);
 }

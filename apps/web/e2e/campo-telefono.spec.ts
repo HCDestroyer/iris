@@ -231,6 +231,8 @@ test("cerrar sesión con una llamada en curso cuelga y suelta el micrófono", as
     expect([...pistas.values()]).toContain("live");
 
     // La llamada tapa la app: se llega a «Yo» por la isla sin colgar (como al volver de otra app).
+    // En la orden la isla del teléfono es la acción fija (rediseño): primero «Mis órdenes».
+    await page.getByRole("button", { name: "Mis órdenes", includeHidden: true }).dispatchEvent("click");
     await page.locator('nav[aria-label="Secciones de la app"] a[href*="vista=yo"]').dispatchEvent("click");
     await page.getByRole("button", { name: "Cerrar sesión", includeHidden: true }).dispatchEvent("click");
     await expect(page).toHaveURL(/\/campo\?entrar=1$/);

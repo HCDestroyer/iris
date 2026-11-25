@@ -1,6 +1,6 @@
 "use client";
 
-import { GrupoSegmentado } from "@iris/ui";
+import { BotonManualPantalla, GrupoSegmentado } from "@iris/ui";
 import { CalendarDays, CalendarRange, LayoutGrid } from "lucide-react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef } from "react";
@@ -105,7 +105,10 @@ export function PantallaAgenda() {
     return (
         <div className="grid gap-4 [&>*]:min-w-0">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Agenda</h1>
+                <div className="flex min-w-0 items-center gap-1.5">
+                    <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em]">Agenda</h1>
+                    <BotonManualPantalla />
+                </div>
                 <h2 className="mr-auto text-sm font-normal text-muted-foreground first-letter:uppercase" aria-live="polite">
                     {titulo}
                 </h2>

@@ -1,21 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-    Aviso,
-    AvatarUsuario,
-    Boton,
-    Campo,
-    CampoBusqueda,
-    CampoSelector,
-    cn,
-    Esqueleto,
-    FormularioPagina,
-    liberarProteccion,
-    ListaEleccion,
-    SeccionFormulario,
-    avisar,
-} from "@iris/ui";
+import { AvatarUsuario, avisar, Aviso, Boton, BotonManualPantalla, Campo, CampoBusqueda, CampoSelector, cn, Esqueleto, FormularioPagina, liberarProteccion, ListaEleccion, SeccionFormulario } from "@iris/ui";
 import { Ban, CircleCheck, Info, MessageSquareText, RotateCw } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -72,7 +58,10 @@ export function NuevaConversacion() {
     if (canales.datos.canales.length === 0) {
         return (
             <div className="mx-auto grid w-full max-w-3xl gap-4">
-                <h1 className="text-xl font-semibold sm:text-2xl">Nueva conversación</h1>
+                <div className="flex min-w-0 items-center gap-1.5">
+                    <h1 className="text-xl font-semibold sm:text-2xl">Nueva conversación</h1>
+                    <BotonManualPantalla />
+                </div>
                 <Aviso tono="warning" titulo="No tienes números de salida">
                     Para escribirle primero a un cliente necesitas ser miembro o supervisor de una cola con un número de WhatsApp activo.
                 </Aviso>

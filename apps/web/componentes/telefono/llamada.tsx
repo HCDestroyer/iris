@@ -130,7 +130,7 @@ export function BarraTelefono() {
             aria-label={llamando ? "Llamando" : "Llamada en curso"}
             data-slot="barra-telefono"
             data-fase={activa.fase}
-            className="sticky top-14 z-[15] flex h-[3.25rem] min-w-0 items-center gap-2 border-b border-primary/40 bg-[color-mix(in_oklab,var(--hx-primary)_12%,var(--hx-bg))] px-3 sm:gap-3 sm:px-4 lg:px-6"
+            className="sticky top-0 z-[15] mb-3 flex h-[3.25rem] rounded-xl border min-w-0 items-center gap-2 border-b border-primary/40 bg-[color-mix(in_oklab,var(--hx-primary)_12%,var(--hx-bg))] px-3 sm:gap-3 sm:px-4 lg:px-6"
         >
             <span aria-hidden className={cn("size-2 shrink-0 rounded-full motion-safe:animate-pulse", llamando ? "bg-warning" : activa.enEspera ? "bg-warning" : "bg-success")} />
             {llamando ? <PhoneOutgoing aria-hidden className="size-4 shrink-0 text-primary" /> : <PhoneCall aria-hidden className="size-4 shrink-0 text-primary" />}
@@ -183,7 +183,7 @@ function PanelLlamada({ t, llamada }: { t: ContextoTelefono; llamada: LlamadaTel
             aria-label="Llamada"
             data-slot="panel-llamada"
             data-fase={llamada.fase}
-            className="fixed inset-x-0 top-[calc(3.5rem+3.25rem)] bottom-0 z-40 grid content-start gap-4 overflow-y-auto border-t border-border bg-[var(--overlay)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-lg sm:inset-x-auto sm:top-[calc(3.5rem+3.25rem+0.75rem)] sm:right-4 sm:bottom-auto sm:max-h-[calc(100dvh-8.5rem)] sm:w-[22rem] sm:rounded-xl sm:border"
+            className="fixed inset-x-0 top-[calc(3.75rem+3.25rem)] bottom-0 z-40 grid content-start gap-4 overflow-y-auto border-t border-border bg-[var(--overlay)] p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-lg sm:inset-x-auto sm:top-[calc(4.75rem+3.25rem+0.75rem)] sm:right-4 sm:bottom-auto sm:max-h-[calc(100dvh-9.75rem)] sm:w-[22rem] sm:rounded-xl sm:border"
         >
             <div className="flex min-w-0 items-center gap-3">
                 <span aria-hidden className={cn("flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary", llamando && "motion-safe:animate-pulse")}>
