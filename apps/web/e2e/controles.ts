@@ -47,12 +47,12 @@ export async function elegirOpcion(control: Locator, opcion: Opcion): Promise<vo
     } else {
         elegida = caja.getByRole("option", { name: opcion.label, exact: typeof opcion.label === "string" });
     }
-    const opcionElegida = elegida.first();
-    const valor = await opcionElegida.getAttribute("data-valor");
-    await opcionElegida.click();
+    await elegida.first().click();
     await expect(caja).toBeHidden();
-    // Quedó elegida: el botón lleva el valor de la opción (lo que antes era `toHaveValue`).
-    if (valor !== null) await expect(disparador).toHaveAttribute("data-valor", valor);
+    // No se comprueba aquí que el botón quede con el valor: hay selectores donde elegir no cambia
+    // el valor en el acto (el de empresa pide confirmar si hay una llamada viva) o desaparecen al
+    // cambiar (el de empresa cierra el panel de la cuenta y recarga). Cada prueba comprueba el
+    // resultado que espera, con `esperarOpcion` o con lo que cambia en la pantalla.
 }
 
 /** El valor elegido en un `Select` (antes `toHaveValue` del `<select>`). */
