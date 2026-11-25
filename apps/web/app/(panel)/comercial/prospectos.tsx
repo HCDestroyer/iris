@@ -1,12 +1,13 @@
 "use client";
 
-import { Boton, Esqueleto, EstadoVacio, Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo, Tarjeta } from "@iris/ui";
-import { ChevronDown, MapPin, SearchX, UserRound } from "lucide-react";
-import { useState } from "react";
+import { Boton, Esqueleto, EstadoVacio, FilaLista, ListaFilas, MenuAcciones, VistaRapida } from "@iris/ui";
+import { ChevronDown, Eye, Handshake, MapPin, SearchX, SquareArrowOutUpRight, UserRound } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { InsigniaProspecto, nombreZona, type Zona } from "@/componentes/comercial/comun";
 import { ErrorLectura } from "@/componentes/error-lectura";
-import { PieLista } from "@/componentes/pie-lista";
+import { PieLista, piePaginado } from "@/componentes/pie-lista";
 import { nombreUsuario, type Usuario } from "@/componentes/tickets/catalogos";
 import { api, resolver } from "@/lib/api/cliente";
 import { queryDe, textoConteo, type Filtros } from "@/lib/comercial/filtros";
@@ -129,82 +130,124 @@ function Columna({ estado, filtros, catalogos }: { estado: EstadoProspecto; filt
     );
 }
 
-/** Lista con cursor: tabla en pantalla ancha, tarjetas en el teléfono. */
-export function ListaProspectos({ filtros, catalogos, telefono }: { filtros: Filtros; catalogos: Catalogos; telefono: boolean }) {
+/** Lista con cursor (`ListaFilas`): cada fila abre la ficha; el menú `⋯` tiene la vista rápida. */
+export function ListaProspectos({ filtros, catalogos }: { filtros: Filtros; catalogos: Catalogos }) {
     const paginado = usePagina(filtros, 25);
     const { primera, items } = paginado;
+    const router = useRouter();
+    const { yo } = useSesion();
+    const [vistaId, setVistaId] = useState<number | null>(null);
+    const vendedor = (id: number | null) => nombreUsuario(catalogos.usuarios, id, { id: yo.usuario.id, nombre: yo.usuario.nombre }) ?? "Sin vendedor";
     if (primera.estado === "cargando") {
         return (
-            <Tarjeta className="grid gap-3 p-4" aria-busy="true">
-                <span className="sr-only" role="status">
-                    Cargando prospectos…
-                </span>
-                {Array.from({ length: 4 }, (_, i) => (
-                    <Esqueleto key={i} className="h-12" />
-                ))}
-            </Tarjeta>
+            <ListaFilas
+                etiqueta="Prospectos"
+                vacio={
+                    <div className="grid gap-3" aria-busy="true">
+                        <span className="sr-only" role="status">
+                            Cargando prospectos…
+                        </span>
+                        {Array.from({ length: 4 }, (_, i) => (
+                            <Esqueleto key={i} className="h-12" />
+                        ))}
+                    </div>
+                }
+            >
+                {[]}
+            </ListaFilas>
         );
     }
     if (primera.estado === "error") {
         return <ErrorLectura error={primera.error} que="los prospectos" reintentar={primera.reintentar} />;
     }
-    if (items.length === 0) {
-        return (
-            <Tarjeta>
-                <EstadoVacio icono={SearchX} titulo="No hay prospectos con estos filtros" descripcion="Cambia los filtros o registra un prospecto nuevo." />
-            </Tarjeta>
-        );
-    }
+    const enVista = items.find((p) => p.id === vistaId) ?? null;
     return (
-        <div className="grid gap-3">
-            {telefono ? (
-                <ul className="grid gap-2" aria-label="Prospectos">
-                    {items.map((p) => (
-                        <li key={p.id}>
-                            <TarjetaProspecto p={p} catalogos={catalogos} conEstado />
-                        </li>
-                    ))}
-                </ul>
-            ) : (
-                <Tarjeta className="overflow-hidden">
-                    <Tabla aria-label="Prospectos">
-                        <TablaEncabezado>
-                            <TablaFila className="hover:bg-transparent">
-                                <TablaTitulo>Prospecto</TablaTitulo>
-                                <TablaTitulo>Estado</TablaTitulo>
-                                <TablaTitulo>Vendedor</TablaTitulo>
-                                <TablaTitulo>Zona</TablaTitulo>
-                                <TablaTitulo>Origen</TablaTitulo>
-                                <TablaTitulo>Creado</TablaTitulo>
-                            </TablaFila>
-                        </TablaEncabezado>
-                        <TablaCuerpo>
-                            {items.map((p) => (
-                                <TablaFila key={p.id} data-prospecto={p.numero}>
-                                    <TablaCelda>
-                                        <Link href={`/comercial/${p.id}`} className="grid min-w-0 hover:underline">
-                                            <span className="font-medium">{p.nombre}</span>
-                                            <span className="text-xs text-muted-foreground">
-                                                <span className="font-mono tabular-nums">{p.numero}</span> · {p.direccion}
-                                            </span>
-                                        </Link>
-                                    </TablaCelda>
-                                    <TablaCelda>
-                                        <InsigniaProspecto estado={p.estado} />
-                                    </TablaCelda>
-                                    <TablaCelda className="max-w-48">
-                                        <Vendedor id={p.vendedorId} usuarios={catalogos.usuarios} />
-                                    </TablaCelda>
-                                    <TablaCelda className="text-muted-foreground">{nombreZona(catalogos.zonas, p.zonaId) ?? "—"}</TablaCelda>
-                                    <TablaCelda className="text-muted-foreground">{ORIGENES[p.origen]}</TablaCelda>
-                                    <TablaCelda className="text-muted-foreground tabular-nums">{formatearFecha(p.creadoEn)}</TablaCelda>
-                                </TablaFila>
-                            ))}
-                        </TablaCuerpo>
-                    </Tabla>
-                </Tarjeta>
-            )}
-            <PieLista paginado={paginado} que="prospectos" />
-        </div>
+        <>
+            <ListaFilas
+                etiqueta="Prospectos"
+                {...piePaginado(paginado, "prospectos")}
+                vacio={<EstadoVacio icono={SearchX} titulo="No hay prospectos con estos filtros" descripcion="Cambia los filtros o registra un prospecto nuevo." />}
+            >
+                {items.map((p) => {
+                    const zona = nombreZona(catalogos.zonas, p.zonaId);
+                    return (
+                        <FilaLista
+                            key={p.id}
+                            data-prospecto={p.numero}
+                            icono={Handshake}
+                            tonoIcono="marca"
+                            titulo={p.nombre}
+                            detalle={
+                                <>
+                                    <span className="font-mono tabular-nums">{p.numero}</span>
+                                    {[p.direccion, vendedor(p.vendedorId), zona].filter(Boolean).map((parte) => ` · ${parte}`).join("")}
+                                </>
+                            }
+                            href={`/comercial/${p.id}`}
+                            activa={vistaId === p.id}
+                            extremo={
+                                <>
+                                    <InsigniaProspecto estado={p.estado} />
+                                    <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">{formatearFecha(p.creadoEn)}</span>
+                                </>
+                            }
+                            extremoTelefono="debajo"
+                            menu={
+                                <MenuAcciones
+                                    etiqueta={`Acciones de ${p.numero}`}
+                                    acciones={[
+                                        { id: "vista", texto: "Vista rápida", icono: Eye, alElegir: () => setVistaId(p.id) },
+                                        { id: "abrir", texto: "Abrir ficha", icono: SquareArrowOutUpRight, alElegir: () => router.push(`/comercial/${p.id}`) },
+                                    ]}
+                                />
+                            }
+                        />
+                    );
+                })}
+            </ListaFilas>
+            {enVista ? (
+                <VistaProspecto
+                    p={enVista}
+                    datos={[
+                        ["Dirección", enVista.direccion],
+                        ["Vendedor", vendedor(enVista.vendedorId)],
+                        ["Zona", nombreZona(catalogos.zonas, enVista.zonaId) ?? "—"],
+                        ["Origen", ORIGENES[enVista.origen]],
+                        ["Creado", formatearFecha(enVista.creadoEn) ?? "—"],
+                    ]}
+                    alCerrar={() => setVistaId(null)}
+                />
+            ) : null}
+        </>
+    );
+}
+
+/** Vista rápida de un prospecto. */
+function VistaProspecto({ p, datos, alCerrar }: { p: Prospecto; datos: [string, ReactNode][]; alCerrar: () => void }) {
+    return (
+        <VistaRapida
+            abierto
+            alCerrar={alCerrar}
+            titulo={p.nombre}
+            codigo={p.numero}
+            insignias={<InsigniaProspecto estado={p.estado} />}
+            pie={
+                <Boton asChild>
+                    <Link href={`/comercial/${p.id}`}>
+                        <SquareArrowOutUpRight />
+                        Abrir ficha
+                    </Link>
+                </Boton>
+            }
+        >
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                {datos.map(([etiqueta, valor]) => (
+                    <div key={etiqueta} className="contents">
+                        <dt className="text-muted-foreground">{etiqueta}</dt>
+                        <dd className="min-w-0">{valor}</dd>
+                    </div>
+                ))}
+            </dl>
+        </VistaRapida>
     );
 }

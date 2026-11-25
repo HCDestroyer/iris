@@ -1,7 +1,7 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
 import { ADMIN, CON_MFA, CSRF, ELENA, LECTOR, SOPORTE, conSesion, simularApi } from "./api-falsa";
-import { avisoError } from "./ayudas";
+import { accionFila, avisoError, ofreceAccionFila } from "./ayudas";
 
 /*
  * «Restablecer contraseña» de otra persona (`usuarios.restablecer_contrasena`): desde la lista
@@ -21,12 +21,12 @@ test.describe("restablecer contraseña desde Usuarios", () => {
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/usuarios");
         // Se ofrece con o sin MFA, nunca sobre uno mismo ni sobre una integración.
-        await expect(page.getByRole("button", { name: `Restablecer contraseña de ${LECTOR.nombre}` })).toBeVisible();
-        await expect(page.getByRole("button", { name: `Restablecer contraseña de ${CON_MFA.nombre}` })).toBeVisible();
-        await expect(page.getByRole("button", { name: `Restablecer contraseña de ${ADMIN.nombre}` })).toHaveCount(0);
-        await expect(page.getByRole("button", { name: "Restablecer contraseña de Integración Argos" })).toHaveCount(0);
+        await ofreceAccionFila(page, LECTOR.nombre, "Restablecer contraseña", true);
+        await ofreceAccionFila(page, CON_MFA.nombre, "Restablecer contraseña", true);
+        await ofreceAccionFila(page, ADMIN.nombre, "Restablecer contraseña", false);
+        await ofreceAccionFila(page, "Integración Argos", "Restablecer contraseña", false);
 
-        await page.getByRole("button", { name: `Restablecer contraseña de ${LECTOR.nombre}` }).click();
+        await accionFila(page, LECTOR.nombre, "Restablecer contraseña");
         const dialogo = page.getByRole("dialog", { name: `Restablecer contraseña de ${LECTOR.nombre}` });
         await expect(dialogo.getByText("cierra todas sus sesiones")).toBeVisible();
         const campo = dialogo.getByLabel("Contraseña temporal");
@@ -77,7 +77,7 @@ test.describe("restablecer contraseña desde Usuarios", () => {
         api.cuenta.tokens.conservados = 0;
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/usuarios");
-        await page.getByRole("button", { name: `Restablecer contraseña de ${LECTOR.nombre}` }).click();
+        await accionFila(page, LECTOR.nombre, "Restablecer contraseña");
         const dialogo = page.getByRole("dialog", { name: `Restablecer contraseña de ${LECTOR.nombre}` });
         await dialogo.getByLabel("Motivo").fill("Sospecha de acceso ajeno");
         await dialogo.getByLabel("Contraseña temporal").fill("temporal-de-prueba-1");
@@ -100,7 +100,7 @@ test.describe("restablecer contraseña desde Usuarios", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/usuarios");
-        await page.getByRole("button", { name: `Restablecer contraseña de ${CON_MFA.nombre}` }).click();
+        await accionFila(page, CON_MFA.nombre, "Restablecer contraseña");
         const dialogo = page.getByRole("dialog", { name: `Restablecer contraseña de ${CON_MFA.nombre}` });
         await dialogo.getByLabel("Motivo").fill("Olvidó su contraseña");
         api.cuenta.sacarDelAlcance(CON_MFA.id);
@@ -117,8 +117,8 @@ test.describe("restablecer contraseña desde Usuarios", () => {
         await page.goto("/usuarios");
         await page.getByRole("button", { name: "Cargar más" }).click();
         await expect(page.locator("main").getByText(ELENA.correo).filter({ visible: true })).toBeVisible();
-        await expect(page.getByRole("button", { name: `Restablecer contraseña de ${LECTOR.nombre}` })).toBeVisible();
-        await expect(page.getByRole("button", { name: `Restablecer contraseña de ${ELENA.nombre}` })).toHaveCount(0);
+        await ofreceAccionFila(page, LECTOR.nombre, "Restablecer contraseña", true);
+        await ofreceAccionFila(page, ELENA.nombre, "Restablecer contraseña", false);
 
         await context.clearCookies();
         await conSesion(context, baseURL ?? "", SOPORTE.correo);
@@ -131,7 +131,7 @@ test.describe("restablecer contraseña desde Usuarios", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto(`/usuarios/${LECTOR.id}`);
-        await page.getByRole("button", { name: `Restablecer contraseña de ${LECTOR.nombre}` }).click();
+        await accionFila(page, LECTOR.nombre, "Restablecer contraseña");
         const dialogo = page.getByRole("dialog", { name: `Restablecer contraseña de ${LECTOR.nombre}` });
         await dialogo.getByLabel("Motivo").fill("Olvidó su contraseña");
         await dialogo.getByRole("button", { name: "Restablecer", exact: true }).click();
@@ -146,9 +146,9 @@ test("capturas de restablecer contraseña", async ({ page, context, baseURL }, i
     await simularApi(page);
     await conSesion(context, baseURL ?? "", ADMIN.correo);
     await page.goto("/usuarios");
-    await expect(page.getByRole("button", { name: `Restablecer contraseña de ${LECTOR.nombre}` })).toBeVisible();
+    await ofreceAccionFila(page, LECTOR.nombre, "Restablecer contraseña", true);
     await page.screenshot({ path: nombre("01-lista"), fullPage: true });
-    await page.getByRole("button", { name: `Restablecer contraseña de ${LECTOR.nombre}` }).click();
+    await accionFila(page, LECTOR.nombre, "Restablecer contraseña");
     const dialogo = page.getByRole("dialog");
     await dialogo.getByLabel("Motivo").fill("Olvidó su contraseña; verificado por llamada");
     await page.screenshot({ path: nombre("02-dialogo") });

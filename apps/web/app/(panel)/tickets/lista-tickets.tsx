@@ -9,39 +9,42 @@ import {
     BotonEnviar,
     CampoSelector,
     Casilla,
-    cn,
     DialogoCerrar,
     DialogoContenido,
     DialogoPie,
     DialogoProtegido,
     Esqueleto,
     EstadoVacio,
+    FilaLista,
+    ListaFilas,
+    MenuAcciones,
     useCambiosSinGuardar,
-    Tabla,
-    TablaCelda,
-    TablaCuerpo,
-    TablaEncabezado,
-    TablaFila,
-    TablaTitulo,
+    VistaRapida,
+    type TonoIconoFila,
 } from "@iris/ui";
-import { ChevronDown, Inbox, RotateCw, UserRoundPlus, X } from "lucide-react";
+import { Eye, Inbox, SquareArrowOutUpRight, Ticket as IconoTicket, UserRoundPlus, X } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useForm } from "react-hook-form";
 import { ErrorLectura } from "@/componentes/error-lectura";
+import { pieListaFilas } from "@/componentes/pie-lista";
 import { nombreCategoria, nombreUsuario, type Categoria, type Usuario } from "@/componentes/tickets/catalogos";
 import { InsigniaEstadoTicket, InsigniaPrioridad, SlaVisible, useAhora } from "@/componentes/tickets/insignias";
 import { api, nuevaClaveIdempotencia, resolver } from "@/lib/api/cliente";
-import { mensajeDeError } from "@/lib/api/errores";
-import { haceCuanto } from "@/lib/fechas";
+import { formatearFecha, haceCuanto } from "@/lib/fechas";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { esquemaAsignar } from "@/lib/tickets/esquemas";
 import type { ConsultaTickets } from "@/lib/tickets/filtros";
 import { enLote, textoLoteAsignado, type ResultadoLote } from "@/lib/tickets/lote";
+import type { Prioridad } from "@/lib/tickets/presentacion";
 import { relojPrincipal, type Ticket } from "@/lib/tickets/sla";
 
 const TAMANO_PAGINA = 25;
+
+/** La ficha de color del ícono sigue a la prioridad (la urgencia); el estado de flujo va en texto. */
+const TONO_PRIORIDAD: Record<Prioridad, TonoIconoFila> = { critica: "peligro", alta: "peligro", media: "atencion", baja: "neutro" };
 
 function leerPagina(consulta: ConsultaTickets, cursor: string | undefined, signal?: AbortSignal): Promise<Schema<"PaginaTicket">> {
     return resolver(
@@ -58,51 +61,92 @@ type Props = {
     usuarios: readonly Usuario[] | null | undefined;
     yo: { id: number; nombre: string };
     hayFiltros: boolean;
+    /** Buscador y filtros: la cabecera de la lista. */
+    cabecera?: ReactNode;
     /** Una acción en lote cambió tickets (para refrescar los contadores). */
     alCambiar?: () => void;
 };
 
 /**
- * Lista de la bandeja a todo el ancho, con cursor y selección múltiple: con `tickets.asignar`, cada
- * fila tiene su casilla y al elegir alguna aparece la barra de acciones («Asignar…»). Se remonta
- * (key) al cambiar los filtros.
+ * Lista de la bandeja (`ListaFilas`) con cursor y selección múltiple: con `tickets.asignar`, cada
+ * fila tiene su casilla y al elegir alguna aparece la barra de acciones («Asignar…»). Cada fila
+ * abre la ficha; su menú `⋯` tiene la vista rápida, abrir la ficha y asignar. Al cambiar los
+ * filtros vuelve a leer desde la primera página sin remontarse: la cabecera (buscador y filtros)
+ * es parte de la lista y no debe perder el foco.
  */
-export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, alCambiar }: Props) {
+export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, cabecera, alCambiar }: Props) {
     const { puede } = useSesion();
+    const router = useRouter();
     const primera = useLectura((signal) => leerPagina(consulta, undefined, signal));
     const [extra, setExtra] = useState<{ tickets: Ticket[]; cursor: string | null } | null>(null);
     const [cargandoMas, setCargandoMas] = useState(false);
     const [errorMas, setErrorMas] = useState<unknown>(null);
     const [elegidos, setElegidos] = useState<ReadonlySet<number>>(new Set());
-    const [asignando, setAsignando] = useState(false);
+    const [asignando, setAsignando] = useState<readonly Ticket[] | null>(null);
+    const [vistaId, setVistaId] = useState<number | null>(null);
     const [fallidos, setFallidos] = useState<ResultadoLote["fallidos"]>([]);
     const ahora = useAhora();
     const seleccionable = puede(["tickets.asignar"]);
+    const clave = JSON.stringify(consulta);
+    const claveLeida = useRef(clave);
+    // «Cargar más» en curso: se cancela si cambian los filtros (su página sería de otra consulta).
+    const [, setEnCurso] = useState<AbortController | null>(null);
+    const { reintentar } = primera;
+
+    useEffect(() => {
+        if (claveLeida.current === clave) return;
+        claveLeida.current = clave;
+        setEnCurso((c) => {
+            c?.abort();
+            return null;
+        });
+        setExtra(null);
+        setErrorMas(null);
+        setCargandoMas(false);
+        setElegidos(new Set());
+        setVistaId(null);
+        setFallidos([]);
+        reintentar();
+    }, [clave, reintentar]);
 
     if (primera.estado === "cargando") {
         return (
-            <div className="grid gap-3 p-4" aria-busy="true">
-                <span className="sr-only" role="status">
-                    Cargando tickets…
-                </span>
-                {Array.from({ length: 5 }, (_, i) => (
-                    <Esqueleto key={i} className="h-11" />
-                ))}
-            </div>
+            <ListaFilas
+                etiqueta="Tickets"
+                cabecera={cabecera}
+                vacio={
+                    <div className="grid gap-3" aria-busy="true">
+                        <span className="sr-only" role="status">
+                            Cargando tickets…
+                        </span>
+                        {Array.from({ length: 5 }, (_, i) => (
+                            <Esqueleto key={i} className="h-11" />
+                        ))}
+                    </div>
+                }
+            >
+                {[]}
+            </ListaFilas>
         );
     }
     if (primera.estado === "error") {
         return (
-            <div className="p-4">
-                <ErrorLectura
-                    error={primera.error}
-                    que="los tickets"
-                    reintentar={() => {
-                        setExtra(null);
-                        primera.reintentar();
-                    }}
-                />
-            </div>
+            <ListaFilas
+                etiqueta="Tickets"
+                cabecera={cabecera}
+                vacio={
+                    <ErrorLectura
+                        error={primera.error}
+                        que="los tickets"
+                        reintentar={() => {
+                            setExtra(null);
+                            primera.reintentar();
+                        }}
+                    />
+                }
+            >
+                {[]}
+            </ListaFilas>
         );
     }
 
@@ -110,20 +154,26 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, a
     const siguiente = extra ? extra.cursor : primera.datos.nextCursor;
     const asignables = tickets.filter((t) => t.estado !== "cerrado");
     const seleccion = asignables.filter((t) => elegidos.has(t.id));
+    const enVista = tickets.find((t) => t.id === vistaId) ?? null;
 
     async function cargarMas() {
         if (!siguiente) {
             return;
         }
+        const control = new AbortController();
+        setEnCurso(control);
         setCargandoMas(true);
         setErrorMas(null);
         try {
-            const pagina = await leerPagina(consulta, siguiente);
-            setExtra((prev) => ({ tickets: [...(prev?.tickets ?? []), ...(pagina.data ?? [])], cursor: pagina.nextCursor }));
+            const pagina = await leerPagina(consulta, siguiente, control.signal);
+            if (!control.signal.aborted) setExtra((prev) => ({ tickets: [...(prev?.tickets ?? []), ...(pagina.data ?? [])], cursor: pagina.nextCursor }));
         } catch (error) {
-            setErrorMas(error);
+            if (!control.signal.aborted) setErrorMas(error);
         } finally {
-            setCargandoMas(false);
+            if (!control.signal.aborted) {
+                setCargandoMas(false);
+                setEnCurso(null);
+            }
         }
     }
 
@@ -144,220 +194,157 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, a
         setExtra((prev) => (prev ? { ...prev, tickets: prev.tickets.map((t) => porId.get(t.id) ?? t) } : prev));
     }
 
-    if (tickets.length === 0) {
-        return (
-            <EstadoVacio
-                icono={Inbox}
-                titulo={hayFiltros ? "Ningún ticket coincide con los filtros" : "No hay tickets"}
-                descripcion={hayFiltros ? "Prueba con otra vista o quita algún filtro." : "Cuando entren tickets aparecerán aquí."}
-            />
-        );
-    }
-
     const asignado = (t: Ticket) => nombreUsuario(usuarios, t.asignadoA, yo);
     const todos = asignables.length > 0 && seleccion.length === asignables.length;
+    const pie = pieListaFilas({ cuantos: tickets.length, siguiente, cargarMas, cargandoMas, errorMas }, "tickets");
+
+    const casillaTodos = (
+        <Casilla
+            etiqueta={<span className="sr-only">Seleccionar todos los tickets</span>}
+            checked={todos}
+            disabled={asignables.length === 0}
+            onChange={(e) => setElegidos(e.target.checked ? new Set(asignables.map((t) => t.id)) : new Set())}
+        />
+    );
+    const barraSeleccion =
+        seleccion.length > 0 ? (
+            <div role="toolbar" aria-label="Acciones con la selección" className="flex w-full flex-wrap items-center gap-2 text-[0.8125rem]" data-testid="barra-seleccion">
+                {casillaTodos}
+                <span className="mr-auto font-semibold tabular-nums" aria-live="polite">
+                    {seleccion.length === 1 ? "1 ticket seleccionado" : `${seleccion.length} tickets seleccionados`}
+                </span>
+                <Boton tamano="sm" className="rounded-lg" onClick={() => setAsignando(seleccion)}>
+                    <UserRoundPlus />
+                    Asignar…
+                </Boton>
+                <Boton variante="fantasma" tamano="sm" onClick={() => setElegidos(new Set())}>
+                    <X />
+                    Quitar selección
+                </Boton>
+            </div>
+        ) : null;
+    // Sin selección, «Seleccionar todos» va al final de la cabecera; con selección, en su barra.
+    const cabeceraLista =
+        seleccionable && seleccion.length === 0 && asignables.length > 0 ? (
+            <>
+                {cabecera}
+                <span className="ml-auto">{casillaTodos}</span>
+            </>
+        ) : (
+            cabecera
+        );
 
     return (
         <>
-            {seleccion.length > 0 ? (
-                <div
-                    role="toolbar"
-                    aria-label="Acciones con la selección"
-                    className="flex flex-wrap items-center gap-2 border-b border-border bg-primary/5 px-3 py-2 text-[0.8125rem]"
-                    data-testid="barra-seleccion"
-                >
-                    <span className="mr-auto font-semibold tabular-nums" aria-live="polite">
-                        {seleccion.length === 1 ? "1 ticket seleccionado" : `${seleccion.length} tickets seleccionados`}
-                    </span>
-                    <Boton tamano="sm" className="rounded-lg" onClick={() => setAsignando(true)}>
-                        <UserRoundPlus />
-                        Asignar…
-                    </Boton>
-                    <Boton variante="fantasma" tamano="sm" onClick={() => setElegidos(new Set())}>
-                        <X />
-                        Quitar selección
-                    </Boton>
-                </div>
-            ) : null}
-            {fallidos.length > 0 ? (
-                <div className="border-b border-border p-3">
-                    <Aviso
-                        tono="error"
-                        titulo={fallidos.length === 1 ? "1 ticket no se pudo asignar" : `${fallidos.length} tickets no se pudieron asignar`}
-                        accion={
-                            <Boton variante="secundario" tamano="sm" onClick={() => setFallidos([])}>
-                                Entendido
-                            </Boton>
-                        }
-                    >
-                        <ul className="grid gap-0.5">
-                            {fallidos.map((f) => (
-                                <li key={f.ticket.id}>
-                                    {f.ticket.numero}: {f.motivo}
-                                </li>
-                            ))}
-                        </ul>
-                    </Aviso>
-                </div>
-            ) : null}
-
-            {/* Teléfono: tarjetas. */}
-            <ul className="divide-y divide-border md:hidden" aria-label="Tickets">
+            <ListaFilas
+                etiqueta="Tickets"
+                cabecera={cabeceraLista}
+                seleccion={barraSeleccion}
+                {...pie}
+                vacio={
+                    <EstadoVacio
+                        icono={Inbox}
+                        titulo={hayFiltros ? "Ningún ticket coincide con los filtros" : "No hay tickets"}
+                        descripcion={hayFiltros ? "Prueba con otra vista o quita algún filtro." : "Cuando entren tickets aparecerán aquí."}
+                    />
+                }
+            >
+                {fallidos.length > 0 ? (
+                    <li className="p-3">
+                        <Aviso
+                            tono="error"
+                            titulo={fallidos.length === 1 ? "1 ticket no se pudo asignar" : `${fallidos.length} tickets no se pudieron asignar`}
+                            accion={
+                                <Boton variante="secundario" tamano="sm" onClick={() => setFallidos([])}>
+                                    Entendido
+                                </Boton>
+                            }
+                        >
+                            <ul className="grid gap-0.5">
+                                {fallidos.map((f) => (
+                                    <li key={f.ticket.id}>
+                                        {f.ticket.numero}: {f.motivo}
+                                    </li>
+                                ))}
+                            </ul>
+                        </Aviso>
+                    </li>
+                ) : null}
                 {tickets.map((t) => {
                     const { tipo, reloj } = relojPrincipal(t);
+                    const marcado = elegidos.has(t.id);
+                    const categoria = t.categoriaId !== null ? nombreCategoria(categorias, t.categoriaId) : undefined;
                     return (
-                        <li key={t.id} data-ticket={t.numero} className={cn("flex items-start gap-1", elegidos.has(t.id) && "bg-primary/5")}>
-                            {seleccionable && t.estado !== "cerrado" ? (
-                                <Casilla
-                                    className="shrink-0 pt-4 pl-3"
-                                    etiqueta={<span className="sr-only">Seleccionar {t.numero}</span>}
-                                    checked={elegidos.has(t.id)}
-                                    onChange={(e) => alternar(t.id, e.target.checked)}
-                                />
-                            ) : null}
-                            <Link href={`/tickets/${t.id}`} className="grid min-w-0 flex-1 gap-2 p-4 pl-3 transition-colors hover:bg-background-secondary/60">
-                                <span className="flex items-baseline justify-between gap-2">
-                                    <span className="font-mono text-xs text-muted-foreground">{t.numero}</span>
-                                    <span className="text-xs text-muted-foreground">{haceCuanto(t.actualizadoEn, ahora)}</span>
-                                </span>
-                                <span className="line-clamp-2 text-sm font-semibold">{t.asunto}</span>
-                                <span className="flex flex-wrap items-center gap-1.5">
+                        <FilaLista
+                            key={t.id}
+                            data-ticket={t.numero}
+                            icono={IconoTicket}
+                            tonoIcono={TONO_PRIORIDAD[t.prioridad]}
+                            titulo={t.asunto}
+                            detalle={
+                                <>
+                                    <span className="font-mono">{t.numero}</span>
+                                    {[categoria, t.contacto.nombre, asignado(t) ?? "Sin asignar", haceCuanto(t.actualizadoEn, ahora)]
+                                        .filter(Boolean)
+                                        .map((parte) => ` · ${parte}`)
+                                        .join("")}
+                                </>
+                            }
+                            href={`/tickets/${t.id}`}
+                            activa={marcado || vistaId === t.id}
+                            casilla={
+                                seleccionable && t.estado !== "cerrado" ? (
+                                    <Casilla etiqueta={<span className="sr-only">Seleccionar {t.numero}</span>} checked={marcado} onChange={(e) => alternar(t.id, e.target.checked)} />
+                                ) : undefined
+                            }
+                            extremo={
+                                <>
                                     <InsigniaEstadoTicket estado={t.estado} />
                                     <InsigniaPrioridad prioridad={t.prioridad} />
-                                </span>
-                                <SlaVisible reloj={reloj} tipo={tipo} ahora={ahora} compacto />
-                                <span className="truncate text-[0.8125rem] text-muted-foreground">
-                                    {[t.contacto.nombre, asignado(t) ?? "Sin asignar"].filter(Boolean).join(" · ")}
-                                </span>
-                            </Link>
-                        </li>
+                                    <SlaVisible reloj={reloj} tipo={tipo} ahora={ahora} compacto />
+                                </>
+                            }
+                            extremoTelefono="debajo"
+                            menu={
+                                <MenuAcciones
+                                    etiqueta={`Acciones de ${t.numero}`}
+                                    acciones={[
+                                        { id: "vista", texto: "Vista rápida", icono: Eye, alElegir: () => setVistaId(t.id) },
+                                        { id: "abrir", texto: "Abrir ficha", icono: SquareArrowOutUpRight, alElegir: () => router.push(`/tickets/${t.id}`) },
+                                        {
+                                            id: "asignar",
+                                            texto: "Asignar…",
+                                            icono: UserRoundPlus,
+                                            permitida: seleccionable && t.estado !== "cerrado",
+                                            alElegir: () => setAsignando([t]),
+                                        },
+                                    ]}
+                                />
+                            }
+                        />
                     );
                 })}
-            </ul>
+            </ListaFilas>
 
-            {/* Escritorio: tabla a todo el ancho. */}
-            <div className="hidden overflow-x-auto md:block">
-                <Tabla aria-label="Tickets" className="min-w-[46rem] text-[0.8125rem]">
-                    <TablaEncabezado className="[&_tr]:border-b-0">
-                        <TablaFila className="border-b-0 bg-background-secondary hover:bg-background-secondary">
-                            {seleccionable ? (
-                                <TablaTitulo scope="col" className="h-auto font-semibold w-10 py-2 pl-3">
-                                    <Casilla
-                                        etiqueta={<span className="sr-only">Seleccionar todos los tickets</span>}
-                                        checked={todos}
-                                        disabled={asignables.length === 0}
-                                        onChange={(e) => setElegidos(e.target.checked ? new Set(asignables.map((t) => t.id)) : new Set())}
-                                    />
-                                </TablaTitulo>
-                            ) : null}
-                            <TablaTitulo scope="col" className={cn("h-auto font-semibold", "py-2 pr-2", seleccionable ? "pl-1" : "pl-3")}>
-                                Ticket
-                            </TablaTitulo>
-                            <TablaTitulo scope="col" className="h-auto font-semibold px-2 py-2">
-                                Cliente
-                            </TablaTitulo>
-                            <TablaTitulo scope="col" className="h-auto font-semibold px-2 py-2">
-                                Estado
-                            </TablaTitulo>
-                            <TablaTitulo scope="col" className="h-auto font-semibold px-2 py-2">
-                                Prioridad
-                            </TablaTitulo>
-                            <TablaTitulo scope="col" className="h-auto font-semibold px-2 py-2">
-                                SLA
-                            </TablaTitulo>
-                            <TablaTitulo scope="col" className="h-auto font-semibold py-2 pr-3 pl-2">
-                                Responsable
-                            </TablaTitulo>
-                        </TablaFila>
-                    </TablaEncabezado>
-                    <TablaCuerpo className="[&_tr:last-child]:border-t">
-                        {tickets.map((t) => {
-                            const { tipo, reloj } = relojPrincipal(t);
-                            const marcado = elegidos.has(t.id);
-                            return (
-                                <TablaFila
-                                    key={t.id}
-                                    data-ticket={t.numero}
-                                    aria-selected={seleccionable ? marcado : undefined}
-                                    className={cn(
-                                        "border-t border-b-0 border-border align-middle",
-                                        marcado && "bg-primary/5 shadow-[inset_3px_0_0_var(--hx-primary)]",
-                                    )}
-                                >
-                                    {seleccionable ? (
-                                        <TablaCelda className="py-2.5 pl-3">
-                                            {t.estado !== "cerrado" ? (
-                                                <Casilla
-                                                    etiqueta={<span className="sr-only">Seleccionar {t.numero}</span>}
-                                                    checked={marcado}
-                                                    onChange={(e) => alternar(t.id, e.target.checked)}
-                                                />
-                                            ) : null}
-                                        </TablaCelda>
-                                    ) : null}
-                                    <TablaCelda className={cn("max-w-[22rem] py-2.5 pr-2", seleccionable ? "pl-1" : "pl-3")}>
-                                        <Link href={`/tickets/${t.id}`} className="grid min-w-0 gap-0.5 rounded-sm hover:text-primary">
-                                            <span className="truncate font-semibold">{t.asunto}</span>
-                                            <span className="truncate font-mono text-[0.6875rem] text-muted-foreground">
-                                                {t.numero}
-                                                {t.categoriaId !== null ? (
-                                                    <span className="font-sans"> · {nombreCategoria(categorias, t.categoriaId)}</span>
-                                                ) : null}
-                                            </span>
-                                        </Link>
-                                    </TablaCelda>
-                                    <TablaCelda className="max-w-[11rem] truncate px-2 py-2.5">
-                                        {t.contacto.nombre ?? <span className="text-muted-foreground">—</span>}
-                                    </TablaCelda>
-                                    <TablaCelda className="px-2 py-2.5">
-                                        <InsigniaEstadoTicket estado={t.estado} />
-                                    </TablaCelda>
-                                    <TablaCelda className="px-2 py-2.5">
-                                        <InsigniaPrioridad prioridad={t.prioridad} />
-                                    </TablaCelda>
-                                    <TablaCelda className="px-2 py-2.5">
-                                        <SlaVisible reloj={reloj} tipo={tipo} ahora={ahora} compacto />
-                                    </TablaCelda>
-                                    <TablaCelda className="max-w-[12rem] truncate py-2.5 pr-3 pl-2 text-muted-foreground">{asignado(t) ?? "Sin asignar"}</TablaCelda>
-                                </TablaFila>
-                            );
-                        })}
-                    </TablaCuerpo>
-                </Tabla>
-            </div>
-
-            <div className="grid justify-items-center gap-3 border-t border-border p-3">
-                {errorMas ? (
-                    <Aviso
-                        tono="error"
-                        titulo="No se pudo cargar la página siguiente"
-                        className="w-full"
-                        accion={
-                            <Boton variante="secundario" tamano="sm" onClick={cargarMas}>
-                                <RotateCw />
-                                Reintentar
-                            </Boton>
-                        }
-                    >
-                        {mensajeDeError(errorMas).detalle}
-                    </Aviso>
-                ) : siguiente ? (
-                    <Boton variante="contorno" tamano="sm" onClick={cargarMas} disabled={cargandoMas}>
-                        <ChevronDown />
-                        {cargandoMas ? "Cargando…" : "Cargar más"}
-                    </Boton>
-                ) : (
-                    <p className="text-[0.8125rem] text-muted-foreground">No hay más tickets.</p>
-                )}
-            </div>
+            {enVista ? (
+                <VistaTicket
+                    ticket={enVista}
+                    categoria={enVista.categoriaId !== null ? nombreCategoria(categorias, enVista.categoriaId) : undefined}
+                    responsable={asignado(enVista) ?? "Sin asignar"}
+                    ahora={ahora}
+                    puedeAsignar={seleccionable && enVista.estado !== "cerrado"}
+                    alAsignar={() => setAsignando([enVista])}
+                    alCerrar={() => setVistaId(null)}
+                />
+            ) : null}
 
             {asignando ? (
                 <DialogoAsignarVarios
-                    tickets={seleccion}
+                    tickets={asignando}
                     usuarios={usuarios}
-                    alCerrar={() => setAsignando(false)}
+                    alCerrar={() => setAsignando(null)}
                     alTerminar={(r) => {
-                        setAsignando(false);
+                        setAsignando(null);
                         reemplazar(r.hechos);
                         setFallidos(r.fallidos);
                         setElegidos(new Set(r.fallidos.map((f) => f.ticket.id)));
@@ -366,6 +353,74 @@ export function ListaTickets({ consulta, categorias, usuarios, yo, hayFiltros, a
                 />
             ) : null}
         </>
+    );
+}
+
+/** Vista rápida de un ticket: lo justo para decidir sin salir de la bandeja. */
+function VistaTicket({
+    ticket: t,
+    categoria,
+    responsable,
+    ahora,
+    puedeAsignar,
+    alAsignar,
+    alCerrar,
+}: {
+    ticket: Ticket;
+    categoria: string | undefined;
+    responsable: string;
+    ahora: number;
+    puedeAsignar: boolean;
+    alAsignar: () => void;
+    alCerrar: () => void;
+}) {
+    const { tipo, reloj } = relojPrincipal(t);
+    const datos: [string, ReactNode][] = [
+        ["Cliente", t.contacto.nombre ?? "—"],
+        ["Categoría", categoria ?? "Sin categoría"],
+        ["Responsable", responsable],
+        ["Creado", formatearFecha(t.creadoEn) ?? "—"],
+        ["Actualizado", haceCuanto(t.actualizadoEn, ahora)],
+    ];
+    return (
+        <VistaRapida
+            abierto
+            alCerrar={alCerrar}
+            titulo={t.asunto}
+            codigo={t.numero}
+            insignias={
+                <>
+                    <InsigniaEstadoTicket estado={t.estado} />
+                    <InsigniaPrioridad prioridad={t.prioridad} />
+                </>
+            }
+            pie={
+                <>
+                    <Boton asChild>
+                        <Link href={`/tickets/${t.id}`}>
+                            <SquareArrowOutUpRight />
+                            Abrir ficha
+                        </Link>
+                    </Boton>
+                    {puedeAsignar ? (
+                        <Boton variante="contorno" onClick={alAsignar}>
+                            <UserRoundPlus />
+                            Asignar…
+                        </Boton>
+                    ) : null}
+                </>
+            }
+        >
+            <SlaVisible reloj={reloj} tipo={tipo} ahora={ahora} />
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                {datos.map(([etiqueta, valor]) => (
+                    <div key={etiqueta} className="contents">
+                        <dt className="text-muted-foreground">{etiqueta}</dt>
+                        <dd className="min-w-0 truncate">{valor}</dd>
+                    </div>
+                ))}
+            </dl>
+        </VistaRapida>
     );
 }
 

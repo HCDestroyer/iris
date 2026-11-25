@@ -2,7 +2,7 @@ import path from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 import { ACTUAL_BLOQUEA, CODIGO_ACTIVAR } from "./api-cuenta";
 import { ADMIN, CON_MFA, CONTRASENA, CSRF, ELENA, LECTOR, SOPORTE, TEMPORAL, conSesion, simularApi } from "./api-falsa";
-import { abrirCuenta, avisoError, entrar, esTelefono } from "./ayudas";
+import { abrirCuenta, accionFila, avisoError, entrar, esTelefono, ofreceAccionFila } from "./ayudas";
 
 /*
  * Cuenta propia y reinicio de MFA (PR #21 de I1): cambio de contraseña obligatorio con una
@@ -169,7 +169,7 @@ test.describe("reiniciar MFA desde Usuarios", () => {
         api.cuenta.tokens.conservados = 1;
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/usuarios");
-        await page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` }).click();
+        await accionFila(page, CON_MFA.nombre, "Reiniciar MFA");
         const dialogo = page.getByRole("dialog", { name: `Reiniciar MFA de ${CON_MFA.nombre}` });
         await expect(dialogo.getByText("dejarán de funcionar, salvo la integración activa con Argos u Horus.")).toBeVisible();
         await dialogo.getByLabel("Motivo").fill("Rotación");
@@ -187,12 +187,12 @@ test.describe("reiniciar MFA desde Usuarios", () => {
         }
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/usuarios");
-        await expect(page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` })).toBeVisible();
+        await ofreceAccionFila(page, CON_MFA.nombre, "Reiniciar MFA", true);
         // Sin MFA no hay nada que reiniciar.
-        await expect(page.getByRole("button", { name: `Reiniciar MFA de ${LECTOR.nombre}` })).toHaveCount(0);
-        await expect(page.getByRole("button", { name: `Reiniciar MFA de ${ADMIN.nombre}` })).toHaveCount(0);
+        await ofreceAccionFila(page, LECTOR.nombre, "Reiniciar MFA", false);
+        await ofreceAccionFila(page, ADMIN.nombre, "Reiniciar MFA", false);
 
-        await page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` }).click();
+        await accionFila(page, CON_MFA.nombre, "Reiniciar MFA");
         const dialogo = page.getByRole("dialog", { name: `Reiniciar MFA de ${CON_MFA.nombre}` });
         await expect(dialogo.getByText("Cerrará todas sus sesiones")).toBeVisible();
         await expect(dialogo.getByText("No se vuelve a mostrar")).toBeVisible();
@@ -236,14 +236,14 @@ test.describe("reiniciar MFA desde Usuarios", () => {
         await resultado.getByRole("button", { name: "Listo" }).click();
         await expect(resultado).toHaveCount(0);
         await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("");
-        await expect(page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` })).toHaveCount(0);
+        await ofreceAccionFila(page, CON_MFA.nombre, "Reiniciar MFA", false);
     });
 
     test("409: «Recargar» trae la versión nueva sin perder lo escrito; sin revocar tokens", async ({ page, context, baseURL }) => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/usuarios");
-        await page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` }).click();
+        await accionFila(page, CON_MFA.nombre, "Reiniciar MFA");
         const dialogo = page.getByRole("dialog", { name: `Reiniciar MFA de ${CON_MFA.nombre}` });
         await dialogo.getByLabel("Motivo").fill("Perdió el teléfono");
         await dialogo.getByLabel("Contraseña temporal").fill("temporal-de-prueba-1");
@@ -267,7 +267,7 @@ test.describe("reiniciar MFA desde Usuarios", () => {
         const api = await simularApi(page);
         await conSesion(context, baseURL ?? "", ADMIN.correo);
         await page.goto("/usuarios");
-        await page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` }).click();
+        await accionFila(page, CON_MFA.nombre, "Reiniciar MFA");
         const dialogo = page.getByRole("dialog", { name: `Reiniciar MFA de ${CON_MFA.nombre}` });
         await dialogo.getByLabel("Motivo").fill("Cambió de teléfono");
         await dialogo.getByRole("button", { name: "Generar una segura" }).click();
@@ -286,8 +286,8 @@ test.describe("reiniciar MFA desde Usuarios", () => {
         await page.goto("/usuarios");
         await page.getByRole("button", { name: "Cargar más" }).click();
         await expect(page.locator("main").getByText(ELENA.correo).filter({ visible: true })).toBeVisible();
-        await expect(page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` })).toBeVisible();
-        await expect(page.getByRole("button", { name: `Reiniciar MFA de ${ELENA.nombre}` })).toHaveCount(0);
+        await ofreceAccionFila(page, CON_MFA.nombre, "Reiniciar MFA", true);
+        await ofreceAccionFila(page, ELENA.nombre, "Reiniciar MFA", false);
 
         await context.clearCookies();
         await conSesion(context, baseURL ?? "", SOPORTE.correo);
@@ -325,7 +325,7 @@ test("capturas de la cuenta y del reinicio de MFA", async ({ page, context, base
     await expect(page.getByRole("menu")).toBeVisible();
     await page.screenshot({ path: nombre("05-menu-usuario") });
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: `Reiniciar MFA de ${CON_MFA.nombre}` }).click();
+    await accionFila(page, CON_MFA.nombre, "Reiniciar MFA");
     const dialogo = page.getByRole("dialog");
     await dialogo.getByLabel("Motivo").fill("Cambió de teléfono; verificado por llamada");
     await dialogo.getByRole("button", { name: "Generar una segura" }).click();

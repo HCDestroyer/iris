@@ -194,18 +194,19 @@ function Bandeja({ clienteId, vistaInicial }: { clienteId: number | null; vistaI
                 </Boton>
             </div>
 
-            <section aria-label="Lista" className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
-                <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5" role="group" aria-label="Filtros">
-                    <CampoBusqueda
-                        id={idBuscar}
-                        etiqueta="Buscar"
-                        etiquetaVisible={false}
-                        tamano="sm"
-                        className="flex-[1_1_14rem] sm:max-w-72"
-                        placeholder="Número, asunto o contacto"
-                        maxLength={120}
-                        valor={filtros.q}
-                        alCambiar={(q) => cambiar({ q })}
+            <ListaTickets
+                cabecera={
+                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2" role="group" aria-label="Filtros">
+                        <CampoBusqueda
+                            id={idBuscar}
+                            etiqueta="Buscar"
+                            etiquetaVisible={false}
+                            tamano="sm"
+                            className="flex-[1_1_14rem] sm:max-w-72"
+                            placeholder="Número, asunto o contacto"
+                            maxLength={120}
+                            valor={filtros.q}
+                            alCambiar={(q) => cambiar({ q })}
                     />
                     <Chip etiqueta="Estado" activo={filtros.estado !== FILTROS_INICIALES.estado}>
                         {(id) => (
@@ -287,17 +288,15 @@ function Bandeja({ clienteId, vistaInicial }: { clienteId: number | null; vistaI
                     ) : null}
                     {categorias.estado === "error" ? <span className="text-xs text-muted-foreground">No se pudieron cargar las categorías.</span> : null}
                 </div>
-
-                <ListaTickets
-                    key={JSON.stringify(consulta)}
-                    consulta={consulta}
-                    categorias={categorias.estado === "listo" ? categorias.datos : undefined}
-                    usuarios={usuarios.estado === "listo" ? usuarios.datos : undefined}
-                    yo={{ id: yo.usuario.id, nombre: yo.usuario.nombre }}
-                    hayFiltros={clienteId !== null || !mismosFiltros(efectivos, FILTROS_INICIALES)}
-                    alCambiar={() => void resumen?.refrescar()}
-                />
-            </section>
+                }
+                key={JSON.stringify(consulta)}
+                consulta={consulta}
+                categorias={categorias.estado === "listo" ? categorias.datos : undefined}
+                usuarios={usuarios.estado === "listo" ? usuarios.datos : undefined}
+                yo={{ id: yo.usuario.id, nombre: yo.usuario.nombre }}
+                hayFiltros={clienteId !== null || !mismosFiltros(efectivos, FILTROS_INICIALES)}
+                alCambiar={() => void resumen?.refrescar()}
+            />
 
             <DialogoGuardarVista
                 abierto={guardando}
