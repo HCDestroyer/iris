@@ -547,3 +547,22 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
 - **`X-Iris-Contacto` (§7.1):** con Argos ≥ 0.10.1 va en toda ruta de §7 con `X-Iris-Conversacion`:
   `titular` o el `contacto_id` (`AtencionIris.Contacto`). Con uno anterior no se manda. El estado de
   cuenta acepta `?servicio_id=` (`EstadoCuentaServicio`) para un contacto con servicios acotados.
+- **Con Argos caído la caché no vence:** `RefrescarContactos` no borra nada si Argos no responde (solo un
+  `404` borra al cliente); la mensajería sigue con los contactos que tenía, por viejos que sean, y el rol
+  sigue fallando cerrado si el contacto o su número ya no están. Cada relectura que cambia contactos o
+  números emite `argos.contactos_cambiados` para que la mensajería revise sus conversaciones.
+
+## Cambio de titular (contrato 0.10.0 §3.4.4, B17; 0.14.1)
+
+- **`servicio.titular_cambiado`** (`titular_cambiado.go`): Iris relee al titular nuevo y, si Argos
+  confirma que el servicio ya es suyo, refresca la instantánea y emite `argos.titular_cambiado`
+  (con `tipo_titular`: `persona` o `empresa`, 0.14.1). La fila del servicio se bloquea
+  (`BloquearArgos`, como en las eliminaciones) y guarda `titular_cambiado_en` (el `ocurrido_en` de
+  Argos del último cambio aplicado): un aviso atrasado (A→B que llega después de B→C) no reescribe
+  el servicio ni emite (`titular: atrasado` en la auditoría). Solo cuentan horas de Argos
+  (`integracion.entrantes.ocurrido_origen = argos`, que guarda el conector) y nunca más allá de la
+  recepción + 5 minutos; sin hora de Argos no se compara ni se guarda: manda la ficha releída. Comercial y campo, además, solo mueven si
+  la instantánea dice que el servicio es de `a_cliente_id`.
+- **Titular empresa (0.14.1):** `TitularEmpresaDisponible` dice si el conector activo informa un
+  contrato ≥ 0.14.1; si no, campo no ofrece el cambio a una empresa y el estado de la conexión lo
+  lista en `funcionesApagadas` (`titular_empresa`).

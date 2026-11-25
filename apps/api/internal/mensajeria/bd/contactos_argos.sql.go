@@ -8,6 +8,9 @@ package mensajeriabd
 import (
 	"context"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const contactoArgosDeCliente = `-- name: ContactoArgosDeCliente :one
@@ -40,6 +43,36 @@ func (q *Queries) ContactoArgosDeCliente(ctx context.Context, arg ContactoArgosD
 		&i.SincronizadoEn,
 	)
 	return i, err
+}
+
+const contactoConAvisosVigente = `-- name: ContactoConAvisosVigente :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.argos_contactos k
+    JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp AND t.numero = $1::text
+    WHERE k.contacto_id = $2 AND k.cliente_id = $3 AND k.avisos AND NOT k.es_titular
+      AND (k.servicios IS NULL OR $4::bigint = ANY (k.servicios))
+)::boolean
+`
+
+type ContactoConAvisosVigenteParams struct {
+	Numero     string
+	ContactoID int64
+	ClienteID  int64
+	ServicioID *int64
+}
+
+// Al enviar una copia: el contacto sigue en la caché, con «avisos», con ese número con WhatsApp y
+// cubriendo el servicio del aviso.
+func (q *Queries) ContactoConAvisosVigente(ctx context.Context, arg ContactoConAvisosVigenteParams) (bool, error) {
+	row := q.db.QueryRow(ctx, contactoConAvisosVigente,
+		arg.Numero,
+		arg.ContactoID,
+		arg.ClienteID,
+		arg.ServicioID,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const contactosArgosDelNumero = `-- name: ContactosArgosDelNumero :many
@@ -122,6 +155,150 @@ func (q *Queries) ContactosArgosDelNumero(ctx context.Context, arg ContactosArgo
 	return items, nil
 }
 
+const contactosConAvisos = `-- name: ContactosConAvisos :many
+SELECT k.contacto_id, t.numero, t.principal FROM integracion.argos_contactos k
+JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp
+WHERE k.cliente_id = $1 AND k.avisos AND NOT k.es_titular
+  AND (k.empresa_id IS NULL OR k.empresa_id = $2::bigint)
+  AND (k.servicios IS NULL OR $3::bigint = ANY (k.servicios))
+ORDER BY k.contacto_id, t.principal DESC, t.numero
+LIMIT 50
+`
+
+type ContactosConAvisosParams struct {
+	ClienteID  int64
+	Empresa    int64
+	ServicioID *int64
+}
+
+type ContactosConAvisosRow struct {
+	ContactoID int64
+	Numero     string
+	Principal  bool
+}
+
+// Los números con WhatsApp de los contactos del cliente con «avisos» que cubren el servicio (§3.5):
+// con servicios null, todos; sin servicio en el aviso, solo esos. El titular no (es el cliente).
+func (q *Queries) ContactosConAvisos(ctx context.Context, arg ContactosConAvisosParams) ([]ContactosConAvisosRow, error) {
+	rows, err := q.db.Query(ctx, contactosConAvisos, arg.ClienteID, arg.Empresa, arg.ServicioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ContactosConAvisosRow
+	for rows.Next() {
+		var i ContactosConAvisosRow
+		if err := rows.Scan(&i.ContactoID, &i.Numero, &i.Principal); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const desverificarConvsSinContacto = `-- name: DesverificarConvsSinContacto :many
+UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_por = NULL, identidad_verificada_en = NULL,
+    identidad_vence_en = NULL, version = c.version + 1, updated_at = now()
+WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
+  AND (c.cliente_id = $1 OR c.contacto_argos_id = $2::bigint)
+  AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id
+      AND NOT k.es_titular
+      AND EXISTS (SELECT 1 FROM integracion.argos_contacto_telefonos t
+          WHERE t.contacto_id = k.contacto_id AND t.digitos = regexp_replace(c.numero, '[^0-9]', '', 'g')))
+RETURNING c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at, c.fuera_horario_hasta, c.guardia_hasta, c.bot_espera_en, c.bot_vence_en, c.bot_motivo, c.bot_atendio_en, c.bot_menu, c.categoria_id, c.categoria_confianza, c.categoria_origen, c.categoria_en, c.clasificado_mensaje_id, c.asistente_actividad_tipo, c.asistente_actividad_texto, c.asistente_actividad_en, c.cola_origen, c.asistente_transfirio_en, c.asistente_estado, c.asistente_turnos, c.asistente_presento_en, c.identidad_verificada_en, c.identidad_vence_en, c.bot_diferido_mensaje_id, c.asistente_motivo_paso, c.asistente_pausado_en, c.asistente_pausado_por, c.asistente_pausa_motivo, c.asistente_reanudado_en, c.asistente_atencion_desde, c.asistente_pausa_previo, c.contacto_argos_id
+`
+
+type DesverificarConvsSinContactoParams struct {
+	ClienteID  *int64
+	ContactoID *int64
+}
+
+// Las conversaciones asociadas por un contacto que ya no está en la caché (Argos lo quitó, dejó de
+// devolverlo o la caché del cliente se olvidó), que ya no tiene el número de la conversación o que
+// pasó a titular: pierden la verificación del número.
+func (q *Queries) DesverificarConvsSinContacto(ctx context.Context, arg DesverificarConvsSinContactoParams) ([]MensajeriaConversacion, error) {
+	rows, err := q.db.Query(ctx, desverificarConvsSinContacto, arg.ClienteID, arg.ContactoID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MensajeriaConversacion
+	for rows.Next() {
+		var i MensajeriaConversacion
+		if err := rows.Scan(
+			&i.ID,
+			&i.EmpresaID,
+			&i.CanalID,
+			&i.Numero,
+			&i.PerfilNombre,
+			&i.ColaID,
+			&i.AsignadoA,
+			&i.AsignadoEn,
+			&i.Estado,
+			&i.ClienteID,
+			&i.ServicioID,
+			&i.ContactoIrisID,
+			&i.ProspectoID,
+			&i.Asociacion,
+			&i.ClienteVerificado,
+			&i.VerificadoPor,
+			&i.UltimoEntranteEn,
+			&i.EsperaDesde,
+			&i.SlaVenceEn,
+			&i.SlaAvisado,
+			&i.ResueltaEn,
+			&i.ReabiertaEn,
+			&i.UltimoSeq,
+			&i.UltimoMensajeID,
+			&i.UltimaActividad,
+			&i.Version,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FueraHorarioHasta,
+			&i.GuardiaHasta,
+			&i.BotEsperaEn,
+			&i.BotVenceEn,
+			&i.BotMotivo,
+			&i.BotAtendioEn,
+			&i.BotMenu,
+			&i.CategoriaID,
+			&i.CategoriaConfianza,
+			&i.CategoriaOrigen,
+			&i.CategoriaEn,
+			&i.ClasificadoMensajeID,
+			&i.AsistenteActividadTipo,
+			&i.AsistenteActividadTexto,
+			&i.AsistenteActividadEn,
+			&i.ColaOrigen,
+			&i.AsistenteTransfirioEn,
+			&i.AsistenteEstado,
+			&i.AsistenteTurnos,
+			&i.AsistentePresentoEn,
+			&i.IdentidadVerificadaEn,
+			&i.IdentidadVenceEn,
+			&i.BotDiferidoMensajeID,
+			&i.AsistenteMotivoPaso,
+			&i.AsistentePausadoEn,
+			&i.AsistentePausadoPor,
+			&i.AsistentePausaMotivo,
+			&i.AsistenteReanudadoEn,
+			&i.AsistenteAtencionDesde,
+			&i.AsistentePausaPrevio,
+			&i.ContactoArgosID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const eleccionesClienteConv = `-- name: EleccionesClienteConv :one
 SELECT count(*)::bigint FROM mensajeria.elecciones_cliente WHERE conversacion_id = $1 AND NOT acierto
 `
@@ -151,6 +328,36 @@ func (q *Queries) EleccionesClienteNumero(ctx context.Context, arg EleccionesCli
 	return column_1, err
 }
 
+const fijarAvisoContacto = `-- name: FijarAvisoContacto :exec
+UPDATE mensajeria.avisos SET aviso_padre_id = $1, contacto_argos_id = $2 WHERE id = $3
+`
+
+type FijarAvisoContactoParams struct {
+	AvisoPadreID    pgtype.UUID
+	ContactoArgosID *int64
+	ID              uuid.UUID
+}
+
+func (q *Queries) FijarAvisoContacto(ctx context.Context, arg FijarAvisoContactoParams) error {
+	_, err := q.db.Exec(ctx, fijarAvisoContacto, arg.AvisoPadreID, arg.ContactoArgosID, arg.ID)
+	return err
+}
+
+const fijarContactoArgosConv = `-- name: FijarContactoArgosConv :exec
+UPDATE mensajeria.conversaciones SET contacto_argos_id = $1 WHERE id = $2
+`
+
+type FijarContactoArgosConvParams struct {
+	ContactoArgosID *int64
+	ID              int64
+}
+
+// El contacto de Argos con que se asoció la conversación (null: titular o asociación a mano).
+func (q *Queries) FijarContactoArgosConv(ctx context.Context, arg FijarContactoArgosConvParams) error {
+	_, err := q.db.Exec(ctx, fijarContactoArgosConv, arg.ContactoArgosID, arg.ID)
+	return err
+}
+
 const insertarEleccionCliente = `-- name: InsertarEleccionCliente :exec
 INSERT INTO mensajeria.elecciones_cliente (empresa_id, conversacion_id, numero, acierto, cliente_id, usuario_id, creado_en)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -176,6 +383,31 @@ func (q *Queries) InsertarEleccionCliente(ctx context.Context, arg InsertarElecc
 		arg.UsuarioID,
 		arg.CreadoEn,
 	)
+	return err
+}
+
+const limpiarVerificacionFuerte = `-- name: LimpiarVerificacionFuerte :exec
+UPDATE mensajeria.conversaciones SET identidad_verificada_en = NULL, identidad_vence_en = NULL WHERE id = $1
+`
+
+// Asociar a mano (aunque sea al mismo cliente) empieza sin verificación fuerte (§3.5).
+func (q *Queries) LimpiarVerificacionFuerte(ctx context.Context, id int64) error {
+	_, err := q.db.Exec(ctx, limpiarVerificacionFuerte, id)
+	return err
+}
+
+const marcarCopiasAviso = `-- name: MarcarCopiasAviso :exec
+UPDATE mensajeria.avisos SET copias_motivo = $1, updated_at = now() WHERE id = $2
+`
+
+type MarcarCopiasAvisoParams struct {
+	CopiasMotivo *string
+	ID           uuid.UUID
+}
+
+// Por qué un aviso de cobro no salió a los contactos (historial del aviso, no es un fallo).
+func (q *Queries) MarcarCopiasAviso(ctx context.Context, arg MarcarCopiasAvisoParams) error {
+	_, err := q.db.Exec(ctx, marcarCopiasAviso, arg.CopiasMotivo, arg.ID)
 	return err
 }
 
@@ -211,6 +443,28 @@ func (q *Queries) NumeroBuscadoEn(ctx context.Context, arg NumeroBuscadoEnParams
 	var buscado_en time.Time
 	err := row.Scan(&buscado_en)
 	return buscado_en, err
+}
+
+const numeroDeContactoDelCliente = `-- name: NumeroDeContactoDelCliente :one
+SELECT EXISTS (
+    SELECT 1 FROM integracion.argos_contactos k
+    JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.numero = $1::text
+    WHERE k.cliente_id = $2 AND (k.empresa_id IS NULL OR k.empresa_id = $3::bigint)
+)::boolean
+`
+
+type NumeroDeContactoDelClienteParams struct {
+	Numero    string
+	ClienteID int64
+	Empresa   int64
+}
+
+// El número es de un contacto del cliente en la caché (permiso por número, §6.4).
+func (q *Queries) NumeroDeContactoDelCliente(ctx context.Context, arg NumeroDeContactoDelClienteParams) (bool, error) {
+	row := q.db.QueryRow(ctx, numeroDeContactoDelCliente, arg.Numero, arg.ClienteID, arg.Empresa)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const servicioInstantaneaPorID = `-- name: ServicioInstantaneaPorID :one
@@ -286,4 +540,29 @@ func (q *Queries) ServiciosDeClientesInstantanea(ctx context.Context, arg Servic
 		return nil, err
 	}
 	return items, nil
+}
+
+const ticketParaOrden = `-- name: TicketParaOrden :one
+SELECT cliente_id, servicio_id FROM soporte.tickets
+WHERE id = $1 AND coalesce(empresa_id, 0) = $2::bigint AND (cliente_id IS NULL OR cliente_id = ANY ($3::bigint[]))
+`
+
+type TicketParaOrdenParams struct {
+	ID       int64
+	Empresa  int64
+	Clientes []int64
+}
+
+type TicketParaOrdenRow struct {
+	ClienteID  *int64
+	ServicioID *int64
+}
+
+// El servicio de un ticket de la empresa y de uno de esos clientes (orden con ticket desde la
+// conversación: permiso del contacto sobre el servicio del ticket).
+func (q *Queries) TicketParaOrden(ctx context.Context, arg TicketParaOrdenParams) (TicketParaOrdenRow, error) {
+	row := q.db.QueryRow(ctx, ticketParaOrden, arg.ID, arg.Empresa, arg.Clientes)
+	var i TicketParaOrdenRow
+	err := row.Scan(&i.ClienteID, &i.ServicioID)
+	return i, err
 }

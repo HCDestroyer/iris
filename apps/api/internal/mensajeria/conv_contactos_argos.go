@@ -50,25 +50,33 @@ const (
 // rolEnCliente es quién habla en una conversación respecto de un cliente de Argos.
 type rolEnCliente struct {
 	ClienteID int64
-	// ContactoID: el contacto de Argos; nil = el titular (o una asociación sin contacto conocido, que
-	// sigue las reglas de siempre).
+	// ContactoID: el contacto de Argos; nil = el titular (o nadie, con SinRol).
 	ContactoID *int64
 	Nombre     string
 	Relacion   string
 	Permisos   argos.PermisosContacto
 	// Servicios: nil = todos los del cliente.
 	Servicios []int64
+	// SinRol: no se sabe quién habla (el número no es del titular ni de un contacto en la caché y nadie
+	// lo verificó): ningún permiso, falla cerrado.
+	SinRol bool
 }
 
-func (r rolEnCliente) esTitular() bool { return r.ContactoID == nil }
+func (r rolEnCliente) esTitular() bool { return r.ContactoID == nil && !r.SinRol }
 
-// cubre: el servicio está entre los del contacto (el titular los tiene todos).
+// cubre: el servicio está entre los del contacto (el titular los tiene todos; sin rol, ninguno).
 func (r rolEnCliente) cubre(servicio int64) bool {
+	if r.SinRol {
+		return false
+	}
 	return r.esTitular() || r.Servicios == nil || slices.Contains(r.Servicios, servicio)
 }
 
-// permite: el contacto tiene ese permiso (el titular, todos).
+// permite: el contacto tiene ese permiso (el titular, todos; sin rol, ninguno).
 func (r rolEnCliente) permite(permiso string) bool {
+	if r.SinRol {
+		return false
+	}
 	if r.esTitular() {
 		return true
 	}
@@ -102,30 +110,53 @@ func rolDeFila(x mensajeriabd.ContactosArgosDelNumeroRow) rolEnCliente {
 	return r
 }
 
-// personaDe: de quién es la persona de esa fila: la persona a cargo (A46) o el cliente del contacto.
-func personaDe(x mensajeriabd.ContactosArgosDelNumeroRow) int64 {
-	if x.PersonaClienteID != nil && x.PersonaConocida != nil && *x.PersonaConocida {
+// titularesDelNumero: los clientes de la empresa cuyo teléfono o móvil (instantánea) es ese número.
+func titularesDelNumero(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string) ([]int64, error) {
+	cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(numero), Empresa: empresa})
+	if err != nil {
+		return nil, err
+	}
+	out := []int64{}
+	for _, x := range cs {
+		if (x.PorTelefono || x.PorMovil) && !slices.Contains(out, x.ID) {
+			out = append(out, x.ID)
+		}
+	}
+	return out, nil
+}
+
+// personaDe: de quién es la persona de esa fila. La persona a cargo (A46, José) solo si el número es
+// el teléfono o el móvil de José en la instantánea (titulares); si no, el cliente del contacto (la
+// mamá), con el rol del contacto: un número del contacto que no es de José nunca abre la cuenta de José.
+func personaDe(x mensajeriabd.ContactosArgosDelNumeroRow, titulares []int64) int64 {
+	if x.PersonaClienteID != nil && slices.Contains(titulares, *x.PersonaClienteID) {
 		return *x.PersonaClienteID
 	}
 	return x.ClienteID
 }
 
+// personaNumero: una persona con ese número y, si llegó por un contacto (no por ser titular), ese contacto.
+type personaNumero struct {
+	cliente  int64
+	contacto *int64
+}
+
 // personasDelNumero: los clientes (personas) de la empresa con ese número, en orden: los titulares
 // por la instantánea (teléfono o móvil) y los de la caché de contactos. Un contacto a cargo de otro
-// cliente (persona_cliente_id) cuenta como esa persona, no como el dueño del servicio.
-func personasDelNumero(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string) ([]int64, error) {
-	digitos := soloDigitos(numero)
-	cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: digitos, Empresa: empresa})
+// cliente cuenta como esa persona solo si el número es el de esa persona (personaDe).
+func personasDelNumero(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string) ([]personaNumero, error) {
+	titulares, err := titularesDelNumero(ctx, q, empresa, numero)
 	if err != nil {
 		return nil, err
 	}
-	personas := []int64{}
-	for _, x := range cs {
-		if (x.PorTelefono || x.PorMovil) && !slices.Contains(personas, x.ID) {
-			personas = append(personas, x.ID)
-		}
+	personas := []personaNumero{}
+	esta := func(id int64) bool {
+		return slices.ContainsFunc(personas, func(p personaNumero) bool { return p.cliente == id })
 	}
-	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: digitos, Empresa: empresa})
+	for _, id := range titulares {
+		personas = append(personas, personaNumero{cliente: id})
+	}
+	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil {
 		return nil, err
 	}
@@ -133,75 +164,111 @@ func personasDelNumero(ctx context.Context, q *mensajeriabd.Queries, empresa int
 		if !x.ClienteEnEmpresa {
 			continue
 		}
-		if p := personaDe(x); !slices.Contains(personas, p) {
-			personas = append(personas, p)
+		if p := personaDe(x, titulares); !esta(p) {
+			id := x.ContactoID
+			personas = append(personas, personaNumero{cliente: p, contacto: &id})
 		}
 	}
 	return personas, nil
 }
 
 // clienteUnicoDelNumero: el cliente a asociar solo (automática) si el número es de una sola persona
-// de la empresa y está en la instantánea; si no, ninguno.
-func clienteUnicoDelNumero(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string) (*int64, *string, error) {
+// de la empresa y está en la instantánea; si no, ninguno. contacto: el contacto de Argos por el que se
+// asocia (nil si es el titular), que se guarda en la conversación.
+func clienteUnicoDelNumero(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string) (cliente *int64, asociacion *string, contacto *int64, err error) {
 	ps, err := personasDelNumero(ctx, q, empresa, numero)
 	if err != nil || len(ps) != 1 {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	if _, err := q.ClienteInstantanea(ctx, ps[0]); errors.Is(err, pgx.ErrNoRows) {
-		// La persona a cargo (A46) todavía no está en la instantánea: la asocia una persona.
-		return nil, nil, nil
+	if _, err := q.ClienteInstantanea(ctx, ps[0].cliente); errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, nil, nil
 	} else if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return &ps[0], nombrePtr("automatica"), nil
+	return &ps[0].cliente, nombrePtr("automatica"), ps[0].contacto, nil
+}
+
+// fijarContactoConv guarda en la conversación el contacto con que se asoció (B22).
+func fijarContactoConv(ctx context.Context, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion, contacto *int64) error {
+	if err := q.FijarContactoArgosConv(ctx, mensajeriabd.FijarContactoArgosConvParams{ID: c.ID, ContactoArgosID: contacto}); err != nil {
+		return err
+	}
+	c.ContactoArgosID = contacto
+	return nil
 }
 
 // rolDeConversacion: el rol del número de la conversación en su cliente y lo que tiene a su cargo.
+// Falla cerrado: titular solo si el número es el teléfono o el móvil del cliente, o si un supervisor
+// confirmó el cliente (verificado_por) o pasó la verificación fuerte; un contacto, solo si está en la
+// caché (y, si la conversación guardó con cuál se asoció, ese mismo); si no, sin rol (sin permisos).
 // Sin cliente asociado, vacío.
-func rolDeConversacion(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion) (rolConversacion, error) {
+func (m *Modulo) rolDeConversacion(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion) (rolConversacion, error) {
 	var r rolConversacion
 	if c.ClienteID == nil {
 		return r, nil
 	}
 	cliente := *c.ClienteID
 	empresa := empresaDeConv(c)
-	titular, err := numeroTitularDe(ctx, q, empresa, c.Numero, cliente)
+	titulares, err := titularesDelNumero(ctx, q, empresa, c.Numero)
 	if err != nil {
 		return r, err
 	}
+	titular := slices.Contains(titulares, cliente)
 	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: soloDigitos(c.Numero), Empresa: empresa})
 	if err != nil {
 		return r, err
 	}
 	for _, x := range ks {
 		switch {
-		case x.ClienteID == cliente && r.Propio == nil && !titular:
+		case x.ClienteID == cliente && r.Propio == nil && !titular && (c.ContactoArgosID == nil || *c.ContactoArgosID == x.ContactoID):
 			p := rolDeFila(x)
 			r.Propio = &p
-		case x.ClienteID != cliente && x.ClienteEnEmpresa && x.PersonaClienteID != nil && *x.PersonaClienteID == cliente && !x.EsTitular:
+		case titular && x.ClienteID != cliente && x.ClienteEnEmpresa && x.PersonaClienteID != nil && *x.PersonaClienteID == cliente:
+			// A su cargo (A46): solo si el número es el de esta persona (es su titular).
 			r.ACargo = append(r.ACargo, rolDeFila(x))
 		}
 	}
-	if r.Propio == nil {
-		// Titular por su teléfono o móvil, un contacto titular, o una asociación a mano sin contacto
-		// conocido: las reglas de siempre (verificación del número o de un supervisor).
+	if r.Propio != nil {
+		return r, nil
+	}
+	if c.ContactoArgosID != nil && !titular {
+		// Se asoció por un contacto que ya no tiene este número (o que Argos quitó o volvió titular):
+		// sin rol, aunque un supervisor lo hubiera confirmado o hubiera verificación fuerte (lo que se
+		// confirmó fue ese contacto, no el titular).
+		r.Propio = &rolEnCliente{ClienteID: cliente, SinRol: true}
+		return r, nil
+	}
+	confiable := titular || (c.ClienteVerificado && c.VerificadoPor != nil)
+	if !confiable && c.ClienteVerificado {
+		vig, err := vigenciaFuerte(ctx, q, empresa)
+		if err != nil {
+			return r, err
+		}
+		confiable = verificacionDe(c, m.ahora(), vig) == VerificacionFuerte
+	}
+	if confiable {
 		r.Propio = &rolEnCliente{ClienteID: cliente, Permisos: argos.PermisosContacto{Consultar: true, Reportar: true, Pagar: true, Avisos: true}}
+	} else {
+		r.Propio = &rolEnCliente{ClienteID: cliente, SinRol: true}
 	}
 	return r, nil
 }
 
-// numeroTitularDe: el número es el teléfono o el móvil del cliente en la instantánea.
-func numeroTitularDe(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, cliente int64) (bool, error) {
-	cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(numero), Empresa: empresa})
-	if err != nil {
-		return false, err
+// filtroFallas: los servicios cuyas fallas puede conocer quien escribe (§3.5): nil = todos (titular),
+// los suyos si es un contacto acotado, y ninguno sin «consultar» (ok = false).
+func (m *Modulo) filtroFallas(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion) (servicios []int64, ok bool, err error) {
+	rol, err := m.rolDeConversacion(ctx, q, c)
+	if err != nil || rol.Propio == nil {
+		return nil, rol.Propio != nil, err
 	}
-	for _, x := range cs {
-		if x.ID == cliente && (x.PorTelefono || x.PorMovil) {
-			return true, nil
-		}
+	p := *rol.Propio
+	if !p.permite(PermisoContactoConsultar) {
+		return nil, false, nil
 	}
-	return false, nil
+	if p.esTitular() {
+		return nil, true, nil
+	}
+	return p.Servicios, true, nil
 }
 
 // Errores de contacto (mismos códigos que Argos, §7.1).
@@ -235,15 +302,19 @@ type accesoServicio struct {
 // accesoAServicio decide si quien habla en la conversación puede hacer una acción (permiso del
 // contacto) sobre el servicio (nil = el de la conversación o, para un contacto, el único suyo).
 // Para el titular no cambia nada: el cliente de la conversación y «titular».
-func accesoAServicio(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, servicio *int64, permiso string) (accesoServicio, error) {
+func (m *Modulo) accesoAServicio(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion, servicio *int64, permiso string) (accesoServicio, error) {
 	if c.ClienteID == nil {
 		return accesoServicio{}, reglaConv("sin_cliente", "Asocia la conversación a un cliente de Argos")
 	}
-	rol, err := rolDeConversacion(ctx, q, c)
+	rol, err := m.rolDeConversacion(ctx, q, c)
 	if err != nil {
 		return accesoServicio{}, err
 	}
 	propio := *rol.Propio
+	if propio.SinRol {
+		// No se sabe quién habla: un supervisor confirma el cliente (o el titular se verifica).
+		return accesoServicio{}, clienteSinConfirmar()
+	}
 	if servicio == nil {
 		servicio = c.ServicioID
 	}
@@ -347,7 +418,7 @@ type ACargoConv struct {
 
 // RolContactoConv es quién habla en la conversación respecto del cliente asociado (B22, B25).
 type RolContactoConv struct {
-	Rol        string                `json:"rol" enum:"titular,contacto" doc:"titular: el número es del titular (o la asociación no tiene contacto conocido); contacto: un contacto del cliente en Argos"`
+	Rol        string                `json:"rol" enum:"titular,contacto,sin_confirmar" doc:"titular: el número es el teléfono o el móvil del titular, o un supervisor lo confirmó o pasó la verificación fuerte; contacto: un contacto del cliente en Argos; sin_confirmar: no se sabe quién habla (sin permisos hasta que un supervisor confirme)"`
 	ContactoID *int64                `json:"contactoId" nullable:"true"`
 	Nombre     *string               `json:"nombre" nullable:"true" doc:"Nombre del contacto en Argos"`
 	Relacion   *string               `json:"relacion" nullable:"true" enum:"titular,familiar,inquilino,empleado,otro"`
@@ -387,7 +458,7 @@ func (m *Modulo) rolContactoDeConv(ctx context.Context, q *mensajeriabd.Queries,
 		}
 		return &RolContactoConv{Rol: "titular", Servicios: []ServicioContacto{}, ACargo: []ACargoConv{}, Reservado: TextoReservadoTitular, Varios: true, Elegir: &quedan}, nil
 	}
-	rol, err := rolDeConversacion(ctx, q, c)
+	rol, err := m.rolDeConversacion(ctx, q, c)
 	if err != nil {
 		return nil, err
 	}
@@ -410,7 +481,10 @@ func (m *Modulo) rolContactoDeConv(ctx context.Context, q *mensajeriabd.Queries,
 	}
 	p := *rol.Propio
 	out := &RolContactoConv{Rol: "titular", Permisos: permisosConv(p.Permisos), Servicios: de(p), ACargo: []ACargoConv{}, Reservado: TextoReservadoTitular}
-	if !p.esTitular() {
+	switch {
+	case p.SinRol:
+		out.Rol = "sin_confirmar"
+	case !p.esTitular():
 		out.Rol, out.ContactoID, out.Nombre, out.Relacion = "contacto", p.ContactoID, &p.Nombre, &p.Relacion
 	}
 	for _, k := range rol.ACargo {
@@ -463,6 +537,9 @@ func (m *Modulo) datoContactoIA(ctx context.Context, q *mensajeriabd.Queries, c 
 			s += " No puede: " + strings.Join(no, ", ") + "."
 		}
 		return s
+	}
+	if f.Rol == "sin_confirmar" {
+		b.WriteString("No se sabe si quien escribe es el titular o un contacto: no des saldos, estados ni datos del cliente y no registres pagos; si lo pide, pasa a una persona. ")
 	}
 	if f.Rol == "contacto" {
 		b.WriteString("Quien escribe NO es el titular: es un contacto del cliente (" + limpiarDato(derefTexto(f.Relacion), 20) + "). ")
@@ -548,16 +625,22 @@ func eleccionAgotada() *nucleo.Problema {
 		"Se agotaron los intentos para identificar al cliente por su número de servicio: asócialo a mano después de confirmar con él")
 }
 
-// codigosPorPersona: para cada persona con ese número, los códigos (normalizados) de los servicios
-// que puede nombrar: los suyos y, por un contacto, los del contacto (también los que tiene a cargo).
-func codigosPorPersona(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, personas []int64) (map[string][]int64, error) {
+// codigosPorPersona: para cada código (normalizado), las personas con ese número que pueden
+// nombrarlo: un titular (su teléfono o móvil), sus servicios; un contacto, solo los suyos, como esa
+// persona (personaDe: la persona a cargo solo si el número es el de ella). contacto: el contacto por el
+// que se asociaría (nil si la persona es titular de ese número).
+func codigosPorPersona(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string) (map[string][]personaNumero, error) {
+	titulares, err := titularesDelNumero(ctx, q, empresa, numero)
+	if err != nil {
+		return nil, err
+	}
 	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil {
 		return nil, err
 	}
-	// cliente → (persona, rol en ese cliente)
+	// cliente dueño del servicio → (persona, rol en ese cliente)
 	type via struct {
-		persona int64
+		persona personaNumero
 		rol     rolEnCliente
 	}
 	vias := map[int64][]via{}
@@ -568,30 +651,35 @@ func codigosPorPersona(ctx context.Context, q *mensajeriabd.Queries, empresa int
 		}
 		vias[cliente] = append(vias[cliente], v)
 	}
-	for _, p := range personas {
-		agregar(p, via{persona: p, rol: rolEnCliente{ClienteID: p}})
+	for _, p := range titulares {
+		agregar(p, via{persona: personaNumero{cliente: p}, rol: rolEnCliente{ClienteID: p}})
 	}
 	for _, x := range ks {
-		if x.ClienteEnEmpresa {
-			agregar(x.ClienteID, via{persona: personaDe(x), rol: rolDeFila(x)})
+		if !x.ClienteEnEmpresa {
+			continue
 		}
+		p := personaNumero{cliente: personaDe(x, titulares)}
+		if p.cliente == x.ClienteID {
+			id := x.ContactoID
+			p.contacto = &id
+		}
+		agregar(x.ClienteID, via{persona: p, rol: rolDeFila(x)})
 	}
 	ss, err := q.ServiciosDeClientesInstantanea(ctx, mensajeriabd.ServiciosDeClientesInstantaneaParams{Clientes: clientes, Empresa: empresa})
 	if err != nil {
 		return nil, err
 	}
-	out := map[string][]int64{}
+	out := map[string][]personaNumero{}
 	for _, s := range ss {
 		cod := normalizarCodigo(s.Codigo)
 		if cod == "" {
 			continue
 		}
 		for _, v := range vias[s.ClienteID] {
-			// Un titular nombra sus servicios; un contacto, los suyos.
 			if !v.rol.cubre(s.ID) {
 				continue
 			}
-			if !slices.Contains(out[cod], v.persona) {
+			if !slices.ContainsFunc(out[cod], func(o personaNumero) bool { return o.cliente == v.persona.cliente }) {
 				out[cod] = append(out[cod], v.persona)
 			}
 		}
@@ -623,13 +711,13 @@ func nuevoElegirCliente(m *Modulo) *auditoria.Caso[EntradaElegirCliente, Eleccio
 				if quedan.Conversacion == 0 || quedan.Numero == 0 {
 					return eleccionAgotada()
 				}
-				cods, err := codigosPorPersona(ctx, q, empresa, c.Numero, personas)
+				cods, err := codigosPorPersona(ctx, q, empresa, c.Numero)
 				if err != nil {
 					return err
 				}
-				var elegido *int64
+				var elegido, contacto *int64
 				if ps := cods[normalizarCodigo(in.Referencia)]; len(ps) == 1 {
-					elegido = &ps[0]
+					elegido, contacto = &ps[0].cliente, ps[0].contacto
 				}
 				// Cada intento queda anotado (sin la referencia) antes de decidir: un fallo cuenta.
 				if err := q.InsertarEleccionCliente(ctx, mensajeriabd.InsertarEleccionClienteParams{EmpresaID: c.EmpresaID, ConversacionID: c.ID,
@@ -648,6 +736,9 @@ func nuevoElegirCliente(m *Modulo) *auditoria.Caso[EntradaElegirCliente, Eleccio
 				// persona (titular o contacto), como en la asociación automática.
 				c.ClienteID, c.ServicioID, c.Asociacion = elegido, nil, nombrePtr("automatica")
 				c.ClienteVerificado, c.VerificadoPor = true, nil
+				if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
+					return err
+				}
 				nombre := NombreAsistenteIA
 				if !a.asistente {
 					nombre = derefTexto(actorNombre(ctx, q, a.usuario))
@@ -687,7 +778,7 @@ func (m *Modulo) estadoCuentaConv(ctx context.Context, a argos.AtencionIris, c m
 		return argos.EstadoCuenta{}, nucleo.ErrSinBD
 	}
 	q := mensajeriabd.New(bd)
-	rol, err := rolDeConversacion(ctx, q, c)
+	rol, err := m.rolDeConversacion(ctx, q, c)
 	if err != nil {
 		return argos.EstadoCuenta{}, err
 	}
@@ -730,8 +821,10 @@ func ClaveContactoIris(cliente, contacto int64) string {
 // la cola de pendientes (si Argos falla se reintenta; la unión en Iris no se pierde). Solo con un
 // conector Argos que informe contrato ≥ 0.10.0; si no, nada (devuelve nil).
 //
-//   - Todos los permisos por defecto (decisión 7 del PM, §10.5): consultar, reportar, pagar y avisos.
-//     Son los de cualquier contacto, no más (ajuste i): Iris nunca pide permisos por encima.
+//   - Todos los permisos por defecto: consultar, reportar, pagar y avisos. Es la decisión 7 del PM
+//     (contrato argosisp.md §10.5, «todo desde el inicio»), que deja superado el ajuste i de la misma
+//     sección («nunca por encima de los permisos del agente»): los permisos no se recortan según quién
+//     une el contacto. El titular recibe el aviso de Argos y puede quitarlos.
 //   - Nunca titular (relación «otro»; un proveedor o un prospecto de Iris tampoco lo es).
 //   - X-Iris-Actor = el agente (contactos.gestionar exige un actor; el asistente nunca une).
 func (m *Modulo) crearContactoEnArgos(ctx context.Context, t *auditoria.Tx, a alcanceConv, f mensajeriabd.MensajeriaContactoIris, cliente int64) (*int64, error) {

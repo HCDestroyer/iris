@@ -22,7 +22,7 @@ export function PantallaCompleta({ etiqueta, className, children, ...props }: Pr
             <Modal.Container placement="center" className="size-full p-0 data-exiting:animate-none motion-reduce:animate-none">
                 <Modal.Dialog
                     aria-label={etiqueta}
-                    className={cn("fixed inset-0 m-0 h-dvh max-h-none w-full max-w-none rounded-none border-0 bg-background p-0 shadow-none", className)}
+                    className={cn("fixed inset-0 m-0 h-dvh max-h-none w-full max-w-none rounded-none border-0 bg-[var(--iris-fondo)] p-0 shadow-none", className)}
                     {...props}
                 >
                     {children}

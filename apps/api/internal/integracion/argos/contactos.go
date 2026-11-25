@@ -243,7 +243,8 @@ func leerContactosDe(ctx context.Context, cli *Cliente, clienteID int64) ([]Cont
 }
 
 // guardarContactos reemplaza la caché de contactos del cliente por lo leído de Argos.
-func guardarContactos(ctx context.Context, q *argosbd.Queries, clienteID int64, l []ContactoClienteArgos, ahora time.Time) error {
+// Devuelve cuántos contactos que Iris tenía ya no devolvió Argos.
+func guardarContactos(ctx context.Context, q *argosbd.Queries, clienteID int64, l []ContactoClienteArgos, ahora time.Time) (int64, error) {
 	vigentes := make([]int64, 0, len(l))
 	for _, x := range l {
 		p := x.Permisos
@@ -263,10 +264,10 @@ func guardarContactos(ctx context.Context, q *argosbd.Queries, clienteID int64, 
 			Nombre: nombre, Relacion: x.Relacion, EsTitular: x.EsTitular || x.Relacion == "titular", Servicios: x.Servicios,
 			Consultar: p.Consultar, Reportar: p.Reportar, Pagar: p.Pagar, Avisos: p.Avisos, PersonaClienteID: x.PersonaClienteID,
 			Version: version, SincronizadoEn: ahora}); err != nil {
-			return err
+			return 0, err
 		}
 		if err := q.BorrarTelefonosContactoArgos(ctx, x.ContactoID); err != nil {
-			return err
+			return 0, err
 		}
 		for _, t := range x.Telefonos {
 			if !reE164.MatchString(t.Numero) {
@@ -274,15 +275,16 @@ func guardarContactos(ctx context.Context, q *argosbd.Queries, clienteID int64, 
 			}
 			if err := q.GuardarTelefonoContactoArgos(ctx, argosbd.GuardarTelefonoContactoArgosParams{ContactoID: x.ContactoID, Numero: t.Numero,
 				Digitos: DigitosTelefono(t.Numero), Whatsapp: t.Whatsapp, Principal: t.Principal}); err != nil {
-				return err
+				return 0, err
 			}
 		}
 		vigentes = append(vigentes, x.ContactoID)
 	}
-	if _, err := q.BorrarContactosAusentes(ctx, argosbd.BorrarContactosAusentesParams{ClienteID: clienteID, Vigentes: vigentes}); err != nil {
-		return err
+	quitados, err := q.BorrarContactosAusentes(ctx, argosbd.BorrarContactosAusentesParams{ClienteID: clienteID, Vigentes: vigentes})
+	if err != nil {
+		return 0, err
 	}
-	return q.MarcarContactosLeidos(ctx, argosbd.MarcarContactosLeidosParams{ClienteID: clienteID, SincronizadoEn: ahora})
+	return quitados, q.MarcarContactosLeidos(ctx, argosbd.MarcarContactosLeidosParams{ClienteID: clienteID, SincronizadoEn: ahora})
 }
 
 // EntradaRefrescarContactos: el cliente y quién lo pide (X-Iris-Actor de §7.1).
@@ -308,15 +310,46 @@ func nuevoGuardarContactos() *auditoria.Caso[entradaGuardarContactos, int] {
 		Logica: func(ctx context.Context, t *auditoria.Tx, in entradaGuardarContactos) (int, error) {
 			t.FijarEntidad("cliente_argos", in.ClienteID)
 			q := argosbd.New(t)
+			antes, err := q.HuellaContactosCliente(ctx, in.ClienteID)
+			if err != nil {
+				return 0, err
+			}
+			var quitados int64
 			if in.borrar {
 				t.Anotar(map[string]any{"resultado_argos": "no_existe"})
-				if _, err := q.BorrarContactosDeCliente(ctx, in.ClienteID); err != nil {
+				n, err := q.BorrarContactosDeCliente(ctx, in.ClienteID)
+				if err != nil {
 					return 0, err
 				}
-				return 0, q.OlvidarContactosLeidos(ctx, in.ClienteID)
+				if err := q.OlvidarContactosLeidos(ctx, in.ClienteID); err != nil {
+					return 0, err
+				}
+				quitados = n
+			} else {
+				t.Anotar(map[string]any{"contactos": len(in.lista)})
+				n, err := guardarContactos(ctx, q, in.ClienteID, in.lista, time.Now())
+				if err != nil {
+					return 0, err
+				}
+				quitados = n
 			}
-			t.Anotar(map[string]any{"contactos": len(in.lista)})
-			return len(in.lista), guardarContactos(ctx, q, in.ClienteID, in.lista, time.Now())
+			despues, err := q.HuellaContactosCliente(ctx, in.ClienteID)
+			if err != nil {
+				return 0, err
+			}
+			if quitados > 0 || (antes != "" && antes != despues) {
+				// Contactos que Argos ya no devuelve o cuyos números cambiaron: la mensajería quita la
+				// verificación a las conversaciones de esos contactos (sin números ni nombres).
+				accion := "editado"
+				if quitados > 0 {
+					accion = "quitado"
+				}
+				if err := t.Emitir(EventoContactosArgosCambiados, map[string]any{"cliente_id": in.ClienteID, "empresa_id": nil,
+					"contacto_id": nil, "accion": accion, "persona_cliente_id": nil, "entrante_id": nil}); err != nil {
+					return 0, err
+				}
+			}
+			return len(in.lista), nil
 		},
 	})
 }
@@ -444,7 +477,7 @@ func aplicarContactos(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, 
 			return err
 		}
 	case cam.lista != nil:
-		if err := guardarContactos(ctx, q, cam.ClienteID, cam.lista, time.Now()); err != nil {
+		if _, err := guardarContactos(ctx, q, cam.ClienteID, cam.lista, time.Now()); err != nil {
 			return err
 		}
 	case cam.ContactoID != nil:

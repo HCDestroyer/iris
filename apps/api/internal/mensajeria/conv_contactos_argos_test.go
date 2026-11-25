@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
@@ -349,4 +351,302 @@ func TestAbrirConversacionBuscaContactosEnArgos(t *testing.T) {
 	if co["contacto"].(map[string]any)["clienteId"] != nil {
 		t.Fatalf("sin coincidencias no se asocia: %v", co["contacto"])
 	}
+}
+
+// emitirContactos simula el evento interno argos.contactos_cambiados (webhook de Argos ya aplicado a la
+// caché) y corre el relay.
+func (b *bandeja) emitirContactos(cliente, contacto int64, accion string) {
+	b.t.Helper()
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES ($1, 'argos.contactos_cambiados', 1, $2)`,
+		uuid.Must(uuid.NewV7()), fmt.Sprintf(`{"cliente_id": %d, "empresa_id": 1, "contacto_id": %d, "accion": %q}`, cliente, contacto, accion)); err != nil {
+		b.t.Fatal(err)
+	}
+	b.publicar()
+}
+
+// ALTA 1 de la revisión: el titular quita al familiar en Argos. Desde ese momento el familiar ya no
+// puede pagar ni ve nada de la cuenta: su rol falla cerrado (sin_confirmar) y la conversación pierde
+// la verificación del número.
+func TestContactoQuitadoPierdeElAcceso(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, ss := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.q1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2`, cid(c), contacto); n != 1 {
+		t.Fatal("la conversación guarda el contacto con que se asoció")
+	}
+	// Argos lo quita: sale de la caché (como hace el webhook) y llega el evento.
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+	b.emitirContactos(cliente, contacto, "quitado")
+	c = b.conv(num)
+	if k := c["contacto"].(map[string]any); k["verificado"] != false {
+		t.Fatalf("pierde la verificación del número: %v", k)
+	}
+	rol := c["rolContacto"].(map[string]any)
+	if p := rol["permisos"].(map[string]any); rol["rol"] != "sin_confirmar" || p["consultar"] != false || p["pagar"] != false || len(rol["servicios"].([]any)) != 0 {
+		t.Fatalf("sin permisos ni servicios: %v", rol)
+	}
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+	b.exigirProblema(b.apiClave(b.agente, http.MethodPost, ruta+"/crear-ticket", "tk-"+cid(c), map[string]any{"asunto": "Sin internet", "prioridad": "media"}),
+		http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+}
+
+// ALTA 2 de la revisión: un contacto de la mamá a cargo de José (persona_cliente_id) escribe desde un
+// número que no es el de José: es un contacto de la mamá, nunca José, y no ve ni toca la cuenta de José.
+func TestContactoACargoConOtroNumeroNoEsLaPersona(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	numJose := numeroCliente()
+	jose, sj := b.clienteArgos("José", numJose, codigoUnico())
+	mama, sm := b.clienteArgos("Mamá de José", "", codigoUnico())
+	otro := numeroCliente()
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: mama, relacion: "familiar", consultar: true, reportar: true, pagar: true, persona: &jose, numero: otro})
+	b.texto(otro, "wamid.o1", "Hola")
+	c := b.conv(otro)
+	if k := c["contacto"].(map[string]any); k["clienteId"] == nil || k["clienteId"].(float64) != float64(mama) {
+		t.Fatalf("es un contacto de la mamá, no José: %v", k)
+	}
+	rol := c["rolContacto"].(map[string]any)
+	if rol["rol"] != "contacto" || len(rol["aCargo"].([]any)) != 0 {
+		t.Fatalf("rol: %v", rol)
+	}
+	ruta := "/conversaciones/" + cid(c)
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": sj[0]}), http.StatusForbidden, "servicio_fuera_del_contacto")
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": sm[0]}), http.StatusOK)
+	if a := b.argos.simulaciones[len(b.argos.simulaciones)-1]; a.Contacto != fmt.Sprint(contacto) {
+		t.Fatalf("como contacto de la mamá: %+v", a)
+	}
+	// Asociada a mano a José: el número no es suyo ni de un contacto suyo; sin verificar.
+	r := b.api(b.agente, http.MethodPost, ruta+"/desasociar", map[string]any{"version": ver(b.conv(otro))})
+	b.exigir(r, http.StatusOK)
+	r = b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(b.conv(otro)), "clienteId": jose})
+	b.exigir(r, http.StatusOK)
+	if r.cuerpo["contacto"].(map[string]any)["verificado"] != false || r.cuerpo["rolContacto"].(map[string]any)["rol"] != "sin_confirmar" {
+		t.Fatalf("otro número asociado a José: %v %v", r.cuerpo["contacto"], r.cuerpo["rolContacto"])
+	}
+}
+
+// MEDIA 3 y 4 de la revisión: el asistente con un contacto sin «consultar» ni «reportar» no recibe el
+// nombre del titular, ni servicios ajenos al contacto, ni estado, precio o cuenta; y no agenda visitas.
+func TestAsistenteConContactoSinConsultar(t *testing.T) {
+	x := nuevaBandejaIA(t)
+	x.activar(nil)
+	num := numeroCliente()
+	c1, c2 := codigoUnico(), codigoUnico()
+	cliente, ss := x.clienteArgos("Titular Secreta", "", c1, c2)
+	x.sembrarContacto(contactoSembrado{id: siguienteCliente.Add(1), cliente: cliente, relacion: "inquilino", servicios: []int64{ss[0]}, numero: num})
+	x.cuenta(&argos.EstadoCuenta{Saldo: texto("123.45"), Moneda: "GTQ", FacturasVencidas: vencidas(1), MontoVencido: texto("123.45")})
+	x.texto(num, "wamid.ia1", "¿Cómo está mi servicio?")
+	conv := cid(x.conv(num))
+	x.ia.decir(respuestaModelo("Hola, un agente le ayuda.", nil, nil))
+	x.pedirYGenerar(x.agente, conv)
+	pedido, _, _ := x.ia.ultimo()
+	for _, prohibido := range []string{"Titular Secreta", c2, "estado activo", "saldo vencido", "Plan 50"} {
+		if strings.Contains(pedido, prohibido) {
+			t.Fatalf("el modelo recibe %q: %s", prohibido, pedido)
+		}
+	}
+	if !strings.Contains(pedido, c1) || !strings.Contains(pedido, "no puede consultar") {
+		t.Fatalf("su servicio, sin estado: %s", pedido)
+	}
+	// Con rol de contacto sin «reportar», la orden de una visita desde la conversación se rechaza.
+	b := x.bandeja
+	b.exigirProblema(b.apiClave(b.supervisor, http.MethodPost, "/conversaciones/"+conv+"/crear-orden", "or-"+conv, map[string]any{"tipo": "visita", "servicioId": ss[0],
+		"descripcion": "Sin internet"}), http.StatusForbidden, "permiso_de_contacto")
+}
+
+// M1 de la verificación: un contacto confirmado por un supervisor no pasa a titular si Argos le quita
+// el número (sin borrar el contacto) ni si lo vuelve titular: queda sin rol al momento (antes de que
+// corra el suscriptor) y, con el evento, pierde la verificación. Confirmar confirma al contacto.
+func TestContactoConfirmadoSinSuNumero(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, ss := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.m1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	r := b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(c)})
+	b.exigir(r, http.StatusOK)
+	if rol := r.cuerpo["rolContacto"].(map[string]any); rol["rol"] != "contacto" {
+		t.Fatalf("confirmar confirma al contacto, no al titular: %v", rol)
+	}
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusOK)
+	// Argos le quita el número (el contacto sigue): sin rol aunque esté confirmado, antes del evento.
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contacto_telefonos WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+	if rol := b.conv(num)["rolContacto"].(map[string]any); rol["rol"] != "sin_confirmar" {
+		t.Fatalf("sin su número, sin rol: %v", rol)
+	}
+	b.emitirContactos(cliente, contacto, "editado")
+	if k := b.conv(num)["contacto"].(map[string]any); k["verificado"] != false {
+		t.Fatalf("pierde la verificación: %v", k)
+	}
+	// Vuelve el número pero Argos lo hizo titular: sigue sin rol.
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos, whatsapp, principal) VALUES ($1, $2, $3, true, true)`,
+		contacto, "+"+num, num); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET es_titular = true, relacion = 'titular' WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	r = b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))})
+	b.exigir(r, http.StatusOK)
+	if rol := r.cuerpo["rolContacto"].(map[string]any); rol["rol"] != "sin_confirmar" {
+		t.Fatalf("un contacto vuelto titular sin ser el número del cliente: %v", rol)
+	}
+}
+
+// M2 de la verificación: si un contacto responde «BAJA» a la copia de un aviso, la baja es solo de su
+// número: no toca el permiso del titular ni avisa contacto.baja a Argos.
+func TestBajaDeUnContactoNoEsDelTitular(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, _ := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	padre, copia := uuid.Must(uuid.NewV7()), uuid.Must(uuid.NewV7())
+	for _, f := range []struct {
+		id      uuid.UUID
+		destino string
+		padre   *uuid.UUID
+	}{{padre, "+50211112222", nil}, {copia, "+" + num, &padre}} {
+		if _, err := b.bd.Exec(b.ctx, `INSERT INTO mensajeria.avisos (id, empresa_id, cliente_id, plantilla, canal_preferido, prioridad, origen, estado,
+			canal, canal_id, destino, aviso_padre_id, created_at) VALUES ($1, 1, $2, 'factura_por_vencer', 'whatsapp', 'normal', 'iris', 'entregado',
+			'whatsapp', $3, $4, $5, now())`, f.id, cliente, b.canal.ID, f.destino, f.padre); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.texto(num, "wamid.baja1", "BAJA")
+	if n := b.contar(`SELECT count(*) FROM mensajeria.consentimientos WHERE cliente_id = $1`, cliente); n != 0 {
+		t.Fatalf("la baja del contacto tocó el permiso del titular: %d", n)
+	}
+	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'contacto.baja' AND (payload->>'cliente_id')::bigint = $1`, cliente); n != 0 {
+		t.Fatal("contacto.baja del titular por la baja de un contacto")
+	}
+	if n := b.contar(`SELECT count(*) FROM mensajeria.consentimientos_numero WHERE telefono = $1 AND estado = 'baja'`, "+"+num); n != 1 {
+		t.Fatalf("la baja queda por número: %d", n)
+	}
+}
+
+// M1-bis de la verificación: un número que es a la vez el contacto en sitio de un servicio
+// (por_servicio) y un contacto del mismo cliente en la caché: al asociar y confirmar a mano se guarda
+// el contacto; si después Argos lo quita, la conversación queda sin rol y sin verificar (nunca titular).
+func TestNumeroDeServicioYContacto(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, ss := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_servicios SET contacto_telefono = $2 WHERE id = $1`, ss[0], "+"+num); err != nil {
+		t.Fatal(err)
+	}
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.ps1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/desasociar", map[string]any{"version": ver(c)}), http.StatusOK)
+	r := b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(b.conv(num)), "clienteId": cliente})
+	b.exigir(r, http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2`, cid(c), contacto); n != 1 {
+		t.Fatal("al asociar a mano se guarda el contacto, no el por_servicio")
+	}
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.emitirContactos(cliente, contacto, "quitado")
+	c = b.conv(num)
+	if rol := c["rolContacto"].(map[string]any); rol["rol"] != "sin_confirmar" {
+		t.Fatalf("sin el contacto, sin rol (nunca titular por el número del servicio): %v", rol)
+	}
+	if k := c["contacto"].(map[string]any); k["verificado"] != false {
+		t.Fatalf("desverificada: %v", k)
+	}
+}
+
+// Bajo 5 de la verificación: una orden con ticket desde la conversación de un contacto solo con un
+// ticket de su cliente; el de otro cliente se rechaza.
+func TestOrdenConTicketAjeno(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, _ := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	otro, so := b.clienteArgos("Otro", "", codigoUnico())
+	b.sembrarContacto(contactoSembrado{id: siguienteCliente.Add(1), cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.tk1", "Hola")
+	c := b.conv(num)
+	var ticket int64
+	if err := b.bd.QueryRow(b.ctx, `INSERT INTO soporte.tickets (empresa_id, cliente_id, servicio_id, asunto, prioridad, estado, origen, sla_inicio)
+		VALUES (1, $1, $2, 'Ajeno', 'media', 'abierto', 'panel', now()) RETURNING id`, otro, so[0]).Scan(&ticket); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirProblema(b.apiClave(b.supervisor, http.MethodPost, "/conversaciones/"+cid(c)+"/crear-orden", "or-aj-"+cid(c),
+		map[string]any{"tipo": "visita", "ticketId": ticket, "descripcion": "Sin internet"}), http.StatusUnprocessableEntity, "ticket_ajeno")
+	// B-d: un ticket de su cliente pero de un servicio que el contacto no cubre, y uno sin cliente.
+	_ = cliente
+	propio, sp := b.clienteArgos("Dueña", "", codigoUnico(), codigoUnico())
+	num2 := numeroCliente()
+	b.sembrarContacto(contactoSembrado{id: siguienteCliente.Add(1), cliente: propio, relacion: "familiar", servicios: []int64{sp[0]}, consultar: true, reportar: true, pagar: true, numero: num2})
+	b.texto(num2, "wamid.tk2", "Hola")
+	c2 := b.conv(num2)
+	for i, tk := range []struct {
+		cliente  *int64
+		servicio *int64
+		status   int
+		codigo   string
+	}{{&propio, &sp[1], http.StatusForbidden, "servicio_fuera_del_contacto"}, {nil, nil, http.StatusUnprocessableEntity, "ticket_ajeno"}} {
+		var id int64
+		if err := b.bd.QueryRow(b.ctx, `INSERT INTO soporte.tickets (empresa_id, cliente_id, servicio_id, asunto, prioridad, estado, origen, sla_inicio)
+			VALUES (1, $1, $2, 'Otro servicio', 'media', 'abierto', 'panel', now()) RETURNING id`, tk.cliente, tk.servicio).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		b.exigirProblema(b.apiClave(b.supervisor, http.MethodPost, "/conversaciones/"+cid(c2)+"/crear-orden", fmt.Sprintf("or-bd-%s-%d", cid(c2), i),
+			map[string]any{"tipo": "visita", "ticketId": id, "descripcion": "Sin internet"}), tk.status, tk.codigo)
+	}
+}
+
+// M-A de la verificación: un contacto confirmado (con verificación fuerte) al que Argos quita, y que
+// después se vuelve a asociar a mano con un número que solo es el contacto en sitio del servicio
+// (por_servicio): la verificación fuerte vieja se borra y nunca queda como titular.
+func TestReasociarNoHeredaVerificacionFuerte(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, ss := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_servicios SET contacto_telefono = $2 WHERE id = $1`, ss[0], "+"+num); err != nil {
+		t.Fatal(err)
+	}
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.texto(num, "wamid.ma1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(c)}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND identidad_verificada_en IS NOT NULL`, cid(c)); n != 1 {
+		t.Fatal("la confirmación del supervisor da la verificación fuerte")
+	}
+	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.emitirContactos(cliente, contacto, "quitado")
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND identidad_verificada_en IS NULL AND NOT cliente_verificado`, cid(c)); n != 1 {
+		t.Fatal("al quitar el contacto se pierden la verificación del número y la fuerte")
+	}
+	// Vuelta a asociar a mano, al mismo cliente: el número solo es el del servicio (por_servicio).
+	r := b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(b.conv(num)), "clienteId": cliente})
+	b.exigir(r, http.StatusOK)
+	if rol := r.cuerpo["rolContacto"].(map[string]any); rol["rol"] != "sin_confirmar" {
+		t.Fatalf("un por_servicio nunca es titular: %v", rol)
+	}
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND identidad_verificada_en IS NULL AND contacto_argos_id IS NULL`, cid(c)); n != 1 {
+		t.Fatal("asociar a mano empieza sin verificación fuerte y sin contacto")
+	}
+	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
 }

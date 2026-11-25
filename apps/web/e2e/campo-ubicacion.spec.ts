@@ -14,6 +14,13 @@ import { ordenesDelDia } from "./datos-campo";
 const carpeta = process.env.IRIS_CAPTURAS ?? path.join("test-results", "capturas");
 const GUATE = { latitude: 14.6407, longitude: -90.5133, accuracy: 12 };
 
+/*
+ * El reloj arranca a media mañana del día de hoy en Guatemala: con la hora real, cerca de la
+ * medianoche los minutos que adelanta la prueba cambian de día y el turno termina solo.
+ */
+const DIA_GT = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Guatemala" }).format(new Date());
+const MEDIA_MANANA = new Date(`${DIA_GT}T10:00:00-06:00`);
+
 const indicador = (page: Page) => page.getByTestId("indicador-ubicacion");
 const puntosEnviados = (api: ApiCampo) => api.posiciones.flatMap((l) => l.puntos ?? []);
 
@@ -31,7 +38,7 @@ test.describe("en el teléfono", () => {
 
     test("explica antes de pedir el permiso, envía un punto por minuto en turno y sin señal los acumula", async ({ page, context }) => {
         test.setTimeout(90_000);
-        await page.clock.install();
+        await page.clock.install({ time: MEDIA_MANANA });
         const api = await simularApiCampo(page);
         await abrirCampo(page);
         await expect(indicador(page)).toHaveText("Fuera de turno");
@@ -92,7 +99,7 @@ test.describe("en el teléfono", () => {
         test.setTimeout(90_000);
         await context.grantPermissions(["geolocation"]);
         await context.setGeolocation(GUATE);
-        await page.clock.install();
+        await page.clock.install({ time: MEDIA_MANANA });
         const api = await simularApiCampo(page);
         await abrirCampo(page);
         await abrirPanelUbicacion(page);
@@ -206,7 +213,7 @@ test.describe("en el teléfono", () => {
         test.setTimeout(60_000);
         await context.grantPermissions(["geolocation"]);
         await context.setGeolocation(GUATE);
-        await page.clock.install();
+        await page.clock.install({ time: MEDIA_MANANA });
         const api = await simularApiCampo(page, { ordenes: ordenesDelDia().filter((o) => o.id === 102) });
         await page.goto("/campo");
         await page.getByRole("link", { name: /OT-000102/ }).click();

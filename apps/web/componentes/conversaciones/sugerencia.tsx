@@ -323,7 +323,7 @@ export function TarjetaSugerencia({ conv, asistente, alUsar, alActualizar }: Pro
             </div>
             {plegada ? null : (
                 <>
-                <div className="grid max-h-[min(26dvh,14rem)] min-w-0 gap-2.5 overflow-y-auto px-3 pb-2 @min-[34rem]/conv:max-h-[min(34dvh,18rem)]" data-desborde-permitido data-slot="cuerpo-sugerencia">
+                <div className="grid max-h-[min(26dvh,14rem)] min-w-0 gap-2.5 overflow-y-auto px-3 pb-2 @min-[30rem]/conv:max-h-[min(34dvh,18rem)]" data-desborde-permitido data-slot="cuerpo-sugerencia">
                     {generando ? (
                         <div role="status" className="grid gap-1.5" aria-busy="true">
                             <span className="sr-only">Preparando sugerencia…</span>

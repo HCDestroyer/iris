@@ -1812,6 +1812,22 @@ func (q *Queries) GuardarZona(ctx context.Context, arg GuardarZonaParams) error 
 	return err
 }
 
+const huellaContactosCliente = `-- name: HuellaContactosCliente :one
+SELECT coalesce(md5(string_agg(k.contacto_id::text || ':' || k.es_titular::text || ':' || coalesce(t.digitos, ''), ','
+    ORDER BY k.contacto_id, t.digitos)), '')::text
+FROM integracion.argos_contactos k LEFT JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id
+WHERE k.cliente_id = $1
+`
+
+// Huella de los contactos del cliente en la caché (ids, si son titulares y sus números): si cambia al
+// releer, la mensajería revisa las conversaciones asociadas por esos contactos.
+func (q *Queries) HuellaContactosCliente(ctx context.Context, clienteID int64) (string, error) {
+	row := q.db.QueryRow(ctx, huellaContactosCliente, clienteID)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const iDsExternosVinculados = `-- name: IDsExternosVinculados :many
 SELECT argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo IS NOT NULL
 `
@@ -1895,6 +1911,27 @@ type MarcarLecturaCuentasParams struct {
 func (q *Queries) MarcarLecturaCuentas(ctx context.Context, arg MarcarLecturaCuentasParams) error {
 	_, err := q.db.Exec(ctx, marcarLecturaCuentas, arg.EmpresaID, arg.LeidoEn)
 	return err
+}
+
+const marcarTitularCambiado = `-- name: MarcarTitularCambiado :execrows
+UPDATE integracion.argos_servicios SET titular_cambiado_en = $1
+WHERE id = $2 AND (titular_cambiado_en IS NULL OR titular_cambiado_en <= $1)
+`
+
+type MarcarTitularCambiadoParams struct {
+	En *time.Time
+	ID int64
+}
+
+// servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora de Argos (ocurrido_en, solo con
+// ocurrido_origen = argos y dentro de la tolerancia) del último
+// cambio de titular; nunca retrocede. Llamar con BloquearArgos del servicio tomado.
+func (q *Queries) MarcarTitularCambiado(ctx context.Context, arg MarcarTitularCambiadoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, marcarTitularCambiado, arg.En, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const nombreZona = `-- name: NombreZona :one
@@ -2263,7 +2300,7 @@ func (q *Queries) RouterPorID(ctx context.Context, id int64) (IntegracionArgosRo
 }
 
 const servicioPorID = `-- name: ServicioPorID :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre FROM integracion.argos_servicios WHERE id = $1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre, titular_cambiado_en FROM integracion.argos_servicios WHERE id = $1
 `
 
 func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgosServicio, error) {
@@ -2299,12 +2336,13 @@ func (q *Queries) ServicioPorID(ctx context.Context, id int64) (IntegracionArgos
 		&i.PrefijoDelegadoV6,
 		&i.Planta,
 		&i.Nombre,
+		&i.TitularCambiadoEn,
 	)
 	return i, err
 }
 
 const servicioPorIP = `-- name: ServicioPorIP :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre FROM integracion.argos_servicios
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre, titular_cambiado_en FROM integracion.argos_servicios
 WHERE ip = $1 AND empresa_id <> 0 AND estado <> 'retirado' AND ($2::bigint = 0 OR empresa_id = $2::bigint)
 ORDER BY sincronizado_en DESC LIMIT 1
 `
@@ -2349,12 +2387,13 @@ func (q *Queries) ServicioPorIP(ctx context.Context, arg ServicioPorIPParams) (I
 		&i.PrefijoDelegadoV6,
 		&i.Planta,
 		&i.Nombre,
+		&i.TitularCambiadoEn,
 	)
 	return i, err
 }
 
 const serviciosDeCliente = `-- name: ServiciosDeCliente :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre, titular_cambiado_en FROM integracion.argos_servicios WHERE cliente_id = $1 ORDER BY id
 `
 
 func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]IntegracionArgosServicio, error) {
@@ -2396,6 +2435,7 @@ func (q *Queries) ServiciosDeCliente(ctx context.Context, clienteID int64) ([]In
 			&i.PrefijoDelegadoV6,
 			&i.Planta,
 			&i.Nombre,
+			&i.TitularCambiadoEn,
 		); err != nil {
 			return nil, err
 		}

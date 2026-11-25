@@ -62,7 +62,7 @@ function IconoIndicador({ indicador: i, className }: { indicador: Indicador | un
 
 /**
  * Los indicadores del encabezado, junto a buscar (opción elegida por el PM): la nube de
- * sincronización (conexión y envíos: check discreto, flecha y número en teal, nube tachada en
+ * sincronización (conexión y envíos: check discreto, flecha y número en índigo, nube tachada en
  * naranja con o sin número) y el GPS. Tocar cualquiera abre la hoja de estado en su sección. Zona
  * táctil de 44 px aunque el icono se vea más chico. `compacta`: la copia de la barra compacta (sin
  * los ganchos de las pruebas, que son del encabezado).

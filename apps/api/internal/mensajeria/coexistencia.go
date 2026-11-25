@@ -206,9 +206,9 @@ func (m *Modulo) hiloHistorial(ctx context.Context, t *auditoria.Tx, canal mensa
 	}
 	if nueva {
 		// Nace resuelta, sin eventos: es historia.
-		var cliente *int64
+		var cliente, contacto *int64
 		var asociacion *string
-		cliente, asociacion, err = clienteUnicoDelNumero(ctx, q, empresa, numero)
+		cliente, asociacion, contacto, err = clienteUnicoDelNumero(ctx, q, empresa, numero)
 		if err != nil {
 			return 0, err
 		}
@@ -224,6 +224,8 @@ func (m *Modulo) hiloHistorial(ctx context.Context, t *auditoria.Tx, canal mensa
 			UltimaActividad: primero, ResueltaEn: &ahora})
 		if errors.Is(err, pgx.ErrNoRows) {
 			c, err = q.ConversacionPorContacto(ctx, mensajeriabd.ConversacionPorContactoParams{Empresa: empresa, CanalID: canal.ID, Numero: numero})
+		} else if err == nil && contacto != nil {
+			err = fijarContactoConv(ctx, q, &c, contacto)
 		}
 		if err != nil {
 			return 0, err

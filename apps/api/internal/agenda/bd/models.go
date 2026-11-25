@@ -449,6 +449,7 @@ type CampoOrdenTitular struct {
 	RevisionLevantadaPor *int64
 	RevisionMotivo       *string
 	RevisionLevantadaEn  *time.Time
+	TipoTitular          *string
 }
 
 type CampoOrdene struct {
@@ -954,6 +955,7 @@ type IntegracionArgosServicio struct {
 	PrefijoDelegadoV6 string
 	Planta            []byte
 	Nombre            string
+	TitularCambiadoEn *time.Time
 }
 
 type IntegracionArgosSincronizacionEtapa struct {
@@ -1093,21 +1095,22 @@ type IntegracionDatosTransito struct {
 }
 
 type IntegracionEntrante struct {
-	ID          int64
-	ConectorID  int64
-	WebhookID   string
-	Evento      string
-	EmpresaID   *int64
-	Payload     []byte
-	OcurridoEn  *time.Time
-	RecibidoEn  time.Time
-	ProcesadoEn *time.Time
-	Resultado   *string
-	Intentos    int32
-	Error       *string
-	RequestID   string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
+	ID             int64
+	ConectorID     int64
+	WebhookID      string
+	Evento         string
+	EmpresaID      *int64
+	Payload        []byte
+	OcurridoEn     *time.Time
+	RecibidoEn     time.Time
+	ProcesadoEn    *time.Time
+	Resultado      *string
+	Intentos       int32
+	Error          *string
+	RequestID      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	OcurridoOrigen *string
 }
 
 type IntegracionOutbox struct {
@@ -1334,36 +1337,39 @@ type MensajeriaAsistenteVerificacione struct {
 }
 
 type MensajeriaAviso struct {
-	ID             uuid.UUID
-	EmpresaID      int64
-	ClienteID      int64
-	ServicioID     *int64
-	Plantilla      string
-	Variables      []byte
-	CanalPreferido string
-	Prioridad      string
-	Origen         string
-	Estado         string
-	Motivo         *string
-	Detalle        *string
-	Canal          *string
-	CanalID        *int64
-	Remitente      *string
-	Destino        *string
-	ProveedorID    *string
-	UsuarioID      *int64
-	TokenID        *int64
-	IdempotencyKey *string
-	HashPeticion   []byte
-	VenceEn        *time.Time
-	ProgramadoEn   *time.Time
-	EnviadoEn      *time.Time
-	EntregadoEn    *time.Time
-	LeidoEn        *time.Time
-	FinalizadoEn   *time.Time
-	Intentos       int32
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID              uuid.UUID
+	EmpresaID       int64
+	ClienteID       int64
+	ServicioID      *int64
+	Plantilla       string
+	Variables       []byte
+	CanalPreferido  string
+	Prioridad       string
+	Origen          string
+	Estado          string
+	Motivo          *string
+	Detalle         *string
+	Canal           *string
+	CanalID         *int64
+	Remitente       *string
+	Destino         *string
+	ProveedorID     *string
+	UsuarioID       *int64
+	TokenID         *int64
+	IdempotencyKey  *string
+	HashPeticion    []byte
+	VenceEn         *time.Time
+	ProgramadoEn    *time.Time
+	EnviadoEn       *time.Time
+	EntregadoEn     *time.Time
+	LeidoEn         *time.Time
+	FinalizadoEn    *time.Time
+	Intentos        int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	AvisoPadreID    *uuid.UUID
+	ContactoArgosID *int64
+	CopiasMotivo    *string
 }
 
 type MensajeriaBoleta struct {
@@ -1692,6 +1698,7 @@ type MensajeriaConsentimiento struct {
 	HashPeticion   []byte
 	EntranteID     *int64
 	CreatedAt      time.Time
+	Telefono       *string
 }
 
 type MensajeriaConsentimientosNumero struct {
@@ -1890,6 +1897,7 @@ type MensajeriaConversacione struct {
 	AsistenteReanudadoEn    *time.Time
 	AsistenteAtencionDesde  *time.Time
 	AsistentePausaPrevio    *string
+	ContactoArgosID         *int64
 }
 
 type MensajeriaDisponibilidad struct {

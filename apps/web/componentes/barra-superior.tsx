@@ -193,7 +193,7 @@ export function BotonAvisos() {
             }}
             className="w-80 max-w-[calc(100vw-2rem)]"
             disparador={
-                <Boton variante="secundario" tamano="icono-sm" className="relative size-9 rounded-lg" aria-label={nombre} title="Avisos">
+                <Boton variante="secundario" tamano="icono-sm" className="relative size-11 min-w-11 rounded-full border border-border bg-[var(--iris-tarjeta)] p-0 text-muted-foreground shadow-[var(--iris-sombra-flotante)] md:size-11 [&_svg]:size-[1.125rem]" aria-label={nombre} title="Avisos">
                     <Bell />
                     {hayPunto ? (
                         <span

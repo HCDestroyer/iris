@@ -72,6 +72,10 @@ type Registro struct {
 	DependeDe []int64
 	// UltimoError: resumen del último fallo (p. ej. respuesta_inconsistente: …).
 	UltimoError *string
+	// ResueltoComo: con resuelto_manual, cómo (manual, reemplazado, orden_cancelada…).
+	ResueltoComo *string
+	// ResueltoClienteID: el cliente final que indicó quien lo resolvió a mano (cambio de titular).
+	ResueltoClienteID *int64
 	// CodigoError: type del último error de Argos (o el código local, p. ej. firma_invalida).
 	CodigoError      *string
 	EmpresaID        *int64
@@ -88,7 +92,8 @@ func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 		Payload: json.RawMessage(f.Payload), PorResolver: f.PorResolver, Respuesta: json.RawMessage(f.Respuesta),
 		HechoEn: f.HechoEn, DependeDe: f.DependeDe, UltimoError: f.UltimoError,
 		CodigoError: f.CodigoError, EmpresaID: f.EmpresaID, EntidadID: f.EntidadID, TecnicoUsuarioID: f.TecnicoUsuarioID,
-		ActualizadoEn: f.UpdatedAt, Version: f.Version,
+		ActualizadoEn: f.UpdatedAt, Version: f.Version, ResueltoComo: f.ResueltoComo,
+		ResueltoClienteID: f.ResueltoClienteID,
 	}
 }
 

@@ -155,11 +155,12 @@ func correr() error {
 	if err != nil {
 		return err
 	}
-	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Posiciones: lpos,
+	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop})
 	cmp.SuscribirRetiros(bus, pool, log)
 	// «Dato de Argos cambió» (contrato 0.5.0): argos.datos_cambiados marca las órdenes abiertas.
 	cmp.SuscribirDatosArgos(bus, pool, log)
+	cmp.SuscribirTitularArgos(bus, pool, log)
 	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,
 	// POST /servicios), encola el servicio y crea la orden de instalación; barrido cada 5 min.
 	comercial.RegistrarAdjuntos()
@@ -168,6 +169,8 @@ func correr() error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	com.SuscribirAltas(bus, pool, log)
+	com.SuscribirActivacion(bus, pool, log)
+	com.SuscribirRevisionVenta(bus, pool, log)
 	// Mensajería (contrato 0.6.0 §6.6): aviso.entregado, aviso.fallido y contacto.baja → webhooks hacia
 	// Argos (mensajeria.webhooks_salida); los entrega el proceso de mensajería.
 	msj := mensajeria.Nuevo(mensajeria.Config{})
@@ -176,6 +179,7 @@ func correr() error {
 	// argos.comprobante_resuelto → la resolución queda en la boleta; el proceso de mensajería la
 	// aplica (mensaje de sistema y aviso al cliente, una sola vez).
 	msj.SuscribirComprobantes(bus, pool)
+	msj.SuscribirContactos(bus, pool)
 	// Reconexión temporal (contrato 0.8.0 §7.3): promesa.* de Argos → argos.promesa_cambiada → la
 	// reconexión de la conversación guarda cómo terminó y con qué motivo la guardó Argos.
 	msj.SuscribirPromesas(bus, pool)

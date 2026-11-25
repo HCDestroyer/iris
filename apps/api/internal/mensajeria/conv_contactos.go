@@ -276,10 +276,19 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 				c.ClienteID, c.ServicioID, c.Asociacion = &in.ClienteID, in.ServicioID, nombrePtr("manual")
 				// Verificada solo si el número es un teléfono del cliente en la instantánea; si no,
 				// un supervisor la confirma (POST …/confirmar-cliente).
-				coincide, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, in.ClienteID)
+				coincide, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, in.ClienteID)
 				if err != nil {
 					return err
 				}
+				if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
+					return err
+				}
+				// Asociar a mano (aunque sea al mismo cliente) empieza sin verificación fuerte: la que
+				// hubiera era de otra asociación (§3.5).
+				if err := q.LimpiarVerificacionFuerte(ctx, c.ID); err != nil {
+					return err
+				}
+				c.IdentidadVerificadaEn, c.IdentidadVenceEn = nil, nil
 				c.ClienteVerificado, c.VerificadoPor = coincide, nil
 				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "cliente_asociado", ActorNombre: actorNombre(ctx, q, a.usuario),
 					EntidadID: nombrePtr(strconv.FormatInt(in.ClienteID, 10))}); err != nil {
@@ -293,30 +302,40 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 	return k
 }
 
-// numeroDelCliente: el número es el teléfono, el móvil o el contacto de un servicio del cliente en
-// la instantánea de la empresa.
-func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, cliente int64) (bool, error) {
+// numeroDelCliente: el número es del cliente y, si es de un contacto suyo en la caché de Argos, cuál
+// (se guarda en la conversación). Orden (§3.5): el teléfono o el móvil del cliente (titular) gana;
+// después, un contacto del mismo cliente; al final, el contacto de un servicio en la instantánea
+// (por_servicio), que verifica el número pero nunca da rol de titular (rolDeConversacion).
+func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, cliente int64) (bool, *int64, error) {
 	cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
+	porServicio := false
 	for _, x := range cs {
-		if x.ID == cliente {
-			return true, nil
+		if x.ID != cliente {
+			continue
 		}
+		// Mismo criterio que titularesDelNumero.
+		if x.PorTelefono || x.PorMovil {
+			return true, nil, nil
+		}
+		porServicio = true
 	}
-	// El número de un contacto del cliente en Argos (§3.5): identifica igual que el del titular
-	// (WhatsApp desde ese número basta para consultar, reportar y pagar con sus permisos).
 	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	for _, x := range ks {
-		if x.ClienteID == cliente || (x.PersonaClienteID != nil && *x.PersonaClienteID == cliente) {
-			return true, nil
+		// Solo un contacto de ese mismo cliente. Un contacto de otro cliente a cargo de este
+		// (persona_cliente_id) no cuenta: el número de la persona a cargo es su teléfono o su móvil,
+		// que ya se comparó arriba (§3.8).
+		if x.ClienteID == cliente {
+			id := x.ContactoID
+			return true, &id, nil
 		}
 	}
-	return false, nil
+	return porServicio, nil, nil
 }
 
 func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle] {
@@ -326,6 +345,17 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				if c.ClienteID == nil {
 					return reglaConv("sin_cliente", "La conversación no tiene cliente asociado")
+				}
+				// Si el número es de un contacto del cliente (§3.5), se confirma ese contacto, no el
+				// titular: la conversación queda con él y su rol sale de sus permisos.
+				// Si el contacto ya no está, se queda el que tenía (sin rol): para dejarla como titular, un
+				// supervisor la vuelve a asociar.
+				if _, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, *c.ClienteID); err != nil {
+					return err
+				} else if contacto != nil {
+					if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
+						return err
+					}
 				}
 				// La confirmación de una persona da la verificación fuerte de este periodo (se pierde al
 				// resolver): confirmar otra vez después de reabrir la vuelve a dar.
@@ -356,7 +386,7 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 					return err
 				}
 				return t.Emitir("conversacion.cliente_confirmado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID,
-					"cliente_id": c.ClienteID, "actor_id": a.usuario})
+					"cliente_id": c.ClienteID, "actor_id": a.usuario, "contacto_argos_id": c.ContactoArgosID})
 			})
 		},
 	})
@@ -589,7 +619,11 @@ func nuevoUnirContacto(m *Modulo) *UnirContacto {
 				if err != nil {
 					return ContactoIris{}, err
 				}
-				if c.ClienteVerificado, err = numeroDelCliente(ctx, q, empresaDeConv(c), c.Numero, in.ClienteID); err != nil {
+				var contacto *int64
+				if c.ClienteVerificado, contacto, err = numeroDelCliente(ctx, q, empresaDeConv(c), c.Numero, in.ClienteID); err != nil {
+					return ContactoIris{}, err
+				}
+				if err := fijarContactoConv(ctx, q, &c, contacto); err != nil {
 					return ContactoIris{}, err
 				}
 				if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "cliente_asociado", ActorNombre: actorNombre(ctx, q, a.usuario),

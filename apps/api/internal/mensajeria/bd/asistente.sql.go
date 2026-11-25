@@ -346,6 +346,8 @@ SELECT DISTINCT h.clave, s.zona_nombre, s.router_nombre
 FROM integracion.argos_servicios s
 JOIN soporte.horus_estados h ON h.clave IN ('router:' || s.empresa_id || ':' || s.router_id, 'router:0:' || s.router_id)
 WHERE s.cliente_id = $1 AND s.empresa_id = $2::bigint AND s.router_id IS NOT NULL AND h.estado = 'caido'
+  -- servicios: solo los de un contacto (§3.5); null = todos los del cliente.
+  AND ($3::bigint[] IS NULL OR s.id = ANY ($3::bigint[]))
 ORDER BY h.clave
 LIMIT 3
 `
@@ -353,6 +355,7 @@ LIMIT 3
 type FallasHorusClienteParams struct {
 	ClienteID int64
 	Empresa   int64
+	Servicios []int64
 }
 
 type FallasHorusClienteRow struct {
@@ -363,7 +366,7 @@ type FallasHorusClienteRow struct {
 
 // Fallas abiertas (router caído según Horus) en los servicios del cliente de la empresa.
 func (q *Queries) FallasHorusCliente(ctx context.Context, arg FallasHorusClienteParams) ([]FallasHorusClienteRow, error) {
-	rows, err := q.db.Query(ctx, fallasHorusCliente, arg.ClienteID, arg.Empresa)
+	rows, err := q.db.Query(ctx, fallasHorusCliente, arg.ClienteID, arg.Empresa, arg.Servicios)
 	if err != nil {
 		return nil, err
 	}

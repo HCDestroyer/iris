@@ -181,6 +181,8 @@ type Modulo struct {
 
 	// asociarPorContactos asocia una conversación sin cliente tras leer los contactos de Argos (B22).
 	asociarPorContactos *auditoria.Caso[entradaAsociarPorContactos, bool]
+	// contactosArgosCambiados quita la verificación a las conversaciones de un contacto que Argos quitó.
+	contactosArgosCambiados *auditoria.Caso[entradaContactosArgos, int]
 
 	// saldos: caché corta de «tiene saldo vencido» por empresa y cliente (voz; solo en memoria).
 	saldosMu sync.Mutex
@@ -415,6 +417,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.Conv = nuevosCasosConv(m)
 	m.GestionesCobro = &GestionesCobro{registrar: m.nuevoRegistrarGestionCobro(), Listar: m.nuevoListarGestionesCobro()}
 	m.asociarPorContactos = nuevoAsociarPorContactos(m)
+	m.contactosArgosCambiados = nuevoContactosArgosCambiados(m)
 	m.Voz = nuevosCasosVoz(m)
 	m.ServidorIA = nuevosCasosServidorIA(m)
 	m.abrirFlujoConv = nuevoAbrirFlujoConv(m)

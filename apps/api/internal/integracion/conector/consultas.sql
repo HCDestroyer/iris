@@ -175,8 +175,8 @@ UPDATE integracion.autorizaciones SET conector_id = @conector_id, updated_at = n
 
 -- name: InsertarEntrante :one
 -- Sin fila (pgx.ErrNoRows) si el id del webhook ya llegó.
-INSERT INTO integracion.entrantes (conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, request_id)
-VALUES (@conector_id, @webhook_id, @evento, @empresa_id, @payload, @ocurrido_en, @request_id)
+INSERT INTO integracion.entrantes (conector_id, webhook_id, evento, empresa_id, payload, ocurrido_en, ocurrido_origen, request_id)
+VALUES (@conector_id, @webhook_id, @evento, @empresa_id, @payload, @ocurrido_en, @ocurrido_origen, @request_id)
 ON CONFLICT (conector_id, webhook_id) DO NOTHING
 RETURNING *;
 

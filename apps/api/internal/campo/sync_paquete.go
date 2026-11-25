@@ -114,6 +114,10 @@ type OrdenCampo struct {
 	Cliente  *ClienteCampo  `json:"cliente,omitempty" doc:"Instantánea de Argos; ausente si Iris no la tiene"`
 	Servicio *ServicioCampo `json:"servicio,omitempty" doc:"Instantánea de Argos; ausente si Iris no la tiene"`
 	Comodato Comodato       `json:"comodato"`
+	// Planes: los que el técnico puede elegir al cambiar el plan (B21); solo en una instalación
+	// cuyo servicio está pendiente_instalacion.
+	Planes *PlanesOrden `json:"planes,omitempty" doc:"Planes permitidos (GET /planes?router_id=&modo= de Argos) para orden.cambiar_plan; solo en una instalación con el servicio pendiente_instalacion"`
+	planes datosPlanes
 }
 
 // Paquete del día del técnico.
@@ -469,6 +473,22 @@ func ordenesCampo(ctx context.Context, q *campobd.Queries, filas []campobd.Campo
 	if err != nil {
 		return nil, err
 	}
+	prospectos := []int64{}
+	for _, f := range filas {
+		if f.ProspectoID != nil {
+			prospectos = append(prospectos, *f.ProspectoID)
+		}
+	}
+	modos := map[int64]string{}
+	if len(prospectos) > 0 {
+		filasModo, err := q.ModosDeProspectos(ctx, prospectos)
+		if err != nil {
+			return nil, err
+		}
+		for _, f := range filasModo {
+			modos[f.ID] = f.Modo
+		}
+	}
 	salida := make([]OrdenCampo, 0, len(det))
 	for _, d := range det {
 		o := OrdenCampo{OrdenDetalle: d, Comodato: Comodato{Equipos: []EquipoComodato{}}}
@@ -485,6 +505,13 @@ func ordenesCampo(ctx context.Context, q *campobd.Queries, filas []campobd.Campo
 				o.Servicio = &ServicioCampo{ID: s.ID, Codigo: s.Codigo, Plan: s.PlanNombre, Zona: s.ZonaNombre, PrecioMensual: s.PrecioMensual,
 					Moneda: s.Moneda, Router: s.RouterNombre, IP: s.IP, Direccion: s.Direccion, Lat: s.Lat, Lon: s.Lon,
 					Estado: s.Estado, SincronizadoEn: s.SincronizadoEn}
+			}
+		}
+		if d.Tipo == tipoInstalacion && d.ServicioID != nil {
+			for _, f := range filasSS {
+				if f.ID == *d.ServicioID && (d.EmpresaID == nil || *d.EmpresaID == f.EmpresaID) && f.Estado == "pendiente_instalacion" {
+					o.planes = datosPlanes{pendiente: true, routerID: f.RouterID, modo: modoDe(modos, d.ProspectoID)}
+				}
 			}
 		}
 		salida = append(salida, o)
@@ -559,6 +586,7 @@ func (m *Modulo) Paquete(ctx context.Context, in EntradaPaquete) (Paquete, error
 		refs = append(refs, &p.Ordenes[i])
 	}
 	m.completarInventario(ctx, refs, &p.Existencias)
+	m.completarPlanes(ctx, refs)
 	return p, nil
 }
 
@@ -575,6 +603,7 @@ func (m *Modulo) Cambios(ctx context.Context, in EntradaCambios) (Cambios, error
 		}
 	}
 	m.completarInventario(ctx, refs, nil)
+	m.completarPlanes(ctx, refs)
 	if m.cfg.Recepciones != nil {
 		if bd := nucleo.BDDe(ctx); bd != nil {
 			// Lectura de lo propio (sus pendientes de recepción): si falla, cambios sale sin ellas.

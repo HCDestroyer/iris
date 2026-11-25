@@ -866,6 +866,12 @@ AMI adopta la fila de una saliente del puente.
   más de 24 h o, sin cliente, busca el número en Argos (una vez al día por número, tabla
   `mensajeria.contactos_buscados`) y, si queda una sola persona, la asocia
   (`conversaciones.asociar_por_contacto`, `conversacion.cliente_asociado` con `origen: contacto`).
+- **Falla cerrado:** la conversación guarda el contacto con que se asoció (`conversaciones.contacto_argos_id`).
+  El rol es de titular solo si el número es el teléfono o el móvil del cliente, o si un supervisor lo
+  confirmó o pasó la verificación fuerte; de contacto, solo si ese contacto sigue en la caché; si no,
+  `sin_confirmar`, sin permisos (`422 cliente_sin_confirmar`). Si Argos quita el contacto
+  (`argos.contactos_cambiados`, suscriptor `SuscribirContactos`), la conversación pierde la verificación.
+  Un contacto a cargo (`persona_cliente_id`) cuenta como la otra persona solo si el número es su teléfono o su móvil.
 - **El rol decide:** `rolContacto` en el detalle de la conversación (rol, permisos, «sus servicios» y
   «los que tiene a cargo», solo código y nombre). Boletas, promesas, tickets y el saldo pasan por
   `accesoAServicio`: un contacto solo con su permiso (`pagar`, `reportar`, `consultar`) y sobre sus
@@ -880,5 +886,35 @@ AMI adopta la fila de una saliente del puente.
 - **Contacto de Iris unido a un cliente:** con Argos ≥ 0.10.0 se crea en Argos por la cola de pendientes
   (`POST /clientes/:id/contactos`, `iris:contacto:<cliente_id>:<contacto_iris_id>`), relación `otro`, con
   todos los permisos (decisión 7 del PM) y `X-Iris-Actor` del agente; nunca desde el asistente.
-- **Asistente:** recibe quién escribe (rol, permisos y códigos de servicio, nunca el nombre del servicio)
-  y no ofrece lo que el contacto no puede; un contacto sin `consultar` no recibe saldo.
+- **Asistente:** recibe quién escribe (rol, permisos y códigos de servicio, nunca el nombre del servicio
+  ni, si no es el titular, el nombre del titular). Con un contacto ve solo sus servicios; sin `consultar`,
+  ni estado, ni precio, ni cuenta; sin `reportar`, no agenda visitas (y el panel no crea órdenes).
+- **Permiso por número** (`consentimientos.go`, §6.4, 0.10.0 y 0.12.1): `POST /consentimientos` acepta
+  `telefono` (E.164) de un contacto del cliente; el permiso y su vigente son de ese número. La
+  `Idempotency-Key` lleva el HMAC del número (`argos:consentimiento:<e>:<c>:whatsapp:<h>:<ocurrido_en>`):
+  con el número en claro, 422. El número no va a eventos (`por_numero`) y en la auditoría queda enmascarado.
+- **Avisos de cobro a los contactos** (`avisos.go`): `factura_por_vencer`, `factura_vencida` y
+  `corte_por_falta_de_pago` salen también, una copia por contacto (`avisos.aviso_padre_id`), a los
+  contactos con `avisos` que cubren el servicio, al número de la caché y solo con su permiso por número
+  vigente (y sin baja en el chat). Sin Idempotency-Key, sin webhook hacia Argos y fuera del límite diario del cliente.
+- **La caché de contactos no vence con Argos caído:** el rol se calcula con lo que haya; un contacto que
+  ya no tiene el número de la conversación (o que pasó a titular) deja la conversación `sin_confirmar`
+  aunque un supervisor la hubiera confirmado. Confirmar una conversación de un contacto confirma al
+  contacto, no al titular. La baja que un contacto pide en el chat es solo de su número (nunca la del
+  titular ni `contacto.baja`). Las copias de avisos salen solo de un original en cola, con límite diario
+  por número, se revisan otra vez al enviar y no llevan el nombre ni el código del titular.
+- **Asociar y confirmar a mano:** si el número es de un contacto del cliente en la caché, la conversación
+  guarda ese contacto (su rol sale de sus permisos); `numeroDelCliente` mira primero el teléfono o el móvil
+  del titular, después los contactos y al final el contacto de un servicio (`por_servicio`), que nunca da
+  rol de titular. Asociar es un permiso de agente (`conversaciones.asociar`): volver a asociar a un
+  cliente cuyo número no es de un contacto deja la conversación sin contacto y **siempre** sin
+  verificación fuerte (aunque sea el mismo cliente), así que queda `sin_confirmar` (sin permisos) salvo
+  que el número sea el teléfono o el móvil del titular; para dejarla como titular, un supervisor la
+  confirma (`confirmar-cliente`) o el titular pasa la verificación fuerte. Todo queda auditado
+  (`conversaciones.asociar`, `conversacion.cliente_asociado`, `conversaciones.confirmar_cliente`).
+- **La verificación fuerte es de quien la pasó:** el trigger `conv_contacto_verificacion` la borra si
+  cambia el contacto con que se asoció la conversación o si se pierde la verificación del número.
+- **Copias sin plantilla neutra:** si la plantilla de Meta de avisos lleva datos del titular, no hay
+  copias y el aviso original guarda `copias_motivo = sin_plantilla_contacto`. Los candados de los números
+  se toman ordenados; el límite diario de un número cuenta todos sus avisos (originales y copias) y un
+  aviso urgente tiene tope duro (`TopeUrgenteNumero` veces el límite).

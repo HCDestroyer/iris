@@ -23,7 +23,7 @@ export type PropsAvatarUsuario = {
 export function AvatarUsuario({ nombre, tamano = "sm", className }: PropsAvatarUsuario) {
     return (
         <Avatar aria-hidden size={tamano} className={cn("shrink-0 rounded-full", tamano === "sm" ? "size-8" : "size-10", className)} data-slot="avatar-usuario">
-            <Avatar.Fallback className="bg-elevated text-[0.6875rem] font-semibold text-foreground">{inicialesDe(nombre)}</Avatar.Fallback>
+            <Avatar.Fallback className="bg-primario-suave text-[0.6875rem] font-bold text-primario-texto">{inicialesDe(nombre)}</Avatar.Fallback>
         </Avatar>
     );
 }

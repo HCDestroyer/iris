@@ -1,7 +1,7 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, cn, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, BotonManualPantalla, cn, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import { LifeBuoy, MessageCircle, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -140,7 +140,10 @@ function Detalle({ id }: { id: number }) {
             <header className="mb-4 grid gap-3">
                 <div className="grid gap-1">
                     <span className="font-mono text-sm text-muted-foreground">{o.numero}</span>
-                    <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{o.direccion || "Orden sin dirección"}</h1>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                        <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{o.direccion || "Orden sin dirección"}</h1>
+                        <BotonManualPantalla />
+                    </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
                     <InsigniaEstadoOrden estado={o.estado} />
