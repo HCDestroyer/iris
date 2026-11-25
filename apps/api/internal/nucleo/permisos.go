@@ -877,10 +877,11 @@ var RolesBase = []DefRol{
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }
 
-// PermisosDeRol devuelve los permisos efectivos de un rol base.
+// PermisosDeRol devuelve los permisos efectivos de un rol base. «Todos» (admin) no incluye
+// portal_argos.*: solo los lleva integracion_argos y solo se ejercen con el token_portal.
 func (r DefRol) PermisosDeRol() []Permiso {
 	if r.Todos {
-		return CodigosPermisos()
+		return slices.DeleteFunc(CodigosPermisos(), func(p Permiso) bool { return strings.HasPrefix(string(p), "portal_argos.") })
 	}
 	return r.Permisos
 }

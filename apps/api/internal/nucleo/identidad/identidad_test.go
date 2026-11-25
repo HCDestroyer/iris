@@ -73,8 +73,14 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 			t.Fatalf("falta el rol base %s", base)
 		}
 	}
-	if len(porCodigo["admin"].Permisos) != len(nucleo.Catalogo) {
-		t.Fatalf("admin tiene todos los permisos: %v", porCodigo["admin"].Permisos)
+	// admin: todos menos portal_argos.*, que solo lleva integracion_argos (token_portal).
+	if len(porCodigo["admin"].Permisos) != len(nucleo.Catalogo)-len(nucleo.PermisosPortalArgos()) {
+		t.Fatalf("admin tiene todos los permisos menos portal_argos.*: %v", porCodigo["admin"].Permisos)
+	}
+	for _, p := range porCodigo["admin"].Permisos {
+		if strings.HasPrefix(string(p), "portal_argos.") {
+			t.Fatalf("admin con %s", p)
+		}
 	}
 	if !slices.Equal(porCodigo["lectura"].Permisos, []nucleo.Permiso{nucleo.PermAgendaVer, nucleo.PermChatVer, nucleo.PermClientesVer, nucleo.PermConversacionesVer, nucleo.PermLlamadasVer, nucleo.PermManualesVer, nucleo.PermOrdenesVer, nucleo.PermPermisosVer, nucleo.PermProspectosVer, nucleo.PermReportesVer, nucleo.PermRolesVer, nucleo.PermRutasVer, nucleo.PermTicketsVer, nucleo.PermUsuariosVer}) {
 		t.Fatalf("lectura: %v", porCodigo["lectura"].Permisos)

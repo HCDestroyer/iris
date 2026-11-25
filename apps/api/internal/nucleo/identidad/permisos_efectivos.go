@@ -206,7 +206,8 @@ func resolverRoles(ctx context.Context, q *identidadbd.Queries, quien contexto.P
 		}
 	}
 	for _, p := range permisos {
-		if !quien.TieneGlobal(p.Permiso) && !(esPermisoPortalArgos(p.Permiso) && deIntegracion[p.RolID]) {
+		exento := esPermisoPortalArgos(p.Permiso) && deIntegracion[p.RolID]
+		if !exento && !quien.TieneGlobal(p.Permiso) {
 			var codigo string
 			for c, f := range porCodigo {
 				if f.ID == p.RolID {
