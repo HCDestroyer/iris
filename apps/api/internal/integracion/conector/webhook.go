@@ -59,15 +59,21 @@ func (c cuerpoCrudo) idWebhook() string {
 	return string(t)
 }
 
-// ocurrido devuelve ocurrido_en si es RFC 3339; si no, la hora de recepción.
-func (c cuerpoCrudo) ocurrido(recibido time.Time) time.Time {
+// Origen de ocurrido_en (integracion.entrantes.ocurrido_origen).
+const (
+	OcurridoDeArgos = "argos" // la hora que trae el cuerpo del webhook (reloj del remitente)
+	OcurridoDeIris  = "iris"  // no la trae o no se entiende: la hora de recepción
+)
+
+// ocurrido devuelve ocurrido_en si es RFC 3339 (origen argos); si no, la hora de recepción (iris).
+func (c cuerpoCrudo) ocurrido(recibido time.Time) (time.Time, string) {
 	var s string
 	if json.Unmarshal(c.OcurridoEn, &s) == nil {
 		if t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(s)); err == nil {
-			return t.UTC()
+			return t.UTC(), OcurridoDeArgos
 		}
 	}
-	return recibido.UTC()
+	return recibido.UTC(), OcurridoDeIris
 }
 
 // EntradaWebhook es la entrada de integraciones.webhook (cabeceras y cuerpo crudo).
@@ -176,7 +182,7 @@ func nuevoRecibirWebhook(c *Conexion) *auditoria.Caso[EntradaWebhook, WebhookRec
 			case webhookID != strings.TrimSpace(in.WebhookID):
 				return WebhookRecibido{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "id", Message: "No coincide con X-Webhook-Id", Rule: "igual"})
 			}
-			ocurrido := cuerpo.ocurrido(recibido)
+			ocurrido, origen := cuerpo.ocurrido(recibido)
 			payload := cuerpo.Payload
 			if len(bytes.TrimSpace(payload)) == 0 || string(bytes.TrimSpace(payload)) == "null" {
 				payload = json.RawMessage("{}")
@@ -202,7 +208,7 @@ func nuevoRecibirWebhook(c *Conexion) *auditoria.Caso[EntradaWebhook, WebhookRec
 			}
 			nuevo, err := q.InsertarEntrante(ctx, conectorbd.InsertarEntranteParams{
 				ConectorID: destino, WebhookID: webhookID, Evento: cuerpo.Evento, EmpresaID: empresa,
-				Payload: payload, OcurridoEn: &ocurrido, RequestID: contexto.RequestIDDe(ctx),
+				Payload: payload, OcurridoEn: &ocurrido, OcurridoOrigen: &origen, RequestID: contexto.RequestIDDe(ctx),
 			})
 			if esSinFilas(err) {
 				previo, err := q.EntrantePorWebhook(ctx, conectorbd.EntrantePorWebhookParams{ConectorID: destino, WebhookID: webhookID})

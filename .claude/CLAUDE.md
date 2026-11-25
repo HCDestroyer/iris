@@ -191,11 +191,12 @@ Una tarea está terminada solo si:
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
 | `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id (creado); modo (local, argos), contrato_id, cotizacion_id, orden_id (o null), pendientes[] (ganado); motivo (perdido) |
 | `prospecto.actualizado` / `prospecto.asignado` / `prospecto.estado_cambiado` / `prospecto.actividad_registrada` | comercial | prospecto_id; campos[] (actualizado); vendedor_id, vendedor_anterior_id (asignado); de, a, motivo (estado); actividad_id, tipo (actividad) |
-| `prospecto.alta_actualizada` | comercial (alta en Argos) | prospecto_id, estado (esperando_servicio, completa), cliente_id, servicio_id (o null), orden_id (o null) |
+| `prospecto.alta_actualizada` | comercial (alta en Argos) | prospecto_id, estado (esperando_servicio, esperando_activacion, completa), cliente_id, servicio_id (o null), orden_id (o null); también al pasar al titular nuevo (B17) |
+| `prospecto.venta_revisada` | comercial (B20, cambio de plan o titular hecho en Argos) | prospecto_id, empresa_id, vendedor_id (o null), orden_id, motivo (plan, titular), cotizacion_id (la revisión, vigente), contrato_id (regenerado en borrador, se firma en la orden; o null con la orden cancelada, fallida o cerrada) |
 | `factibilidad.evaluada` | comercial | prospecto_id, factibilidad_id, resultado (viable, no_viable, requiere_obra, indeterminado), motor, motivo (o null), router_id/caja (o null), distancia_m |
 | `factibilidad.umbrales_cambiados` | comercial | empresa_id, viable_m, obra_m |
 | `cotizacion.creada` / `cotizacion.aceptada` | comercial | cotizacion_id, prospecto_id, numero; revision, plan_id, total_mensual, total_unico, moneda, reemplaza_id (creada) |
-| `contrato.creado` / `contrato.firmado` / `contrato.anulado` | comercial | contrato_id, prospecto_id; cotizacion_id (creado); adjunto_id, sha256 (firmado); de, motivo (anulado) |
+| `contrato.creado` / `contrato.firmado` / `contrato.anulado` | comercial | contrato_id, prospecto_id; cotizacion_id (creado); adjunto_id, sha256, orden_id (o null: regenerado firmado en la orden) (firmado); de, motivo (anulado) |
 | `horus.router_estado_cambiado` / `horus.servicio_infra_cambiado` | integracion (horus) | router_id / infra_id, nombre, estado (caido, arriba), empresa_id (o null) |
 | `horus.hallazgo_abierto` / `horus.hallazgo_resuelto` | integracion (horus) | hallazgo_id, categoria, severidad, ip, cliente_id/servicio_id/empresa_id (o null + motivo_sin_cliente), url_horus |
 | `usuario.creado` / `usuario.actualizado` / `usuario.desactivado` | identidad (núcleo) | usuario_id; tipo (creado), campos[] (actualizado), motivo (desactivado) |
@@ -217,7 +218,11 @@ Una tarea está terminada solo si:
 | `argos.promesa_cambiada` | integracion (argos, webhooks promesa.*) | promesa_id, estado, tipo, empresa_id, cliente_id, servicio_id, comprobante_id (o null), canal, vence, motivo_reconexion (o null), motivo (cancelada), entrante_id; nunca el monto |
 | `argos.cuenta_bancaria_cambiada` | integracion (argos, webhook de Argos y relecturas) | cuenta_bancaria_id, empresa_id, campos[], activa, creada, entrante_id (o null); nunca el número de cuenta ni el titular |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
+| `argos.titular_cambiado` | integracion (argos, webhook servicio.titular_cambiado confirmado con Argos; B17) | servicio_id, empresa_id (o null), de_cliente_id (o null), a_cliente_id, de_cliente_eliminado, origen_tipo (o null), origen_id (o null), tipo_titular (persona, empresa), entrante_id; nunca el documento ni el motivo |
+| `orden.titular_movido` | campo (B17) | orden_id, numero, servicio_id, de_cliente_id (o null), a_cliente_id, tipo_titular (o null), entrante_id |
+| `orden.identidad_registrada` / `orden.cambio_titular_registrado` | campo (paso «Confirmar titular y plan», §3.4) | orden_id, pendiente_id, documento_tipo (dpi, pasaporte), reemplaza_id (o null); toma, metodo (identidad); cambio, tipo_titular (persona, empresa), motivo_codigo (cambio); nunca el número, el nombre ni la foto |
 | `orden.revision_titular_levantada` | campo (panel, §3.4.8) | orden_id, usuario_id; nunca el motivo |
+| `orden.contrato_sin_firma` | comercial y campo (B20: cambio de plan o titular sin la firma del contrato nuevo; campo, al cerrar el supervisor con el cambio en la cola) | orden_id, prospecto_id, empresa_id, contrato_id (o null), cotizacion_id (o null), operacion (cambiar_plan, cambiar_titular o null), motivo (cierre_sin_firma, cambio_tras_cierre, sin_regenerar; diagnósticos sin_cotizacion_viva, sin_plan, revision_rechazada, sin_titular), clave y detalle (diagnósticos) |
 | `orden.paso_titular_tras_cancelar` | integracion (pendientes) | orden_id, pendiente_id, operacion, estado_orden (cancelada, fallida) |
 | `argos.servicio_eliminado` / `argos.router_eliminado` | integracion (núcleo, webhook de Argos) | servicio_id, cliente_id, empresa_id, router_id (o null), entrante_id (servicio); router_id, empresa_id (o null = compartido), entrante_id (router) |
 | `argos.servicio_restaurado` / `argos.router_restaurado` | integracion (núcleo, lectura de Argos) | servicio_id, cliente_id, empresa_id (o null), eliminado_entrante_id (servicio); router_id, empresa_id (o null), eliminado_entrante_id (router) |
@@ -308,7 +313,7 @@ Una tarea está terminada solo si:
 | `centralita.creada` / `centralita.actualizada` / `centralita.estado_cambiado` / `extension.asignada` / `extension.quitada` | mensajeria (voz, E4) | centralita_id, empresa_id; tipo, modo (creada); campos[], activa (actualizada); de, a (estado); extension_id, usuario_id (extensión); nunca el secreto |
 | `llamada.vinculada` | mensajeria (voz, E4a) | llamada_id, empresa_id, ticket_id, cliente_id (o null), usuario_id, origen (centralita) |
 | `llamada.cliente_asociado` | mensajeria (voz, E4a) | llamada_id, empresa_id, cliente_id, servicio_id (o null), usuario_id, origen (centralita) |
-| `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
+| `notificaciones.avisos_creados` | notificaciones (avisos del panel) | tipo (asistente_tope, venta_revisada…), clave, empresa_id (o null), usuarios[], correo (enviar, omitido) |
 | `notificaciones.correo_enviado` / `notificaciones.correo_fallido` | notificaciones (correo del sistema) | correo_id, usuario_id, tipo, clave, motivo (o null) |
 | `correo_sistema.ajustes_cambiados` | notificaciones (correo del sistema) | empresa_id (o null = global), campos[], activo; nunca la contraseña |
 | `correo_sistema.probado` | notificaciones (correo del sistema) | empresa_id (o null), estado (ok, error), causa (o null), usuario_id; nunca el host, el destino ni credenciales |

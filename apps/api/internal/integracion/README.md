@@ -31,3 +31,8 @@ webhooks salientes a Argos y Horus llegan con la Fase 2.
 **Conectores:** `conector/` (base común: enlace de conexión, webhooks firmados, cliente HTTP con
 SSRF, URL pública), `argos/` (lectura de Argos, instantáneas) y `horus/` (webhooks de Horus →
 eventos internos `horus.*`, lecturas de salud y router). Ver el README de cada uno.
+
+**La outbox no se purga.** Las filas publicadas se quedan en `integracion.outbox`. La deduplicación
+de algunos avisos depende de eso: comercial no repite `orden.contrato_sin_firma` con el mismo motivo
+para la misma clave de pendiente o cotización (y empresa) si ya está en la outbox
+(`AvisoSinFirmaPrevio`). Si algún día se purga, esos avisos necesitan su propia marca.
