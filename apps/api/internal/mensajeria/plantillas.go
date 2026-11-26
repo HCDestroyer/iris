@@ -5,12 +5,8 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
-	"unicode"
-
-	"golang.org/x/text/unicode/norm"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
@@ -351,27 +347,15 @@ func (v Ventana) String() string {
 var (
 	reCodigoCliente = regexp.MustCompile(`^[A-Za-z0-9-]{1,30}$`)
 	reDigitos4      = regexp.MustCompile(`[0-9](?:[\s.\-/]?[0-9]){3,}`)
-	// reEnlaceBienvenida: cualquier forma de enlace sobre el texto ya normalizado (NFKC): un esquema
-	// (://), www., un punto seguido de dos o más letras (cualquier dominio, no una lista: evil.shop,
-	// bit.do, pago.online), una barra pegada a una letra (bit.do/x, ruta/abc) o una arroba. Una barra
-	// entre números («Internet 10/5») sí pasa.
-	reEnlaceBienvenida = regexp.MustCompile(`(?i)(://|www\.|\.\pL{2,}|\pL/|/\pL|@)`)
-	reEspacios4        = regexp.MustCompile(`\s{4,}`)
 )
 
-// separadorOFormato: caracteres Unicode de control, de formato o separadores de línea o párrafo (Cc,
-// Cf, Zl, Zp: también U+0085, U+2028, U+2029 y los invisibles de dirección o de ancho cero).
-func separadorOFormato(r rune) bool {
-	return unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp)
-}
-
 // validarBienvenida aplica §12.5 a las variables de Argos de bienvenida_servicio: nombre hasta 60 y
-// plan hasta 80 caracteres, sin saltos de línea ni caracteres de control o formato, sin 4 o más
-// espacios seguidos, sin enlaces, dominios ni correos, ni secuencias de 4 o más dígitos (la lista
-// blanca de §6.3: así no se cuela un número de cuenta ni un enlace); codigo_cliente alfanumérico con
-// guiones (1 a 30). Se revisa sobre el texto normalizado con NFKC (así «pago․com» con U+2024 es
-// «pago.com»). Ninguna variable de la bienvenida es un enlace: el de la empresa, si lo hay, va fijo en
-// la plantilla aprobada en Meta, nunca en un dato de Argos.
+// plan hasta 80 caracteres, revisados con motivoTextoInseguro (sin saltos de línea ni caracteres de
+// control o formato, sin 4 o más espacios, sin enlaces, dominios, IP ni correos, una barra solo entre
+// números), y sin secuencias de 4 o más dígitos (la lista blanca de §6.3: así no se cuela un número
+// de cuenta ni un enlace); codigo_cliente alfanumérico con guiones (1 a 30). Ninguna variable de la
+// bienvenida es un enlace: el de la empresa, si lo hay, va fijo en la plantilla aprobada en Meta,
+// nunca en un dato de Argos.
 func validarBienvenida(nombre, valor string) string {
 	switch nombre {
 	case "nombre", "plan":
@@ -379,17 +363,10 @@ func validarBienvenida(nombre, valor string) string {
 		if nombre == "plan" {
 			max = 80
 		}
-		v := norm.NFKC.String(valor)
-		switch {
-		case len([]rune(v)) > max:
-			return "Hasta " + strconv.Itoa(max) + " caracteres"
-		case strings.ContainsFunc(v, separadorOFormato):
-			return "Sin saltos de línea ni caracteres de control o de formato"
-		case reEspacios4.MatchString(v):
-			return "Sin 4 o más espacios seguidos"
-		case reEnlaceBienvenida.MatchString(v):
-			return "Sin enlaces, dominios ni correos"
-		case reDigitos4.MatchString(v):
+		if msg := motivoTextoInseguro(valor, max, true); msg != "" {
+			return msg
+		}
+		if reDigitos4.MatchString(normalizarDeArgos(valor)) {
 			return "Sin secuencias de 4 o más dígitos"
 		}
 	case "codigo_cliente":

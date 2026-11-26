@@ -56,6 +56,10 @@ func TestValidarBienvenidaEnlacesYUnicode(t *testing.T) {
 		"pagos-claro.ru", "bit.do/x", "evil.shop", "mi-pago.online", "pago\u2024com", "PAGO.COM", "pago．com", "https://x", "www.x",
 		"Ana\u2028Pérez", "Ana\u2029Pérez", "Ana\u0085Pérez", "Ana\rPérez", "Ana\u200bPérez", "Ana\u202ePérez", "Ana\x07",
 		"Ana    Pérez", "ana@correo", "ruta/abc",
+		// IP, puerto y puntos ideográficos.
+		"Ve a 203.0.113.5", "Ve a 203.0.113.5:8080", "host:8080", "evil\u3002com", "evil\uff61com",
+		// El largo se mide también sobre el texto tal como llega (NFKC lo acorta: «e» + acento es «é»).
+		strings.Repeat("e\u0301", 41),
 	}
 	for _, v := range malos {
 		for _, campo := range []string{"nombre", "plan"} {
