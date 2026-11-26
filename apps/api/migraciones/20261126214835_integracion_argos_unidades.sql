@@ -4,10 +4,13 @@
 -- inventario.equipo_cambiado. Sin costos, proveedor ni RMA (Argos no los manda).
 --
 --  - argos_unidades: el último estado conocido de cada unidad y el servicio al que está asociada.
---    estado_en es la hora del hecho en Argos (ocurrido_en del webhook, o su llegada): un webhook más
---    viejo que el guardado no pisa el estado (sí queda en el historial).
+--    estado_en y servicio_en son solo horas de Argos (el ocurrido_en del webhook, si vino de Argos y no
+--    está en el futuro; nunca la hora de Iris). Un webhook más viejo que el guardado no pisa el estado
+--    (sí queda en el historial). Uno sin hora de Argos se aplica por orden de llegada solo si lo
+--    guardado tampoco tiene hora de Argos; nunca pisa una hora que vino de Argos.
 --  - argos_unidades_historial: un renglón por hecho y unidad (estado, o sale/entra de un cambio),
---    único por entrante: un webhook repetido no duplica.
+--    único por entrante: un webhook repetido no duplica. ocurrido_en es la hora de Argos (o null);
+--    recibido_en, la llegada a Iris.
 CREATE TABLE integracion.argos_unidades (
     unidad_id      bigint      PRIMARY KEY CHECK (unidad_id > 0),
     empresa_id     bigint      NOT NULL,
@@ -32,13 +35,14 @@ CREATE TABLE integracion.argos_unidades_historial (
     motivo       text,
     destino_sale text,
     origen       text,
-    origen_id    text,
-    ocurrido_en  timestamptz NOT NULL,
+    origen_id    bigint,
+    ocurrido_en  timestamptz,
+    recibido_en  timestamptz NOT NULL,
     entrante_id  bigint      NOT NULL,
     created_at   timestamptz NOT NULL DEFAULT now(),
     UNIQUE (entrante_id, unidad_id, tipo)
 );
-CREATE INDEX argos_unidades_historial_unidad_idx ON integracion.argos_unidades_historial (unidad_id, ocurrido_en DESC, id DESC);
+CREATE INDEX argos_unidades_historial_unidad_idx ON integracion.argos_unidades_historial (unidad_id, id DESC);
 
 -- +goose Down
 DROP TABLE integracion.argos_unidades_historial;

@@ -827,34 +827,50 @@ SELECT * FROM integracion.argos_planes WHERE id = @id;
 -- Equipos del cliente (0.12.0 §2.3, B27) ------------------------------------------------------
 
 -- name: GuardarEstadoUnidad :exec
--- El estado de la unidad (inventario.unidad_estado_cambiado): solo si el hecho no es más viejo que el
--- guardado. El servicio viene con el estado (null = sin servicio).
+-- El estado de la unidad (inventario.unidad_estado_cambiado). ocurrido_en es la hora de Argos o null
+-- (sin hora de Argos, o en el futuro: horaDeArgos). Con hora, se aplica si lo guardado no tiene hora de
+-- Argos o es más viejo; sin hora, por orden de llegada y solo si lo guardado tampoco tiene hora de
+-- Argos: nunca pisa una hora de Argos ni guarda la de Iris. El servicio viene con el estado (null =
+-- sin servicio) y sigue la misma regla con servicio_en.
 INSERT INTO integracion.argos_unidades (unidad_id, empresa_id, servicio_id, estado, estado_en, servicio_en, entrante_id)
-VALUES (@unidad_id, @empresa_id, sqlc.narg('servicio_id'), @estado, @ocurrido_en, @ocurrido_en, @entrante_id)
+VALUES (@unidad_id, @empresa_id, sqlc.narg('servicio_id'), @estado, sqlc.narg('ocurrido_en'), sqlc.narg('ocurrido_en'), @entrante_id)
 ON CONFLICT (unidad_id) DO UPDATE SET
-    empresa_id = excluded.empresa_id, estado = excluded.estado, estado_en = excluded.estado_en,
-    servicio_id = CASE WHEN integracion.argos_unidades.servicio_en IS NULL OR integracion.argos_unidades.servicio_en <= excluded.estado_en
+    empresa_id = excluded.empresa_id, estado = excluded.estado,
+    estado_en = coalesce(excluded.estado_en, integracion.argos_unidades.estado_en),
+    servicio_id = CASE WHEN (excluded.servicio_en IS NULL AND integracion.argos_unidades.servicio_en IS NULL)
+                         OR (excluded.servicio_en IS NOT NULL AND (integracion.argos_unidades.servicio_en IS NULL
+                             OR integracion.argos_unidades.servicio_en <= excluded.servicio_en))
                        THEN excluded.servicio_id ELSE integracion.argos_unidades.servicio_id END,
-    servicio_en = greatest(integracion.argos_unidades.servicio_en, excluded.estado_en),
+    servicio_en = greatest(integracion.argos_unidades.servicio_en, excluded.servicio_en),
     entrante_id = excluded.entrante_id, actualizado_en = now()
-WHERE integracion.argos_unidades.estado_en IS NULL OR integracion.argos_unidades.estado_en <= excluded.estado_en;
+WHERE (excluded.estado_en IS NULL AND integracion.argos_unidades.estado_en IS NULL)
+   OR (excluded.estado_en IS NOT NULL AND (integracion.argos_unidades.estado_en IS NULL
+       OR integracion.argos_unidades.estado_en <= excluded.estado_en));
 
 -- name: GuardarServicioUnidad :exec
 -- El servicio de la unidad por un cambio de equipo (inventario.equipo_cambiado): la que entra queda en
--- el servicio y la que sale, sin servicio. No toca el estado (llega por su propio webhook).
+-- el servicio y la que sale, sin servicio. No toca el estado (llega por su propio webhook). Misma
+-- regla de hora que GuardarEstadoUnidad, con servicio_en.
 INSERT INTO integracion.argos_unidades (unidad_id, empresa_id, servicio_id, servicio_en, entrante_id)
-VALUES (@unidad_id, @empresa_id, sqlc.narg('servicio_id'), @ocurrido_en, @entrante_id)
+VALUES (@unidad_id, @empresa_id, sqlc.narg('servicio_id'), sqlc.narg('ocurrido_en'), @entrante_id)
 ON CONFLICT (unidad_id) DO UPDATE SET
-    empresa_id = excluded.empresa_id, servicio_id = excluded.servicio_id, servicio_en = excluded.servicio_en,
+    empresa_id = excluded.empresa_id, servicio_id = excluded.servicio_id,
+    servicio_en = coalesce(excluded.servicio_en, integracion.argos_unidades.servicio_en),
     entrante_id = excluded.entrante_id, actualizado_en = now()
-WHERE integracion.argos_unidades.servicio_en IS NULL OR integracion.argos_unidades.servicio_en <= excluded.servicio_en;
+WHERE (excluded.servicio_en IS NULL AND integracion.argos_unidades.servicio_en IS NULL)
+   OR (excluded.servicio_en IS NOT NULL AND (integracion.argos_unidades.servicio_en IS NULL
+       OR integracion.argos_unidades.servicio_en <= excluded.servicio_en));
 
 -- name: AgregarHistorialUnidad :exec
 INSERT INTO integracion.argos_unidades_historial (unidad_id, empresa_id, servicio_id, tipo, de, a, motivo, destino_sale,
-    origen, origen_id, ocurrido_en, entrante_id)
+    origen, origen_id, ocurrido_en, recibido_en, entrante_id)
 VALUES (@unidad_id, @empresa_id, sqlc.narg('servicio_id'), @tipo, sqlc.narg('de'), sqlc.narg('a'), sqlc.narg('motivo'),
-    sqlc.narg('destino_sale'), sqlc.narg('origen'), sqlc.narg('origen_id'), @ocurrido_en, @entrante_id)
+    sqlc.narg('destino_sale'), sqlc.narg('origen'), sqlc.narg('origen_id'), sqlc.narg('ocurrido_en'), @recibido_en, @entrante_id)
 ON CONFLICT (entrante_id, unidad_id, tipo) DO NOTHING;
+
+-- name: OrdenDeIrisEnEmpresa :one
+-- origen_id de un cambio de equipo: solo vale si es una orden de Iris de esa empresa.
+SELECT EXISTS (SELECT 1 FROM campo.ordenes WHERE id = @orden_id AND empresa_id = @empresa_id)::boolean;
 
 -- name: UnidadesDeServicioOIDs :many
 -- Las unidades asociadas al servicio o con esos ids (las de una orden), de las empresas dadas.
@@ -863,13 +879,14 @@ WHERE empresa_id = ANY(@empresas::bigint[]) AND (servicio_id = @servicio_id::big
 ORDER BY unidad_id;
 
 -- name: HistorialDeUnidades :many
--- Los últimos renglones (hasta @limite por unidad) del historial de esas unidades.
+-- Los últimos renglones (hasta @limite por unidad) del historial de esas unidades, solo los del servicio
+-- dado (el de la orden: nunca los de otro cliente), por orden de llegada a Iris (sin mezclar relojes).
 SELECT h.id, h.unidad_id, h.empresa_id, h.servicio_id, h.tipo, h.de, h.a, h.motivo, h.destino_sale, h.origen, h.origen_id,
-    h.ocurrido_en
+    h.ocurrido_en, h.recibido_en
 FROM (
-    SELECT x.*, row_number() OVER (PARTITION BY x.unidad_id ORDER BY x.ocurrido_en DESC, x.id DESC) AS n
+    SELECT x.*, row_number() OVER (PARTITION BY x.unidad_id ORDER BY x.id DESC) AS n
     FROM integracion.argos_unidades_historial x
-    WHERE x.unidad_id = ANY(@unidades::bigint[]) AND x.empresa_id = ANY(@empresas::bigint[])
+    WHERE x.unidad_id = ANY(@unidades::bigint[]) AND x.empresa_id = ANY(@empresas::bigint[]) AND x.servicio_id = @servicio_id::bigint
 ) h
 WHERE h.n <= @limite::bigint
-ORDER BY h.unidad_id, h.ocurrido_en DESC, h.id DESC;
+ORDER BY h.unidad_id, h.id DESC;

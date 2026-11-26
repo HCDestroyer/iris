@@ -710,17 +710,24 @@ internos que consume soporte:
 
 ## Equipos del cliente: estado e historial (0.12.0 §2.3, B27)
 
-- **Consume** `inventario.unidad_estado_cambiado` e `inventario.equipo_cambiado` (solo de un conector
-  con contrato ≥ 0.12.0 y empresa en el alcance; si no, «ignorado» con `contrato_anterior`,
-  `empresa_fuera_de_alcance` o `payload_invalido`). Guarda una lista blanca, sin costos, proveedor ni RMA.
-- **Instantánea** `integracion.argos_unidades`: estado y servicio de cada unidad. Un aviso con un
-  `ocurrido_en` más viejo que el guardado no pisa el estado ni el servicio (sí queda en el historial).
-  En un cambio de equipo, la que entra queda en el servicio y la que sale, sin servicio; su estado llega
-  por su propio aviso.
+- **Consume** `inventario.unidad_estado_cambiado` e `inventario.equipo_cambiado` (solo con contrato
+  **acordado** ≥ 0.12.0, `conector.ContratoAcordado`, y empresa en el alcance; si no, «ignorado» con
+  `contrato_anterior`, `empresa_fuera_de_alcance` o `payload_invalido`). Guarda una lista blanca, sin
+  costos, proveedor ni RMA.
+- **Hora:** solo la de Argos (`horaDeArgos`, como `servicio.titular_cambiado`): un aviso sin
+  `ocurrido_en` o con una hora futura no se ordena por hora ni deja hora (nunca la de Iris).
+- **Instantánea** `integracion.argos_unidades`: estado y servicio de cada unidad. Un aviso con hora de
+  Argos más vieja que la guardada no pisa el estado ni el servicio (sí queda en el historial). Uno sin
+  hora se aplica por orden de llegada solo si lo guardado tampoco tiene hora de Argos: nunca pisa una
+  hora que vino de Argos. En un cambio de equipo, la que entra queda en el servicio y la que sale, sin
+  servicio; su estado llega por su propio aviso.
 - **Historial** `integracion.argos_unidades_historial`: un renglón por hecho y unidad (`estado`, `sale`,
-  `entra`), único por entrante (un webhook repetido no duplica).
+  `entra`), único por entrante (un webhook repetido no duplica), con `ocurrido_en` (hora de Argos o
+  null) y `recibido_en`; se lee por orden de llegada. `origen_id` solo se guarda si es el id numérico
+  de una orden de Iris de la misma empresa; si no, null (también en `argos.equipo_cambiado`).
 - **Lectura:** `EstadosDeUnidades` (las del servicio y las dadas, solo de las empresas del actor, con
-  los últimos 20 movimientos); la orden la expone en `GET /ordenes/{id}/equipos/estado` (campo).
+  los últimos 20 movimientos del servicio de la orden; el servicio y la orden de otro cliente van en
+  null, §3.10); la orden la expone en `GET /ordenes/{id}/equipos/estado` (campo).
 - **Emite** `argos.equipo_cambiado` y `argos.unidad_estado_cambiado` (detalle en `eventos.md`).
   Pruebas: `webhook_equipos_test.go`.
 

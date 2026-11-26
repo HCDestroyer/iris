@@ -244,7 +244,9 @@ func (m *Modulo) nuevoEstadoEquipos() *auditoria.Caso[EntradaEquipoOrden, []argo
 			if f.ServicioID != nil {
 				servicio = *f.ServicioID
 			}
-			return argos.EstadosDeUnidades(ctx, t, []int64{*f.EmpresaID}, servicio, unidades)
+			// Lee la instantánea local (no llama a Argos): no es la lectura de unidad de B27, que se
+			// audita (README). Solo el servicio de esta orden y esta orden (§3.10).
+			return argos.EstadosDeUnidades(ctx, t, []int64{*f.EmpresaID}, servicio, f.ID, unidades)
 		},
 	})
 }
@@ -299,7 +301,9 @@ func (m *Modulo) registrarEquipos(api huma.API) {
 		nucleo.PermOrdenesVer, http.StatusOK, http.StatusNotFound)
 	estados.Description = "Permiso: `ordenes.ver` u `ordenes.ver_propias`. Las unidades del servicio de la orden y las que la orden " +
 		"instaló, retiró o cambió, con el estado que avisó Argos (`inventario.unidad_estado_cambiado`) y su historial reciente (estados y " +
-		"cambios de equipo, `inventario.equipo_cambiado`), sin costos, proveedor ni RMA. Vacío si Argos aún no avisó nada (contrato < 0.12.0)."
+		"cambios de equipo, `inventario.equipo_cambiado`), sin costos, proveedor ni RMA. Solo muestra el servicio de la orden y la orden " +
+		"misma: el historial se recorta a los renglones de ese servicio, y `servicioId` u `ordenId` van en null si son otros. Vacío si " +
+		"Argos aún no avisó nada (contrato < 0.12.0)."
 	huma.Register(api, estados, func(ctx context.Context, in *EntradaEquipoOrden) (*cuerpo[[]argos.EstadoUnidad], error) {
 		return responder(m.EstadoEquipos.Ejecutar(ctx, *in))
 	})

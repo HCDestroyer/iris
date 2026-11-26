@@ -3,6 +3,7 @@ package argos
 import (
 	"context"
 	"regexp"
+	"strconv"
 	"time"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
@@ -73,10 +74,12 @@ type unidadEstadoCambiado struct {
 
 // eventoEquipos es lo que el webhook validado deja en la transacción.
 type eventoEquipos struct {
-	evento    string
-	empresa   int64
-	ocurrido  time.Time
-	entrante  int64
+	evento   string
+	empresa  int64
+	entrante int64
+	// origenID: la orden de Iris que hizo el cambio según Argos (numérica); aplicarEquipos la deja en
+	// null si no es una orden de Iris de la misma empresa.
+	origenID  *int64
 	estado    *argosbd.GuardarEstadoUnidadParams
 	servicios []argosbd.GuardarServicioUnidadParams
 	historial []argosbd.AgregarHistorialUnidadParams
@@ -91,17 +94,33 @@ func positivo(n *conector.Numero) *int64 {
 	return v
 }
 
-// deEquipos valida un webhook de equipos del cliente. omitido dice por qué se ignora: contrato del
-// conector anterior a la 0.12.0, payload inválido o empresa fuera del alcance del token.
+// reOrdenIris: el id de una orden de Iris (bigint positivo, sin signo, ceros a la izquierda ni espacios).
+var reOrdenIris = regexp.MustCompile(`^[1-9][0-9]{0,17}$`)
+
+// ordenDeOrigen: origen_id como id numérico de una orden de Iris, o nil.
+func ordenDeOrigen(t *conector.Texto) *int64 {
+	s := texto(t)
+	if s == nil || !reOrdenIris.MatchString(*s) {
+		return nil
+	}
+	n, err := strconv.ParseInt(*s, 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &n
+}
+
+// deEquipos valida un webhook de equipos del cliente. omitido dice por qué se ignora: contrato
+// acordado con el conector anterior a la 0.12.0, payload inválido o empresa fuera del alcance del
+// token. La hora que vale es solo la de Argos (horaDeArgos: nil si no la trajo o está en el futuro);
+// sin ella, la instantánea no se ordena por hora ni guarda la de Iris.
 func deEquipos(e conector.Entrante, con conectorbd.IntegracionConectore) (*eventoEquipos, string) {
-	if !conector.VersionAlMenos(con.ContratoRemoto, ContratoEquipos) {
+	if !conector.VersionAlMenos(conector.ContratoAcordado(con.ContratoRemoto, con.ContratoInformado), ContratoEquipos) {
 		return nil, "contrato_anterior"
 	}
-	ocurrido := e.RecibidoEn
-	if e.OcurridoEn != nil {
-		ocurrido = *e.OcurridoEn
-	}
-	ev := &eventoEquipos{evento: e.Evento, ocurrido: ocurrido, entrante: e.ID}
+	ocurrido := horaDeArgos(e)
+	recibido := e.RecibidoEn.UTC()
+	ev := &eventoEquipos{evento: e.Evento, entrante: e.ID}
 	switch e.Evento {
 	case EventoUnidadEstadoCambiado:
 		var p unidadEstadoCambiado
@@ -119,9 +138,9 @@ func deEquipos(e conector.Entrante, con conectorbd.IntegracionConectore) (*event
 		servicio := positivo(p.ServicioID)
 		ev.empresa = *empresa
 		ev.estado = &argosbd.GuardarEstadoUnidadParams{UnidadID: *unidad, EmpresaID: *empresa, ServicioID: servicio,
-			Estado: p.A, OcurridoEn: &ocurrido, EntranteID: e.ID}
+			Estado: p.A, OcurridoEn: ocurrido, EntranteID: e.ID}
 		ev.historial = []argosbd.AgregarHistorialUnidadParams{{UnidadID: *unidad, EmpresaID: *empresa, ServicioID: servicio,
-			Tipo: "estado", De: p.De, A: p.A, Motivo: motivoUnidad(p.Motivo), OcurridoEn: ocurrido, EntranteID: e.ID}}
+			Tipo: "estado", De: p.De, A: p.A, Motivo: motivoUnidad(p.Motivo), OcurridoEn: ocurrido, RecibidoEn: recibido, EntranteID: e.ID}}
 		ev.payload = map[string]any{"unidad_id": *unidad, "empresa_id": *empresa, "servicio_id": servicio, "de": p.De, "a": *p.A,
 			"motivo": motivoUnidad(p.Motivo), "entrante_id": e.ID}
 		return ev, ""
@@ -139,32 +158,45 @@ func deEquipos(e conector.Entrante, con conectorbd.IntegracionConectore) (*event
 		if !empresaEnAlcance(con, *empresa) {
 			return nil, "empresa_fuera_de_alcance"
 		}
-		var origen, origenID *string
+		var origen *string
 		if p.Origen != nil && *p.Origen == "iris_orden" {
-			origen, origenID = p.Origen, texto(p.OrigenID)
+			origen, ev.origenID = p.Origen, ordenDeOrigen(p.OrigenID)
 		}
 		motivo := motivoUnidad(p.Motivo)
 		ev.empresa = *empresa
 		ev.servicios = []argosbd.GuardarServicioUnidadParams{
-			{UnidadID: *sale, EmpresaID: *empresa, OcurridoEn: &ocurrido, EntranteID: e.ID},
-			{UnidadID: *entra, EmpresaID: *empresa, ServicioID: servicio, OcurridoEn: &ocurrido, EntranteID: e.ID},
+			{UnidadID: *sale, EmpresaID: *empresa, OcurridoEn: ocurrido, EntranteID: e.ID},
+			{UnidadID: *entra, EmpresaID: *empresa, ServicioID: servicio, OcurridoEn: ocurrido, EntranteID: e.ID},
 		}
 		comun := argosbd.AgregarHistorialUnidadParams{EmpresaID: *empresa, ServicioID: servicio, Motivo: motivo,
-			Origen: origen, OrigenID: origenID, OcurridoEn: ocurrido, EntranteID: e.ID}
+			Origen: origen, OcurridoEn: ocurrido, RecibidoEn: recibido, EntranteID: e.ID}
 		hSale, hEntra := comun, comun
 		hSale.UnidadID, hSale.Tipo, hSale.DestinoSale = *sale, "sale", p.DestinoSale
 		hEntra.UnidadID, hEntra.Tipo = *entra, "entra"
 		ev.historial = []argosbd.AgregarHistorialUnidadParams{hSale, hEntra}
 		ev.payload = map[string]any{"servicio_id": *servicio, "cliente_id": positivo(p.ClienteID), "empresa_id": *empresa,
 			"sale_unidad_id": *sale, "entra_unidad_id": *entra, "motivo": motivo, "destino_sale": p.DestinoSale,
-			"origen": origen, "origen_id": origenID, "entrante_id": e.ID}
+			"origen": origen, "origen_id": nil, "entrante_id": e.ID}
 		return ev, ""
 	}
 	return nil, "evento_desconocido"
 }
 
-// aplicarEquipos guarda la instantánea y el historial y emite el evento interno.
+// aplicarEquipos guarda la instantánea y el historial y emite el evento interno. origen_id solo se
+// guarda si es una orden de Iris de la misma empresa (si no, null).
 func aplicarEquipos(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, ev eventoEquipos) error {
+	if ev.origenID != nil {
+		ok, err := q.OrdenDeIrisEnEmpresa(ctx, argosbd.OrdenDeIrisEnEmpresaParams{OrdenID: *ev.origenID, EmpresaID: &ev.empresa})
+		if err != nil {
+			return err
+		}
+		if ok {
+			for i := range ev.historial {
+				ev.historial[i].OrigenID = ev.origenID
+			}
+			ev.payload["origen_id"] = *ev.origenID
+		}
+	}
 	if ev.estado != nil {
 		if err := q.GuardarEstadoUnidad(ctx, *ev.estado); err != nil {
 			return err
@@ -192,23 +224,24 @@ func aplicarEquipos(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, ev
 
 // MovimientoUnidad es un renglón del historial de una unidad (sin costos, proveedor ni RMA).
 type MovimientoUnidad struct {
-	Tipo        string    `json:"tipo" enum:"estado,sale,entra" doc:"estado: cambió de estado; sale / entra: salió o entró en un cambio de equipo"`
-	De          *string   `json:"de" nullable:"true"`
-	A           *string   `json:"a" nullable:"true"`
-	Motivo      *string   `json:"motivo" nullable:"true"`
-	DestinoSale *string   `json:"destinoSale" nullable:"true" enum:"funciona,revision,garantia,danado,"`
-	ServicioID  *int64    `json:"servicioId" nullable:"true"`
-	OrdenID     *string   `json:"ordenId" nullable:"true" doc:"La orden de Iris que hizo el cambio (origen iris_orden), si la hubo"`
-	OcurridoEn  time.Time `json:"ocurridoEn"`
+	Tipo        string     `json:"tipo" enum:"estado,sale,entra" doc:"estado: cambió de estado; sale / entra: salió o entró en un cambio de equipo"`
+	De          *string    `json:"de" nullable:"true"`
+	A           *string    `json:"a" nullable:"true"`
+	Motivo      *string    `json:"motivo" nullable:"true"`
+	DestinoSale *string    `json:"destinoSale" nullable:"true" enum:"funciona,revision,garantia,danado,"`
+	ServicioID  *int64     `json:"servicioId" nullable:"true" doc:"Solo el servicio de la orden (los renglones de otros servicios no se muestran)"`
+	OrdenID     *int64     `json:"ordenId" nullable:"true" doc:"Solo si el cambio lo hizo esta orden (null: otra orden o ninguna)"`
+	OcurridoEn  *time.Time `json:"ocurridoEn" nullable:"true" doc:"La hora del hecho en Argos (null: Argos no la mandó o venía en el futuro)"`
+	RecibidoEn  time.Time  `json:"recibidoEn" doc:"Cuándo llegó el aviso a Iris (el historial va en este orden)"`
 }
 
 // EstadoUnidad es el estado de una unidad según los avisos de Argos, con su historial reciente.
 type EstadoUnidad struct {
 	UnidadID      int64              `json:"unidadId"`
 	EmpresaID     int64              `json:"empresaId"`
-	ServicioID    *int64             `json:"servicioId" nullable:"true" doc:"El servicio al que la asocia Argos (null: ninguno)"`
+	ServicioID    *int64             `json:"servicioId" nullable:"true" doc:"El servicio de la orden si Argos asocia la unidad a él; null si a ninguno o a otro"`
 	Estado        *string            `json:"estado" nullable:"true" enum:"disponible,en_comodato,por_recuperar,revision,garantia,dada_de_baja,no_recuperada," doc:"null: Argos aún no avisó su estado"`
-	EstadoEn      *time.Time         `json:"estadoEn" nullable:"true"`
+	EstadoEn      *time.Time         `json:"estadoEn" nullable:"true" doc:"La hora de Argos del estado (null: sin hora de Argos)"`
 	ActualizadoEn time.Time          `json:"actualizadoEn"`
 	Historial     []MovimientoUnidad `json:"historial" doc:"Del más nuevo al más viejo (hasta 20)"`
 }
@@ -217,9 +250,12 @@ type EstadoUnidad struct {
 const HistorialMaximo = 20
 
 // EstadosDeUnidades lee la instantánea de las unidades del servicio y de las dadas (las de una
-// orden), solo de las empresas dadas (las del actor), con su historial. Vacío si Argos no avisó
+// orden), solo de las empresas dadas (las del actor), con su historial. Contrato §3.10: solo muestra
+// el servicio de la orden (servicio) y la orden misma (orden): el historial se recorta a los renglones
+// de ese servicio, y el servicio actual de la unidad o la orden de un renglón, si son otros, van en
+// null (una unidad retirada por la orden puede estar ya en otro cliente). Vacío si Argos no avisó
 // nada todavía.
-func EstadosDeUnidades(ctx context.Context, q conector.DBTX, empresas []int64, servicio int64, unidades []int64) ([]EstadoUnidad, error) {
+func EstadosDeUnidades(ctx context.Context, q conector.DBTX, empresas []int64, servicio, orden int64, unidades []int64) ([]EstadoUnidad, error) {
 	bq := argosbd.New(q)
 	if unidades == nil {
 		unidades = []int64{}
@@ -237,10 +273,15 @@ func EstadosDeUnidades(ctx context.Context, q conector.DBTX, empresas []int64, s
 	for _, f := range filas {
 		idx[f.UnidadID] = len(out)
 		ids = append(ids, f.UnidadID)
-		out = append(out, EstadoUnidad{UnidadID: f.UnidadID, EmpresaID: f.EmpresaID, ServicioID: f.ServicioID, Estado: f.Estado,
-			EstadoEn: f.EstadoEn, ActualizadoEn: f.ActualizadoEn, Historial: []MovimientoUnidad{}})
+		u := EstadoUnidad{UnidadID: f.UnidadID, EmpresaID: f.EmpresaID, Estado: f.Estado, EstadoEn: f.EstadoEn,
+			ActualizadoEn: f.ActualizadoEn, Historial: []MovimientoUnidad{}}
+		if f.ServicioID != nil && *f.ServicioID == servicio {
+			u.ServicioID = f.ServicioID
+		}
+		out = append(out, u)
 	}
-	hist, err := bq.HistorialDeUnidades(ctx, argosbd.HistorialDeUnidadesParams{Unidades: ids, Empresas: empresas, Limite: HistorialMaximo})
+	hist, err := bq.HistorialDeUnidades(ctx, argosbd.HistorialDeUnidadesParams{Unidades: ids, Empresas: empresas, ServicioID: servicio,
+		Limite: HistorialMaximo})
 	if err != nil {
 		return nil, err
 	}
@@ -249,9 +290,12 @@ func EstadosDeUnidades(ctx context.Context, q conector.DBTX, empresas []int64, s
 		if !ok {
 			continue
 		}
+		if h.ServicioID == nil || *h.ServicioID != servicio {
+			continue // la consulta ya lo filtra; segunda barrera
+		}
 		mov := MovimientoUnidad{Tipo: h.Tipo, De: h.De, A: h.A, Motivo: h.Motivo, DestinoSale: h.DestinoSale, ServicioID: h.ServicioID,
-			OcurridoEn: h.OcurridoEn}
-		if h.Origen != nil && *h.Origen == "iris_orden" {
+			OcurridoEn: h.OcurridoEn, RecibidoEn: h.RecibidoEn}
+		if h.Origen != nil && *h.Origen == "iris_orden" && h.OrigenID != nil && *h.OrigenID == orden {
 			mov.OrdenID = h.OrigenID
 		}
 		out[i].Historial = append(out[i].Historial, mov)

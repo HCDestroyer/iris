@@ -129,9 +129,9 @@ func (q *Queries) ActualizarSincronizacion(ctx context.Context, arg ActualizarSi
 
 const agregarHistorialUnidad = `-- name: AgregarHistorialUnidad :exec
 INSERT INTO integracion.argos_unidades_historial (unidad_id, empresa_id, servicio_id, tipo, de, a, motivo, destino_sale,
-    origen, origen_id, ocurrido_en, entrante_id)
+    origen, origen_id, ocurrido_en, recibido_en, entrante_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7,
-    $8, $9, $10, $11, $12)
+    $8, $9, $10, $11, $12, $13)
 ON CONFLICT (entrante_id, unidad_id, tipo) DO NOTHING
 `
 
@@ -145,8 +145,9 @@ type AgregarHistorialUnidadParams struct {
 	Motivo      *string
 	DestinoSale *string
 	Origen      *string
-	OrigenID    *string
-	OcurridoEn  time.Time
+	OrigenID    *int64
+	OcurridoEn  *time.Time
+	RecibidoEn  time.Time
 	EntranteID  int64
 }
 
@@ -163,6 +164,7 @@ func (q *Queries) AgregarHistorialUnidad(ctx context.Context, arg AgregarHistori
 		arg.Origen,
 		arg.OrigenID,
 		arg.OcurridoEn,
+		arg.RecibidoEn,
 		arg.EntranteID,
 	)
 	return err
@@ -1844,12 +1846,17 @@ const guardarEstadoUnidad = `-- name: GuardarEstadoUnidad :exec
 INSERT INTO integracion.argos_unidades (unidad_id, empresa_id, servicio_id, estado, estado_en, servicio_en, entrante_id)
 VALUES ($1, $2, $3, $4, $5, $5, $6)
 ON CONFLICT (unidad_id) DO UPDATE SET
-    empresa_id = excluded.empresa_id, estado = excluded.estado, estado_en = excluded.estado_en,
-    servicio_id = CASE WHEN integracion.argos_unidades.servicio_en IS NULL OR integracion.argos_unidades.servicio_en <= excluded.estado_en
+    empresa_id = excluded.empresa_id, estado = excluded.estado,
+    estado_en = coalesce(excluded.estado_en, integracion.argos_unidades.estado_en),
+    servicio_id = CASE WHEN (excluded.servicio_en IS NULL AND integracion.argos_unidades.servicio_en IS NULL)
+                         OR (excluded.servicio_en IS NOT NULL AND (integracion.argos_unidades.servicio_en IS NULL
+                             OR integracion.argos_unidades.servicio_en <= excluded.servicio_en))
                        THEN excluded.servicio_id ELSE integracion.argos_unidades.servicio_id END,
-    servicio_en = greatest(integracion.argos_unidades.servicio_en, excluded.estado_en),
+    servicio_en = greatest(integracion.argos_unidades.servicio_en, excluded.servicio_en),
     entrante_id = excluded.entrante_id, actualizado_en = now()
-WHERE integracion.argos_unidades.estado_en IS NULL OR integracion.argos_unidades.estado_en <= excluded.estado_en
+WHERE (excluded.estado_en IS NULL AND integracion.argos_unidades.estado_en IS NULL)
+   OR (excluded.estado_en IS NOT NULL AND (integracion.argos_unidades.estado_en IS NULL
+       OR integracion.argos_unidades.estado_en <= excluded.estado_en))
 `
 
 type GuardarEstadoUnidadParams struct {
@@ -1862,8 +1869,11 @@ type GuardarEstadoUnidadParams struct {
 }
 
 // Equipos del cliente (0.12.0 §2.3, B27) ------------------------------------------------------
-// El estado de la unidad (inventario.unidad_estado_cambiado): solo si el hecho no es más viejo que el
-// guardado. El servicio viene con el estado (null = sin servicio).
+// El estado de la unidad (inventario.unidad_estado_cambiado). ocurrido_en es la hora de Argos o null
+// (sin hora de Argos, o en el futuro: horaDeArgos). Con hora, se aplica si lo guardado no tiene hora de
+// Argos o es más viejo; sin hora, por orden de llegada y solo si lo guardado tampoco tiene hora de
+// Argos: nunca pisa una hora de Argos ni guarda la de Iris. El servicio viene con el estado (null =
+// sin servicio) y sigue la misma regla con servicio_en.
 func (q *Queries) GuardarEstadoUnidad(ctx context.Context, arg GuardarEstadoUnidadParams) error {
 	_, err := q.db.Exec(ctx, guardarEstadoUnidad,
 		arg.UnidadID,
@@ -2040,9 +2050,12 @@ const guardarServicioUnidad = `-- name: GuardarServicioUnidad :exec
 INSERT INTO integracion.argos_unidades (unidad_id, empresa_id, servicio_id, servicio_en, entrante_id)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (unidad_id) DO UPDATE SET
-    empresa_id = excluded.empresa_id, servicio_id = excluded.servicio_id, servicio_en = excluded.servicio_en,
+    empresa_id = excluded.empresa_id, servicio_id = excluded.servicio_id,
+    servicio_en = coalesce(excluded.servicio_en, integracion.argos_unidades.servicio_en),
     entrante_id = excluded.entrante_id, actualizado_en = now()
-WHERE integracion.argos_unidades.servicio_en IS NULL OR integracion.argos_unidades.servicio_en <= excluded.servicio_en
+WHERE (excluded.servicio_en IS NULL AND integracion.argos_unidades.servicio_en IS NULL)
+   OR (excluded.servicio_en IS NOT NULL AND (integracion.argos_unidades.servicio_en IS NULL
+       OR integracion.argos_unidades.servicio_en <= excluded.servicio_en))
 `
 
 type GuardarServicioUnidadParams struct {
@@ -2054,7 +2067,8 @@ type GuardarServicioUnidadParams struct {
 }
 
 // El servicio de la unidad por un cambio de equipo (inventario.equipo_cambiado): la que entra queda en
-// el servicio y la que sale, sin servicio. No toca el estado (llega por su propio webhook).
+// el servicio y la que sale, sin servicio. No toca el estado (llega por su propio webhook). Misma
+// regla de hora que GuardarEstadoUnidad, con servicio_en.
 func (q *Queries) GuardarServicioUnidad(ctx context.Context, arg GuardarServicioUnidadParams) error {
 	_, err := q.db.Exec(ctx, guardarServicioUnidad,
 		arg.UnidadID,
@@ -2229,20 +2243,21 @@ func (q *Queries) HayContactosDeCliente(ctx context.Context, clienteID int64) (b
 
 const historialDeUnidades = `-- name: HistorialDeUnidades :many
 SELECT h.id, h.unidad_id, h.empresa_id, h.servicio_id, h.tipo, h.de, h.a, h.motivo, h.destino_sale, h.origen, h.origen_id,
-    h.ocurrido_en
+    h.ocurrido_en, h.recibido_en
 FROM (
-    SELECT x.id, x.unidad_id, x.empresa_id, x.servicio_id, x.tipo, x.de, x.a, x.motivo, x.destino_sale, x.origen, x.origen_id, x.ocurrido_en, x.entrante_id, x.created_at, row_number() OVER (PARTITION BY x.unidad_id ORDER BY x.ocurrido_en DESC, x.id DESC) AS n
+    SELECT x.id, x.unidad_id, x.empresa_id, x.servicio_id, x.tipo, x.de, x.a, x.motivo, x.destino_sale, x.origen, x.origen_id, x.ocurrido_en, x.recibido_en, x.entrante_id, x.created_at, row_number() OVER (PARTITION BY x.unidad_id ORDER BY x.id DESC) AS n
     FROM integracion.argos_unidades_historial x
-    WHERE x.unidad_id = ANY($1::bigint[]) AND x.empresa_id = ANY($2::bigint[])
+    WHERE x.unidad_id = ANY($1::bigint[]) AND x.empresa_id = ANY($2::bigint[]) AND x.servicio_id = $3::bigint
 ) h
-WHERE h.n <= $3::bigint
-ORDER BY h.unidad_id, h.ocurrido_en DESC, h.id DESC
+WHERE h.n <= $4::bigint
+ORDER BY h.unidad_id, h.id DESC
 `
 
 type HistorialDeUnidadesParams struct {
-	Unidades []int64
-	Empresas []int64
-	Limite   int64
+	Unidades   []int64
+	Empresas   []int64
+	ServicioID int64
+	Limite     int64
 }
 
 type HistorialDeUnidadesRow struct {
@@ -2256,13 +2271,20 @@ type HistorialDeUnidadesRow struct {
 	Motivo      *string
 	DestinoSale *string
 	Origen      *string
-	OrigenID    *string
-	OcurridoEn  time.Time
+	OrigenID    *int64
+	OcurridoEn  *time.Time
+	RecibidoEn  time.Time
 }
 
-// Los últimos renglones (hasta @limite por unidad) del historial de esas unidades.
+// Los últimos renglones (hasta @limite por unidad) del historial de esas unidades, solo los del servicio
+// dado (el de la orden: nunca los de otro cliente), por orden de llegada a Iris (sin mezclar relojes).
 func (q *Queries) HistorialDeUnidades(ctx context.Context, arg HistorialDeUnidadesParams) ([]HistorialDeUnidadesRow, error) {
-	rows, err := q.db.Query(ctx, historialDeUnidades, arg.Unidades, arg.Empresas, arg.Limite)
+	rows, err := q.db.Query(ctx, historialDeUnidades,
+		arg.Unidades,
+		arg.Empresas,
+		arg.ServicioID,
+		arg.Limite,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2283,6 +2305,7 @@ func (q *Queries) HistorialDeUnidades(ctx context.Context, arg HistorialDeUnidad
 			&i.Origen,
 			&i.OrigenID,
 			&i.OcurridoEn,
+			&i.RecibidoEn,
 		); err != nil {
 			return nil, err
 		}
@@ -2493,6 +2516,23 @@ DELETE FROM integracion.argos_contactos_leidos WHERE cliente_id = $1
 func (q *Queries) OlvidarContactosLeidos(ctx context.Context, clienteID int64) error {
 	_, err := q.db.Exec(ctx, olvidarContactosLeidos, clienteID)
 	return err
+}
+
+const ordenDeIrisEnEmpresa = `-- name: OrdenDeIrisEnEmpresa :one
+SELECT EXISTS (SELECT 1 FROM campo.ordenes WHERE id = $1 AND empresa_id = $2)::boolean
+`
+
+type OrdenDeIrisEnEmpresaParams struct {
+	OrdenID   int64
+	EmpresaID *int64
+}
+
+// origen_id de un cambio de equipo: solo vale si es una orden de Iris de esa empresa.
+func (q *Queries) OrdenDeIrisEnEmpresa(ctx context.Context, arg OrdenDeIrisEnEmpresaParams) (bool, error) {
+	row := q.db.QueryRow(ctx, ordenDeIrisEnEmpresa, arg.OrdenID, arg.EmpresaID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const pendientesLecturaIncidente = `-- name: PendientesLecturaIncidente :many

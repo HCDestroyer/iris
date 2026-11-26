@@ -193,7 +193,15 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   `ordenes.ver_propias`): las unidades del servicio de la orden y las que la orden instaló, retiró,
   cambió o no recuperó, con el estado que avisó Argos y sus últimos 20 movimientos, sin costos
   (instantánea de `integracion/argos`, llenada por `inventario.unidad_estado_cambiado` e
-  `inventario.equipo_cambiado`). Vacío si Argos no avisó nada (contrato < 0.12.0).
+  `inventario.equipo_cambiado`). Vacío si Argos no avisó nada (contrato acordado < 0.12.0).
+  - **Solo el servicio de la orden y la orden misma** (contrato §3.10): el historial se recorta a los
+    renglones del servicio de la orden; `servicioId` de la unidad va en null si Argos la asocia a otro
+    servicio (una unidad retirada puede estar ya en otro cliente), y `ordenId` de un renglón, si no es
+    esta orden. Fuera de la empresa activa o de lo que el actor ve (`ordenes.ver` con su zona o
+    cuadrilla, u `ordenes.ver_propias` y asignada), `404`.
+  - **No se audita (decidido en la revisión de #301).** Lee la instantánea local de Iris, no llama a
+    Argos. La regla de B27 «lectura de unidad limitada a `inventario.ver_unidad` y auditada» es para
+    `GET /inventario/unidades/:id` contra Argos (§3.10), que esta ruta no usa.
 
 ## App de campo (contratos/sync.md; claves camelCase)
 

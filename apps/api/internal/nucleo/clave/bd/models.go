@@ -1241,8 +1241,9 @@ type IntegracionArgosUnidadesHistorial struct {
 	Motivo      *string
 	DestinoSale *string
 	Origen      *string
-	OrigenID    *string
-	OcurridoEn  time.Time
+	OrigenID    *int64
+	OcurridoEn  *time.Time
+	RecibidoEn  time.Time
 	EntranteID  int64
 	CreatedAt   time.Time
 }
