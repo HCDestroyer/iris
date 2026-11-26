@@ -737,16 +737,20 @@ func despuesDeHecho(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integra
 		if err != nil {
 			return err
 		}
-		cargos, _ := cargosDeRespuesta(f.Respuesta)
 		for _, c := range esperan {
 			var cuerpo struct {
 				ProductoID json.Number `json:"producto_id"`
 			}
 			_ = json.Unmarshal(c.Payload, &cuerpo)
 			producto, _ := cuerpo.ProductoID.Int64()
-			cobrado := false
-			for _, a := range cargos {
-				cobrado = cobrado || (producto > 0 && a.ProductoID == producto)
+			// Con varios consumos del producto (uno por actor y bodega, 0.14.0) el cargo depende de todos: se
+			// decide cuando todos están hechos, y está cobrado solo si cada uno confirma su cobro.
+			listo, cobrado, err := consumosDelCargo(ctx, q, c, f, producto)
+			if err != nil {
+				return err
+			}
+			if !listo {
+				continue
 			}
 			var g pendientesbd.IntegracionPendiente
 			if cobrado {
@@ -1107,4 +1111,37 @@ func actualizarClienteCobro(ctx context.Context, q *pendientesbd.Queries, f pend
 		return nil
 	}
 	return q.ActualizarClienteCobro(ctx, pendientesbd.ActualizarClienteCobroParams{ClienteID: cliente, Clave: f.IdempotencyKey})
+}
+
+// consumosDelCargo: los consumos de los que depende un cargo que espera el cobro del consumible_cobro.
+// listo: todos hechos (f es el que acaba de quedar hecho, aún sin leer de la base con su respuesta).
+// cobrado: cada uno confirma en su respuesta un cargo del producto.
+func consumosDelCargo(ctx context.Context, q *pendientesbd.Queries, c, f pendientesbd.IntegracionPendiente, producto int64) (bool, bool, error) {
+	deps, err := q.PendientesPorIDCompartido(ctx, c.DependeDe)
+	if err != nil {
+		return false, false, err
+	}
+	porID := map[int64]pendientesbd.IntegracionPendiente{f.ID: f}
+	for _, d := range deps {
+		if d.ID != f.ID {
+			porID[d.ID] = d
+		}
+	}
+	cobrado := producto > 0
+	for _, id := range c.DependeDe {
+		d, ok := porID[id]
+		if !ok || (d.ID != f.ID && d.Estado != EstadoHecho) {
+			return false, false, nil
+		}
+		if d.Operacion != OpConsumo {
+			continue
+		}
+		cargos, _ := cargosDeRespuesta(d.Respuesta)
+		confirma := false
+		for _, a := range cargos {
+			confirma = confirma || a.ProductoID == producto
+		}
+		cobrado = cobrado && confirma
+	}
+	return true, cobrado, nil
 }

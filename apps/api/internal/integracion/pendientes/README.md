@@ -268,6 +268,10 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   línea de instalación, salvo fallidos (sin «por confirmar»), con `factura_anulada`, `esperaConsumo` o por resolver.
   Una factura por anular indicada una vez deja `exige_por_anular`: «no existe» espera a que una se lea anulada.
 - **Reemplazo sin concepto de instalación:** nace por resolver (fallido incompleto, con todas las líneas).
+- **Varios consumos del mismo producto** (Argos ≥ 0.14.0: un consumo por actor y bodega): el cargo depende de todos
+  los consumos que llevan el producto como `consumible_cobro`; queda resuelto solo cuando todos están hechos y cada
+  uno confirma su cobro (si alguno no lo confirma, fallido para el supervisor). Liberar el cargo al resolver a mano
+  uno de ellos responde 422 `cargo_en_otro_consumo` si otro ya lo cobró o aún no termina (se cobraría dos veces).
 - **`consumible_cobro` (forma anterior):** el cargo se encola `esperaConsumo` (nunca sale): queda `resuelto_manual`
   (`cobrado_con_consumo`) si el consumo confirma su cobro en `cargos[]`; si no, fallido incompleto, visible.
 - **Aprovisionar con Wi-Fi y 422 `capacidad_no_disponible`:** se reenvía sin `wifi` con la clave `<clave>:sin-wifi`; la

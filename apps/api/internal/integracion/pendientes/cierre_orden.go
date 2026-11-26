@@ -145,18 +145,28 @@ type Equipo struct {
 	Aprovisionado bool `json:"aprovisionado"`
 }
 
-// cobradoConConsumo: el producto del cargo va en un consumo encolado de la orden como consumible_cobro
-// (Argos lo cobra al consumir, §3.3).
-func cobradoConConsumo(materiales []Material, producto IDArgos, consumoDe map[int64]int) bool {
-	if _, ok := consumoDe[int64(producto)]; !ok {
-		return false
+// consumosDe: producto → índices de los consumos encolados que lo llevan (todos) y de los que lo llevan
+// como consumible_cobro (cobro). Con Argos ≥ 0.14.0 hay un consumo por actor y bodega, así que un
+// producto puede ir en varios: el cargo depende de todos (B-2 de la revisión de seguridad de #286).
+type consumosDe struct {
+	todos, cobro map[int64][]int
+}
+
+func nuevoConsumosDe() consumosDe {
+	return consumosDe{todos: map[int64][]int{}, cobro: map[int64][]int{}}
+}
+
+func (c consumosDe) agregar(mat Material, indice int) {
+	if mat.ProductoID == nil {
+		return
 	}
-	for _, mat := range materiales {
-		if mat.ProductoID != nil && *mat.ProductoID == producto && mat.Modalidad == argos.ModalidadConsumibleCobro {
-			return true
-		}
+	k := int64(*mat.ProductoID)
+	if !slices.Contains(c.todos[k], indice) {
+		c.todos[k] = append(c.todos[k], indice)
 	}
-	return false
+	if mat.Modalidad == argos.ModalidadConsumibleCobro && !slices.Contains(c.cobro[k], indice) {
+		c.cobro[k] = append(c.cobro[k], indice)
+	}
 }
 
 func deref64(v *int64) int64 {
@@ -733,7 +743,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	// consumosPorActor (Argos ≥ 0.14.0, §3.9): un consumo por actor y bodega, con
 	// iris:consumo:<orden>:<usuario_id>:<bodega_id>. Lo de la app lleva tecnico (el I1 de ese usuario)
 	// + bodega_id + su X-Iris-Actor; lo del panel, solo bodega_id (tipo bodega). Nunca a nombre de otro.
-	consumosPorActor := func(materiales []Material, consumoDe map[int64]int) {
+	consumosPorActor := func(materiales []Material, consumoDe consumosDe) {
 		type grupo struct {
 			usuario, bodega int64
 		}
@@ -769,9 +779,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				case !positivo:
 					p.incompleto = MotivoCantidadNoPositiva
 				}
-				if mat.ProductoID != nil {
-					consumoDe[int64(*mat.ProductoID)] = len(planes)
-				}
+				consumoDe.agregar(mat, len(planes))
 				lin = append(lin, map[string]any{"producto_id": mat.ProductoID, "cantidad": cant})
 			}
 			var bodega *IDArgos
@@ -823,7 +831,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	// Materiales usados (cualquier tipo y resultado): un consumo por orden (lineas[], 0.5.0) desde la
 	// bodega del técnico o una bodega. Solo consumibles: un comodato va como equipo (se omite).
 	// enConsumo: producto → índice del consumo que lo lleva (el cargo de ese producto lo espera).
-	consumoDe := map[int64]int{}
+	consumoDe := nuevoConsumosDe()
 	// Productos del consumo (cualquier modalidad consumible): un cargo de la orden con uno de ellos
 	// espera al consumo; si Argos ya lo cobró por modalidad, responde 409 cargo_duplicado (conciliado).
 	var comodatos []string
@@ -912,9 +920,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 			if b != nil && bodega == nil {
 				bodega = b
 			}
-			if mat.ProductoID != nil {
-				consumoDe[int64(*mat.ProductoID)] = len(planes)
-			}
+			consumoDe.agregar(mat, len(planes))
 			linea := map[string]any{"producto_id": mat.ProductoID, "cantidad": cant}
 			lineas = append(lineas, linea)
 		}
@@ -984,7 +990,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 		p := plan{operacion: OpCargo, clave: "iris:cargo:" + orden, ruta: "/facturas/cargo-unico",
 			payload: con(origen(orden), map[string]any{"cliente_id": o.ClienteID, "servicio_id": o.ServicioID})}
 		p.anterior = true
-		if o.Cargo.ProductoID != nil && cobradoConConsumo(o.Materiales, *o.Cargo.ProductoID, consumoDe) {
+		if o.Cargo.ProductoID != nil && len(consumoDe.cobro[int64(*o.Cargo.ProductoID)]) > 0 {
 			// Un consumible_cobro lo cobra Argos con el consumo (§3.3): nunca sale. Queda esperando al
 			// consumo: resuelto si el consumo confirma el cobro; si no, visible al supervisor.
 			p.esperaConsumo = true
@@ -994,8 +1000,12 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 			// Mismo producto en el consumo: el cargo va después del consumo (nunca se descarta: el consumo
 			// puede fallar o el producto cambiar de modalidad); si Argos ya lo cobró por modalidad,
 			// responde 409 cargo_duplicado y se concilia como hecho (§3.3).
-			if c, ok := consumoDe[int64(*o.Cargo.ProductoID)]; ok {
-				p.depende = []int{c}
+			// Con varios consumos (uno por actor y bodega), de todos: el que espera el cobro, de todos los que
+			// lo llevan como consumible_cobro (la confirmación los mira todos, cobro.go).
+			if p.esperaConsumo {
+				p.depende = append([]int{}, consumoDe.cobro[int64(*o.Cargo.ProductoID)]...)
+			} else {
+				p.depende = append([]int{}, consumoDe.todos[int64(*o.Cargo.ProductoID)]...)
 			}
 		}
 		monto, montoOK, montoPositivo := numero(o.Cargo.Monto)

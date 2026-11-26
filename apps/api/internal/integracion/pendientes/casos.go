@@ -587,6 +587,19 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 						"cargo = liberar y sale hacia Argos",
 					nucleo.ErrorCampo{Field: "cargo", Message: "Obligatorio: liberar o resolver_tambien", Rule: "requerido"})
 			}
+			if in.Cargo == CargoLiberar {
+				// Con varios consumos del producto (uno por actor y bodega, 0.14.0): liberar el cargo cuando otro
+				// consumo ya lo cobró (o aún puede cobrarlo) lo cobraría dos veces.
+				for _, c := range cargos {
+					if otro, err := otroConsumoLoCobra(ctx, q, c, f); err != nil {
+						return Pendiente{}, err
+					} else if otro {
+						return Pendiente{}, nucleo.ReglaNegocio("cargo_en_otro_consumo",
+							"El cargo (pendiente "+strconv.FormatInt(c.ID, 10)+") también espera a otro consumo de la orden que lo cobró o "+
+								"aún puede cobrarlo: liberarlo lo cobraría dos veces. Resuelve ese consumo primero, o manda cargo = resolver_tambien")
+					}
+				}
+			}
 			var usuario *int64
 			if a := contexto.ActorDe(ctx); a.EsUsuario() {
 				id := a.ID
@@ -972,4 +985,37 @@ func exigirSupervisorDelPaso(ctx context.Context, q *pendientesbd.Queries, f pen
 		return prohibido
 	}
 	return nil
+}
+
+// otroConsumoLoCobra: el cargo depende de otro consumo (además de f) que ya confirmó el cobro del
+// producto, o que todavía no terminó (puede cobrarlo). Uno resuelto a mano o hecho sin cobrarlo no cuenta.
+func otroConsumoLoCobra(ctx context.Context, q *pendientesbd.Queries, c, f pendientesbd.IntegracionPendiente) (bool, error) {
+	var cuerpo struct {
+		ProductoID json.Number `json:"producto_id"`
+	}
+	_ = json.Unmarshal(c.Payload, &cuerpo)
+	producto, _ := cuerpo.ProductoID.Int64()
+	deps, err := q.PendientesPorIDCompartido(ctx, c.DependeDe)
+	if err != nil {
+		return false, err
+	}
+	for _, d := range deps {
+		if d.ID == f.ID || d.Operacion != OpConsumo {
+			continue
+		}
+		switch d.Estado {
+		case EstadoResueltoManual:
+			continue
+		case EstadoHecho:
+			cargos, _ := cargosDeRespuesta(d.Respuesta)
+			for _, a := range cargos {
+				if a.ProductoID == producto {
+					return true, nil
+				}
+			}
+		default:
+			return true, nil
+		}
+	}
+	return false, nil
 }
