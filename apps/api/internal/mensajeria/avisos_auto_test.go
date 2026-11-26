@@ -274,12 +274,14 @@ func TestOpcionalesNoVanAMetaPorPosicion(t *testing.T) {
 	e := nuevoEntorno(t, func(c *mensajeria.Config) { c.Simulado = false })
 	e.usarContrato("0.15.0")
 	empresa := int64(2)
-	if _, err := e.m.CrearCanal.Ejecutar(e.ctx, mensajeria.EntradaCrearCanal{EmpresaID: &empresa, Nombre: "Avisos", Numero: "+50222224444",
+	canal, err := e.m.CrearCanal.Ejecutar(e.ctx, mensajeria.EntradaCrearCanal{EmpresaID: &empresa, Nombre: "Avisos", Numero: "+50222224444",
 		PhoneNumberID: fmt.Sprint(time.Now().UnixNano() % 1e12), Token: "token-de-meta-0123456789abcdef", AppSecret: "app-secret-0123456789",
 		VerifyToken: "verify-token-0123456789", AvisosEmpresa: ptrBool(true), Plantillas: map[string]mensajeria.PlantillaMeta{
-			"factura_por_vencer": {Nombre: "factura_v1", Idioma: "es"}, "debito_fallido": {Nombre: "debito_v1", Idioma: "es"}}}); err != nil {
+			"factura_por_vencer": {Nombre: "factura_v1", Idioma: "es"}, "debito_fallido": {Nombre: "debito_v1", Idioma: "es"}}})
+	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _, _ = e.bd.Exec(e.ctx, `UPDATE mensajeria.canales SET avisos_empresa = false, activo = false WHERE id = $1`, canal.ID) })
 	c := e.cliente(2, "5512-7788")
 	e.exigir(e.pedir(http.MethodPost, "/api/v1/mensajeria/consentimientos", e.otro, fmt.Sprintf("argos:consentimiento:2:%d:whatsapp:a", c),
 		map[string]any{"empresa_id": 2, "cliente_id": c, "canal": "whatsapp", "estado": "acepta", "origen": "argos_panel", "ocurrido_en": e.reloj.Add(-time.Hour)}),
@@ -410,6 +412,8 @@ func TestDeclararMensajeria(t *testing.T) {
 // empresa no permite marketing (C11).
 func TestDeclararMensajeriaMarketing(t *testing.T) {
 	c := nuevaCuentaWA(t, nil)
+	// El número de avisos de la empresa 1 no queda para las pruebas que siguen (usan el simulado).
+	t.Cleanup(func() { _, _ = c.bd.Exec(c.ctx, `UPDATE mensajeria.canales SET avisos_empresa = false, activo = false WHERE id = $1`, c.canal) })
 	r := c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/sugeridas/suscripcion_suspendida/crear", "sug-"+pruebas.Unico(),
 		map[string]any{"wabaId": c.waba, "enviar": true})
 	c.exigir(r, http.StatusCreated, "codigos", "[suscripcion_suspendida]", "categoria", "UTILITY")
