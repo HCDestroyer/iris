@@ -351,7 +351,7 @@ var (
 // validarBienvenida aplica §12.5 a las variables de Argos de bienvenida_servicio: nombre hasta 60 y
 // plan hasta 80 caracteres, revisados con motivoTextoInseguro (sin saltos de línea ni caracteres de
 // control o formato, sin 4 o más espacios, sin enlaces, dominios, IP ni correos, una barra solo entre
-// números) y sin 4 o más dígitos sin una letra en medio, de cualquier sistema y con cualquier separador (la lista blanca de §6.3: así no se cuela un número
+// números) y sin 7 o más dígitos sin una letra en medio, de cualquier sistema y con cualquier separador salvo la barra de una velocidad (la lista blanca de §6.3: así no se cuela un número
 // de cuenta ni un enlace); codigo_cliente alfanumérico con guiones (1 a 30). Ninguna variable de la
 // bienvenida es un enlace: el de la empresa, si lo hay, va fijo en la plantilla aprobada en Meta,
 // nunca en un dato de Argos.
@@ -362,7 +362,7 @@ func validarBienvenida(nombre, valor string) string {
 		if nombre == "plan" {
 			max = 80
 		}
-		if msg := motivoTextoInseguro(valor, reglasTexto{max: max, barraEntreNumeros: true, sinDigitos4: true}); msg != "" {
+		if msg := motivoTextoInseguro(valor, reglasTexto{max: max, barraEntreNumeros: true, maxDigitos: 6}); msg != "" {
 			return msg
 		}
 	case "codigo_cliente":

@@ -10,7 +10,7 @@ import (
 )
 
 // Texto que Argos manda dentro de una plantilla (concepto, nombre y plan de la bienvenida): nunca un
-// enlace, un separador Unicode ni, donde se pide, un número largo. La misma revisión para todos
+// enlace, un separador Unicode ni, donde se pide, un número largo (teléfono o cuenta). La misma revisión para todos
 // (revisiones de seguridad de #295 y #300).
 
 // rellenos: caracteres invisibles que no son separadores para Unicode y se ven como un espacio
@@ -32,6 +32,8 @@ var (
 	// reBarraConLetra: una barra pegada a una letra (bit.do/x, ruta/abc); «10/5» sí pasa.
 	reBarraConLetra = regexp.MustCompile(`\pL/|/\pL`)
 	reEspacios4     = regexp.MustCompile(`\s{4,}`)
+	// reVelocidad: una velocidad del tipo «100/20» son dos números, no uno de 5 dígitos.
+	reVelocidad = regexp.MustCompile(`(\p{Nd}{1,4})/(\p{Nd}{1,4})`)
 )
 
 // separadorOFormato: caracteres Unicode de control, de formato o separadores de línea o párrafo (Cc,
@@ -41,10 +43,11 @@ func separadorOFormato(r rune) bool {
 }
 
 // digitosSinLetra: el mayor número de dígitos (de cualquier sistema: arábigos, devanagari…) que hay
-// sin una letra en medio; cualquier otro separador («55,12», «55_12», «(55)12», espacios) no corta.
+// sin una letra en medio; cualquier otro separador («55,12», «55_12», «(55)12», espacios) no corta,
+// salvo la barra de una velocidad («100/20»: dos números).
 func digitosSinLetra(v string) int {
 	maximo, n := 0, 0
-	for _, r := range v {
+	for _, r := range reVelocidad.ReplaceAllString(v, "${1}a${2}") {
 		switch {
 		case unicode.IsDigit(r):
 			n++
@@ -62,8 +65,9 @@ type reglasTexto struct {
 	max int
 	// barraEntreNumeros: una «/» solo entre números («10/5»); sin ella, ninguna «/».
 	barraEntreNumeros bool
-	// sinDigitos4: nunca 4 o más dígitos sin una letra en medio (un número de cuenta o de teléfono).
-	sinDigitos4 bool
+	// maxDigitos: a lo más esta cantidad de dígitos sin una letra en medio (0 = sin límite). Con 6, un
+	// teléfono (8) o una cuenta no pasan y sí «Internet 100/20 Mbps» o «Plan 300 Mbps 2025».
+	maxDigitos int
 }
 
 // motivoTextoInseguro dice por qué un texto de Argos no puede ir en una plantilla ("" = puede). Busca
@@ -80,8 +84,8 @@ func motivoTextoInseguro(valor string, r reglasTexto) string {
 	case strings.Contains(v, "@") || reFormaEnlace.MatchString(v) || (!r.barraEntreNumeros && strings.Contains(v, "/")) ||
 		(r.barraEntreNumeros && reBarraConLetra.MatchString(v)):
 		return "Sin enlaces, dominios, direcciones IP ni correos"
-	case r.sinDigitos4 && digitosSinLetra(v) >= 4:
-		return "Sin secuencias de 4 o más dígitos"
+	case r.maxDigitos > 0 && digitosSinLetra(v) > r.maxDigitos:
+		return "Sin números de " + strconv.Itoa(r.maxDigitos+1) + " o más dígitos (un teléfono o una cuenta)"
 	}
 	return ""
 }

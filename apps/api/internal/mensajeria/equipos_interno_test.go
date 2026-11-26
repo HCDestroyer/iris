@@ -61,8 +61,10 @@ func TestValidarBienvenidaEnlacesYUnicode(t *testing.T) {
 		// El largo se mide también sobre el texto tal como llega (NFKC lo acorta: «e» + acento es «é»).
 		strings.Repeat("e\u0301", 41),
 		// Dígitos de cualquier sistema y con cualquier separador que no sea letra.
-		"Cuenta \u0665\u0665\u0661\u0662", "Cuenta \u096b\u096b\u0967\u0968", "Tel 55,12,34,56", "Tel 55_12_34", "Tel (55)12",
-		"Tel 5 5 1 2", "Cuenta 1234",
+		// (7 o más: un teléfono de 8 o una cuenta).
+		"Tel 5512 3456", "Tel 5512-3456", "Tel 55,12,34,56", "Tel (502)5512_3456", "Cuenta 3001234567", "Cuenta 300-123456-7",
+		"Cuenta \u0665\u0665\u0661\u0662\u0663\u0664\u0665\u0666", "Cuenta \u096b\u096b\u0967\u0968\u0969\u096a\u096b\u096c",
+		"Tel 5 5 1 2 3 4 5",
 		// Rellenos invisibles que se ven como espacio.
 		"Ana\u3164\u3164\u3164\u3164Pérez", "Ana\u115f\u115f\u115f\u115fPérez", "Ana\u2800\u2800\u2800\u2800Pérez",
 		"\u3164", "\u2800\u2800",
@@ -79,7 +81,8 @@ func TestValidarBienvenidaEnlacesYUnicode(t *testing.T) {
 			t.Errorf("nombre %q: %s", v, msg)
 		}
 	}
-	for _, v := range []string{"Fibra 100 Mbps", "Plan Hogar 2.0", "Internet 10/5", "IPTV + Internet", "Fibra 100 Mbps (promo)", "Plan 2 x 100"} {
+	for _, v := range []string{"Fibra 100 Mbps", "Plan Hogar 2.0", "Internet 10/5", "IPTV + Internet", "Fibra 100 Mbps (promo)", "Plan 2 x 100",
+		"Internet 100/20 Mbps", "Fibra 50 - 10", "Duo 50 + 50", "Plan 1.5 / 0.5", "Plan 300 Mbps 2025", "Fibra 1000/1000"} {
 		if msg := validarBienvenida("plan", v); msg != "" {
 			t.Errorf("plan %q: %s", v, msg)
 		}
@@ -103,7 +106,7 @@ func TestMarcaEnlaceWifi(t *testing.T) {
 }
 
 // M3 y bajo 7: con cambiar_wifi, «contraseña: …» se tapa aunque no nombre el Wi-Fi; la bienvenida no
-// deja pasar 4 dígitos aunque vayan separados.
+// deja pasar un número largo (7 o más dígitos, decisión del líder tras #300) aunque vaya separado.
 func TestClaveSueltaYDigitosSeparados(t *testing.T) {
 	if got := TaparClaveWifiAmplio("contraseña: Perro2024!"); strings.Contains(got, "Perro2024") {
 		t.Fatalf("amplio: %q", got)
@@ -111,7 +114,7 @@ func TestClaveSueltaYDigitosSeparados(t *testing.T) {
 	if got := TaparClaveWifi("contraseña: Perro2024!"); got != "contraseña: Perro2024!" {
 		t.Fatalf("sin cambiar_wifi no se tapa: %q", got)
 	}
-	for _, v := range []string{"Cuenta 1-2-3-4", "pague 12 34 56", "1.234.567"} {
+	for _, v := range []string{"Cuenta 1-2-3-4-5-6-7", "pague 12 34 56 78", "1.234.567"} {
 		if validarBienvenida("nombre", v) == "" {
 			t.Errorf("%q debía rechazarse", v)
 		}
