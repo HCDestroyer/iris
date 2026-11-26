@@ -106,6 +106,8 @@ type ResultadoCorte struct {
 	Estado   string `json:"estado"`
 	OrdenID  *int64 `json:"orden_id"`
 	Repetido bool   `json:"repetido,omitempty"`
+	// Ignorado: el aviso no se aplicó (descarte, otra empresa, servicio o acción); queda anotado.
+	Ignorado string `json:"ignorado,omitempty"`
 }
 
 // CorteManualOrden es lo que la orden muestra de su solicitud de corte.
@@ -140,7 +142,7 @@ func descarteValido(d string) string {
 func (m *Modulo) nuevoRegistrarCorte() *auditoria.Caso[EntradaCorteArgos, ResultadoCorte] {
 	return auditoria.Nuevo(auditoria.Caso[EntradaCorteArgos, ResultadoCorte]{
 		Accion: "ordenes.corte_manual", Permiso: nucleo.PermOrdenesCrear,
-		AuditarExito: func(r ResultadoCorte) bool { return !r.Repetido },
+		AuditarExito: func(r ResultadoCorte) bool { return !r.Repetido || r.Ignorado != "" },
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaCorteArgos) (ResultadoCorte, error) {
 			if contexto.ActorDe(ctx).Tipo != contexto.ActorSistema {
 				return ResultadoCorte{}, nucleo.Prohibido("El corte manual lo registra el sistema")
@@ -149,19 +151,47 @@ func (m *Modulo) nuevoRegistrarCorte() *auditoria.Caso[EntradaCorteArgos, Result
 				(in.Accion != argos.CorteAccionCorte && in.Accion != argos.CorteAccionReconexion) {
 				return ResultadoCorte{}, nucleo.ReglaNegocio("corte_invalido", "El aviso de corte manual no trae lo que pide el contrato")
 			}
-			t.FijarEmpresa(in.EmpresaID)
 			t.FijarEntidad("corte_manual", in.SolicitudID)
-			// Una solicitud a la vez (dos avisos de la misma solicitud en paralelo no la duplican).
-			if _, err := t.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('campo.corte_manual:' || $1::bigint::text, 0))`, in.SolicitudID); err != nil {
+			// Una solicitud a la vez (dos avisos de la misma solicitud en paralelo no la duplican). La
+			// clave es del conector: uno reemplazado no choca con las solicitudes del anterior.
+			if _, err := t.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('campo.corte_manual:' || $1::bigint::text || ':' || $2::bigint::text, 0))`,
+				in.ConectorID, in.SolicitudID); err != nil {
 				return ResultadoCorte{}, err
 			}
 			q := campobd.New(t)
-			c, err := q.CorteManualParaActualizar(ctx, in.SolicitudID)
+			clave := campobd.CorteManualPorClaveParams{ConectorID: in.ConectorID, SolicitudID: in.SolicitudID}
+			previa, err := q.CorteManualPorClave(ctx, clave)
 			if errors.Is(err, pgx.ErrNoRows) {
+				// La empresa del payload solo vale si el núcleo la validó (sin descarte).
+				if in.Descarte == nil {
+					t.FijarEmpresa(in.EmpresaID)
+				}
 				return m.corteNuevo(ctx, t, q, in)
 			}
 			if err != nil {
 				return ResultadoCorte{}, err
+			}
+			// Candados en el orden de campo: primero la orden, después la solicitud.
+			if previa.OrdenID != nil {
+				if _, err := q.OrdenPorIDParaActualizar(ctx, *previa.OrdenID); err != nil {
+					return ResultadoCorte{}, err
+				}
+			}
+			c, err := q.CorteManualParaActualizar(ctx, campobd.CorteManualParaActualizarParams(clave))
+			if err != nil {
+				return ResultadoCorte{}, err
+			}
+			if !mismoID(c.OrdenID, previa.OrdenID) {
+				// La orden cambió entre la lectura y el candado (no debería): el relay reintenta.
+				return ResultadoCorte{}, fmt.Errorf("corte manual %d: la orden cambió mientras se bloqueaba", in.SolicitudID)
+			}
+			// La empresa es la de la solicitud guardada, nunca la del aviso.
+			t.FijarEmpresa(c.EmpresaID)
+			if motivo := noCoincide(c, in); motivo != "" {
+				// B9 y revisión de #297: un aviso con descarte, o de otra empresa, servicio o acción, no toca
+				// la solicitud ni su orden. Solo queda anotado.
+				t.Anotar(map[string]any{"ignorado": motivo, "version": in.Version})
+				return ResultadoCorte{Estado: c.Estado, OrdenID: c.OrdenID, Ignorado: motivo}, nil
 			}
 			if in.Version <= c.VersionArgos {
 				// Repetido o atrasado (B3): Argos solo manda versiones crecientes por solicitud.
@@ -185,9 +215,24 @@ func (m *Modulo) nuevoRegistrarCorte() *auditoria.Caso[EntradaCorteArgos, Result
 	})
 }
 
+// noCoincide: por qué un aviso de una solicitud conocida no se aplica ("" = se aplica).
+func noCoincide(c campobd.CampoCortesManuale, in EntradaCorteArgos) string {
+	switch {
+	case in.Descarte != nil:
+		return "descarte_" + descarteValido(*in.Descarte)
+	case c.EmpresaID != in.EmpresaID:
+		return "empresa_no_coincide"
+	case c.ServicioID != in.ServicioID:
+		return "servicio_no_coincide"
+	case c.Accion != in.Accion:
+		return "accion_no_coincide"
+	}
+	return ""
+}
+
 func guardarCorte(ctx context.Context, q *campobd.Queries, c campobd.CampoCortesManuale) (campobd.CampoCortesManuale, error) {
 	return q.GuardarCorteManual(ctx, campobd.GuardarCorteManualParams{
-		SolicitudID: c.SolicitudID, VersionArgos: c.VersionArgos, VersionIris: c.VersionIris, Estado: c.Estado,
+		ConectorID: c.ConectorID, SolicitudID: c.SolicitudID, VersionArgos: c.VersionArgos, VersionIris: c.VersionIris, Estado: c.Estado,
 		Descarte: c.Descarte, MotivoCodigo: c.MotivoCodigo, CancelacionPedida: c.CancelacionPedida, OrdenID: c.OrdenID,
 		Causa: c.Causa, EntranteID: c.EntranteID,
 	})
@@ -195,6 +240,12 @@ func guardarCorte(ctx context.Context, q *campobd.Queries, c campobd.CampoCortes
 
 // corteNuevo: la primera vez que Iris sabe de la solicitud.
 func (m *Modulo) corteNuevo(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, in EntradaCorteArgos) (ResultadoCorte, error) {
+	if in.Evento == "cancelado" && in.Descarte != nil {
+		// Un cancelado fuera del alcance: solo se anota (no se guarda nada de otra empresa).
+		motivo := "descarte_" + descarteValido(*in.Descarte)
+		t.Anotar(map[string]any{"ignorado": motivo})
+		return ResultadoCorte{Ignorado: motivo}, nil
+	}
 	if in.Evento == "cancelado" {
 		// B4: el cancelado llegó antes que el solicitado. Se guarda y no se abre nada.
 		c, err := q.CrearCorteManual(ctx, paramsCorte(in, CorteCanceladaAntes, nil, nil))
@@ -289,7 +340,7 @@ func (m *Modulo) ordenDeCorte(ctx context.Context, q *campobd.Queries, in Entrad
 		descripcion += " Es un servicio mixto: solo se toca el cable; el internet sigue igual."
 	}
 	entrada := EntradaCrearOrden{Tipo: tipo, EmpresaID: &in.EmpresaID, ClienteID: in.ClienteID, ServicioID: &in.ServicioID,
-		Descripcion: descripcion, ClaveIdempotencia: "argos.corte_manual:" + strconv.FormatInt(in.SolicitudID, 10), Origen: "argos",
+		Descripcion: descripcion, ClaveIdempotencia: "argos.corte_manual:" + strconv.FormatInt(in.ConectorID, 10) + ":" + strconv.FormatInt(in.SolicitudID, 10), Origen: "argos",
 		prioridad: prioridad}
 	if entrada.ClienteID == nil {
 		if s, err := q.ServicioArgos(ctx, in.ServicioID); err == nil {
@@ -373,6 +424,10 @@ func avisarCorte(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, f cam
 		}
 		codigo, conocido := resultadosCorte[res]
 		switch {
+		case res == "" && c.CancelacionPedida:
+			// Sin la marca (no debería: el ítem es obligatorio y la plantilla del sistema no lo deja quitar)
+			// y con la cancelación pedida: no se da por hecho.
+			estado = CorteCancelada
 		case res == "" || (conocido && codigo == ""):
 			estado = CorteResuelta // Hecho (o, sin la marca, el cierre lo da por hecho)
 		case c.CancelacionPedida:
@@ -430,6 +485,8 @@ func emitirEstadoCorte(ctx context.Context, t *auditoria.Tx, q *campobd.Queries,
 		"solicitud_id": c.SolicitudID, "empresa_id": c.EmpresaID, "version": c.VersionIris, "estado": c.Estado,
 		"motivo_codigo": c.MotivoCodigo, "referencia": referencia, "referencia_tipo": tipoRef,
 		"ocurrido_en": ahora.UTC().Format(time.RFC3339Nano), "orden_id": c.OrdenID, "servicio_id": c.ServicioID, "accion": c.Accion,
+		// conector_id: mensajería solo lo manda al conector que pidió el corte (nunca viaja a Argos).
+		"conector_id": c.ConectorID,
 	})
 }
 

@@ -94,7 +94,9 @@ var contratoMinimoEvento = map[string]string{
 
 // conAlcance: los eventos que Argos recibe solo si su empresa está en el alcance del conector (§6.6:
 // tickets y solicitudes de clientes dentro del alcance).
-var conAlcance = map[string]bool{"ticket.estado_cambiado": true, "ticket.respondido": true, "solicitud_servicio.estado_cambiado": true}
+var conAlcance = map[string]bool{"ticket.estado_cambiado": true, "ticket.respondido": true, "solicitud_servicio.estado_cambiado": true,
+	// 0.15.0 §13.2: el corte manual solo a la empresa del alcance (y solo al conector que lo pidió, abajo).
+	eventoCorteManual: true}
 
 // ContratoMinimo devuelve la versión del contrato con que Argos recibe el evento.
 func ContratoMinimo(evento string) string {
@@ -212,7 +214,7 @@ func (m *Modulo) SuscribirWebhooks(bus *integracion.Bus, bd nucleo.BD) {
 	}
 }
 
-// origenVinculo: el conector del que salió el vínculo de un tecnico.argos_* (solo a él se manda) y
+// origenVinculo: el conector del que salió el vínculo de un tecnico.argos_* o el corte manual (solo a él se manda) y
 // la carga inicial a la que pertenece (0.14.0 §6.6). Ninguno de los dos viaja a Argos.
 type origenVinculo struct {
 	ConectorID *int64     `json:"conector_id"`
@@ -228,7 +230,7 @@ func (o origenVinculo) carga() pgtype.UUID {
 
 func vinculoDe(evento string, crudo json.RawMessage) origenVinculo {
 	var o origenVinculo
-	if evento != eventoVinculado && evento != eventoDesvinculado {
+	if evento != eventoVinculado && evento != eventoDesvinculado && evento != eventoCorteManual {
 		return o
 	}
 	if json.Unmarshal(crudo, &o) != nil {
@@ -332,6 +334,10 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 	case conAlcance[w.Evento] && !c.AlcanceGlobal && !slices.Contains(c.Empresas, empresaDelPayload(w.Payload)):
 		in.Estado, in.ConectorID = "omitido", &c.ID
 		in.Error = texto(MotivoEmpresaNoPermitida + ": la empresa del evento no está en el alcance del conector Argos")
+	case w.Evento == eventoCorteManual && (w.ConectorOrigen == nil || *w.ConectorOrigen != c.ID):
+		// 0.15.0 §13.2: el estado vuelve solo al conector que pidió el corte (uno reemplazado no la conoce).
+		in.Estado, in.ConectorID = "omitido", &c.ID
+		in.Error = texto(MotivoOtroConector + ": la solicitud de corte no salió de este conector Argos")
 	case (w.Evento == eventoVinculado || w.Evento == eventoDesvinculado) && (w.ConectorOrigen == nil || *w.ConectorOrigen != c.ID):
 		// 0.14.0 §6.6: solo al conector del que salió el id_externo.
 		in.Estado, in.ConectorID = "omitido", &c.ID

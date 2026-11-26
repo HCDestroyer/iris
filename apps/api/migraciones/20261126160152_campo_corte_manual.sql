@@ -18,6 +18,8 @@ ALTER TABLE campo.ordenes ADD COLUMN prioridad text NOT NULL DEFAULT 'normal' CH
 
 -- Checklist de cierre (comunes, versión 1). «resultado» decide lo que Iris informa a Argos: Hecho →
 -- resuelta; Sin acceso, Equipo no encontrado u Otro motivo → no_realizada con ese motivo_codigo.
+-- La plantilla y su versión 1 se crean juntas: la FK de version_actual_id se comprueba al final.
+SET CONSTRAINTS campo.plantillas_checklist_version_actual_fk DEFERRED;
 INSERT INTO campo.plantillas_checklist (codigo, nombre, tipo_codigo, version_actual_id) VALUES
     ('corte_catv', 'Corte de cable (TV)', 'corte_catv', 0),
     ('reconexion_catv', 'Reconexión de cable (TV)', 'reconexion_catv', 0);
@@ -44,14 +46,15 @@ SELECT t.codigo, t.nombre, 30, p.id
 FROM (VALUES ('corte_catv', 'Corte de cable (TV)'), ('reconexion_catv', 'Reconexión de cable (TV)')) AS t (codigo, nombre)
 JOIN campo.plantillas_checklist p ON p.codigo = t.codigo AND p.empresa_id IS NULL;
 
--- Solicitudes de corte manual (una por solicitud_id de Argos, su clave de idempotencia). Dos
+-- Solicitudes de corte manual (una por conector y solicitud_id de Argos, su clave de idempotencia: un
+-- conector reemplazado no choca con las solicitudes del anterior). Dos
 -- contadores independientes (B3): version_argos, la mayor recibida en servicio.corte_manual_*, y
 -- version_iris, la de corte_manual.estado_cambiado. Solo ids: sin nombre, teléfono ni dirección.
 --   estado: abierta (orden creada), en_curso (asignada), resuelta, no_realizada y cancelada
 --   (terminales: no retroceden), descartada (B9: empresa fuera del alcance o servicio desconocido;
 --   no se abre nada) y cancelada_antes (el cancelado llegó antes que el solicitado, B4).
 CREATE TABLE campo.cortes_manuales (
-    solicitud_id      bigint      PRIMARY KEY CHECK (solicitud_id > 0),
+    solicitud_id      bigint      NOT NULL CHECK (solicitud_id > 0),
     conector_id       bigint      NOT NULL REFERENCES integracion.conectores (id),
     empresa_id        bigint      NOT NULL,
     servicio_id       bigint      NOT NULL,
@@ -74,7 +77,8 @@ CREATE TABLE campo.cortes_manuales (
     created_at        timestamptz NOT NULL DEFAULT now(),
     updated_at        timestamptz NOT NULL DEFAULT now(),
     CHECK ((estado = 'no_realizada') = (motivo_codigo IS NOT NULL)),
-    CHECK ((estado = 'descartada') = (descarte IS NOT NULL))
+    CHECK ((estado = 'descartada') = (descarte IS NOT NULL)),
+    PRIMARY KEY (conector_id, solicitud_id)
 );
 CREATE INDEX cortes_manuales_servicio_idx ON campo.cortes_manuales (servicio_id, accion);
 
@@ -87,6 +91,39 @@ ALTER TABLE mensajeria.webhooks_salida
         'corte_manual.estado_cambiado'));
 
 -- +goose Down
+-- Si ya hay datos de los tipos corte_catv o reconexion_catv (órdenes, citas, capacidades, plantillas de
+-- una empresa, formularios o checklists de sus plantillas), el Down falla y dice cuántos: borrarlos o
+-- pasarlos a otro tipo es una decisión explícita, nunca huérfanos.
+-- +goose StatementBegin
+DO $$
+DECLARE
+    ordenes integer;
+    citas integer;
+    capacidades integer;
+    plantillas integer;
+    checklists integer;
+BEGIN
+    SELECT count(*) INTO ordenes FROM campo.ordenes o
+    WHERE o.tipo_id IN (SELECT id FROM campo.tipos_orden WHERE codigo IN ('corte_catv', 'reconexion_catv'))
+       OR o.plantilla_id IN (SELECT id FROM campo.plantillas_checklist WHERE tipo_codigo IN ('corte_catv', 'reconexion_catv'));
+    SELECT count(*) INTO citas FROM agenda.citas
+    WHERE tipo_id IN (SELECT id FROM campo.tipos_orden WHERE codigo IN ('corte_catv', 'reconexion_catv'));
+    SELECT count(*) INTO capacidades FROM agenda.capacidades
+    WHERE tipo_id IN (SELECT id FROM campo.tipos_orden WHERE codigo IN ('corte_catv', 'reconexion_catv'));
+    SELECT count(*) INTO plantillas FROM campo.plantillas_checklist
+    WHERE tipo_codigo IN ('corte_catv', 'reconexion_catv') AND NOT (empresa_id IS NULL AND codigo IN ('corte_catv', 'reconexion_catv'));
+    SELECT (SELECT count(*) FROM campo.orden_formularios f JOIN campo.plantillas_checklist p ON p.id = f.plantilla_id
+            WHERE p.tipo_codigo IN ('corte_catv', 'reconexion_catv'))
+         + (SELECT count(*) FROM campo.orden_checklist c JOIN campo.plantilla_items i ON i.id = c.item_id
+            JOIN campo.plantillas_checklist p ON p.id = i.plantilla_id WHERE p.tipo_codigo IN ('corte_catv', 'reconexion_catv'))
+      INTO checklists;
+    IF ordenes + citas + capacidades + plantillas + checklists > 0 THEN
+        RAISE EXCEPTION 'campo_corte_manual down: hay datos de corte_catv o reconexion_catv (% órdenes, % citas, % capacidades, % plantillas de empresa, % formularios o checklists); bórralos o pásalos a otro tipo antes de bajar',
+            ordenes, citas, capacidades, plantillas, checklists;
+    END IF;
+END
+$$;
+-- +goose StatementEnd
 DELETE FROM mensajeria.webhooks_salida WHERE evento = 'corte_manual.estado_cambiado';
 ALTER TABLE mensajeria.webhooks_salida
     DROP CONSTRAINT webhooks_salida_evento_check,
@@ -97,10 +134,12 @@ DROP TABLE campo.cortes_manuales;
 DELETE FROM campo.tipos_orden WHERE codigo IN ('corte_catv', 'reconexion_catv');
 DELETE FROM campo.plantilla_items WHERE plantilla_id IN
     (SELECT id FROM campo.plantillas_checklist WHERE empresa_id IS NULL AND codigo IN ('corte_catv', 'reconexion_catv'));
-UPDATE campo.plantillas_checklist SET version_actual_id = 0 WHERE empresa_id IS NULL AND codigo IN ('corte_catv', 'reconexion_catv');
 DELETE FROM campo.plantilla_versiones WHERE plantilla_id IN
     (SELECT id FROM campo.plantillas_checklist WHERE empresa_id IS NULL AND codigo IN ('corte_catv', 'reconexion_catv'));
 DELETE FROM campo.plantillas_checklist WHERE empresa_id IS NULL AND codigo IN ('corte_catv', 'reconexion_catv');
+-- La FK diferida de version_actual_id se comprueba ya (las filas se borraron): sin eventos pendientes,
+-- el ALTER TABLE de abajo puede correr en la misma transacción.
+SET CONSTRAINTS campo.plantillas_checklist_version_actual_fk IMMEDIATE;
 ALTER TABLE campo.ordenes DROP COLUMN prioridad;
 ALTER TABLE campo.plantillas_checklist
     DROP CONSTRAINT plantillas_checklist_tipo_codigo_check,

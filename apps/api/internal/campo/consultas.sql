@@ -925,8 +925,12 @@ ORDER BY p.id DESC LIMIT 1;
 
 -- Corte manual de respaldo (contrato argosisp.md 0.15.0 §13.2, B34) ---------------------------
 
+-- name: CorteManualPorClave :one
+-- Sin candado: para saber la orden y bloquearla antes que la solicitud (orden → corte).
+SELECT * FROM campo.cortes_manuales WHERE conector_id = @conector_id AND solicitud_id = @solicitud_id;
+
 -- name: CorteManualParaActualizar :one
-SELECT * FROM campo.cortes_manuales WHERE solicitud_id = @solicitud_id FOR UPDATE;
+SELECT * FROM campo.cortes_manuales WHERE conector_id = @conector_id AND solicitud_id = @solicitud_id FOR UPDATE;
 
 -- name: CorteManualDeOrden :one
 SELECT * FROM campo.cortes_manuales WHERE orden_id = @orden_id;
@@ -949,7 +953,7 @@ UPDATE campo.cortes_manuales SET
     version_argos = @version_argos, version_iris = @version_iris, estado = @estado, descarte = sqlc.narg(descarte),
     motivo_codigo = sqlc.narg(motivo_codigo), cancelacion_pedida = @cancelacion_pedida, orden_id = sqlc.narg(orden_id),
     causa = @causa, entrante_id = sqlc.narg(entrante_id), updated_at = now()
-WHERE solicitud_id = @solicitud_id
+WHERE conector_id = @conector_id AND solicitud_id = @solicitud_id
 RETURNING *;
 
 -- name: ResultadoCorteDeOrden :one

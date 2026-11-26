@@ -480,5 +480,13 @@ no ofrece cambiar el plan por router (`planes.motivo: tipo_sin_router`, sin llam
 - **No hace (B6–B8):** la orden no tiene ticket (ni `ticket.*` ni portal de Argos), no manda encuesta ni avisos al
   cliente y su cierre no encola `activar-instalacion` ni retiro. En un servicio mixto solo se toca el cable (lo dice la
   orden).
+- **Seguridad (revisión de #297):** la clave es `(conector_id, solicitud_id)`. Un aviso con `descarte`, o con otra empresa,
+  servicio o acción que la solicitud guardada, solo se anota (`ignorado`) y no toca nada; la empresa de la auditoría es la
+  de la solicitud. Los candados van orden → solicitud, como el resto de campo. Las plantillas del sistema `corte_catv` y
+  `reconexion_catv` no cambian de tipo ni pierden el ítem `resultado` (422 `plantilla_corte_protegida`). El Down de la
+  migración falla si ya hay órdenes, citas, capacidades, plantillas o checklists de estos tipos.
+- **Riesgo conocido:** un corte hecho sin señal con la orden ya cancelada en el servidor (Argos canceló antes de que el
+  técnico saliera) solo queda en las notas y adjuntos de la orden: el lote recibe `orden_cancelada` y a Argos no se le
+  informa `resuelta` (`contratos/sync.md`).
 - Pruebas: `corte_manual_test.go` (solicitado, asignado y cerrado por `POST /sync/lote`; reconexión con prioridad alta;
   no realizada; cancelaciones fuera de orden; descarte).

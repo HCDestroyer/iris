@@ -890,13 +890,55 @@ func (q *Queries) CorteManualDeOrdenParaActualizar(ctx context.Context, ordenID 
 }
 
 const corteManualParaActualizar = `-- name: CorteManualParaActualizar :one
-
-SELECT solicitud_id, conector_id, empresa_id, servicio_id, cliente_id, accion, causa, componente, solicitada_en, version_argos, version_iris, estado, descarte, motivo_codigo, cancelacion_pedida, orden_id, entrante_id, created_at, updated_at FROM campo.cortes_manuales WHERE solicitud_id = $1 FOR UPDATE
+SELECT solicitud_id, conector_id, empresa_id, servicio_id, cliente_id, accion, causa, componente, solicitada_en, version_argos, version_iris, estado, descarte, motivo_codigo, cancelacion_pedida, orden_id, entrante_id, created_at, updated_at FROM campo.cortes_manuales WHERE conector_id = $1 AND solicitud_id = $2 FOR UPDATE
 `
 
+type CorteManualParaActualizarParams struct {
+	ConectorID  int64
+	SolicitudID int64
+}
+
+func (q *Queries) CorteManualParaActualizar(ctx context.Context, arg CorteManualParaActualizarParams) (CampoCortesManuale, error) {
+	row := q.db.QueryRow(ctx, corteManualParaActualizar, arg.ConectorID, arg.SolicitudID)
+	var i CampoCortesManuale
+	err := row.Scan(
+		&i.SolicitudID,
+		&i.ConectorID,
+		&i.EmpresaID,
+		&i.ServicioID,
+		&i.ClienteID,
+		&i.Accion,
+		&i.Causa,
+		&i.Componente,
+		&i.SolicitadaEn,
+		&i.VersionArgos,
+		&i.VersionIris,
+		&i.Estado,
+		&i.Descarte,
+		&i.MotivoCodigo,
+		&i.CancelacionPedida,
+		&i.OrdenID,
+		&i.EntranteID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const corteManualPorClave = `-- name: CorteManualPorClave :one
+
+SELECT solicitud_id, conector_id, empresa_id, servicio_id, cliente_id, accion, causa, componente, solicitada_en, version_argos, version_iris, estado, descarte, motivo_codigo, cancelacion_pedida, orden_id, entrante_id, created_at, updated_at FROM campo.cortes_manuales WHERE conector_id = $1 AND solicitud_id = $2
+`
+
+type CorteManualPorClaveParams struct {
+	ConectorID  int64
+	SolicitudID int64
+}
+
 // Corte manual de respaldo (contrato argosisp.md 0.15.0 §13.2, B34) ---------------------------
-func (q *Queries) CorteManualParaActualizar(ctx context.Context, solicitudID int64) (CampoCortesManuale, error) {
-	row := q.db.QueryRow(ctx, corteManualParaActualizar, solicitudID)
+// Sin candado: para saber la orden y bloquearla antes que la solicitud (orden → corte).
+func (q *Queries) CorteManualPorClave(ctx context.Context, arg CorteManualPorClaveParams) (CampoCortesManuale, error) {
+	row := q.db.QueryRow(ctx, corteManualPorClave, arg.ConectorID, arg.SolicitudID)
 	var i CampoCortesManuale
 	err := row.Scan(
 		&i.SolicitudID,
@@ -2351,7 +2393,7 @@ UPDATE campo.cortes_manuales SET
     version_argos = $1, version_iris = $2, estado = $3, descarte = $4,
     motivo_codigo = $5, cancelacion_pedida = $6, orden_id = $7,
     causa = $8, entrante_id = $9, updated_at = now()
-WHERE solicitud_id = $10
+WHERE conector_id = $10 AND solicitud_id = $11
 RETURNING solicitud_id, conector_id, empresa_id, servicio_id, cliente_id, accion, causa, componente, solicitada_en, version_argos, version_iris, estado, descarte, motivo_codigo, cancelacion_pedida, orden_id, entrante_id, created_at, updated_at
 `
 
@@ -2365,6 +2407,7 @@ type GuardarCorteManualParams struct {
 	OrdenID           *int64
 	Causa             string
 	EntranteID        *int64
+	ConectorID        int64
 	SolicitudID       int64
 }
 
@@ -2379,6 +2422,7 @@ func (q *Queries) GuardarCorteManual(ctx context.Context, arg GuardarCorteManual
 		arg.OrdenID,
 		arg.Causa,
 		arg.EntranteID,
+		arg.ConectorID,
 		arg.SolicitudID,
 	)
 	var i CampoCortesManuale

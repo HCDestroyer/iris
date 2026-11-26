@@ -535,6 +535,9 @@ func (m *Modulo) nuevoEditarPlantilla() *auditoria.Caso[EntradaEditarPlantilla, 
 			if err != nil {
 				return PlantillaFormulario{}, err
 			}
+			if err := exigirResultadoCorte(antes, tipo, in.Items); err != nil {
+				return PlantillaFormulario{}, err
+			}
 			previa, err := leerPlantilla(ctx, q, antes, antes.VersionActualID)
 			if err != nil {
 				return PlantillaFormulario{}, err
@@ -628,4 +631,26 @@ func (m *Modulo) nuevoActivarPlantilla(activa bool) *auditoria.Caso[EntradaVersi
 			return salida, t.Emitir(evento, map[string]any{"plantilla_id": p.ID})
 		},
 	})
+}
+
+// OpcionesResultadoCorte: las opciones del ítem «resultado» del checklist de cierre del corte manual
+// (0.15.0 §13.2); de ellas sale lo que Iris informa a Argos (resultadosCorte).
+var OpcionesResultadoCorte = []string{"Hecho", "Sin acceso", "Equipo no encontrado", "Otro motivo"}
+
+// exigirResultadoCorte: las plantillas del sistema corte_catv y reconexion_catv conservan su tipo y el
+// ítem «resultado» obligatorio con sus cuatro opciones (sin él, el cierre no diría si se hizo).
+func exigirResultadoCorte(p campobd.CampoPlantillasChecklist, tipo *string, items []EntradaItemPlantilla) error {
+	if p.EmpresaID != nil || (p.Codigo != TipoCorteCATV && p.Codigo != TipoReconexionCATV) {
+		return nil
+	}
+	if tipo == nil || *tipo != p.Codigo {
+		return nucleo.ReglaNegocio("plantilla_corte_protegida", "La plantilla del corte manual de cable no cambia de tipo")
+	}
+	for _, i := range items {
+		if i.Codigo == "resultado" && i.Tipo == ItemSeleccion && i.Obligatorio && slices.Equal(i.Opciones, OpcionesResultadoCorte) {
+			return nil
+		}
+	}
+	return nucleo.ReglaNegocio("plantilla_corte_protegida",
+		"La plantilla del corte manual de cable conserva el ítem «resultado» obligatorio con sus opciones: Hecho, Sin acceso, Equipo no encontrado y Otro motivo")
 }

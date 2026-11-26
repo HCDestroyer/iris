@@ -262,3 +262,161 @@ func TestCorteManualCancelaciones(t *testing.T) {
 		t.Fatal("la solicitud descartada queda guardada")
 	}
 }
+
+// avisoCon: argos.corte_manual con la entrada completa (empresa, servicio, conector) y sin t.Fatal.
+func (e *entornoCorte) avisoCon(in campo.EntradaCorteArgos) (campo.ResultadoCorte, error) {
+	if in.ConectorID == 0 {
+		in.ConectorID = e.conector
+	}
+	if in.EmpresaID == 0 {
+		in.EmpresaID = 1
+	}
+	if in.Accion == "" {
+		in.Accion = "corte"
+	}
+	in.Componente, in.Causa = "cable", "sin_onu"
+	return e.m.RegistrarCorte.Ejecutar(sistema(e.t), in)
+}
+
+// Revisión de seguridad de #297 (B9): un cancelado con descarte, o con otra empresa, servicio o acción
+// que la solicitud guardada, no cancela su orden: solo se anota. La empresa de la auditoría es la de la
+// solicitud, nunca la del aviso.
+func TestCorteManualCanceladoAjenoNoTocaNada(t *testing.T) {
+	e := nuevoEntornoCorte(t)
+	sol := solicitudCorte + 11
+	r := e.aviso("solicitado", sol, 1, "corte", "8801", nil)
+	o := e.asignar(*r.OrdenID)
+	for i, in := range []campo.EntradaCorteArgos{
+		{Evento: "cancelado", SolicitudID: sol, Version: 2, ServicioID: 8801, Descarte: ptr("fuera_de_alcance")},
+		{Evento: "cancelado", SolicitudID: sol, Version: 3, ServicioID: 8801, EmpresaID: 2},
+		{Evento: "cancelado", SolicitudID: sol, Version: 4, ServicioID: 8802},
+		{Evento: "cancelado", SolicitudID: sol, Version: 5, ServicioID: 8801, Accion: "reconexion"},
+	} {
+		res, err := e.avisoCon(in)
+		if err != nil || res.Ignorado == "" || res.Estado != campo.CorteEnCurso {
+			t.Fatalf("aviso %d: %+v %v", i, res, err)
+		}
+	}
+	if d := deber(e.m.VerOrden.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t); d.Estado != campo.EstadoProgramada {
+		t.Fatalf("la orden no se toca: %s", d.Estado)
+	}
+	if u := e.ultimo(sol); u["estado"] != "en_curso" {
+		t.Fatalf("a Argos no se informa nada nuevo: %v", u)
+	}
+	// Queda anotado, con la empresa de la solicitud (1), nunca la del aviso (2).
+	if n := contar(t, `SELECT count(*) FROM auditoria.acciones WHERE accion = 'ordenes.corte_manual' AND entidad_id = $1
+		AND entrada->'auditoria'->>'ignorado' = 'empresa_no_coincide' AND empresa_id = 1`, strconv.FormatInt(sol, 10)); n != 1 {
+		t.Fatalf("anotado con la empresa de la solicitud: %d", n)
+	}
+	// Un cancelado con descarte de una solicitud que Iris no conoce tampoco guarda nada.
+	if res, err := e.avisoCon(campo.EntradaCorteArgos{Evento: "cancelado", SolicitudID: sol + 1, Version: 1, ServicioID: 8801, EmpresaID: 99,
+		Descarte: ptr("fuera_de_alcance")}); err != nil || res.Ignorado == "" {
+		t.Fatalf("cancelado ajeno y nuevo: %+v %v", res, err)
+	}
+	if n := contar(t, `SELECT count(*) FROM campo.cortes_manuales WHERE solicitud_id = $1`, sol+1); n != 0 {
+		t.Fatal("no se guarda nada de otra empresa")
+	}
+	// Un aviso válido después sí se aplica (la versión ignorada no cuenta).
+	e.aviso("cancelado", sol, 6, "corte", "8801", nil)
+	if u := e.ultimo(sol); u["estado"] != "cancelada" {
+		t.Fatalf("cancelado válido: %v", u)
+	}
+}
+
+// La clave es (conector_id, solicitud_id): con un conector nuevo, la misma solicitud_id es otra solicitud y
+// no toca la del conector anterior.
+func TestCorteManualClavePorConector(t *testing.T) {
+	e := nuevoEntornoCorte(t)
+	var otro int64
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `INSERT INTO integracion.conectores (sistema, base_url, origen, token_cifrado, secreto_webhook_cifrado)
+		SELECT sistema, base_url || '/otro', origen, token_cifrado, secreto_webhook_cifrado FROM integracion.conectores WHERE id = $1 RETURNING id`, e.conector).Scan(&otro); err != nil {
+		t.Fatal(err)
+	}
+	sol := solicitudCorte + 21
+	r1 := e.aviso("solicitado", sol, 1, "corte", "8801", nil)
+	r2, err := e.avisoCon(campo.EntradaCorteArgos{Evento: "solicitado", SolicitudID: sol, Version: 1, ServicioID: 8801, ConectorID: otro})
+	if err != nil || r2.Repetido || r2.OrdenID == nil || *r2.OrdenID == *r1.OrdenID {
+		t.Fatalf("la del conector nuevo es otra solicitud: %+v %v (anterior %+v)", r2, err, r1)
+	}
+	if _, err := e.avisoCon(campo.EntradaCorteArgos{Evento: "cancelado", SolicitudID: sol, Version: 2, ServicioID: 8801, ConectorID: otro}); err != nil {
+		t.Fatal(err)
+	}
+	if d := deber(e.m.VerOrden.Ejecutar(e.cs, campo.EntradaVerOrden{ID: *r1.OrdenID}))(t); d.Estado == campo.EstadoCancelada {
+		t.Fatal("el cancelado del conector nuevo no cancela la orden del anterior")
+	}
+	if d := deber(e.m.VerOrden.Ejecutar(e.cs, campo.EntradaVerOrden{ID: *r2.OrdenID}))(t); d.Estado != campo.EstadoCancelada {
+		t.Fatalf("la del conector nuevo se cancela: %s", d.Estado)
+	}
+	// El estado de cada una sale con su conector de origen (mensajería solo lo manda a ese conector).
+	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'corte_manual.estado_cambiado'
+		AND payload->>'solicitud_id' = $1 AND payload->>'conector_id' = $2 AND payload->>'estado' = 'cancelada'`,
+		strconv.FormatInt(sol, 10), strconv.FormatInt(otro, 10)); n != 1 {
+		t.Fatalf("estado con su conector: %d", n)
+	}
+}
+
+// Candados orden → solicitud (revisión de #297): el cancelado de Argos mientras el lote cierra la orden no
+// se interbloquea (40P01). Gana uno: cancelada, o resuelta (y el cancelado tardío la vuelve a informar).
+func TestCorteManualCanceladoMientrasCierra(t *testing.T) {
+	e := nuevoEntornoCorte(t)
+	for i := range 8 {
+		sol := solicitudCorte + 31 + int64(i)
+		r := e.aviso("solicitado", sol, 1, "corte", "8801", nil)
+		o := e.asignar(*r.OrdenID)
+		var errLote, errAviso error
+		var lote campo.RespuestaLote
+		listo := make(chan struct{})
+		go func() {
+			defer close(listo)
+			lote, errLote = e.m.Lote(e.ct, campo.EntradaLote{DispositivoID: "tel-" + pruebas.Unico(), Plataforma: "pwa", Operaciones: []campo.OperacionLote{
+				op(campo.OpLlegar, o.ID, nil),
+				op(campo.OpChecklistMarcar, o.ID, map[string]any{"codigo": "resultado", "valor": "Hecho"}),
+				op(campo.OpCerrar, o.ID, map[string]any{"resultado": "exitosa"}),
+			}})
+		}()
+		_, errAviso = e.avisoCon(campo.EntradaCorteArgos{Evento: "cancelado", SolicitudID: sol, Version: 2, ServicioID: 8801})
+		<-listo
+		for _, err := range []error{errLote, errAviso} {
+			if err != nil && strings.Contains(err.Error(), "40P01") {
+				t.Fatalf("interbloqueo: %v", err)
+			}
+			if err != nil {
+				t.Fatalf("vuelta %d: %v", i, err)
+			}
+		}
+		for _, res := range lote.Resultados {
+			if res.Error != nil && strings.Contains(res.Error.Detail, "deadlock") {
+				t.Fatalf("interbloqueo en el lote: %+v", res.Error)
+			}
+		}
+		if u := e.ultimo(sol); u["estado"] != "cancelada" && u["estado"] != "resuelta" {
+			t.Fatalf("vuelta %d: %v", i, u)
+		}
+	}
+}
+
+// La plantilla del sistema del corte no pierde el ítem «resultado» ni cambia de tipo.
+func TestCorteManualPlantillaProtegida(t *testing.T) {
+	e := nuevoEntornoCorte(t)
+	var id int64
+	var version int32
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT id, version FROM campo.plantillas_checklist WHERE empresa_id IS NULL AND codigo = 'corte_catv'`).Scan(&id, &version); err != nil {
+		t.Fatal(err)
+	}
+	admin := pruebas.ContextoSistema(pruebas.Pool(t))
+	sinResultado := []campo.EntradaItemPlantilla{{Codigo: "observaciones", Etiqueta: "Observaciones", Tipo: "texto"}}
+	_, err := e.m.EditarPlantilla.Ejecutar(admin, campo.EntradaEditarPlantilla{ID: id, Version: version, Nombre: "Corte", Tipo: ptr("corte_catv"), Items: sinResultado})
+	problema(t, err, 422, "plantilla_corte_protegida")
+	resultado := campo.EntradaItemPlantilla{Codigo: "resultado", Etiqueta: "¿Se cortó?", Tipo: "seleccion", Obligatorio: true, Opciones: campo.OpcionesResultadoCorte}
+	_, err = e.m.EditarPlantilla.Ejecutar(admin, campo.EntradaEditarPlantilla{ID: id, Version: version, Nombre: "Corte", Tipo: ptr("visita"), Items: []campo.EntradaItemPlantilla{resultado}})
+	problema(t, err, 422, "plantilla_corte_protegida")
+	opcional := resultado
+	opcional.Obligatorio = false
+	_, err = e.m.EditarPlantilla.Ejecutar(admin, campo.EntradaEditarPlantilla{ID: id, Version: version, Nombre: "Corte", Tipo: ptr("corte_catv"), Items: []campo.EntradaItemPlantilla{opcional}})
+	problema(t, err, 422, "plantilla_corte_protegida")
+	// Con el ítem tal cual se puede editar lo demás (etiqueta, otros ítems).
+	if _, err := e.m.EditarPlantilla.Ejecutar(admin, campo.EntradaEditarPlantilla{ID: id, Version: version, Nombre: "Corte de cable", Tipo: ptr("corte_catv"),
+		Items: append([]campo.EntradaItemPlantilla{resultado}, sinResultado...)}); err != nil {
+		t.Fatal(err)
+	}
+}
