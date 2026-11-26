@@ -11974,11 +11974,23 @@ export interface components {
              */
             origen: "argos" | "instantanea";
         };
+        CoincidenciaProspecto: {
+            estado: string;
+            nombre: string;
+            /** @description Número del prospecto en Iris (P-000123) */
+            numero: string;
+            /** @description El número de la conversación es el principal del prospecto. false: es otro de sus números; no se le comparte la cotización, la dirección ni el plan */
+            principal: boolean;
+            /** Format: int64 */
+            prospectoId: number;
+        };
         CoincidenciasConv: {
             /** @description false: Argos no respondió (o no hay conector) y se usó la instantánea */
             argosConsultado: boolean;
             clientes: components["schemas"]["CoincidenciaCliente"][];
             contactosIris: components["schemas"]["ContactoIris"][];
+            /** @description Prospectos abiertos de la empresa de la conversación con este número (en cualquiera de sus teléfonos); solo los que el usuario ve con prospectos.ver */
+            prospectos: components["schemas"]["CoincidenciaProspecto"][];
         };
         ColaConversaciones: {
             activa: boolean;
@@ -12225,6 +12237,8 @@ export interface components {
             contactoIrisId: number | null;
             /** Format: int64 */
             prospectoId: number | null;
+            /** @description El número es de un prospecto registrado desde Argos pero no es su principal: no se le comparte la cotización, la dirección ni el plan (hasta confirmar con un código al principal). false sin prospecto */
+            prospectoRestringido?: boolean;
             /**
              * Format: int64
              * @description Servicio en Argos

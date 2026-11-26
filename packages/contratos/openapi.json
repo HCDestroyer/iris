@@ -5288,6 +5288,37 @@
         ],
         "type": "object"
       },
+      "CoincidenciaProspecto": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "type": "string"
+          },
+          "nombre": {
+            "type": "string"
+          },
+          "numero": {
+            "description": "Número del prospecto en Iris (P-000123)",
+            "type": "string"
+          },
+          "principal": {
+            "description": "El número de la conversación es el principal del prospecto. false: es otro de sus números; no se le comparte la cotización, la dirección ni el plan",
+            "type": "boolean"
+          },
+          "prospectoId": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "prospectoId",
+          "numero",
+          "nombre",
+          "estado",
+          "principal"
+        ],
+        "type": "object"
+      },
       "CoincidenciasConv": {
         "additionalProperties": false,
         "properties": {
@@ -5306,11 +5337,19 @@
               "$ref": "#/components/schemas/ContactoIris"
             },
             "type": "array"
+          },
+          "prospectos": {
+            "description": "Prospectos abiertos de la empresa de la conversación con este número (en cualquiera de sus teléfonos); solo los que el usuario ve con prospectos.ver",
+            "items": {
+              "$ref": "#/components/schemas/CoincidenciaProspecto"
+            },
+            "type": "array"
           }
         },
         "required": [
           "clientes",
           "contactosIris",
+          "prospectos",
           "argosConsultado"
         ],
         "type": "object"
@@ -6066,6 +6105,10 @@
               "integer",
               "null"
             ]
+          },
+          "prospectoRestringido": {
+            "description": "El número es de un prospecto registrado desde Argos pero no es su principal: no se le comparte la cotización, la dirección ni el plan (hasta confirmar con un código al principal). false sin prospecto",
+            "type": "boolean"
           },
           "servicioId": {
             "description": "Servicio en Argos",
