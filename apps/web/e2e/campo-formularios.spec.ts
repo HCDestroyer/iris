@@ -238,6 +238,8 @@ test.describe("en el teléfono", () => {
         await expect
             .poll(() => operaciones(api).map((o) => o.tipo), { timeout: 15_000 })
             .toEqual(["orden.llegar", "orden.pausar", "orden.reanudar"]);
+        // El motivo elegido viaja en la operación (no solo se ve en la pantalla).
+        expect(operaciones(api).find((o) => o.tipo === "orden.pausar")?.datos).toMatchObject({ motivo: "esperando_material" });
         expect(api.ordenes.get(102)?.estado).toBe("en_sitio");
     });
 
