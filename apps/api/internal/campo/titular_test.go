@@ -64,6 +64,10 @@ type argosTitular struct {
 	// alRecibir corre al recibir una escritura, antes de responder (simula lo que pasa mientras
 	// la llamada está en curso).
 	alRecibir func(ruta string)
+	// lecturasServicio: cuántos GET /servicios/{id} recibió.
+	lecturasServicio int
+	// alLeerServicio corre al recibir GET /servicios/{id}, antes de responder.
+	alLeerServicio func()
 }
 
 func nuevoArgosTitular(t *testing.T) *argosTitular {
@@ -80,7 +84,12 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 	mux.HandleFunc("GET /api/v1/servicios/{id}", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		cuerpo, ok := a.servicios[r.PathValue("id")]
+		a.lecturasServicio++
+		alLeer := a.alLeerServicio
 		a.mu.Unlock()
+		if alLeer != nil {
+			alLeer()
+		}
 		if !ok {
 			http.NotFound(w, r)
 			return
@@ -770,4 +779,16 @@ func TestDocumentosDeGuatemala(t *testing.T) {
 			t.Fatalf("NIT %s: %v", c.n, !c.ok)
 		}
 	}
+}
+
+func (a *argosTitular) lecturas() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.lecturasServicio
+}
+
+func (a *argosTitular) fijarAlLeerServicio(f func()) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.alLeerServicio = f
 }
