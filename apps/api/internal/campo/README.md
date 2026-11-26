@@ -174,6 +174,22 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 - **Idempotencia:** `crear` guarda la `Idempotency-Key` (por credencial); las demás acciones la
   toleran con `version` y su estado; el lote, por id de operación.
 
+## Equipos del cliente (B27, contrato con Argos 0.12.0 §3.10)
+
+- **`equipo.cambiar`** (orden `cambio_equipo`, `ordenes.cambiar_equipo`): la unidad que sale
+  (`saleUnidadId`, en comodato del servicio) y la que entra (`entra`), motivo, destino de la que sale
+  (por defecto `revision`; `funciona` no vale con `danado` o `garantia`), foto y cobro propuesto
+  opcionales (sin monto). Cuenta como equipo instalado y retirado para el cierre.
+- **`equipo.no_recuperado`** (orden `retiro`, `ordenes.no_recuperado`): solo en sitio; motivo, foto de la
+  orden (obligatoria con `se_nego` y `equipo_perdido`), ubicación y nota; un intento por unidad al día
+  en Iris (429 `demasiados_intentos`). Cuenta como equipo retirado para el cierre.
+- La fecha del teléfono no puede ser anterior a la asignación de la orden; `recibido_en` es la hora
+  del servidor. Las notas (≤ 500) se ven en la orden, pero nunca van en eventos ni en la auditoría
+  (`***`).
+- `orden.cerrada` suma, por equipo, `motivo`, `foto_ref`, `fecha` y `recibido_en_iris`; en el cambio,
+  `sale_unidad_id`, `entra`, `destino_sale` y `cobro_propuesto { motivo }`; en el intento, `ubicacion`.
+  Los materiales suman `fecha` y `recibido_en_iris`.
+
 ## App de campo (contratos/sync.md; claves camelCase)
 
 - `GET /campo/paquete?fecha=YYYY-MM-DD` (`campo.sincronizar`): órdenes del técnico del actor

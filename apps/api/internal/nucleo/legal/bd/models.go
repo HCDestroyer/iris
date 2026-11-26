@@ -64,6 +64,14 @@ type AgendaCuadrilla struct {
 	VersionArgos  int32
 }
 
+type AgendaCuadrillaMiembro struct {
+	ID          int64
+	UsuarioID   int64
+	CuadrillaID int64
+	Desde       time.Time
+	Hasta       *time.Time
+}
+
 type AgendaCuadrillaZona struct {
 	CuadrillaID int64
 	ZonaID      int64
@@ -337,6 +345,17 @@ type CampoOrdenEquipo struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	Validado      bool
+	SaleUnidadID  *int64
+	Motivo        *string
+	DestinoSale   *string
+	CobroMotivo   *string
+	CobroNota     *string
+	Nota          *string
+	FotoAdjuntoID pgtype.UUID
+	Lat           *float64
+	Lon           *float64
+	PrecisionM    *float32
+	RecibidoEn    *time.Time
 }
 
 type CampoOrdenEvento struct {

@@ -403,6 +403,12 @@ func (m *Modulo) nuevoEquipo(accionEquipo string) *auditoria.Caso[EntradaEquipo,
 			if err := exigirEstado(f, "registrar equipos en", estadosEnCurso...); err != nil {
 				return f, "", err
 			}
+			if accionEquipo == AccionInstalar && in.Sync != nil {
+				// M-7: corte inmediato de §3.9 si el técnico dejó la cuadrilla de cuya bodega sale.
+				if err := corteInmediato(ctx, q, in.Sync, deref(actorUsuario(t))); err != nil {
+					return f, "", err
+				}
+			}
 			serie, err := textoOpcional("serie", in.Serie, 100)
 			if err != nil {
 				return f, "", err

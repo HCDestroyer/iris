@@ -260,18 +260,19 @@ func (q *Queries) CompletarEsperando(ctx context.Context, arg CompletarEsperando
 const corregirPendiente = `-- name: CorregirPendiente :one
 UPDATE integracion.pendientes
 SET payload = $1, ruta = $2, depende_de = $3, datos_incompletos = false,
-    estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
-    proximo_intento = $4, version = version + 1, updated_at = now()
-WHERE id = $5 AND estado = 'fallido_negocio' AND datos_incompletos
+    tecnico_usuario_id = $4::bigint, estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
+    proximo_intento = $5, version = version + 1, updated_at = now()
+WHERE id = $6 AND estado = 'fallido_negocio' AND datos_incompletos
 RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id, resuelto_como, resuelto_cliente_id
 `
 
 type CorregirPendienteParams struct {
-	Payload   []byte
-	Ruta      string
-	DependeDe []int64
-	Ahora     time.Time
-	ID        int64
+	Payload          []byte
+	Ruta             string
+	DependeDe        []int64
+	TecnicoUsuarioID *int64
+	Ahora            time.Time
+	ID               int64
 }
 
 // Cierre repetido con los datos que faltaban: el pendiente incompleto vuelve a la cola.
@@ -280,6 +281,7 @@ func (q *Queries) CorregirPendiente(ctx context.Context, arg CorregirPendientePa
 		arg.Payload,
 		arg.Ruta,
 		arg.DependeDe,
+		arg.TecnicoUsuarioID,
 		arg.Ahora,
 		arg.ID,
 	)
@@ -1515,6 +1517,38 @@ func (q *Queries) MarcarTitularEnRevision(ctx context.Context, arg MarcarTitular
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const notasDeEquipos = `-- name: NotasDeEquipos :many
+SELECT id, nota, cobro_nota FROM campo.orden_equipos WHERE id = ANY($1::uuid[])
+`
+
+type NotasDeEquiposRow struct {
+	ID        uuid.UUID
+	Nota      *string
+	CobroNota *string
+}
+
+// Las notas de los cambios e intentos de recuperación de la orden (0.12.0 §3.10): van a Argos en el
+// cuerpo, nunca en el evento ni en los logs.
+func (q *Queries) NotasDeEquipos(ctx context.Context, ids []uuid.UUID) ([]NotasDeEquiposRow, error) {
+	rows, err := q.db.Query(ctx, notasDeEquipos, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []NotasDeEquiposRow
+	for rows.Next() {
+		var i NotasDeEquiposRow
+		if err := rows.Scan(&i.ID, &i.Nota, &i.CobroNota); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const pasosTitularDeOrden = `-- name: PasosTitularDeOrden :many

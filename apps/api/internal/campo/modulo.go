@@ -99,6 +99,9 @@ type Inventario interface {
 	// TipoDeBodega: bodega, tecnico o cuadrilla según Argos; "" si no es de la empresa (despacho
 	// solo usa bodegas tipo = bodega, 0.13.1 §3.9).
 	TipoDeBodega(ctx context.Context, empresaID, bodegaID int64) (string, error)
+	// BodegaDeUnidad: la bodega donde está la unidad según Argos (nil si en ninguna de la empresa),
+	// para el corte inmediato de §3.9 (M-7).
+	BodegaDeUnidad(ctx context.Context, empresaID, unidadID int64) (*int64, error)
 }
 
 // Config del módulo.
@@ -164,6 +167,8 @@ type Modulo struct {
 	UsarMaterial        *auditoria.Caso[EntradaUsarMaterial, Orden]
 	InstalarEquipo      *auditoria.Caso[EntradaEquipo, Orden]
 	RetirarEquipo       *auditoria.Caso[EntradaEquipo, Orden]
+	CambiarEquipo       *auditoria.Caso[EntradaCambiarEquipo, Orden]
+	NoRecuperado        *auditoria.Caso[EntradaNoRecuperado, Orden]
 	CapturarFirma       *auditoria.Caso[EntradaCapturarFirma, Orden]
 	RegistrarAdjunto    *auditoria.Caso[EntradaRegistrarAdjunto, Orden]
 	VerOrden            *auditoria.Caso[EntradaVerOrden, OrdenDetalle]
@@ -273,6 +278,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.UsarMaterial = m.nuevoUsarMaterial()
 	m.InstalarEquipo = m.nuevoEquipo(AccionInstalar)
 	m.RetirarEquipo = m.nuevoEquipo(AccionRetirar)
+	m.CambiarEquipo = m.nuevoCambiarEquipo()
+	m.NoRecuperado = m.nuevoNoRecuperado()
 	m.CapturarFirma = m.nuevoCapturarFirma()
 	m.RegistrarAdjunto = m.nuevoRegistrarAdjunto()
 	m.VerOrden = m.nuevoVerOrden(nucleo.PermOrdenesVer)

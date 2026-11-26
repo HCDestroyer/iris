@@ -32,7 +32,7 @@ import (
 // OperacionLote es una operación del teléfono.
 type OperacionLote struct {
 	ID          string         `json:"id" format:"uuid" doc:"uuid v7 generado en el teléfono; idempotencia"`
-	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,nota.editar,nota.eliminar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario,traslado.recibir,tarea.crear,tarea.completar,tarea.anular,llamada.directa,orden.registrar_identidad,orden.cambiar_titular,orden.completar_datos,orden.cambiar_plan,orden.firmar_contrato"`
+	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,nota.editar,nota.eliminar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario,traslado.recibir,tarea.crear,tarea.completar,tarea.anular,equipo.cambiar,equipo.no_recuperado,llamada.directa,orden.registrar_identidad,orden.cambiar_titular,orden.completar_datos,orden.cambiar_plan,orden.firmar_contrato"`
 	OrdenID     int64          `json:"ordenId,omitempty" minimum:"1" doc:"Obligatorio salvo en traslado.recibir y tarea.* (no son de una orden)"`
 	VersionBase *int32         `json:"versionBase,omitempty" doc:"Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)"`
 	OcurridoEn  *time.Time     `json:"ocurridoEn,omitempty" doc:"Hora del teléfono, con el mismo reloj que enviadoEn; el servidor la corrige con el desfase"`
@@ -261,6 +261,7 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 	}
 	existencias, modalidades := m.existenciasDelLote(ctx, in.Operaciones, inicio.Ordenes)
 	comodatos := m.comodatosDelLote(ctx, in.Operaciones, inicio.Ordenes)
+	unidades := m.unidadesDelLote(ctx, in.Operaciones, inicio.Ordenes)
 
 	enEsteLote := map[uuid.UUID]ResultadoOperacion{}
 	bloqueadas := map[string]string{}        // grupo → operación rechazada que la bloquea
@@ -282,7 +283,7 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 			continue
 		}
 		s := &OpSync{ID: id, Tipo: op.Tipo, DispositivoID: in.DispositivoID, VersionBase: op.VersionBase,
-			OcurridoEnTelefono: op.OcurridoEn, OcurridoEn: corregir(op.OcurridoEn, inicio.DesfaseMs, ahora)}
+			OcurridoEnTelefono: op.OcurridoEn, OcurridoEn: corregir(op.OcurridoEn, inicio.DesfaseMs, ahora), RecibidoEn: ahora}
 		var res ResultadoOperacion
 		// Grupo: la orden, el traslado (traslado.recibir) o la tarea (tarea.*): un rechazo bloquea lo
 		// que sigue de su grupo, nunca otro.
@@ -302,6 +303,7 @@ func (m *Modulo) Lote(ctx context.Context, in EntradaLote) (RespuestaLote, error
 			res = m.aplicarLlamadaDirecta(ctx, s, op, inicio.DesfaseMs)
 		} else {
 			s.Existencia, s.Modalidad, s.pre = existencias[i], modalidades[i], comodatos[i]
+			s.unidadBodega, s.unidadLeida = unidades[i].bodega, unidades[i].leida
 			res = m.aplicar(ctx, s, op)
 		}
 		if res.Estado == "rechazada" && res.Error != nil && codigosReintentables[res.Error.Codigo()] {
@@ -506,6 +508,20 @@ func (m *Modulo) despachar(ctx context.Context, s *OpSync, op OperacionLote) (Or
 			return m.RetirarEquipo.Ejecutar(ctx, e)
 		}
 		return m.InstalarEquipo.Ejecutar(ctx, e)
+	case OpEquipoCambiar:
+		e, err := datosDe[EntradaCambiarEquipo](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		e.ID, e.Version, e.Sync, e.pre = op.OrdenID, nil, s, s.pre
+		return m.CambiarEquipo.Ejecutar(ctx, e)
+	case OpEquipoNoRecuperado:
+		e, err := datosDe[EntradaNoRecuperado](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		e.ID, e.Version, e.Sync, e.pre = op.OrdenID, nil, s, s.pre
+		return m.NoRecuperado.Ejecutar(ctx, e)
 	case OpFirmaCapturar:
 		e, err := datosDe[EntradaCapturarFirma](op)
 		if err != nil {
@@ -649,6 +665,49 @@ func itoa(i int) string {
 	return string(b)
 }
 
+type unidadLeida struct {
+	bodega *int64
+	leida  bool
+}
+
+// unidadesDelLote (M-7): la bodega de Argos de la unidad que entra en equipo.cambiar y
+// equipo.instalar, leída fuera de toda transacción, solo si el actor dejó alguna cuadrilla (para el
+// corte inmediato de §3.9).
+func (m *Modulo) unidadesDelLote(ctx context.Context, ops []OperacionLote, ordenes map[int64]infoOrden) []unidadLeida {
+	salida := make([]unidadLeida, len(ops))
+	bd := nucleo.BDDe(ctx)
+	actor := contexto.ActorDe(ctx)
+	if bd == nil || !actor.EsUsuario() || m.cfg.Inventario == nil {
+		return salida
+	}
+	dejo, err := campobd.New(bd).DejoAlgunaCuadrilla(ctx, actor.ID)
+	if err != nil || !dejo {
+		return salida
+	}
+	for i, op := range ops {
+		var unidad *int64
+		switch op.Tipo {
+		case OpEquipoCambiar:
+			e, err := datosDe[EntradaCambiarEquipo](op)
+			if err == nil {
+				unidad = e.Entra.UnidadID
+			}
+		case OpEquipoInstalar:
+			e, err := datosDe[EntradaEquipo](op)
+			if err == nil {
+				unidad = e.UnidadID
+			}
+		}
+		info, ok := ordenes[op.OrdenID]
+		if unidad == nil || !ok {
+			continue
+		}
+		b, err := m.cfg.Inventario.BodegaDeUnidad(ctx, info.empresa, *unidad)
+		salida[i] = unidadLeida{bodega: b, leida: err == nil}
+	}
+	return salida
+}
+
 // comodatosDelLote lee de Argos, fuera de toda transacción, el comodato del servicio de cada
 // orden con equipo.retirar (una lectura por servicio). nil = no se sabe (sin conector o caído).
 func (m *Modulo) comodatosDelLote(ctx context.Context, ops []OperacionLote, ordenes map[int64]infoOrden) []*prelectura {
@@ -656,7 +715,7 @@ func (m *Modulo) comodatosDelLote(ctx context.Context, ops []OperacionLote, orde
 	leidos := map[int64]*prelectura{}
 	for i, op := range ops {
 		info, ok := ordenes[op.OrdenID]
-		if op.Tipo != OpEquipoRetirar || !ok || info.servicio == nil {
+		if (op.Tipo != OpEquipoRetirar && op.Tipo != OpEquipoCambiar && op.Tipo != OpEquipoNoRecuperado) || !ok || info.servicio == nil {
 			continue
 		}
 		p, ya := leidos[*info.servicio]

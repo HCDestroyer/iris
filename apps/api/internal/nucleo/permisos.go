@@ -177,7 +177,10 @@ const (
 	// Bodega de cuadrilla (contrato 0.11.0 §3.9, B26). asignar_jefe: el jefe recibe y firma los
 	// traslados y responde por los faltantes (solo admin y supervisor). leer_integracion: Argos
 	// lee la cuadrilla para conciliar su bodega (rol integracion_argos).
-	PermCuadrillasAsignarJefe     Permiso = "cuadrillas.asignar_jefe"
+	PermCuadrillasAsignarJefe Permiso = "cuadrillas.asignar_jefe"
+	// Equipos del cliente (0.12.0 §10.7 d, B27): con Argos < 0.12.0, una persona declara la pérdida
+	// de un comodato que no se pudo recuperar (nunca sale sola desde el cierre).
+	PermOrdenesDeclararPerdida    Permiso = "ordenes.declarar_perdida"
 	PermCuadrillasLeerIntegracion Permiso = "cuadrillas.leer_integracion"
 
 	// Rutas del día (I2): propuesta con OSRM, publicación y ruta propuesta frente a la real.
@@ -634,6 +637,7 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
 	{PermOrdenesCompletarDatos, "Completar los datos que falten del titular y del lugar de una instalación antes de activarla (el técnico solo en sus órdenes en sitio; despacho y supervisor desde el panel)"},
 	{PermOrdenesCrear, "Crear órdenes de trabajo (también desde un ticket)"},
+	{PermOrdenesDeclararPerdida, "Declarar perdido un equipo en comodato que no se pudo recuperar (solo con Argos anterior a 0.12.0; desde 0.12.0 lo decide una persona en Argos)"},
 	{PermOrdenesDescartarDatosArgos, "Descartar el aviso «Dato de Argos cambió» de una orden sin cambiar sus datos"},
 	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
 	{PermOrdenesIgualarAsignacion, "Igualar la asignación (técnico y cuadrilla) de una orden y su ticket, en el sentido que se elija"},
@@ -792,7 +796,8 @@ var RolesBase = []DefRol{
 			PermCentralitaAsignarExtension, PermCentralitaLlamar, PermCentralitaTransferir,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
-			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar, PermCuadrillasAsignarJefe},
+			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar, PermCuadrillasAsignarJefe,
+			PermOrdenesDeclararPerdida},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
 					PermOrdenesValidarIdentidad,

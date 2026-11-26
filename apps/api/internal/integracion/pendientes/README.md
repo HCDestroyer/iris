@@ -100,6 +100,25 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agotado`,
 `_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado` y `_resuelto_manual` (contratos/eventos.md, «Pendientes hacia Argos»).
 
+## Contrato 0.12.0: equipos del cliente (B27)
+
+- Con Argos que informa contrato ≥ 0.12.0 (`argos.Modulo.EquiposDelCliente`):
+  - el cambio es una sola llamada, `POST /servicios/:id/equipos/cambiar`
+    (`iris:cambio:<orden>:<sale_unidad_id>`);
+  - el intento de recuperación va a `POST …/:unidad_id/no-recuperado`
+    (`iris:no_recuperado:<orden>:<unidad_id>`);
+  - los dos salen con `X-Iris-Actor`, `fecha` y `recibido_en_iris`, y la nota se lee de
+    `campo.orden_equipos` (no viaja en el evento);
+  - el consumo suma `fecha` y `recibido_en_iris`.
+- Con un Argos anterior, el cambio es una devolución (`condicion` `buena` solo si funciona) y una
+  asignación.
+- **La pérdida nunca sale sola desde el cierre.** Un retiro `perdido` sin intento:
+  - con Argos ≥ 0.12.0, se omite con aviso (`perdida_sin_intento`);
+  - con Argos anterior, queda `fallido_negocio` esperando a una persona, y lo mismo pasa con un intento.
+
+  Reintentar una `perdida` exige `ordenes.declarar_perdida`, y desde 0.12.0 responde 422
+  `perdida_en_argos`.
+
 ## Contrato 0.11.0: bodega de cuadrilla (B26)
 
 - Un pendiente con `tecnico_usuario_id` sale con `X-Iris-Actor: usuario:<id>` (obligatoria sobre una

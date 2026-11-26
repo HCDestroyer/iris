@@ -321,6 +321,10 @@ func EsNegocio(er *conector.ErrorRemoto) bool {
 	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
 		return false
 	}
+	if er.Status == http.StatusTooManyRequests && TipoDe(er) == TipoDemasiadosIntentos {
+		// Un intento de recuperación por unidad al día (0.12.0 §3.10): reintentarlo no lo arregla.
+		return true
+	}
 	if er.Status == http.StatusForbidden && ConflictosProhibidos[TipoDe(er)] {
 		// Un 403 con estos type es una decisión de Argos sobre el pedido (B-268-4), no la falta de un
 		// permiso del token: reintentar no lo arregla. Conflicto para una persona.
@@ -335,6 +339,10 @@ func EsNegocio(er *conector.ErrorRemoto) bool {
 	}
 	return true
 }
+
+// TipoDemasiadosIntentos: 429 de …/no-recuperado (más de un intento por unidad al día). De
+// negocio: no se reintenta solo (A-271-2).
+const TipoDemasiadosIntentos = "demasiados_intentos"
 
 // ConflictosProhibidos son los 403 de negocio de Argos (contrato 0.11.0 §3.9 y 0.12.0 §3.10): la
 // bodega no es del técnico, el actor no coincide, solo el jefe recibe, el servicio es de otra
