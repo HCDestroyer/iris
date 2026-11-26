@@ -149,7 +149,7 @@ func guardarFicha(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, f fi
 			Estado: v.Estado, SincronizadoEn: f.leidoEn, UserPpp: v.UserPPP, TipoConexion: v.TipoConexion,
 			Referencia: v.Referencia, ContactoNombre: v.ContactoNombre, ContactoTelefono: v.ContactoTelefono,
 			PrecioMensual: v.PrecioMensual, Moneda: v.Moneda, PrefijoEnlaceV6: v.PrefijoEnlaceV6,
-			PrefijoDelegadoV6: v.PrefijoDelegadoV6, Planta: plantaJSON(v.Planta),
+			PrefijoDelegadoV6: v.PrefijoDelegadoV6, Planta: plantaJSON(v.Planta), TipoServicio: v.tipo, Componentes: v.Componentes,
 		}, vivoEn(f.vivos, s.ID)); err != nil {
 			return err
 		}
@@ -266,6 +266,7 @@ func AServicio(s ServicioArgos, zonaCliente *int64) Servicio {
 		PrefijoEnlaceV6: strings.TrimSpace(s.PrefijoEnlaceV6), PrefijoDelegadoV6: strings.TrimSpace(s.PrefijoDelegadoV6),
 		Planta: aPlanta(s.Planta),
 	}
+	v.conTipo(NormalizarTipo(s.TipoServicio, s.Componentes))
 	// Precio y moneda van juntos o no van (§4.1: con un Argos anterior a 1.18.0 no vienen).
 	// Un precio que no es un monto válido (NaN, infinito, negativo o fuera de numeric(12,2)) queda
 	// sin precio: no rompe la ficha ni se inventa.
@@ -279,7 +280,7 @@ func AServicio(s ServicioArgos, zonaCliente *int64) Servicio {
 }
 
 func aServicio(f argosbd.IntegracionArgosServicio) Servicio {
-	return Servicio{
+	v := Servicio{
 		ID: f.ID, EmpresaID: f.EmpresaID, ClienteID: f.ClienteID, Codigo: f.Codigo, Nombre: f.Nombre, PlanID: f.PlanID,
 		PlanNombre: f.PlanNombre, RouterID: f.RouterID, RouterNombre: f.RouterNombre, ZonaID: f.ZonaID,
 		ZonaNombre: f.ZonaNombre, IP: f.Ip, Direccion: f.Direccion, Lat: f.Lat, Lon: f.Lon, Estado: f.Estado,
@@ -289,6 +290,8 @@ func aServicio(f argosbd.IntegracionArgosServicio) Servicio {
 		PrefijoEnlaceV6:   f.PrefijoEnlaceV6, PrefijoDelegadoV6: f.PrefijoDelegadoV6,
 		PrecioMensual: precioDe(f.PrecioMensual), Moneda: f.Moneda, Planta: plantaDe(f.Planta),
 	}
+	v.conTipo(f.TipoServicio, f.Componentes)
+	return v
 }
 
 func aServicios(filas []argosbd.IntegracionArgosServicio) []Servicio {

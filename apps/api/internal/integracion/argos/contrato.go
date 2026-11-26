@@ -125,6 +125,12 @@ func (m *Modulo) ClavesPorOperacion(ctx context.Context, q conector.DBTX) (bool,
 // contratoAlMenos: el conector Argos registrado más reciente (activo o, si no hay, el último)
 // informa un contrato ≥ minimo. Falla cerrado.
 func (m *Modulo) contratoAlMenos(ctx context.Context, q conector.DBTX, minimo string) (bool, error) {
+	return contratoArgosAlMenos(ctx, q, minimo)
+}
+
+// contratoArgosAlMenos: contratoAlMenos sin el módulo (lo usan campo y comercial por las funciones
+// de paquete).
+func contratoArgosAlMenos(ctx context.Context, q conector.DBTX, minimo string) (bool, error) {
 	var contrato *string
 	err := q.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE sistema = $1
 		ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1`, Sistema).Scan(&contrato)

@@ -31,13 +31,17 @@ type PlanComercial struct {
 	Nombre string  `json:"nombre"`
 	Precio *string `json:"precio" nullable:"true" doc:"Mensualidad (decimal, 2 cifras); null si Argos no la publica"`
 	Activo bool    `json:"activo"`
+	// Tipo de servicio del plan (contrato argosisp.md 0.15.0 §13.1).
+	TipoServicio string `json:"tipoServicio,omitempty" enum:"internet,cable,iptv,mixto,otro" doc:"Tipo del plan en Argos (0.15.0); ausente si Argos no lo informó (internet)"`
+	SinRouter    bool   `json:"sinRouter,omitempty" doc:"Plan de cable: sin router ni velocidad; la factibilidad queda indeterminada (tipo_sin_router) y el alta no pide router"`
 }
 
 // LectorPlanes lee los planes activos de Argos (GET /planes?activo=true[&router_id=]) por el
 // conector, fuera de toda transacción. Sin conector activo devuelve el problema 503
 // conector_apagado; Argos caído, 503 argos_no_disponible.
 type LectorPlanes interface {
-	Planes(ctx context.Context, routerID *int64) ([]PlanComercial, error)
+	// Planes: tipo ("" = todos) filtra por tipo de servicio (0.15.0 §13.1: GET /planes?tipo_servicio=).
+	Planes(ctx context.Context, routerID *int64, tipo string) ([]PlanComercial, error)
 }
 
 // PlanesDeArgos lee los planes con el cliente del conector Argos activo (protección SSRF).
@@ -51,16 +55,31 @@ type planArgos struct {
 	Nombre string         `json:"nombre"`
 	Precio *argos.Decimal `json:"precio"`
 	Activo *bool          `json:"activo"`
+	// 0.15.0 §13.1.
+	TipoServicio string   `json:"tipo_servicio"`
+	Componentes  []string `json:"componentes"`
 }
 
-func (p planesArgos) Planes(ctx context.Context, routerID *int64) ([]PlanComercial, error) {
-	cli, err := p.am.ClienteActivo(ctx, nucleo.BDDe(ctx))
+func (p planesArgos) Planes(ctx context.Context, routerID *int64, tipo string) ([]PlanComercial, error) {
+	bd := nucleo.BDDe(ctx)
+	cli, err := p.am.ClienteActivo(ctx, bd)
 	if err != nil {
 		return nil, err
 	}
 	q := url.Values{"activo": {"true"}}
 	if routerID != nil {
 		q.Set("router_id", strconv.FormatInt(*routerID, 10))
+	}
+	if tipo != "" {
+		// El filtro solo viaja a un Argos que informa ≥ 0.15.0 (§4.6); con uno anterior todos los
+		// planes son internet y el filtro se aplica aquí abajo.
+		con, err := argos.ArgosConTipoServicio(ctx, bd)
+		if err != nil {
+			return nil, err
+		}
+		if con {
+			q.Set("tipo_servicio", tipo)
+		}
 	}
 	ps, err := conector.Todas[planArgos](ctx, cli.Cliente, "/planes", q)
 	if err != nil {
@@ -71,14 +90,21 @@ func (p planesArgos) Planes(ctx context.Context, routerID *int64) ([]PlanComerci
 		if pl.Activo != nil && !*pl.Activo {
 			continue
 		}
-		salida = append(salida, PlanComercial{ID: pl.ID, Nombre: pl.Nombre, Precio: pl.Precio.Texto(), Activo: true})
+		t, cs := argos.NormalizarTipo(pl.TipoServicio, pl.Componentes)
+		visible := argos.TipoVisible(t)
+		if tipo != "" && tipo != visible && (t != nil || tipo != argos.TipoInternet) {
+			continue // Argos sin el filtro (o que no lo aplicó): sin tipo cuenta como internet
+		}
+		salida = append(salida, PlanComercial{ID: pl.ID, Nombre: pl.Nombre, Precio: pl.Precio.Texto(), Activo: true,
+			TipoServicio: visible, SinRouter: !argos.ConRouter(t, cs, nil, false)})
 	}
 	return salida, nil
 }
 
 // EntradaPlanes: GET /comercial/planes.
 type EntradaPlanes struct {
-	RouterID int64 `query:"routerId" minimum:"0" doc:"Router sugerido por la factibilidad: solo los planes que ofrece"`
+	RouterID     int64  `query:"routerId" minimum:"0" doc:"Router sugerido por la factibilidad: solo los planes que ofrece"`
+	TipoServicio string `query:"tipoServicio" enum:"internet,cable,iptv,mixto" required:"false" doc:"Solo los planes de ese tipo de servicio (contrato argosisp.md 0.15.0 §13.1: GET /planes?tipo_servicio= de Argos)"`
 }
 
 // PlanesDisponibles: respuesta de GET /comercial/planes.
@@ -118,7 +144,7 @@ func (m *Modulo) Planes(ctx context.Context, in EntradaPlanes) (PlanesDisponible
 		if in.RouterID > 0 {
 			router = &in.RouterID
 		}
-		ps, err := m.cfg.Planes.Planes(ctx, router)
+		ps, err := m.cfg.Planes.Planes(ctx, router, in.TipoServicio)
 		var pr *nucleo.Problema
 		switch {
 		case errors.As(err, &pr) && pr.Status >= 500:
@@ -236,7 +262,7 @@ func (m *Modulo) CrearCotizacion(ctx context.Context, in EntradaCrearCotizacion)
 		if m.cfg.Planes == nil {
 			return Cotizacion{}, nucleo.NoDisponible("No hay lector de planes de Argos configurado")
 		}
-		if e.planes, err = m.cfg.Planes.Planes(ctx, previo.RouterID); err != nil {
+		if e.planes, err = m.cfg.Planes.Planes(ctx, previo.RouterID, ""); err != nil {
 			return Cotizacion{}, err
 		}
 	}

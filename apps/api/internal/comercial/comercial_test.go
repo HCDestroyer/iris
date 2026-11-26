@@ -66,6 +66,8 @@ type argosFalso struct {
 	lecturasContactos int
 	// planesCaidos: GET /planes responde 503.
 	planesCaidos bool
+	// conCable: GET /planes suma el plan 310 de cable (0.15.0 §13.1) y aplica ?tipo_servicio=.
+	conCable bool
 }
 
 // Argos 1.2 (lo que respondió su equipo): huella del cuerpo crudo, repetición con el 2xx original
@@ -102,7 +104,7 @@ func nuevoArgos(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/planes", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		a.consultas = append(a.consultas, r.URL.RawQuery)
-		caidos := a.planesCaidos
+		caidos, cable := a.planesCaidos, a.conCable
 		a.mu.Unlock()
 		if caidos {
 			w.WriteHeader(http.StatusServiceUnavailable)
@@ -115,6 +117,17 @@ func nuevoArgos(t *testing.T) *argosFalso {
 		}
 		if r.URL.Query().Get("activo") != "true" {
 			planes = append(planes, `{"id":399,"nombre":"Inactivo","precio":"10.00","activo":false}`)
+		}
+		if cable {
+			// Argos 0.15.0: tipo y componentes en cada plan; el filtro tipo_servicio.
+			planes[0] = strings.Replace(planes[0], `"activo":true`, `"activo":true,"tipo_servicio":"internet","componentes":["internet"]`, 1)
+			planes = append(planes, `{"id":310,"nombre":"TV Cable","precio":"80.00","activo":true,"tipo_servicio":"cable","componentes":["cable"],"bajada_kbps":null}`)
+			switch r.URL.Query().Get("tipo_servicio") {
+			case "cable":
+				planes = planes[len(planes)-1:]
+			case "internet":
+				planes = planes[:len(planes)-1]
+			}
 		}
 		json200(w, `{"data":[`+strings.Join(planes, ",")+`],"nextCursor":null}`)
 	})
@@ -150,6 +163,9 @@ func nuevoArgos(t *testing.T) *argosFalso {
 				return
 			}
 			for _, k := range obligatorios {
+				if k == "router_id" && c["plan_id"] == float64(310) {
+					continue // 0.15.0 §13.1: un servicio de cable va sin router
+				}
 				if c[k] == nil {
 					problema(w, http.StatusUnprocessableEntity, "validacion")
 					return

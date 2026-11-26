@@ -686,3 +686,24 @@ internos que consume soporte:
 - **Titular empresa (0.14.1):** `TitularEmpresaDisponible` dice si el conector activo informa un
   contrato ≥ 0.14.1; si no, campo no ofrece el cambio a una empresa y el estado de la conexión lo
   lista en `funcionesApagadas` (`titular_empresa`).
+
+## Contrato 0.15.0, bloque A: tipo de servicio (§13.1, A53 / B33)
+
+- **Instantánea (lista blanca):** `argos_servicios` suma `tipo_servicio` y `componentes` (solo
+  `internet`, `cable`, `iptv`; `NormalizarTipo`). La tabla nueva `argos_planes` guarda id, nombre,
+  tipo, componentes y activo. Se llenan en la primera sincronización (paso `planes`, que antes solo
+  contaba), en la relectura periódica de catálogos (`SincronizarCatalogos`; si `GET /planes` falla, zonas
+  y routers se guardan igual), al releer un servicio por `servicio.creado` / `servicio.config_cambiada`
+  y con `catalogo.cambiado` de plan. `null` = Argos no lo informó (anterior a 0.15.0): se trata como
+  internet, como hoy.
+- **Regla A1 (`ConRouter`):** con router y velocidad solo si los componentes incluyen internet o iptv;
+  un tipo desconocido cuenta como internet, salvo con `router_id` null. `router_id` null se tolera en
+  todo el código. La ficha (`Servicio`) suma `tipoServicio` (internet, cable, iptv, mixto u otro),
+  `componentes` y `sinRouter`.
+- **Versión:** lo que Iris manda de nuevo a Argos (el filtro `tipo_servicio` de `GET /planes`) y las
+  decisiones de comercial van solo con un Argos que informa ≥ 0.15.0 (`ArgosConTipoServicio`).
+  `capacidades.tipo_servicio` es `true` con un Iris que habla la 0.15.0 (`SoportaTipoServicio`;
+  `ConContratoIris` es solo para pruebas).
+- **422 `tipo_sin_router`:** de negocio (cola de pendientes): no se reintenta solo y se muestra con su
+  explicación (`CodigoTipoSinRouter`).
+- No emite eventos nuevos. Pruebas: `contrato0150a_test.go`.

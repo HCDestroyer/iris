@@ -23,9 +23,11 @@ func TestVersionDeIrisUnaSolaFuente(t *testing.T) {
 		{"constante", "", constante},
 		{"con_portal", "0.9.0", "0.9.0"},
 		{"sin_portal", "0.8.0", "0.8.0"},
+		{"con_tipo_servicio", "0.15.0", "0.15.0"},
 	} {
 		t.Run(c.nombre, func(t *testing.T) {
 			portal := argos.SoportaPortal(&c.version)
+			tipo := argos.SoportaTipoServicio(&c.version)
 			e := nuevoEntornoCon(t, func(cfg *argos.Config) { cfg.ContratoIris = c.config })
 			e.argos.con(func() { e.argos.version = "1.30.0" })
 			admin, id, _ := e.conectado()
@@ -48,7 +50,7 @@ func TestVersionDeIrisUnaSolaFuente(t *testing.T) {
 			r := admin.pedir(http.MethodGet, "/api/v1/integraciones/argosisp/estado", nil)
 			caps, _ := r.cuerpo["capacidades"].(map[string]any)
 			if r.status != http.StatusOK || r.cuerpo["contratoIris"] != c.version || caps["portal_argos"] != portal ||
-				caps["solicitudes_servicio"] != portal || caps["adjuntos_ticket"] != portal {
+				caps["solicitudes_servicio"] != portal || caps["adjuntos_ticket"] != portal || caps["tipo_servicio"] != tipo {
 				t.Fatalf("estado: %d %s", r.status, r.crudo)
 			}
 			// Capacidades (el iris_pat_ que el canje entregó al panel de Argos).
@@ -56,7 +58,7 @@ func TestVersionDeIrisUnaSolaFuente(t *testing.T) {
 			api := &clienteHTTP{t: t, base: e.api.URL, http: http.DefaultClient}
 			r = api.pedir(http.MethodGet, argos.RutaCapacidades, nil, "Authorization", "Bearer "+token)
 			caps, _ = r.cuerpo["capacidades"].(map[string]any)
-			if r.status != http.StatusOK || r.cuerpo["contrato_iris"] != c.version || caps["portal_argos"] != portal {
+			if r.status != http.StatusOK || r.cuerpo["contrato_iris"] != c.version || caps["portal_argos"] != portal || caps["tipo_servicio"] != tipo {
 				t.Fatalf("capacidades: %d %s", r.status, r.crudo)
 			}
 		})

@@ -167,7 +167,7 @@ type Factibilidad struct {
 	ProspectoID     int64     `json:"prospectoId"`
 	Resultado       string    `json:"resultado" enum:"viable,no_viable,requiere_obra,indeterminado" doc:"indeterminado: no hay datos para decidir (motivo); nunca se inventa"`
 	Motor           string    `json:"motor" doc:"distancia (router más cercano de la instantánea de Argos), manual (visita técnica), ozmap (fase 6)"`
-	Motivo          *string   `json:"motivo" nullable:"true" doc:"Por qué es indeterminado: sin_conector, conector_apagado, sin_coordenadas, sin_empresa, sin_instantanea, sin_routers_con_coordenadas"`
+	Motivo          *string   `json:"motivo" nullable:"true" doc:"Por qué es indeterminado: sin_conector, conector_apagado, sin_coordenadas, sin_empresa, sin_instantanea, sin_routers_con_coordenadas, planta_no_disponible, tipo_sin_router (plan de cable, contrato argosisp.md 0.15.0 §13.1: sin planta CATV en Argos)"`
 	Lat             *float64  `json:"lat" nullable:"true" doc:"Coordenadas evaluadas (las del prospecto en ese momento)"`
 	Lon             *float64  `json:"lon" nullable:"true"`
 	RouterID        *int64    `json:"routerId" nullable:"true" doc:"Router sugerido (Argos)"`

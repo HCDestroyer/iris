@@ -187,7 +187,7 @@ type EstadoActivacion struct {
 	OrdenID             int64        `json:"ordenId"`
 	Modo                string       `json:"modo" enum:"al_cerrar,exigir_lista,pendiente_agente" doc:"Efectivo: al_cerrar si Argos no puede aprovisionar en la empresa (§4.3)"`
 	Disponible          bool         `json:"disponible" doc:"Se puede pedir «Activar servicio» ahora (con el actual)"`
-	NoDisponible        *string      `json:"noDisponible" nullable:"true" doc:"Por qué no: sin_capacidad, modo_al_cerrar, activacion_al_cerrar, activacion_en_curso, activacion_lista, no_es_instalacion, sin_servicio, orden_terminada"`
+	NoDisponible        *string      `json:"noDisponible" nullable:"true" doc:"Por qué no: sin_capacidad, tipo_sin_router (servicio de cable, 0.15.0), modo_al_cerrar, activacion_al_cerrar, activacion_en_curso, activacion_lista, no_es_instalacion, sin_servicio, orden_terminada"`
 	Estado              string       `json:"estado" enum:"ninguna,pendiente,en_proceso,listo,fallido" doc:"El del último intento"`
 	Actual              *Activacion  `json:"actual,omitempty" doc:"El último intento"`
 	Intentos            []Activacion `json:"intentos" doc:"Todos, del último al primero"`
@@ -356,6 +356,15 @@ func (m *Modulo) noDisponible(ctx context.Context, t *auditoria.Tx, q *campobd.Q
 		return "sin_servicio", nil
 	case f.Estado == EstadoCancelada || f.Estado == EstadoFallida:
 		return "orden_terminada", nil
+	}
+	if s, err := q.ServicioArgos(ctx, *f.ServicioID); err == nil && !argos.ConRouter(s.TipoServicio, s.Componentes, s.RouterID, true) {
+		// 0.15.0 §13.1 (A1, A3): un servicio de cable no se aprovisiona (Argos respondería 422
+		// tipo_sin_router): se activa al cerrar.
+		return argos.CodigoTipoSinRouter, nil
+	} else if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	switch {
 	case !capacidad:
 		return "sin_capacidad", nil
 	case modo == ModoAlCerrar:
@@ -392,6 +401,8 @@ func problemaNoDisponible(motivo string) *nucleo.Problema {
 		return transicionInvalida("activar el servicio de", "cancelada o fallida")
 	case "modo_al_cerrar":
 		return nucleo.ReglaNegocio("activacion_no_disponible", "La empresa activa el servicio al cerrar la orden")
+	case argos.CodigoTipoSinRouter:
+		return nucleo.ReglaNegocio("activacion_no_disponible", "El servicio es de cable (sin router): no se aprovisiona; se activa al cerrar la orden")
 	}
 	return nucleo.ReglaNegocio("activacion_no_disponible", "Argos no puede aprovisionar este tipo de equipo en la empresa: el servicio se activa al cerrar")
 }

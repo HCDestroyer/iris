@@ -461,3 +461,9 @@ terminal y hace releer el estado. Con «exigir lista» y el servicio ya `activo`
 con `activacion.estado: activado_fuera`, sin supervisor ni comodato. Una bienvenida sin origen se relaciona solo con la
 única instalación del servicio y del titular de los últimos 7 días, marcada `relacionadaPorServicio`, y no cuenta para
 `cierre_exige_bienvenida`.
+
+## Tipo de servicio (contrato argosisp.md 0.15.0 §13.1, B33)
+
+El servicio del paquete (`ServicioCampo`) trae `tipoServicio` y `sinRouter`. Un servicio sin router (cable, regla A1)
+no ofrece cambiar el plan por router (`planes.motivo: tipo_sin_router`, sin llamar a `GET /planes?router_id=`) ni
+«Activar servicio» (`noDisponible: tipo_sin_router`; la activación sale al cerrar). Pruebas: `tipo_servicio_test.go`.

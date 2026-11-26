@@ -77,7 +77,7 @@ function estado(s: Sincronizacion | undefined, certificadoCambiado: boolean): Es
         contratoIris: "0.8.0",
         contratoArgos: "0.8.0",
         versionArgos: "1.18.0",
-        capacidades: { portal_argos: false, solicitudes_servicio: false, adjuntos_ticket: false },
+        capacidades: { portal_argos: false, solicitudes_servicio: false, adjuntos_ticket: false, tipo_servicio: false },
         funcionesApagadas: [{ codigo: "buscar_sin_red", desde: "Argos 1.21.0", texto: "La búsqueda de clientes todavía encuentra por usuario PPPoE a quien no puede ver los datos de red" }],
         sincronizacion: s,
         instantaneas: [

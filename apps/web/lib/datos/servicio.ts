@@ -8,7 +8,23 @@ type Servicio = Schema<"Servicio">;
  * uno se adapta con su función). Lo sensible viene solo si el servidor lo dejó pasar (§2.4).
  */
 export type ServicioLinea = Pick<Servicio, "id" | "estado"> &
-    Partial<Pick<Servicio, "numero" | "codigo" | "planNombre" | "zonaNombre" | "precioMensual" | "moneda" | "routerNombre" | "ip" | "direccion">>;
+    Partial<Pick<Servicio, "numero" | "codigo" | "planNombre" | "zonaNombre" | "precioMensual" | "moneda" | "routerNombre" | "ip" | "direccion" | "tipoServicio" | "sinRouter">>;
+
+/** Tipo de servicio de Argos (contrato 0.15.0 §13.1). */
+export type TipoServicio = NonNullable<Servicio["tipoServicio"]>;
+
+const TEXTOS_TIPO: Record<TipoServicio, string> = {
+    internet: "Internet",
+    cable: "Cable (TV)",
+    iptv: "IPTV",
+    mixto: "Internet y cable",
+    otro: "Otro tipo",
+};
+
+/** «Cable (TV)»; "" si Argos no informó el tipo (anterior a 0.15.0: se trata como internet y no se muestra). */
+export function textoTipoServicio(tipo: TipoServicio | undefined | null): string {
+    return tipo ? TEXTOS_TIPO[tipo] : "";
+}
 
 /** «Q250.00 al mes»; "" sin precio (Argos anterior a 1.18.0: nunca «Q0»). */
 export function textoPrecio(s: Pick<ServicioLinea, "precioMensual" | "moneda">): string {
@@ -36,6 +52,8 @@ export function lineaDeServicioCampo(s: Schema<"ServicioCampo">): ServicioLinea 
         ...(s.router ? { routerNombre: s.router } : {}),
         ...(s.ip ? { ip: s.ip } : {}),
         ...(s.direccion ? { direccion: s.direccion } : {}),
+        ...(s.tipoServicio ? { tipoServicio: s.tipoServicio } : {}),
+        ...(s.sinRouter ? { sinRouter: true } : {}),
     };
 }
 

@@ -1084,6 +1084,17 @@ type IntegracionArgosIncidenteServicio struct {
 	Intentos   int32
 }
 
+type IntegracionArgosPlane struct {
+	ID             int64
+	Nombre         string
+	TipoServicio   *string
+	Componentes    []string
+	Activo         bool
+	SincronizadoEn time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type IntegracionArgosRouter struct {
 	ID             int64
 	EmpresaID      *int64
@@ -1128,6 +1139,8 @@ type IntegracionArgosServicio struct {
 	Planta            []byte
 	Nombre            string
 	TitularCambiadoEn *time.Time
+	TipoServicio      *string
+	Componentes       []string
 }
 
 type IntegracionArgosSincronizacionEtapa struct {

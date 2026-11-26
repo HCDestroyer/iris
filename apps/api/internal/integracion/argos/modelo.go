@@ -72,6 +72,21 @@ type Servicio struct {
 	ContactoTelefono  string             `json:"contactoTelefono,omitempty" doc:"Teléfono del contacto en sitio tal como está en Argos; solo con servicios.ver_ubicacion"`
 	ContactoTelefonos []formato.Telefono `json:"contactoTelefonos,omitempty" doc:"El teléfono del contacto en sitio para mostrar y llamar (E.164); solo con servicios.ver_ubicacion"`
 	SincronizadoEn    time.Time          `json:"sincronizadoEn" doc:"Cuándo se leyó de Argos"`
+	// Tipo de servicio (contrato 0.15.0 §13.1): lo ve cualquiera con clientes.ver.
+	TipoServicio string   `json:"tipoServicio,omitempty" enum:"internet,cable,iptv,mixto,otro" doc:"Tipo de servicio en Argos (0.15.0): internet, cable (CATV por fibra), iptv, mixto u otro (uno que Argos agregó después). Ausente si Argos no lo informó (anterior a 0.15.0): se trata como internet"`
+	Componentes  []string `json:"componentes,omitempty" doc:"Componentes del servicio (internet, cable, iptv); ausente si Argos no los informó"`
+	SinRouter    bool     `json:"sinRouter,omitempty" doc:"true: el servicio no tiene router ni velocidad (cable, §13.1 A1). Iris no pide ni ofrece router, velocidad contratada, cambio de plan por router ni activación por aprovisionamiento"`
+	tipo         *string
+}
+
+// Tipo: el tipo guardado (nil si Argos no lo informó).
+func (s Servicio) Tipo() *string { return s.tipo }
+
+// conTipo llena los campos del tipo (A1) a partir de lo guardado.
+func (s *Servicio) conTipo(tipo *string, componentes []string) {
+	s.tipo, s.Componentes = tipo, componentes
+	s.TipoServicio = TipoVisible(tipo)
+	s.SinRouter = !ConRouter(tipo, componentes, s.RouterID, true)
 }
 
 // Planta es la referencia de planta del servicio (A9): cada clave es texto o null.
