@@ -77,6 +77,11 @@ test.describe("Teléfono: encender", () => {
         expect(registro).toMatch(/Contact: <sip:204@[a-z0-9]+\.invalid;transport=ws>/);
         expect(registro).toMatch(/From: (?:"[^"]*" )?<sip:204@pbx\.oficina>/);
         expect(registro).not.toMatch(/Authorization/i);
+        if (test.info().project.name.startsWith("telefono")) {
+            // En el teléfono el aviso «Teléfono listo» va sobre la fila del encabezado, donde está el
+            // botón del teléfono: se toca cuando el aviso se fue (si no, el toque cae en el aviso).
+            await expect(page.getByText("Teléfono listo: tu extensión 204 suena aquí")).toHaveCount(0, { timeout: 10_000 });
+        }
         await slot(page, "boton-telefono").click();
         await expect(slot(page, "estado-telefono")).toContainText("Listo para contestar y llamar");
         await expect(slot(page, "estado-telefono")).toContainText("Tu extensión 204 suena aquí");
