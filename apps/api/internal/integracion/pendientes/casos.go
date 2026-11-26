@@ -285,16 +285,10 @@ func nuevoReintentar(m *Modulo) *auditoria.Caso[EntradaReintentar, Pendiente] {
 			if f.EmpresaID != nil {
 				t.FijarEmpresa(*f.EmpresaID)
 			}
-			if orden, ok := ordenDePasoTitular(f); ok {
-				// B4 (y B-f: el 403 antes que el 409 de versión): reintentar un paso del titular (§3.4.8) exige lo mismo que resolverlo a mano: un
-				// supervisor con ordenes.validar_identidad y alcance de su rol sobre la orden.
-				permitido, err := supervisaOrden(ctx, q, orden)
-				if err != nil {
-					return Pendiente{}, err
-				}
-				if !permitido {
-					return Pendiente{}, nucleo.Prohibido("Un paso del titular lo reintenta un supervisor con ordenes.validar_identidad sobre la orden")
-				}
+			// B4 (y B-f: el 403 antes que el 409 de versión): reintentar un paso del titular (§3.4.8) exige lo
+			// mismo que resolverlo a mano; sin una orden válida, falla cerrado (403).
+			if err := exigirSupervisorDelPaso(ctx, q, f); err != nil {
+				return Pendiente{}, err
 			}
 			if err := nucleo.ExigirVersion(f.Version, in.Version, "pendiente", f.ID); err != nil {
 				return Pendiente{}, err
@@ -943,14 +937,14 @@ type eventoClienteFijado struct {
 	UsuarioID *int64 `json:"usuario_id"`
 }
 
-// exigirSupervisorDelPaso: un paso del titular (§3.4.8) lo resuelve a mano solo un supervisor con
+// exigirSupervisorDelPaso: un paso del titular (§3.4.8) lo resuelve a mano o lo reintenta solo un supervisor con
 // ordenes.validar_identidad y alcance de su rol sobre la orden (global, su zona o su cuadrilla;
 // nunca el técnico asignado). Sin una orden válida, falla cerrado (403).
 func exigirSupervisorDelPaso(ctx context.Context, q *pendientesbd.Queries, f pendientesbd.IntegracionPendiente) error {
 	if !slices.Contains(OperacionesTitular, f.Operacion) {
 		return nil
 	}
-	prohibido := nucleo.Prohibido("Un paso del titular lo resuelve a mano un supervisor con ordenes.validar_identidad sobre la orden")
+	prohibido := nucleo.Prohibido("Un paso del titular lo resuelve a mano o lo reintenta un supervisor con ordenes.validar_identidad sobre la orden")
 	orden, ok := ordenDePasoTitular(f)
 	if !ok {
 		return prohibido

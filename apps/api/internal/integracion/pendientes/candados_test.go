@@ -3,6 +3,7 @@ package pendientes_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"testing"
 	"time"
@@ -10,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
 )
 
 // Orden de candados (B3, B-b): la red de seguridad y el resultado de un paso del titular toman la orden
@@ -136,5 +139,35 @@ func TestPasoDelTitularTomaLaOrdenForUpdateAntesQueElPaso(t *testing.T) {
 	e.probarOrdenDeCandados(orden, paso, "FOR SHARE")
 	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND estado = 'hecho'`, paso); n != 1 {
 		t.Fatal("el paso queda hecho")
+	}
+}
+
+// Bajo de #286: reintentar un paso del titular sin una orden válida (entidad_id que no es un número)
+// falla cerrado (403), igual que resolverlo a mano, aunque quien lo pide tenga todos los permisos.
+func TestPasoDelTitularSinOrdenValidaFallaCerrado(t *testing.T) {
+	e := nuevoEntorno(t)
+	var paso int64
+	var version int32
+	if err := e.pool.QueryRow(context.Background(), `INSERT INTO integracion.pendientes (empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo,
+		ruta, payload, depende_de, datos_incompletos, estado, proximo_intento, ultimo_error)
+		VALUES (1, 'argosisp', 'cambiar_titular', $1, 'orden', 'no-es-una-orden', 'POST', '/servicios/20/cambiar-titular', '{}', '{}', false,
+		'fallido_negocio', now(), 'HTTP 422') RETURNING id, version`, "iris:titular:sin-orden:"+nuevaOrden()).Scan(&paso, &version); err != nil {
+		t.Fatal(err)
+	}
+	sup := pruebas.ContextoUsuarioEnEmpresa(e.pool, e.tecnico("u-sin-orden"), 1, nucleo.PermIntegracionesReintentar,
+		nucleo.PermIntegracionesResolverPendiente, nucleo.PermOrdenesValidarIdentidad)
+	prohibido := func(err error) {
+		t.Helper()
+		var p *nucleo.Problema
+		if !errors.As(err, &p) || p.Status != 403 {
+			t.Fatalf("esperaba 403, llegó %v", err)
+		}
+	}
+	_, err := e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: paso, Version: version})
+	prohibido(err)
+	_, err = e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: paso, Version: version, Motivo: "Lo corregí en Argos a mano"})
+	prohibido(err)
+	if n := e.contar("SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND estado = 'fallido_negocio'", paso); n != 1 {
+		t.Fatal("el paso no cambia")
 	}
 }
