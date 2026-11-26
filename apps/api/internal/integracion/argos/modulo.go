@@ -101,8 +101,11 @@ type Modulo struct {
 	guardarVerificacion *auditoria.Caso[tandaVerificada, int]
 	// cargaCuentas y cargaBancos: la instantánea de cuentas y bancos (B5); nil = solo contar.
 	cargaCuentas, cargaBancos CargaCatalogoBancario
-	cfg                       Config
-	nucleo                    *conector.Nucleo
+	// Portal del cliente de Argos (0.9.0 §11): la sesión de cada petición (portal.go).
+	prepararPortal *auditoria.Caso[CabecerasPortal, previoPortal]
+	cerrarPortal   *auditoria.Caso[entradaCerrarPortal, SesionPortal]
+	cfg            Config
+	nucleo         *conector.Nucleo
 	// Carga inicial de vínculos (0.14.0 §6.6).
 	iniciarCarga        *auditoria.Caso[int64, ResultadoCargaVinculos]
 	marcarCargaCerrada  *auditoria.Caso[ResultadoCargaVinculos, ResultadoCargaVinculos]
@@ -140,7 +143,9 @@ type Modulo struct {
 	InformarSincronizacion *InformarSincronizacion
 	Sincronizar            *auditoria.Caso[EntradaSincronizar, Sincronizacion]
 	EstadoConexion         *auditoria.Caso[struct{}, EstadoConexionArgos]
-	RegistrarCertificado   *auditoria.Caso[EntradaCertificado, ResultadoCertificado]
+	// VerCapacidades: GET /integraciones/argosisp/capacidades (0.14.2 §4.3), para el token de Argos.
+	VerCapacidades       *auditoria.Caso[struct{}, CapacidadesConector]
+	RegistrarCertificado *auditoria.Caso[EntradaCertificado, ResultadoCertificado]
 }
 
 // Alias de los tipos comunes de conexión (el OpenAPI los publica con estos nombres).
@@ -200,6 +205,8 @@ func Nuevo(cfg Config) *Modulo {
 		Contrato: contratoIrisDe(cfg), Capacidades: capacidades,
 		// 0.6.2: el canje exige el receptor de Argos (§1.3) y manda receptor_argos: true.
 		ExigirReceptor: true,
+		// 0.9.0 §1.2: el canje entrega además el token_portal (cuando Iris habla un contrato ≥ 0.9.0).
+		TokenPortal: SoportaPortal(&contratoIris),
 		// 0.6.3: el atk_ de un canje que Iris no completa se revoca en Argos (job).
 		RutaRevocarCanje: "/integraciones/iris/conexion/revocar",
 		// 0.6.3: al reconectar, el iris_pat_ del conector anterior vive hasta que el atk_ nuevo responda.
@@ -234,6 +241,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.InformarSincronizacion = nuevoInformarSincronizacion(m)
 	m.Sincronizar = nuevoSincronizar(m)
 	m.EstadoConexion = nuevoEstadoConexion(m)
+	m.VerCapacidades = nuevoVerCapacidades()
+	m.prepararPortal, m.cerrarPortal = nuevoPrepararPortal(m), nuevoCerrarPortal(m)
 	m.RegistrarCertificado = nuevoRegistrarCertificado()
 	return m
 }

@@ -158,14 +158,14 @@ Una tarea está terminada solo si:
 | Evento | Emite | Payload |
 | --- | --- | --- |
 | `ticket.creado` | soporte | ticket_id, empresa_id, cliente_id (o null), servicio_id (o null), categoria, prioridad, origen |
-| `ticket.estado_cambiado` | soporte | ticket_id, de, a, motivo |
+| `ticket.estado_cambiado` | soporte | ticket_id, de, a, motivo, numero, empresa_id, cliente_id, servicio_id, origen; va a Argos (§6.6, 0.9.0) sin motivo y con puede_confirmar |
 | `ticket.asignado` | soporte | ticket_id, usuario_id (o null), cuadrilla_id (o null) |
-| `ticket.respondido` | soporte | ticket_id, mensaje_id |
+| `ticket.respondido` | soporte | ticket_id, mensaje_id, numero, empresa_id, cliente_id, autor_tipo (agente, sistema), masivo, aviso_por_correo; va a Argos (§6.6, 0.9.0) |
 | `ticket.escalado` | soporte | ticket_id, de, a, nivel, motivo |
 | `ticket.fusionado` | soporte | ticket_id, destino_id, motivo (o null) |
 | `ticket.sla_en_riesgo` / `ticket.sla_vencido` | soporte (cron) | ticket_id, sla, vence_en |
 | `ticket.resolucion_propuesta` | soporte (Horus, cierre de orden) | ticket_id, accion (resolver \| cerrar), motivo, origen (horus \| orden), entrante_id (o null), orden_id (o null) |
-| `ticket.mensaje_cliente` | soporte (portal) | ticket_id, mensaje_id, canal |
+| `ticket.mensaje_cliente` | soporte (portal, portal de Argos) | ticket_id, mensaje_id, canal (portal, portal_argos); nunca vuelve a Argos |
 | `encuesta.enviada` | soporte | encuesta_id, entidad (ticket \| orden), entidad_id, canal (correo \| enlace) |
 | `encuesta.respondida` | soporte (público) | encuesta_id, entidad, entidad_id, calificacion, alerta (true si ≤ 2) |
 | `encuesta.anulada` | soporte | encuesta_id, entidad (ticket), entidad_id, motivo (reabierto \| fusionado) |
@@ -193,7 +193,10 @@ Una tarea está terminada solo si:
 | `tarea.creada` / `tarea.completada` / `tarea.anulada` | agenda | tarea_id, empresa_id, tecnico_id; creada_por, inicio, fin, duracion_min, orden_id (o null), cliente_id (o null), origen, solapa_con (creada); completada_por, completada_en (completada); anulada_por, motivo (o null) (anulada) |
 | `ruta.propuesta` / `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[], motor, degradada; modo, motivo_motor (propuesta); reemplaza_id, version (publicada) |
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
-| `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id (creado); modo (local, argos), contrato_id, cotizacion_id, orden_id (o null), pendientes[] (ganado); motivo (perdido) |
+| `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id, solicitud_tipo (portal_argos) (creado); modo (local, argos, solicitud), contrato_id (o null), cotizacion_id, orden_id (o null), pendientes[], tarea_argos (solicitud) (ganado); motivo (perdido) |
+| `prospecto.tarea_argos_completada` | comercial (portal de Argos) | prospecto_id, empresa_id, solicitud_tipo |
+| `solicitudes.ajustes_cambiados` | comercial (portal de Argos) | empresa_id, cambio_plan_exige_contrato, version |
+| `solicitud_servicio.estado_cambiado` | comercial (portal de Argos) | solicitud_id, numero, empresa_id, cliente_id, tipo, servicio_id (o null), de, a (estado_cliente); va a Argos (§6.6, 0.9.0) |
 | `prospecto.actualizado` / `prospecto.asignado` / `prospecto.estado_cambiado` / `prospecto.actividad_registrada` | comercial | prospecto_id; campos[] (actualizado); vendedor_id, vendedor_anterior_id (asignado); de, a, motivo (estado); actividad_id, tipo (actividad) |
 | `prospecto.alta_actualizada` | comercial (alta en Argos) | prospecto_id, estado (esperando_servicio, esperando_activacion, completa), cliente_id, servicio_id (o null), orden_id (o null); también al pasar al titular nuevo (B17) |
 | `prospecto.venta_revisada` | comercial (B20, cambio de plan o titular hecho en Argos) | prospecto_id, empresa_id, vendedor_id (o null), orden_id, motivo (plan, titular), cotizacion_id (la revisión, vigente), contrato_id (regenerado en borrador, se firma en la orden; o null con la orden cancelada, fallida o cerrada) |

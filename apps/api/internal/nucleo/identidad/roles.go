@@ -149,6 +149,11 @@ func validarPermisos(campo string, permisos []nucleo.Permiso) ([]string, error) 
 			errores = append(errores, nucleo.ErrorCampo{Field: fmt.Sprintf("%s[%d]", campo, i), Message: "El permiso " + string(p) + " no existe", Rule: "existe"})
 			continue
 		}
+		if esPermisoPortalArgos(string(p)) {
+			errores = append(errores, nucleo.ErrorCampo{Field: fmt.Sprintf("%s[%d]", campo, i),
+				Message: "El permiso " + string(p) + " es solo del token_portal de Argos (rol integracion_argos)", Rule: "solo_token_portal"})
+			continue
+		}
 		salida = append(salida, string(p))
 	}
 	if len(errores) > 0 {
@@ -447,6 +452,9 @@ func nuevoAsignarRolUsuario() *auditoria.Caso[EntradaRolUsuario, Usuario] {
 				return Usuario{}, err
 			}
 			if err := exigirVisible(ctx, q, in.UsuarioID, "asignar roles a este usuario"); err != nil {
+				return Usuario{}, err
+			}
+			if err := exigirRolesDePersona(u.Tipo, "rol", []AsignacionRol{in.AsignacionRol}); err != nil {
 				return Usuario{}, err
 			}
 			// El rol inactivo se responde abajo con su propio código (rol_inactivo).

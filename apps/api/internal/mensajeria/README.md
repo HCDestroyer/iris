@@ -80,6 +80,10 @@ Consume: `aviso.entregado`, `aviso.fallido` (solo los de origen `argos`) y `cont
 el secreto que Argos entregó en el canje, reintentos a 1 min, 5 min, 30 min, 2 h y 12 h, y solo al
 conector Argos activo con contrato ≥ 0.6.0 (si no, `omitido`). Cada aviso emite un solo webhook final.
 
+Webhooks Iris → Argos de 0.9.0 (§6.6, B9): `ticket.estado_cambiado`, `ticket.respondido` y
+`solicitud_servicio.estado_cambiado`, solo a conectores con contrato ≥ 0.9.0, solo con `cliente_id` y
+con la empresa en el alcance del conector (si no, `omitido`), sin cuerpo, notas ni motivos escritos.
+
 ## Aviso de una falla general (`avisos_falla.go`, contrato con Argos 0.13.0 §3.11, B30)
 
 El worker consume `soporte.aviso_falla` y pide un aviso como cualquier otro (`EnviarAviso`, actor

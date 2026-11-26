@@ -73,14 +73,24 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 			t.Fatalf("falta el rol base %s", base)
 		}
 	}
-	if len(porCodigo["admin"].Permisos) != len(nucleo.Catalogo) {
-		t.Fatalf("admin tiene todos los permisos: %v", porCodigo["admin"].Permisos)
+	// admin: todos menos portal_argos.*, que solo lleva integracion_argos (token_portal).
+	if len(porCodigo["admin"].Permisos) != len(nucleo.Catalogo)-len(nucleo.PermisosPortalArgos()) {
+		t.Fatalf("admin tiene todos los permisos menos portal_argos.*: %v", porCodigo["admin"].Permisos)
+	}
+	for _, p := range porCodigo["admin"].Permisos {
+		if strings.HasPrefix(string(p), "portal_argos.") {
+			t.Fatalf("admin con %s", p)
+		}
 	}
 	if !slices.Equal(porCodigo["lectura"].Permisos, []nucleo.Permiso{nucleo.PermAgendaVer, nucleo.PermChatVer, nucleo.PermClientesVer, nucleo.PermConversacionesVer, nucleo.PermLlamadasVer, nucleo.PermManualesVer, nucleo.PermOrdenesVer, nucleo.PermPermisosVer, nucleo.PermProspectosVer, nucleo.PermReportesVer, nucleo.PermRolesVer, nucleo.PermRutasVer, nucleo.PermTicketsVer, nucleo.PermUsuariosVer}) {
 		t.Fatalf("lectura: %v", porCodigo["lectura"].Permisos)
 	}
-	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermAdjuntosVerificarIntegracion, nucleo.PermCuadrillasLeerIntegracion, nucleo.PermMensajeriaEnviar, nucleo.PermMensajeriaRegistrarConsentimiento,
-		nucleo.PermMensajeriaVer, nucleo.PermOrdenesVer, nucleo.PermPlantillasWhatsAppLeerIntegracion, nucleo.PermPortalEmitir, nucleo.PermProspectosRegistrarIntegracion, nucleo.PermSSOEmitir, nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {
+	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermAdjuntosVerificarIntegracion, nucleo.PermCuadrillasLeerIntegracion, nucleo.PermIntegracionesVerCapacidades, nucleo.PermMensajeriaEnviar, nucleo.PermMensajeriaRegistrarConsentimiento,
+		nucleo.PermMensajeriaVer, nucleo.PermOrdenesVer, nucleo.PermPlantillasWhatsAppLeerIntegracion, nucleo.PermPortalEmitir,
+		// Portal del cliente de Argos (0.9.0 §11): solo valen en el token_portal.
+		nucleo.PermPortalArgosConfirmarSolucion, nucleo.PermPortalArgosCrearTicket, nucleo.PermPortalArgosResponderTicket,
+		nucleo.PermPortalArgosSolicitarServicio, nucleo.PermPortalArgosVerSolicitudes, nucleo.PermPortalArgosVerTickets,
+		nucleo.PermProspectosRegistrarIntegracion, nucleo.PermSSOEmitir, nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {
 		t.Fatalf("integracion_argos: %v", porCodigo["integracion_argos"].Permisos)
 	}
 	if !slices.Equal(porCodigo["integracion_horus"].Permisos, []nucleo.Permiso{nucleo.PermTicketsCrear, nucleo.PermTicketsVer}) {

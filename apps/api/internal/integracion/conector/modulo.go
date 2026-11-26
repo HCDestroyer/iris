@@ -100,6 +100,10 @@ type Sistema struct {
 	// en el host de la base del canje) y Iris manda `receptor_argos: true` en él (contrato Iris ↔
 	// ArgosISP 0.6.2 §1.3 y «Versión y compatibilidad»). Solo Argos; Horus no entrega receptor.
 	ExigirReceptor bool
+	// TokenPortal: el canje entrega además el token_portal (contrato Iris ↔ ArgosISP 0.9.0 §1.2): otro
+	// iris_pat_ del usuario de integración, recortado a portal_argos.*, que vale mientras valga el del
+	// canje. Solo Argos, y solo si Iris habla un contrato ≥ 0.9.0.
+	TokenPortal bool
 	// RutaRevocarCanje (bajo /api/v1): si Iris no completa un canje que el otro sistema respondió con
 	// 200, revoca allí el token recibido (contrato Iris ↔ ArgosISP 0.6.3 §1.3,
 	// /integraciones/iris/conexion/revocar). Vacía = el sistema no la ofrece (Horus).
@@ -152,6 +156,27 @@ type Tokens interface {
 	// EliminarTokenIntegracion lo revoca si aún vale y lo elimina (borrado lógico) al eliminar el
 	// conector; eliminar uno ya eliminado no es error.
 	EliminarTokenIntegracion(ctx context.Context, id int64) error
+}
+
+// EmisorTokenPortal emite el token_portal (contrato con Argos 0.9.0 §1.2) hijo de un iris_pat_
+// entregado. Lo implementa identidad.Modulo; un Tokens sin él no entrega token_portal.
+type EmisorTokenPortal interface {
+	EmitirTokenPortal(ctx context.Context, padreID int64) (id int64, valor string, err error)
+}
+
+// EmitirTokenPortal emite el token_portal hijo de padreID con el emisor fijado (FijarTokens). 422
+// emisor_token_no_configurado si no hay emisor o no sabe emitirlo.
+func (n *Nucleo) EmitirTokenPortal(ctx context.Context, padreID int64) (int64, string, error) {
+	e, ok := n.tokensFijados().(EmisorTokenPortal)
+	if !ok {
+		return 0, "", errSinTokens
+	}
+	return e.EmitirTokenPortal(ctx, padreID)
+}
+
+// RevocarToken revoca un token de integración (o encola el reintento). Nunca devuelve error.
+func (n *Nucleo) RevocarToken(ctx context.Context, id int64, motivo string) {
+	n.revocarEntregado(ctx, nil, id, motivo)
 }
 
 // VigenciaTokenCanje: el iris_pat_ entregado muere solo si el conector no se activa en este plazo.

@@ -24,7 +24,7 @@ const (
 var Prioridades = []string{"baja", "media", "alta", "critica"}
 
 // Origenes de un ticket.
-var Origenes = []string{"panel", "portal", "correo", "telegram", "horus", "argos", "api"}
+var Origenes = []string{"panel", "portal", "portal_argos", "correo", "telegram", "horus", "argos", "api"}
 
 func rangoPrioridad(p string) int { return slices.Index(Prioridades, p) }
 
@@ -57,7 +57,7 @@ type Ticket struct {
 	CategoriaID       *int64     `json:"categoriaId" nullable:"true"`
 	Prioridad         string     `json:"prioridad" enum:"baja,media,alta,critica"`
 	Estado            string     `json:"estado" enum:"nuevo,abierto,en_espera,resuelto,cerrado"`
-	Origen            string     `json:"origen" enum:"panel,portal,correo,telegram,horus,argos,api"`
+	Origen            string     `json:"origen" enum:"panel,portal,portal_argos,correo,telegram,horus,argos,api"`
 	Asunto            string     `json:"asunto"`
 	AsignadoA         *int64     `json:"asignadoA" nullable:"true" doc:"Usuario asignado"`
 	CuadrillaID       *int64     `json:"cuadrillaId" nullable:"true"`

@@ -12,6 +12,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
+	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -32,6 +33,10 @@ import (
 
 // ContratoIris es la versión del contrato Iris ↔ ArgosISP que habla esta versión de Iris.
 const ContratoIris = "0.8.1"
+
+// contratoIris: ContratoIris como variable (las funciones de 0.9.0 se encienden cuando sube; las
+// pruebas la cambian para probarlas).
+var contratoIris = ContratoIris
 
 // VersionInventarioTecnico es la primera versión de Argos que entiende `tecnico` (§3.3). Argos
 // 1.5.x lo ignora y, sin bodega_id, responde 422 «bodega_id required».
@@ -389,8 +394,27 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	// receptor_argos (0.6.2): true si el conector tiene guardado el receptor de Argos (url y secreto
 	// cifrado, §6.6). Los canjeados antes de B1 no lo tienen: false, y Argos pide reconectar.
 	receptor := c.WebhookSalidaUrl != nil && len(c.WebhookSalidaSecretoCifrado) > 0
-	errPut := cli.Pedir(ctx, http.MethodPut, rutaContrato, nil, map[string]any{"contrato": k.m.contratoIris(), "receptor_argos": receptor}, true,
-		&conector.Recurso{Destino: &puesto})
+	cuerpo := map[string]any{"contrato": k.m.contratoIris(), "receptor_argos": receptor}
+	// 0.9.0 §1.2: a un conector ya conectado, el token_portal va en el PUT si todavía no tiene uno
+	// vigente (hijo de su iris_pat_). Si el PUT no llega a Argos, se revoca y sale en el siguiente.
+	var portalID int64
+	if SoportaPortal(&contratoIris) && c.TokenEntregadoID != nil {
+		vigente, err := argosbd.New(bd).TokenPortalVigente(ctx, c.TokenEntregadoID)
+		if err != nil {
+			return ResultadoContrato{}, err
+		}
+		if !vigente {
+			id, valor, err := k.m.nucleo.EmitirTokenPortal(ctx, *c.TokenEntregadoID)
+			if err != nil {
+				return ResultadoContrato{}, err
+			}
+			portalID, cuerpo["token_portal"] = id, valor
+		}
+	}
+	errPut := cli.Pedir(ctx, http.MethodPut, rutaContrato, nil, cuerpo, true, &conector.Recurso{Destino: &puesto})
+	if portalID != 0 && errPut != nil {
+		k.m.nucleo.RevocarToken(context.WithoutCancel(ctx), portalID, "token_portal_no_entregado")
+	}
 	var put lectura
 	if errPut == nil {
 		informado := k.m.contratoIris()

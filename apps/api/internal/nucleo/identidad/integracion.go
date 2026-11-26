@@ -179,6 +179,44 @@ func (m *Modulo) EmitirTokenCanje(ctx context.Context, sistema string, expira ti
 	return t.Token.ID, t.Valor, nil
 }
 
+// EmitirTokenPortal emite el token_portal del conector Argos (contrato 0.9.0 §1.2): otro iris_pat_
+// del mismo usuario de integración, recortado a portal_argos.*, que vale mientras valga padreID (el
+// iris_pat_ entregado en el canje). Así vence, se confirma, se revoca y se elimina con él, y cada
+// canje trae uno nuevo (se rota). Devuelve el id y el valor (se muestra una sola vez).
+func (m *Modulo) EmitirTokenPortal(ctx context.Context, padreID int64) (int64, string, error) {
+	db := nucleo.DBDe(ctx)
+	if db == nil {
+		return 0, "", nucleo.ErrSinBD
+	}
+	padre, err := identidadbd.New(db).TokenPorID(ctx, padreID)
+	if err != nil {
+		return 0, "", err
+	}
+	t, err := m.CrearToken.Ejecutar(conTokenPadre(conTokenDeCanje(ctx), padreID), EntradaCrearToken{
+		UsuarioID: padre.UsuarioID, Nombre: "argosisp portal (" + time.Now().UTC().Format("2006-01-02 15:04") + ")",
+		Permisos: nucleo.PermisosPortalArgos(),
+	})
+	if err != nil {
+		return 0, "", err
+	}
+	return t.Token.ID, t.Valor, nil
+}
+
+// claveTokenPadre: el token derivado que se está emitiendo (EmitirTokenPortal). No sale de ninguna
+// entrada HTTP.
+type claveTokenPadre struct{}
+
+func conTokenPadre(ctx context.Context, id int64) context.Context {
+	return context.WithValue(ctx, claveTokenPadre{}, id)
+}
+
+func tokenPadreDe(ctx context.Context) *int64 {
+	if v, ok := ctx.Value(claveTokenPadre{}).(int64); ok && v != 0 {
+		return &v
+	}
+	return nil
+}
+
 func todasLasEmpresas(ctx context.Context, q *identidadbd.Queries) ([]int64, error) {
 	var empresas []int64
 	for despues := int64(0); ; {

@@ -63,6 +63,7 @@ var EsperasWebhook = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Min
 
 // EventosWebhook son los eventos del outbox que van a Argos.
 var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "prospecto.estado_cambiado",
+	"ticket.estado_cambiado", "ticket.respondido", "solicitud_servicio.estado_cambiado",
 	"cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado}
 
 const (
@@ -75,6 +76,10 @@ const (
 var contratoMinimoEvento = map[string]string{
 	// 0.10.0 §3.6: solo de prospectos registrados desde el panel de Argos, sin datos personales.
 	"prospecto.estado_cambiado": "0.10.0",
+	// 0.9.0 §6.6: tickets (de cualquier origen, con cliente) y solicitudes de servicio del portal.
+	"ticket.estado_cambiado":             "0.9.0",
+	"ticket.respondido":                  "0.9.0",
+	"solicitud_servicio.estado_cambiado": "0.9.0",
 	// 0.11.0 §3.9 y §6.6: bodega de cuadrilla.
 	"cuadrilla.creada":      ContratoCuadrillas,
 	"cuadrilla.actualizada": ContratoCuadrillas,
@@ -82,6 +87,10 @@ var contratoMinimoEvento = map[string]string{
 	eventoVinculado:    ContratoVinculos,
 	eventoDesvinculado: ContratoVinculos,
 }
+
+// conAlcance: los eventos que Argos recibe solo si su empresa está en el alcance del conector (§6.6:
+// tickets y solicitudes de clientes dentro del alcance).
+var conAlcance = map[string]bool{"ticket.estado_cambiado": true, "ticket.respondido": true, "solicitud_servicio.estado_cambiado": true}
 
 // ContratoMinimo devuelve la versión del contrato con que Argos recibe el evento.
 func ContratoMinimo(evento string) string {
@@ -105,6 +114,10 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		// motivo_codigo: Iris no tiene códigos de motivo en el embudo (el motivo es texto de una
 		// persona y nunca viaja): siempre null.
 		"prospecto.estado_cambiado": {"prospecto_id", "empresa_id", "de", "a", "motivo_codigo"},
+		// 0.9.0: nunca el cuerpo, notas internas, un motivo escrito por una persona ni datos de otro cliente.
+		"ticket.estado_cambiado":             {"ticket_id", "numero", "empresa_id", "cliente_id", "servicio_id", "origen", "de", "a", "puede_confirmar"},
+		"ticket.respondido":                  {"ticket_id", "numero", "empresa_id", "cliente_id", "mensaje_id", "autor_tipo", "masivo", "aviso_por_correo"},
+		"solicitud_servicio.estado_cambiado": {"solicitud_id", "numero", "empresa_id", "cliente_id", "tipo", "servicio_id", "de", "a"},
 		// 0.11.0 §6.6: uno por empresa, con los miembros completos (id_externo null sin vínculo I1).
 		"cuadrilla.creada":      {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
 		"cuadrilla.actualizada": {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
@@ -117,6 +130,14 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 	}
 	switch evento {
 	case "contacto.baja":
+	case "ticket.estado_cambiado", "ticket.respondido", "solicitud_servicio.estado_cambiado":
+		// Solo de tickets y solicitudes con cliente y empresa (el alcance se mira al entregar).
+		if p["cliente_id"] == nil || p["empresa_id"] == nil {
+			return nil, false
+		}
+		if evento == "ticket.estado_cambiado" {
+			p["puede_confirmar"] = p["a"] == "resuelto"
+		}
 	case "prospecto.estado_cambiado":
 		if p["origen"] != "argos_panel" {
 			return nil, false
@@ -136,6 +157,17 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		out[c] = p[c] // ausente = null
 	}
 	return out, true
+}
+
+// empresaDelPayload: empresa_id del payload que va a Argos (0 si falta).
+func empresaDelPayload(crudo []byte) int64 {
+	var p struct {
+		EmpresaID *int64 `json:"empresa_id"`
+	}
+	if json.Unmarshal(crudo, &p) != nil || p.EmpresaID == nil {
+		return 0
+	}
+	return *p.EmpresaID
 }
 
 type entradaProgramarWebhook struct {
@@ -291,6 +323,9 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 	case !conector.VersionAlMenos(c.ContratoRemoto, ContratoMinimo(w.Evento)) || c.WebhookSalidaUrl == nil:
 		in.Estado, in.ConectorID = "omitido", &c.ID
 		in.Error = texto(MotivoSinReceptor + ": el conector Argos no habla el contrato " + ContratoMinimo(w.Evento) + " o no informó su receptor de webhooks")
+	case conAlcance[w.Evento] && !c.AlcanceGlobal && !slices.Contains(c.Empresas, empresaDelPayload(w.Payload)):
+		in.Estado, in.ConectorID = "omitido", &c.ID
+		in.Error = texto(MotivoEmpresaNoPermitida + ": la empresa del evento no está en el alcance del conector Argos")
 	case (w.Evento == eventoVinculado || w.Evento == eventoDesvinculado) && (w.ConectorOrigen == nil || *w.ConectorOrigen != c.ID):
 		// 0.14.0 §6.6: solo al conector del que salió el id_externo.
 		in.Estado, in.ConectorID = "omitido", &c.ID

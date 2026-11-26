@@ -277,9 +277,25 @@ func cambioDeEstado(ctx context.Context, t *auditoria.Tx, q *soportebd.Queries, 
 	if err := historial(ctx, t, q, despues, "estado", &antes.Estado, &despues.Estado, motivo, nil); err != nil {
 		return err
 	}
+	// numero, empresa_id, cliente_id, servicio_id y origen: el webhook a Argos (contrato 0.9.0 §6.6).
 	return t.Emitir("ticket.estado_cambiado", map[string]any{
 		"ticket_id": despues.ID, "de": antes.Estado, "a": despues.Estado, "motivo": motivo,
+		"numero": despues.Numero, "empresa_id": despues.EmpresaID, "cliente_id": despues.ClienteID,
+		"servicio_id": despues.ServicioID, "origen": despues.Origen,
 	})
+}
+
+// eventoRespondido: ticket.respondido con lo que necesita el webhook a Argos (contrato 0.9.0 §6.6):
+// autor (agente o sistema), si es el aviso masivo de una falla general y si Iris ya lo mandó por
+// correo al contacto del ticket (los de origen correo con correo de contacto).
+func eventoRespondido(f soportebd.SoporteTicket, msj soportebd.SoporteTicketMensaje, masivo bool) map[string]any {
+	autor := "sistema"
+	if msj.AutorTipo == "usuario" {
+		autor = "agente"
+	}
+	return map[string]any{"ticket_id": f.ID, "mensaje_id": msj.ID, "numero": f.Numero, "empresa_id": f.EmpresaID,
+		"cliente_id": f.ClienteID, "autor_tipo": autor, "masivo": masivo,
+		"aviso_por_correo": f.Origen == "correo" && f.ContactoCorreo != nil && *f.ContactoCorreo != ""}
 }
 
 // mensaje agrega un mensaje del actor (o del sistema) al ticket.

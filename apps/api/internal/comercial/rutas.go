@@ -118,6 +118,7 @@ func (m *Modulo) registrarRutaArgos(api huma.API) {
 // Registrar publica las rutas de comercial.
 func (m *Modulo) Registrar(api huma.API) {
 	m.registrarRutaArgos(api)
+	m.registrarSolicitudesPortal(api)
 	ver := nucleo.PermProspectosVer
 
 	// Prospectos.
@@ -153,11 +154,18 @@ func (m *Modulo) Registrar(api huma.API) {
 		"perdido → contactado.", nucleo.PermProspectosReabrir),
 		m.Reabrir.Ejecutar, func(e *EntradaTransicion, id int64, _ string) { e.ID = id })
 	registrarConID(api, accion("ganarProspecto", "/api/v1/prospectos/{id}/ganar", "Ganar el prospecto",
-		"Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales. "+
+		"Exige contrato firmado, su cotización aceptada y factibilidad viable (o requiere_obra con confirmarObra) sobre las coordenadas actuales "+
+			"(un cambio de plan del portal de Argos: solo la cotización aceptada, desde cotizado o contrato). Cambio de plan, traslado u otro del portal "+
+			"no llaman a Argos: quedan con la tarea «Abrir en Argos» (`tareaArgos: pendiente`) y la solicitud `en_proceso`. "+
 			"Con conector: encola POST /clientes y, al completarse, POST /servicios (pendiente_instalacion) y la orden de instalación (alta.estado). "+
 			"Sin conector: crea la orden con los datos capturados. Emite `prospecto.ganado`. "+
 			"Con un cliente elegido en Argos sin validar (Argos no respondía al registrarlo), lo confirma antes con Argos: de otra empresa, 422 `cliente_no_valido`; Argos sin responder, 422 `cliente_sin_confirmar`.", nucleo.PermProspectosGanar),
 		m.GanarProspecto, func(e *EntradaGanar, id int64, _ string) { e.ID = id })
+	registrarConID(api, accion("completarTareaArgos", "/api/v1/prospectos/{id}/completar-tarea-argos", "Marcar hecha la tarea «Abrir en Argos»",
+		"Solicitud del portal de Argos ganada (cambio de plan, traslado u otro, contrato 0.9.0 §11.7): una persona ya la aplicó en Argos. "+
+			"La solicitud pasa a `completada` (emite `solicitud_servicio.estado_cambiado`, que va a Argos). Sin tarea pendiente, 422 `sin_tarea_argos`. "+
+			"Emite `prospecto.tarea_argos_completada`.", nucleo.PermProspectosCompletarTareaArgos),
+		m.CompletarTareaArgos.Ejecutar, func(e *EntradaCompletarTareaArgos, id int64, _ string) { e.ID = id })
 
 	// Factibilidad.
 	registrarConID(api, accion("evaluarFactibilidad", "/api/v1/prospectos/{id}/factibilidad", "Evaluar la factibilidad",
@@ -168,6 +176,21 @@ func (m *Modulo) Registrar(api huma.API) {
 		"Notas de al menos 20 caracteres; routerId de la empresa del prospecto. Si una automática dio no_viable en las mismas coordenadas, "+
 			"un resultado distinto exige motivoAnulacion (queda auditada como «anula automática»). Emite `factibilidad.evaluada`.", nucleo.PermFactibilidadRegistrarManual),
 		m.FactibilidadManual.Ejecutar, func(e *EntradaFactibilidadManual, id int64, _ string) { e.ProspectoID = id })
+	lectura(api, operacion("verAjustesSolicitudes", http.MethodGet, "/api/v1/comercial/ajustes-solicitudes",
+		"Ajustes de las solicitudes del portal de Argos de la empresa", ver, http.StatusOK),
+		func(ctx context.Context, _ struct{}) (AjustesSolicitudes, error) {
+			return m.VerAjustesSolicitudes.Ejecutar(ctx, struct{}{})
+		})
+	huma.Register(api, con(operacion("cambiarAjustesSolicitudes", http.MethodPost, "/api/v1/comercial/ajustes-solicitudes",
+		"Cambiar los ajustes de las solicitudes del portal de Argos", nucleo.PermProspectosConfigurarSolicitudes, http.StatusOK, http.StatusConflict),
+		"§10.4 punto 10 del contrato con Argos: exigir contrato firmado para ganar un cambio de plan (de fábrica, no). `version` la leída (0 sin "+
+			"guardar); vieja, 409. Emite `solicitudes.ajustes_cambiados`."),
+		func(ctx context.Context, in *struct {
+			nucleo.ConIdempotencia
+			Body EntradaAjustesSolicitudes
+		}) (*cuerpo[AjustesSolicitudes], error) {
+			return responder(m.CambiarAjustesSolicitudes.Ejecutar(ctx, in.Body))
+		})
 	lectura(api, operacion("verUmbrales", http.MethodGet, "/api/v1/comercial/umbrales", "Umbrales de la factibilidad de la empresa", ver, http.StatusOK),
 		func(ctx context.Context, _ struct{}) (Umbrales, error) {
 			return m.VerUmbrales.Ejecutar(ctx, struct{}{})

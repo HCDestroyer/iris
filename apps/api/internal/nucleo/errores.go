@@ -48,6 +48,9 @@ type Problema struct {
 	// URLIris (extensión, nombre del contrato con Argos 0.10.0 §3.6): en prospecto_duplicado, el
 	// enlace plano al prospecto que ya tiene uno de los números.
 	URLIris *string `json:"url_iris,omitempty" doc:"prospecto_duplicado: enlace al prospecto existente (contrato con Argos §3.6)"`
+	// SolicitudID (extensión, nombre del contrato con Argos 0.9.0 §11.7): en solicitud_abierta, la
+	// solicitud de servicio abierta del mismo tipo y servicio.
+	SolicitudID *int64 `json:"solicitud_id,omitempty" doc:"solicitud_abierta: la solicitud abierta (contrato con Argos §11.7)"`
 
 	cabeceras http.Header
 }

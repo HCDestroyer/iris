@@ -17,13 +17,13 @@ const AHORA = Date.now();
 const hace = (min: number) => new Date(AHORA - min * 60_000).toISOString();
 
 export const CATALOGO: Schema<"PermisoInfo">[] = [
-    { codigo: "tickets.ver", descripcion: "Ver tickets, su conversación, historial, categorías y SLA", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: false },
-    { codigo: "tickets.responder", descripcion: "Responder al cliente en un ticket (mensaje público)", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: false },
-    { codigo: "buzones.crear", descripcion: "Registrar buzones de correo (IMAP y SMTP) para la entrada de tickets", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: true },
-    { codigo: "ordenes.ver", descripcion: "Ver órdenes de trabajo (según el alcance) y su historial", modulo: "ordenes", moduloNombre: "Órdenes de trabajo", sensible: false },
-    { codigo: "agenda.ver", descripcion: "Ver la agenda: zonas, cuadrillas, técnicos, citas y disponibilidad (según el alcance)", modulo: "agenda", moduloNombre: "Agenda y rutas", sensible: false },
-    { codigo: "roles.ver", descripcion: "Ver roles y sus permisos", modulo: "roles", moduloNombre: "Roles y permisos", sensible: false },
-    { codigo: "roles.crear", descripcion: "Crear roles propios eligiendo sus permisos (solo los que tienes sin límite de alcance)", modulo: "roles", moduloNombre: "Roles y permisos", sensible: true },
+    { codigo: "tickets.ver", descripcion: "Ver tickets, su conversación, historial, categorías y SLA", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: false, asignable: true },
+    { codigo: "tickets.responder", descripcion: "Responder al cliente en un ticket (mensaje público)", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: false, asignable: true },
+    { codigo: "buzones.crear", descripcion: "Registrar buzones de correo (IMAP y SMTP) para la entrada de tickets", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: true, asignable: true },
+    { codigo: "ordenes.ver", descripcion: "Ver órdenes de trabajo (según el alcance) y su historial", modulo: "ordenes", moduloNombre: "Órdenes de trabajo", sensible: false, asignable: true },
+    { codigo: "agenda.ver", descripcion: "Ver la agenda: zonas, cuadrillas, técnicos, citas y disponibilidad (según el alcance)", modulo: "agenda", moduloNombre: "Agenda y rutas", sensible: false, asignable: true },
+    { codigo: "roles.ver", descripcion: "Ver roles y sus permisos", modulo: "roles", moduloNombre: "Roles y permisos", sensible: false, asignable: true },
+    { codigo: "roles.crear", descripcion: "Crear roles propios eligiendo sus permisos (solo los que tienes sin límite de alcance)", modulo: "roles", moduloNombre: "Roles y permisos", sensible: true, asignable: true },
 ];
 
 const rol = (id: number, codigo: string, nombre: string, permisos: string[], extra: Partial<Rol> = {}): Rol => ({

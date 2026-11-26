@@ -93,6 +93,35 @@ cliente y el servicio en Argos y orden de instalación). Schema `comercial`.
   actividad y cotización además la guardan (clave retomada = lo ya creado). Las acciones llevan
   `version` (409 `conflicto_version`).
 
+## Solicitudes de servicio del portal de Argos (`solicitudes_portal.go`, `rutas_solicitudes.go`)
+
+Contrato con Argos 0.9.0 §11.7 (B10). `GET/POST /api/v1/integraciones/argosisp/portal/clientes/{cliente_id}/solicitudes`
+y `GET …/solicitudes/{solicitud_id}` (permisos `portal_argos.solicitar_servicio` y `portal_argos.ver_solicitudes`,
+solo el titular con sesión de documento). Una solicitud es un prospecto con origen `portal_argos`, el
+cliente de Argos conocido (`cliente_existente_id`) y su `solicitud_tipo` (`alta`, `cambio_plan`,
+`traslado`, `otro`); nombre, correo y teléfono de la ficha; sin vendedor o el de su zona.
+
+- Una abierta por cliente, tipo y servicio (409 `solicitud_abierta` con `solicitud_id`); 5 por día
+  (429 `demasiadas_solicitudes`).
+- `estado_cliente` (`recibida`, `en_revision`, `cotizada`, `en_proceso`, `completada`, `no_procede`) se
+  deriva del estado del prospecto y del cierre de su orden; cada cambio emite
+  `solicitud_servicio.estado_cambiado` (va a Argos por §6.6).
+- Ganar (§10.4 punto 10): una `alta` solo pide `POST /servicios` con el cliente conocido; el
+  `traslado` exige contrato firmado; el `cambio_plan` se gana con la cotización aceptada, sin contrato
+  ni factibilidad. `cambio_plan`, `traslado` y `otro` no llaman a Argos (`alta.modo = solicitud`):
+  quedan con la tarea «Abrir en Argos» (`tareaArgos: pendiente`) y la solicitud `en_proceso` hasta que
+  alguien la marca hecha con `POST /prospectos/{id}/completar-tarea-argos`
+  (`prospectos.completar_tarea_argos`), que la pasa a `completada`.
+- Revisión H3 y M1: un cambio de plan cuyo plan cotizado no es el que pidió el cliente al crear la
+  solicitud (`solicitud_plan_id`, fijo: editar `planInteresId` no cuenta), sin plan pedido o con el
+  pedido sin validar (`solicitud_plan_no_validado`), exige `motivoPlan` al ganar, que queda como actividad; aceptar la cotización de una
+  solicitud exige `evidenciaCliente { canal, fecha }` (teléfono, WhatsApp, presencial o correo; queda
+  en la cotización con quién la registró y en la auditoría); el ajuste por empresa
+  `cambioPlanExigeContrato` (`GET/POST /comercial/ajustes-solicitudes`, `prospectos.configurar_solicitudes`,
+  apagado de fábrica) pide además el contrato firmado.
+- Si Argos no responde al validar `plan_interes_id`, la solicitud se guarda sin plan y con la nota
+  «Plan no validado» (nunca un plan sin validar).
+
 ## Eventos
 
 Emite `prospecto.creado`, `prospecto.actualizado`, `prospecto.asignado`, `prospecto.estado_cambiado`,

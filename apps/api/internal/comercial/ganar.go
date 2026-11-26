@@ -49,8 +49,10 @@ const (
 
 // Estados del alta.
 const (
-	AltaLocal             = "local"
-	AltaArgos             = "argos"
+	AltaLocal = "local"
+	AltaArgos = "argos"
+	// AltaSolicitud: cambio de plan, traslado u otro del portal de Argos (§11.7): no llama a Argos.
+	AltaSolicitud         = "solicitud"
 	AltaEsperandoCliente  = "esperando_cliente"
 	AltaEsperandoServicio = "esperando_servicio"
 	AltaCompleta          = "completa"
@@ -127,6 +129,9 @@ type EntradaGanar struct {
 	Version       int32  `json:"version" minimum:"1"`
 	ConfirmarObra bool   `json:"confirmarObra,omitempty" doc:"Obligatorio (true) si la factibilidad es requiere_obra"`
 	RouterID      *int64 `json:"routerId,omitempty" minimum:"1" doc:"Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido"`
+	// MotivoPlan: cambio de plan del portal de Argos cuyo plan cotizado no es el que pidió el cliente
+	// (plan_interes_id): obligatorio, queda como actividad del prospecto (revisión H3).
+	MotivoPlan *string `json:"motivoPlan,omitempty" maxLength:"1000" doc:"Cambio de plan del portal de Argos con otro plan que el pedido: por qué (422 validacion si falta)"`
 }
 
 // requisitos de ganar: contrato firmado, su cotización aceptada y la factibilidad al día.
@@ -166,6 +171,69 @@ func exigirRequisitos(ctx context.Context, q *comercialbd.Queries, p comercialbd
 	return r, nil
 }
 
+// requisitosCambioPlan: el prospecto cotizado (o con contrato) y su cotización aceptada.
+func requisitosCambioPlan(ctx context.Context, q *comercialbd.Queries, p comercialbd.ComercialProspecto) (requisitos, error) {
+	var r requisitos
+	ajustes, err := ajustesSolicitudes(ctx, q, deref(p.EmpresaID))
+	if err != nil {
+		return r, err
+	}
+	if ajustes.CambioPlanExigeContrato {
+		// La empresa exige contrato (§10.4 punto 10): contrato firmado y su cotización aceptada.
+		if err := exigirEstado(p, "ganar", EstadoContrato); err != nil {
+			return r, err
+		}
+		r.contrato, err = q.ContratoVivoDeProspecto(ctx, p.ID)
+		if errors.Is(err, pgx.ErrNoRows) || (err == nil && r.contrato.Estado != "firmado") {
+			return r, nucleo.ReglaNegocio("contrato_no_firmado", "La empresa exige el contrato firmado para ganar un cambio de plan")
+		}
+		if err != nil {
+			return r, err
+		}
+	} else if err := exigirEstado(p, "ganar", EstadoCotizado, EstadoContrato); err != nil {
+		return r, err
+	}
+	c, err := q.CotizacionViva(ctx, p.ID)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && c.Estado != "aceptada") {
+		return r, nucleo.ReglaNegocio("cotizacion_no_aceptada", "Para ganar un cambio de plan, la cotización debe estar aceptada")
+	}
+	r.cotizacion = c
+	return r, err
+}
+
+// planDeLaSolicitud: el plan de la cotización aceptada es el que pidió el cliente al crear la
+// solicitud (solicitud_plan_id, fijo: no el plan_interes_id, que se edita); si es otro, si no pidió
+// uno o si el pedido no se pudo validar con Argos, hace falta un motivo, que queda como actividad.
+func planDeLaSolicitud(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries, p comercialbd.ComercialProspecto, r requisitos, motivo *string, ahora time.Time) error {
+	if !p.SolicitudPlanNoValidado && r.cotizacion.PlanID != nil && p.SolicitudPlanID != nil && *r.cotizacion.PlanID == *p.SolicitudPlanID {
+		return nil
+	}
+	texto := ""
+	if motivo != nil {
+		texto = strings.TrimSpace(*motivo)
+	}
+	if texto == "" {
+		return nucleo.Validacion(nucleo.ErrorCampo{Field: "motivoPlan", Rule: "plan_distinto",
+			Message: "El plan cotizado no es el que pidió el cliente en su solicitud: indica el motivo"})
+	}
+	pedido := "ninguno"
+	if p.SolicitudPlanID != nil {
+		pedido = strconv.FormatInt(*p.SolicitudPlanID, 10)
+		if p.SolicitudPlanNoValidado {
+			pedido += " (no validado)"
+		}
+	}
+	cotizado := "ninguno"
+	if r.cotizacion.PlanID != nil {
+		cotizado = strconv.FormatInt(*r.cotizacion.PlanID, 10)
+	}
+	t.Anotar(map[string]any{"plan_pedido": p.SolicitudPlanID, "plan_pedido_no_validado": p.SolicitudPlanNoValidado, "plan_cotizado": r.cotizacion.PlanID})
+	_, err := q.CrearActividad(ctx, comercialbd.CrearActividadParams{EmpresaID: p.EmpresaID, ProspectoID: p.ID, Tipo: "nota",
+		Descripcion: "Cambio de plan con otro plan que el pedido (pedido: " + pedido + ", cotizado: " + cotizado + "). Motivo: " + texto,
+		OcurridaEn:  ahora, AutorID: actorUsuario(t)})
+	return err
+}
+
 func mismaCoordenada(a, b *float64) bool {
 	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
@@ -179,12 +247,23 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 			if err != nil {
 				return Prospecto{}, err
 			}
-			if err := exigirEstado(antes, "ganar", EstadoContrato); err != nil {
-				return Prospecto{}, err
-			}
-			r, err := exigirRequisitos(ctx, q, antes, in.ConfirmarObra)
-			if err != nil {
-				return Prospecto{}, err
+			var r requisitos
+			if deref(antes.SolicitudTipo) == SolicitudCambioPlan {
+				// Cambio de plan del portal de Argos (§10.4 punto 10): basta la cotización aceptada, sin
+				// contrato ni factibilidad (el servicio ya existe).
+				if r, err = requisitosCambioPlan(ctx, q, antes); err != nil {
+					return Prospecto{}, err
+				}
+				if err := planDeLaSolicitud(ctx, t, q, antes, r, in.MotivoPlan, m.ahora()); err != nil {
+					return Prospecto{}, err
+				}
+			} else {
+				if err := exigirEstado(antes, "ganar", EstadoContrato); err != nil {
+					return Prospecto{}, err
+				}
+				if r, err = exigirRequisitos(ctx, q, antes, in.ConfirmarObra); err != nil {
+					return Prospecto{}, err
+				}
 			}
 			conector, err := q.EstadoConectorArgos(ctx)
 			if err != nil {
@@ -195,7 +274,17 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 			d.Estado, d.GanadoEn, d.ObraConfirmada = EstadoGanado, &ahora, r.factibilidad.Resultado == FactibleRequiereObra
 			evento := map[string]any{"prospecto_id": antes.ID, "empresa_id": antes.EmpresaID, "contrato_id": r.contrato.ID,
 				"cotizacion_id": r.cotizacion.ID, "plan_id": r.cotizacion.PlanID, "obra_confirmada": d.ObraConfirmada}
-			if conector == "" {
+			if r.contrato.ID == 0 {
+				evento["contrato_id"] = nil // cambio de plan: sin contrato
+			}
+			if antes.SolicitudTipo != nil && *antes.SolicitudTipo != SolicitudAlta {
+				// Solicitud del portal de Argos (0.9.0 §11.7) de cambio de plan, traslado u otro: nada por API
+				// en Argos (una persona lo aplica allá hasta A34) y la orden, si hace falta, la decide el asesor.
+				evento["modo"], evento["orden_id"], evento["pendientes"], evento["solicitud_tipo"] = "solicitud", nil, []int64{}, *antes.SolicitudTipo
+				evento["tarea_argos"] = "pendiente"
+				d.GanadoPor = actorUsuario(t)
+				d.AltaModo, d.AltaEstado = ptr(AltaSolicitud), ptr(AltaCompleta)
+			} else if conector == "" {
 				// Modo sin conector: la orden con los datos capturados, ya.
 				o, err := m.crearOrdenInstalacion(ctx, antes, r, nil, nil)
 				if err != nil {
@@ -298,7 +387,22 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 			if err := t.Emitir("prospecto.ganado", evento); err != nil {
 				return Prospecto{}, err
 			}
-			return aProspecto(f), cambioDeEstado(ctx, t, q, antes, f, nil)
+			if evento["tarea_argos"] != nil {
+				// La tarea «Abrir en Argos»: la solicitud sigue en_proceso hasta que alguien la marca hecha.
+				if f, err = q.FijarTareaArgos(ctx, comercialbd.FijarTareaArgosParams{ID: f.ID, TareaArgos: ptr("pendiente")}); err != nil {
+					return Prospecto{}, err
+				}
+			}
+			if err := cambioDeEstado(ctx, t, q, antes, f, nil); err != nil {
+				return Prospecto{}, err
+			}
+			if f.SolicitudTipo != nil {
+				// estado_cliente lo acaba de fijar cambioDeEstado.
+				if f, err = q.ProspectoPorID(ctx, f.ID); err != nil {
+					return Prospecto{}, err
+				}
+			}
+			return aProspecto(f), nil
 		},
 	})
 }
