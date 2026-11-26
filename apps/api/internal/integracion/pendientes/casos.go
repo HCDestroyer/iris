@@ -371,6 +371,69 @@ type EntradaResolverManual struct {
 	// titular en Argos. Sin él, el cobro y el consumo de la instalación nacen fallido_negocio
 	// (titular resuelto a mano: confirma el cliente).
 	ClienteID *int64 `json:"clienteId,omitempty" required:"false" minimum:"1" doc:"Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro va a su nombre)"`
+	// confirmacion: el resultado de confirmar ClienteID con Argos, fuera de la transacción.
+	confirmacion *confirmacionCliente
+}
+
+// confirmacionCliente: la versión del pendiente sobre la que se consultó a Argos y el resultado.
+type confirmacionCliente struct {
+	version int32
+	err     error
+}
+
+// CasoResolverManual: integraciones.resolver_pendiente. Con clienteId (cambio de titular), la
+// lectura del pendiente y la consulta a Argos van fuera de la transacción (sin dejar una conexión
+// «idle in transaction» mientras Argos responde); el caso, dentro, solo comprueba la versión.
+type CasoResolverManual struct {
+	m    *Modulo
+	caso *auditoria.Caso[EntradaResolverManual, Pendiente]
+}
+
+// Ejecutar confirma el cliente final (si viene) y corre el caso de uso.
+func (c *CasoResolverManual) Ejecutar(ctx context.Context, in EntradaResolverManual) (Pendiente, error) {
+	if in.ClienteID != nil {
+		in.confirmacion = c.m.confirmarCliente(ctx, in)
+	}
+	return c.caso.Ejecutar(ctx, in)
+}
+
+// confirmarCliente: sin transacción. Si el pendiente no es un cambio de titular rechazado, si la
+// versión no es la leída o si quien lo pide no lo puede resolver, no consulta a Argos (el caso
+// responde con su error, auditado).
+func (m *Modulo) confirmarCliente(ctx context.Context, in EntradaResolverManual) *confirmacionCliente {
+	// Primero lo barato y lo que el caso mira al autorizar (el permiso de la acción, que sea una
+	// persona y, si entró desde Argos, que se haya reautenticado) y la forma de la entrada: si algo
+	// falla, no se consulta a Argos y el caso responde su error, auditado.
+	if a := contexto.ActorDe(ctx); !a.EsUsuario() || !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermIntegracionesResolverPendiente)) {
+		return nil
+	}
+	if s := contexto.SesionDe(ctx); s.EsSSO() && !s.Reautenticada &&
+		auditoria.RequiereReautenticacion("integraciones.resolver_pendiente", nucleo.PermIntegracionesResolverPendiente) {
+		return nil
+	}
+	if n := utf8.RuneCountInString(strings.TrimSpace(in.Motivo)); n < 5 || n > 1000 {
+		return nil
+	}
+	if in.Cargo != "" && in.Cargo != CargoLiberar && in.Cargo != CargoResolverTambien {
+		return nil
+	}
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return nil
+	}
+	q := pendientesbd.New(bd)
+	previo, err := q.PendientePorID(ctx, in.ID)
+	// Rechazado por Argos, o (B-d) ya resuelto a mano por una persona sin el cliente final.
+	sinCliente := previo.Estado == EstadoResueltoManual && previo.ResueltoClienteID == nil &&
+		previo.ResueltoComo != nil && *previo.ResueltoComo == "manual"
+	if err != nil || !visible(ctx, previo.EmpresaID) || previo.Version != in.Version ||
+		previo.Operacion != OpCambiarTitular || (previo.Estado != EstadoFallidoNegocio && !sinCliente) {
+		return nil
+	}
+	if exigirSupervisorDelPaso(ctx, q, previo) != nil {
+		return nil
+	}
+	return &confirmacionCliente{version: previo.Version, err: m.clienteEsTitular(ctx, bd, previo, *in.ClienteID)}
 }
 
 // Decisiones sobre el cargo que esperaba al consumo resuelto a mano.
@@ -392,6 +455,8 @@ type eventoResueltoManual struct {
 	De             string `json:"de"`
 	Motivo         string `json:"motivo"`
 	UsuarioID      *int64 `json:"usuario_id"`
+	// ResueltoClienteID: el cliente final que indicó quien lo resolvió (cambio de titular), o null.
+	ResueltoClienteID *int64 `json:"resuelto_cliente_id"`
 }
 
 // nuevoResolverManual: solo desde fallido_negocio (incluido el incompleto). Lo agotado se
@@ -427,16 +492,9 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if f.EmpresaID != nil {
 				t.FijarEmpresa(*f.EmpresaID)
 			}
-			if orden, ok := ordenDePasoTitular(f); ok {
-				// Paso del titular (§3.4.8; B-f: el 403 antes que el 409 de versión): solo un supervisor con ordenes.validar_identidad y alcance
-				// de su rol sobre la orden (global, su zona o su cuadrilla; nunca el técnico asignado).
-				permitido, err := supervisaOrden(ctx, q, orden)
-				if err != nil {
-					return Pendiente{}, err
-				}
-				if !permitido {
-					return Pendiente{}, nucleo.Prohibido("Un paso del titular lo resuelve a mano un supervisor con ordenes.validar_identidad sobre la orden")
-				}
+			// Paso del titular (§3.4.8; B-f: el 403 antes que el 409 de versión).
+			if err := exigirSupervisorDelPaso(ctx, q, f); err != nil {
+				return Pendiente{}, err
 			}
 			if err := nucleo.ExigirVersion(f.Version, in.Version, "pendiente", f.ID); err != nil {
 				return Pendiente{}, err
@@ -462,8 +520,12 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 				// B-d: un cambio de titular ya resuelto a mano sin el cliente final: el supervisor (con alcance,
 				// comprobado arriba) lo indica después, comprobado en Argos. Así sale el cobro de A36 que
 				// respondía 409 titular_por_confirmar.
-				if err := m.clienteEsTitular(ctx, t, f, *in.ClienteID); err != nil {
-					return Pendiente{}, err
+				// Confirmado con Argos fuera de la transacción (CasoResolverManual.Ejecutar), sobre esta versión.
+				if in.confirmacion == nil || in.confirmacion.version != f.Version {
+					return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)
+				}
+				if in.confirmacion.err != nil {
+					return Pendiente{}, in.confirmacion.err
 				}
 				g, err := q.FijarClienteResuelto(ctx, pendientesbd.FijarClienteResueltoParams{ClienteID: *in.ClienteID, ID: f.ID, Version: in.Version})
 				if errors.Is(err, pgx.ErrNoRows) {
@@ -491,8 +553,13 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 						": lo agotado se reintenta y lo bloqueado espera a su dependencia")
 			}
 			if in.ClienteID != nil {
-				if err := m.clienteEsTitular(ctx, t, f, *in.ClienteID); err != nil {
-					return Pendiente{}, err
+				// El cliente final se confirmó con Argos fuera de la transacción (ResolverManual.Ejecutar):
+				// aquí solo que fue sobre esta misma versión del pendiente.
+				if in.confirmacion == nil || in.confirmacion.version != f.Version {
+					return Pendiente{}, nucleo.ConflictoVersion("pendiente", f.ID)
+				}
+				if in.confirmacion.err != nil {
+					return Pendiente{}, in.confirmacion.err
 				}
 			}
 			dependientes, err := q.DependientesAbiertos(ctx, f.ID)
@@ -526,11 +593,11 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if err != nil {
 				return Pendiente{}, err
 			}
-			t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": f.Estado},
-				map[string]any{"estado": nueva.Estado, "resuelto_motivo": motivo})
+			t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": f.Estado, "resuelto_cliente_id": f.ResueltoClienteID},
+				map[string]any{"estado": nueva.Estado, "resuelto_motivo": motivo, "resuelto_cliente_id": nueva.ResueltoClienteID})
 			if err := t.Emitir(EventoResueltoManual, eventoResueltoManual{
 				PendienteID: f.ID, Operacion: f.Operacion, Entidad: f.Entidad, EntidadID: f.EntidadID,
-				IdempotencyKey: f.IdempotencyKey, De: f.Estado, Motivo: motivo, UsuarioID: usuario,
+				IdempotencyKey: f.IdempotencyKey, De: f.Estado, Motivo: motivo, UsuarioID: usuario, ResueltoClienteID: nueva.ResueltoClienteID,
 			}); err != nil {
 				return Pendiente{}, err
 			}
@@ -874,4 +941,26 @@ type eventoClienteFijado struct {
 	ClienteID int64  `json:"cliente_id"`
 	Motivo    string `json:"motivo"`
 	UsuarioID *int64 `json:"usuario_id"`
+}
+
+// exigirSupervisorDelPaso: un paso del titular (§3.4.8) lo resuelve a mano solo un supervisor con
+// ordenes.validar_identidad y alcance de su rol sobre la orden (global, su zona o su cuadrilla;
+// nunca el técnico asignado). Sin una orden válida, falla cerrado (403).
+func exigirSupervisorDelPaso(ctx context.Context, q *pendientesbd.Queries, f pendientesbd.IntegracionPendiente) error {
+	if !slices.Contains(OperacionesTitular, f.Operacion) {
+		return nil
+	}
+	prohibido := nucleo.Prohibido("Un paso del titular lo resuelve a mano un supervisor con ordenes.validar_identidad sobre la orden")
+	orden, ok := ordenDePasoTitular(f)
+	if !ok {
+		return prohibido
+	}
+	permitido, err := supervisaOrden(ctx, q, orden)
+	if err != nil {
+		return err
+	}
+	if !permitido {
+		return prohibido
+	}
+	return nil
 }

@@ -277,7 +277,7 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			}
 			if err := historial(ctx, t, q, p.ID, "venta_revisada", nil, nil, nil, map[string]any{
 				"orden_id": in.OrdenID, "motivo": in.Motivo, "cotizacion_id": cot.ID, "base_id": base.ID, "reemplaza_id": reemplaza, "contrato_id": contrato,
-				"estado_orden": o.Estado, "sin_contrato": terminada,
+				"estado_orden": o.Estado, "sin_contrato": terminada || sinTitular,
 			}); err != nil {
 				return r, err
 			}
@@ -290,6 +290,8 @@ func (m *Modulo) nuevoRevisarVenta() *auditoria.Caso[EntradaRevisarVenta, Result
 			// Sin el nombre del titular nuevo no se regenera el contrato: avisa a supervisión.
 			if sinTitular && !terminada {
 				avisado = true
+				r.Aviso = ptr(MotivoSinTitular)
+				t.Anotar(map[string]any{"aviso": MotivoSinTitular, "clave": in.Clave})
 				if err := emitirContratoSinFirma(t, sinFirma{orden: in.OrdenID, p: p, cotizacion: &cot.ID, operacion: operacionDeRevision(&idem),
 					motivo: MotivoSinTitular, clave: in.Clave}); err != nil {
 					return r, err

@@ -91,7 +91,7 @@ type Modulo struct {
 
 	Listar             *auditoria.Caso[EntradaListar, nucleo.Pagina[Pendiente]]
 	Reintentar         *Reintentador
-	ResolverManual     *auditoria.Caso[EntradaResolverManual, Pendiente]
+	ResolverManual     *CasoResolverManual
 	EncolarCierreOrden *auditoria.Caso[OrdenCerrada, ResultadoCierre]
 	confirmarCobro     *auditoria.Caso[EntradaConfirmarCobro, Pendiente]
 	quitarPorAnular    *auditoria.Caso[EntradaQuitarPorAnular, Pendiente]
@@ -110,7 +110,7 @@ func Nuevo(cfg Config) *Modulo {
 	m := &Modulo{cfg: cfg}
 	m.Listar = nuevoListar(m)
 	m.Reintentar = &Reintentador{m: m, caso: nuevoReintentar(m)}
-	m.ResolverManual = nuevoResolverManual(m)
+	m.ResolverManual = &CasoResolverManual{m: m, caso: nuevoResolverManual(m)}
 	m.EncolarCierreOrden = nuevoEncolarCierreOrden(m)
 	m.confirmarCobro = nuevoConfirmarCobro(m)
 	m.quitarPorAnular = nuevoQuitarPorAnular(m)

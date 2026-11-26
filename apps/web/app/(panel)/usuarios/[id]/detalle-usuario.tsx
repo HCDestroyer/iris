@@ -1,13 +1,12 @@
 "use client";
 
-import { EstadoVacio, Esqueleto, Pestanas, Tarjeta, TarjetaContenido } from "@iris/ui";
-import { SearchX } from "lucide-react";
+import { BotonManualPantalla, EstadoVacio, Esqueleto, FranjaFicha, PestanasSegmentadas, Tarjeta, TarjetaContenido } from "@iris/ui";
+import { Bot, SearchX, User } from "lucide-react";
 import { useParams } from "next/navigation";
 import { AccesosUsuario } from "@/componentes/accesos/accesos-usuario";
 import { SesionesUsuario } from "@/componentes/accesos/sesiones-usuario";
 import { VinculosSSO } from "@/componentes/cuenta/vinculos-sso";
 import { RolesUsuario } from "@/componentes/roles/roles-usuario";
-import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { AccionesUsuario } from "@/componentes/usuarios/editar-usuario";
 import { EmpresasUsuario } from "@/componentes/usuarios/empresas-usuario";
 import { ErrorLectura } from "@/componentes/error-lectura";
@@ -65,8 +64,21 @@ export function DetalleUsuario() {
     if (!u) return null;
     return (
         <>
-            <EncabezadoPagina titulo={u.nombre} descripcion={u.correo} acciones={<AccionesUsuario usuario={u} alCambiar={lectura.reemplazar} />} />
-            <Pestanas<PestanaUsuario>
+            <FranjaFicha
+                className="mb-4"
+                icono={u.tipo === "integracion" ? Bot : User}
+                titulo={u.nombre}
+                detalle={u.correo}
+                manual={<BotonManualPantalla />}
+                insignias={
+                    <>
+                        <Mfa u={u} />
+                        <Activo u={u} />
+                    </>
+                }
+                accion={<AccionesUsuario usuario={u} alCambiar={lectura.reemplazar} />}
+            />
+            <PestanasSegmentadas<PestanaUsuario>
                 etiqueta="Secciones del usuario"
                 seleccionada={pestana}
                 alCambiar={setPestana}
@@ -80,8 +92,6 @@ export function DetalleUsuario() {
                                     <TarjetaContenido className="grid gap-3 pt-5">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <Tipo u={u} />
-                                            <Mfa u={u} />
-                                            <Activo u={u} />
                                         </div>
                                         <p className="text-sm">
                                             <span className="text-muted-foreground">Roles: </span>

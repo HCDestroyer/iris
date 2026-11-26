@@ -371,7 +371,7 @@ const CodigoClienteNoEsTitular = "cliente_no_es_titular"
 // anterior), en la empresa del pendiente. Si no coincide o Argos no tiene el servicio (404), 422
 // cliente_no_es_titular; si Argos no responde (403, 5xx, timeout), 503 no_disponible y no se guarda
 // nada.
-func (m *Modulo) clienteEsTitular(ctx context.Context, t *auditoria.Tx, f pendientesbd.IntegracionPendiente, cliente int64) error {
+func (m *Modulo) clienteEsTitular(ctx context.Context, bd conector.DBTX, f pendientesbd.IntegracionPendiente, cliente int64) error {
 	noEs := nucleo.ReglaNegocio(CodigoClienteNoEsTitular, "Ese cliente no es el titular actual del servicio en Argos (en la empresa del pendiente)")
 	noDisponible := nucleo.NoDisponible("No se pudo confirmar el titular con Argos: reintenta cuando Argos responda")
 	partes := strings.Split(strings.Trim(f.Ruta, "/"), "/")
@@ -385,7 +385,7 @@ func (m *Modulo) clienteEsTitular(ctx context.Context, t *auditoria.Tx, f pendie
 	if m.cfg.Argos == nil {
 		return noDisponible
 	}
-	c, err := m.cfg.Argos.ClienteActivo(ctx, t)
+	c, err := m.cfg.Argos.ClienteActivo(ctx, bd)
 	if err != nil {
 		return noDisponible
 	}
