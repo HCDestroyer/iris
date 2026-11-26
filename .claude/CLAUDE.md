@@ -170,6 +170,10 @@ Una tarea está terminada solo si:
 | `encuesta.respondida` | soporte (público) | encuesta_id, entidad, entidad_id, calificacion, alerta (true si ≤ 2) |
 | `encuesta.anulada` | soporte | encuesta_id, entidad (ticket), entidad_id, motivo (reabierto \| fusionado) |
 | `soporte.horus_descartado` | soporte (Horus) | evento, entrante_id, empresa_id (o null), motivo, detalle |
+| `soporte.posible_falla_general` | soporte (caídas de Argos) | ticket_id, empresa_id, tickets, agrupados |
+| `soporte.caidas_ajustes_cambiados` | soporte | empresa_id, campos[], caidas_umbral, caidas_ventana_min, falla_umbral, verificacion_horas |
+| `soporte.aviso_falla` | soporte (falla general) | incidente, empresa_id, cliente_id, tipo (apertura, cierre), ticket_id; nunca servicio ni dirección |
+| `soporte.verificacion_vencida` | soporte (falla general) | ticket_id, numero, empresa_id, asignado_a (o null) |
 | `correo.recibido` | soporte (worker de correo) | correo_id, buzon_id, estado, resultado (o null), ticket_id (o null), mensaje_id (o null), motivo (o null) |
 | `buzon.creado` / `buzon.actualizado` / `buzon.activado` / `buzon.desactivado` | soporte | buzon_id; correo (creado) |
 | `orden.creada` | campo | orden_id, tipo, ticket_id (o null), cliente_id, servicio_id, zona_id, origen (panel, api, argos, sistema, asistente) |
@@ -216,6 +220,9 @@ Una tarea está terminada solo si:
 | `argos.certificado_cambiado` | integracion (argos, certificado TLS) | conector_id, certificado_id, anterior_id, host, huella_sha256, huella_anterior, emisor; nunca bloquea |
 | `argos.comprobante_resuelto` | integracion (argos, webhook de Argos) | comprobante_id, estado (aprobado, rechazado), empresa_id, cliente_id, servicio_id (o null), canal, pago_id (o null), servicio_estado (o null), entrante_id; es solo un aviso (sin monto, motivo ni causa) |
 | `argos.promesa_cambiada` | integracion (argos, webhooks promesa.*) | promesa_id, estado, tipo, empresa_id, cliente_id, servicio_id, comprobante_id (o null), canal, vence, motivo_reconexion (o null), motivo (cancelada), entrante_id; nunca el monto |
+| `argos.caidas_repetidas` | integracion (argos, webhook servicio.caidas_repetidas) | servicio_id, empresa_id, cliente_id (o null), router_id (o null), sesiones, ventana_minutos, desde, hasta, entrante_id |
+| `argos.falla_general_abierta` / `argos.falla_general_cerrada` | integracion (argos, webhooks red.falla_general_*) | incidente_id, empresa_id, alcance, alcance_id, desde, hasta (o null), entrante_id; servicios[] (los de la instantánea), descartados, por_verificar, paginando (abierta); nunca nombres ni direcciones |
+| `argos.falla_general_servicios` | integracion (argos, job argos.verificar_incidente) | incidente_id, empresa_id, entrante_id, servicios[] (verificados en Argos), descartados, no_verificados |
 | `argos.cuenta_bancaria_cambiada` | integracion (argos, webhook de Argos y relecturas) | cuenta_bancaria_id, empresa_id, campos[], activa, creada, entrante_id (o null); nunca el número de cuenta ni el titular |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
 | `argos.titular_cambiado` | integracion (argos, webhook servicio.titular_cambiado confirmado con Argos; B17) | servicio_id, empresa_id (o null), de_cliente_id (o null), a_cliente_id, de_cliente_eliminado, origen_tipo (o null), origen_id (o null), tipo_titular (persona, empresa), entrante_id; nunca el documento ni el motivo |
@@ -234,7 +241,7 @@ Una tarea está terminada solo si:
 | `integracion.pendiente_omitido` | integracion (pendientes) | orden_id, motivo, operaciones[] |
 | `integracion.pendiente_corregido` / `integracion.pendiente_conflicto` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key; estado, motivo, payload_anterior, payload_nuevo (conflicto) |
 | `integracion.pendiente_bloqueado` / `integracion.pendiente_desbloqueado` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, depende_de; motivo (bloqueado) |
-| `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null) |
+| `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null), resuelto_cliente_id (o null: cliente final de un cambio de titular) |
 | `aviso.creado` | mensajeria | aviso_id, empresa_id, cliente_id, servicio_id (o null), plantilla, estado (en_cola \| bloqueado), motivo (o null), origen (argos \| iris), prioridad, programado_en (o null) |
 | `aviso.enviado` / `aviso.leido` | mensajeria | aviso_id, origen; canal, canal_id (o null) (enviado); leido_en (leido) |
 | `aviso.entregado` / `aviso.fallido` | mensajeria | aviso_id, idempotency_key, empresa_id, cliente_id, canal (o null), origen; entregado_en, leido_en (o null) (entregado); motivo (vencido, numero_invalido, rechazado_por_canal, agotado), detalle (o null) (fallido). Uno por aviso; van a Argos (§6.6) |

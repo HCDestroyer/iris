@@ -116,6 +116,10 @@ type Modulo struct {
 	AvisarServidorIA *auditoria.Caso[EntradaAvisarServidorIA, ResultadoAvisarTope]
 	// AvisarCertificadoArgos: campana cuando cambia el certificado TLS de Argos (contrato 0.8.0 §1.5).
 	AvisarCertificadoArgos *auditoria.Caso[EntradaAvisarCertificadoArgos, ResultadoAvisarTope]
+	// AvisarPosibleFalla: campana de supervisión con una posible falla general (contrato 0.13.0 §3.11).
+	AvisarPosibleFalla *auditoria.Caso[EntradaAvisarPosibleFalla, ResultadoAvisarTope]
+	// AvisarVerificacion: campana del asignado cuando vence la verificación tras una falla general.
+	AvisarVerificacion *auditoria.Caso[EntradaAvisarVerificacion, ResultadoAvisarTope]
 	// AvisarVentaRevisada: campana del vendedor cuando la instalación cambia su venta (B20).
 	AvisarVentaRevisada *auditoria.Caso[EntradaAvisarVentaRevisada, ResultadoAvisarTope]
 	// AvisarSupervision: campana de los supervisores de la orden (paso_titular, contrato_sin_firma).
@@ -168,6 +172,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.AvisarTope = m.nuevoAvisarTope()
 	m.AvisarServidorIA = m.nuevoAvisarServidorIA()
 	m.AvisarCertificadoArgos = m.nuevoAvisarCertificadoArgos()
+	m.AvisarPosibleFalla = m.nuevoAvisarPosibleFalla()
+	m.AvisarVerificacion = m.nuevoAvisarVerificacion()
 	m.AvisarVentaRevisada = m.nuevoAvisarVentaRevisada()
 	m.AvisarSupervision = m.nuevoAvisarSupervision()
 	m.prepararCorreo = m.nuevoPrepararCorreo()
