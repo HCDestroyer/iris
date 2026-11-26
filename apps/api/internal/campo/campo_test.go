@@ -81,6 +81,9 @@ type inventarioFalso struct {
 	caido       bool
 	// tipos: el tipo de cada bodega en Argos (por defecto, «bodega» si tiene existencias).
 	tipos map[int64]string
+	// unidades: la bodega de Argos de cada unidad (M-7); sinUnidad: no se puede leer.
+	unidades  map[int64]int64
+	sinUnidad bool
 	// lecturas: cuántas veces se pidieron las existencias de cada bodega.
 	mu       sync.Mutex
 	lecturas map[int64]int
@@ -91,6 +94,16 @@ func (i *inventarioFalso) EquiposEnComodato(_ context.Context, _, servicio int64
 		return nil, errors.New("argos caído")
 	}
 	return i.comodato[servicio], nil
+}
+
+func (i *inventarioFalso) BodegaDeUnidad(_ context.Context, _, unidad int64) (*int64, error) {
+	if i.caido || i.sinUnidad {
+		return nil, errors.New("argos caído")
+	}
+	if b, ok := i.unidades[unidad]; ok {
+		return &b, nil
+	}
+	return nil, nil
 }
 
 func (i *inventarioFalso) TipoDeBodega(_ context.Context, _, bodega int64) (string, error) {

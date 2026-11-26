@@ -151,10 +151,10 @@ func (m *Modulo) nuevoReenviarBienvenida() *auditoria.Caso[EntradaReenviarBienve
 			if tipo.Codigo != tipoInstalacion || f.ServicioID == nil {
 				return Bienvenida{}, nucleo.ReglaNegocio("orden_no_es_instalacion", "La bienvenida se reenvía desde una instalación con su servicio de Argos")
 			}
-			if m.cfg.Equipos.Capacidad == nil {
+			if m.cfg.ArgosEquipos.Capacidad == nil {
 				return Bienvenida{}, nucleo.ReglaNegocio("bienvenida_no_disponible", "Iris no tiene conexión con Argos")
 			}
-			if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionBienvenida)); err != nil {
+			if ok, err := m.cfg.ArgosEquipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionBienvenida)); err != nil {
 				return Bienvenida{}, err
 			} else if !ok {
 				return Bienvenida{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "La bienvenida no está disponible para esta empresa")

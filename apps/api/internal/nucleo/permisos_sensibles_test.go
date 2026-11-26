@@ -12,7 +12,9 @@ import (
 // autologin).
 func TestPermisosSensiblesCubrenLaAdministracion(t *testing.T) {
 	operativos := []string{"tickets.", "ordenes.", "prospectos.", "campo.", "agenda.", "rutas.", "cotizaciones.",
-		"contratos.", "encuestas.", "clientes.", "adjuntos.", "mensajeria.", "chat.", "conversaciones.", "manuales.", "llamadas."}
+		"contratos.", "encuestas.", "clientes.", "adjuntos.", "mensajeria.", "chat.", "conversaciones.", "manuales.", "llamadas.",
+		// Portal de Argos (0.9.0 §11): solo el token_portal, en nombre del cliente.
+		"portal_argos."}
 	operativosSueltos := map[nucleo.Permiso]bool{nucleo.PermFactibilidadEvaluar: true, nucleo.PermFactibilidadRegistrarManual: true,
 		nucleo.PermEmpresasTodas: true, // empresas.todas es un alcance: esPrivilegiado lo cuenta aparte
 		// Pedir para uno mismo el enlace a Argos no administra nada: lo tienen los roles de atención.

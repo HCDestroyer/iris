@@ -125,6 +125,11 @@ func (i inventarioArgos) Existencias(ctx context.Context, empresaID, bodegaID in
 	return salida, nil
 }
 
+func (i inventarioArgos) BodegaDeUnidad(ctx context.Context, empresaID, unidadID int64) (*int64, error) {
+	b, err := i.a.BodegaDeUnidad(ctx, empresaID, unidadID)
+	return b, sinConector(err)
+}
+
 func (i inventarioArgos) TipoDeBodega(ctx context.Context, empresaID, bodegaID int64) (string, error) {
 	tipo, err := i.a.TipoDeBodega(ctx, empresaID, bodegaID)
 	return tipo, sinConector(err)

@@ -206,20 +206,11 @@ func (m *Modulo) hiloHistorial(ctx context.Context, t *auditoria.Tx, canal mensa
 	}
 	if nueva {
 		// Nace resuelta, sin eventos: es historia.
-		var cliente *int64
+		var cliente, contacto *int64
 		var asociacion *string
-		cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(numero), Empresa: empresa})
+		cliente, asociacion, contacto, err = clienteUnicoDelNumero(ctx, q, empresa, numero)
 		if err != nil {
 			return 0, err
-		}
-		titulares := []int64{}
-		for _, x := range cs {
-			if x.PorTelefono || x.PorMovil {
-				titulares = append(titulares, x.ID)
-			}
-		}
-		if len(titulares) == 1 {
-			cliente, asociacion = &titulares[0], texto("automatica")
 		}
 		// La actividad empieza en su mensaje más viejo y crece con cada uno (nunca «ahora»).
 		primero := ahora
@@ -233,6 +224,8 @@ func (m *Modulo) hiloHistorial(ctx context.Context, t *auditoria.Tx, canal mensa
 			UltimaActividad: primero, ResueltaEn: &ahora})
 		if errors.Is(err, pgx.ErrNoRows) {
 			c, err = q.ConversacionPorContacto(ctx, mensajeriabd.ConversacionPorContactoParams{Empresa: empresa, CanalID: canal.ID, Numero: numero})
+		} else if err == nil && contacto != nil {
+			err = fijarContactoConv(ctx, q, &c, contacto)
 		}
 		if err != nil {
 			return 0, err

@@ -328,6 +328,14 @@ func (m *Modulo) Registrar(api huma.API) {
 	registrarAccion(api, accion("retirarEquipoOrden", "equipos-retirados", "Registrar un equipo retirado",
 		"Con su condición (buena, danada o perdido: no se recuperó).", nucleo.PermOrdenesRegistrar), m.RetirarEquipoPanel,
 		func(e *EntradaEquipo, id int64) { e.ID, e.Sync = id, nil })
+	registrarAccion(api, accion("cambiarEquipoOrden", "equipos-cambiados", "Registrar un cambio de equipo",
+		"Contrato con Argos 0.12.0 §3.10 (B27). Solo en una orden cambio_equipo en curso: la unidad que sale (en comodato del servicio) y la que entra, motivo, destino (por defecto revision; funciona no vale con danado o garantia), foto y cobro propuesto sin monto. Al cerrar la orden, Argos lo hace en una sola operación. Las notas no van en eventos ni en la auditoría. Desde la app: operación equipo.cambiar del lote.",
+		nucleo.PermOrdenesRegistrar), m.CambiarEquipoPanel,
+		func(e *EntradaCambiarEquipo, id int64) { e.ID, e.Sync = id, nil })
+	registrarAccion(api, accion("noRecuperadoOrden", "equipos-no-recuperados", "Registrar un equipo que no se pudo recuperar",
+		"Contrato con Argos 0.12.0 §3.10 (B27). Solo en una orden retiro en sitio: motivo, foto de la orden (obligatoria si se negó o se perdió), ubicación y nota; un intento por unidad al día (429 demasiados_intentos). Declarar la pérdida o cobrarla lo decide una persona en Argos. Desde la app: operación equipo.no_recuperado del lote.",
+		nucleo.PermOrdenesRegistrar), m.NoRecuperadoPanel,
+		func(e *EntradaNoRecuperado, id int64) { e.ID, e.Sync = id, nil })
 	registrarAccion(api, accion("capturarFirmaOrden", "firma", "Capturar la firma del cliente",
 		"Reemplaza la anterior. El SVG nunca sale por la API ni en la auditoría.", nucleo.PermOrdenesRegistrar), m.CapturarFirma.Ejecutar,
 		func(e *EntradaCapturarFirma, id int64) { e.ID, e.Sync = id, nil })

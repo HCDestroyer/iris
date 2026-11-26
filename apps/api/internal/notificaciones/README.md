@@ -97,6 +97,13 @@ al log ni a la auditoría. La auditoría del dispositivo lleva `fin_fcm` (últim
   `usuarios[]` (quien tiene la conversación y quienes supervisan la cola) con el tipo `bandeja`
   (respeta ese interruptor y el «no molestar»), título «Llamada perdida» y `llamada_perdida: true`.
 
+Aviso `argos_clave_reutilizada` (contrato con Argos 0.14.0 §3.10): con `integracion.pendiente_clave_reutilizada`,
+a quien tiene `integraciones.conectar` con todas las empresas; uno por pendiente, `peligro` en un cambio o un
+intento de recuperación. Solo campana; se ve con cualquier empresa activa.
+
+Aviso `argos_carga_vinculos` (0.14.0 §6.6): con `argos.carga_vinculos_detenida`, a los mismos destinatarios,
+`peligro`, uno por episodio; se ve con cualquier empresa activa.
+
 - **Posible falla general** (contrato con Argos 0.13.0 §3.11, B29, `avisos_posible_falla.go`): consume
   `soporte.posible_falla_general` y crea el aviso `posible_falla_general` (nivel `peligro`, enlace al
   ticket, datos `ticket_id` y `tickets`) a las personas con `tickets.configurar_caidas` que operan en la

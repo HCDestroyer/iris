@@ -33,7 +33,7 @@ type TicketPortal struct {
 	CategoriaID          *int64     `json:"categoriaId" nullable:"true"`
 	Categoria            *string    `json:"categoria" nullable:"true" doc:"Nombre de la categoría"`
 	ServicioID           *int64     `json:"servicioId" nullable:"true" doc:"Servicio en Argos"`
-	Origen               string     `json:"origen" enum:"panel,portal,correo,telegram,horus,argos,api"`
+	Origen               string     `json:"origen" enum:"panel,portal,portal_argos,correo,telegram,horus,argos,api"`
 	AfectadoPorIncidente bool       `json:"afectadoPorIncidente" doc:"Vinculado a una falla general de la red (incidente maestro) que sigue abierta"`
 	PuedeConfirmar       bool       `json:"puedeConfirmar" doc:"Resuelto: el cliente puede confirmar la solución (lo cierra) o responder (lo reabre)"`
 	ResueltoEn           *time.Time `json:"resueltoEn" nullable:"true"`
@@ -435,6 +435,12 @@ func demasiados(codigo, detalle string) *nucleo.Problema {
 // abiertos o creó el máximo en la última hora. Una creación repetida con la misma
 // Idempotency-Key no cuenta.
 func (m *Modulo) topeTickets(ctx context.Context, q *soportebd.Queries, a contexto.Actor, clave string) error {
+	return m.topeTicketsDe(ctx, q, a.EmpresaID, a.ClienteID, clave)
+}
+
+// topeTicketsDe: los topes de tickets de un cliente en una empresa (los comparten el portal de
+// Iris y el de Argos, §11.2).
+func (m *Modulo) topeTicketsDe(ctx context.Context, q *soportebd.Queries, empresa, cliente int64, clave string) error {
 	if idem := conIdempotencia(ctx, clave); idem != nil {
 		if _, err := q.TicketPorIdempotencia(ctx, idem); err == nil {
 			return nil
@@ -442,10 +448,10 @@ func (m *Modulo) topeTickets(ctx context.Context, q *soportebd.Queries, a contex
 			return err
 		}
 	}
-	if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.portal:%d:%d", a.EmpresaID, a.ClienteID)); err != nil {
+	if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.portal:%d:%d", empresa, cliente)); err != nil {
 		return err
 	}
-	c, err := q.ConteoTicketsPortal(ctx, soportebd.ConteoTicketsPortalParams{ClienteID: a.ClienteID, EmpresaID: a.EmpresaID})
+	c, err := q.ConteoTicketsPortal(ctx, soportebd.ConteoTicketsPortalParams{ClienteID: cliente, EmpresaID: empresa})
 	if err != nil {
 		return err
 	}
@@ -462,10 +468,15 @@ func (m *Modulo) topeTickets(ctx context.Context, q *soportebd.Queries, a contex
 // topeMensajes: 429 demasiados_mensajes si el cliente escribió el máximo de mensajes por el
 // portal en el último minuto.
 func (m *Modulo) topeMensajes(ctx context.Context, q *soportebd.Queries, a contexto.Actor) error {
-	if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.portal:%d:%d", a.EmpresaID, a.ClienteID)); err != nil {
+	return m.topeMensajesDe(ctx, q, a.EmpresaID, a.ClienteID)
+}
+
+// topeMensajesDe: el tope de mensajes de un cliente en una empresa (compartido por los dos portales).
+func (m *Modulo) topeMensajesDe(ctx context.Context, q *soportebd.Queries, empresa, cliente int64) error {
+	if err := q.BloquearIncidente(ctx, fmt.Sprintf("soporte.portal:%d:%d", empresa, cliente)); err != nil {
 		return err
 	}
-	n, err := q.MensajesPortalUltimoMinuto(ctx, soportebd.MensajesPortalUltimoMinutoParams{ClienteID: a.ClienteID, EmpresaID: a.EmpresaID})
+	n, err := q.MensajesPortalUltimoMinuto(ctx, soportebd.MensajesPortalUltimoMinutoParams{ClienteID: cliente, EmpresaID: empresa})
 	if err != nil {
 		return err
 	}

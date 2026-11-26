@@ -481,6 +481,12 @@ func (m *Modulo) guardarTecnico(ctx context.Context, t *auditoria.Tx, q *agendab
 	if err := t.Emitir("tecnico.actualizado", map[string]any{"tecnico_id": f.ID, "usuario_id": f.UsuarioID, "campos": campos, "activo": f.Activo}); err != nil {
 		return TecnicoDetalle{}, err
 	}
+	// 0.14.0 §6.6: activar o desactivar la ficha de un técnico vinculado avisa a Argos.
+	if antes.Activo != f.Activo {
+		if err := vinculoPorActivo(ctx, t, q, f, f.Activo); err != nil {
+			return TecnicoDetalle{}, err
+		}
+	}
 	// Entró, salió o cambió de cuadrilla, o se activó o desactivó: las cuadrillas afectadas suben
 	// su versión y avisan a Argos con sus miembros completos (§3.9). Al salir, el servidor deja de
 	// aceptar sus lotes con la bodega de esa cuadrilla desde este momento (se valida contra la

@@ -5,12 +5,12 @@
 INSERT INTO integracion.pendientes (
     empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload,
     depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar,
-    tecnico_usuario_id, actor, transito_id
+    tecnico_usuario_id, actor, transito_id, contacto
 ) VALUES (
     sqlc.narg(empresa_id), @sistema, @operacion, @idempotency_key, @entidad, @entidad_id, @metodo, @ruta, @payload,
     @depende_de, @datos_incompletos, @estado, sqlc.narg(ultimo_error), @proximo_intento, sqlc.narg(evento_id),
     sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}'), sqlc.narg(tecnico_usuario_id),
-    sqlc.narg(actor), sqlc.narg(transito_id)
+    sqlc.narg(actor), sqlc.narg(transito_id), sqlc.narg(contacto)
 )
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING *;
@@ -19,6 +19,11 @@ RETURNING *;
 -- Cuáles de estas bodegas de Argos son de una cuadrilla (contrato 0.11.0 §3.9): el consumo desde una
 -- de ellas lleva `tecnico` y `bodega_id` a la vez, con X-Iris-Actor.
 SELECT bodega_id FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = ANY(@bodegas::bigint[]) ORDER BY bodega_id;
+
+-- name: NotasDeEquipos :many
+-- Las notas de los cambios e intentos de recuperación de la orden (0.12.0 §3.10): van a Argos en el
+-- cuerpo, nunca en el evento ni en los logs.
+SELECT id, nota, cobro_nota FROM campo.orden_equipos WHERE id = ANY(@ids::uuid[]);
 
 -- name: BodegasPersonales :many
 -- Cuáles de estas bodegas de Argos son la personal de un técnico (0.13.1 §3.9): desde el panel no se
@@ -29,6 +34,56 @@ SELECT bodega_id FROM integracion.argos_bodegas_tecnico WHERE bodega_id = ANY(@b
 -- El vínculo I1 (id_externo) de cada usuario: el `tecnico` del cuerpo es el del actor (0.13.1).
 SELECT usuario_id, argos_id_externo::text AS id_externo FROM agenda.tecnicos
 WHERE usuario_id = ANY(@usuarios::bigint[]) AND argos_id_externo IS NOT NULL AND argos_id_externo <> '';
+
+-- name: EsperandoFoto :many
+-- Los cambios e intentos que esperan esta foto (0.14.0 §3.10).
+SELECT id FROM integracion.pendientes
+WHERE estado = 'bloqueado' AND ultimo_error = @motivo::text AND operacion IN ('cambio', 'no_recuperado')
+  AND payload->>'foto_ref' = @foto_ref::text
+ORDER BY id;
+
+-- name: OtroIntentoDelDia :one
+-- Otro intento de Iris de la misma unidad (misma ruta) el mismo día de America/Guatemala que este
+-- (0.14.0 §3.10): sin él, un 429 demasiados_intentos es un «posible intento ajeno».
+SELECT EXISTS (
+    SELECT 1 FROM integracion.pendientes p, integracion.pendientes yo
+    WHERE yo.id = @id AND p.id <> yo.id AND p.operacion = 'no_recuperado' AND p.ruta = yo.ruta
+      AND ((p.payload->>'fecha')::timestamptz AT TIME ZONE 'America/Guatemala')::date
+        = ((yo.payload->>'fecha')::timestamptz AT TIME ZONE 'America/Guatemala')::date
+)::boolean;
+
+-- name: ConectorDeToken :one
+-- El conector Argos al que Iris entregó este token (el que consulta la verificación), solo si Iris
+-- ya le informó contrato ≥ 0.14.0 (§4.5: la verificación y su permiso van detrás de esa versión).
+SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = @token_id
+  AND CASE WHEN contrato_informado ~ '^[0-9]+\.[0-9]+\.[0-9]+$'
+           THEN string_to_array(contrato_informado, '.')::int[] >= '{0,14,0}'::int[] ELSE false END;
+
+-- name: ContarVerificaciones :one
+-- Consultas de verificación del conector en el último minuto y de la clave desde @dia.
+SELECT
+    (SELECT count(*) FROM integracion.verificaciones_intento v WHERE v.conector_id = @conector_id AND v.consultada_en > @minuto)::int AS por_minuto,
+    (SELECT count(*) FROM integracion.verificaciones_intento v WHERE v.clave = @clave AND v.consultada_en >= @dia)::int AS por_clave;
+
+-- name: BloquearVerificacion :exec
+-- M-1: el tope se cuenta e inserta con el conector y la clave bloqueados (consultas concurrentes).
+SELECT pg_advisory_xact_lock(hashtextextended(@llave::text, 0));
+
+-- name: RegistrarVerificacion :exec
+INSERT INTO integracion.verificaciones_intento (conector_id, clave, consultada_en) VALUES (@conector_id, @clave, @en);
+
+-- name: PurgarVerificaciones :exec
+DELETE FROM integracion.verificaciones_intento WHERE consultada_en < @antes;
+
+-- name: LlegadaParaVerificar :one
+-- La llegada del autor a la orden (último orden.llegar suyo el mismo día de la fecha, sin pasarla).
+SELECT coalesce(max(ocurrido_en), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz FROM campo.orden_eventos
+WHERE orden_id::text = @orden_id::text AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
+  AND actor_id = @actor_id AND ocurrido_en >= @desde AND ocurrido_en <= @fecha;
+
+-- name: UsosDeFoto :one
+-- Cuántos cambios o intentos usan esta foto.
+SELECT count(*)::int FROM campo.orden_equipos WHERE foto_adjunto_id = @foto;
 
 -- name: PendientePorClave :one
 SELECT * FROM integracion.pendientes WHERE idempotency_key = @idempotency_key;
@@ -68,6 +123,7 @@ SET estado          = @estado,
     respuesta       = coalesce(respuesta, sqlc.narg(respuesta)::jsonb),
     codigo_error    = sqlc.narg(codigo_error),
     tomado_en       = NULL,
+    enviado_a_conector = coalesce(sqlc.narg(enviado_a_conector)::bigint, enviado_a_conector),
     version         = version + 1,
     updated_at      = now()
 WHERE id = @id AND estado = 'en_curso'
@@ -101,7 +157,7 @@ SELECT * FROM integracion.pendientes WHERE entidad = @entidad AND entidad_id = @
 -- Cierre repetido con los datos que faltaban: el pendiente incompleto vuelve a la cola.
 UPDATE integracion.pendientes
 SET payload = @payload, ruta = @ruta, depende_de = @depende_de, datos_incompletos = false,
-    estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
+    tecnico_usuario_id = sqlc.narg(tecnico_usuario_id)::bigint, estado = 'pendiente', intentos = 0, ultimo_error = NULL, ultimo_status = NULL,
     proximo_intento = @ahora, version = version + 1, updated_at = now()
 WHERE id = @id AND estado = 'fallido_negocio' AND datos_incompletos
 RETURNING *;
@@ -265,6 +321,58 @@ SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = 
 WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
 RETURNING *;
 
+-- name: EstadoVinculo :one
+-- 0.14.0 §6.6: el estado del vínculo VIGENTE del técnico en la empresa (M-3: el último
+-- tecnico.argos_* emitido para esa empresa, comparado con el id_externo de la ficha, no la última
+-- fila de webhook) y de su webhook hacia este conector. Estados: entregado, pendiente, agotado,
+-- omitido (de su webhook); sin_programar (aún en el outbox); otro_conector; sin_vinculo; carga_abierta
+-- (el conector aún no cerró su carga inicial de vínculos: tras reconectar, nada se hereda). motivo: el de
+-- un omitido (prefijo de ultimo_error: sin_receptor, otro_conector, empresa_no_permitida).
+SELECT CASE WHEN (SELECT c.vinculos_cargados_en FROM integracion.conectores c WHERE c.id = @conector_id::bigint) IS NULL THEN 'carga_abierta'
+            ELSE coalesce(v.estado, 'sin_vinculo') END::text AS estado,
+       coalesce(v.motivo, '')::text AS motivo
+FROM agenda.tecnicos t
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN o.evento <> 'tecnico.argos_vinculado' OR t.argos_id_externo IS NULL OR o.payload->>'id_externo' <> t.argos_id_externo THEN 'sin_vinculo'
+        WHEN w.id IS NULL THEN 'sin_programar'
+        WHEN w.conector_origen IS DISTINCT FROM @conector_id::bigint THEN 'otro_conector'
+        ELSE w.estado END AS estado,
+        CASE WHEN w.estado = 'omitido' THEN split_part(coalesce(w.ultimo_error, ''), ':', 1) END AS motivo
+    FROM integracion.outbox o LEFT JOIN mensajeria.webhooks_salida w ON w.id = o.id
+    WHERE o.evento IN ('tecnico.argos_vinculado', 'tecnico.argos_desvinculado')
+      AND (o.payload->>'tecnico_id')::bigint = t.id AND (o.payload->>'empresa_id')::bigint = @empresa_id::bigint
+    ORDER BY (o.payload->>'version')::int DESC, o.id DESC LIMIT 1) v ON true
+WHERE t.usuario_id = @usuario_id::bigint;
+
+-- name: PostergarPendiente :one
+-- Espera una dependencia que no es otro pendiente (el vinculado del técnico): vuelve a pendiente sin
+-- gastar un intento. esperando_vinculo_desde guarda el comienzo de la espera (tope de 24 h).
+UPDATE integracion.pendientes SET estado = 'pendiente', proximo_intento = @proximo_intento, tomado_en = NULL,
+    ultimo_error = @ultimo_error, codigo_error = @codigo_error, updated_at = now(),
+    esperando_vinculo_desde = coalesce(esperando_vinculo_desde, @ahora)
+WHERE id = @id AND estado = 'en_curso'
+RETURNING esperando_vinculo_desde::timestamptz;
+
+-- name: BloquearPorVinculo :one
+-- El vinculado agotó sus reintentos o la espera llegó al tope: bloqueado a la vista, sin depende_de.
+UPDATE integracion.pendientes SET estado = 'bloqueado', tomado_en = NULL, ultimo_error = @ultimo_error,
+    codigo_error = 'depende_de_vinculado', version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('en_curso', 'pendiente')
+RETURNING *;
+
+-- name: BloqueadosPorVinculo :many
+SELECT * FROM integracion.pendientes WHERE estado = 'bloqueado' AND codigo_error = 'depende_de_vinculado' ORDER BY id LIMIT 500;
+
+-- name: DesbloquearPorVinculo :one
+-- El vinculado tuvo su 2xx: vuelve a la cola, con la espera en cero.
+UPDATE integracion.pendientes SET estado = 'pendiente', proximo_intento = @ahora, ultimo_error = NULL, codigo_error = NULL,
+    esperando_vinculo_desde = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'bloqueado' AND codigo_error = 'depende_de_vinculado'
+RETURNING *;
+
+-- name: TerminarEsperaVinculo :exec
+UPDATE integracion.pendientes SET esperando_vinculo_desde = NULL WHERE id = @id;
 -- --- Depósito de tránsito (contrato 0.10.0 §3.4.8) --------------------------------------------
 
 -- name: GuardarTransito :exec

@@ -417,6 +417,29 @@ partes (ficha, ticket, orden, comercial y app de campo).
   `PUT /integraciones/iris/contrato`. Cada función nueva sigue dependiendo del contrato que informó Argos
   (§4.1): con un Argos de contrato < 0.8.0 se comporta como en 0.7.1 y el conector queda en `ok`.
 
+## Contrato 0.14.0: carga de vínculos y permiso de la verificación (§4.5, §6.6)
+
+Detrás de la versión que informa Iris (`Config.ContratoIris`, por defecto `ContratoIris`): con 0.14.0
+informado y aceptado por un Argos que lo habla, una vez por conector, `InformarContrato` suma
+`adjuntos.verificar_integracion` al `iris_pat_` vigente (si tiene lista de permisos) y pide a agenda la carga
+inicial de vínculos (`Config.Vinculos` / `UsarVinculos`). El job `integracion.argos_cerrar_carga_vinculos`
+(cada minuto) cierra la carga con `PUT /integraciones/iris/contrato { contrato, receptor_argos,
+vinculos_cargados }` cuando todos sus vinculados tuvieron el `2xx` (los omitidos no cuentan; uno agotado la
+deja abierta). Columnas: `integracion.conectores.vinculos_carga_id`, `vinculos_carga_n`,
+`vinculos_cargados_en`. Con un vinculado de la carga `agotado`, la carga no se cierra y se emite
+`argos.carga_vinculos_detenida` una vez por episodio (`vinculos_carga_avisada_en`; aviso de campana al
+admin).
+
+**Reconexión (A-1).** Al activar un conector de la misma instancia de Argos que otro
+(`integracion.misma_instancia_argos`: `base_url` normalizada —host en minúsculas, sin punto final ni puerto
+por defecto; se guarda así desde el canje, y la migración normalizó las ya guardadas; el receptor de
+webhooks que manda Argos se compara y se guarda igual— y, si los dos lo traen, el mismo `remoto_id`), `migrarVinculos`
+pasa al nuevo, en la transacción de la activación, los `agenda.tecnicos.argos_conector_id` y el
+`conector_origen` de los webhooks `tecnico.argos_*` aún sin entregar. Lo entregado y la carga cerrada no se
+heredan: el conector nuevo corre su carga inicial al informar 0.14.0 (reemite los vinculados con versión
+mayor) y, hasta cerrarla, `depende_de` espera. Un evento que seguía en el outbox con el conector viejo se
+programa hacia el activo de la misma instancia (mensajeria).
+
 ## Contrato 0.7.1 (A24)
 
 - Iris informó `0.7.1` hasta la 0.8.1. Es aditivo: con un Argos 1.15.x (que solo conoce 0.7.0) todo sigue igual. Iris informa
@@ -544,6 +567,66 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
   Nunca el Wi-Fi, el texto de la bienvenida ni credenciales.
 - Lecturas: `LeerAprovisionamiento` (`GET /aprovisionamientos/:id`) y `LeerEquipo` (`GET /servicios/:id/equipo`;
   con el asistente, sin serie, MAC, modelo ni firmware).
+
+## Contratos 0.10.0 y 0.10.1: contactos del cliente (A42, A46 / B22, B25)
+
+- **Caché de lectura** (`contactos.go`): `integracion.argos_contactos` (rol, `servicios[]`, permisos,
+  `persona_cliente_id`, `version`), `argos_contacto_telefonos` (solo números E.164, con sus dígitos para
+  buscar) y `argos_contactos_leidos` (cuándo se leyeron completos). Argos es el dueño: nada se edita a mano.
+  Es una sola tabla y una sola escritura para el portal (§11.10) y la atención: `guardarContactos` (consulta
+  `GuardarContacto`) guarda todas las columnas, cambia los teléfonos solo si escribió la fila y **nunca baja
+  la `version`** (una lectura vieja que llega tarde no pisa una más nueva). Cada lectura toma la hora de la
+  base **antes** de pedir a Argos y la guarda en `leido_en`: con la misma versión, solo escribe si empezó
+  después del último cambio de la fila, así que un `quitado` por webhook (que no sube la versión) llegado
+  mientras se leía no se revive ni recupera permisos. Un contacto quitado (con `clock_timestamp()`) solo
+  vuelve con una lectura que empezó después del quitado, aunque una anterior traiga una versión mayor
+  (Argos lo editó y después lo quitó mientras se leía). `argos_contactos_leidos`
+  se marca con esa misma hora de inicio (nunca retrocede). Sin `permisos` de Argos, todos en
+  `false` (lo seguro; los valores por defecto de la base también son `false`).
+- **`quitado` (estado propio de Iris, no del contrato):** un contacto que Argos quitó (`accion: quitado`), que
+  ya no viene en la lista del cliente o cuyo cliente ya no existe (`404`) **no se borra**: se marca
+  `quitado = true` con `leido_en`, y conserva su `version`. Ninguna lectura lo usa (portal, rol en la
+  conversación, avisos de cobro, consentimiento: todas filtran `NOT quitado`, y las de la mensajería además
+  `coalesce(empresa_id, 0)` de la empresa). Si vuelve a venir de Argos con la misma versión o una mayor, deja
+  de estar quitado.
+- `RefrescarContactos` lee `GET /clientes/:id/contactos` si la caché tiene más de 24 h (auditado como
+  `clientes.sincronizar_contactos`); `BuscarContactos` llama `GET /contactos/buscar?telefono=`. Las dos
+  exigen `X-Iris-Actor` de quien atiende; con Argos < 0.10.0 no llaman a nada.
+- **Webhook `cliente.contactos_cambiados`:** solo de clientes que Iris conoce. Un solo manejador
+  (`aplicarContactos`) para el portal y la atención. Con `quitado`, el contacto queda quitado al momento, sin
+  leer Argos; si no, Iris relee con `X-Iris-Actor: sistema` (0.14.2: solo en esa ruta, nunca con
+  `X-Iris-Conversacion` ni `X-Iris-Contacto`). Si Argos no responde o no lo acepta, el webhook falla y se
+  reintenta (la caché queda como estaba). Emite `argos.contactos_cambiados`, sin números ni nombres.
+- **`X-Iris-Contacto` (§7.1):** con Argos ≥ 0.10.1 va en toda ruta de §7 con `X-Iris-Conversacion`:
+  `titular` o el `contacto_id` (`AtencionIris.Contacto`). Con uno anterior no se manda. El estado de
+  cuenta acepta `?servicio_id=` (`EstadoCuentaServicio`) para un contacto con servicios acotados.
+- **Con Argos caído la caché no vence:** `RefrescarContactos` no toca nada si Argos no responde (solo un
+  `404` deja quitados los contactos del cliente); la mensajería sigue con los contactos que tenía, por viejos que sean, y el rol
+  sigue fallando cerrado si el contacto o su número ya no están. Cada relectura que cambia contactos o
+  números emite `argos.contactos_cambiados` para que la mensajería revise sus conversaciones.
+
+## Contrato 0.9.0, bloque P: portal del cliente de Argos (`portal.go`, B8 y B28)
+
+- `SesionPortal` resuelve cada petición de §11: solo el `token_portal` de un conector Argos (403
+  `solo_integracion_argos`; 409 `argos_apagado`), `X-Iris-Empresa` y `X-Argos-Portal-Sesion` (400
+  `cabecera_requerida`), `X-Iris-Contacto` con contrato ≥ 0.12.1 (400 `cabecera_iris_requerida`), tope de
+  600 peticiones por minuto por conector (`integracion.portal_argos_minutos`, 429 `demasiadas_peticiones`)
+  y el cliente por la instantánea o con `GET /clientes/:id` (422 `cliente_no_existe` / `empresa_no_coincide`;
+  si Argos no responde, la sesión queda sin validar y solo `POST …/tickets` la acepta).
+- `token_portal` (§1.2): un `iris_pat_` hijo del entregado en el canje (`nucleo.tokens_api.token_padre_id`),
+  recortado a `portal_argos.*`; vale mientras vale su padre, así que vence, se confirma, se revoca y se
+  elimina con él. Se entrega en el canje (`token_portal`) y, a un conector ya conectado sin uno vigente, en
+  `PUT /integraciones/iris/contrato`; las dos solo cuando `ContratoIris` ≥ 0.9.0. Los `iris_pat_` que no
+  son hijos pierden `portal_argos.*` aunque los dé el rol.
+- Caché de contactos (`integracion.argos_contactos`, §11.10): sin números; se relee con
+  `GET /clientes/:id/contactos` (con `X-Iris-Actor: sistema`, 0.14.2 §7.1, sin `X-Iris-Conversacion` ni `X-Iris-Contacto`) si falta o si
+  `X-Iris-Contacto-Version` es mayor (503 si Argos no responde) y con `cliente.contactos_cambiados`
+  (`quitado` marca enseguida, sin leer Argos).
+- `GET /integraciones/argosisp/estado` suma `capacidades { portal_argos, solicitudes_servicio,
+  adjuntos_ticket }` (§4.3) y sigue siendo solo para personas. Argos las lee con
+  `GET /integraciones/argosisp/capacidades` (0.14.2, `capacidades.go`): permiso
+  `integraciones.ver_capacidades` del rol `integracion_argos`, solo `{ contrato_iris, capacidades }` del
+  conector del token; otro conector o uno apagado, 404; el `token_portal`, 403.
 
 ## Contrato 0.13.0: caídas repetidas y falla general (§3.11, A49/A50; B29/B30)
 

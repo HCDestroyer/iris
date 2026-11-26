@@ -127,6 +127,13 @@ func (m *Modulo) Registrar(api huma.API) {
 	huma.Register(api, conciliar, func(ctx context.Context, in *EntradaCuadrillaArgos) (*cuerpo[CuadrillaArgos], error) {
 		return responder(m.CuadrillaArgos.Ejecutar(ctx, *in))
 	})
+	vinculo := operacion("tecnicoParaArgos", http.MethodGet, "/api/v1/integraciones/argosisp/tecnicos/{usuario_id}", "Vínculo de un técnico para conciliar en Argos",
+		nucleo.PermCuadrillasLeerIntegracion, http.StatusOK, http.StatusNotFound)
+	vinculo.Description += " Contrato 0.14.0 §6.6: lo usa Argos con su `iris_pat_` cuando le falta un `tecnico.argos_*` o al reevaluar un vínculo rechazado. `activo: false` equivale a desvinculado; `version` es la del último `tecnico.argos_*`. Responde 404 igual si el vínculo no salió de este conector, si el usuario no tiene ficha de técnico en esa empresa o si está fuera del alcance."
+	vinculo.Tags = []string{"integraciones"}
+	huma.Register(api, vinculo, func(ctx context.Context, in *EntradaTecnicoArgos) (*cuerpo[TecnicoArgos], error) {
+		return responder(m.TecnicoArgos.Ejecutar(ctx, *in))
+	})
 
 	// Técnicos.
 	listar := operacion("listarTecnicos", http.MethodGet, "/api/v1/tecnicos", "Fichas de técnicos (según el alcance)", nucleo.PermAgendaVer, http.StatusOK)

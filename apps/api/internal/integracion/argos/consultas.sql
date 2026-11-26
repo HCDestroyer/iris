@@ -645,6 +645,123 @@ RETURNING *;
 UPDATE integracion.argos_cuentas_bancarias SET confirmada_por = @usuario_id, confirmada_en = now(), updated_at = now()
 WHERE id = @id RETURNING *;
 
+-- Portal del cliente de Argos (0.9.0 §11) -------------------------------------------------
+
+-- name: ConectorDeTokenPortal :one
+-- El conector Argos del token_portal: el token es hijo del iris_pat_ que se entregó en el canje de
+-- ese conector (o del que una reconexión sin confirmar todavía reemplaza).
+SELECT c.id, c.estado, c.contrato_remoto
+FROM nucleo.tokens_api t
+JOIN integracion.conectores c ON c.sistema = 'argosisp' AND c.eliminado_en IS NULL
+     AND (t.token_padre_id = c.token_entregado_id OR t.token_padre_id = c.reemplaza_token_id)
+WHERE t.id = @token_id AND t.token_padre_id IS NOT NULL
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1;
+
+-- name: ContarPeticionPortal :one
+-- Tope del conector (§11.2): una petición más en el minuto en curso.
+INSERT INTO integracion.portal_argos_minutos (conector_id, minuto, peticiones)
+VALUES (@conector_id, date_trunc('minute', now()), 1)
+ON CONFLICT (conector_id, minuto) DO UPDATE SET peticiones = integracion.portal_argos_minutos.peticiones + 1
+RETURNING peticiones;
+
+-- name: PurgarPeticionesPortal :exec
+DELETE FROM integracion.portal_argos_minutos WHERE minuto < now() - interval '10 minutes';
+
+-- name: ClienteEnInstantanea :one
+SELECT id, empresa_id, empresas, sin_servicios FROM integracion.argos_clientes WHERE id = @id;
+
+-- name: ContactoEnCache :one
+SELECT * FROM integracion.argos_contactos WHERE contacto_id = @contacto_id;
+
+-- name: GuardarContacto :execrows
+-- La única escritura de un contacto en la caché (portal §11.10 y atención §3.5): todas las columnas,
+-- sin bajar nunca la versión (una lectura vieja que llega tarde no pisa una más nueva). @leido_en es la
+-- hora (de la base) en que empezó la lectura en Argos: con la misma versión, una lectura que empezó
+-- antes del último cambio de la fila (p. ej. un quitado por webhook, que no sube la versión) no la pisa
+-- ni la revive. Devuelve 0 filas si no se escribió (entonces tampoco se tocan sus teléfonos).
+INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios,
+    consultar, reportar, pagar, avisos, persona_cliente_id, version, quitado, leido_en)
+VALUES (@contacto_id, @cliente_id, sqlc.narg('empresa_id'), @nombre, @relacion, @es_titular, sqlc.narg('servicios')::bigint[],
+    @consultar, @reportar, @pagar, @avisos, sqlc.narg('persona_cliente_id'), @version, false, @leido_en)
+ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = excluded.cliente_id, empresa_id = excluded.empresa_id,
+    nombre = excluded.nombre, relacion = excluded.relacion, es_titular = excluded.es_titular, servicios = excluded.servicios,
+    consultar = excluded.consultar, reportar = excluded.reportar, pagar = excluded.pagar, avisos = excluded.avisos,
+    persona_cliente_id = excluded.persona_cliente_id, version = excluded.version, quitado = false,
+    leido_en = greatest(integracion.argos_contactos.leido_en, excluded.leido_en), updated_at = now()
+WHERE (excluded.version > integracion.argos_contactos.version
+    OR (excluded.version = integracion.argos_contactos.version AND excluded.leido_en >= integracion.argos_contactos.leido_en))
+    -- Un quitado posterior al inicio de la lectura gana aunque ella traiga una versión mayor (Argos lo
+    -- editó y después lo quitó mientras se leía): solo lo revive una lectura que empezó después.
+    AND NOT (integracion.argos_contactos.quitado AND excluded.leido_en < integracion.argos_contactos.leido_en);
+
+-- name: QuitarContactosAusentes :execrows
+-- Los contactos del cliente que Argos ya no devuelve: quitados (no se borran; dejan de ver sus tickets
+-- y pierden su rol en la atención). Solo los que no se escribieron después de que empezó esta lectura
+-- (@leido_en): una lectura vieja no quita un contacto que guardó una más nueva.
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = clock_timestamp(), updated_at = now()
+WHERE cliente_id = @cliente_id AND NOT quitado AND NOT (contacto_id = ANY(@vigentes::bigint[]))
+    AND leido_en <= @leido_en::timestamptz;
+
+-- name: QuitarContacto :execrows
+-- leido_en con clock_timestamp() (no now(), que es el inicio de la transacción): la hora real del
+-- quitado, para compararla con el inicio de una lectura en curso.
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = clock_timestamp(), updated_at = now()
+WHERE contacto_id = @contacto_id AND cliente_id = @cliente_id AND NOT quitado;
+
+-- name: HayContactosDeCliente :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_contactos WHERE cliente_id = @cliente_id)::boolean;
+
+-- name: TokenPortalVigente :one
+-- El iris_pat_ entregado ya tiene un token_portal vigente (hijo sin revocar ni eliminar).
+SELECT EXISTS (SELECT 1 FROM nucleo.tokens_api WHERE token_padre_id = @padre_id
+    AND revocado_en IS NULL AND eliminado_en IS NULL)::boolean;
+
+-- name: ConectorDeTokenPanel :one
+-- El conector Argos al que pertenece el iris_pat_ del panel (el entregado en su canje o el que una
+-- reconexión sin confirmar todavía reemplaza).
+SELECT c.id, c.estado FROM integracion.conectores c
+WHERE c.sistema = 'argosisp' AND c.eliminado_en IS NULL AND (c.token_entregado_id = @token_id OR c.reemplaza_token_id = @token_id)
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1;
+
+-- Contactos del cliente en la atención (contrato 0.10.0 §3.5, A42; 0.10.1 §3.8, A46) --------------
+-- La tabla y su escritura son las del portal (GuardarContacto, QuitarContacto*): aquí, los teléfonos y
+-- cuándo se leyó completo cada cliente.
+
+-- name: BorrarTelefonosContactoArgos :exec
+DELETE FROM integracion.argos_contacto_telefonos WHERE contacto_id = @contacto_id;
+
+-- name: GuardarTelefonoContactoArgos :exec
+INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos, whatsapp, principal)
+VALUES (@contacto_id, @numero, @digitos, @whatsapp, @principal)
+ON CONFLICT (contacto_id, numero) DO UPDATE SET digitos = EXCLUDED.digitos, whatsapp = EXCLUDED.whatsapp, principal = EXCLUDED.principal;
+
+-- name: OlvidarContactosLeidos :exec
+-- Invalida la caché del cliente: se vuelve a leer de Argos cuando una persona la necesite.
+DELETE FROM integracion.argos_contactos_leidos WHERE cliente_id = @cliente_id;
+
+-- name: MarcarContactosLeidos :exec
+-- @sincronizado_en es la hora en que empezó la lectura (no la de guardar) y nunca retrocede.
+INSERT INTO integracion.argos_contactos_leidos (cliente_id, sincronizado_en) VALUES (@cliente_id, @sincronizado_en)
+ON CONFLICT (cliente_id) DO UPDATE SET sincronizado_en = greatest(integracion.argos_contactos_leidos.sincronizado_en, EXCLUDED.sincronizado_en);
+
+-- name: InicioLecturaContactos :one
+-- La hora de la base al empezar una lectura de contactos en Argos (la misma reloj que now()).
+SELECT clock_timestamp()::timestamptz;
+
+-- name: ContactosLeidosEn :one
+SELECT sincronizado_en FROM integracion.argos_contactos_leidos WHERE cliente_id = @cliente_id;
+
+-- name: HuellaContactosCliente :one
+-- Huella de los contactos vigentes del cliente (ids, si son titulares y sus números): si cambia al
+-- releer, la mensajería revisa las conversaciones asociadas por esos contactos.
+SELECT coalesce(md5(string_agg(k.contacto_id::text || ':' || k.es_titular::text || ':' || coalesce(t.digitos, ''), ','
+    ORDER BY k.contacto_id, t.digitos)), '')::text
+FROM integracion.argos_contactos k LEFT JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id
+WHERE k.cliente_id = @cliente_id AND NOT k.quitado;
+
+
 -- Falla general (0.13.0 §3.11): servicios por leer en Argos en un job aparte -------------------------
 
 -- name: CrearLecturaIncidente :exec

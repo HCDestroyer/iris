@@ -57,7 +57,11 @@ const (
 	EventoBloqueado      = "integracion.pendiente_bloqueado"
 	EventoDesbloqueado   = "integracion.pendiente_desbloqueado"
 	EventoResueltoManual = "integracion.pendiente_resuelto_manual"
-	EventoOrdenCerrada   = "orden.cerrada"
+	// EventoClaveReutilizada: Argos respondió idempotency_key_reutilizada (tiene otro cuerpo con la
+	// clave de Iris). Avisa al admin en la campana (notificaciones); en un cambio o un intento es
+	// además una alerta de seguridad (0.14.0 §3.10).
+	EventoClaveReutilizada = "integracion.pendiente_clave_reutilizada"
+	EventoOrdenCerrada     = "orden.cerrada"
 )
 
 // Esperas entre intentos (contratos/argosisp.md §0): tras el n-ésimo intento fallido se espera
@@ -95,8 +99,12 @@ type Modulo struct {
 	EncolarCierreOrden *auditoria.Caso[OrdenCerrada, ResultadoCierre]
 	confirmarCobro     *auditoria.Caso[EntradaConfirmarCobro, Pendiente]
 	quitarPorAnular    *auditoria.Caso[EntradaQuitarPorAnular, Pendiente]
+	bloquearPorVinculo *auditoria.Caso[entradaBloqueoVinculo, bool]
+	desbloquearVinculo *auditoria.Caso[entradaDesbloqueoVinculo, bool]
 	resolver           *auditoria.Caso[resultadoIntento, Pendiente]
 	resolverListos     *auditoria.Caso[atascado, int]
+	armarIntento       *auditoria.Caso[entradaArmarIntento, string]
+	verificarIntento   *auditoria.Caso[EntradaVerificarIntento, VerificacionIntento]
 }
 
 // Nuevo arma el módulo.
@@ -115,6 +123,9 @@ func Nuevo(cfg Config) *Modulo {
 	m.confirmarCobro = nuevoConfirmarCobro(m)
 	m.quitarPorAnular = nuevoQuitarPorAnular(m)
 	m.resolver = nuevoResolver(m)
+	m.bloquearPorVinculo, m.desbloquearVinculo = nuevoBloquearPorVinculo(), nuevoDesbloquearPorVinculo()
+	m.armarIntento = m.nuevoArmarIntento()
+	m.verificarIntento = m.nuevoVerificarIntento()
 	m.resolverListos = auditoria.Nuevo(auditoria.Caso[atascado, int]{
 		Accion: "integraciones.resolver_pendientes", Acceso: auditoria.Autenticado,
 		AuditarExito: func(n int) bool { return n > 0 },

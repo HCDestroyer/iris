@@ -224,13 +224,15 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola),
-		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL}})
-	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	almacen, err := almacenAdjuntos(cfg)
 	if err != nil {
 		return err
 	}
+	// Portal del cliente de Argos (contrato 0.9.0 §11): la sesión la resuelve el conector y los
+	// adjuntos van al mismo almacenamiento.
+	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg, Portal: lportal, Encolar: integracion.Encolar(cola),
+		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL}, PortalArgos: conectorArgos, Almacen: almacen})
+	conectorHorus := horus.Nuevo(configHorus(cfg, conectorArgos))
 	// La orden acepta adjuntos (campo decide quién ve y sube); el cierre cuenta los completos.
 	campo.RegistrarAdjuntos()
 	adj := adjuntos.Nuevo(configAdjuntos(cfg, almacen))
@@ -249,7 +251,8 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		return err
 	}
 	// Campo programa con su agenda (la misma registra las rutas de agenda).
-	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
+	// Equipos: con un Argos ≥ 0.14.0, cambios e intentos salen al aplicarse (contrato §3.10).
+	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop, Recepciones: inv,
 		// Paso «Confirmar titular y plan» (contrato 0.10.0 §3.4): lo sensible va cifrado al depósito
 		// de tránsito y sale a Argos por la cola de pendientes.
@@ -257,7 +260,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 		// llamada.directa del lote: la anota la mensajería (fila y evento) en la transacción de la operación.
 		LlamadasDirectas: mensajeria.LlamadasDirectas{},
 		// Activación desde la orden, equipo y Wi-Fi del cliente (contrato 0.9.0 §12).
-		Equipos: campo.EquiposDeArgos(conectorArgos),
+		ArgosEquipos: campo.EquiposDeArgos(conectorArgos),
 		Agenda:  agenda.Nuevo(agenda.Config{Enrutador: osrm, Argos: agenda.TecnicosDeArgos(conectorArgos)})})
 	// Comercial: prospectos, factibilidad, cotización y contrato con PDF (adjuntos) y ganar
 	// (pendientes hacia Argos y orden de instalación en campo).
@@ -267,7 +270,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	mensajeria.RegistrarAdjuntos()
 	com := comercial.Nuevo(comercial.Config{Planes: comercial.PlanesDeArgos(conectorArgos), Altas: comercial.AltasDeArgos(conectorArgos),
 		Documentos: comercial.DocumentosDeAdjuntos(adj), Campo: cmp, Encolar: integracion.Encolar(cola),
-		Clientes: conectorArgos, URLBase: cfg.BaseURL})
+		Clientes: conectorArgos, URLBase: cfg.BaseURL, PortalArgos: conectorArgos})
 	// La firma del contrato regenerado en la orden (orden.firmar_contrato, B20) la hace comercial.
 	cmp.ConectarContratos(com)
 	// Hash de las peticiones con Idempotency-Key: HMAC con clave derivada de IRIS_CLAVE_CIFRADO
@@ -306,7 +309,7 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	handler, _ := servidor.Nuevo(servidor.Deps{
 		BD: pool, Log: log, Version: cfg.Version, Identidad: id,
 		NotificacionesPush: func() string { return estPush.Estado },
-		Idempotencia:       nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem, Regla: comercial.ReglaIdempotenciaArgos},
+		Idempotencia:       nucleo.OpcionesIdempotencia{Reclamo: cfg.IdempotenciaReclamo, Claves: clavesIdem, Regla: nucleo.PrimeraRegla(comercial.ReglaIdempotenciaArgos, argos.ReglaIdempotenciaPortal)},
 		Modulos: []func(huma.API){
 			conectorArgos.Registrar,
 			conectorHorus.Registrar,

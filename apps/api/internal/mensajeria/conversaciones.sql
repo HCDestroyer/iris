@@ -502,6 +502,10 @@ VALUES (@id, sqlc.narg('empresa_id'), @conversacion_id, @cliente_id, sqlc.narg('
     sqlc.narg('cuenta_validacion'))
 RETURNING *;
 
+-- name: FijarContactoBoleta :exec
+-- X-Iris-Contacto con que sale la boleta (§7.1, 0.10.1): se fija al registrarla.
+UPDATE mensajeria.boletas SET contacto_argos = sqlc.narg('contacto_argos') WHERE id = @id;
+
 -- name: MarcarCuentaBoleta :exec
 -- El despacho revalidó la cuenta con Argos antes de mandar el comprobante.
 UPDATE mensajeria.boletas SET cuenta_validacion = @cuenta_validacion, updated_at = now() WHERE id = @id;

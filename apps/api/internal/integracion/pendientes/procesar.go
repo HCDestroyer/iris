@@ -50,6 +50,15 @@ func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 			return 0, fmt.Errorf("pendientes: resolver dependientes listos: %w", err)
 		}
 	}
+	// Cambios e intentos que esperan su foto (0.14.0 §3.10): la que ya subió, a la cola; la
+	// rechazada o fuera de la ventana de 72 h, conflicto.
+	if _, err := m.BarrerFotos(ctx); err != nil {
+		return 0, fmt.Errorf("pendientes: revisar fotos de intentos: %w", err)
+	}
+	// Bloqueados por el vinculado de su técnico que ya tuvo el 2xx: vuelven a la cola.
+	if err := m.desbloquearPorVinculo(ctx, ahora); err != nil {
+		return 0, fmt.Errorf("pendientes: desbloquear por vínculo: %w", err)
+	}
 	n := 0
 	for n < maxPorCorrida {
 		f, ok, err := m.tomar(ctx, ahora)
@@ -57,6 +66,12 @@ func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 			return n, err
 		}
 		n++
+		// 0.14.0 §6.6: la operación con `tecnico` no sale antes del 2xx del vinculado de su técnico.
+		if sigue, err := m.dependeDeVinculo(ctx, f, ahora); err != nil {
+			return n, err
+		} else if !sigue {
+			continue
+		}
 		res := m.intentar(ctx, f)
 		res.ahora = ahora
 		if _, err := m.resolver.Ejecutar(ctx, res); err != nil {
@@ -97,6 +112,11 @@ type resultadoIntento struct {
 	Codigo string `json:"codigo,omitempty"`
 	// Conciliado: un 409 que significa «ya está hecho en Argos» (cargo_duplicado, traslado_ya_recibido).
 	Conciliado string `json:"conciliado,omitempty"`
+	// Espera: el Retry-After de Argos (429 o 503 que se reintentan), si pide más que la espera de
+	// la cola.
+	Espera time.Duration `json:"espera,omitempty"`
+	// Conector: el conector al que se mandó (enviado_a_conector, para la verificación de 0.14.0).
+	Conector *int64 `json:"conector,omitempty"`
 
 	// respuesta del 2xx, ya limpia (no va a la auditoría: queda en el pendiente).
 	respuesta []byte
@@ -130,6 +150,9 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		r.Error = "sin conector Argos activo: " + resumenProblema(err)
 		return r
 	}
+	if id, err := m.cfg.Argos.ConectorActivoID(ctx, nucleo.BDDe(ctx)); err == nil {
+		r.Conector = &id
+	}
 	var cuerpo any = json.RawMessage(f.Payload)
 	var crudo conector.Crudo
 	cli := cliente.Cliente
@@ -150,6 +173,10 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	if f.Operacion == OpCambiarWifi && f.Entidad == EntidadTransitoConversacion {
 		// El cambio de Wi-Fi desde una conversación lleva su id (§7.1 y §12.4).
 		cli = cli.ConCabecera(CabeceraConversacionIris, f.EntidadID)
+	}
+	if f.Contacto != nil {
+		// Quien habló es un contacto del cliente (§7.1, §3.12): Argos lo valida y lo audita.
+		cli = cli.ConCabecera(CabeceraContactoIris, *f.Contacto)
 	}
 	var partes []conector.Parte
 	if f.TransitoID.Valid {
@@ -232,7 +259,7 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		r.Exito, r.Conciliado = true, CodigoTrasladoYaRecibido
 		return r
 	}
-	r.Negocio = EsNegocio(er)
+	r.Negocio = EsNegocioEn(f.Operacion, er)
 	r.Error = describir(er)
 	if r.Negocio && esCargoSinCapacidad(f.Operacion, er.Status, r.Codigo) && f.ReemplazoDe == nil && !f.EnvioSinRespuesta {
 		// El cargo queda terminal y sus demás líneas salen como un cobro de reemplazo (0.14.3 §3): hace
@@ -249,6 +276,21 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 			r.Error += " (no se pudo leer el concepto de instalación para el cobro de reemplazo; se reintenta)"
 		}
 	}
+	if (f.Operacion == OpCambio || f.Operacion == OpNoRecuperado) && r.Codigo == CodigoIdempotenciaReutilizada {
+		// 0.14.0 §3.10: lo que Argos tiene con esta clave no es lo que mandó Iris. La verificación
+		// responde no_coincide y es una alerta de seguridad para el admin.
+		slog.ErrorContext(ctx, "pendientes: ALERTA DE SEGURIDAD: Argos tiene otro cuerpo para la clave de un cambio o intento",
+			"pendiente", f.ID, "operacion", f.Operacion, "clave", f.IdempotencyKey)
+	}
+	if r.Negocio && f.Operacion == OpNoRecuperado && strings.TrimSpace(er.Tipo) == URNDemasiadosIntentos {
+		// 0.14.0 §3.10: sin otro intento de Iris de esa unidad ese día, el cupo lo ocupa otro.
+		if otro, err := pendientesbd.New(nucleo.BDDe(ctx)).OtroIntentoDelDia(ctx, f.ID); err == nil && !otro {
+			r.Error = PosibleIntentoAjeno + ": " + r.Error
+		}
+	}
+	if !r.Negocio {
+		r.Espera = min(er.ReintentarEn(), conector.MaxRetryAfter)
+	}
 	return r
 }
 
@@ -258,13 +300,6 @@ const CodigoCapacidadNoDisponible = "capacidad_no_disponible"
 // esCargoSinCapacidad: un cargo rechazado con 422 capacidad_no_disponible (cobro_equipo en false).
 func esCargoSinCapacidad(operacion string, status int, codigo string) bool {
 	return operacion == OpCargo && status == http.StatusUnprocessableEntity && codigo == CodigoCapacidadNoDisponible
-}
-
-func deref64(v *int64) int64 {
-	if v == nil {
-		return 0
-	}
-	return *v
 }
 
 // Códigos de Argos 0.5.0 (§3.3) que Iris trata aparte.
@@ -381,31 +416,73 @@ const TipoServicioNoPendiente = "servicio_no_pendiente"
 // 0.3.1 §3.1: de los 409, solo idempotencia_en_curso se reintenta; cualquier otro (con otro
 // type, sin type o con about:blank) es de negocio.
 func EsNegocio(er *conector.ErrorRemoto) bool {
+	return EsNegocioEn("", er)
+}
+
+// EsNegocioEn: EsNegocio según la operación. Desde 0.14.0 (§3.9, §3.10, §4.5) los de negocio se
+// reconocen por la URN completa del type, cualquiera que sea la versión de Argos:
+//   - un 403 de ProhibidosURN (bodega, actor, jefe, empresa, asistente o actor sin vínculo);
+//   - en …/no-recuperado, el 429 urn:argosisp:problema:demasiados_intentos, aunque venga con
+//     Retry-After. Cualquier otro 429 (tope de peticiones) y el 503 se reintentan.
+//
+// 409 vinculos_en_carga (la carga inicial de vínculos de §6.6 no terminó) se reintenta.
+func EsNegocioEn(operacion string, er *conector.ErrorRemoto) bool {
 	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
 		return false
 	}
-	if er.Status == http.StatusForbidden && ConflictosProhibidos[TipoDe(er)] {
+	urn := strings.TrimSpace(er.Tipo)
+	if er.Status == http.StatusTooManyRequests {
+		return operacion == OpNoRecuperado && urn == URNDemasiadosIntentos
+	}
+	if er.Status == http.StatusForbidden && ProhibidosURN[urn] {
 		// Un 403 con estos type es una decisión de Argos sobre el pedido (B-268-4), no la falta de un
 		// permiso del token: reintentar no lo arregla. Conflicto para una persona.
 		return true
 	}
 	switch er.Status {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout,
-		http.StatusTooEarly, http.StatusTooManyRequests:
+	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout, http.StatusTooEarly:
 		return false
 	case http.StatusConflict:
-		return TipoDe(er) != TipoEnCurso
+		t := TipoDe(er)
+		return t != TipoEnCurso && t != TipoVinculosEnCarga
 	}
 	return true
 }
 
-// ConflictosProhibidos son los 403 de negocio de Argos (contrato 0.11.0 §3.9 y 0.12.0 §3.10): la
-// bodega no es del técnico, el actor no coincide, solo el jefe recibe, el servicio es de otra
-// empresa o el actor es el asistente. No se reintentan solos.
+// PosibleIntentoAjeno: el 429 demasiados_intentos de una unidad sin otro intento de Iris ese día
+// (0.14.0 §3.10): lo muestra la cola de pendientes.
+const PosibleIntentoAjeno = "posible intento ajeno"
+
+// PrefijoProblema: el prefijo de los type de Argos (problem+json).
+const PrefijoProblema = "urn:argosisp:problema:"
+
+// TipoDemasiadosIntentos: 429 de …/no-recuperado (más de un intento por unidad al día). De
+// negocio: no se reintenta solo (A-271-2).
+const TipoDemasiadosIntentos = "demasiados_intentos"
+
+// URNDemasiadosIntentos: el type exacto del 429 de negocio de …/no-recuperado (0.14.0 §3.10).
+const URNDemasiadosIntentos = PrefijoProblema + TipoDemasiadosIntentos
+
+// TipoVinculosEnCarga: 409 mientras Iris no cierra la carga inicial de vínculos (0.14.0 §6.6): se
+// reintenta.
+const TipoVinculosEnCarga = "vinculos_en_carga"
+
+// ConflictosProhibidos son los 403 de negocio de Argos (contrato 0.11.0 §3.9, 0.12.0 §3.10 y 0.14.0
+// §3.9): la bodega no es del técnico, el actor no coincide, solo el jefe recibe, el servicio es de
+// otra empresa, el actor es el asistente o no tiene vínculo conocido. No se reintentan solos.
 var ConflictosProhibidos = map[string]bool{
 	"no_es_miembro": true, "actor_no_coincide": true, "solo_jefe_recibe": true,
-	"empresa_no_permitida": true, "actor_ia_no_permitido": true,
+	"empresa_no_permitida": true, "actor_ia_no_permitido": true, "actor_desconocido": true,
 }
+
+// ProhibidosURN: ConflictosProhibidos con la URN completa (0.14.0: se reconocen solo así).
+var ProhibidosURN = func() map[string]bool {
+	m := make(map[string]bool, len(ConflictosProhibidos))
+	for t := range ConflictosProhibidos {
+		m[PrefijoProblema+t] = true
+	}
+	return m
+}()
 
 // TipoDe es el type del problem+json de Argos sin prefijo (acepta «x», «urn:…:x» o una URL
 // …/x).
@@ -531,7 +608,7 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			intentos := antes.Intentos + 1
 			switch {
 			case in.Exito:
-				p.Estado, p.HechoEn, p.Respuesta = EstadoHecho, &in.ahora, in.respuesta
+				p.Estado, p.HechoEn, p.Respuesta, p.EnviadoAConector = EstadoHecho, &in.ahora, in.respuesta, in.Conector
 				evento, payload = EventoHecho, eventoDe(antes)
 				if in.Conciliado != "" {
 					// 409 que dice «ya hecho»: queda hecho y el motivo en ultimo_error, para revisarlo.
@@ -546,7 +623,7 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				evento, payload = EventoFallido, eventoFallo{eventoPendiente: eventoDe(antes), Intentos: intentos, Status: in.Status, Detalle: in.Error}
 			case int(intentos) <= len(Esperas):
 				p.Estado, p.UltimoError, p.CodigoError = EstadoPendiente, &in.Error, texto(in.Codigo)
-				p.ProximoIntento = in.ahora.Add(Esperas[intentos-1])
+				p.ProximoIntento = in.ahora.Add(max(Esperas[intentos-1], in.Espera))
 			default:
 				p.Estado, p.UltimoError, p.CodigoError = EstadoAgotado, &in.Error, texto(in.Codigo)
 				evento, payload = EventoAgotado, eventoFallo{eventoPendiente: eventoDe(antes), Intentos: intentos, Status: in.Status, Detalle: in.Error}
@@ -580,6 +657,14 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			}
 			if evento != "" {
 				if err := t.Emitir(evento, payload); err != nil {
+					return Pendiente{}, err
+				}
+			}
+			if f.Estado == EstadoFallidoNegocio && in.Codigo == CodigoIdempotenciaReutilizada {
+				// Nunca la clave ni los cuerpos: el aviso lleva al pendiente.
+				if err := t.Emitir(EventoClaveReutilizada, map[string]any{"pendiente_id": f.ID, "operacion": f.Operacion,
+					"entidad": f.Entidad, "entidad_id": f.EntidadID, "empresa_id": f.EmpresaID,
+					"seguridad": f.Operacion == OpCambio || f.Operacion == OpNoRecuperado}); err != nil {
 					return Pendiente{}, err
 				}
 			}

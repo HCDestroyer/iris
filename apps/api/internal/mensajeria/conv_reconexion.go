@@ -145,6 +145,23 @@ func nuevoPedirReconexion(m *Modulo) *PedirReconexion {
 			if err != nil {
 				return previaReconexion{}, err
 			}
+			// Quién la pide (§3.5): en la misma transacción, el titular o el contacto con «pagar» que
+			// registró la boleta (la reconexión sale con su X-Iris-Contacto).
+			servicioBoleta := b.ServicioID
+			if servicioBoleta == nil {
+				servicioBoleta = c.ServicioID
+			}
+			acc, err := m.accesoAServicio(ctx, q, c, servicioBoleta, PermisoContactoPagar)
+			if err != nil {
+				return previaReconexion{}, err
+			}
+			contactoBoleta := argos.ContactoTitular
+			if b.ContactoArgos != nil {
+				contactoBoleta = *b.ContactoArgos
+			}
+			if acc.Contacto != contactoBoleta {
+				return previaReconexion{}, reglaConv("otra_persona", "La boleta la registró otra persona (titular o contacto): la reconexión la pide quien pagó")
+			}
 			previa, err := q.ReconexionPorComprobante(ctx, *b.ComprobanteID)
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 				return previaReconexion{}, err
@@ -289,7 +306,12 @@ func (k *PedirReconexion) pedirAArgos(ctx context.Context, rec ArgosReconexion, 
 	fin := finalReconexion{ID: f.ConversacionID, fila: f, estado: "aceptada"}
 	_ = mensajeriabd.New(nucleo.BDDe(ctx)).ContarIntentoReconexion(ctx, f.ID)
 	var err error
-	fin.promesa, fin.hasta, err = rec.PedirReconexionTemporal(ctx, atencionDe(a, f.ConversacionID), f.ComprobanteID, f.ServicioID, f.Motivo,
+	// El mismo X-Iris-Contacto que la boleta (§7.1): quien pagó es quien pide la reconexión.
+	at := atencionDe(a, f.ConversacionID)
+	if b, errB := mensajeriabd.New(nucleo.BDDe(ctx)).BoletaPorID(ctx, f.BoletaID); errB == nil && b.ContactoArgos != nil {
+		at.Contacto = *b.ContactoArgos
+	}
+	fin.promesa, fin.hasta, err = rec.PedirReconexionTemporal(ctx, at, f.ComprobanteID, f.ServicioID, f.Motivo,
 		"iris:reconexion:"+strconv.FormatInt(f.ComprobanteID, 10))
 	if err != nil {
 		var er *conector.ErrorRemoto

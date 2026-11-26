@@ -41,6 +41,10 @@ type argosFalso struct {
 	sinPermiso bool
 	// rutaExtra atiende GET /cuentas-bancarias (cuentas_bancarias_test.go).
 	rutaExtra http.HandlerFunc
+	// rutaContactos atiende GET /clientes/:id/contactos y GET /contactos/buscar (contactos_test.go).
+	rutaContactos http.HandlerFunc
+	// ultimoContacto: X-Iris-Contacto del último GET /clientes/:id/estado-cuenta.
+	ultimoContacto string
 	// empresaPedida: X-Empresa-Id de la última búsqueda.
 	empresaPedida string
 	// buscarRed: buscar_red de cada GET /clientes, tal como llegó ("" = no vino; contrato 0.8.1 §2.1).
@@ -92,6 +96,8 @@ type argosFalso struct {
 	sinWebhook bool
 	// receptores: receptor_argos de cada PUT …/contrato (0.6.2; nil = no vino).
 	receptores []any
+	// cargados: vinculos_cargados de cada PUT …/contrato (0.14.0 §6.6; nil = no vino).
+	cargados []any
 	// Contrato 0.6.3 §1.3. tokenCanje: el atk_ que entrega el próximo canje (vacío = token). Con un
 	// token en uso, el canje nuevo queda pendiente hasta la primera llamada autenticada con su atk_:
 	// entonces reemplaza a token (y el anterior deja de autenticar).
@@ -155,6 +161,15 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		a.rutaExtra(w, r)
 	}))
 	mux.HandleFunc("GET /api/v1/clientes/{id}", a.conToken(a.cliente))
+	contactos := a.conToken(func(w http.ResponseWriter, r *http.Request) {
+		if a.rutaContactos == nil {
+			http.NotFound(w, r)
+			return
+		}
+		a.rutaContactos(w, r)
+	})
+	mux.HandleFunc("GET /api/v1/clientes/{id}/contactos", contactos)
+	mux.HandleFunc("GET /api/v1/contactos/buscar", contactos)
 	mux.HandleFunc("GET /api/v1/clientes/{id}/estado-cuenta", a.conToken(a.estadoCuenta))
 	mux.HandleFunc("GET /api/v1/servicios", a.conToken(a.serviciosDe))
 	mux.HandleFunc("GET /api/v1/servicios/{id}", a.conToken(a.servicio))
@@ -200,6 +215,7 @@ func (a *argosFalso) rutas050(mux *http.ServeMux) {
 		}
 		a.contratos++
 		a.receptores = append(a.receptores, p["receptor_argos"])
+		a.cargados = append(a.cargados, p["vinculos_cargados"])
 		escribir(w, map[string]any{"contrato": a.contrato, "version_argos": a.version})
 	}))
 	mux.HandleFunc("GET /api/v1/integraciones/iris/estado", solo16(func(w http.ResponseWriter, _ *http.Request) {
@@ -533,6 +549,8 @@ func (a *argosFalso) cliente(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *argosFalso) estadoCuenta(w http.ResponseWriter, r *http.Request) {
+	// conToken ya tiene a.mu.
+	a.ultimoContacto = r.Header.Get("X-Iris-Contacto")
 	a.estadoPedido = r.URL.Query().Get("empresa_id")
 	e, ok := a.estados[idDe(r)]
 	if !ok {

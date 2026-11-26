@@ -4,11 +4,86 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	identidadbd "github.com/HCDestroyer/iris/apps/api/internal/nucleo/identidad/bd"
 )
+
+// prefijoPortalArgos: los permisos portal_argos.* solo se ejercen con el token_portal que Iris emite
+// en el canje del conector (contrato con Argos 0.9.0 §1.2). Solo los da el rol de sistema
+// integracion_argos (un rol a medida no puede llevarlos) y la sesión del panel y los demás tokens los
+// pierden al autenticarse.
+const prefijoPortalArgos = "portal_argos."
+
+// esPermisoPortalArgos: el permiso es uno de portal_argos.*.
+func esPermisoPortalArgos(permiso string) bool {
+	return strings.HasPrefix(permiso, prefijoPortalArgos)
+}
+
+// esRolDeIntegracion: rol de sistema de un conector (RolesIntegracion). Sus permisos portal_argos.*
+// no cuentan al comparar quién puede asignarlo o administrar a su usuario: nadie los ejerce fuera
+// del token_portal.
+func esRolDeIntegracion(r identidadbd.NucleoRole) bool {
+	if !r.Sistema {
+		return false
+	}
+	for _, codigo := range RolesIntegracion {
+		if r.Codigo == codigo {
+			return true
+		}
+	}
+	return false
+}
+
+// portalExento devuelve los permisos portal_argos.* que el usuario tiene solo por roles de
+// integración (esRolDeIntegracion); esos no cuentan en exigirSuperior.
+func portalExento(ctx context.Context, q *identidadbd.Queries, usuarioID int64) (map[string]bool, error) {
+	asignados, err := q.RolesDeUsuarios(ctx, []int64{usuarioID})
+	if err != nil {
+		return nil, err
+	}
+	codigos := make([]string, 0, len(asignados))
+	for _, a := range asignados {
+		codigos = append(codigos, a.Codigo)
+	}
+	filas, err := q.RolesPorCodigos(ctx, codigos)
+	if err != nil {
+		return nil, err
+	}
+	var integracion, otros []int64
+	for _, r := range filas {
+		if esRolDeIntegracion(r) {
+			integracion = append(integracion, r.ID)
+		} else {
+			otros = append(otros, r.ID)
+		}
+	}
+	exento := map[string]bool{}
+	if len(integracion) == 0 {
+		return exento, nil
+	}
+	deIntegracion, err := q.PermisosDeRoles(ctx, integracion)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range deIntegracion {
+		if esPermisoPortalArgos(p.Permiso) {
+			exento[p.Permiso] = true
+		}
+	}
+	if len(otros) > 0 {
+		deOtros, err := q.PermisosDeRoles(ctx, otros)
+		if err != nil {
+			return nil, err
+		}
+		for _, p := range deOtros {
+			delete(exento, p.Permiso)
+		}
+	}
+	return exento, nil
+}
 
 // cargarPermisos arma los permisos efectivos de un usuario a partir de sus roles. Con limite
 // (permisos de un token), solo quedan los que están en ambos.
@@ -49,8 +124,12 @@ func exigirSuperior(ctx context.Context, q *identidadbd.Queries, quien contexto.
 	if err != nil {
 		return err
 	}
+	exento, err := portalExento(ctx, q, objetivo)
+	if err != nil {
+		return err
+	}
 	for _, p := range actuales.Lista() {
-		if !quien.TieneGlobal(p) {
+		if !quien.TieneGlobal(p) && !exento[p] {
 			return nucleo.Prohibido(fmt.Sprintf("No puedes %s: el usuario tiene el permiso %s, que no tienes sin límite de alcance", que, p))
 		}
 	}
@@ -120,8 +199,15 @@ func resolverRoles(ctx context.Context, q *identidadbd.Queries, quien contexto.P
 	if err != nil {
 		return nil, err
 	}
+	deIntegracion := map[int64]bool{}
+	for _, f := range porCodigo {
+		if esRolDeIntegracion(f) {
+			deIntegracion[f.ID] = true
+		}
+	}
 	for _, p := range permisos {
-		if !quien.TieneGlobal(p.Permiso) {
+		exento := esPermisoPortalArgos(p.Permiso) && deIntegracion[p.RolID]
+		if !exento && !quien.TieneGlobal(p.Permiso) {
 			var codigo string
 			for c, f := range porCodigo {
 				if f.ID == p.RolID {

@@ -98,6 +98,8 @@ export const TIPOS_OPERACION = [
     "orden.reanudar",
     "orden.agregar_formulario",
     "orden.quitar_formulario",
+    "equipo.cambiar",
+    "equipo.no_recuperado",
     "llamada.directa",
 ] as const satisfies readonly TipoOperacion[];
 
@@ -144,6 +146,10 @@ export interface DatosPorTipo {
     "orden.reanudar": SinVersion<Schema<"EntradaReanudar">>;
     "orden.agregar_formulario": Schema<"EntradaAgregarFormularioCampo">;
     "orden.quitar_formulario": Schema<"EntradaQuitarFormularioCampo">;
+    /** Cambio de equipo (contrato con Argos 0.12.0 §3.10, B27): sale una unidad y entra otra. */
+    "equipo.cambiar": SinVersion<Schema<"EntradaCambiarEquipo">>;
+    /** Intento de recuperación en un retiro (0.12.0 §3.10): foto si se negó o se perdió, ubicación en sitio. */
+    "equipo.no_recuperado": SinVersion<Schema<"EntradaNoRecuperado">>;
     /**
      * «Llamar desde mi celular» (E4c): el teléfono ya abrió `tel:`; la operación la anota en la orden
      * con la hora real (`ocurridoEn`). No cambia la orden. `datos` de `DatosLlamadaDirectaLote` en la API.

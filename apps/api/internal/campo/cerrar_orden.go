@@ -15,6 +15,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	campobd "github.com/HCDestroyer/iris/apps/api/internal/campo/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
@@ -208,6 +209,15 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			if err != nil {
 				return antes, "", err
 			}
+			// La foto de cada cambio o intento también (M-271-3): Argos la abre por su id.
+			for _, e := range d.Equipos {
+				if (e.Accion == AccionCambio || e.Accion == AccionNoRecuperado) && e.FotoAdjuntoID != nil {
+					a, err := adjuntos.DeEntidad(ctx, t, *e.FotoAdjuntoID, "orden", strconv.FormatInt(antes.ID, 10))
+					if err != nil || a.Estado != "completo" {
+						faltan = append(faltan, "equipos."+e.ID.String()+".foto")
+					}
+				}
+			}
 			if len(faltan) > 0 {
 				return antes, "", faltanAdjuntos(faltan)
 			}
@@ -298,7 +308,10 @@ func requisitosDeCierre(d OrdenDetalle, tipo campobd.CampoTiposOrden) []nucleo.E
 		switch e.Accion {
 		case AccionInstalar:
 			instalados++
-		case AccionRetirar:
+		case AccionRetirar, AccionNoRecuperado:
+			retirados++
+		case AccionCambio:
+			instalados++
 			retirados++
 		}
 	}
@@ -330,6 +343,12 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		k := clave{mt.ProductoID, deref(mt.BodegaID), mt.desdeApp, deref(mt.registradoPor)}
 		if s, ok := suma[k]; ok {
 			s["cantidad"] = s["cantidad"].(float64) + mt.Cantidad
+			if mt.OcurridoEn.After(s["fecha"].(time.Time)) {
+				s["fecha"] = mt.OcurridoEn
+			}
+			if r, ok := s["recibido_en_iris"].(*time.Time); mt.RecibidoEn != nil && (!ok || r == nil || mt.RecibidoEn.After(*r)) {
+				s["recibido_en_iris"] = mt.RecibidoEn
+			}
 			s["excede_existencia"] = s["excede_existencia"].(bool) || mt.ExcedeExistencia
 			if s["modalidad"] == (*string)(nil) && mt.Modalidad != nil {
 				s["modalidad"] = mt.Modalidad
@@ -340,9 +359,11 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		// modalidad (Argos ≥ 1.6.0, o null): un comodato no va en el consumo (contrato 0.5.0 §3.3).
 		suma[k] = map[string]any{"producto_id": mt.ProductoID, "cantidad": mt.Cantidad, "bodega_id": mt.BodegaID,
 			"excede_existencia": mt.ExcedeExistencia, "modalidad": mt.Modalidad,
+			// 0.12.0 §3.3: la fecha del teléfono (la última del producto) y la del servidor al aceptarlo.
+			"fecha": mt.OcurridoEn, "recibido_en_iris": mt.RecibidoEn,
 			// desde_app: lo registró un técnico desde el lote (con registrado_por): sale con tecnico,
 			// bodega_id y X-Iris-Actor de quien lo usó (M-268-1). Si no, lo indicó despacho en el panel.
-			"desde_app": mt.desdeApp, "registrado_por": mt.registradoPor,
+			"desde_app": mt.desdeApp, "usuario_id": mt.registradoPor,
 			// bodega_tipo: el tipo de la bodega según Argos cuando despacho lo registró (M-4).
 			"bodega_tipo": mt.bodegaTipo}
 	}
@@ -358,11 +379,10 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		if e.Accion == AccionRetirar && !e.Validado {
 			validados = false
 		}
-		// condicion: buena | danada | perdido (perdido → pérdida del comodato en Argos).
-		equipos = append(equipos, map[string]any{
-			"id": e.ID, "accion": e.Accion, "unidad_id": e.UnidadID, "serie": e.Serie, "mac": e.MAC,
-			"modelo": e.Modelo, "condicion": e.Condicion, "bodega_id": f.BodegaID, "validado": e.Validado,
-		})
+		if (e.Accion == AccionCambio || e.Accion == AccionNoRecuperado) && !e.Validado {
+			validados = false
+		}
+		equipos = append(equipos, equipoCerrada(f, e))
 	}
 	return map[string]any{
 		"orden_id": f.ID, "numero": f.Numero, "tipo": tipo, "resultado": f.Resultado,
@@ -375,6 +395,38 @@ func payloadCerrada(f campobd.CampoOrden, tipo string, d OrdenDetalle) map[strin
 		// Argos caído): I1 lo trata como dato no verificado.
 		"equipos_validados": validados,
 	}
+}
+
+// equipoCerrada: el equipo como va en orden.cerrada (y, solo él, al encolar un cambio o un intento
+// al aplicarse; 0.14.0 §3.10). Nunca la nota.
+func equipoCerrada(f campobd.CampoOrden, e EquipoOrden) map[string]any {
+	// condicion: buena | danada | perdido (perdido: desde 0.12.0 nunca sale solo como pérdida;
+	// queda para una persona).
+	eq := map[string]any{
+		"id": e.ID, "accion": e.Accion, "unidad_id": e.UnidadID, "serie": e.Serie, "mac": e.MAC,
+		"modelo": e.Modelo, "condicion": e.Condicion, "bodega_id": f.BodegaID, "validado": e.Validado,
+		// 0.13.1: quien lo registró desde la app va en X-Iris-Actor (y su I1 como tecnico), también
+		// en comodatos y devoluciones.
+		"usuario_id": e.registradoPor, "desde_app": e.desdeApp, "enviado_al_aplicar": e.enviadoAlAplicar,
+	}
+	// 0.12.0 §3.10 (B27): fecha del teléfono y recibido_en_iris; nunca la nota.
+	switch e.Accion {
+	case AccionCambio, AccionNoRecuperado:
+		eq["motivo"], eq["foto_ref"] = e.Motivo, e.FotoAdjuntoID
+		eq["fecha"], eq["recibido_en_iris"] = e.OcurridoEn, e.RecibidoEn
+	}
+	switch e.Accion {
+	case AccionCambio:
+		var cobro any
+		if e.CobroPropuesto != nil {
+			cobro = map[string]any{"motivo": *e.CobroPropuesto}
+		}
+		eq["sale_unidad_id"], eq["destino_sale"], eq["cobro_propuesto"] = e.SaleUnidadID, e.DestinoSale, cobro
+		eq["entra"] = map[string]any{"unidad_id": e.UnidadID, "serie": e.Serie, "mac": e.MAC}
+	case AccionNoRecuperado:
+		eq["ubicacion"] = map[string]any{"lat": e.Lat, "lng": e.Lon, "precision_m": e.PrecisionM}
+	}
+	return eq
 }
 
 // formulariosConFirma: los nombres de los formularios que piden la firma.

@@ -334,8 +334,8 @@ func (m *Modulo) ajustesActivacion(ctx context.Context, t *auditoria.Tx, q *camp
 	if err != nil {
 		return "", false, false, err
 	}
-	if m.cfg.Equipos.Capacidad != nil && f.EmpresaID != nil {
-		if capacidad, err = m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, tecnologia); err != nil {
+	if m.cfg.ArgosEquipos.Capacidad != nil && f.EmpresaID != nil {
+		if capacidad, err = m.cfg.ArgosEquipos.Capacidad(ctx, t, f.EmpresaID, tecnologia); err != nil {
 			return "", false, false, err
 		}
 	}
@@ -484,8 +484,8 @@ func (m *Modulo) nuevoActivarServicio() *auditoria.Caso[EntradaActivarServicio, 
 				return f, "", problemaNoDisponible(motivo)
 			}
 			// 0.14.3 §4.3: el Wi-Fi inicial exige la marca wifi de la empresa.
-			if in.Wifi != nil && m.cfg.Equipos.Capacidad != nil {
-				if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionWifi)); err != nil {
+			if in.Wifi != nil && m.cfg.ArgosEquipos.Capacidad != nil {
+				if ok, err := m.cfg.ArgosEquipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionWifi)); err != nil {
 					return f, "", err
 				} else if !ok {
 					return f, "", nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "El Wi-Fi inicial no está disponible para esta empresa: activa sin él")
@@ -855,7 +855,7 @@ func (m *Modulo) nuevoResolverActivacion() *auditoria.Caso[EntradaResolverActiva
 // consultarActivaciones: las en_proceso sin respuesta de Argos desde hace 10 min se consultan con
 // GET /aprovisionamientos/:id (fuera de transacción) y se resuelven con lo que diga Argos.
 func (m *Modulo) consultarActivaciones(ctx context.Context) (int, error) {
-	if m.cfg.Equipos.LeerAprovisionamiento == nil {
+	if m.cfg.ArgosEquipos.LeerAprovisionamiento == nil {
 		return 0, nil
 	}
 	bd := nucleo.BDDe(ctx)
@@ -869,7 +869,7 @@ func (m *Modulo) consultarActivaciones(ctx context.Context) (int, error) {
 	}
 	n := 0
 	for _, f := range filas {
-		a, err := m.cfg.Equipos.LeerAprovisionamiento(ctx, *f.AprovisionamientoID)
+		a, err := m.cfg.ArgosEquipos.LeerAprovisionamiento(ctx, *f.AprovisionamientoID)
 		in := EntradaResolverActivacion{Fuente: FuenteConsulta, IdempotencyKey: &f.IdempotencyKey, AprovisionamientoID: f.AprovisionamientoID}
 		if err == nil {
 			in.Pasos = a.Pasos

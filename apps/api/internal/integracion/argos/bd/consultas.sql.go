@@ -288,6 +288,19 @@ func (q *Queries) BorrarServiciosAusentes(ctx context.Context, arg BorrarServici
 	return err
 }
 
+const borrarTelefonosContactoArgos = `-- name: BorrarTelefonosContactoArgos :exec
+
+DELETE FROM integracion.argos_contacto_telefonos WHERE contacto_id = $1
+`
+
+// Contactos del cliente en la atención (contrato 0.10.0 §3.5, A42; 0.10.1 §3.8, A46) --------------
+// La tabla y su escritura son las del portal (GuardarContacto, QuitarContacto*): aquí, los teléfonos y
+// cuándo se leyó completo cada cliente.
+func (q *Queries) BorrarTelefonosContactoArgos(ctx context.Context, contactoID int64) error {
+	_, err := q.db.Exec(ctx, borrarTelefonosContactoArgos, contactoID)
+	return err
+}
+
 const borrarZonasAnteriores = `-- name: BorrarZonasAnteriores :execrows
 DELETE FROM integracion.argos_zonas WHERE sincronizado_en < $1
 `
@@ -656,6 +669,29 @@ func (q *Queries) ClienteConfirmadoDesde(ctx context.Context, arg ClienteConfirm
 	return confirmado, err
 }
 
+const clienteEnInstantanea = `-- name: ClienteEnInstantanea :one
+SELECT id, empresa_id, empresas, sin_servicios FROM integracion.argos_clientes WHERE id = $1
+`
+
+type ClienteEnInstantaneaRow struct {
+	ID           int64
+	EmpresaID    int64
+	Empresas     []int64
+	SinServicios bool
+}
+
+func (q *Queries) ClienteEnInstantanea(ctx context.Context, id int64) (ClienteEnInstantaneaRow, error) {
+	row := q.db.QueryRow(ctx, clienteEnInstantanea, id)
+	var i ClienteEnInstantaneaRow
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Empresas,
+		&i.SinServicios,
+	)
+	return i, err
+}
+
 const clientePorID = `-- name: ClientePorID :one
 SELECT id, empresa_id, codigo, nombre, telefono, direccion, lat, lon, zona_id, estado, sincronizado_en, created_at, updated_at, empresas, sin_servicios, tipo, tipo_documento_fiscal, nit_cui, movil, correo, zona_nombre, version_datos, fallo_en, referencia FROM integracion.argos_clientes WHERE id = $1
 `
@@ -721,6 +757,54 @@ func (q *Queries) ClientesEnInstantanea(ctx context.Context, ids []int64) ([]Cli
 	return items, nil
 }
 
+const conectorDeTokenPanel = `-- name: ConectorDeTokenPanel :one
+SELECT c.id, c.estado FROM integracion.conectores c
+WHERE c.sistema = 'argosisp' AND c.eliminado_en IS NULL AND (c.token_entregado_id = $1 OR c.reemplaza_token_id = $1)
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1
+`
+
+type ConectorDeTokenPanelRow struct {
+	ID     int64
+	Estado string
+}
+
+// El conector Argos al que pertenece el iris_pat_ del panel (el entregado en su canje o el que una
+// reconexión sin confirmar todavía reemplaza).
+func (q *Queries) ConectorDeTokenPanel(ctx context.Context, tokenID *int64) (ConectorDeTokenPanelRow, error) {
+	row := q.db.QueryRow(ctx, conectorDeTokenPanel, tokenID)
+	var i ConectorDeTokenPanelRow
+	err := row.Scan(&i.ID, &i.Estado)
+	return i, err
+}
+
+const conectorDeTokenPortal = `-- name: ConectorDeTokenPortal :one
+
+SELECT c.id, c.estado, c.contrato_remoto
+FROM nucleo.tokens_api t
+JOIN integracion.conectores c ON c.sistema = 'argosisp' AND c.eliminado_en IS NULL
+     AND (t.token_padre_id = c.token_entregado_id OR t.token_padre_id = c.reemplaza_token_id)
+WHERE t.id = $1 AND t.token_padre_id IS NOT NULL
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1
+`
+
+type ConectorDeTokenPortalRow struct {
+	ID             int64
+	Estado         string
+	ContratoRemoto *string
+}
+
+// Portal del cliente de Argos (0.9.0 §11) -------------------------------------------------
+// El conector Argos del token_portal: el token es hijo del iris_pat_ que se entregó en el canje de
+// ese conector (o del que una reconexión sin confirmar todavía reemplaza).
+func (q *Queries) ConectorDeTokenPortal(ctx context.Context, tokenID int64) (ConectorDeTokenPortalRow, error) {
+	row := q.db.QueryRow(ctx, conectorDeTokenPortal, tokenID)
+	var i ConectorDeTokenPortalRow
+	err := row.Scan(&i.ID, &i.Estado, &i.ContratoRemoto)
+	return i, err
+}
+
 const confirmarCuentaBancaria = `-- name: ConfirmarCuentaBancaria :one
 UPDATE integracion.argos_cuentas_bancarias SET confirmada_por = $1, confirmada_en = now(), updated_at = now()
 WHERE id = $2 RETURNING id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at, cambiada_en, confirmada_por, confirmada_en
@@ -756,6 +840,46 @@ func (q *Queries) ConfirmarCuentaBancaria(ctx context.Context, arg ConfirmarCuen
 	return i, err
 }
 
+const contactoEnCache = `-- name: ContactoEnCache :one
+SELECT contacto_id, cliente_id, empresa_id, nombre, servicios, consultar, reportar, version, quitado, leido_en, created_at, updated_at, relacion, es_titular, pagar, avisos, persona_cliente_id FROM integracion.argos_contactos WHERE contacto_id = $1
+`
+
+func (q *Queries) ContactoEnCache(ctx context.Context, contactoID int64) (IntegracionArgosContacto, error) {
+	row := q.db.QueryRow(ctx, contactoEnCache, contactoID)
+	var i IntegracionArgosContacto
+	err := row.Scan(
+		&i.ContactoID,
+		&i.ClienteID,
+		&i.EmpresaID,
+		&i.Nombre,
+		&i.Servicios,
+		&i.Consultar,
+		&i.Reportar,
+		&i.Version,
+		&i.Quitado,
+		&i.LeidoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Relacion,
+		&i.EsTitular,
+		&i.Pagar,
+		&i.Avisos,
+		&i.PersonaClienteID,
+	)
+	return i, err
+}
+
+const contactosLeidosEn = `-- name: ContactosLeidosEn :one
+SELECT sincronizado_en FROM integracion.argos_contactos_leidos WHERE cliente_id = $1
+`
+
+func (q *Queries) ContactosLeidosEn(ctx context.Context, clienteID int64) (time.Time, error) {
+	row := q.db.QueryRow(ctx, contactosLeidosEn, clienteID)
+	var sincronizado_en time.Time
+	err := row.Scan(&sincronizado_en)
+	return sincronizado_en, err
+}
+
 const contarPaginaLectura = `-- name: ContarPaginaLectura :one
 UPDATE integracion.argos_incidente_lecturas SET paginas = paginas + 1 WHERE entrante_id = $1 RETURNING paginas
 `
@@ -765,6 +889,21 @@ func (q *Queries) ContarPaginaLectura(ctx context.Context, entranteID int64) (in
 	var paginas int32
 	err := row.Scan(&paginas)
 	return paginas, err
+}
+
+const contarPeticionPortal = `-- name: ContarPeticionPortal :one
+INSERT INTO integracion.portal_argos_minutos (conector_id, minuto, peticiones)
+VALUES ($1, date_trunc('minute', now()), 1)
+ON CONFLICT (conector_id, minuto) DO UPDATE SET peticiones = integracion.portal_argos_minutos.peticiones + 1
+RETURNING peticiones
+`
+
+// Tope del conector (§11.2): una petición más en el minuto en curso.
+func (q *Queries) ContarPeticionPortal(ctx context.Context, conectorID int64) (int32, error) {
+	row := q.db.QueryRow(ctx, contarPeticionPortal, conectorID)
+	var peticiones int32
+	err := row.Scan(&peticiones)
+	return peticiones, err
 }
 
 const contarServiciosLectura = `-- name: ContarServiciosLectura :one
@@ -1495,6 +1634,68 @@ func (q *Queries) GuardarClienteLista(ctx context.Context, arg GuardarClienteLis
 	return err
 }
 
+const guardarContacto = `-- name: GuardarContacto :execrows
+INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios,
+    consultar, reportar, pagar, avisos, persona_cliente_id, version, quitado, leido_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7::bigint[],
+    $8, $9, $10, $11, $12, $13, false, $14)
+ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = excluded.cliente_id, empresa_id = excluded.empresa_id,
+    nombre = excluded.nombre, relacion = excluded.relacion, es_titular = excluded.es_titular, servicios = excluded.servicios,
+    consultar = excluded.consultar, reportar = excluded.reportar, pagar = excluded.pagar, avisos = excluded.avisos,
+    persona_cliente_id = excluded.persona_cliente_id, version = excluded.version, quitado = false,
+    leido_en = greatest(integracion.argos_contactos.leido_en, excluded.leido_en), updated_at = now()
+WHERE (excluded.version > integracion.argos_contactos.version
+    OR (excluded.version = integracion.argos_contactos.version AND excluded.leido_en >= integracion.argos_contactos.leido_en))
+    -- Un quitado posterior al inicio de la lectura gana aunque ella traiga una versión mayor (Argos lo
+    -- editó y después lo quitó mientras se leía): solo lo revive una lectura que empezó después.
+    AND NOT (integracion.argos_contactos.quitado AND excluded.leido_en < integracion.argos_contactos.leido_en)
+`
+
+type GuardarContactoParams struct {
+	ContactoID       int64
+	ClienteID        int64
+	EmpresaID        *int64
+	Nombre           string
+	Relacion         string
+	EsTitular        bool
+	Servicios        []int64
+	Consultar        bool
+	Reportar         bool
+	Pagar            bool
+	Avisos           bool
+	PersonaClienteID *int64
+	Version          int32
+	LeidoEn          time.Time
+}
+
+// La única escritura de un contacto en la caché (portal §11.10 y atención §3.5): todas las columnas,
+// sin bajar nunca la versión (una lectura vieja que llega tarde no pisa una más nueva). @leido_en es la
+// hora (de la base) en que empezó la lectura en Argos: con la misma versión, una lectura que empezó
+// antes del último cambio de la fila (p. ej. un quitado por webhook, que no sube la versión) no la pisa
+// ni la revive. Devuelve 0 filas si no se escribió (entonces tampoco se tocan sus teléfonos).
+func (q *Queries) GuardarContacto(ctx context.Context, arg GuardarContactoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, guardarContacto,
+		arg.ContactoID,
+		arg.ClienteID,
+		arg.EmpresaID,
+		arg.Nombre,
+		arg.Relacion,
+		arg.EsTitular,
+		arg.Servicios,
+		arg.Consultar,
+		arg.Reportar,
+		arg.Pagar,
+		arg.Avisos,
+		arg.PersonaClienteID,
+		arg.Version,
+		arg.LeidoEn,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const guardarCopia = `-- name: GuardarCopia :exec
 
 INSERT INTO integracion.argos_copias (entidad, entidad_id, empresa_id, cliente_id, servicio_id, datos, sincronizado_en)
@@ -1715,6 +1916,31 @@ func (q *Queries) GuardarServicio(ctx context.Context, arg GuardarServicioParams
 	return err
 }
 
+const guardarTelefonoContactoArgos = `-- name: GuardarTelefonoContactoArgos :exec
+INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos, whatsapp, principal)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (contacto_id, numero) DO UPDATE SET digitos = EXCLUDED.digitos, whatsapp = EXCLUDED.whatsapp, principal = EXCLUDED.principal
+`
+
+type GuardarTelefonoContactoArgosParams struct {
+	ContactoID int64
+	Numero     string
+	Digitos    string
+	Whatsapp   bool
+	Principal  bool
+}
+
+func (q *Queries) GuardarTelefonoContactoArgos(ctx context.Context, arg GuardarTelefonoContactoArgosParams) error {
+	_, err := q.db.Exec(ctx, guardarTelefonoContactoArgos,
+		arg.ContactoID,
+		arg.Numero,
+		arg.Digitos,
+		arg.Whatsapp,
+		arg.Principal,
+	)
+	return err
+}
+
 const guardarTraslado = `-- name: GuardarTraslado :one
 
 INSERT INTO integracion.argos_traslados (
@@ -1840,6 +2066,33 @@ func (q *Queries) GuardarZona(ctx context.Context, arg GuardarZonaParams) error 
 	return err
 }
 
+const hayContactosDeCliente = `-- name: HayContactosDeCliente :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_contactos WHERE cliente_id = $1)::boolean
+`
+
+func (q *Queries) HayContactosDeCliente(ctx context.Context, clienteID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, hayContactosDeCliente, clienteID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const huellaContactosCliente = `-- name: HuellaContactosCliente :one
+SELECT coalesce(md5(string_agg(k.contacto_id::text || ':' || k.es_titular::text || ':' || coalesce(t.digitos, ''), ','
+    ORDER BY k.contacto_id, t.digitos)), '')::text
+FROM integracion.argos_contactos k LEFT JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id
+WHERE k.cliente_id = $1 AND NOT k.quitado
+`
+
+// Huella de los contactos vigentes del cliente (ids, si son titulares y sus números): si cambia al
+// releer, la mensajería revisa las conversaciones asociadas por esos contactos.
+func (q *Queries) HuellaContactosCliente(ctx context.Context, clienteID int64) (string, error) {
+	row := q.db.QueryRow(ctx, huellaContactosCliente, clienteID)
+	var column_1 string
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const iDsExternosVinculados = `-- name: IDsExternosVinculados :many
 SELECT argos_id_externo::text AS id_externo FROM agenda.tecnicos WHERE argos_id_externo IS NOT NULL
 `
@@ -1864,6 +2117,18 @@ func (q *Queries) IDsExternosVinculados(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const inicioLecturaContactos = `-- name: InicioLecturaContactos :one
+SELECT clock_timestamp()::timestamptz
+`
+
+// La hora de la base al empezar una lectura de contactos en Argos (la misma reloj que now()).
+func (q *Queries) InicioLecturaContactos(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, inicioLecturaContactos)
+	var column_1 time.Time
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const lecturaCuentasDe = `-- name: LecturaCuentasDe :one
@@ -1899,6 +2164,22 @@ func (q *Queries) LecturaIncidente(ctx context.Context, entranteID int64) (Integ
 		&i.Paginas,
 	)
 	return i, err
+}
+
+const marcarContactosLeidos = `-- name: MarcarContactosLeidos :exec
+INSERT INTO integracion.argos_contactos_leidos (cliente_id, sincronizado_en) VALUES ($1, $2)
+ON CONFLICT (cliente_id) DO UPDATE SET sincronizado_en = greatest(integracion.argos_contactos_leidos.sincronizado_en, EXCLUDED.sincronizado_en)
+`
+
+type MarcarContactosLeidosParams struct {
+	ClienteID      int64
+	SincronizadoEn time.Time
+}
+
+// @sincronizado_en es la hora en que empezó la lectura (no la de guardar) y nunca retrocede.
+func (q *Queries) MarcarContactosLeidos(ctx context.Context, arg MarcarContactosLeidosParams) error {
+	_, err := q.db.Exec(ctx, marcarContactosLeidos, arg.ClienteID, arg.SincronizadoEn)
+	return err
 }
 
 const marcarFalloCliente = `-- name: MarcarFalloCliente :exec
@@ -1987,6 +2268,16 @@ func (q *Queries) NombreZona(ctx context.Context, id int64) (string, error) {
 	return nombre, err
 }
 
+const olvidarContactosLeidos = `-- name: OlvidarContactosLeidos :exec
+DELETE FROM integracion.argos_contactos_leidos WHERE cliente_id = $1
+`
+
+// Invalida la caché del cliente: se vuelve a leer de Argos cuando una persona la necesite.
+func (q *Queries) OlvidarContactosLeidos(ctx context.Context, clienteID int64) error {
+	_, err := q.db.Exec(ctx, olvidarContactosLeidos, clienteID)
+	return err
+}
+
 const pendientesLecturaIncidente = `-- name: PendientesLecturaIncidente :many
 SELECT servicio_id, intentos FROM integracion.argos_incidente_servicios
 WHERE entrante_id = $1 AND estado = 'pendiente'
@@ -2040,6 +2331,58 @@ func (q *Queries) PistaEmpresaAlta(ctx context.Context, clienteID int64) (int64,
 	var empresa_id int64
 	err := row.Scan(&empresa_id)
 	return empresa_id, err
+}
+
+const purgarPeticionesPortal = `-- name: PurgarPeticionesPortal :exec
+DELETE FROM integracion.portal_argos_minutos WHERE minuto < now() - interval '10 minutes'
+`
+
+func (q *Queries) PurgarPeticionesPortal(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, purgarPeticionesPortal)
+	return err
+}
+
+const quitarContacto = `-- name: QuitarContacto :execrows
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = clock_timestamp(), updated_at = now()
+WHERE contacto_id = $1 AND cliente_id = $2 AND NOT quitado
+`
+
+type QuitarContactoParams struct {
+	ContactoID int64
+	ClienteID  int64
+}
+
+// leido_en con clock_timestamp() (no now(), que es el inicio de la transacción): la hora real del
+// quitado, para compararla con el inicio de una lectura en curso.
+func (q *Queries) QuitarContacto(ctx context.Context, arg QuitarContactoParams) (int64, error) {
+	result, err := q.db.Exec(ctx, quitarContacto, arg.ContactoID, arg.ClienteID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const quitarContactosAusentes = `-- name: QuitarContactosAusentes :execrows
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = clock_timestamp(), updated_at = now()
+WHERE cliente_id = $1 AND NOT quitado AND NOT (contacto_id = ANY($2::bigint[]))
+    AND leido_en <= $3::timestamptz
+`
+
+type QuitarContactosAusentesParams struct {
+	ClienteID int64
+	Vigentes  []int64
+	LeidoEn   time.Time
+}
+
+// Los contactos del cliente que Argos ya no devuelve: quitados (no se borran; dejan de ver sus tickets
+// y pierden su rol en la atención). Solo los que no se escribieron después de que empezó esta lectura
+// (@leido_en): una lectura vieja no quita un contacto que guardó una más nueva.
+func (q *Queries) QuitarContactosAusentes(ctx context.Context, arg QuitarContactosAusentesParams) (int64, error) {
+	result, err := q.db.Exec(ctx, quitarContactosAusentes, arg.ClienteID, arg.Vigentes, arg.LeidoEn)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const reabrirEtapas = `-- name: ReabrirEtapas :exec
@@ -2922,6 +3265,19 @@ type TerminarLecturasDeIncidenteParams struct {
 func (q *Queries) TerminarLecturasDeIncidente(ctx context.Context, arg TerminarLecturasDeIncidenteParams) error {
 	_, err := q.db.Exec(ctx, terminarLecturasDeIncidente, arg.IncidenteID, arg.EmpresaID)
 	return err
+}
+
+const tokenPortalVigente = `-- name: TokenPortalVigente :one
+SELECT EXISTS (SELECT 1 FROM nucleo.tokens_api WHERE token_padre_id = $1
+    AND revocado_en IS NULL AND eliminado_en IS NULL)::boolean
+`
+
+// El iris_pat_ entregado ya tiene un token_portal vigente (hijo sin revocar ni eliminar).
+func (q *Queries) TokenPortalVigente(ctx context.Context, padreID *int64) (bool, error) {
+	row := q.db.QueryRow(ctx, tokenPortalVigente, padreID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const trasladoPorID = `-- name: TrasladoPorID :one

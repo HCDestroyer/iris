@@ -64,6 +64,14 @@ type AgendaCuadrilla struct {
 	VersionArgos  int32
 }
 
+type AgendaCuadrillaMiembro struct {
+	ID          int64
+	UsuarioID   int64
+	CuadrillaID int64
+	Desde       time.Time
+	Hasta       *time.Time
+}
+
 type AgendaCuadrillaZona struct {
 	CuadrillaID int64
 	ZonaID      int64
@@ -166,6 +174,8 @@ type AgendaTecnico struct {
 	ArgosNombre       *string
 	ArgosVinculadoEn  *time.Time
 	ArgosVinculadoPor *int64
+	VersionVinculo    int32
+	ArgosConectorID   *int64
 }
 
 type AgendaTurno struct {
@@ -398,21 +408,33 @@ type CampoOrdenChecklistHistorial struct {
 }
 
 type CampoOrdenEquipo struct {
-	ID            uuid.UUID
-	OrdenID       int64
-	Accion        string
-	UnidadID      *int64
-	Serie         *string
-	Mac           *string
-	Modelo        string
-	Condicion     *string
-	RegistradoPor *int64
-	Canal         string
-	OcurridoEn    time.Time
-	OperacionID   pgtype.UUID
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Validado      bool
+	ID               uuid.UUID
+	OrdenID          int64
+	Accion           string
+	UnidadID         *int64
+	Serie            *string
+	Mac              *string
+	Modelo           string
+	Condicion        *string
+	RegistradoPor    *int64
+	Canal            string
+	OcurridoEn       time.Time
+	OperacionID      pgtype.UUID
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Validado         bool
+	SaleUnidadID     *int64
+	Motivo           *string
+	DestinoSale      *string
+	CobroMotivo      *string
+	CobroNota        *string
+	Nota             *string
+	FotoAdjuntoID    pgtype.UUID
+	Lat              *float64
+	Lon              *float64
+	PrecisionM       *float32
+	RecibidoEn       *time.Time
+	EnviadoAlAplicar bool
 }
 
 type CampoOrdenEvento struct {
@@ -700,6 +722,14 @@ type ComercialActividade struct {
 	CreatedAt     time.Time
 }
 
+type ComercialAjustesSolicitude struct {
+	EmpresaID               int64
+	CambioPlanExigeContrato bool
+	Version                 int32
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+}
+
 type ComercialContrato struct {
 	ID                int64
 	Numero            string
@@ -740,28 +770,31 @@ type ComercialCotizacionLinea struct {
 }
 
 type ComercialCotizacione struct {
-	ID             int64
-	Numero         string
-	EmpresaID      *int64
-	ProspectoID    int64
-	Revision       int32
-	Estado         string
-	Moneda         string
-	TotalMensual   pgtype.Numeric
-	TotalUnico     pgtype.Numeric
-	VigenteHasta   time.Time
-	PlanID         *int64
-	Notas          string
-	Cliente        []byte
-	PdfAdjuntoID   pgtype.UUID
-	ReemplazadaPor *int64
-	AceptadaEn     *time.Time
-	AceptadaPor    *int64
-	CreadoPor      *int64
-	Idempotencia   *string
-	Version        int32
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                      int64
+	Numero                  string
+	EmpresaID               *int64
+	ProspectoID             int64
+	Revision                int32
+	Estado                  string
+	Moneda                  string
+	TotalMensual            pgtype.Numeric
+	TotalUnico              pgtype.Numeric
+	VigenteHasta            time.Time
+	PlanID                  *int64
+	Notas                   string
+	Cliente                 []byte
+	PdfAdjuntoID            pgtype.UUID
+	ReemplazadaPor          *int64
+	AceptadaEn              *time.Time
+	AceptadaPor             *int64
+	CreadoPor               *int64
+	Idempotencia            *string
+	Version                 int32
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	AceptacionCanal         *string
+	AceptacionClienteEn     *time.Time
+	AceptacionRegistradaPor *int64
 }
 
 type ComercialFactibilidade struct {
@@ -787,45 +820,54 @@ type ComercialFactibilidade struct {
 }
 
 type ComercialProspecto struct {
-	ID                 int64
-	Numero             string
-	EmpresaID          *int64
-	Origen             string
-	OrigenDetalle      *string
-	Nombre             string
-	Documento          *string
-	Telefono           *string
-	Correo             *string
-	Direccion          string
-	Lat                *float64
-	Lon                *float64
-	ZonaID             *int64
-	PlanInteresID      *int64
-	PlanInteresNombre  *string
-	VendedorID         *int64
-	Estado             string
-	Notas              string
-	MotivoPerdida      *string
-	PerdidoEn          *time.Time
-	GanadoEn           *time.Time
-	ObraConfirmada     bool
-	AltaModo           *string
-	AltaEstado         *string
-	ClienteArgosID     *int64
-	ServicioArgosID    *int64
-	OrdenID            *int64
-	CreadoPor          *int64
-	Idempotencia       *string
-	Version            int32
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	RouterID           *int64
-	AltaError          *string
-	Modo               *string
-	RegistradoPorArgos *string
-	ClienteExistenteID *int64
-	ClienteValidado    *bool
-	GanadoPor          *int64
+	ID                      int64
+	Numero                  string
+	EmpresaID               *int64
+	Origen                  string
+	OrigenDetalle           *string
+	Nombre                  string
+	Documento               *string
+	Telefono                *string
+	Correo                  *string
+	Direccion               string
+	Lat                     *float64
+	Lon                     *float64
+	ZonaID                  *int64
+	PlanInteresID           *int64
+	PlanInteresNombre       *string
+	VendedorID              *int64
+	Estado                  string
+	Notas                   string
+	MotivoPerdida           *string
+	PerdidoEn               *time.Time
+	GanadoEn                *time.Time
+	ObraConfirmada          bool
+	AltaModo                *string
+	AltaEstado              *string
+	ClienteArgosID          *int64
+	ServicioArgosID         *int64
+	OrdenID                 *int64
+	CreadoPor               *int64
+	Idempotencia            *string
+	Version                 int32
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	RouterID                *int64
+	AltaError               *string
+	Modo                    *string
+	RegistradoPorArgos      *string
+	ClienteExistenteID      *int64
+	ClienteValidado         *bool
+	GanadoPor               *int64
+	SolicitudTipo           *string
+	SolicitudServicioID     *int64
+	SolicitudComentario     *string
+	EstadoCliente           *string
+	TareaArgos              *string
+	TareaArgosHechaEn       *time.Time
+	TareaArgosHechaPor      *int64
+	SolicitudPlanID         *int64
+	SolicitudPlanNoValidado bool
 }
 
 type ComercialProspectoEvento struct {
@@ -937,6 +979,39 @@ type IntegracionArgosCliente struct {
 	VersionDatos        int16
 	FalloEn             *time.Time
 	Referencia          string
+}
+
+type IntegracionArgosContacto struct {
+	ContactoID       int64
+	ClienteID        int64
+	EmpresaID        *int64
+	Nombre           string
+	Servicios        []int64
+	Consultar        bool
+	Reportar         bool
+	Version          int32
+	Quitado          bool
+	LeidoEn          time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Relacion         string
+	EsTitular        bool
+	Pagar            bool
+	Avisos           bool
+	PersonaClienteID *int64
+}
+
+type IntegracionArgosContactoTelefono struct {
+	ContactoID int64
+	Numero     string
+	Digitos    string
+	Whatsapp   bool
+	Principal  bool
+}
+
+type IntegracionArgosContactosLeido struct {
+	ClienteID      int64
+	SincronizadoEn time.Time
 }
 
 type IntegracionArgosCopia struct {
@@ -1203,6 +1278,10 @@ type IntegracionConectore struct {
 	VersionDetalle               *string
 	EliminadoEn                  *time.Time
 	EliminadoPor                 *int64
+	VinculosCargaID              pgtype.UUID
+	VinculosCargaN               *int32
+	VinculosCargadosEn           *time.Time
+	VinculosCargaAvisadaEn       *time.Time
 	CapacidadesAprovisionamiento []byte
 	CapacidadesEquipos           []byte
 }
@@ -1295,6 +1374,9 @@ type IntegracionPendiente struct {
 	TransitoID             pgtype.UUID
 	ResueltoComo           *string
 	ResueltoClienteID      *int64
+	EnviadoAConector       *int64
+	EsperandoVinculoDesde  *time.Time
+	Contacto               *string
 	EnvioSinRespuesta      bool
 	CargoTerminal          bool
 	PorConfirmar           bool
@@ -1310,6 +1392,19 @@ type IntegracionPendiente struct {
 	FacturaPorAnularMotivo *string
 	ExigePorAnular         bool
 	FacturaAnulada         bool
+}
+
+type IntegracionPortalArgosMinuto struct {
+	ConectorID int64
+	Minuto     time.Time
+	Peticiones int32
+}
+
+type IntegracionVerificacionesIntento struct {
+	ID           int64
+	ConectorID   int64
+	Clave        string
+	ConsultadaEn time.Time
 }
 
 type MensajeriaAjustesBandeja struct {
@@ -1477,37 +1572,40 @@ type MensajeriaAsistenteVerificacione struct {
 }
 
 type MensajeriaAviso struct {
-	ID             uuid.UUID
-	EmpresaID      int64
-	ClienteID      int64
-	ServicioID     *int64
-	Plantilla      string
-	Variables      []byte
-	CanalPreferido string
-	Prioridad      string
-	Origen         string
-	Estado         string
-	Motivo         *string
-	Detalle        *string
-	Canal          *string
-	CanalID        *int64
-	Remitente      *string
-	Destino        *string
-	ProveedorID    *string
-	UsuarioID      *int64
-	TokenID        *int64
-	IdempotencyKey *string
-	HashPeticion   []byte
-	VenceEn        *time.Time
-	ProgramadoEn   *time.Time
-	EnviadoEn      *time.Time
-	EntregadoEn    *time.Time
-	LeidoEn        *time.Time
-	FinalizadoEn   *time.Time
-	Intentos       int32
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	OrdenID        *int64
+	ID              uuid.UUID
+	EmpresaID       int64
+	ClienteID       int64
+	ServicioID      *int64
+	Plantilla       string
+	Variables       []byte
+	CanalPreferido  string
+	Prioridad       string
+	Origen          string
+	Estado          string
+	Motivo          *string
+	Detalle         *string
+	Canal           *string
+	CanalID         *int64
+	Remitente       *string
+	Destino         *string
+	ProveedorID     *string
+	UsuarioID       *int64
+	TokenID         *int64
+	IdempotencyKey  *string
+	HashPeticion    []byte
+	VenceEn         *time.Time
+	ProgramadoEn    *time.Time
+	EnviadoEn       *time.Time
+	EntregadoEn     *time.Time
+	LeidoEn         *time.Time
+	FinalizadoEn    *time.Time
+	Intentos        int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	AvisoPadreID    pgtype.UUID
+	ContactoArgosID *int64
+	CopiasMotivo    *string
+	OrdenID         *int64
 }
 
 type MensajeriaBoleta struct {
@@ -1548,6 +1646,7 @@ type MensajeriaBoleta struct {
 	ResolucionAgotadaEn *time.Time
 	PorAsistente        bool
 	CuentaValidacion    *string
+	ContactoArgos       *string
 }
 
 type MensajeriaCanalPrestamo struct {
@@ -1835,6 +1934,7 @@ type MensajeriaConsentimiento struct {
 	HashPeticion   []byte
 	EntranteID     *int64
 	CreatedAt      time.Time
+	Telefono       *string
 }
 
 type MensajeriaConsentimientosNumero struct {
@@ -1847,6 +1947,12 @@ type MensajeriaConsentimientosNumero struct {
 	RegistradoPor *int64
 	Motivo        *string
 	CreatedAt     time.Time
+}
+
+type MensajeriaContactosBuscado struct {
+	Empresa   int64
+	Digitos   string
+	BuscadoEn time.Time
 }
 
 type MensajeriaContactosIri struct {
@@ -2027,6 +2133,7 @@ type MensajeriaConversacione struct {
 	AsistenteReanudadoEn    *time.Time
 	AsistenteAtencionDesde  *time.Time
 	AsistentePausaPrevio    *string
+	ContactoArgosID         *int64
 }
 
 type MensajeriaDisponibilidad struct {
@@ -2041,6 +2148,17 @@ type MensajeriaDisponibilidad struct {
 	HorarioHasta    *time.Time
 	Version         int32
 	UpdatedAt       time.Time
+}
+
+type MensajeriaEleccionesCliente struct {
+	ID             int64
+	EmpresaID      *int64
+	ConversacionID int64
+	Numero         string
+	Acierto        bool
+	ClienteID      *int64
+	UsuarioID      *int64
+	CreadoEn       time.Time
 }
 
 type MensajeriaEnlacesWifi struct {
@@ -2080,6 +2198,26 @@ type MensajeriaEtiqueta struct {
 	Version   int32
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type MensajeriaGestionesCobro struct {
+	ID             uuid.UUID
+	EmpresaID      int64
+	ConversacionID int64
+	ClienteID      int64
+	ServicioID     *int64
+	ContactoID     *int64
+	Tipo           string
+	Resultado      string
+	OcurridoEn     time.Time
+	OrigenTipo     string
+	OrigenID       string
+	UsuarioID      *int64
+	Asistente      bool
+	IdempotencyKey *string
+	HashPeticion   []byte
+	PendienteID    *int64
+	CreatedAt      time.Time
 }
 
 type MensajeriaHorario struct {
@@ -2662,6 +2800,8 @@ type MensajeriaWebhooksSalida struct {
 	EntregadoEn    *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	ConectorOrigen *int64
+	CargaID        pgtype.UUID
 }
 
 type NotificacionesAviso struct {
@@ -2814,6 +2954,7 @@ type NucleoAdjunto struct {
 	Version        int32
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	Nombre         *string
 }
 
 type NucleoAdjuntosParte struct {
@@ -3008,6 +3149,7 @@ type NucleoTokensApi struct {
 	EliminadoEn  *time.Time
 	EliminadoPor *int64
 	Via          *string
+	TokenPadreID *int64
 }
 
 type NucleoUsuario struct {
@@ -3376,6 +3518,8 @@ type SoporteTicket struct {
 	PropuestaMotivo    *string
 	PropuestaOrigen    *string
 	PropuestaOrdenID   *int64
+	CreadoPorContacto  *int64
+	ClienteRevision    *string
 }
 
 type SoporteTicketEvento struct {
@@ -3409,6 +3553,7 @@ type SoporteTicketMensaje struct {
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 	Idempotencia *string
+	ContactoID   *int64
 }
 
 type SoporteTicketSlaAlerta struct {

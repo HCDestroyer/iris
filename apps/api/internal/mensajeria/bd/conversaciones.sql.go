@@ -252,7 +252,7 @@ func (q *Queries) AvanzarSeqConversacion(ctx context.Context, arg AvanzarSeqConv
 }
 
 const avisoDeProveedorCanal = `-- name: AvisoDeProveedorCanal :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id FROM mensajeria.avisos WHERE canal_id = $1 AND proveedor_id = $2
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id FROM mensajeria.avisos WHERE canal_id = $1 AND proveedor_id = $2
 `
 
 type AvisoDeProveedorCanalParams struct {
@@ -295,6 +295,9 @@ func (q *Queries) AvisoDeProveedorCanal(ctx context.Context, arg AvisoDeProveedo
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
@@ -326,7 +329,7 @@ func (q *Queries) BajaDelClientePendiente(ctx context.Context, arg BajaDelClient
 }
 
 const boletaParaEnviar = `-- name: BoletaParaEnviar :one
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion FROM mensajeria.boletas WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion, contacto_argos FROM mensajeria.boletas WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) BoletaParaEnviar(ctx context.Context, id uuid.UUID) (MensajeriaBoleta, error) {
@@ -370,6 +373,7 @@ func (q *Queries) BoletaParaEnviar(ctx context.Context, id uuid.UUID) (Mensajeri
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
 		&i.CuentaValidacion,
+		&i.ContactoArgos,
 	)
 	return i, err
 }
@@ -1184,7 +1188,7 @@ func (q *Queries) ContarIntentoMedio(ctx context.Context, arg ContarIntentoMedio
 }
 
 const conversacionClienteParaActualizar = `-- name: ConversacionClienteParaActualizar :one
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo FROM mensajeria.conversaciones WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo, contacto_argos_id FROM mensajeria.conversaciones WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) ConversacionClienteParaActualizar(ctx context.Context, id int64) (MensajeriaConversacion, error) {
@@ -1249,12 +1253,13 @@ func (q *Queries) ConversacionClienteParaActualizar(ctx context.Context, id int6
 		&i.AsistenteReanudadoEn,
 		&i.AsistenteAtencionDesde,
 		&i.AsistentePausaPrevio,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
 
 const conversacionClientePorID = `-- name: ConversacionClientePorID :one
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo FROM mensajeria.conversaciones WHERE id = $1
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo, contacto_argos_id FROM mensajeria.conversaciones WHERE id = $1
 `
 
 func (q *Queries) ConversacionClientePorID(ctx context.Context, id int64) (MensajeriaConversacion, error) {
@@ -1319,13 +1324,14 @@ func (q *Queries) ConversacionClientePorID(ctx context.Context, id int64) (Mensa
 		&i.AsistenteReanudadoEn,
 		&i.AsistenteAtencionDesde,
 		&i.AsistentePausaPrevio,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
 
 const conversacionPorContacto = `-- name: ConversacionPorContacto :one
 
-SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo FROM mensajeria.conversaciones
+SELECT id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo, contacto_argos_id FROM mensajeria.conversaciones
 WHERE coalesce(empresa_id, 0) = $1::bigint AND canal_id = $2 AND numero = $3
 FOR UPDATE
 `
@@ -1399,6 +1405,7 @@ func (q *Queries) ConversacionPorContacto(ctx context.Context, arg ConversacionP
 		&i.AsistenteReanudadoEn,
 		&i.AsistenteAtencionDesde,
 		&i.AsistentePausaPrevio,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
@@ -1774,6 +1781,21 @@ func (q *Queries) FijarColaActiva(ctx context.Context, arg FijarColaActivaParams
 	return i, err
 }
 
+const fijarContactoBoleta = `-- name: FijarContactoBoleta :exec
+UPDATE mensajeria.boletas SET contacto_argos = $1 WHERE id = $2
+`
+
+type FijarContactoBoletaParams struct {
+	ContactoArgos *string
+	ID            uuid.UUID
+}
+
+// X-Iris-Contacto con que sale la boleta (§7.1, 0.10.1): se fija al registrarla.
+func (q *Queries) FijarContactoBoleta(ctx context.Context, arg FijarContactoBoletaParams) error {
+	_, err := q.db.Exec(ctx, fijarContactoBoleta, arg.ContactoArgos, arg.ID)
+	return err
+}
+
 const fijarEtiquetaActiva = `-- name: FijarEtiquetaActiva :one
 UPDATE mensajeria.etiquetas SET activa = $1, version = version + 1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, nombre, color, activa, version, created_at, updated_at
 `
@@ -1836,7 +1858,7 @@ SET perfil_nombre = $1, cola_id = $2, asignado_a = $3,
     sla_avisado = $16, resuelta_en = $17, reabierta_en = $18,
     ultima_actividad = $19, version = version + $20::integer, updated_at = now()
 WHERE id = $21
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo, contacto_argos_id
 `
 
 type GuardarConversacionParams struct {
@@ -1948,6 +1970,7 @@ func (q *Queries) GuardarConversacion(ctx context.Context, arg GuardarConversaci
 		&i.AsistenteReanudadoEn,
 		&i.AsistenteAtencionDesde,
 		&i.AsistentePausaPrevio,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
@@ -1975,7 +1998,7 @@ INSERT INTO mensajeria.boletas (id, empresa_id, conversacion_id, cliente_id, ser
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
     $9, $10, $11, $12, $13, $14, $15, $16,
     $17)
-RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion, contacto_argos
 `
 
 type InsertarBoletaParams struct {
@@ -2058,6 +2081,7 @@ func (q *Queries) InsertarBoleta(ctx context.Context, arg InsertarBoletaParams) 
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
 		&i.CuentaValidacion,
+		&i.ContactoArgos,
 	)
 	return i, err
 }
@@ -2193,7 +2217,7 @@ INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nomb
 VALUES ($1, $2, $3, $4, $5, $6,
     $7, $8, $9)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo, contacto_argos_id
 `
 
 type InsertarConversacionClienteParams struct {
@@ -2280,6 +2304,7 @@ func (q *Queries) InsertarConversacionCliente(ctx context.Context, arg InsertarC
 		&i.AsistenteReanudadoEn,
 		&i.AsistenteAtencionDesde,
 		&i.AsistentePausaPrevio,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
@@ -3722,7 +3747,7 @@ UPDATE mensajeria.boletas
 SET estado = $1, comprobante_id = $2, detalle = $3, intentos = intentos + 1,
     proximo_intento = $4, updated_at = now()
 WHERE id = $5
-RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion
+RETURNING id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion, contacto_argos
 `
 
 type ResultadoBoletaParams struct {
@@ -3780,12 +3805,13 @@ func (q *Queries) ResultadoBoleta(ctx context.Context, arg ResultadoBoletaParams
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
 		&i.CuentaValidacion,
+		&i.ContactoArgos,
 	)
 	return i, err
 }
 
 const resumenConversacionesCliente = `-- name: ResumenConversacionesCliente :many
-SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at, c.fuera_horario_hasta, c.guardia_hasta, c.bot_espera_en, c.bot_vence_en, c.bot_motivo, c.bot_atendio_en, c.bot_menu, c.categoria_id, c.categoria_confianza, c.categoria_origen, c.categoria_en, c.clasificado_mensaje_id, c.asistente_actividad_tipo, c.asistente_actividad_texto, c.asistente_actividad_en, c.cola_origen, c.asistente_transfirio_en, c.asistente_estado, c.asistente_turnos, c.asistente_presento_en, c.identidad_verificada_en, c.identidad_vence_en, c.bot_diferido_mensaje_id, c.asistente_motivo_paso, c.asistente_pausado_en, c.asistente_pausado_por, c.asistente_pausa_motivo, c.asistente_reanudado_en, c.asistente_atencion_desde, c.asistente_pausa_previo,
+SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at, c.fuera_horario_hasta, c.guardia_hasta, c.bot_espera_en, c.bot_vence_en, c.bot_motivo, c.bot_atendio_en, c.bot_menu, c.categoria_id, c.categoria_confianza, c.categoria_origen, c.categoria_en, c.clasificado_mensaje_id, c.asistente_actividad_tipo, c.asistente_actividad_texto, c.asistente_actividad_en, c.cola_origen, c.asistente_transfirio_en, c.asistente_estado, c.asistente_turnos, c.asistente_presento_en, c.identidad_verificada_en, c.identidad_vence_en, c.bot_diferido_mensaje_id, c.asistente_motivo_paso, c.asistente_pausado_en, c.asistente_pausado_por, c.asistente_pausa_motivo, c.asistente_reanudado_en, c.asistente_atencion_desde, c.asistente_pausa_previo, c.contacto_argos_id,
     ca.nombre AS canal_nombre, ca.numero AS canal_numero, ca.usos AS canal_usos,
     co.nombre AS cola_nombre, co.sla_respuesta_min, co.sla_por_vencer_min,
     k.nombre AS categoria_nombre, k.tono AS categoria_tono, k.sla_primera_respuesta_min AS categoria_sla_min,
@@ -3881,6 +3907,7 @@ type ResumenConversacionesClienteRow struct {
 	AsistenteReanudadoEn    *time.Time
 	AsistenteAtencionDesde  *time.Time
 	AsistentePausaPrevio    *string
+	ContactoArgosID         *int64
 	CanalNombre             string
 	CanalNumero             string
 	CanalUsos               []string
@@ -3975,6 +4002,7 @@ func (q *Queries) ResumenConversacionesCliente(ctx context.Context, arg ResumenC
 			&i.AsistenteReanudadoEn,
 			&i.AsistenteAtencionDesde,
 			&i.AsistentePausaPrevio,
+			&i.ContactoArgosID,
 			&i.CanalNombre,
 			&i.CanalNumero,
 			&i.CanalUsos,
@@ -4117,7 +4145,7 @@ func (q *Queries) TocarCola(ctx context.Context, id int64) (MensajeriaCola, erro
 }
 
 const ultimoAvisoA = `-- name: UltimoAvisoA :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id FROM mensajeria.avisos
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id FROM mensajeria.avisos
 WHERE canal_id = $1 AND destino = $2 AND enviado_en IS NOT NULL AND enviado_en >= $3::timestamptz
 ORDER BY enviado_en DESC LIMIT 1
 `
@@ -4163,6 +4191,9 @@ func (q *Queries) UltimoAvisoA(ctx context.Context, arg UltimoAvisoAParams) (Men
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err

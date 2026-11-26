@@ -51,7 +51,7 @@ func nuevoEntornoActivacion(t *testing.T, modo string) *entornoActivacion {
 	}
 	// La activación usa el mismo Argos que la cola.
 	e.m = campo.Nuevo(campo.Config{Reloj: e.reloj.ahora, Adjuntos: campo.SinAdjuntosObligatorios{},
-		Titular: campo.ConfigTitular{Cifrador: cifradorDe(t, e.entornoTitular), Conector: campo.ConectorDeArgos(e.am)}, Equipos: campo.EquiposDeArgos(e.am)})
+		Titular: campo.ConfigTitular{Cifrador: cifradorDe(t, e.entornoTitular), Conector: campo.ConectorDeArgos(e.am)}, ArgosEquipos: campo.EquiposDeArgos(e.am)})
 	e.m.SuscribirActivaciones(e.bus, pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	equipos.Nuevo().Suscribir(e.bus, pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	t.Cleanup(func() {

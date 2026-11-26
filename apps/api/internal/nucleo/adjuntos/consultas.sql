@@ -93,9 +93,9 @@ RETURNING *;
 -- Un archivo que trajo el sistema (p. ej. un medio de WhatsApp) ya guardado en el almacenamiento.
 INSERT INTO nucleo.adjuntos (
     id, empresa_id, entidad, entidad_id, tipo, mime, tamano, sha256, recibido, estado,
-    subido_por, almacenamiento, clave, completado_en
+    subido_por, almacenamiento, clave, completado_en, nombre
 ) VALUES (
     @id, sqlc.narg(empresa_id), @entidad, @entidad_id, @tipo, @mime, @tamano, @sha256, @tamano, 'completo',
-    sqlc.narg(subido_por), @almacenamiento, @clave, now()
+    sqlc.narg(subido_por), @almacenamiento, @clave, now(), sqlc.narg(nombre)
 )
 RETURNING *;

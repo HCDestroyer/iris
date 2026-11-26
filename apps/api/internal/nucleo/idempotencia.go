@@ -61,10 +61,25 @@ type ReglaIdempotencia struct {
 	Cabeceras []string
 	// CodigoReutilizada: el código del 422 (por defecto idempotencia_reutilizada).
 	CodigoReutilizada string
+	// MaxCuerpo: tamaño máximo del cuerpo para esta ruta (0 = el del middleware). Lo usa el portal
+	// de Argos (contrato 0.9.0 §11.6: hasta 3 adjuntos de 10 MB en multipart).
+	MaxCuerpo int64
 	// Transitorio: respuestas que no son el resultado de la operación (un tope por minuto, un
 	// conector apagado): liberan la clave como un 5xx, y repetir la misma petición la ejecuta.
 	// codigo es lo que sigue a urn:iris:problema: en el type del problem+json ("" si no lo es).
 	Transitorio func(status int, codigo string) bool
+}
+
+// PrimeraRegla combina reglas de idempotencia: vale la primera que no sea nil.
+func PrimeraRegla(reglas ...func(*http.Request) *ReglaIdempotencia) func(*http.Request) *ReglaIdempotencia {
+	return func(r *http.Request) *ReglaIdempotencia {
+		for _, f := range reglas {
+			if x := f(r); x != nil {
+				return x
+			}
+		}
+		return nil
+	}
 }
 
 // codigoProblema: el código del type de un problem+json ("" si el cuerpo no lo es).
@@ -207,12 +222,20 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 				return
 			}
 
-			cuerpo, err := io.ReadAll(io.LimitReader(r.Body, op.MaxCuerpo+1))
+			var regla *ReglaIdempotencia
+			if op.Regla != nil {
+				regla = op.Regla(r)
+			}
+			maxCuerpo := op.MaxCuerpo
+			if regla != nil && regla.MaxCuerpo > 0 {
+				maxCuerpo = regla.MaxCuerpo
+			}
+			cuerpo, err := io.ReadAll(io.LimitReader(r.Body, maxCuerpo+1))
 			if err != nil {
 				EscribirProblema(w, SolicitudInvalida("No se pudo leer el cuerpo"))
 				return
 			}
-			if int64(len(cuerpo)) > op.MaxCuerpo {
+			if int64(len(cuerpo)) > maxCuerpo {
 				EscribirProblema(w, NuevoProblema(http.StatusRequestEntityTooLarge, "cuerpo_muy_grande",
 					"Cuerpo demasiado grande", "El cuerpo excede el máximo admitido con Idempotency-Key"))
 				return
@@ -220,10 +243,6 @@ func MiddlewareIdempotencia(op OpcionesIdempotencia) func(http.Handler) http.Han
 			r.Body = io.NopCloser(bytes.NewReader(cuerpo))
 
 			ruta := r.URL.RequestURI()
-			var regla *ReglaIdempotencia
-			if op.Regla != nil {
-				regla = op.Regla(r)
-			}
 			vigencia := op.Vigencia
 			if regla != nil && regla.Vigencia > 0 {
 				vigencia = regla.Vigencia

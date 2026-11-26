@@ -399,6 +399,67 @@ INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, mo
 VALUES (@id, @orden_id, @accion, @unidad_id, @serie, @mac, @modelo, @condicion, @validado, @registrado_por, @canal, @ocurrido_en, @operacion_id)
 RETURNING *;
 
+-- name: CrearEquipoCliente :one
+-- Cambio de equipo o intento de recuperación (contrato 0.12.0 §3.10, B27).
+INSERT INTO campo.orden_equipos (
+    id, orden_id, accion, unidad_id, serie, mac, modelo, validado, registrado_por, canal, ocurrido_en, operacion_id,
+    sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en
+) VALUES (
+    @id, @orden_id, @accion, sqlc.narg(unidad_id), sqlc.narg(serie), sqlc.narg(mac), '', @validado, sqlc.narg(registrado_por), @canal,
+    @ocurrido_en, sqlc.narg(operacion_id), sqlc.narg(sale_unidad_id), @motivo, sqlc.narg(destino_sale), sqlc.narg(cobro_motivo),
+    sqlc.narg(cobro_nota), sqlc.narg(nota), sqlc.narg(foto_adjunto_id), sqlc.narg(lat), sqlc.narg(lon), sqlc.narg(precision_m), @recibido_en
+)
+RETURNING *;
+
+-- name: BloquearIntentosDeUnidad :exec
+-- Serializa los intentos de recuperación de una unidad (A-271-2): dos lotes a la vez no pasan los dos.
+SELECT pg_advisory_xact_lock(hashtextextended('campo.no_recuperado:' || @unidad_id::bigint::text, 0));
+
+-- name: IntentosNoRecuperado :one
+-- Intentos de recuperación de la unidad en el día local, por la fecha del teléfono o por la hora en
+-- que los recibió el servidor (A-271-2: una fecha de otro día no evade el límite).
+SELECT count(*)::int FROM campo.orden_equipos
+WHERE accion = 'no_recuperado' AND unidad_id = @unidad_id
+  AND ((ocurrido_en >= @desde AND ocurrido_en < @hasta) OR (recibido_en >= @recibido_desde AND recibido_en < @recibido_hasta));
+
+-- name: FotoUsadaEnEquipo :one
+-- La foto ya respalda otro cambio o intento (M-271-3).
+SELECT EXISTS (SELECT 1 FROM campo.orden_equipos WHERE foto_adjunto_id = @foto_adjunto_id)::boolean;
+
+-- name: PosicionDeReferencia :one
+-- La última posición del técnico en los 30 min anteriores a la fecha del intento, contando solo las
+-- que Iris recibió antes de aceptar el lote (0.13.1 §3.10; M-271-4).
+SELECT lat, lon, registrada_en FROM campo.posiciones
+WHERE tecnico_id = @tecnico_id AND registrada_en <= @hasta AND registrada_en >= @desde AND created_at <= @recibido_antes
+ORDER BY registrada_en DESC
+LIMIT 1;
+
+-- name: LlegadaDelActor :one
+-- La llegada del actor (0.13.1 §3.10): su último orden.llegar en la orden (programada o en camino →
+-- en sitio), del mismo día y no posterior a la fecha.
+SELECT ocurrido_en FROM campo.orden_eventos
+WHERE orden_id = @orden_id AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
+  AND actor_id = @actor_id AND ocurrido_en >= @desde AND ocurrido_en <= @hasta
+ORDER BY ocurrido_en DESC, id DESC
+LIMIT 1;
+
+-- name: AsignacionesDeOrden :many
+-- El historial de asignación de la orden (asignaciones y programaciones con técnico o cuadrilla),
+-- con la hora del servidor: para orden_reasignada (0.14.0 §3.10).
+SELECT ocurrido_en,
+       (datos ? 'tecnico_id')::boolean AS trae_tecnico, coalesce((datos->>'tecnico_id')::bigint, 0)::bigint AS tecnico_id,
+       (datos ? 'cuadrilla_id')::boolean AS trae_cuadrilla, coalesce((datos->>'cuadrilla_id')::bigint, 0)::bigint AS cuadrilla_id
+FROM campo.orden_eventos
+WHERE orden_id = @orden_id AND tipo IN ('asignada', 'programada') AND (datos ? 'tecnico_id' OR datos ? 'cuadrilla_id')
+ORDER BY ocurrido_en, id;
+
+-- name: MembresiasDe :many
+-- Los periodos del usuario en cada cuadrilla (agenda.cuadrilla_miembros, hora del servidor).
+SELECT cuadrilla_id, desde, hasta FROM agenda.cuadrilla_miembros WHERE usuario_id = @usuario_id ORDER BY desde;
+
+-- name: BodegaEsDeCuadrilla :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = @bodega_id AND cuadrilla_id = @cuadrilla_id)::boolean;
+
 -- name: EquiposDeOrdenes :many
 SELECT * FROM campo.orden_equipos WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, ocurrido_en, created_at;
 
@@ -762,6 +823,17 @@ SELECT count(*)::bigint FROM campo.ordenes o
 WHERE o.origen = 'asistente' AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint
   AND o.created_at >= now() - interval '24 hours';
 
+-- name: MarcarEnviadoAlAplicar :exec
+-- El cambio o el intento ya se encoló hacia Argos al aplicarse (0.14.0 §3.10).
+UPDATE campo.orden_equipos SET enviado_al_aplicar = true WHERE id = @id;
+
+-- name: IntentosDeUnidadEnOrden :one
+-- Intentos de recuperación de la unidad en la orden (con Argos < 0.14.0, uno por unidad y orden).
+SELECT count(*)::int FROM campo.orden_equipos WHERE orden_id = @orden_id AND accion = 'no_recuperado' AND unidad_id = @unidad_id;
+
+-- name: DejoAlgunaCuadrilla :one
+-- El usuario dejó alguna cuadrilla (para leer de Argos la bodega de la unidad que entra, M-7).
+SELECT EXISTS (SELECT 1 FROM agenda.cuadrilla_miembros WHERE usuario_id = @usuario_id AND hasta IS NOT NULL)::boolean;
 -- --- Paso «Confirmar titular y plan» (contrato argosisp.md 0.10.0 §3.4, B18) -------------------
 
 -- name: TitularDeOrden :one

@@ -110,6 +110,8 @@ func correr() error {
 	}
 	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg,
 		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL},
+		// Conciliación de clientes de los tickets del portal de Argos (contrato 0.9.0 §11.2).
+		PortalArgos: conectorArgos,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
@@ -158,8 +160,8 @@ func correr() error {
 	if err != nil {
 		return err
 	}
-	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
-		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop, Equipos: campo.EquiposDeArgos(conectorArgos)})
+	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
+		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop, ArgosEquipos: campo.EquiposDeArgos(conectorArgos)})
 	cmp.SuscribirRetiros(bus, pool, log)
 	// Activación desde la orden (contrato 0.9.0 §12.2): el 202 de aprovisionar o su rechazo (cola de
 	// pendientes) y los webhooks instalacion.* (argos.instalacion_resuelta) resuelven el intento; los
@@ -177,6 +179,8 @@ func correr() error {
 	// Bodega de cuadrilla (contrato 0.11.0 §3.9): un usuario desactivado o con otra empresa cambia
 	// los miembros que van a Argos en cuadrilla.actualizada.
 	cmp.Agenda().SuscribirCuadrillas(bus, pool, log)
+	// 0.14.0 §6.6: la carga inicial de vínculos la emite agenda (creada después del conector).
+	conectorArgos.UsarVinculos(cmp.Agenda().CargarVinculos)
 	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,
 	// POST /servicios), encola el servicio y crea la orden de instalación; barrido cada 5 min.
 	comercial.RegistrarAdjuntos()
@@ -185,6 +189,8 @@ func correr() error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	com.SuscribirAltas(bus, pool, log)
+	// Solicitudes del portal de Argos (0.9.0 §11.7): completada al cerrarse su orden.
+	com.SuscribirSolicitudes(bus, pool)
 	com.SuscribirActivacion(bus, pool, log)
 	com.SuscribirRevisionVenta(bus, pool, log)
 	// Mensajería (contrato 0.6.0 §6.6): aviso.entregado, aviso.fallido y contacto.baja → webhooks hacia
@@ -195,6 +201,7 @@ func correr() error {
 	// argos.comprobante_resuelto → la resolución queda en la boleta; el proceso de mensajería la
 	// aplica (mensaje de sistema y aviso al cliente, una sola vez).
 	msj.SuscribirComprobantes(bus, pool)
+	msj.SuscribirContactos(bus, pool)
 	// Reconexión temporal (contrato 0.8.0 §7.3): promesa.* de Argos → argos.promesa_cambiada → la
 	// reconexión de la conversación guarda cómo terminó y con qué motivo la guardó Argos.
 	msj.SuscribirPromesas(bus, pool)
@@ -257,7 +264,7 @@ func correr() error {
 			com.RegistrarTrabajos(pool)(w)
 			notif.RegistrarTrabajos(pool)(w)
 		},
-		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
+		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute), soporte.TrabajoPeriodicoConciliar(),
 			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), pendientes.TrabajoPurgaTransito(),
 			campo.TrabajoPeriodicoActivaciones(2*time.Minute), inventario.TrabajoPeriodico(5*time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),

@@ -106,8 +106,25 @@ func (q *Queries) ActualizarCanal(ctx context.Context, arg ActualizarCanalParams
 	return i, err
 }
 
+const agotarWebhook = `-- name: AgotarWebhook :exec
+UPDATE mensajeria.webhooks_salida SET estado = 'agotado', ultimo_error = $1, updated_at = now()
+WHERE id = $2 AND estado = 'pendiente'
+`
+
+type AgotarWebhookParams struct {
+	UltimoError *string
+	ID          uuid.UUID
+}
+
+// El vinculado que espera un desvinculado que no saldrá (o pasadas 24 h): agotado a la vista, para
+// reenviarlo (POST …/reenviar) cuando su dependencia se resuelva.
+func (q *Queries) AgotarWebhook(ctx context.Context, arg AgotarWebhookParams) error {
+	_, err := q.db.Exec(ctx, agotarWebhook, arg.UltimoError, arg.ID)
+	return err
+}
+
 const avisoParaActualizar = `-- name: AvisoParaActualizar :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id FROM mensajeria.avisos WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id FROM mensajeria.avisos WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) AvisoParaActualizar(ctx context.Context, id uuid.UUID) (MensajeriaAviso, error) {
@@ -144,6 +161,9 @@ func (q *Queries) AvisoParaActualizar(ctx context.Context, id uuid.UUID) (Mensaj
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
@@ -151,7 +171,7 @@ func (q *Queries) AvisoParaActualizar(ctx context.Context, id uuid.UUID) (Mensaj
 
 const avisoPorClave = `-- name: AvisoPorClave :one
 
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id FROM mensajeria.avisos WHERE usuario_id = $1::bigint AND idempotency_key = $2::text
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id FROM mensajeria.avisos WHERE usuario_id = $1::bigint AND idempotency_key = $2::text
 `
 
 type AvisoPorClaveParams struct {
@@ -194,13 +214,16 @@ func (q *Queries) AvisoPorClave(ctx context.Context, arg AvisoPorClaveParams) (M
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
 }
 
 const avisoPorID = `-- name: AvisoPorID :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id FROM mensajeria.avisos WHERE id = $1
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id FROM mensajeria.avisos WHERE id = $1
 `
 
 func (q *Queries) AvisoPorID(ctx context.Context, id uuid.UUID) (MensajeriaAviso, error) {
@@ -237,13 +260,16 @@ func (q *Queries) AvisoPorID(ctx context.Context, id uuid.UUID) (MensajeriaAviso
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
 }
 
 const avisoPorProveedor = `-- name: AvisoPorProveedor :one
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id FROM mensajeria.avisos WHERE canal_id = $1 AND proveedor_id = $2 FOR UPDATE
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id FROM mensajeria.avisos WHERE canal_id = $1 AND proveedor_id = $2 FOR UPDATE
 `
 
 type AvisoPorProveedorParams struct {
@@ -285,6 +311,9 @@ func (q *Queries) AvisoPorProveedor(ctx context.Context, arg AvisoPorProveedorPa
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
@@ -340,6 +369,21 @@ type BloquearAvisosClienteParams struct {
 // Serializa la cuenta del límite diario de un cliente.
 func (q *Queries) BloquearAvisosCliente(ctx context.Context, arg BloquearAvisosClienteParams) error {
 	_, err := q.db.Exec(ctx, bloquearAvisosCliente, arg.EmpresaID, arg.ClienteID)
+	return err
+}
+
+const bloquearAvisosNumero = `-- name: BloquearAvisosNumero :exec
+SELECT pg_advisory_xact_lock(hashtextextended('mensajeria.aviso_numero:' || $1::bigint || ':' || $2::text, 0))
+`
+
+type BloquearAvisosNumeroParams struct {
+	EmpresaID int64
+	Destino   string
+}
+
+// Serializa la cuenta del límite diario de un número de contacto.
+func (q *Queries) BloquearAvisosNumero(ctx context.Context, arg BloquearAvisosNumeroParams) error {
+	_, err := q.db.Exec(ctx, bloquearAvisosNumero, arg.EmpresaID, arg.Destino)
 	return err
 }
 
@@ -555,7 +599,7 @@ func (q *Queries) ClienteDeConversacion(ctx context.Context, id int64) (*int64, 
 
 const clientesAvisadosEn = `-- name: ClientesAvisadosEn :many
 SELECT DISTINCT empresa_id, cliente_id FROM mensajeria.avisos
-WHERE canal_id = $1 AND destino = $2
+WHERE canal_id = $1 AND destino = $2 AND aviso_padre_id IS NULL
 ORDER BY empresa_id, cliente_id
 `
 
@@ -569,7 +613,8 @@ type ClientesAvisadosEnRow struct {
 	ClienteID int64
 }
 
-// Clientes a los que se avisó desde un canal a un número (bajas por chat).
+// Clientes a los que se avisó desde un canal a un número (bajas por chat). Sin las copias a
+// contactos (§3.5): la baja de un contacto es solo por número, nunca la del titular.
 func (q *Queries) ClientesAvisadosEn(ctx context.Context, arg ClientesAvisadosEnParams) ([]ClientesAvisadosEnRow, error) {
 	rows, err := q.db.Query(ctx, clientesAvisadosEn, arg.CanalID, arg.Destino)
 	if err != nil {
@@ -592,7 +637,7 @@ func (q *Queries) ClientesAvisadosEn(ctx context.Context, arg ClientesAvisadosEn
 
 const conectorArgosParaWebhooks = `-- name: ConectorArgosParaWebhooks :one
 
-SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado
+SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo'
 `
 
@@ -601,6 +646,8 @@ type ConectorArgosParaWebhooksRow struct {
 	ContratoRemoto              *string
 	WebhookSalidaUrl            *string
 	WebhookSalidaSecretoCifrado []byte
+	Empresas                    []int64
+	AlcanceGlobal               bool
 }
 
 // Datos de otros módulos (solo lectura) --------------------------------------------------------
@@ -613,13 +660,15 @@ func (q *Queries) ConectorArgosParaWebhooks(ctx context.Context) (ConectorArgosP
 		&i.ContratoRemoto,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
+		&i.Empresas,
+		&i.AlcanceGlobal,
 	)
 	return i, err
 }
 
 const consentimientoPorClave = `-- name: ConsentimientoPorClave :one
 
-SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at FROM mensajeria.consentimientos WHERE registrado_por = $1::bigint AND idempotency_key = $2::text
+SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono FROM mensajeria.consentimientos WHERE registrado_por = $1::bigint AND idempotency_key = $2::text
 `
 
 type ConsentimientoPorClaveParams struct {
@@ -644,20 +693,23 @@ func (q *Queries) ConsentimientoPorClave(ctx context.Context, arg Consentimiento
 		&i.HashPeticion,
 		&i.EntranteID,
 		&i.CreatedAt,
+		&i.Telefono,
 	)
 	return i, err
 }
 
 const consentimientoPorHecho = `-- name: ConsentimientoPorHecho :one
-SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at FROM mensajeria.consentimientos
+SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono FROM mensajeria.consentimientos
 WHERE empresa_id = $1 AND cliente_id = $2 AND canal = $3
-  AND ocurrido_en = $4 AND estado = $5 AND origen = $6
+  AND telefono IS NOT DISTINCT FROM $4::text
+  AND ocurrido_en = $5 AND estado = $6 AND origen = $7
 `
 
 type ConsentimientoPorHechoParams struct {
 	EmpresaID  int64
 	ClienteID  int64
 	Canal      string
+	Telefono   *string
 	OcurridoEn time.Time
 	Estado     string
 	Origen     string
@@ -668,6 +720,7 @@ func (q *Queries) ConsentimientoPorHecho(ctx context.Context, arg Consentimiento
 		arg.EmpresaID,
 		arg.ClienteID,
 		arg.Canal,
+		arg.Telefono,
 		arg.OcurridoEn,
 		arg.Estado,
 		arg.Origen,
@@ -686,13 +739,14 @@ func (q *Queries) ConsentimientoPorHecho(ctx context.Context, arg Consentimiento
 		&i.HashPeticion,
 		&i.EntranteID,
 		&i.CreatedAt,
+		&i.Telefono,
 	)
 	return i, err
 }
 
 const consentimientoVigente = `-- name: ConsentimientoVigente :one
-SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at FROM mensajeria.consentimientos
-WHERE empresa_id = $1 AND cliente_id = $2 AND canal = $3
+SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono FROM mensajeria.consentimientos
+WHERE empresa_id = $1 AND cliente_id = $2 AND canal = $3 AND telefono IS NULL
 ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
 LIMIT 1
 `
@@ -703,7 +757,7 @@ type ConsentimientoVigenteParams struct {
 	Canal     string
 }
 
-// El de ocurrido_en más reciente; a igual ocurrido_en, la baja manda.
+// El de ocurrido_en más reciente; a igual ocurrido_en, la baja manda. Solo el del cliente (sin número).
 func (q *Queries) ConsentimientoVigente(ctx context.Context, arg ConsentimientoVigenteParams) (MensajeriaConsentimiento, error) {
 	row := q.db.QueryRow(ctx, consentimientoVigente, arg.EmpresaID, arg.ClienteID, arg.Canal)
 	var i MensajeriaConsentimiento
@@ -720,6 +774,48 @@ func (q *Queries) ConsentimientoVigente(ctx context.Context, arg ConsentimientoV
 		&i.HashPeticion,
 		&i.EntranteID,
 		&i.CreatedAt,
+		&i.Telefono,
+	)
+	return i, err
+}
+
+const consentimientoVigenteNumero = `-- name: ConsentimientoVigenteNumero :one
+SELECT id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono FROM mensajeria.consentimientos
+WHERE empresa_id = $1 AND cliente_id = $2 AND canal = $3 AND telefono = $4::text
+ORDER BY ocurrido_en DESC, (estado = 'baja') DESC, id DESC
+LIMIT 1
+`
+
+type ConsentimientoVigenteNumeroParams struct {
+	EmpresaID int64
+	ClienteID int64
+	Canal     string
+	Telefono  string
+}
+
+// El permiso de un número de contacto del cliente (§6.4, A42), con la misma regla.
+func (q *Queries) ConsentimientoVigenteNumero(ctx context.Context, arg ConsentimientoVigenteNumeroParams) (MensajeriaConsentimiento, error) {
+	row := q.db.QueryRow(ctx, consentimientoVigenteNumero,
+		arg.EmpresaID,
+		arg.ClienteID,
+		arg.Canal,
+		arg.Telefono,
+	)
+	var i MensajeriaConsentimiento
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ClienteID,
+		&i.Canal,
+		&i.Estado,
+		&i.Origen,
+		&i.OcurridoEn,
+		&i.RegistradoPor,
+		&i.IdempotencyKey,
+		&i.HashPeticion,
+		&i.EntranteID,
+		&i.CreatedAt,
+		&i.Telefono,
 	)
 	return i, err
 }
@@ -727,6 +823,7 @@ func (q *Queries) ConsentimientoVigente(ctx context.Context, arg ConsentimientoV
 const contarAvisosDelDia = `-- name: ContarAvisosDelDia :one
 SELECT count(*)::bigint FROM mensajeria.avisos
 WHERE empresa_id = $1 AND cliente_id = $2 AND created_at >= $3 AND estado <> 'bloqueado'
+  AND aviso_padre_id IS NULL
 `
 
 type ContarAvisosDelDiaParams struct {
@@ -738,6 +835,26 @@ type ContarAvisosDelDiaParams struct {
 // Avisos automáticos del cliente desde el inicio del día (los bloqueados no cuentan).
 func (q *Queries) ContarAvisosDelDia(ctx context.Context, arg ContarAvisosDelDiaParams) (int64, error) {
 	row := q.db.QueryRow(ctx, contarAvisosDelDia, arg.EmpresaID, arg.ClienteID, arg.Desde)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const contarAvisosNumeroDelDia = `-- name: ContarAvisosNumeroDelDia :one
+SELECT count(*)::bigint FROM mensajeria.avisos
+WHERE empresa_id = $1 AND destino = $2::text AND created_at >= $3 AND estado <> 'bloqueado'
+`
+
+type ContarAvisosNumeroDelDiaParams struct {
+	EmpresaID int64
+	Destino   string
+	Desde     time.Time
+}
+
+// Avisos a un número en la empresa desde el inicio del día (los bloqueados no cuentan), originales y
+// copias: el mismo límite diario que un cliente para el número de un contacto (§6.5).
+func (q *Queries) ContarAvisosNumeroDelDia(ctx context.Context, arg ContarAvisosNumeroDelDiaParams) (int64, error) {
+	row := q.db.QueryRow(ctx, contarAvisosNumeroDelDia, arg.EmpresaID, arg.Destino, arg.Desde)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -857,6 +974,83 @@ func (q *Queries) CuentasParaBienvenida(ctx context.Context, arg CuentasParaBien
 		return nil, err
 	}
 	return items, nil
+}
+
+const desvinculadoAnteriorFallido = `-- name: DesvinculadoAnteriorFallido :one
+SELECT (EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado = 'agotado'
+      AND ((d.payload->>'id_externo' = $1::text AND d.created_at < $2)
+        OR ((d.payload->>'usuario_id')::bigint = $3::bigint AND (d.payload->>'version')::int < $4::int))
+) OR EXISTS (
+    SELECT 1 FROM integracion.outbox o
+    WHERE o.evento = 'tecnico.argos_desvinculado' AND o.publicado_en IS NULL AND o.fallido_en IS NOT NULL
+      AND ((o.payload->>'id_externo' = $1::text AND o.id < $5::uuid)
+        OR ((o.payload->>'usuario_id')::bigint = $3::bigint AND (o.payload->>'version')::int < $4::int))
+))::boolean
+`
+
+type DesvinculadoAnteriorFallidoParams struct {
+	IDExterno string
+	Antes     time.Time
+	UsuarioID int64
+	Version   int32
+	EventoID  uuid.UUID
+}
+
+// El desvinculado del que depende el vinculado ya no va a salir solo: su webhook agotó los reintentos
+// o el relay no lo pudo publicar (outbox con fallido_en). Mismas reglas de dependencia que arriba.
+func (q *Queries) DesvinculadoAnteriorFallido(ctx context.Context, arg DesvinculadoAnteriorFallidoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, desvinculadoAnteriorFallido,
+		arg.IDExterno,
+		arg.Antes,
+		arg.UsuarioID,
+		arg.Version,
+		arg.EventoID,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const desvinculadoAnteriorSinEntregar = `-- name: DesvinculadoAnteriorSinEntregar :one
+SELECT (EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado IN ('pendiente', 'agotado')
+      AND ((d.payload->>'id_externo' = $1::text AND d.created_at < $2)
+        OR ((d.payload->>'usuario_id')::bigint = $3::bigint AND (d.payload->>'version')::int < $4::int))
+) OR EXISTS (
+    SELECT 1 FROM integracion.outbox o
+    WHERE o.evento = 'tecnico.argos_desvinculado' AND o.publicado_en IS NULL
+      AND ((o.payload->>'id_externo' = $1::text AND o.id < $5::uuid)
+        OR ((o.payload->>'usuario_id')::bigint = $3::bigint AND (o.payload->>'version')::int < $4::int))
+))::boolean
+`
+
+type DesvinculadoAnteriorSinEntregarParams struct {
+	IDExterno string
+	Antes     time.Time
+	UsuarioID int64
+	Version   int32
+	EventoID  uuid.UUID
+}
+
+// 0.14.0 §6.6: el vinculado de un técnico no sale hasta el 2xx del desvinculado anterior del mismo
+// id_externo (el que lo liberó, de otro técnico) ni del desvinculado anterior del mismo técnico
+// (M-3: cambió su id_externo; mismo cambio, versión menor), aunque haya agotado sus reintentos
+// (POST …/webhooks-salida/{id}/reenviar lo vuelve a mandar).
+// También los que siguen en el outbox sin publicar (el relay falló y quedaron en backoff).
+func (q *Queries) DesvinculadoAnteriorSinEntregar(ctx context.Context, arg DesvinculadoAnteriorSinEntregarParams) (bool, error) {
+	row := q.db.QueryRow(ctx, desvinculadoAnteriorSinEntregar,
+		arg.IDExterno,
+		arg.Antes,
+		arg.UsuarioID,
+		arg.Version,
+		arg.EventoID,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const enlaceWifiVigente = `-- name: EnlaceWifiVigente :one
@@ -1045,7 +1239,7 @@ VALUES ($1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
     $18, $19, $20, $21, $22, $23, $24, $25)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id
+RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id
 `
 
 type InsertarAvisoParams struct {
@@ -1136,6 +1330,9 @@ func (q *Queries) InsertarAviso(ctx context.Context, arg InsertarAvisoParams) (M
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
@@ -1233,18 +1430,19 @@ func (q *Queries) InsertarCanal(ctx context.Context, arg InsertarCanalParams) (M
 }
 
 const insertarConsentimiento = `-- name: InsertarConsentimiento :one
-INSERT INTO mensajeria.consentimientos (empresa_id, cliente_id, canal, estado, origen, ocurrido_en,
+INSERT INTO mensajeria.consentimientos (empresa_id, cliente_id, canal, telefono, estado, origen, ocurrido_en,
     registrado_por, idempotency_key, hash_peticion, entrante_id)
-VALUES ($1, $2, $3, $4, $5, $6, $7,
-    $8, $9, $10)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+    $9, $10, $11)
 ON CONFLICT DO NOTHING
-RETURNING id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at
+RETURNING id, empresa_id, cliente_id, canal, estado, origen, ocurrido_en, registrado_por, idempotency_key, hash_peticion, entrante_id, created_at, telefono
 `
 
 type InsertarConsentimientoParams struct {
 	EmpresaID      int64
 	ClienteID      int64
 	Canal          string
+	Telefono       *string
 	Estado         string
 	Origen         string
 	OcurridoEn     time.Time
@@ -1259,6 +1457,7 @@ func (q *Queries) InsertarConsentimiento(ctx context.Context, arg InsertarConsen
 		arg.EmpresaID,
 		arg.ClienteID,
 		arg.Canal,
+		arg.Telefono,
 		arg.Estado,
 		arg.Origen,
 		arg.OcurridoEn,
@@ -1281,6 +1480,7 @@ func (q *Queries) InsertarConsentimiento(ctx context.Context, arg InsertarConsen
 		&i.HashPeticion,
 		&i.EntranteID,
 		&i.CreatedAt,
+		&i.Telefono,
 	)
 	return i, err
 }
@@ -1309,8 +1509,13 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 
 const insertarWebhookSalida = `-- name: InsertarWebhookSalida :exec
 
-INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento, conector_origen, carga_id)
+VALUES ($1, $2, $3, $4, $5, $6,
+        coalesce((SELECT a.id FROM integracion.conectores a
+                  WHERE a.sistema = 'argosisp' AND a.estado = 'activo' AND a.id <> $7::bigint
+                    AND integracion.misma_instancia_argos(a.id, $7::bigint)
+                  ORDER BY a.id DESC LIMIT 1), $7::bigint),
+        $8)
 ON CONFLICT (id) DO NOTHING
 `
 
@@ -1321,11 +1526,15 @@ type InsertarWebhookSalidaParams struct {
 	Payload        []byte
 	OcurridoEn     time.Time
 	ProximoIntento time.Time
+	ConectorOrigen *int64
+	CargaID        pgtype.UUID
 }
 
 // Webhooks hacia Argos -------------------------------------------------------------------------
 // proximo_intento con el reloj del módulo (no el now() de la base): el despacho compara contra ese
 // mismo reloj, y en las pruebas es fijo.
+// 0.14.0 §6.6: un conector de origen ya reemplazado por el activo de la misma instancia de Argos (una
+// reconexión con el evento aún en el outbox) pasa al activo.
 func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhookSalidaParams) error {
 	_, err := q.db.Exec(ctx, insertarWebhookSalida,
 		arg.ID,
@@ -1334,6 +1543,8 @@ func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhook
 		arg.Payload,
 		arg.OcurridoEn,
 		arg.ProximoIntento,
+		arg.ConectorOrigen,
+		arg.CargaID,
 	)
 	return err
 }
@@ -1473,7 +1684,7 @@ UPDATE mensajeria.avisos
 SET estado = 'entregado', entregado_en = $1, leido_en = coalesce(leido_en, $2),
     finalizado_en = now(), updated_at = now()
 WHERE id = $3
-RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id
+RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id
 `
 
 type MarcarEntregadoParams struct {
@@ -1516,6 +1727,9 @@ func (q *Queries) MarcarEntregado(ctx context.Context, arg MarcarEntregadoParams
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
@@ -1525,7 +1739,7 @@ const marcarEnviado = `-- name: MarcarEnviado :one
 UPDATE mensajeria.avisos
 SET proveedor_id = $1, enviado_en = $2, intentos = intentos + 1, updated_at = now()
 WHERE id = $3
-RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id
+RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id
 `
 
 type MarcarEnviadoParams struct {
@@ -1568,6 +1782,9 @@ func (q *Queries) MarcarEnviado(ctx context.Context, arg MarcarEnviadoParams) (M
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
@@ -1578,7 +1795,7 @@ UPDATE mensajeria.avisos
 SET estado = 'fallido', motivo = $1, detalle = $2, canal = coalesce(canal, $3),
     finalizado_en = now(), updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id
+RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id
 `
 
 type MarcarFallidoParams struct {
@@ -1627,13 +1844,16 @@ func (q *Queries) MarcarFallido(ctx context.Context, arg MarcarFallidoParams) (M
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
 }
 
 const marcarLeido = `-- name: MarcarLeido :one
-UPDATE mensajeria.avisos SET leido_en = $1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, orden_id
+UPDATE mensajeria.avisos SET leido_en = $1, updated_at = now() WHERE id = $2 RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id
 `
 
 type MarcarLeidoParams struct {
@@ -1675,6 +1895,9 @@ func (q *Queries) MarcarLeido(ctx context.Context, arg MarcarLeidoParams) (Mensa
 		&i.Intentos,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
 		&i.OrdenID,
 	)
 	return i, err
@@ -1741,6 +1964,22 @@ func (q *Queries) PausarCanal(ctx context.Context, arg PausarCanalParams) error 
 	return err
 }
 
+const postergarWebhook = `-- name: PostergarWebhook :exec
+UPDATE mensajeria.webhooks_salida SET proximo_intento = $1, ultimo_error = $2, updated_at = now() WHERE id = $3
+`
+
+type PostergarWebhookParams struct {
+	ProximoIntento time.Time
+	UltimoError    *string
+	ID             uuid.UUID
+}
+
+// Espera sin gastar un intento (otro webhook del que depende aún no tuvo su 2xx).
+func (q *Queries) PostergarWebhook(ctx context.Context, arg PostergarWebhookParams) error {
+	_, err := q.db.Exec(ctx, postergarWebhook, arg.ProximoIntento, arg.UltimoError, arg.ID)
+	return err
+}
+
 const purgarTokensEnlaceWifi = `-- name: PurgarTokensEnlaceWifi :exec
 UPDATE mensajeria.enlaces_wifi SET token_cifrado = NULL WHERE token_cifrado IS NOT NULL AND vence_en <= $1
 `
@@ -1748,6 +1987,42 @@ UPDATE mensajeria.enlaces_wifi SET token_cifrado = NULL WHERE token_cifrado IS N
 func (q *Queries) PurgarTokensEnlaceWifi(ctx context.Context, ahora time.Time) error {
 	_, err := q.db.Exec(ctx, purgarTokensEnlaceWifi, ahora)
 	return err
+}
+
+const reenviarWebhookSalida = `-- name: ReenviarWebhookSalida :one
+UPDATE mensajeria.webhooks_salida
+SET estado = 'pendiente', intentos = 0, proximo_intento = $1, ultimo_error = NULL, updated_at = now()
+WHERE id = $2 AND estado = 'agotado'
+RETURNING id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id
+`
+
+type ReenviarWebhookSalidaParams struct {
+	ProximoIntento time.Time
+	ID             uuid.UUID
+}
+
+// Un agotado vuelve a la cola con sus intentos en cero (acción de una persona, auditada).
+func (q *Queries) ReenviarWebhookSalida(ctx context.Context, arg ReenviarWebhookSalidaParams) (MensajeriaWebhooksSalida, error) {
+	row := q.db.QueryRow(ctx, reenviarWebhookSalida, arg.ProximoIntento, arg.ID)
+	var i MensajeriaWebhooksSalida
+	err := row.Scan(
+		&i.ID,
+		&i.Evento,
+		&i.EmpresaID,
+		&i.Payload,
+		&i.OcurridoEn,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.UltimoError,
+		&i.ConectorID,
+		&i.EntregadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
+	)
+	return i, err
 }
 
 const registrarPruebaCanal = `-- name: RegistrarPruebaCanal :one
@@ -1973,7 +2248,7 @@ func (q *Queries) VerificacionParaWifi(ctx context.Context, arg VerificacionPara
 }
 
 const webhookParaEnviar = `-- name: WebhookParaEnviar :one
-SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at FROM mensajeria.webhooks_salida WHERE id = $1 AND estado = 'pendiente' FOR UPDATE SKIP LOCKED
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id FROM mensajeria.webhooks_salida WHERE id = $1 AND estado = 'pendiente' FOR UPDATE SKIP LOCKED
 `
 
 func (q *Queries) WebhookParaEnviar(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
@@ -1993,12 +2268,41 @@ func (q *Queries) WebhookParaEnviar(ctx context.Context, id uuid.UUID) (Mensajer
 		&i.EntregadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
+	)
+	return i, err
+}
+
+const webhookParaReenviar = `-- name: WebhookParaReenviar :one
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id FROM mensajeria.webhooks_salida WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) WebhookParaReenviar(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
+	row := q.db.QueryRow(ctx, webhookParaReenviar, id)
+	var i MensajeriaWebhooksSalida
+	err := row.Scan(
+		&i.ID,
+		&i.Evento,
+		&i.EmpresaID,
+		&i.Payload,
+		&i.OcurridoEn,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.UltimoError,
+		&i.ConectorID,
+		&i.EntregadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
 	)
 	return i, err
 }
 
 const webhookPorID = `-- name: WebhookPorID :one
-SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at FROM mensajeria.webhooks_salida WHERE id = $1
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id FROM mensajeria.webhooks_salida WHERE id = $1
 `
 
 func (q *Queries) WebhookPorID(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
@@ -2018,12 +2322,14 @@ func (q *Queries) WebhookPorID(ctx context.Context, id uuid.UUID) (MensajeriaWeb
 		&i.EntregadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
 	)
 	return i, err
 }
 
 const webhooksPorEnviar = `-- name: WebhooksPorEnviar :many
-SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at FROM mensajeria.webhooks_salida
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id FROM mensajeria.webhooks_salida
 WHERE estado = 'pendiente' AND proximo_intento <= $1
 ORDER BY proximo_intento
 LIMIT $2
@@ -2058,6 +2364,8 @@ func (q *Queries) WebhooksPorEnviar(ctx context.Context, arg WebhooksPorEnviarPa
 			&i.EntregadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ConectorOrigen,
+			&i.CargaID,
 		); err != nil {
 			return nil, err
 		}

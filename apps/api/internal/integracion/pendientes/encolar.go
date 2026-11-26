@@ -40,8 +40,12 @@ type Accion struct {
 	Verificar []string
 	// TecnicoUsuarioID: el técnico cuyo vínculo con Argos va en el cuerpo (contrato 0.5.0 §3.3).
 	TecnicoUsuarioID *int64
-	// Actor: X-Iris-Actor de la llamada (usuario:<id>, contrato §3.4, §3.5 y §7.1); vacío = sin cabecera.
+	// Actor: X-Iris-Actor de la llamada (usuario:<id> o asistente_ia, contrato §3.4, §3.5 y §7.1);
+	// vacío = sin cabecera.
 	Actor string
+	// Contacto: X-Iris-Contacto de la llamada (<contacto_id> de Argos o titular, §7.1; 0.13.0 §3.12);
+	// vacío = sin cabecera.
+	Contacto string
 	// TransitoID: el depósito de tránsito con lo sensible de la llamada (documento, contacto, fotos;
 	// §3.4.8). El cuerpo nunca lo lleva: se agrega al enviar (GuardarTransito).
 	TransitoID *uuid.UUID
@@ -186,7 +190,7 @@ func Encolar(ctx context.Context, t *auditoria.Tx, n Accion, aviso Encolador) (r
 		Entidad: n.Entidad, EntidadID: n.EntidadID, Metodo: n.Metodo, Ruta: n.Ruta, Payload: n.Cuerpo,
 		DependeDe: n.DependeDe, Estado: estado, UltimoError: ultimo, ProximoIntento: proximo,
 		Plantilla: plantilla, PorResolver: porResolver, Verificar: n.Verificar, TecnicoUsuarioID: n.TecnicoUsuarioID,
-		Actor: actorONil(n.Actor), TransitoID: uuidPG(n.TransitoID),
+		Actor: actorONil(n.Actor), TransitoID: uuidPG(n.TransitoID), Contacto: actorONil(n.Contacto),
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		f, err = q.PendientePorClave(ctx, n.IdempotencyKey)
@@ -471,6 +475,9 @@ func RehacerEsperando(ctx context.Context, t *auditoria.Tx, id int64, motivo str
 
 // CabeceraActorIris: la persona de Iris que actúa (contrato §7.1).
 const CabeceraActorIris = "X-Iris-Actor"
+
+// CabeceraContactoIris: el contacto del cliente que habló (contrato §7.1 y §3.12).
+const CabeceraContactoIris = "X-Iris-Contacto"
 
 func actorONil(a string) *string {
 	if a == "" {

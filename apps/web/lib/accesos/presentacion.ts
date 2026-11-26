@@ -94,6 +94,14 @@ export function agruparPermisos(catalogo: readonly PermisoInfo[]): GrupoPermisos
         .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
 }
 
+/**
+ * Los permisos que se pueden poner en un rol a medida (`asignable`). `portal_argos.*` no: solo los
+ * lleva el rol integracion_argos y la API responde 422 si un rol propio los incluye.
+ */
+export function permisosAsignables(catalogo: readonly PermisoInfo[]): PermisoInfo[] {
+    return catalogo.filter((p) => p.asignable);
+}
+
 /** Los sensibles que se agregan (para avisar que se pedirá la contraseña). */
 export function sensiblesAgregados(catalogo: readonly PermisoInfo[], antes: readonly string[], despues: readonly string[]): PermisoInfo[] {
     const previos = new Set(antes);

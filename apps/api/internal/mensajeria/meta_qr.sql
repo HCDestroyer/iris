@@ -250,7 +250,7 @@ SELECT (EXISTS (SELECT 1 FROM mensajeria.conversacion_vinculos v WHERE v.convers
 -- name: MoverConversacionAEmpresa :one
 UPDATE mensajeria.conversaciones
 SET empresa_id = @empresa_id, cola_id = sqlc.narg('cola_id'), asignado_a = NULL, asignado_en = NULL,
-    cliente_id = NULL, servicio_id = NULL, contacto_iris_id = NULL, prospecto_id = NULL, asociacion = NULL,
+    cliente_id = NULL, servicio_id = NULL, contacto_iris_id = NULL, prospecto_id = NULL, asociacion = NULL, contacto_argos_id = NULL,
     cliente_verificado = false, verificado_por = NULL, sla_avisado = false,
     sla_vence_en = NULL, fuera_horario_hasta = NULL, guardia_hasta = NULL,
     bot_espera_en = NULL, bot_vence_en = NULL, bot_motivo = NULL, bot_atendio_en = NULL, bot_menu = NULL,

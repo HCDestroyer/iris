@@ -1,6 +1,7 @@
 package pendientes
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -90,3 +91,53 @@ func TestPlanificarMaterialDeLaApp(t *testing.T) {
 }
 
 func mustPlanes(planes []plan, _ []omision) []plan { return planes }
+
+// B-271-5: sinNotas quita la nota del técnico y la del cobro propuesto, y deja lo demás.
+func TestSinNotas(t *testing.T) {
+	got := string(sinNotas([]byte(`{"nota":"a","motivo":"danado","cobro_propuesto":{"motivo":"golpe","nota":"b"}}`)))
+	if got != `{"cobro_propuesto":{"motivo":"golpe"},"motivo":"danado"}` {
+		t.Fatalf("sinNotas: %s", got)
+	}
+	if got := string(sinNotas([]byte(`{"motivo":"x"}`))); got != `{"motivo":"x"}` {
+		t.Fatalf("sin notas queda igual: %s", got)
+	}
+	if got := string(sinNotas([]byte(`no-json`))); got != "no-json" {
+		t.Fatalf("no JSON: %s", got)
+	}
+}
+
+// A-271-1: el intento sale con X-Iris-Actor de quien lo registró, no del técnico de la orden; sin
+// registrado_por queda incompleto.
+func TestPlanificarEquiposConQuienLoRegistro(t *testing.T) {
+	quien := int64(7)
+	var o OrdenCerrada
+	if err := json.Unmarshal([]byte(`{"orden_id":"0193f000-0000-7000-8000-0000000000f1","tipo":"retiro","resultado":"exitosa",
+		"servicio_id":50,"cliente_id":10,"tecnico_id":8,"equipos":[
+		{"accion":"no_recuperado","unidad_id":91,"motivo":"se_nego","foto_ref":"f1","ubicacion":{"lat":14.6,"lng":-90.5,"precision_m":10},"usuario_id":7},
+		{"accion":"no_recuperado","unidad_id":92,"motivo":"se_nego","foto_ref":"f2","ubicacion":{"lat":14.6,"lng":-90.5,"precision_m":10}}]}`), &o); err != nil {
+		t.Fatal(err)
+	}
+	planes, _ := planificar(o, opcionesPlan{equipos: true})
+	vistos := 0
+	for _, p := range planes {
+		if p.operacion != OpNoRecuperado {
+			continue
+		}
+		vistos++
+		switch p.ruta {
+		case "/servicios/50/equipos/91/no-recuperado":
+			if p.actor == nil || *p.actor != quien || p.incompleto != "" {
+				t.Fatalf("con registrado_por: %+v", p)
+			}
+		case "/servicios/50/equipos/92/no-recuperado":
+			if p.incompleto == "" {
+				t.Fatalf("sin registrado_por queda incompleto: %+v", p)
+			}
+		default:
+			t.Fatalf("ruta: %s", p.ruta)
+		}
+	}
+	if vistos != 2 {
+		t.Fatalf("planes de no recuperado: %d", vistos)
+	}
+}

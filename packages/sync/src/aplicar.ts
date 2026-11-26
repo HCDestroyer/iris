@@ -64,6 +64,8 @@ export const TIPOS_BLOQUEADOS_EN_PAUSA: ReadonlySet<TipoOperacion> = new Set<Tip
     "material.usar",
     "equipo.instalar",
     "equipo.retirar",
+    "equipo.cambiar",
+    "equipo.no_recuperado",
     "firma.capturar",
     "orden.agregar_formulario",
     "orden.quitar_formulario",
@@ -310,6 +312,30 @@ export function aplicarOperacion(orden: OrdenCampo, op: OperacionLocal): OrdenCa
                 condicion: op.datos.condicion ?? null,
                 ocurridoEn: op.ocurridoEn,
                 validado: false,
+            };
+            return { ...orden, equipos: [...equipos, equipo] };
+        }
+        case "equipo.cambiar":
+        case "equipo.no_recuperado": {
+            // B27 (0.12.0 §3.10): el teléfono lo muestra sin esperar; el servidor lo valida al llegar.
+            const equipos = orden.equipos ?? [];
+            if (equipos.some((e) => e.id === op.id)) {
+                return orden;
+            }
+            const cambio = op.tipo === "equipo.cambiar" ? op.datos : null;
+            const intento = op.tipo === "equipo.no_recuperado" ? op.datos : null;
+            const equipo = {
+                id: op.id,
+                accion: cambio ? ("cambio" as const) : ("no_recuperado" as const),
+                serie: cambio?.entra.serie ?? null,
+                mac: cambio?.entra.mac ?? null,
+                modelo: "",
+                unidadId: cambio ? (cambio.entra.unidadId ?? null) : (intento?.unidadId ?? null),
+                condicion: null,
+                ocurridoEn: op.ocurridoEn,
+                validado: false,
+                ...(cambio ? { saleUnidadId: cambio.saleUnidadId, motivo: cambio.motivo, destinoSale: cambio.destinoSale || "revision" } : {}),
+                ...(intento ? { motivo: intento.motivo } : {}),
             };
             return { ...orden, equipos: [...equipos, equipo] };
         }

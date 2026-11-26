@@ -276,10 +276,19 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 				c.ClienteID, c.ServicioID, c.Asociacion = &in.ClienteID, in.ServicioID, nombrePtr("manual")
 				// Verificada solo si el número es un teléfono del cliente en la instantánea; si no,
 				// un supervisor la confirma (POST …/confirmar-cliente).
-				coincide, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, in.ClienteID)
+				coincide, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, in.ClienteID)
 				if err != nil {
 					return err
 				}
+				if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
+					return err
+				}
+				// Asociar a mano (aunque sea al mismo cliente) empieza sin verificación fuerte: la que
+				// hubiera era de otra asociación (§3.5).
+				if err := q.LimpiarVerificacionFuerte(ctx, c.ID); err != nil {
+					return err
+				}
+				c.IdentidadVerificadaEn, c.IdentidadVenceEn = nil, nil
 				c.ClienteVerificado, c.VerificadoPor = coincide, nil
 				if err := m.sistema(ctx, t, c, EventoSistema{Tipo: "cliente_asociado", ActorNombre: actorNombre(ctx, q, a.usuario),
 					EntidadID: nombrePtr(strconv.FormatInt(in.ClienteID, 10))}); err != nil {
@@ -293,19 +302,40 @@ func nuevoAsociarCliente(m *Modulo) *AsociarCliente {
 	return k
 }
 
-// numeroDelCliente: el número es el teléfono, el móvil o el contacto de un servicio del cliente en
-// la instantánea de la empresa.
-func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, cliente int64) (bool, error) {
+// numeroDelCliente: el número es del cliente y, si es de un contacto suyo en la caché de Argos, cuál
+// (se guarda en la conversación). Orden (§3.5): el teléfono o el móvil del cliente (titular) gana;
+// después, un contacto del mismo cliente; al final, el contacto de un servicio en la instantánea
+// (por_servicio), que verifica el número pero nunca da rol de titular (rolDeConversacion).
+func numeroDelCliente(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string, cliente int64) (bool, *int64, error) {
 	cs, err := q.ClientesPorTelefonoInstantanea(ctx, mensajeriabd.ClientesPorTelefonoInstantaneaParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
+	porServicio := false
 	for _, x := range cs {
-		if x.ID == cliente {
-			return true, nil
+		if x.ID != cliente {
+			continue
+		}
+		// Mismo criterio que titularesDelNumero.
+		if x.PorTelefono || x.PorMovil {
+			return true, nil, nil
+		}
+		porServicio = true
+	}
+	ks, err := q.ContactosArgosDelNumero(ctx, mensajeriabd.ContactosArgosDelNumeroParams{Digitos: soloDigitos(numero), Empresa: empresa})
+	if err != nil {
+		return false, nil, err
+	}
+	for _, x := range ks {
+		// Solo un contacto de ese mismo cliente. Un contacto de otro cliente a cargo de este
+		// (persona_cliente_id) no cuenta: el número de la persona a cargo es su teléfono o su móvil,
+		// que ya se comparó arriba (§3.8).
+		if x.ClienteID == cliente {
+			id := x.ContactoID
+			return true, &id, nil
 		}
 	}
-	return false, nil
+	return porServicio, nil, nil
 }
 
 func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle] {
@@ -315,6 +345,24 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				if c.ClienteID == nil {
 					return reglaConv("sin_cliente", "La conversación no tiene cliente asociado")
+				}
+				// Si el número es de un contacto del cliente (§3.5), se confirma ese contacto, no el
+				// titular: la conversación queda con él y su rol sale de sus permisos.
+				// Si el contacto ya no está, se queda el que tenía (sin rol): para dejarla como titular, un
+				// supervisor la vuelve a asociar.
+				cambio := false
+				if _, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, *c.ClienteID); err != nil {
+					return err
+				} else if contacto != nil {
+					cambio = c.ContactoArgosID == nil || *c.ContactoArgosID != *contacto
+					if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
+						return err
+					}
+					if cambio {
+						// El trigger borró la verificación fuerte de la fila: la copia en memoria también,
+						// para que esta confirmación la dé de nuevo (y emita cliente_confirmado).
+						c.IdentidadVerificadaEn, c.IdentidadVenceEn = nil, nil
+					}
 				}
 				// La confirmación de una persona da la verificación fuerte de este periodo (se pierde al
 				// resolver): confirmar otra vez después de reabrir la vuelve a dar.
@@ -336,7 +384,9 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 						Detalle: nombrePtr(IdentidadSupervisor)}); err != nil {
 						return err
 					}
-				} else if c.ClienteVerificado {
+				} else if c.ClienteVerificado && !cambio {
+					// Resuelta y ya confirmada, con el mismo contacto: nada nuevo. Con un contacto nuevo
+					// se confirma a ese contacto (y se emite cliente_confirmado).
 					return nil
 				}
 				c.ClienteVerificado, c.VerificadoPor = true, &a.usuario
@@ -345,7 +395,7 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 					return err
 				}
 				return t.Emitir("conversacion.cliente_confirmado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID,
-					"cliente_id": c.ClienteID, "actor_id": a.usuario})
+					"cliente_id": c.ClienteID, "actor_id": a.usuario, "contacto_argos_id": c.ContactoArgosID})
 			})
 		},
 	})
@@ -432,9 +482,13 @@ func nuevoDesasociar(m *Modulo) *auditoria.Caso[EntradaAccionConv, ConversacionC
 	return auditoria.Nuevo(auditoria.Caso[EntradaAccionConv, ConversacionClienteDetalle]{
 		Accion: "conversaciones.desasociar", Permiso: nucleo.PermConversacionesAsociar,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in EntradaAccionConv) (ConversacionClienteDetalle, error) {
-			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, _ *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
+			return m.accionConv(ctx, t, in.ID, in.Version, func(a alcanceConv, q *mensajeriabd.Queries, c *mensajeriabd.MensajeriaConversacion) error {
 				c.ClienteID, c.ServicioID, c.ContactoIrisID, c.ProspectoID, c.Asociacion = nil, nil, nil, nil, nil
 				c.ClienteVerificado, c.VerificadoPor = false, nil
+				// Sin cliente, sin el contacto de Argos con que se había asociado (§3.5).
+				if err := fijarContactoConv(ctx, q, c, nil); err != nil {
+					return err
+				}
 				return t.Emitir("conversacion.cliente_asociado", map[string]any{"conversacion_id": c.ID, "empresa_id": c.EmpresaID, "cliente_id": nil,
 					"servicio_id": nil, "asociacion": nil, "actor_id": a.usuario})
 			})
@@ -578,7 +632,11 @@ func nuevoUnirContacto(m *Modulo) *UnirContacto {
 				if err != nil {
 					return ContactoIris{}, err
 				}
-				if c.ClienteVerificado, err = numeroDelCliente(ctx, q, empresaDeConv(c), c.Numero, in.ClienteID); err != nil {
+				var contacto *int64
+				if c.ClienteVerificado, contacto, err = numeroDelCliente(ctx, q, empresaDeConv(c), c.Numero, in.ClienteID); err != nil {
+					return ContactoIris{}, err
+				}
+				if err := fijarContactoConv(ctx, q, &c, contacto); err != nil {
 					return ContactoIris{}, err
 				}
 				if err := m.sistema(ctx, t, &c, EventoSistema{Tipo: "cliente_asociado", ActorNombre: actorNombre(ctx, q, a.usuario),
@@ -597,8 +655,13 @@ func nuevoUnirContacto(m *Modulo) *UnirContacto {
 				}
 			}
 			t.RegistrarCambios("contacto_iris", f.ID, map[string]any{"cliente_id": antes.ClienteID}, map[string]any{"cliente_id": f.ClienteID})
+			// Con Argos ≥ 0.10.0 el contacto se crea también en Argos (§3.5, B22), por la cola de pendientes.
+			pendiente, err := m.crearContactoEnArgos(ctx, t, a, f, in.ClienteID)
+			if err != nil {
+				return ContactoIris{}, err
+			}
 			return aContactoIris(f), t.Emitir("contacto_iris.unido", map[string]any{"contacto_iris_id": f.ID, "empresa_id": f.EmpresaID,
-				"cliente_id": in.ClienteID, "conversaciones": convs})
+				"cliente_id": in.ClienteID, "conversaciones": convs, "pendiente_id": pendiente})
 		},
 	})
 	return k

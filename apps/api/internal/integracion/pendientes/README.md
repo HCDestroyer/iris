@@ -98,7 +98,47 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 ## Eventos
 
 Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agotado`,
-`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado` y `_resuelto_manual` (contratos/eventos.md, «Pendientes hacia Argos»).
+`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado`, `_resuelto_manual` y
+`_clave_reutilizada` (contratos/eventos.md, «Pendientes hacia Argos»).
+
+## Contrato 0.14.0: vínculo del técnico y clave reutilizada (§6.6, §3.10)
+
+- **`depende_de` el vinculado (`vinculo.go`).** Con Iris informando 0.14.0 (`argos.Config.ContratoIris`) y
+  un Argos que lo habla, una operación que lleva `tecnico` (arriba o en una línea) no sale antes del `2xx`
+  del `tecnico.argos_vinculado` VIGENTE de su técnico en esa empresa (el último `tecnico.argos_*` emitido,
+  con el `id_externo` de la ficha) hacia el conector activo. Sin `2xx` todavía, espera cada
+  `EsperaVinculo` (1 min) con `codigo_error = depende_de_vinculado`, sin gastar intentos, hasta
+  `TopeEsperaVinculo` (24 h, desde `esperando_vinculo_desde`). Al tope, o si el vinculado quedó `agotado`,
+  pasa a `bloqueado` (`integracion.pendiente_bloqueado` con `depende_de: null`), y vuelve solo a la cola
+  (`_desbloqueado`) cuando el vinculado tiene el `2xx` (se reenvía con `POST
+  /mensajeria/webhooks-salida/{id}/reenviar`). Mientras el conector activo no cierre su carga inicial de vínculos
+  (`carga_abierta`, p. ej. tras reconectar) también espera. Un vinculado `omitido` deja la operación
+  `fallido_negocio` con el motivo del omitido: `empresa_no_permitida` (fuera del alcance), `sin_receptor`
+  (el conector no informó su receptor) u `otro_conector`. Un bloqueado solo se desbloquea con el `2xx`
+  (sin conector activo sigue bloqueado).
+- **Clave reutilizada.** Un `422 idempotency_key_reutilizada` deja el pendiente `fallido_negocio` y emite
+  `integracion.pendiente_clave_reutilizada` (`seguridad` en cambios e intentos): la campana avisa al admin.
+- **Verificación.** `GET …/intentos-recuperacion/verificacion` solo responde a un conector al que Iris ya
+  informó 0.14.0; antes, el mismo `404`.
+
+## Contrato 0.12.0: equipos del cliente (B27)
+
+- Con Argos que informa contrato ≥ 0.12.0 (`argos.Modulo.EquiposDelCliente`):
+  - el cambio es una sola llamada, `POST /servicios/:id/equipos/cambiar`
+    (`iris:cambio:<orden>:<sale_unidad_id>`);
+  - el intento de recuperación va a `POST …/:unidad_id/no-recuperado`
+    (`iris:no_recuperado:<orden>:<unidad_id>`);
+  - los dos salen con `X-Iris-Actor`, `fecha` y `recibido_en_iris`, y la nota se lee de
+    `campo.orden_equipos` (no viaja en el evento);
+  - el consumo suma `fecha` y `recibido_en_iris`.
+- Con un Argos anterior, el cambio es una devolución (`condicion` `buena` solo si funciona) y una
+  asignación.
+- **La pérdida nunca sale sola desde el cierre.** Un retiro `perdido` sin intento:
+  - con Argos ≥ 0.12.0, se omite con aviso (`perdida_sin_intento`);
+  - con Argos anterior, queda `fallido_negocio` esperando a una persona, y lo mismo pasa con un intento.
+
+  Reintentar una `perdida` exige `ordenes.declarar_perdida`, y desde 0.12.0 responde 422
+  `perdida_en_argos`.
 
 ## Contrato 0.11.0: bodega de cuadrilla (B26)
 
@@ -264,3 +304,8 @@ exige la orden `en_sitio`.
 **A36 y el titular (§3.4.8):** el cobro de A36 de una orden con pasos del titular vivos espera a esos pasos y va a
 nombre del titular final (`TrasElTitular`, la misma lógica que el cargo del cierre); con el cambio resuelto a mano
 sin cliente, 409 `titular_por_confirmar`.
+
+- **Actor y contacto (0.13.0 §3.12, B31):** `actor` admite también `asistente_ia` (§7.1) y la columna
+  `contacto` (`<contacto_id>` de Argos o `titular`) sale como `X-Iris-Contacto`; sin ella, la cabecera no
+  va. La usa la gestión de cobro (`registrar_gestion_cobro`, `iris:gestion:<gestion_id>`), que encola la
+  mensajería.

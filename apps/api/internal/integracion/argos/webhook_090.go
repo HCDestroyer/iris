@@ -51,11 +51,12 @@ const (
 	EventoFacturaCambiada = "argos.factura_cambiada"
 )
 
-// ContratoEquipos es el primer contrato con el bloque E (§12) y la bienvenida de §12.5.
-const ContratoEquipos = "0.9.0"
+// ContratoBloqueE es el primer contrato con el bloque E (§12) y la bienvenida de §12.5 (ContratoEquipos,
+// en contrato.go, es el de los equipos del cliente de la 0.12.0).
+const ContratoBloqueE = "0.9.0"
 
 // SoportaEquipos: Argos informó un contrato ≥ 0.9.0.
-func SoportaEquipos(contrato *string) bool { return conector.VersionAlMenos(contrato, ContratoEquipos) }
+func SoportaEquipos(contrato *string) bool { return conector.VersionAlMenos(contrato, ContratoBloqueE) }
 
 // CapacidadAprovisionamiento es lo que Argos puede aprovisionar en una empresa (§4.3).
 type CapacidadAprovisionamiento struct {

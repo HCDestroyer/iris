@@ -148,6 +148,8 @@ SELECT DISTINCT h.clave, s.zona_nombre, s.router_nombre
 FROM integracion.argos_servicios s
 JOIN soporte.horus_estados h ON h.clave IN ('router:' || s.empresa_id || ':' || s.router_id, 'router:0:' || s.router_id)
 WHERE s.cliente_id = @cliente_id AND s.empresa_id = @empresa::bigint AND s.router_id IS NOT NULL AND h.estado = 'caido'
+  -- servicios: solo los de un contacto (§3.5); null = todos los del cliente.
+  AND (sqlc.narg('servicios')::bigint[] IS NULL OR s.id = ANY (sqlc.narg('servicios')::bigint[]))
 ORDER BY h.clave
 LIMIT 3;
 

@@ -54,6 +54,19 @@ cuentan los cambios con el `phone_number_id` del canal (una app puede servir a v
 demás se descartan y quedan anotados en `mensajeria.entrantes.error`.
 WhatsApp por QR y Telegram son de fases siguientes: QR declarará `PermiteAvisos() = false`.
 
+## Webhooks del vínculo del técnico (contrato con Argos 0.14.0 §6.6)
+
+`tecnico.argos_vinculado` / `tecnico.argos_desvinculado` van solo al conector del que salió el vínculo
+(`webhooks_salida.conector_origen`) y en las empresas de su alcance. Un vinculado espera el `2xx` del
+desvinculado anterior del mismo `id_externo` (otro técnico) o del mismo técnico con versión menor (cambio de
+`id_externo`), también si ese desvinculado sigue en el outbox sin publicar (relay en backoff). Si ese desvinculado ya no va a salir solo (su webhook agotó o el relay no lo pudo publicar) o la espera pasa de 24 h, el vinculado queda `agotado` a la vista (`ultimo_error` con `depende_de:`) y se reenvía a mano. Al programar
+un `tecnico.argos_*` cuyo conector de origen fue reemplazado por el activo de la misma instancia de Argos
+(una reconexión con el evento aún en el outbox), el origen pasa al activo. Un omitido guarda su motivo como
+prefijo de `ultimo_error` (`sin_receptor`, `otro_conector`, `empresa_no_permitida`). Un webhook `agotado`
+se reenvía con `POST /mensajeria/webhooks-salida/{id}/reenviar`
+(`integraciones.reenviar_webhook`, auditado; evento `integracion.webhook_reenviado`; de otra empresa que la
+activa, 404).
+
 ## Eventos
 
 Emite (outbox; detalle en `.claude/integration/contratos/eventos.md`):
@@ -66,6 +79,10 @@ Consume: `aviso.entregado`, `aviso.fallido` (solo los de origen `argos`) y `cont
 `{ id, evento, ocurrido_en, payload }`, `X-Webhook-Id` = `id` (el del evento del outbox), firma v1 con
 el secreto que Argos entregó en el canje, reintentos a 1 min, 5 min, 30 min, 2 h y 12 h, y solo al
 conector Argos activo con contrato ≥ 0.6.0 (si no, `omitido`). Cada aviso emite un solo webhook final.
+
+Webhooks Iris → Argos de 0.9.0 (§6.6, B9): `ticket.estado_cambiado`, `ticket.respondido` y
+`solicitud_servicio.estado_cambiado`, solo a conectores con contrato ≥ 0.9.0, solo con `cliente_id` y
+con la empresa en el alcance del conector (si no, `omitido`), sin cuerpo, notas ni motivos escritos.
 
 ## Aviso de una falla general (`avisos_falla.go`, contrato con Argos 0.13.0 §3.11, B30)
 
@@ -297,6 +314,44 @@ Consume `argos.comprobante_resuelto` (webhooks `comprobante.*` de Argos; ver «A
   cliente no tocan la reconexión. Emite `reconexion.cliente_avisado`.
 - **Emite:** `reconexion.solicitada` (motivo `sin_personal`), `reconexion.actualizada`, `reconexion.cliente_avisado`,
   `reconexion.ajustes_cambiados`.
+
+### Gestiones de cobro (`gestiones_cobro.go`, `gestiones_cobro.sql`, contrato con Argos 0.13.0 §3.12, B31)
+
+- `POST /conversaciones/{id}/gestiones-cobro` (`conversaciones.registrar_gestion_cobro`: admin, supervisor,
+  soporte y caja) `{ tipo, resultado, ocurridoEn, servicioId? }` y `GET` (las 100 más
+  recientes, con `conversaciones.ver`). `tipo` y `resultado` son las listas cerradas de §3.12; sin texto
+  libre, montos ni teléfonos (un campo de más es 422). `ocurridoEn` entre ahora − 7 días y ahora + 5 min
+  (422, regla `ventana`). `servicioId` debe ser del cliente según la instantánea.
+- **Quién habla** sale del rol de la conversación (`rolDeConversacion`, B22), nunca del cuerpo:
+  - titular → sin `X-Iris-Contacto`: el teléfono o el móvil del cliente y también **un número cuyo
+    cliente confirmó un supervisor** (`verificado_por`) o que pasó la verificación fuerte, como en el
+    resto de la atención;
+  - un contacto de la caché de Argos (el de `contacto_argos_id` si la conversación se asoció por él) →
+    su `contacto_id`. Necesita el permiso «pagar» (403 `permiso_de_contacto`) y solo sus servicios
+    (403 `servicio_fuera_del_contacto`). Con servicios acotados, la gestión lleva el servicio: el único
+    suyo o, si tiene varios, 422 en `servicioId`;
+  - un servicio de otro cliente a cargo de quien habla (§3.8, B25: José y el servicio de su mamá) →
+    la gestión va a `POST /clientes/<dueño>/gestiones-cobro` con `X-Iris-Contacto` = el contacto de
+    quien habla en ese cliente, con el permiso «pagar» de ese vínculo (403 `permiso_de_contacto`);
+  - sin rol (otro número «verificado» sin `verificado_por`, o asociado por un contacto que ya no tiene
+    el número) → 422 `cliente_sin_confirmar`: nunca sale a nombre del titular.
+- `Idempotency-Key` obligatoria (400 `idempotency_key_requerida`, con su propio mensaje). `servicioId` debe ser del cliente
+  **y de la empresa** de la conversación según la instantánea.
+- Solo con el **cliente confirmado** (422 `sin_cliente`, `cliente_sin_confirmar`) y con Argos en
+  contrato ≥ 0.13.0 (409 `argos_sin_gestiones`; sin conector, 409 `argos_apagado`).
+- Se guarda en `mensajeria.gestiones_cobro` (id UUID v7 = `gestion_id`) y sale a Argos por
+  `integracion.pendientes` (operación `registrar_gestion_cobro`, `POST /clientes/:id/gestiones-cobro`,
+  `Idempotency-Key = iris:gestion:<gestion_id>`, `X-Iris-Actor` y, si quien habla es un contacto,
+  `X-Iris-Contacto`).
+  El cuerpo lleva solo `tipo`, `resultado`, `ocurrido_en`, `origen_tipo = conversacion`,
+  `origen_id = c-<id>` y `servicio_id?`. La respuesta y la lista dicen cómo va el envío (`envio`).
+- Asistente de IA: el caso acepta al actor `asistente_ia` (X-Iris-Actor `asistente_ia`), pero
+  `promete_pagar` y `pago_informado` exigen una promesa de Argos (activa o por aprobar) o un comprobante
+  (registrado o aprobado) en la conversación (422 `sin_respaldo`). El rol interno `asistente_ia`
+  todavía no lleva el permiso: falta la herramienta del asistente que la registre.
+- Emite `gestion_cobro.registrada`. Idempotency-Key opcional (la responde el middleware común).
+- No existe todavía el origen `orden` (una visita de cobro desde la app de campo) ni `llamada` (desde
+  la ficha de una llamada): hoy toda gestión nace de la conversación.
 
 ### Aprobar y rechazar boletas (`boletas_decidir.go`, `boletas_rutas.go`, `boletas.sql`)
 
@@ -865,3 +920,66 @@ AMI adopta la fila de una saliente del puente.
   (`integracion/equipos`) con `metodo: datos_titular`; 410 `enlace_vencido` si se usó, venció o cambió el cliente
   de la conversación. La clave escrita en el chat se tapa (`TaparClaveWifi`) al guardar el mensaje y
   `RedactarParaIA` la tapa antes del modelo.
+
+## Contactos del cliente en la atención (contrato con Argos §3.5 y §3.8, B22 y B25)
+
+- **Quién escribe** (`conv_contactos_argos.go`): al llegar un mensaje, el número se busca en la
+  instantánea (teléfono y móvil del titular) y en la caché de contactos de Argos. Con una sola persona,
+  la conversación se asocia sola con el rol del contacto; un contacto con `persona_cliente_id` cuenta
+  como esa persona (José), y el servicio de su mamá aparece «a su cargo». Al abrir la conversación (y
+  antes de un turno del asistente), `PrepararContactosConv` relee los contactos del cliente si tienen
+  más de 24 h o, sin cliente, busca el número en Argos (una vez al día por número, tabla
+  `mensajeria.contactos_buscados`) y, si queda una sola persona, la asocia
+  (`conversaciones.asociar_por_contacto`, `conversacion.cliente_asociado` con `origen: contacto`).
+- **Falla cerrado:** la conversación guarda el contacto con que se asoció (`conversaciones.contacto_argos_id`).
+  El rol es de titular solo si el número es el teléfono o el móvil del cliente, o si un supervisor lo
+  confirmó o pasó la verificación fuerte; de contacto, solo si ese contacto sigue en la caché; si no,
+  `sin_confirmar`, sin permisos (`422 cliente_sin_confirmar`). Si Argos quita el contacto
+  (`argos.contactos_cambiados`, suscriptor `SuscribirContactos`), la conversación pierde la verificación.
+  Un contacto a cargo (`persona_cliente_id`) cuenta como la otra persona solo si el número es su teléfono o su móvil.
+- **El rol decide:** `rolContacto` en el detalle de la conversación (rol, permisos, «sus servicios» y
+  «los que tiene a cargo», solo código y nombre). Boletas, promesas, tickets y el saldo pasan por
+  `accesoAServicio`: un contacto solo con su permiso (`pagar`, `reportar`, `consultar`) y sobre sus
+  servicios (`403 servicio_fuera_del_contacto`, `403 permiso_de_contacto`); lo reservado al titular nunca
+  lo abre un contacto. Las acciones van a Argos con `X-Iris-Contacto` (la boleta la guarda en
+  `boletas.contacto_argos` para que reintentos y reconexión manden la misma).
+- **Varios clientes con el mismo número:** no se asocia ni se muestra ningún dato.
+  `POST /conversaciones/{id}/elegir-cliente` (`conversaciones.elegir_cliente`, también el asistente con
+  la herramienta `elegir_cliente`) compara el número de servicio que da el cliente solo contra los que
+  comparten el número; 3 fallos por conversación y 5 por número al día (`mensajeria.elecciones_cliente`,
+  sin la referencia); acertar asocia (`conversacion.cliente_asociado` con `origen: referencia`).
+- **Contacto de Iris unido a un cliente:** con Argos ≥ 0.10.0 se crea en Argos por la cola de pendientes
+  (`POST /clientes/:id/contactos`, `iris:contacto:<cliente_id>:<contacto_iris_id>`), relación `otro`, con
+  todos los permisos (decisión 7 del PM) y `X-Iris-Actor` del agente; nunca desde el asistente.
+- **Asistente:** recibe quién escribe (rol, permisos y códigos de servicio, nunca el nombre del servicio
+  ni, si no es el titular, el nombre del titular). Con un contacto ve solo sus servicios; sin `consultar`,
+  ni estado, ni precio, ni cuenta; sin `reportar`, no agenda visitas (y el panel no crea órdenes).
+- **Permiso por número** (`consentimientos.go`, §6.4, 0.10.0 y 0.12.1): `POST /consentimientos` acepta
+  `telefono` (E.164) de un contacto del cliente; el permiso y su vigente son de ese número. La
+  `Idempotency-Key` lleva el HMAC del número (`argos:consentimiento:<e>:<c>:whatsapp:<h>:<ocurrido_en>`):
+  con el número en claro, 422. El número no va a eventos (`por_numero`) y en la auditoría queda enmascarado.
+- **Avisos de cobro a los contactos** (`avisos.go`): `factura_por_vencer`, `factura_vencida` y
+  `corte_por_falta_de_pago` salen también, una copia por contacto (`avisos.aviso_padre_id`), a los
+  contactos con `avisos` que cubren el servicio, al número de la caché y solo con su permiso por número
+  vigente (y sin baja en el chat). Sin Idempotency-Key, sin webhook hacia Argos y fuera del límite diario del cliente.
+- **La caché de contactos no vence con Argos caído:** el rol se calcula con lo que haya; un contacto que
+  ya no tiene el número de la conversación (o que pasó a titular) deja la conversación `sin_confirmar`
+  aunque un supervisor la hubiera confirmado. Confirmar una conversación de un contacto confirma al
+  contacto, no al titular. La baja que un contacto pide en el chat es solo de su número (nunca la del
+  titular ni `contacto.baja`). Las copias de avisos salen solo de un original en cola, con límite diario
+  por número, se revisan otra vez al enviar y no llevan el nombre ni el código del titular.
+- **Asociar y confirmar a mano:** si el número es de un contacto del cliente en la caché, la conversación
+  guarda ese contacto (su rol sale de sus permisos); `numeroDelCliente` mira primero el teléfono o el móvil
+  del titular, después los contactos y al final el contacto de un servicio (`por_servicio`), que nunca da
+  rol de titular. Asociar es un permiso de agente (`conversaciones.asociar`): volver a asociar a un
+  cliente cuyo número no es de un contacto deja la conversación sin contacto y **siempre** sin
+  verificación fuerte (aunque sea el mismo cliente), así que queda `sin_confirmar` (sin permisos) salvo
+  que el número sea el teléfono o el móvil del titular; para dejarla como titular, un supervisor la
+  confirma (`confirmar-cliente`) o el titular pasa la verificación fuerte. Todo queda auditado
+  (`conversaciones.asociar`, `conversacion.cliente_asociado`, `conversaciones.confirmar_cliente`).
+- **La verificación fuerte es de quien la pasó:** el trigger `conv_contacto_verificacion` la borra si
+  cambia el contacto con que se asoció la conversación o si se pierde la verificación del número.
+- **Copias sin plantilla neutra:** si la plantilla de Meta de avisos lleva datos del titular, no hay
+  copias y el aviso original guarda `copias_motivo = sin_plantilla_contacto`. Los candados de los números
+  se toman ordenados; el límite diario de un número cuenta todos sus avisos (originales y copias) y un
+  aviso urgente tiene tope duro (`TopeUrgenteNumero` veces el límite).

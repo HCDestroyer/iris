@@ -179,6 +179,11 @@ type Config struct {
 type Modulo struct {
 	cfg Config
 
+	// asociarPorContactos asocia una conversación sin cliente tras leer los contactos de Argos (B22).
+	asociarPorContactos *auditoria.Caso[entradaAsociarPorContactos, bool]
+	// contactosArgosCambiados quita la verificación a las conversaciones de un contacto que Argos quitó.
+	contactosArgosCambiados *auditoria.Caso[entradaContactosArgos, int]
+
 	// saldos: caché corta de «tiene saldo vencido» por empresa y cliente (voz; solo en memoria).
 	saldosMu sync.Mutex
 	saldos   map[[2]int64]*saldoLlamada
@@ -187,7 +192,9 @@ type Modulo struct {
 	ServidorIA *CasosServidorIA
 
 	EnviarAviso *EnviarAviso
-	VerAviso    *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
+	// ReenviarWebhook vuelve a la cola un webhook agotado hacia Argos (0.14.0 §6.6).
+	ReenviarWebhook         *auditoria.Caso[EntradaReenviarWebhook, WebhookSalida]
+	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
 	// Enlace de un solo uso para cambiar el Wi-Fi (asistente_equipos.go; 0.9.0 §12.4, B14).
 	VerEnlaceWifi           *auditoria.Caso[string, EnlaceWifiPublico]
 	UsarEnlaceWifi          *auditoria.Caso[EntradaWifiPublico, WifiPedido]
@@ -195,6 +202,8 @@ type Modulo struct {
 	ListarPlantillas        *auditoria.Caso[EntradaPlantillas, ListaPlantillas]
 	// PlantillasArgos: lo que Argos lee de las plantillas de WhatsApp de una empresa (§6.7, B32).
 	PlantillasArgos *auditoria.Caso[EntradaPlantillasArgos, ListaPlantillasArgos]
+	// GestionesCobro: gestiones de cobro hacia Argos (contrato 0.13.0 §3.12, B31).
+	GestionesCobro  *GestionesCobro
 	CrearCanal      *CasoCanal[EntradaCrearCanal]
 	ActualizarCanal *CasoCanal[EntradaActualizarCanal]
 	ActivarCanal    *auditoria.Caso[EntradaCambioCanal, Canal]
@@ -393,6 +402,7 @@ func Nuevo(cfg Config) *Modulo {
 	m := &Modulo{cfg: cfg, difusor: nuevoDifusor(), difusorConv: nuevoDifusor(), lecturas: make(chan struct{}, cfg.ChatLecturas),
 		resumenes: nuevoCacheResumen(vigenciaResumen)}
 	m.EnviarAviso = nuevoEnviarAviso(m)
+	m.ReenviarWebhook = nuevoReenviarWebhook(m)
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
 	m.ListarPlantillas = nuevoListarPlantillas(m)
@@ -414,6 +424,9 @@ func Nuevo(cfg Config) *Modulo {
 	m.Chat = nuevosCasosChat(m)
 	m.retirarFoto = nuevoRetirarFotoSinEnviar(m)
 	m.Conv = nuevosCasosConv(m)
+	m.GestionesCobro = &GestionesCobro{registrar: m.nuevoRegistrarGestionCobro(), Listar: m.nuevoListarGestionesCobro()}
+	m.asociarPorContactos = nuevoAsociarPorContactos(m)
+	m.contactosArgosCambiados = nuevoContactosArgosCambiados(m)
 	m.Voz = nuevosCasosVoz(m)
 	m.ServidorIA = nuevosCasosServidorIA(m)
 	m.abrirFlujoConv = nuevoAbrirFlujoConv(m)

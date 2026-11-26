@@ -248,6 +248,7 @@ type ConversacionClienteDetalle struct {
 	Vinculos       []VinculoConversacion       `json:"vinculos"`
 	Participantes  []ParticipanteConversacion  `json:"participantes"`
 	ClienteResumen *ClienteResumenConversacion `json:"clienteResumen,omitempty" doc:"Ausente sin cliente o sin instantánea"`
+	RolContacto    *RolContactoConv            `json:"rolContacto,omitempty" doc:"Quién habla respecto del cliente (contrato con Argos §3.5 y §3.8): titular o contacto, sus permisos, sus servicios y los que tiene a cargo. Sin cliente, solo si el número está en varios clientes (varios). Ausente sin cliente ni varios"`
 	Resumen        *ResumenGuardadoRef         `json:"resumen,omitempty" doc:"§16.4: la conversación tiene un resumen del asistente guardado (el texto: GET …/resumen). Ausente si nadie lo ha pedido"`
 	Supervisores   []UsuarioRef                `json:"supervisores" doc:"Supervisores de su cola"`
 	Equipo         []MiembroEquipo             `json:"equipo" doc:"Miembros y supervisores de su cola con su disponibilidad (sin cola, [])"`
@@ -347,9 +348,14 @@ var casosDelAsistente = map[string]bool{
 	"conversaciones.responder": true, "conversaciones.crear_ticket": true, "conversaciones.registrar_boleta": true,
 	"conversaciones.registrar_promesa": true, "conversaciones.simular_promesa": true, "conversaciones.pedir_reconexion": true,
 	"mensajeria.asistente_consultar": true,
+	// Con un número en varios clientes, comparar el número de servicio que da el cliente (B22).
+	"conversaciones.elegir_cliente": true,
 	// agendar_visita (§17.10): el caso lo acepta, pero su permiso (ordenes.crear) solo lo lleva el
 	// contexto que arman las herramientas de visita con la acción encendida en el perfil vigente.
 	"conversaciones.crear_orden": true,
+	// Gestión de cobro (contrato con Argos 0.13.0 §3.12): el caso lo acepta, pero el rol asistente_ia
+	// todavía no lleva su permiso (no hay herramienta que la registre).
+	"conversaciones.registrar_gestion_cobro": true,
 }
 
 // alcanceAccionDe es alcanceConvDe y, además, acepta al asistente de IA (actor asistente_ia) solo en
@@ -967,6 +973,18 @@ func (m *Modulo) detalleConv(ctx context.Context, q *mensajeriabd.Queries, usuar
 			d.ClienteResumen = res
 		}
 	}
+	k, err := m.rolContactoDeConv(ctx, q, c)
+	if err != nil {
+		return d, err
+	}
+	if k != nil && !contexto.PermisosDe(ctx).Tiene(string(nucleo.PermClientesVer)) {
+		// Los servicios (código y nombre) solo con clientes.ver, como en el resumen del cliente.
+		k.Servicios = []ServicioContacto{}
+		for i := range k.ACargo {
+			k.ACargo[i].Servicios = []ServicioContacto{}
+		}
+	}
+	d.RolContacto = k
 	return d, nil
 }
 

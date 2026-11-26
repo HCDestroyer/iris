@@ -53,6 +53,24 @@ func (m *Modulo) Registrar(api huma.API) {
 		return &cuerpo[Pendiente]{Body: p}, nil
 	})
 
+	ver := conector.Operacion(conector.EtiquetaIntegraciones, "verificarIntentoRecuperacion", http.MethodGet,
+		"/api/v1/integraciones/argosisp/intentos-recuperacion/verificacion", "Verificar un cambio o un intento de recuperación (Argos)",
+		nucleo.PermAdjuntosVerificarIntegracion, http.StatusOK, http.StatusNotFound, http.StatusTooManyRequests)
+	ver.Description += " Contrato con ArgosISP 0.14.0 §3.10: Argos consulta, con su `iris_pat_` del panel y la `Idempotency-Key` " +
+		"con la que recibió el cambio o el intento, si Iris se lo mandó. `verificado: true` solo si Iris recibió de ese conector un 2xx " +
+		"para esa clave y la foto (siempre en un intento; en un cambio, si la lleva) está completa, es de esa orden y de su autor, se " +
+		"tomó después de su llegada y no la usa otra operación. Si no, `motivo`: `envio_en_curso`, `no_enviado_por_iris`, " +
+		"`no_coincide` (Argos respondió 422 `idempotency_key_reutilizada`), `foto_pendiente` o `foto_invalida`. 404 igual para una " +
+		"clave desconocida o fuera de las empresas del alcance del conector. Nunca devuelve la imagen, el autor ni las horas. " +
+		"Auditada; 60 consultas por minuto por conector y 20 por clave al día (429 `demasiadas_peticiones` con `Retry-After`)."
+	huma.Register(api, ver, func(ctx context.Context, in *EntradaVerificarIntento) (*cuerpo[VerificacionIntento], error) {
+		v, err := m.VerificarIntento(ctx, *in)
+		if err != nil {
+			return nil, err
+		}
+		return &cuerpo[VerificacionIntento]{Body: v}, nil
+	})
+
 	rm := conector.Operacion(conector.EtiquetaIntegraciones, "resolverPendienteIntegracion", http.MethodPost,
 		"/api/v1/integraciones/pendientes/{id}/resolver-manual", "Dar por resuelta a mano una acción que Argos rechazó",
 		nucleo.PermIntegracionesResolverPendiente, http.StatusOK, http.StatusNotFound, http.StatusConflict)

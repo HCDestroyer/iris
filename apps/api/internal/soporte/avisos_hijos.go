@@ -152,7 +152,7 @@ func (m *Modulo) nuevoAvisarTanda() *auditoria.Caso[ArgsAvisarHijos, int] {
 					map[string]any{"maestro_id": maestro.ID, "aviso": in.Aviso, "mensaje_id": msj.ID}); err != nil {
 					return 0, err
 				}
-				if err := t.Emitir("ticket.respondido", map[string]any{"ticket_id": h.ID, "mensaje_id": msj.ID}); err != nil {
+				if err := t.Emitir("ticket.respondido", eventoRespondido(tocado, msj, true)); err != nil {
 					return 0, err
 				}
 			}

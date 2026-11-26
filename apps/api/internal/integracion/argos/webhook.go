@@ -116,6 +116,9 @@ type entradaAplicar struct {
 	// e090: webhook de la 0.9.0 (instalacion.*, equipo.wifi_resuelto, servicio.bienvenida_cambiada,
 	// factura.*, pago.*): se emite su evento interno.
 	e090 *evento090
+	// contactos: cliente.contactos_cambiados (0.10.0 §2.3): la caché de contactos del portal (§11.10) y
+	// de la atención (§3.5).
+	contactos *cambioContactos
 	// red: caídas repetidas y falla general (0.13.0 §3.11), validadas: se emite el evento interno.
 	red *eventoRed
 	// titular: servicio.titular_cambiado (0.10.0 §3.4.4): se emite el evento interno si la ficha
@@ -204,6 +207,15 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 			return r, err
 		}
 		r.Resultado = "aplicado"
+	}
+	if in.contactos != nil {
+		cambio, err := aplicarContactos(ctx, t, q, e, *in.contactos)
+		if err != nil {
+			return r, err
+		}
+		if cambio {
+			r.Resultado = "aplicado"
+		}
 	}
 	if in.red != nil {
 		if err := emitirRed(ctx, t, *in.red, e.ID, p.m.cfg.Encolar); err != nil {
@@ -363,6 +375,10 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 			return ResultadoEntrante{}, err
 		}
 		in.e090, in.omitido = de090(e, con)
+	case EventoContactosCambiados:
+		// Se releen los contactos del cliente en Argos (nunca el payload, que no trae números).
+		in.contactos, in.omitido, in.errArgos = p.leerContactosWebhook(ctx, bd, e)
+		return p.aplicar.Ejecutar(ctx, in)
 	case EventoCaidasRepetidas, EventoFallaGeneralAbierta, EventoFallaGeneralCerrada:
 		// Solo por el webhook firmado; la empresa y cada servicio se validan (lee Argos fuera de la
 		// transacción los que Iris no conoce).

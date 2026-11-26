@@ -132,7 +132,7 @@ type RegistradorCobro struct {
 // Ejecutar registra el cobro de la instalación.
 func (r *RegistradorCobro) Ejecutar(ctx context.Context, in EntradaRegistrarCobro) (Cobro, error) {
 	in.conceptoInstalacion = 0
-	if leer := r.m.cfg.Equipos.ConceptoInstalacion; leer != nil && contexto.PermisosDe(ctx).Tiene(string(nucleo.PermOrdenesRegistrarCobro)) {
+	if leer := r.m.cfg.ArgosEquipos.ConceptoInstalacion; leer != nil && contexto.PermisosDe(ctx).Tiene(string(nucleo.PermOrdenesRegistrarCobro)) {
 		if bd := nucleo.BDDe(ctx); bd != nil {
 			// Solo con la orden visible para quien registra: si no, no se pregunta nada a Argos.
 			if f, err := campobd.New(bd).OrdenPorID(ctx, in.ID); err == nil && f.EmpresaID != nil &&
@@ -176,7 +176,7 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			if f.Estado == EstadoCancelada || f.Estado == EstadoFallida {
 				return Cobro{}, transicionInvalida("cobrar la instalación de", f.Estado)
 			}
-			if m.cfg.Equipos.Capacidad == nil {
+			if m.cfg.ArgosEquipos.Capacidad == nil {
 				return Cobro{}, nucleo.ReglaNegocio("cobro_no_disponible", "Iris no tiene conexión con Argos para cobrar la instalación")
 			}
 			if _, err := q.CobroVivoDeOrden(ctx, f.ID); err == nil {
@@ -235,7 +235,7 @@ func (m *Modulo) nuevoRegistrarCobro() *auditoria.Caso[EntradaRegistrarCobro, Co
 			}
 			if esInstalacion {
 				// Con cobro_equipo en false, Iris no manda la línea de instalación (0.14.3 §3).
-				if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionCobroEquipo)); err != nil {
+				if ok, err := m.cfg.ArgosEquipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionCobroEquipo)); err != nil {
 					return Cobro{}, err
 				} else if !ok {
 					return Cobro{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "El cobro de la instalación no está disponible para esta empresa")

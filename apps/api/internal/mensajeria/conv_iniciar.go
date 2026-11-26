@@ -639,6 +639,17 @@ func (m *Modulo) iniciar(ctx context.Context, t *auditoria.Tx, in entradaIniciar
 			c.Asociacion = nombrePtr("manual")
 		}
 	}
+	// El contacto de Argos con que queda asociada (§3.5), igual que al asociar a mano: si el número es
+	// de un contacto del cliente, ese; si no, ninguno.
+	var contactoArgos *int64
+	if c.ClienteID != nil {
+		if _, contactoArgos, err = numeroDelCliente(ctx, q, empresaDeConv(c), c.Numero, *c.ClienteID); err != nil {
+			return ConversacionIniciada{}, err
+		}
+	}
+	if err := fijarContactoConv(ctx, q, &c, contactoArgos); err != nil {
+		return ConversacionIniciada{}, err
+	}
 	// Cambió el cliente de la conversación: la sugerencia vigente (armada con el anterior) queda vencida.
 	if !mismoID(antes.ClienteID, c.ClienteID) {
 		if err := m.cerrarVigentes(ctx, t, c, SugVencida); err != nil {

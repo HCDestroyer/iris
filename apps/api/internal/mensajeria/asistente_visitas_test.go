@@ -560,7 +560,8 @@ func TestVisitasTopesAtomicos(t *testing.T) {
 	otroNum := numeroCliente()
 	v.texto(otroNum, "wamid.vm1", "Hola, soy el mismo cliente desde otro número")
 	conv2 := cid(v.conv(otroNum))
-	if _, err := v.bd.Exec(v.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, cliente_verificado = true, asociacion = 'manual' WHERE id = $1`, conv2, cliente); err != nil {
+	if _, err := v.bd.Exec(v.ctx, `UPDATE mensajeria.conversaciones SET cliente_id = $2, cliente_verificado = true, asociacion = 'manual', verificado_por = $3 WHERE id = $1`,
+		conv2, cliente, v.supervisor.id); err != nil {
 		t.Fatal(err)
 	}
 	// Las dos las atiende el asistente.

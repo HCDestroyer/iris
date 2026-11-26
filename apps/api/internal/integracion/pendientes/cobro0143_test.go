@@ -79,7 +79,7 @@ func (e *entorno) supervisorCon(permisos ...nucleo.Permiso) context.Context {
 	return pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, permisos...)
 }
 
-func codigoDe(t *testing.T, err error, status int, codigo string) {
+func esperarCodigo(t *testing.T, err error, status int, codigo string) {
 	t.Helper()
 	p, _ := nucleo.AProblema(err)
 	if p == nil || p.Status != status || p.Codigo() != codigo {
@@ -161,7 +161,7 @@ func TestCargo422TerminalConReemplazo(t *testing.T) {
 	sup := e.supervisorCon(nucleo.PermIntegracionesReintentar)
 	original = e.cargosDe(orden)["iris:cargo:"+orden]
 	_, err := e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: original.ID, Version: original.Version})
-	codigoDe(t, err, 409, "cargo_terminal")
+	esperarCodigo(t, err, 409, "cargo_terminal")
 	llamadas := 0
 	for _, l := range e.argos.copia() {
 		if l.Clave == "iris:cargo:"+orden {
@@ -251,9 +251,9 @@ func TestCobroPorConfirmar(t *testing.T) {
 	emitida := e.reloj.Format(time.RFC3339)
 	sup := e.supervisorCon(nucleo.PermIntegracionesReintentar, nucleo.PermIntegracionesResolverPendiente, nucleo.PermIntegracionesConfirmarCobro)
 	_, err := e.m.Reintentar.Ejecutar(sup, pendientes.EntradaReintentar{ID: p.ID, Version: p.Version})
-	codigoDe(t, err, 409, "cargo_terminal")
+	esperarCodigo(t, err, 409, "cargo_terminal")
 	_, err = e.m.ResolverManual.Ejecutar(sup, pendientes.EntradaResolverManual{ID: p.ID, Version: p.Version, Motivo: "Revisado en Argos"})
-	codigoDe(t, err, 409, "cobro_por_confirmar")
+	esperarCodigo(t, err, 409, "cobro_por_confirmar")
 	existe := func(id int64) error {
 		_, err := e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, FacturaID: ptrEntero(id), Motivo: "Revisado en Argos"})
 		return err
@@ -261,7 +261,7 @@ func TestCobroPorConfirmar(t *testing.T) {
 	// Sin el permiso, ni siquiera se lee Argos.
 	sinPermiso := e.supervisorCon(nucleo.PermIntegracionesReintentar)
 	_, err = e.m.ConfirmarCobro(sinPermiso, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: p.Version, Existe: true, FacturaID: ptrEntero(901), Motivo: "Revisado"})
-	codigoDe(t, err, 403, "prohibido")
+	esperarCodigo(t, err, 403, "prohibido")
 	e.argos.mu.Lock()
 	for _, l := range e.argos.lecturas {
 		if strings.Contains(l, "origen-iris") {
@@ -270,18 +270,18 @@ func TestCobroPorConfirmar(t *testing.T) {
 	}
 	e.argos.mu.Unlock()
 	// 404: solo rechaza. 503: error de lectura. Ninguno cambia el cargo.
-	codigoDe(t, existe(901), 422, "factura_no_encontrada")
+	esperarCodigo(t, existe(901), 422, "factura_no_encontrada")
 	e.fijarFactura("503")
-	codigoDe(t, existe(901), 503, "no_disponible")
+	esperarCodigo(t, existe(901), 503, "no_disponible")
 	// Otro servicio, otras líneas, anulada o anterior al primer envío: rechaza.
 	e.fijarFactura(strings.Replace(facturaArgos(901, orden, "emitida", emitida, lineasArgos), `"servicio_id":20`, `"servicio_id":21`, 1))
-	codigoDe(t, existe(901), 422, "factura_no_coincide")
+	esperarCodigo(t, existe(901), 422, "factura_no_coincide")
 	e.fijarFactura(facturaArgos(901, orden, "emitida", emitida, `[{"concepto_id":5,"precio_unitario":"350.00","cantidad":1}]`))
-	codigoDe(t, existe(901), 422, "factura_no_coincide")
+	esperarCodigo(t, existe(901), 422, "factura_no_coincide")
 	e.fijarFactura(facturaArgos(901, orden, "anulada", emitida, lineasArgos))
-	codigoDe(t, existe(901), 422, "factura_no_coincide")
+	esperarCodigo(t, existe(901), 422, "factura_no_coincide")
 	e.fijarFactura(facturaArgos(901, orden, "emitida", e.reloj.Add(-2*time.Hour).Format(time.RFC3339), lineasArgos))
-	codigoDe(t, existe(901), 422, "factura_no_coincide")
+	esperarCodigo(t, existe(901), 422, "factura_no_coincide")
 	if c := e.cargosDe(orden)["iris:cargo:"+orden]; !c.PorConfirmar || c.Version != p.Version {
 		t.Fatalf("los rechazos no cambian el cargo: %+v", c)
 	}
@@ -305,13 +305,13 @@ func TestCobroPorConfirmar(t *testing.T) {
 		t.Fatalf("sin reemplazo: %+v", cs)
 	}
 	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: false, Motivo: "Otra vez"})
-	codigoDe(t, err, 409, "cobro_no_por_confirmar")
+	esperarCodigo(t, err, 409, "cobro_no_por_confirmar")
 
 	// Otra orden: la misma factura ya está ligada (única en Iris); «no existe» saca el reemplazo.
 	orden2, p2 := e.porConfirmar()
 	e.fijarFactura(strings.Replace(facturaArgos(901, orden2, "emitida", emitida, lineasArgos), `"factura_id":901`, `"factura_id":901`, 1))
 	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p2.ID, Version: p2.Version, Existe: true, FacturaID: ptrEntero(901), Motivo: "Revisado en Argos"})
-	codigoDe(t, err, 422, "factura_no_coincide")
+	esperarCodigo(t, err, 422, "factura_no_coincide")
 	r, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p2.ID, Version: p2.Version, Existe: false, Motivo: "No hay factura en Argos"})
 	if err != nil || r.Estado != pendientes.EstadoFallidoNegocio || r.PorConfirmar || !r.CargoTerminal || r.ReemplazadoPor == nil {
 		t.Fatalf("confirmado sin factura: %+v %v", r, err)
@@ -354,7 +354,7 @@ func TestFacturaPorAnular(t *testing.T) {
 		return e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: v, Existe: false, PagosAnulados: pagos, Motivo: "Anulada en Argos"})
 	}
 	_, err = noExiste(r.Version, false)
-	codigoDe(t, err, 422, "factura_por_anular_vigente")
+	esperarCodigo(t, err, 422, "factura_por_anular_vigente")
 	// Quitarla (no está anulada) y volver a indicarla.
 	r, err = e.m.QuitarFacturaPorAnular(sup, pendientes.EntradaQuitarPorAnular{ID: p.ID, Version: r.Version, Motivo: "Era otra factura"})
 	if err != nil || r.FacturaPorAnular != nil || !r.PorConfirmar {
@@ -368,9 +368,9 @@ func TestFacturaPorAnular(t *testing.T) {
 	anulada := strings.Replace(facturaArgos(902, orden, "anulada", emitida, sinConcepto), `"saldo":"450.00"`, `"saldo":"100.00"`, 1)
 	e.fijarFactura(anulada)
 	_, err = e.m.QuitarFacturaPorAnular(sup, pendientes.EntradaQuitarPorAnular{ID: p.ID, Version: r.Version, Motivo: "Era otra factura"})
-	codigoDe(t, err, 409, "factura_anulada")
+	esperarCodigo(t, err, 409, "factura_anulada")
 	_, err = noExiste(r.Version, false)
-	codigoDe(t, err, 422, "pagos_por_confirmar")
+	esperarCodigo(t, err, 422, "pagos_por_confirmar")
 	r, err = noExiste(r.Version, true)
 	if err != nil || r.PorConfirmar || r.ReemplazadoPor == nil {
 		t.Fatalf("no existe: %+v %v", r, err)
@@ -425,11 +425,11 @@ func TestFacturaPorAnularQuitadaSigueExigiendo(t *testing.T) {
 	// «Existe» con otra factura mientras la por anular no está anulada: 422.
 	e.fijarFactura(facturaArgos(904, orden, "emitida", emitida, lineasArgos))
 	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: true, FacturaID: ptrEntero(904), Motivo: "Otra factura"})
-	codigoDe(t, err, 422, "factura_por_anular_vigente")
+	esperarCodigo(t, err, 422, "factura_por_anular_vigente")
 	// Quitar con un 404 no se permite.
 	e.fijarFactura("")
 	_, err = e.m.QuitarFacturaPorAnular(sup, pendientes.EntradaQuitarPorAnular{ID: p.ID, Version: r.Version, Motivo: "Era otra factura"})
-	codigoDe(t, err, 422, "factura_no_encontrada")
+	esperarCodigo(t, err, 422, "factura_no_encontrada")
 	// Quitarla con una lectura no anulada y luego «no existe»: sigue bloqueado.
 	e.fijarFactura(facturaArgos(903, orden, "emitida", emitida, sinConcepto))
 	r, err = e.m.QuitarFacturaPorAnular(sup, pendientes.EntradaQuitarPorAnular{ID: p.ID, Version: r.Version, Motivo: "Era otra factura"})
@@ -437,7 +437,7 @@ func TestFacturaPorAnularQuitadaSigueExigiendo(t *testing.T) {
 		t.Fatalf("quitada: %+v %v", r, err)
 	}
 	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: false, Motivo: "No hay factura"})
-	codigoDe(t, err, 422, "factura_por_anular_vigente")
+	esperarCodigo(t, err, 422, "factura_por_anular_vigente")
 	// Otra vez indicada y anulada en Argos, con saldo desconocido: cuenta como con pagos.
 	r, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: true, FacturaID: ptrEntero(903), Motivo: "La factura vieja"})
 	if err != nil || r.FacturaPorAnular == nil {
@@ -445,7 +445,7 @@ func TestFacturaPorAnularQuitadaSigueExigiendo(t *testing.T) {
 	}
 	e.fijarFactura(strings.Replace(facturaArgos(903, orden, "anulada", emitida, sinConcepto), `"saldo":"450.00",`, ``, 1))
 	_, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: false, Motivo: "Anulada"})
-	codigoDe(t, err, 422, "pagos_por_confirmar")
+	esperarCodigo(t, err, 422, "pagos_por_confirmar")
 	r, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: false, PagosAnulados: true, Motivo: "Anulada"})
 	if err != nil || r.PorConfirmar {
 		t.Fatalf("no existe: %+v %v", r, err)

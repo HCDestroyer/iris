@@ -88,8 +88,8 @@ func (m *Modulo) nuevoAutorizarEquipo() *auditoria.Caso[EntradaEquipoOrden, int6
 				return 0, err
 			}
 			// 0.14.3 §4.3: solo con la marca estado_equipo de la empresa.
-			if m.cfg.Equipos.Capacidad != nil {
-				if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionEstadoEquipo)); err != nil {
+			if m.cfg.ArgosEquipos.Capacidad != nil {
+				if ok, err := m.cfg.ArgosEquipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionEstadoEquipo)); err != nil {
 					return 0, err
 				} else if !ok {
 					return 0, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "El estado del equipo no está disponible para esta empresa")
@@ -107,11 +107,11 @@ func (m *Modulo) VerEquipo(ctx context.Context, in EntradaEquipoOrden) (argos.Es
 	if err != nil {
 		return argos.EstadoEquipo{}, err
 	}
-	if m.cfg.Equipos.LeerEquipo == nil {
+	if m.cfg.ArgosEquipos.LeerEquipo == nil {
 		return argos.EstadoEquipo{}, nucleo.ReglaNegocio("equipo_no_disponible", "Iris no tiene conexión con Argos para leer el equipo")
 	}
 	a := contexto.ActorDe(ctx)
-	r, err := m.cfg.Equipos.LeerEquipo(ctx, servicio, pendientes.ActorUsuario(a.ID), false)
+	r, err := m.cfg.ArgosEquipos.LeerEquipo(ctx, servicio, pendientes.ActorUsuario(a.ID), false)
 	if err != nil {
 		return r, errorEquipo(err)
 	}
@@ -134,10 +134,10 @@ func (m *Modulo) nuevoCambiarWifi() *auditoria.Caso[EntradaWifiOrden, equipos.Ca
 			if !a.EsUsuario() {
 				return equipos.CambioWifi{}, nucleo.Prohibido("El cambio de Wi-Fi lo pide una persona (X-Iris-Actor)")
 			}
-			if m.cfg.Equipos.Capacidad == nil {
+			if m.cfg.ArgosEquipos.Capacidad == nil {
 				return equipos.CambioWifi{}, nucleo.ReglaNegocio("wifi_no_disponible", "Iris no tiene conexión con Argos 0.9.0 para cambiar el Wi-Fi")
 			}
-			if ok, err := m.cfg.Equipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionWifi)); err != nil {
+			if ok, err := m.cfg.ArgosEquipos.Capacidad(ctx, t, f.EmpresaID, argos.Funcion(argos.FuncionWifi)); err != nil {
 				return equipos.CambioWifi{}, err
 			} else if !ok {
 				return equipos.CambioWifi{}, nucleo.ReglaNegocio(argos.CodigoCapacidadNoDisponible, "Cambiar el Wi-Fi no está disponible para esta empresa")
