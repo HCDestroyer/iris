@@ -37717,7 +37717,7 @@
             "type": "string"
           },
           "enUsoPorConector": {
-            "description": "Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector)",
+            "description": "Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar, y su token_portal): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector)",
             "type": "boolean"
           },
           "expiraEn": {
