@@ -11,6 +11,9 @@ CREATE UNIQUE INDEX orden_equipos_unidad_uq ON campo.orden_equipos (orden_id, ac
     WHERE unidad_id IS NOT NULL AND accion <> 'no_recuperado';
 
 -- +goose Down
+-- Antes de volver al índice único por unidad: varios intentos sobre la misma unidad no caben en él
+-- (el Down de 20261125220003 los borraría igual, pero corre después).
+DELETE FROM campo.orden_equipos WHERE accion = 'no_recuperado';
 DROP INDEX campo.orden_equipos_unidad_uq;
 CREATE UNIQUE INDEX orden_equipos_unidad_uq ON campo.orden_equipos (orden_id, accion, unidad_id) WHERE unidad_id IS NOT NULL;
 ALTER TABLE campo.orden_equipos DROP COLUMN IF EXISTS enviado_al_aplicar;
