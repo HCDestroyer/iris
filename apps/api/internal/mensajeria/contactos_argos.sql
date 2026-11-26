@@ -28,7 +28,9 @@ ORDER BY cliente_id, id;
 SELECT id, cliente_id, empresa_id, codigo, nombre, estado FROM integracion.argos_servicios WHERE id = @id;
 
 -- name: EleccionesClienteConv :one
-SELECT count(*)::bigint FROM mensajeria.elecciones_cliente WHERE conversacion_id = @conversacion_id AND NOT acierto;
+-- Solo los de la empresa actual de la conversación: pasarla a otra empresa empieza de cero.
+SELECT count(*)::bigint FROM mensajeria.elecciones_cliente WHERE conversacion_id = @conversacion_id
+  AND coalesce(empresa_id, 0) = @empresa::bigint AND NOT acierto;
 
 -- name: EleccionesClienteNumero :one
 SELECT count(*)::bigint FROM mensajeria.elecciones_cliente

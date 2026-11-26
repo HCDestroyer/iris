@@ -300,11 +300,18 @@ func (q *Queries) DesverificarConvsSinContacto(ctx context.Context, arg Desverif
 }
 
 const eleccionesClienteConv = `-- name: EleccionesClienteConv :one
-SELECT count(*)::bigint FROM mensajeria.elecciones_cliente WHERE conversacion_id = $1 AND NOT acierto
+SELECT count(*)::bigint FROM mensajeria.elecciones_cliente WHERE conversacion_id = $1
+  AND coalesce(empresa_id, 0) = $2::bigint AND NOT acierto
 `
 
-func (q *Queries) EleccionesClienteConv(ctx context.Context, conversacionID int64) (int64, error) {
-	row := q.db.QueryRow(ctx, eleccionesClienteConv, conversacionID)
+type EleccionesClienteConvParams struct {
+	ConversacionID int64
+	Empresa        int64
+}
+
+// Solo los de la empresa actual de la conversación: pasarla a otra empresa empieza de cero.
+func (q *Queries) EleccionesClienteConv(ctx context.Context, arg EleccionesClienteConvParams) (int64, error) {
+	row := q.db.QueryRow(ctx, eleccionesClienteConv, arg.ConversacionID, arg.Empresa)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err

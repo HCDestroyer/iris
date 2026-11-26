@@ -564,7 +564,7 @@ const (
 )
 
 func (m *Modulo) intentosEleccion(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaConversacion) (IntentosEleccionConv, error) {
-	nc, err := q.EleccionesClienteConv(ctx, c.ID)
+	nc, err := q.EleccionesClienteConv(ctx, mensajeriabd.EleccionesClienteConvParams{ConversacionID: c.ID, Empresa: empresaDeConv(c)})
 	if err != nil {
 		return IntentosEleccionConv{}, err
 	}

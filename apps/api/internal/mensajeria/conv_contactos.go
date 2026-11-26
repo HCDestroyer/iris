@@ -350,10 +350,11 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 				// titular: la conversación queda con él y su rol sale de sus permisos.
 				// Si el contacto ya no está, se queda el que tenía (sin rol): para dejarla como titular, un
 				// supervisor la vuelve a asociar.
+				cambio := false
 				if _, contacto, err := numeroDelCliente(ctx, q, empresaDeConv(*c), c.Numero, *c.ClienteID); err != nil {
 					return err
 				} else if contacto != nil {
-					cambio := c.ContactoArgosID == nil || *c.ContactoArgosID != *contacto
+					cambio = c.ContactoArgosID == nil || *c.ContactoArgosID != *contacto
 					if err := fijarContactoConv(ctx, q, c, contacto); err != nil {
 						return err
 					}
@@ -383,7 +384,9 @@ func nuevoConfirmarCliente(m *Modulo) *auditoria.Caso[EntradaAccionConv, Convers
 						Detalle: nombrePtr(IdentidadSupervisor)}); err != nil {
 						return err
 					}
-				} else if c.ClienteVerificado {
+				} else if c.ClienteVerificado && !cambio {
+					// Resuelta y ya confirmada, con el mismo contacto: nada nuevo. Con un contacto nuevo
+					// se confirma a ese contacto (y se emite cliente_confirmado).
 					return nil
 				}
 				c.ClienteVerificado, c.VerificadoPor = true, &a.usuario

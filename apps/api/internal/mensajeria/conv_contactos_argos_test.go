@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
@@ -674,5 +676,51 @@ func TestConfirmarConContactoNuevo(t *testing.T) {
 	}
 	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.cliente_confirmado' AND payload->>'conversacion_id' = $1`, cid(c)); n != 2 {
 		t.Fatalf("cliente_confirmado de cada confirmación: %d", n)
+	}
+}
+
+// Bajo 1 de la aprobación final: los intentos fallidos de elegir cliente son de la empresa actual de la
+// conversación; al pasarla a otra empresa, esa empieza con sus 3 intentos.
+func TestEleccionesPorEmpresa(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	b.texto(num, "wamid.ep1", "Hola")
+	c := b.conv(num)
+	id, _ := strconv.ParseInt(cid(c), 10, 64)
+	for range 3 {
+		if _, err := b.bd.Exec(b.ctx, `INSERT INTO mensajeria.elecciones_cliente (empresa_id, conversacion_id, numero, acierto, creado_en)
+			VALUES (1, $1, $2, false, now())`, id, "+"+num); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := mensajeriabd.New(b.bd)
+	if n, err := q.EleccionesClienteConv(b.ctx, mensajeriabd.EleccionesClienteConvParams{ConversacionID: id, Empresa: 1}); err != nil || n != 3 {
+		t.Fatalf("empresa 1: %d %v", n, err)
+	}
+	if n, err := q.EleccionesClienteConv(b.ctx, mensajeriabd.EleccionesClienteConvParams{ConversacionID: id, Empresa: 2}); err != nil || n != 0 {
+		t.Fatalf("en la empresa 2 empieza de cero: %d %v", n, err)
+	}
+}
+
+// Info de la aprobación final: una conversación resuelta ya confirmada que se confirma con un contacto
+// nuevo confirma a ese contacto y emite cliente_confirmado.
+func TestConfirmarResueltaConContactoNuevo(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, _ := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	b.texto(num, "wamid.cr1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(c), "clienteId": cliente}), http.StatusOK)
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET estado = 'resuelta', resuelta_en = now() WHERE id = $1`, cid(c)); err != nil {
+		t.Fatal(err)
+	}
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.cliente_confirmado' AND payload->>'conversacion_id' = $1
+		AND (payload->>'contacto_argos_id')::bigint = $2`, cid(c), contacto); n != 1 {
+		t.Fatalf("cliente_confirmado del contacto nuevo: %d", n)
 	}
 }
