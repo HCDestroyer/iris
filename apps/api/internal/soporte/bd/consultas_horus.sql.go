@@ -22,7 +22,7 @@ func (q *Queries) BloquearIncidente(ctx context.Context, clave string) error {
 }
 
 const categoriaPorCodigo = `-- name: CategoriaPorCodigo :one
-SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal FROM soporte.categorias
+SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal, conectividad FROM soporte.categorias
 WHERE codigo = $1 AND activa AND (empresa_id IS NULL OR empresa_id = $2)
 ORDER BY empresa_id NULLS LAST
 LIMIT 1
@@ -49,6 +49,7 @@ func (q *Queries) CategoriaPorCodigo(ctx context.Context, arg CategoriaPorCodigo
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.VisiblePortal,
+		&i.Conectividad,
 	)
 	return i, err
 }
@@ -353,7 +354,7 @@ type RegistrarAvisoHijoParams struct {
 	MaestroID int64
 	Aviso     string
 	HijoID    int64
-	MensajeID int64
+	MensajeID *int64
 }
 
 func (q *Queries) RegistrarAvisoHijo(ctx context.Context, arg RegistrarAvisoHijoParams) error {

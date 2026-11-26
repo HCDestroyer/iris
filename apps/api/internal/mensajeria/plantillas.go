@@ -110,6 +110,11 @@ var Catalogo = []Plantilla{
 		// `hasta` es el instante de Argos; al cliente le llega en hora de Guatemala y en llano
 		// (HastaReconexionTexto, §6.3 y §7.3): nunca una hora de corte.
 		Texto: "Reconectamos tu servicio de forma temporal: la reconexión vale hasta {{hasta}}. Tu comprobante queda pendiente de revisión."},
+	// Falla general de Argos (contrato 0.13.0 §3.11): sin servicio ni dirección.
+	{Codigo: "falla_general", Pide: PideIris, Variables: []Variable{},
+		Texto: "Detectamos una falla en la red de tu zona que puede afectar tu servicio. Ya estamos trabajando para resolverla."},
+	{Codigo: "falla_general_resuelta", Pide: PideIris, Variables: []Variable{},
+		Texto: "La falla de red de tu zona se resolvió. Si tu servicio todavía no funciona, responde a este mensaje."},
 	{Codigo: "promesa_aceptada", Pide: PideIris, Variables: vars("vence_en", formatoFecha, "monto", formatoMonto), Caducidad: "vence_en",
 		Texto: "Registramos tu promesa de pago de {{monto}} para el {{vence_en}}."},
 }

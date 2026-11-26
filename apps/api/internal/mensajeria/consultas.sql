@@ -314,3 +314,8 @@ ORDER BY created_at DESC LIMIT 1;
 
 -- name: PurgarTokensEnlaceWifi :exec
 UPDATE mensajeria.enlaces_wifi SET token_cifrado = NULL WHERE token_cifrado IS NOT NULL AND vence_en <= @ahora;
+
+-- name: AvisoSistemaExiste :one
+-- Un aviso que pidió el sistema (sin usuario) con esa clave (el aviso de una falla general: uno por
+-- cliente, incidente y tipo, aunque el evento llegue dos veces).
+SELECT EXISTS (SELECT 1 FROM mensajeria.avisos WHERE usuario_id IS NULL AND idempotency_key = @idempotency_key::text)::boolean;

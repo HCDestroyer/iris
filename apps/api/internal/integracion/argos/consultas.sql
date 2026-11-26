@@ -63,6 +63,9 @@ WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en;
 -- name: ServicioPorID :one
 SELECT * FROM integracion.argos_servicios WHERE id = @id;
 
+-- name: ServiciosPorIDs :many
+SELECT * FROM integracion.argos_servicios WHERE id = ANY(@ids::bigint[]);
+
 -- name: ServiciosDeCliente :many
 SELECT * FROM integracion.argos_servicios WHERE cliente_id = @cliente_id ORDER BY id;
 
@@ -612,6 +615,48 @@ RETURNING *;
 -- Un admin de Iris confirma una cuenta recién cambiada: entra en la bienvenida antes de las 24 h (§12.5).
 UPDATE integracion.argos_cuentas_bancarias SET confirmada_por = @usuario_id, confirmada_en = now(), updated_at = now()
 WHERE id = @id RETURNING *;
+
+-- Falla general (0.13.0 §3.11): servicios por leer en Argos en un job aparte -------------------------
+
+-- name: CrearLecturaIncidente :exec
+INSERT INTO integracion.argos_incidente_lecturas (entrante_id, conector_id, incidente_id, empresa_id, paginar)
+VALUES (@entrante_id, @conector_id, @incidente_id, @empresa_id, @paginar)
+ON CONFLICT (entrante_id) DO NOTHING;
+
+-- name: AgregarServiciosLectura :exec
+INSERT INTO integracion.argos_incidente_servicios (entrante_id, servicio_id)
+SELECT @entrante_id::bigint, unnest(@servicios::bigint[])
+ON CONFLICT DO NOTHING;
+
+-- name: LecturaIncidente :one
+SELECT * FROM integracion.argos_incidente_lecturas WHERE entrante_id = @entrante_id;
+
+-- name: AvanzarLecturaIncidente :exec
+UPDATE integracion.argos_incidente_lecturas SET cursor = sqlc.narg(cursor), paginar = @paginar WHERE entrante_id = @entrante_id;
+
+-- name: TerminarLecturaIncidente :exec
+UPDATE integracion.argos_incidente_lecturas SET terminada_en = now(), paginar = false WHERE entrante_id = @entrante_id AND terminada_en IS NULL;
+
+-- name: TerminarLecturasDeIncidente :exec
+-- La falla se cerro: lo que quede por leer de ese incidente ya no se lee.
+UPDATE integracion.argos_incidente_lecturas SET terminada_en = now(), paginar = false
+WHERE incidente_id = @incidente_id AND empresa_id = @empresa_id AND terminada_en IS NULL;
+
+-- name: ContarPaginaLectura :one
+UPDATE integracion.argos_incidente_lecturas SET paginas = paginas + 1 WHERE entrante_id = @entrante_id RETURNING paginas;
+
+-- name: PendientesLecturaIncidente :many
+SELECT servicio_id, intentos FROM integracion.argos_incidente_servicios
+WHERE entrante_id = @entrante_id AND estado = 'pendiente'
+ORDER BY servicio_id
+LIMIT @limite;
+
+-- name: ContarServiciosLectura :one
+SELECT count(*)::integer FROM integracion.argos_incidente_servicios WHERE entrante_id = @entrante_id;
+
+-- name: MarcarServicioLectura :exec
+UPDATE integracion.argos_incidente_servicios SET estado = @estado, intentos = @intentos
+WHERE entrante_id = @entrante_id AND servicio_id = @servicio_id;
 
 -- name: MarcarTitularCambiado :execrows
 -- servicio.titular_cambiado aplicado (MEDIA 2 de #280): la hora de Argos (ocurrido_en, solo con

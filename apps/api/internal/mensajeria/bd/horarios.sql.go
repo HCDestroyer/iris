@@ -934,12 +934,18 @@ func (q *Queries) RevocarEnlaceManual(ctx context.Context, arg RevocarEnlaceManu
 }
 
 const routerCaidoDelCliente = `-- name: RouterCaidoDelCliente :one
-SELECT EXISTS (
+SELECT (EXISTS (
     SELECT 1 FROM integracion.argos_servicios s
     JOIN soporte.horus_estados h ON h.clave IN ('router:' || s.empresa_id || ':' || s.router_id, 'router:0:' || s.router_id)
     WHERE s.cliente_id = $1 AND s.router_id IS NOT NULL AND h.estado = 'caido'
       AND ($2::bigint IS NULL OR s.id = $2::bigint)
-)::boolean
+) OR EXISTS (
+    SELECT 1 FROM integracion.argos_servicios s
+    JOIN soporte.incidente_red_servicios rs ON rs.servicio_id = s.id
+    JOIN soporte.incidentes_red i ON i.id = rs.incidente AND i.estado = 'abierta' AND i.empresa_id = s.empresa_id
+    WHERE s.cliente_id = $1
+      AND ($2::bigint IS NULL OR s.id = $2::bigint)
+))::boolean
 `
 
 type RouterCaidoDelClienteParams struct {
@@ -948,7 +954,8 @@ type RouterCaidoDelClienteParams struct {
 }
 
 // Falla masiva: un router de un servicio del cliente en la empresa está caído según Horus (lo
-// guarda soporte en horus_estados; solo lectura).
+// guarda soporte en horus_estados; solo lectura), o un servicio del cliente está en una falla general
+// abierta de Argos (contrato 0.13.0 §3.11; soporte.incidentes_red).
 func (q *Queries) RouterCaidoDelCliente(ctx context.Context, arg RouterCaidoDelClienteParams) (bool, error) {
 	row := q.db.QueryRow(ctx, routerCaidoDelCliente, arg.ClienteID, arg.ServicioID)
 	var column_1 bool
