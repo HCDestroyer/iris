@@ -3,6 +3,7 @@ package argos_test
 import (
 	"net/http"
 	"slices"
+	"strconv"
 	"testing"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
@@ -77,6 +78,15 @@ func TestTipoServicioInstantaneaYWebhooks(t *testing.T) {
 		}
 	})
 	_, id, secreto := e.conectado()
+	// La primera sincronización también carga las cuentas bancarias de la empresa 1: no deben quedar
+	// para las pruebas siguientes (una lista de menos de 24 h no se vuelve a pedir).
+	t.Cleanup(func() {
+		e.limpiarSinc()
+		e.exec("DELETE FROM integracion.argos_cuentas_lecturas")
+		e.exec("DELETE FROM integracion.argos_cuentas_bancarias WHERE id = 1")
+		// TestPrimeraSincronizacion080 cuenta los argos.sincronizacion_* de toda la base.
+		e.exec("DELETE FROM integracion.outbox WHERE evento LIKE 'argos.sincronizacion_%' AND payload->>'conector_id' = $1", strconv.FormatInt(id, 10))
+	})
 	if _, err := e.sincronizar(id); err != nil {
 		t.Fatal(err)
 	}
