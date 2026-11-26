@@ -5,12 +5,12 @@
 INSERT INTO integracion.pendientes (
     empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload,
     depende_de, datos_incompletos, estado, ultimo_error, proximo_intento, evento_id, plantilla, por_resolver, verificar,
-    tecnico_usuario_id, actor, transito_id
+    tecnico_usuario_id, actor, transito_id, contacto
 ) VALUES (
     sqlc.narg(empresa_id), @sistema, @operacion, @idempotency_key, @entidad, @entidad_id, @metodo, @ruta, @payload,
     @depende_de, @datos_incompletos, @estado, sqlc.narg(ultimo_error), @proximo_intento, sqlc.narg(evento_id),
     sqlc.narg(plantilla), @por_resolver, coalesce(sqlc.narg(verificar)::text[], '{}'), sqlc.narg(tecnico_usuario_id),
-    sqlc.narg(actor), sqlc.narg(transito_id)
+    sqlc.narg(actor), sqlc.narg(transito_id), sqlc.narg(contacto)
 )
 ON CONFLICT (idempotency_key) DO NOTHING
 RETURNING *;

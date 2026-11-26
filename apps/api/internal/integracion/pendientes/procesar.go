@@ -154,6 +154,10 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		// Argos exige que coincidan). Sale de la columna, nunca del cuerpo.
 		cli = cli.ConCabecera(CabeceraActorIris, "usuario:"+strconv.FormatInt(*f.TecnicoUsuarioID, 10))
 	}
+	if f.Contacto != nil {
+		// Quien habló es un contacto del cliente (§7.1, §3.12): Argos lo valida y lo audita.
+		cli = cli.ConCabecera(CabeceraContactoIris, *f.Contacto)
+	}
 	var partes []conector.Parte
 	if f.TransitoID.Valid {
 		d, err := m.leerTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f)

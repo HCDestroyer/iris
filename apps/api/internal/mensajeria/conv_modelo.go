@@ -353,6 +353,9 @@ var casosDelAsistente = map[string]bool{
 	// agendar_visita (§17.10): el caso lo acepta, pero su permiso (ordenes.crear) solo lo lleva el
 	// contexto que arman las herramientas de visita con la acción encendida en el perfil vigente.
 	"conversaciones.crear_orden": true,
+	// Gestión de cobro (contrato con Argos 0.13.0 §3.12): el caso lo acepta, pero el rol asistente_ia
+	// todavía no lleva su permiso (no hay herramienta que la registre).
+	"conversaciones.registrar_gestion_cobro": true,
 }
 
 // alcanceAccionDe es alcanceConvDe y, además, acepta al asistente de IA (actor asistente_ia) solo en

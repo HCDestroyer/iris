@@ -1263,6 +1263,7 @@ type IntegracionPendiente struct {
 	ResueltoClienteID     *int64
 	EnviadoAConector      *int64
 	EsperandoVinculoDesde *time.Time
+	Contacto              *string
 }
 
 type IntegracionPortalArgosMinuto struct {
@@ -2051,6 +2052,26 @@ type MensajeriaEtiqueta struct {
 	Version   int32
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type MensajeriaGestionesCobro struct {
+	ID             uuid.UUID
+	EmpresaID      int64
+	ConversacionID int64
+	ClienteID      int64
+	ServicioID     *int64
+	ContactoID     *int64
+	Tipo           string
+	Resultado      string
+	OcurridoEn     time.Time
+	OrigenTipo     string
+	OrigenID       string
+	UsuarioID      *int64
+	Asistente      bool
+	IdempotencyKey *string
+	HashPeticion   []byte
+	PendienteID    *int64
+	CreatedAt      time.Time
 }
 
 type MensajeriaHorario struct {
