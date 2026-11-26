@@ -241,7 +241,7 @@ Una tarea está terminada solo si:
 | `integracion.pendiente_omitido` | integracion (pendientes) | orden_id, motivo, operaciones[] |
 | `integracion.pendiente_corregido` / `integracion.pendiente_conflicto` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key; estado, motivo, payload_anterior, payload_nuevo (conflicto) |
 | `integracion.pendiente_bloqueado` / `integracion.pendiente_desbloqueado` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, depende_de; motivo (bloqueado) |
-| `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null) |
+| `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null), resuelto_cliente_id (o null: cliente final de un cambio de titular) |
 | `integracion.webhook_reenviado` | mensajeria (webhooks a Argos) | webhook_id, evento, empresa_id (o null), intentos_anteriores |
 | `argos.carga_vinculos_detenida` | integracion (argos, carga de vínculos 0.14.0) | conector_id, carga_id, agotados, episodio; uno por episodio |
 | `integracion.pendiente_clave_reutilizada` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, empresa_id (o null), seguridad (cambio o intento); nunca la clave ni los cuerpos |
