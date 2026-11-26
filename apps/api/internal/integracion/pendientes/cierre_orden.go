@@ -96,7 +96,7 @@ type Material struct {
 	RecibidoEnIris *time.Time `json:"recibido_en_iris"`
 	// DesdeApp: lo registró un técnico desde el lote (RegistradoPor); si no, despacho en el panel.
 	DesdeApp      bool   `json:"desde_app"`
-	RegistradoPor *int64 `json:"registrado_por"`
+	RegistradoPor *int64 `json:"usuario_id"`
 	// BodegaTipo: el tipo de la bodega según Argos al registrarlo desde el panel (o null si no se
 	// supo). Con Argos ≥ 0.11.0, despacho solo usa bodegas tipo = bodega (M-4).
 	BodegaTipo *string `json:"bodega_tipo"`
@@ -133,11 +133,44 @@ type Equipo struct {
 	RecibidoEnIris *time.Time `json:"recibido_en_iris"`
 	// RegistradoPor: el técnico que registró el cambio o el intento; va en X-Iris-Actor (A-271-1),
 	// aunque la orden se reasigne después.
-	RegistradoPor *int64 `json:"registrado_por"`
+	RegistradoPor *int64 `json:"usuario_id"`
 	// DesdeApp: lo registró un técnico desde el lote; en comodatos y devoluciones, con Argos ≥ 0.11.0,
-	// sale con su I1 y su X-Iris-Actor (0.13.1 §3.9).
+	// sale con su I1 y su X-Iris-Actor (0.14.0 §3.9).
 	DesdeApp bool `json:"desde_app"`
+	// EnviadoAlAplicar: el cambio o el intento ya se encoló al aplicarse la operación del lote
+	// (0.14.0 §3.10): el cierre solo lo resume.
+	EnviadoAlAplicar bool `json:"enviado_al_aplicar"`
 }
+
+func deref64(v *int64) int64 {
+	if v == nil {
+		return 0
+	}
+	return *v
+}
+
+// ClaveNoRecuperado: iris:no_recuperado:<orden>:<unidad>, y con Argos ≥ 0.14.0 …:<intento_id>
+// (el id de la operación equipo.no_recuperado; §3.10, §4.5).
+func ClaveNoRecuperado(orden, unidad, intento string, porOperacion bool) string {
+	c := "iris:no_recuperado:" + orden + ":" + unidad
+	if porOperacion && intento != "" {
+		c += ":" + intento
+	}
+	return c
+}
+
+// ClaveCambio: iris:cambio:<orden>:<sale>, y con Argos ≥ 0.14.0 …:<operacion_id>.
+func ClaveCambio(orden, sale, operacion string, porOperacion bool) string {
+	c := "iris:cambio:" + orden + ":" + sale
+	if porOperacion && operacion != "" {
+		c += ":" + operacion
+	}
+	return c
+}
+
+// EsperaPersonaSinFoto: un intento sin foto (o un cambio con cobro sin foto) no sale hacia un Argos ≥
+// 0.14.0 (§4.5): conflicto para una persona.
+const EsperaPersonaSinFoto = "sin foto: con el contrato 0.14.0 la foto es obligatoria en todo intento y en un cambio con cobro propuesto; revísalo con el técnico"
 
 // EsperaPersonaEquipoPanel: un comodato o una devolución registrados desde el panel con Argos ≥
 // 0.11.0 (M-5): sin tecnico ni el técnico de la orden como actor, y sin saber si la bodega es tipo
@@ -176,7 +209,11 @@ type opcionesPlan struct {
 	vinculos map[int64]string
 	// equipos: Argos con contrato ≥ 0.12.0 (cambiar y no-recuperado, fecha y recibido_en_iris).
 	equipos bool
-	notas   map[string]notasEquipo
+	// porOperacion: Argos con contrato ≥ 0.14.0 (§3.10, §4.5): claves de cambios e intentos con el
+	// id de la operación, foto obligatoria en todo intento y en un cambio con cobro, y un consumo
+	// por actor y bodega.
+	porOperacion bool
+	notas        map[string]notasEquipo
 }
 
 // Cargo único que la orden indica cobrar.
@@ -423,7 +460,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	// noRecuperado: un intento de recuperación (0.12.0) o, con Argos anterior, la pérdida que espera
 	// a una persona. Nunca sale como pérdida desde el cierre.
 	noRecuperado := func(e Equipo) (int, bool) {
-		if e.UnidadID == nil {
+		if e.UnidadID == nil || e.EnviadoAlAplicar {
 			return 0, false
 		}
 		uid := idRuta(e.UnidadID)
@@ -433,7 +470,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				ruta: "/servicios/" + sid + "/equipos/" + uid + "/perdida", payload: origen(orden), esperaPersona: EsperaPersonaPerdida,
 			})), true
 		}
-		p := plan{operacion: OpNoRecuperado, clave: "iris:no_recuperado:" + orden + ":" + uid,
+		p := plan{operacion: OpNoRecuperado, clave: ClaveNoRecuperado(orden, uid, e.ID, op.porOperacion),
 			ruta: "/servicios/" + sid + "/equipos/" + uid + "/no-recuperado", payload: origen(orden), conActor: true, actor: e.RegistradoPor}
 		if e.RegistradoPor == nil {
 			p.incompleto = "intento de recuperación sin quien lo registró"
@@ -441,6 +478,9 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 		p.payload["motivo"] = e.Motivo
 		if e.FotoRef != "" {
 			p.payload["foto_ref"] = e.FotoRef
+		} else if op.porOperacion {
+			// 0.14.0 §4.5: un intento sin foto no sale hacia un Argos ≥ 0.14.0.
+			p.esperaPersona = EsperaPersonaSinFoto
 		}
 		if e.Ubicacion != nil {
 			p.payload["ubicacion"] = map[string]any{"lat": e.Ubicacion.Lat, "lng": e.Ubicacion.Lng, "precision_m": e.Ubicacion.PrecisionM}
@@ -457,7 +497,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	// asignación (devuelve si la que sale funciona o no).
 	cambios := func() {
 		for _, e := range o.Equipos {
-			if e.Accion != AccionCambio || e.SaleUnidadID == nil {
+			if e.Accion != AccionCambio || e.SaleUnidadID == nil || e.EnviadoAlAplicar {
 				continue
 			}
 			sale := idRuta(e.SaleUnidadID)
@@ -489,7 +529,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				agregar(faltaServicio(asig))
 				continue
 			}
-			p := plan{operacion: OpCambio, clave: "iris:cambio:" + orden + ":" + sale, ruta: "/servicios/" + sid + "/equipos/cambiar",
+			p := plan{operacion: OpCambio, clave: ClaveCambio(orden, sale, e.ID, op.porOperacion), ruta: "/servicios/" + sid + "/equipos/cambiar",
 				payload: origen(orden), conActor: true, actor: e.RegistradoPor}
 			if e.RegistradoPor == nil {
 				p.incompleto = "cambio de equipo sin quien lo registró"
@@ -504,6 +544,12 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 					cobro["nota"] = *n.cobro
 				}
 				p.payload["cobro_propuesto"] = cobro
+				if op.porOperacion && e.FotoRef == "" {
+					p.esperaPersona = EsperaPersonaSinFoto // 0.14.0: con cobro propuesto, foto obligatoria
+				}
+			}
+			if e.FotoRef != "" {
+				p.payload["foto_ref"] = e.FotoRef
 			}
 			p.payload["nota"] = n.nota
 			fechas(p.payload, e.Fecha, e.RecibidoEnIris)
@@ -612,12 +658,102 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 		}
 	}
 
+	// consumosPorActor (Argos ≥ 0.14.0, §3.9): un consumo por actor y bodega, con
+	// iris:consumo:<orden>:<usuario_id>:<bodega_id>. Lo de la app lleva tecnico (el I1 de ese usuario)
+	// + bodega_id + su X-Iris-Actor; lo del panel, solo bodega_id (tipo bodega). Nunca a nombre de otro.
+	consumosPorActor := func(materiales []Material, consumoDe map[int64]int) {
+		type grupo struct {
+			usuario, bodega int64
+		}
+		var orden2 []grupo
+		lineas := map[grupo][]Material{}
+		for _, mat := range materiales {
+			g := grupo{deref64(mat.RegistradoPor), deref64((*int64)(bodegaDe(mat.BodegaID)))}
+			if _, ok := lineas[g]; !ok {
+				orden2 = append(orden2, g)
+			}
+			lineas[g] = append(lineas[g], mat)
+		}
+		for _, g := range orden2 {
+			ms := lineas[g]
+			p := plan{operacion: OpConsumo, ruta: "/inventario/consumos",
+				clave: "iris:consumo:" + orden + ":" + strconv.FormatInt(g.usuario, 10) + ":" + strconv.FormatInt(g.bodega, 10)}
+			app, panel, sinTipo := false, false, false
+			lin := make([]map[string]any, 0, len(ms))
+			for _, mat := range ms {
+				if mat.DesdeApp {
+					app = true
+				} else {
+					panel = true
+					// M-4: desde el panel solo una bodega que Argos dijo tipo bodega al registrarla.
+					sinTipo = sinTipo || mat.BodegaTipo == nil || *mat.BodegaTipo != "bodega"
+				}
+				cant, ok, positivo := numero(mat.Cantidad)
+				switch {
+				case mat.ProductoID == nil:
+					p.incompleto = "material sin producto_id"
+				case !ok:
+					p.incompleto = "material sin cantidad numérica"
+				case !positivo:
+					p.incompleto = MotivoCantidadNoPositiva
+				}
+				if mat.ProductoID != nil {
+					consumoDe[int64(*mat.ProductoID)] = len(planes)
+				}
+				lin = append(lin, map[string]any{"producto_id": mat.ProductoID, "cantidad": cant})
+			}
+			var bodega *IDArgos
+			if g.bodega != 0 {
+				b := IDArgos(g.bodega)
+				bodega = &b
+			}
+			p.payload = con(origen(orden), map[string]any{"lineas": lin, "servicio_id": o.ServicioID, "bodega_id": bodega})
+			// M-6 (0.12.0 §3.3): la fecha más reciente de sus líneas y cuándo las aceptó Iris.
+			var fecha, recibido *time.Time
+			for _, mat := range ms {
+				if mat.Fecha != nil && (fecha == nil || mat.Fecha.After(*fecha)) {
+					fecha = mat.Fecha
+				}
+				if mat.RecibidoEnIris != nil && (recibido == nil || mat.RecibidoEnIris.After(*recibido)) {
+					recibido = mat.RecibidoEnIris
+				}
+			}
+			fechas(p.payload, fecha, recibido)
+			switch {
+			case bodega == nil:
+				p.incompleto = "material sin bodega_id (ni en la línea ni en la orden)"
+			case app && panel:
+				p.incompleto = "el mismo usuario y bodega con material de la app y del panel"
+			case panel && (cuadrillas[g.bodega] || op.personales[g.bodega] || sinTipo):
+				p.incompleto = "despacho indicó una bodega de cuadrilla, personal o de tipo desconocido (desde el panel solo bodegas tipo bodega)"
+			case app && g.usuario == 0:
+				p.incompleto = "material de la app sin quien lo registró"
+			}
+			if app {
+				p.conTecnico, p.conActor = true, true
+				if g.usuario != 0 {
+					u := g.usuario
+					p.actor = &u
+				}
+				if v := strings.TrimSpace(op.vinculos[g.usuario]); v != "" {
+					p.payload["tecnico"] = map[string]any{"id_externo": v}
+				} else {
+					p.payload["tecnico"] = nil
+					if p.incompleto == "" {
+						p.incompleto = "quien registró el material no está vinculado a Argos (I1)"
+					}
+				}
+			}
+			agregar(faltaServicio(p))
+		}
+	}
+
 	// Materiales usados (cualquier tipo y resultado): un consumo por orden (lineas[], 0.5.0) desde la
 	// bodega del técnico o una bodega. Solo consumibles: un comodato va como equipo (se omite).
-	consumo := -1
+	// enConsumo: producto → índice del consumo que lo lleva (el cargo de ese producto lo espera).
+	consumoDe := map[int64]int{}
 	// Productos del consumo (cualquier modalidad consumible): un cargo de la orden con uno de ellos
 	// espera al consumo; si Argos ya lo cobró por modalidad, responde 409 cargo_duplicado (conciliado).
-	enConsumo := map[int64]bool{}
 	var comodatos []string
 	materiales := make([]Material, 0, len(o.Materiales))
 	for _, mat := range o.Materiales {
@@ -630,7 +766,9 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	if len(comodatos) > 0 {
 		omisiones = append(omisiones, omision{motivo: MotivoMaterialComodato, operaciones: comodatos})
 	}
-	if len(materiales) > 0 {
+	if len(materiales) > 0 && op.porOperacion {
+		consumosPorActor(materiales, consumoDe)
+	} else if len(materiales) > 0 {
 		p := plan{operacion: OpConsumo, clave: "iris:consumo:" + orden, ruta: "/inventario/consumos"}
 		porBodega := tecnico == nil
 		app, panel, sinActor, panelEspecial := false, false, false, false
@@ -703,7 +841,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				bodega = b
 			}
 			if mat.ProductoID != nil {
-				enConsumo[int64(*mat.ProductoID)] = true
+				consumoDe[int64(*mat.ProductoID)] = len(planes)
 			}
 			linea := map[string]any{"producto_id": mat.ProductoID, "cantidad": cant}
 			lineas = append(lineas, linea)
@@ -731,7 +869,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 		default:
 			p.payload["tecnico"], p.conTecnico = tecnico, true
 		}
-		consumo = agregar(faltaServicio(p))
+		agregar(faltaServicio(p))
 	}
 
 	// Cargo único si la orden lo indica.
@@ -743,8 +881,8 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 			// Mismo producto en el consumo: el cargo va después del consumo (nunca se descarta: el consumo
 			// puede fallar o el producto cambiar de modalidad); si Argos ya lo cobró por modalidad,
 			// responde 409 cargo_duplicado y se concilia como hecho (§3.3).
-			if consumo >= 0 && enConsumo[int64(*o.Cargo.ProductoID)] {
-				p.depende = []int{consumo}
+			if c, ok := consumoDe[int64(*o.Cargo.ProductoID)]; ok {
+				p.depende = []int{c}
 			}
 		}
 		monto, montoOK, montoPositivo := numero(o.Cargo.Monto)
@@ -895,12 +1033,15 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			if err != nil {
 				return res, err
 			}
-			equipos, bodegaApp := false, false
+			equipos, bodegaApp, porOperacion := false, false, false
 			if m.cfg.Argos != nil {
 				if equipos, err = m.cfg.Argos.EquiposDelCliente(ctx, t); err != nil {
 					return res, err
 				}
 				if bodegaApp, err = m.cfg.Argos.BodegaDeCuadrilla(ctx, t); err != nil {
+					return res, err
+				}
+				if porOperacion, err = m.cfg.Argos.ClavesPorOperacion(ctx, t); err != nil {
 					return res, err
 				}
 			}
@@ -909,7 +1050,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				return res, err
 			}
 			planes, omisiones := planificar(o, opcionesPlan{porTecnico: porTecnico, cuadrillas: cuadrillas, personales: personales,
-				bodegaApp: bodegaApp, vinculos: vinculos, equipos: equipos, notas: notas})
+				bodegaApp: bodegaApp, vinculos: vinculos, equipos: equipos, notas: notas, porOperacion: porOperacion})
 			if len(planes) == 0 && len(omisiones) == 0 {
 				return res, nil
 			}
@@ -1065,6 +1206,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 // Idempotente: un evento repetido no duplica pendientes. Un payload ilegible o sin orden_id se
 // registra en el log y no se reintenta.
 func (m *Modulo) Suscribir(bus *integracion.Bus) {
+	m.suscribirFotos(bus)
 	bus.Suscribir("integracion.pendientes_orden_cerrada", EventoOrdenCerrada, func(ctx context.Context, e integracion.Evento) error {
 		var o OrdenCerrada
 		if err := json.Unmarshal(e.Payload, &o); err != nil || o.OrdenID == "" {

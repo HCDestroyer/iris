@@ -28,7 +28,7 @@ func TestPayloadCerradaNoJuntaActores(t *testing.T) {
 	}{{3, a, true}, {4, b, true}, {8, a, false}}
 	for i, q := range quiero {
 		m := materiales[i]
-		if m["cantidad"] != q.cantidad || *(m["registrado_por"].(*int64)) != q.actor || m["desde_app"] != q.app {
+		if m["cantidad"] != q.cantidad || *(m["usuario_id"].(*int64)) != q.actor || m["desde_app"] != q.app {
 			t.Fatalf("línea %d: %+v", i, m)
 		}
 	}

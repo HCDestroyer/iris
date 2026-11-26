@@ -26899,6 +26899,7 @@
           "accesos.ver",
           "adjuntos.subir",
           "adjuntos.ver",
+          "adjuntos.verificar_integracion",
           "agenda.activar_cuadrilla",
           "agenda.activar_tecnico",
           "agenda.activar_zona",
@@ -36410,6 +36411,33 @@
         ],
         "type": "object"
       },
+      "VerificacionIntento": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "description": "Por qué no está verificado (null si lo está)",
+            "enum": [
+              "envio_en_curso",
+              "no_enviado_por_iris",
+              "no_coincide",
+              "foto_pendiente",
+              "foto_invalida"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "verificado": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "verificado",
+          "motivo"
+        ],
+        "type": "object"
+      },
       "VersionCorreoSistema": {
         "additionalProperties": false,
         "properties": {
@@ -45201,6 +45229,125 @@
           "integraciones"
         ],
         "x-permiso": "integraciones.ver"
+      }
+    },
+    "/api/v1/integraciones/argosisp/intentos-recuperacion/verificacion": {
+      "get": {
+        "description": "Permiso: `adjuntos.verificar_integracion`. Contrato con ArgosISP 0.14.0 §3.10: Argos consulta, con su `iris_pat_` del panel y la `Idempotency-Key` con la que recibió el cambio o el intento, si Iris se lo mandó. `verificado: true` solo si Iris recibió de ese conector un 2xx para esa clave y la foto (siempre en un intento; en un cambio, si la lleva) está completa, es de esa orden y de su autor, se tomó después de su llegada y no la usa otra operación. Si no, `motivo`: `envio_en_curso`, `no_enviado_por_iris`, `no_coincide` (Argos respondió 422 `idempotency_key_reutilizada`), `foto_pendiente` o `foto_invalida`. 404 igual para una clave desconocida o fuera de las empresas del alcance del conector. Nunca devuelve la imagen, el autor ni las horas. Auditada; 60 consultas por minuto por conector y 20 por clave al día (429 `demasiadas_peticiones` con `Retry-After`).",
+        "operationId": "verificarIntentoRecuperacion",
+        "parameters": [
+          {
+            "description": "Empresa del servicio",
+            "explode": false,
+            "in": "query",
+            "name": "empresa_id",
+            "required": true,
+            "schema": {
+              "description": "Empresa del servicio",
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "La Idempotency-Key con la que Argos recibió el cambio o el intento, tal cual",
+            "explode": false,
+            "in": "query",
+            "name": "idempotency_key",
+            "required": true,
+            "schema": {
+              "description": "La Idempotency-Key con la que Argos recibió el cambio o el intento, tal cual",
+              "maxLength": 300,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerificacionIntento"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Verificar un cambio o un intento de recuperación (Argos)",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "adjuntos.verificar_integracion"
       }
     },
     "/api/v1/integraciones/argosisp/plantillas-whatsapp": {

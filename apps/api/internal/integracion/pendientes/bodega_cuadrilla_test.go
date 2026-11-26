@@ -22,14 +22,14 @@ func TestConsumoDesdeLaBodegaDeLaCuadrilla(t *testing.T) {
 		ON CONFLICT (bodega_id) DO NOTHING`)
 	desdeApp := func(producto, bodega int64, quien any) map[string]any {
 		return map[string]any{"producto_id": producto, "cantidad": 1, "bodega_id": bodega, "modalidad": "consumible_gasto",
-			"desde_app": true, "registrado_por": quien}
+			"desde_app": true, "usuario_id": quien}
 	}
 
 	orden := nuevaOrden()
 	e.cerrar(map[string]any{
 		"orden_id": orden, "tipo": "instalacion", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26"},
-		"equipos":    []any{map[string]any{"accion": "instalar", "serie": "ONT-26", "bodega_id": 3, "desde_app": true, "registrado_por": tec}},
+		"equipos":    []any{map[string]any{"accion": "instalar", "serie": "ONT-26", "bodega_id": 3, "desde_app": true, "usuario_id": tec}},
 		"materiales": []any{desdeApp(5, 8126, tec)},
 	})
 	e.procesar()
@@ -49,7 +49,7 @@ func TestConsumoDesdeLaBodegaDeLaCuadrilla(t *testing.T) {
 		"orden_id": reasignada, "tipo": "instalacion", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": otro, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-26b"},
 		"materiales": []any{desdeApp(5, 3, tec)},
-		"equipos":    []any{map[string]any{"accion": "instalar", "serie": "ONT-27", "desde_app": true, "registrado_por": tec}},
+		"equipos":    []any{map[string]any{"accion": "instalar", "serie": "ONT-27", "desde_app": true, "usuario_id": tec}},
 	})
 	e.procesar()
 	c = e.llamadaA("iris:consumo:" + reasignada)
@@ -121,7 +121,7 @@ func TestConsumoDeLaAppConActorDeQuienLoRegistro(t *testing.T) {
 		"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20,
 		"tecnico_id": tec, "bodega_id": 3, "tecnico": map[string]any{"id_externo": "u-29"},
 		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 4, "modalidad": "consumible_gasto",
-			"desde_app": true, "registrado_por": tec}},
+			"desde_app": true, "usuario_id": tec}},
 	})
 	e.procesar()
 	c := e.llamadaA("iris:consumo:" + orden)

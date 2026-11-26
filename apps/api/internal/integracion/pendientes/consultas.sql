@@ -35,6 +35,53 @@ SELECT bodega_id FROM integracion.argos_bodegas_tecnico WHERE bodega_id = ANY(@b
 SELECT usuario_id, argos_id_externo::text AS id_externo FROM agenda.tecnicos
 WHERE usuario_id = ANY(@usuarios::bigint[]) AND argos_id_externo IS NOT NULL AND argos_id_externo <> '';
 
+-- name: EsperandoFoto :many
+-- Los cambios e intentos que esperan esta foto (0.14.0 §3.10).
+SELECT id FROM integracion.pendientes
+WHERE estado = 'bloqueado' AND ultimo_error = @motivo::text AND operacion IN ('cambio', 'no_recuperado')
+  AND payload->>'foto_ref' = @foto_ref::text
+ORDER BY id;
+
+-- name: OtroIntentoDelDia :one
+-- Otro intento de Iris de la misma unidad (misma ruta) el mismo día de America/Guatemala que este
+-- (0.14.0 §3.10): sin él, un 429 demasiados_intentos es un «posible intento ajeno».
+SELECT EXISTS (
+    SELECT 1 FROM integracion.pendientes p, integracion.pendientes yo
+    WHERE yo.id = @id AND p.id <> yo.id AND p.operacion = 'no_recuperado' AND p.ruta = yo.ruta
+      AND ((p.payload->>'fecha')::timestamptz AT TIME ZONE 'America/Guatemala')::date
+        = ((yo.payload->>'fecha')::timestamptz AT TIME ZONE 'America/Guatemala')::date
+)::boolean;
+
+-- name: ConectorDeToken :one
+-- El conector Argos al que Iris entregó este token (el que consulta la verificación).
+SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = @token_id;
+
+-- name: ContarVerificaciones :one
+-- Consultas de verificación del conector en el último minuto y de la clave desde @dia.
+SELECT
+    (SELECT count(*) FROM integracion.verificaciones_intento v WHERE v.conector_id = @conector_id AND v.consultada_en > @minuto)::int AS por_minuto,
+    (SELECT count(*) FROM integracion.verificaciones_intento v WHERE v.clave = @clave AND v.consultada_en >= @dia)::int AS por_clave;
+
+-- name: BloquearVerificacion :exec
+-- M-1: el tope se cuenta e inserta con el conector y la clave bloqueados (consultas concurrentes).
+SELECT pg_advisory_xact_lock(hashtextextended(@llave::text, 0));
+
+-- name: RegistrarVerificacion :exec
+INSERT INTO integracion.verificaciones_intento (conector_id, clave, consultada_en) VALUES (@conector_id, @clave, @en);
+
+-- name: PurgarVerificaciones :exec
+DELETE FROM integracion.verificaciones_intento WHERE consultada_en < @antes;
+
+-- name: LlegadaParaVerificar :one
+-- La llegada del autor a la orden (último orden.llegar suyo el mismo día de la fecha, sin pasarla).
+SELECT coalesce(max(ocurrido_en), '0001-01-01 00:00:00+00'::timestamptz)::timestamptz FROM campo.orden_eventos
+WHERE orden_id::text = @orden_id::text AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
+  AND actor_id = @actor_id AND ocurrido_en >= @desde AND ocurrido_en <= @fecha;
+
+-- name: UsosDeFoto :one
+-- Cuántos cambios o intentos usan esta foto.
+SELECT count(*)::int FROM campo.orden_equipos WHERE foto_adjunto_id = @foto;
+
 -- name: PendientePorClave :one
 SELECT * FROM integracion.pendientes WHERE idempotency_key = @idempotency_key;
 
@@ -72,6 +119,7 @@ SET estado          = @estado,
     respuesta       = coalesce(respuesta, sqlc.narg(respuesta)::jsonb),
     codigo_error    = sqlc.narg(codigo_error),
     tomado_en       = NULL,
+    enviado_a_conector = coalesce(sqlc.narg(enviado_a_conector)::bigint, enviado_a_conector),
     version         = version + 1,
     updated_at      = now()
 WHERE id = @id AND estado = 'en_curso'

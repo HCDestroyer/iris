@@ -2,11 +2,13 @@ package campo_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/pruebas"
@@ -217,7 +219,7 @@ func TestNoRecuperadoFotoValida(t *testing.T) {
 	rechazo(fotoDe(t, o, despacho(t)).String(), "tuya")
 	// Tomada antes de llegar.
 	vieja := fotoDe(t, o, r.tec)
-	exec(t, `UPDATE nucleo.adjuntos SET created_at = (SELECT en_sitio_en FROM campo.ordenes WHERE id = $2) - interval '2 hours' WHERE id = $1`, vieja, o)
+	exec(t, `UPDATE nucleo.adjuntos SET tomado_en = (SELECT en_sitio_en FROM campo.ordenes WHERE id = $2) - interval '2 hours' WHERE id = $1`, vieja, o)
 	rechazo(vieja.String(), "después de llegar")
 	// Rechazada al subir.
 	mala := fotoDe(t, o, r.tec)
@@ -362,6 +364,96 @@ func llegadaEn(t *testing.T, orden, tec int64, cuando time.Time) {
 	t.Helper()
 	exec(t, `INSERT INTO campo.orden_eventos (orden_id, tipo, de, a, actor_tipo, actor_id, ocurrido_en)
 		VALUES ($1, 'estado', 'en_camino', 'en_sitio', 'usuario', $2, $3)`, orden, tec, cuando)
+}
+
+// equiposFalsos hace de pendientes (EquiposArgos): dice si Argos es ≥ 0.14.0 y guarda lo encolado.
+type equiposFalsos struct {
+	catorce bool
+	cuerpos []map[string]any
+}
+
+func (f *equiposFalsos) ClavesPorOperacion(context.Context, *auditoria.Tx) (bool, error) {
+	return f.catorce, nil
+}
+
+func (f *equiposFalsos) EncolarAlAplicar(_ context.Context, _ *auditoria.Tx, orden []byte) (bool, error) {
+	var m map[string]any
+	if err := json.Unmarshal(orden, &m); err != nil {
+		return false, err
+	}
+	f.cuerpos = append(f.cuerpos, m)
+	return f.catorce, nil
+}
+
+// 0.14.0 §3.10: con un Argos ≥ 0.14.0 el intento se encola al aplicarse (con el id de la operación
+// y quien lo registró) y queda marcado para que el cierre solo lo resuma.
+func TestIntentoSeEncolaAlAplicarse014(t *testing.T) {
+	f := &equiposFalsos{catorce: true}
+	r := nuevoRetiroEnSitio(t, 2, func(c *campo.Config) { c.Equipos = f })
+	o := r.orden.ID
+	x := op(campo.OpEquipoNoRecuperado, o, r.intento(t, o, r.unidades[0], "cliente_ausente"))
+	esperar(t, lote(t, r.e, r.ct, x), "aplicada")
+	if len(f.cuerpos) != 1 {
+		t.Fatalf("encolado al aplicar: %d", len(f.cuerpos))
+	}
+	eq := f.cuerpos[0]["equipos"].([]any)[0].(map[string]any)
+	if eq["id"] != x.ID || eq["accion"] != "no_recuperado" || eq["usuario_id"] != float64(r.tec) || eq["foto_ref"] == nil {
+		t.Fatalf("equipo encolado: %+v", eq)
+	}
+	if n := contar(t, `SELECT count(*) FROM campo.orden_equipos WHERE id = $1 AND enviado_al_aplicar`, x.ID); n != 1 {
+		t.Fatal("marcado como enviado al aplicar")
+	}
+	// Con 0.14.0 una orden puede llevar otro intento de la misma unidad (otro día).
+	r.e.reloj.avanzar(24 * time.Hour)
+	posicion(t, r.tec, 14.6, -90.5, r.e.reloj.ahora().Add(-5*time.Minute), r.e.reloj.ahora().Add(-4*time.Minute))
+	llegadaEn(t, o, r.tec, r.e.reloj.ahora().Add(-10*time.Minute))
+	otro := r.intento(t, o, r.unidades[0], "cliente_ausente")
+	exec(t, `UPDATE nucleo.adjuntos SET tomado_en = $2 WHERE id = $1`, otro["fotoAdjuntoId"], r.e.reloj.ahora())
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, otro)), "aplicada")
+}
+
+// 0.14.0 §4.5: con un Argos < 0.14.0, un solo intento por unidad y orden (intento_repetido).
+func TestIntentoRepetidoConArgosAnterior(t *testing.T) {
+	f := &equiposFalsos{}
+	r := nuevoRetiroEnSitio(t, 1, func(c *campo.Config) { c.Equipos = f })
+	o := r.orden.ID
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, r.intento(t, o, r.unidades[0], "cliente_ausente"))), "aplicada")
+	r.e.reloj.avanzar(24 * time.Hour)
+	posicion(t, r.tec, 14.6, -90.5, r.e.reloj.ahora().Add(-5*time.Minute), r.e.reloj.ahora().Add(-4*time.Minute))
+	llegadaEn(t, o, r.tec, r.e.reloj.ahora().Add(-10*time.Minute))
+	otro := r.intento(t, o, r.unidades[0], "cliente_ausente")
+	exec(t, `UPDATE nucleo.adjuntos SET tomado_en = $2 WHERE id = $1`, otro["fotoAdjuntoId"], r.e.reloj.ahora())
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, otro)), "rechazada:"+campo.CodigoIntentoRepetido)
+	if n := contar(t, `SELECT count(*) FROM campo.orden_equipos WHERE orden_id = $1 AND enviado_al_aplicar`, o); n != 0 {
+		t.Fatal("con un Argos anterior nada sale al aplicarse")
+	}
+}
+
+// 0.14.0 §3.10 (R-07, T-7): la foto lleva tomadoEn (no posterior al lote) y un cambio con cobro
+// propuesto exige foto.
+func TestFotoConTomadoEnYCobroConFoto(t *testing.T) {
+	r := nuevoRetiroEnSitio(t, 1)
+	o := r.orden.ID
+	sinHora := r.intento(t, o, r.unidades[0], "cliente_ausente")
+	exec(t, `UPDATE nucleo.adjuntos SET tomado_en = NULL WHERE id = $1`, sinHora["fotoAdjuntoId"])
+	res := lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, sinHora))
+	esperar(t, res, "rechazada:validacion")
+	if m := mensajeDe(res); !strings.Contains(m, "tomadoEn") {
+		t.Fatalf("sin hora de captura: %q", m)
+	}
+	futura := r.intento(t, o, r.unidades[0], "cliente_ausente")
+	exec(t, `UPDATE nucleo.adjuntos SET tomado_en = $2 WHERE id = $1`, futura["fotoAdjuntoId"], r.e.reloj.ahora().Add(time.Hour))
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpEquipoNoRecuperado, o, futura)), "rechazada:validacion")
+
+	cambio := programada(t, r.e, r.cd, "cambio_equipo", r.tec)
+	conServicio(t, cambio.ID, r.servicio)
+	esperar(t, lote(t, r.e, r.ct, op(campo.OpLlegar, cambio.ID, nil)), "aplicada")
+	res = lote(t, r.e, r.ct, op(campo.OpEquipoCambiar, cambio.ID, map[string]any{"saleUnidadId": r.unidades[0],
+		"entra": map[string]any{"serie": "ZTEGC8A1B2C3"}, "motivo": "danado", "cobroPropuesto": map[string]any{"motivo": "golpe"}}))
+	esperar(t, res, "rechazada:validacion")
+	if res.Resultados[0].Error.Errors[0].Field != "fotoAdjuntoId" {
+		t.Fatalf("cobro sin foto: %+v", res.Resultados[0].Error)
+	}
 }
 
 // M-7 (0.14.0 §3.9 y §3.10): corte inmediato. Si el técnico ya no es de la cuadrilla de la que era

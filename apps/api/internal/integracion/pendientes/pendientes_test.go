@@ -55,11 +55,12 @@ type argosFalso struct {
 	detalle    string
 	cuerpos    map[string]string // ruta → cuerpo del 2xx (por defecto {"ok":true})
 	tipos      map[string]string // ruta → type del problem+json (por defecto urn:argos:sin_existencias)
+	retry      map[string]string // ruta → Retry-After de la respuesta de error
 	campos     []string          // errors[].field del problem+json (vacío: sin errors)
 }
 
 func nuevoArgosFalso(t *testing.T) *argosFalso {
-	a := &argosFalso{respuestas: map[string][]int{}, cuerpos: map[string]string{}, tipos: map[string]string{}}
+	a := &argosFalso{respuestas: map[string][]int{}, cuerpos: map[string]string{}, tipos: map[string]string{}, retry: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, r *http.Request) {
 		// 0.6.2: el canje trae el receptor de Argos en su propio host (sin él, 422 webhook_invalido).
@@ -83,6 +84,9 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		}
 		if status >= 400 {
 			w.Header().Set("Content-Type", "application/problem+json")
+			if v := a.retry[ruta]; v != "" {
+				w.Header().Set("Retry-After", v)
+			}
 			w.WriteHeader(status)
 			tipo, ok := a.tipos[ruta]
 			if !ok {

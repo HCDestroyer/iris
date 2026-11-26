@@ -330,32 +330,33 @@ type CampoOrdenChecklistHistorial struct {
 }
 
 type CampoOrdenEquipo struct {
-	ID            uuid.UUID
-	OrdenID       int64
-	Accion        string
-	UnidadID      *int64
-	Serie         *string
-	Mac           *string
-	Modelo        string
-	Condicion     *string
-	RegistradoPor *int64
-	Canal         string
-	OcurridoEn    time.Time
-	OperacionID   *uuid.UUID
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Validado      bool
-	SaleUnidadID  *int64
-	Motivo        *string
-	DestinoSale   *string
-	CobroMotivo   *string
-	CobroNota     *string
-	Nota          *string
-	FotoAdjuntoID *uuid.UUID
-	Lat           *float64
-	Lon           *float64
-	PrecisionM    *float32
-	RecibidoEn    *time.Time
+	ID               uuid.UUID
+	OrdenID          int64
+	Accion           string
+	UnidadID         *int64
+	Serie            *string
+	Mac              *string
+	Modelo           string
+	Condicion        *string
+	RegistradoPor    *int64
+	Canal            string
+	OcurridoEn       time.Time
+	OperacionID      *uuid.UUID
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Validado         bool
+	SaleUnidadID     *int64
+	Motivo           *string
+	DestinoSale      *string
+	CobroMotivo      *string
+	CobroNota        *string
+	Nota             *string
+	FotoAdjuntoID    *uuid.UUID
+	Lat              *float64
+	Lon              *float64
+	PrecisionM       *float32
+	RecibidoEn       *time.Time
+	EnviadoAlAplicar bool
 }
 
 type CampoOrdenEvento struct {
@@ -1201,6 +1202,14 @@ type IntegracionPendiente struct {
 	TransitoID        *uuid.UUID
 	ResueltoComo      *string
 	ResueltoClienteID *int64
+	EnviadoAConector  *int64
+}
+
+type IntegracionVerificacionesIntento struct {
+	ID           int64
+	ConectorID   int64
+	Clave        string
+	ConsultadaEn time.Time
 }
 
 type MensajeriaAjustesBandeja struct {

@@ -105,6 +105,17 @@ func (m *Modulo) EquiposDelCliente(ctx context.Context, q conector.DBTX) (bool, 
 	return m.contratoAlMenos(ctx, q, ContratoEquipos)
 }
 
+// ContratoClavesPorOperacion es el primer contrato con las claves por operación de cambios e
+// intentos, el consumo por actor y bodega, tecnico por línea, la verificación del intento y los
+// webhooks tecnico.argos_* (0.14.0 §3.9, §3.10, §4.5, §6.6).
+const ContratoClavesPorOperacion = "0.14.0"
+
+// ClavesPorOperacion indica si el conector Argos registrado más reciente informa contrato ≥ 0.14.0.
+// Falla cerrado.
+func (m *Modulo) ClavesPorOperacion(ctx context.Context, q conector.DBTX) (bool, error) {
+	return m.contratoAlMenos(ctx, q, ContratoClavesPorOperacion)
+}
+
 // contratoAlMenos: el conector Argos registrado más reciente (activo o, si no hay, el último)
 // informa un contrato ≥ minimo. Falla cerrado.
 func (m *Modulo) contratoAlMenos(ctx context.Context, q conector.DBTX, minimo string) (bool, error) {

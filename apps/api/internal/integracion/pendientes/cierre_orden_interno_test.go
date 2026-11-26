@@ -113,7 +113,7 @@ func TestPlanificarEquiposConQuienLoRegistro(t *testing.T) {
 	var o OrdenCerrada
 	if err := json.Unmarshal([]byte(`{"orden_id":"0193f000-0000-7000-8000-0000000000f1","tipo":"retiro","resultado":"exitosa",
 		"servicio_id":50,"cliente_id":10,"tecnico_id":8,"equipos":[
-		{"accion":"no_recuperado","unidad_id":91,"motivo":"se_nego","foto_ref":"f1","ubicacion":{"lat":14.6,"lng":-90.5,"precision_m":10},"registrado_por":7},
+		{"accion":"no_recuperado","unidad_id":91,"motivo":"se_nego","foto_ref":"f1","ubicacion":{"lat":14.6,"lng":-90.5,"precision_m":10},"usuario_id":7},
 		{"accion":"no_recuperado","unidad_id":92,"motivo":"se_nego","foto_ref":"f2","ubicacion":{"lat":14.6,"lng":-90.5,"precision_m":10}}]}`), &o); err != nil {
 		t.Fatal(err)
 	}

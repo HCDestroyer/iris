@@ -821,6 +821,14 @@ SELECT count(*)::bigint FROM campo.ordenes o
 WHERE o.origen = 'asistente' AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint
   AND o.created_at >= now() - interval '24 hours';
 
+-- name: MarcarEnviadoAlAplicar :exec
+-- El cambio o el intento ya se encoló hacia Argos al aplicarse (0.14.0 §3.10).
+UPDATE campo.orden_equipos SET enviado_al_aplicar = true WHERE id = @id;
+
+-- name: IntentosDeUnidadEnOrden :one
+-- Intentos de recuperación de la unidad en la orden (con Argos < 0.14.0, uno por unidad y orden).
+SELECT count(*)::int FROM campo.orden_equipos WHERE orden_id = @orden_id AND accion = 'no_recuperado' AND unidad_id = @unidad_id;
+
 -- name: DejoAlgunaCuadrilla :one
 -- El usuario dejó alguna cuadrilla (para leer de Argos la bodega de la unidad que entra, M-7).
 SELECT EXISTS (SELECT 1 FROM agenda.cuadrilla_miembros WHERE usuario_id = @usuario_id AND hasta IS NOT NULL)::boolean;
