@@ -7298,7 +7298,7 @@ export interface paths {
         };
         /**
          * Estado e historial de los equipos
-         * @description Permiso: `ordenes.ver` u `ordenes.ver_propias`. Las unidades del servicio de la orden y las que la orden instaló, retiró o cambió, con el estado que avisó Argos (`inventario.unidad_estado_cambiado`) y su historial reciente (estados y cambios de equipo, `inventario.equipo_cambiado`), sin costos, proveedor ni RMA. Vacío si Argos aún no avisó nada (contrato < 0.12.0).
+         * @description Permiso: `ordenes.ver` u `ordenes.ver_propias`. Las unidades del servicio de la orden y las que la orden instaló, retiró o cambió, con el estado que avisó Argos (`inventario.unidad_estado_cambiado`) y su historial reciente (estados y cambios de equipo, `inventario.equipo_cambiado`), sin costos, proveedor ni RMA. Solo muestra el servicio de la orden y la orden misma: el historial se recorta a los renglones de ese servicio, y `servicioId` u `ordenId` van en null si son otros. Vacío si Argos aún no avisó nada (contrato < 0.12.0).
          */
         get: operations["estadoEquiposOrden"];
         put?: never;
@@ -16964,13 +16964,16 @@ export interface components {
              * @enum {string|null}
              */
             estado: "disponible" | "en_comodato" | "por_recuperar" | "revision" | "garantia" | "dada_de_baja" | "no_recuperada" | "" | null;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description La hora de Argos del estado (null: sin hora de Argos)
+             */
             estadoEn: string | null;
             /** @description Del más nuevo al más viejo (hasta 20) */
             historial: components["schemas"]["MovimientoUnidad"][] | null;
             /**
              * Format: int64
-             * @description El servicio al que la asocia Argos (null: ninguno)
+             * @description El servicio de la orden si Argos asocia la unidad a él; null si a ninguno o a otro
              */
             servicioId: number | null;
             /** Format: int64 */
@@ -18731,11 +18734,25 @@ export interface components {
             /** @enum {string|null} */
             destinoSale: "funciona" | "revision" | "garantia" | "danado" | "" | null;
             motivo: string | null;
-            /** Format: date-time */
-            ocurridoEn: string;
-            /** @description La orden de Iris que hizo el cambio (origen iris_orden), si la hubo */
-            ordenId: string | null;
-            /** Format: int64 */
+            /**
+             * Format: date-time
+             * @description La hora del hecho en Argos (null: Argos no la mandó o venía en el futuro)
+             */
+            ocurridoEn: string | null;
+            /**
+             * Format: int64
+             * @description Solo si el cambio lo hizo esta orden (null: otra orden o ninguna)
+             */
+            ordenId: number | null;
+            /**
+             * Format: date-time
+             * @description Cuándo llegó el aviso a Iris (el historial va en este orden)
+             */
+            recibidoEn: string;
+            /**
+             * Format: int64
+             * @description Solo el servicio de la orden (los renglones de otros servicios no se muestran)
+             */
             servicioId: number | null;
             /**
              * @description estado: cambió de estado; sale / entra: salió o entró en un cambio de equipo

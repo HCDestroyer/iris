@@ -19143,6 +19143,7 @@
             ]
           },
           "estadoEn": {
+            "description": "La hora de Argos del estado (null: sin hora de Argos)",
             "format": "date-time",
             "type": [
               "string",
@@ -19160,7 +19161,7 @@
             ]
           },
           "servicioId": {
-            "description": "El servicio al que la asocia Argos (null: ninguno)",
+            "description": "El servicio de la orden si Argos asocia la unidad a él; null si a ninguno o a otro",
             "format": "int64",
             "type": [
               "integer",
@@ -24553,17 +24554,28 @@
             ]
           },
           "ocurridoEn": {
+            "description": "La hora del hecho en Argos (null: Argos no la mandó o venía en el futuro)",
             "format": "date-time",
-            "type": "string"
-          },
-          "ordenId": {
-            "description": "La orden de Iris que hizo el cambio (origen iris_orden), si la hubo",
             "type": [
               "string",
               "null"
             ]
           },
+          "ordenId": {
+            "description": "Solo si el cambio lo hizo esta orden (null: otra orden o ninguna)",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "recibidoEn": {
+            "description": "Cuándo llegó el aviso a Iris (el historial va en este orden)",
+            "format": "date-time",
+            "type": "string"
+          },
           "servicioId": {
+            "description": "Solo el servicio de la orden (los renglones de otros servicios no se muestran)",
             "format": "int64",
             "type": [
               "integer",
@@ -24588,7 +24600,8 @@
           "destinoSale",
           "servicioId",
           "ordenId",
-          "ocurridoEn"
+          "ocurridoEn",
+          "recibidoEn"
         ],
         "type": "object"
       },
@@ -83962,7 +83975,7 @@
     },
     "/api/v1/ordenes/{id}/equipos/estado": {
       "get": {
-        "description": "Permiso: `ordenes.ver` u `ordenes.ver_propias`. Las unidades del servicio de la orden y las que la orden instaló, retiró o cambió, con el estado que avisó Argos (`inventario.unidad_estado_cambiado`) y su historial reciente (estados y cambios de equipo, `inventario.equipo_cambiado`), sin costos, proveedor ni RMA. Vacío si Argos aún no avisó nada (contrato \u003c 0.12.0).",
+        "description": "Permiso: `ordenes.ver` u `ordenes.ver_propias`. Las unidades del servicio de la orden y las que la orden instaló, retiró o cambió, con el estado que avisó Argos (`inventario.unidad_estado_cambiado`) y su historial reciente (estados y cambios de equipo, `inventario.equipo_cambiado`), sin costos, proveedor ni RMA. Solo muestra el servicio de la orden y la orden misma: el historial se recorta a los renglones de ese servicio, y `servicioId` u `ordenId` van en null si son otros. Vacío si Argos aún no avisó nada (contrato \u003c 0.12.0).",
         "operationId": "estadoEquiposOrden",
         "parameters": [
           {
