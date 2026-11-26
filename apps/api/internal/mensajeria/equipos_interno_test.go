@@ -49,6 +49,33 @@ func TestValidarBienvenida(t *testing.T) {
 	}
 }
 
+// Revisión de seguridad: ningún enlace ajeno (cualquier dominio, también disfrazado con NFKC) ni
+// separador Unicode pasa en nombre o plan; lo legítimo sigue pasando.
+func TestValidarBienvenidaEnlacesYUnicode(t *testing.T) {
+	malos := []string{
+		"pagos-claro.ru", "bit.do/x", "evil.shop", "mi-pago.online", "pago\u2024com", "PAGO.COM", "pago．com", "https://x", "www.x",
+		"Ana\u2028Pérez", "Ana\u2029Pérez", "Ana\u0085Pérez", "Ana\rPérez", "Ana\u200bPérez", "Ana\u202ePérez", "Ana\x07",
+		"Ana    Pérez", "ana@correo", "ruta/abc",
+	}
+	for _, v := range malos {
+		for _, campo := range []string{"nombre", "plan"} {
+			if validarBienvenida(campo, v) == "" {
+				t.Errorf("%s debía rechazar %q", campo, v)
+			}
+		}
+	}
+	for _, v := range []string{"Dr. Pérez", "Ñandú Martínez", "O'Brien", "Ana María"} {
+		if msg := validarBienvenida("nombre", v); msg != "" {
+			t.Errorf("nombre %q: %s", v, msg)
+		}
+	}
+	for _, v := range []string{"Fibra 100 Mbps", "Plan Hogar 2.0", "Internet 10/5", "IPTV + Internet", "Fibra 100 Mbps (promo)"} {
+		if msg := validarBienvenida("plan", v); msg != "" {
+			t.Errorf("plan %q: %s", v, msg)
+		}
+	}
+}
+
 // El enlace solo lo pone el servidor, una vez, y solo si el turno lo creó.
 func TestMarcaEnlaceWifi(t *testing.T) {
 	tu := &turnoIA{}
