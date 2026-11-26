@@ -57,13 +57,13 @@ test.describe("embudo y lista", () => {
         await expect(page).toHaveURL(/vista=lista/);
         await elegirOpcion(page.getByLabel("Vendedor"), "mios");
         await expect(page).toHaveURL(/responsable=mios/);
-        const tabla = page.getByRole("table", { name: "Prospectos" });
-        await expect(tabla.getByRole("row")).toHaveCount(4);
-        await expect(tabla.getByText("Bruno Díaz")).toBeVisible();
+        const lista = page.getByRole("list", { name: "Prospectos" });
+        await expect(lista.getByRole("listitem")).toHaveCount(3);
+        await expect(lista.getByText("Bruno Díaz")).toBeVisible();
         await page.getByLabel("Buscar").fill("Diego");
         await expect(page).toHaveURL(/q=Diego/);
-        await expect(tabla.getByRole("row")).toHaveCount(2);
-        await tabla.getByRole("link", { name: /Diego López/ }).click();
+        await expect(lista.getByRole("listitem")).toHaveCount(1);
+        await lista.getByRole("link", { name: /Diego López/ }).click();
         await expect(page).toHaveURL(/\/comercial\/4$/);
         await expect(page.getByRole("heading", { name: "Diego López" })).toBeVisible();
         await page.goBack();
@@ -503,7 +503,7 @@ test("capturas del panel comercial", async ({ page, context, baseURL }, info) =>
     await page.screenshot({ path: nombre("01-embudo"), fullPage: true });
     if (!esTelefono(info.project.name)) {
         await page.goto("/comercial?vista=lista");
-        await expect(page.getByRole("table", { name: "Prospectos" })).toBeVisible();
+        await expect(page.getByRole("list", { name: "Prospectos" })).toBeVisible();
         await page.screenshot({ path: nombre("02-lista"), fullPage: true });
         await page.goto("/comercial?vista=mapa");
         await expect(page.getByTestId("mapa")).toHaveAttribute("data-listo", "si");

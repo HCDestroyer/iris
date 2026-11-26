@@ -89,7 +89,7 @@ export function Comercial() {
                     )}
                     <div key={clave}>
                         {vista === "embudo" ? <Embudo filtros={filtros} catalogos={catalogos} /> : null}
-                        {vista === "lista" ? <ListaProspectos filtros={filtros} catalogos={catalogos} telefono={!ancho} /> : null}
+                        {vista === "lista" ? <ListaProspectos filtros={filtros} catalogos={catalogos} /> : null}
                         {vista === "mapa" ? <MapaProspectos filtros={filtros} /> : null}
                     </div>
                 </>

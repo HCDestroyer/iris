@@ -1,8 +1,8 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, BotonManualPantalla, cn, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { LifeBuoy, MessageCircle, SearchX } from "lucide-react";
+import { Aviso, Boton, BotonManualPantalla, cn, Esqueleto, EstadoVacio, FranjaFicha, PestanasSegmentadas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { ClipboardList, LifeBuoy, MessageCircle, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Contacto, FichaArgos } from "@/componentes/clientes/ficha-cliente";
@@ -138,20 +138,21 @@ function Detalle({ id }: { id: number }) {
     return (
         <>
             <header className="mb-4 grid gap-3">
-                <div className="grid gap-1">
-                    <span className="font-mono text-sm text-muted-foreground">{o.numero}</span>
-                    <div className="flex min-w-0 items-center gap-1.5">
-                        <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{o.direccion || "Orden sin dirección"}</h1>
-                        <BotonManualPantalla />
-                    </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-1.5">
-                    <InsigniaEstadoOrden estado={o.estado} />
-                    <InsigniaTipoOrden tipo={o.tipo} />
-                    <InsigniaOrigenOrden origen={o.origen} />
-                    {resumen ? <MarcaPendienteArgos resumen={resumen} /> : null}
-                    {datosArgos ? <MarcaDatosArgos cambios={datosArgos} /> : null}
-                </div>
+                <FranjaFicha
+                    icono={ClipboardList}
+                    titulo={o.direccion || "Orden sin dirección"}
+                    detalle={[o.numero, o.contacto.nombre, tecnico ?? "Sin técnico"].filter(Boolean).join(" · ")}
+                    manual={<BotonManualPantalla />}
+                    insignias={
+                        <>
+                            <InsigniaEstadoOrden estado={o.estado} />
+                            <InsigniaTipoOrden tipo={o.tipo} />
+                            <InsigniaOrigenOrden origen={o.origen} />
+                            {resumen ? <MarcaPendienteArgos resumen={resumen} /> : null}
+                            {datosArgos ? <MarcaDatosArgos cambios={datosArgos} /> : null}
+                        </>
+                    }
+                />
                 {o.estado === "fallida" ? (
                     <Aviso tono="error" titulo={`Fallida: ${textoMotivoFalla(o.motivoFalla) ?? "sin motivo"}`}>
                         {o.motivo ?? "El técnico no dejó detalle."}
@@ -174,7 +175,7 @@ function Detalle({ id }: { id: number }) {
             {/* En «Chat del equipo» el hilo usa todo el ancho (su propia columna «En este chat»). */}
             <div className={cn("grid grid-cols-[minmax(0,1fr)] gap-4", enChat ? "" : "lg:grid-cols-[minmax(0,1fr)_22rem]")}>
                 <div className="grid min-w-0 content-start gap-4">
-                    <Pestanas<PestanaOrden>
+                    <PestanasSegmentadas<PestanaOrden>
                         etiqueta="Secciones de la orden"
                         seleccionada={pestana === "chat" && !conChat ? "resumen" : pestana}
                         alCambiar={setPestana}

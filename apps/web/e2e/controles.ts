@@ -19,15 +19,23 @@ export function boton(control: Locator): Locator {
     return control.and(control.page().locator('[data-slot="select-trigger"]'));
 }
 
-function lista(disparador: Locator): Locator {
-    return disparador.page().locator('[role="listbox"]').filter({ visible: true }).last();
+/**
+ * La lista de ESTE `Select`, abierto: React Aria enlaza el botón con su lista por `aria-controls`
+ * (el `id` del `listbox`) mientras está abierta. Antes se tomaba «la última lista visible» de la
+ * página, que es ambiguo: con otra lista a la vista podía mirar (y esperar en) la equivocada.
+ */
+async function listaDe(disparador: Locator): Promise<Locator> {
+    await expect(disparador).toHaveAttribute("aria-expanded", "true");
+    await expect(disparador).toHaveAttribute("aria-controls", /\S/);
+    const id = await disparador.getAttribute("aria-controls");
+    return disparador.page().getByRole("listbox").and(disparador.page().locator(`[id="${(id ?? "").replace(/"/g, '\\"')}"]`));
 }
 
 /** Elige una opción del `Select`, como `selectOption`: un texto busca primero por valor y luego por el texto exacto. */
 export async function elegirOpcion(control: Locator, opcion: Opcion): Promise<void> {
     const disparador = boton(control);
     await disparador.click();
-    const caja = lista(disparador);
+    const caja = await listaDe(disparador);
     await expect(caja).toBeVisible();
     let elegida: Locator;
     if (typeof opcion === "string") {
@@ -41,6 +49,10 @@ export async function elegirOpcion(control: Locator, opcion: Opcion): Promise<vo
     }
     await elegida.first().click();
     await expect(caja).toBeHidden();
+    // No se comprueba aquí que el botón quede con el valor: hay selectores donde elegir no cambia
+    // el valor en el acto (el de empresa pide confirmar si hay una llamada viva) o desaparecen al
+    // cambiar (el de empresa cierra el panel de la cuenta y recarga). Cada prueba comprueba el
+    // resultado que espera, con `esperarOpcion` o con lo que cambia en la pantalla.
 }
 
 /** El valor elegido en un `Select` (antes `toHaveValue` del `<select>`). */
@@ -52,7 +64,7 @@ export async function esperarOpcion(control: Locator, valor: string): Promise<vo
 export async function textosOpciones(control: Locator): Promise<string[]> {
     const disparador = boton(control);
     await disparador.click();
-    const caja = lista(disparador);
+    const caja = await listaDe(disparador);
     await expect(caja).toBeVisible();
     const textos = (await caja.getByRole("option").allTextContents()).map((t) => t.trim());
     await disparador.page().keyboard.press("Escape");
@@ -106,7 +118,7 @@ export async function esperarValorCampo(ambito: Page | Locator, etiqueta: string
 export async function abrirOpciones(control: Locator): Promise<Locator> {
     const disparador = boton(control);
     await disparador.click();
-    const caja = lista(disparador);
+    const caja = await listaDe(disparador);
     await expect(caja).toBeVisible();
     return caja;
 }

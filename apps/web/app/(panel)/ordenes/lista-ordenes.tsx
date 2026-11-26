@@ -1,27 +1,16 @@
 "use client";
 
-import {
-    Aviso,
-    Boton,
-    Esqueleto,
-    EstadoVacio,
-    Tabla,
-    TablaCelda,
-    TablaCuerpo,
-    TablaEncabezado,
-    TablaFila,
-    TablaTitulo,
-    Tarjeta,
-} from "@iris/ui";
-import { CalendarClock, ClipboardList, MapPin, RotateCw, UserRound } from "lucide-react";
+import { Aviso, Boton, Esqueleto, EstadoVacio, FilaLista, ListaFilas, MenuAcciones, Tarjeta, VistaRapida } from "@iris/ui";
+import { CalendarClock, ClipboardList, Eye, LifeBuoy, MapPin, RotateCw, SquareArrowOutUpRight, UserRound } from "lucide-react";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useState, type ReactNode } from "react";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import type { PendientesPorOrden } from "@/componentes/ordenes/catalogos";
 import { MarcaDatosArgos } from "@/componentes/ordenes/datos-argos";
 import { InsigniaEstadoOrden, InsigniaTipoOrden, MarcaPendienteArgos } from "@/componentes/ordenes/insignias";
 import { cambiosDeArgos } from "@/lib/ordenes/datos-argos";
-import { PieLista } from "@/componentes/pie-lista";
+import { PieLista, piePaginado } from "@/componentes/pie-lista";
 import { nombreUsuario, type Usuario } from "@/componentes/tickets/catalogos";
 import { useAhora } from "@/componentes/tickets/insignias";
 import { api, resolver } from "@/lib/api/cliente";
@@ -30,6 +19,7 @@ import type { Lectura } from "@/lib/lectura";
 import type { ConsultaOrdenes } from "@/lib/ordenes/filtros";
 import { COLUMNAS, resumirPendientes, type Orden } from "@/lib/ordenes/presentacion";
 import { usePaginado } from "@/lib/paginado";
+import { useSesion } from "@/lib/sesion";
 
 const TAMANO_PAGINA = 30;
 
@@ -44,7 +34,7 @@ type Props = {
     hayFiltros: boolean;
 };
 
-/** Órdenes con cursor, en tabla/tarjetas o por columnas de estado. Se remonta (key) al cambiar los filtros. */
+/** Órdenes con cursor, en lista (`ListaFilas`) o por columnas de estado. Se remonta (key) al cambiar los filtros. */
 export function ListaOrdenes({ consulta, vista, usuarios, pendientes, yo, hayFiltros }: Props) {
     const ahora = useAhora();
     const paginado = usePaginado<Orden>((cursor, signal) =>
@@ -121,12 +111,17 @@ export function ListaOrdenes({ consulta, vista, usuarios, pendientes, yo, hayFil
                 <p className="mb-3 text-sm text-muted-foreground">Hay muchos pendientes en Argos: la marca se muestra para los 200 más recientes de cada estado.</p>
             ) : null}
 
-            {vista === "columnas" ? <Columnas ordenes={items} completo={!paginado.siguiente} {...props} /> : <Lista ordenes={items} {...props} />}
-
-            <div className="mt-4 grid justify-items-center gap-3">
-                <PieLista paginado={paginado} que="órdenes" />
-                {!paginado.siguiente && !paginado.errorMas ? <p className="text-sm text-muted-foreground">No hay más órdenes.</p> : null}
-            </div>
+            {vista === "columnas" ? (
+                <>
+                    <Columnas ordenes={items} completo={!paginado.siguiente} {...props} />
+                    <div className="mt-4 grid justify-items-center gap-3">
+                        <PieLista paginado={paginado} que="órdenes" />
+                        {!paginado.siguiente && !paginado.errorMas ? <p className="text-sm text-muted-foreground">No hay más órdenes.</p> : null}
+                    </div>
+                </>
+            ) : (
+                <Lista ordenes={items} pie={piePaginado(paginado, "órdenes")} {...props} />
+            )}
         </>
     );
 }
@@ -179,61 +174,139 @@ function TarjetaOrden({ orden: o, marca, tecnico }: PropsTarjeta & { orden: Orde
     );
 }
 
-function Lista({ ordenes, ...props }: PropsTarjeta & { ordenes: readonly Orden[] }) {
+const TONO_TIPO = { instalacion: "marca", visita: "info", retiro: "neutro", cambio_equipo: "atencion", mantenimiento: "info" } as const satisfies Record<Orden["tipo"], "marca" | "info" | "neutro" | "atencion">;
+
+/** Lista de órdenes (`ListaFilas`): cada fila abre la ficha; su menú `⋯` tiene la vista rápida. */
+function Lista({ ordenes, pie, ...props }: PropsTarjeta & { ordenes: readonly Orden[]; pie: ReturnType<typeof piePaginado> }) {
     const { marca, tecnico, ahora } = props;
+    const router = useRouter();
+    const { puede } = useSesion();
+    // «Abrir el ticket» solo con permiso para verlo.
+    const veTickets = puede(["tickets.ver"]);
+    const [vistaId, setVistaId] = useState<number | null>(null);
+    const enVista = ordenes.find((o) => o.id === vistaId) ?? null;
     return (
-        <Tarjeta className="overflow-hidden">
-            {/* Teléfono: tarjetas */}
-            <ul className="divide-y md:hidden" aria-label="Órdenes">
+        <>
+            <ListaFilas etiqueta="Órdenes" {...pie}>
                 {ordenes.map((o) => (
-                    <li key={o.id}>
-                        <TarjetaOrden orden={o} {...props} />
-                    </li>
+                    <FilaLista
+                        key={o.id}
+                        data-orden={o.numero}
+                        icono={ClipboardList}
+                        tonoIcono={TONO_TIPO[o.tipo]}
+                        titulo={o.direccion || "Sin dirección"}
+                        detalle={
+                            <>
+                                <span className="font-mono">{o.numero}</span>
+                                {[o.contacto.nombre, tecnico(o) ?? "Sin técnico"]
+                                    .filter(Boolean)
+                                    .map((parte) => ` · ${parte}`)
+                                    .join("")}
+                                {" · "}
+                                <Programada orden={o} />
+                            </>
+                        }
+                        href={`/ordenes/${o.id}`}
+                        activa={vistaId === o.id}
+                        extremo={
+                            <>
+                                <InsigniaTipoOrden tipo={o.tipo} />
+                                <InsigniaEstadoOrden estado={o.estado} />
+                                {marca(o)}
+                                <span className="text-xs whitespace-nowrap text-muted-foreground">{haceCuanto(o.actualizadoEn, ahora)}</span>
+                            </>
+                        }
+                        extremoTelefono="debajo"
+                        menu={
+                            <MenuAcciones
+                                etiqueta={`Acciones de ${o.numero}`}
+                                acciones={[
+                                    { id: "vista", texto: "Vista rápida", icono: Eye, alElegir: () => setVistaId(o.id) },
+                                    { id: "abrir", texto: "Abrir ficha", icono: SquareArrowOutUpRight, alElegir: () => router.push(`/ordenes/${o.id}`) },
+                                    {
+                                        id: "ticket",
+                                        texto: "Abrir el ticket",
+                                        icono: LifeBuoy,
+                                        permitida: o.ticketId !== null && veTickets,
+                                        alElegir: () => router.push(`/tickets/${o.ticketId}`),
+                                    },
+                                ]}
+                            />
+                        }
+                    />
                 ))}
-            </ul>
-            {/* Escritorio: tabla */}
-            <div className="hidden md:block">
-                <Tabla aria-label="Órdenes">
-                    <TablaEncabezado>
-                        <TablaFila className="hover:bg-transparent">
-                            <TablaTitulo>Orden</TablaTitulo>
-                            <TablaTitulo>Tipo</TablaTitulo>
-                            <TablaTitulo>Estado</TablaTitulo>
-                            <TablaTitulo>Programada</TablaTitulo>
-                            <TablaTitulo>Técnico</TablaTitulo>
-                            <TablaTitulo className="text-right">Actualizada</TablaTitulo>
-                        </TablaFila>
-                    </TablaEncabezado>
-                    <TablaCuerpo>
-                        {ordenes.map((o) => (
-                            <TablaFila key={o.id} data-orden={o.numero}>
-                                <TablaCelda className="w-[32%] max-w-[20rem] min-w-[13rem]">
-                                    <Link href={`/ordenes/${o.id}`} className="grid min-w-0 gap-0.5 rounded-sm hover:text-primary">
-                                        <span className="font-mono text-xs text-muted-foreground">{o.numero}</span>
-                                        <span className="truncate font-medium">{o.direccion || "Sin dirección"}</span>
-                                        {o.contacto.nombre ? <span className="truncate text-xs text-muted-foreground">{o.contacto.nombre}</span> : null}
-                                    </Link>
-                                </TablaCelda>
-                                <TablaCelda>
-                                    <InsigniaTipoOrden tipo={o.tipo} />
-                                </TablaCelda>
-                                <TablaCelda>
-                                    <span className="flex flex-wrap items-center gap-1.5">
-                                        <InsigniaEstadoOrden estado={o.estado} />
-                                        {marca(o)}
-                                    </span>
-                                </TablaCelda>
-                                <TablaCelda className="text-sm whitespace-nowrap">
-                                    <Programada orden={o} />
-                                </TablaCelda>
-                                <TablaCelda className="max-w-[12rem] truncate text-muted-foreground">{tecnico(o) ?? "Sin técnico"}</TablaCelda>
-                                <TablaCelda className="text-right whitespace-nowrap text-muted-foreground">{haceCuanto(o.actualizadoEn, ahora)}</TablaCelda>
-                            </TablaFila>
-                        ))}
-                    </TablaCuerpo>
-                </Tabla>
-            </div>
-        </Tarjeta>
+            </ListaFilas>
+            {enVista ? <VistaOrden orden={enVista} tecnico={tecnico(enVista)} marca={marca(enVista)} ahora={ahora} veTicket={veTickets} alCerrar={() => setVistaId(null)} /> : null}
+        </>
+    );
+}
+
+/** Vista rápida de una orden: dónde, cuándo y quién, sin salir de la lista. */
+function VistaOrden({
+    orden: o,
+    tecnico,
+    marca,
+    ahora,
+    veTicket,
+    alCerrar,
+}: {
+    orden: Orden;
+    tecnico: string | undefined;
+    marca: ReactNode;
+    ahora: number;
+    /** Con `tickets.ver`: «Abrir el ticket». */
+    veTicket: boolean;
+    alCerrar: () => void;
+}) {
+    const datos: [string, ReactNode][] = [
+        ["Dirección", o.direccion || "Sin dirección"],
+        ["Contacto", o.contacto.nombre ?? "—"],
+        ["Programada", <Programada key="p" orden={o} />],
+        ["Técnico", tecnico ?? "Sin técnico"],
+        ["Actualizada", haceCuanto(o.actualizadoEn, ahora)],
+    ];
+    return (
+        <VistaRapida
+            abierto
+            alCerrar={alCerrar}
+            titulo={o.direccion || "Sin dirección"}
+            codigo={o.numero}
+            insignias={
+                <>
+                    <InsigniaTipoOrden tipo={o.tipo} />
+                    <InsigniaEstadoOrden estado={o.estado} />
+                    {marca}
+                </>
+            }
+            pie={
+                <>
+                    <Boton asChild>
+                        <Link href={`/ordenes/${o.id}`}>
+                            <SquareArrowOutUpRight />
+                            Abrir ficha
+                        </Link>
+                    </Boton>
+                    {o.ticketId !== null && veTicket ? (
+                        <Boton asChild variante="contorno">
+                            <Link href={`/tickets/${o.ticketId}`}>
+                                <LifeBuoy />
+                                Abrir el ticket
+                            </Link>
+                        </Boton>
+                    ) : null}
+                </>
+            }
+        >
+            {o.descripcion ? <p className="text-sm whitespace-pre-line">{o.descripcion}</p> : null}
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+                {datos.map(([etiqueta, valor]) => (
+                    <div key={etiqueta} className="contents">
+                        <dt className="text-muted-foreground">{etiqueta}</dt>
+                        <dd className="min-w-0">{valor}</dd>
+                    </div>
+                ))}
+            </dl>
+        </VistaRapida>
     );
 }
 
