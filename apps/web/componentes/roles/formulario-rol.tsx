@@ -7,7 +7,7 @@ import { useMemo, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { esquemaRol, type DatosRol } from "@/lib/accesos/esquemas";
-import { agruparPermisos, sensiblesAgregados, type PermisoInfo } from "@/lib/accesos/presentacion";
+import { agruparPermisos, permisosAsignables, sensiblesAgregados, type PermisoInfo } from "@/lib/accesos/presentacion";
 import { api, resolver } from "@/lib/api/cliente";
 import { mensajeDeError } from "@/lib/api/errores";
 import { erroresACampos } from "@/lib/formularios";
@@ -45,7 +45,8 @@ export function FormularioRol({ inicial, edicion = false, textoGuardar, alGuarda
     const [error, setError] = useState<unknown>(null);
     // Los permisos con que abrió el formulario (el rol guardado): un sensible que ya tenía no se avisa.
     const [previos] = useState<readonly string[]>(() => inicial?.permisos ?? []);
-    const grupos = useMemo(() => (catalogo.estado === "listo" ? agruparPermisos(catalogo.datos) : []), [catalogo]);
+    // Solo los permisos asignables: «Todo el módulo» de «Argos e integraciones» no marca portal_argos.*.
+    const grupos = useMemo(() => (catalogo.estado === "listo" ? agruparPermisos(permisosAsignables(catalogo.datos)) : []), [catalogo]);
 
     if (catalogo.estado === "cargando") {
         return <Esqueleto className="h-96" />;

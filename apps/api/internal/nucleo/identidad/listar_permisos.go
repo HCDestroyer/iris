@@ -23,7 +23,8 @@ func nuevoListarPermisos() *auditoria.Caso[struct{}, nucleo.Pagina[PermisoInfo]]
 			for _, f := range filas {
 				p := nucleo.Permiso(f.Codigo)
 				modulo, nombre := nucleo.ModuloDe(p)
-				data = append(data, PermisoInfo{Codigo: p, Descripcion: f.Descripcion, Modulo: modulo, ModuloNombre: nombre, Sensible: nucleo.EsSensible(p)})
+				data = append(data, PermisoInfo{Codigo: p, Descripcion: f.Descripcion, Modulo: modulo, ModuloNombre: nombre, Sensible: nucleo.EsSensible(p),
+					Asignable: !esPermisoPortalArgos(string(p))})
 			}
 			return nucleo.PaginaDe(data), nil
 		},

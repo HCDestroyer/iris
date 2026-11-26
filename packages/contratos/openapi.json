@@ -27142,6 +27142,10 @@
       "PermisoInfo": {
         "additionalProperties": false,
         "properties": {
+          "asignable": {
+            "description": "Se puede poner en un rol a medida. portal_argos.* no: solo los lleva integracion_argos y solo se ejercen con el token_portal",
+            "type": "boolean"
+          },
           "codigo": {
             "$ref": "#/components/schemas/Permiso"
           },
@@ -27166,7 +27170,8 @@
           "descripcion",
           "modulo",
           "moduloNombre",
-          "sensible"
+          "sensible",
+          "asignable"
         ],
         "type": "object"
       },

@@ -49,6 +49,9 @@ func nuevoCrearUsuario() *auditoria.Caso[EntradaCrearUsuario, Usuario] {
 					return Usuario{}, err
 				}
 			}
+			if err := exigirRolesDePersona(tipo, "roles", in.Roles); err != nil {
+				return Usuario{}, err
+			}
 			roles, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "roles", in.Roles)
 			if err != nil {
 				return Usuario{}, err

@@ -67,6 +67,7 @@ type PermisoInfo struct {
 	Modulo       string         `json:"modulo" doc:"Módulo al que pertenece (para agrupar en pantalla)"`
 	ModuloNombre string         `json:"moduloNombre" doc:"Nombre legible del módulo"`
 	Sensible     bool           `json:"sensible" doc:"Permiso de administración: darlo exige confirmar la contraseña"`
+	Asignable    bool           `json:"asignable" doc:"Se puede poner en un rol a medida. portal_argos.* no: solo los lleva integracion_argos y solo se ejercen con el token_portal"`
 }
 
 // TokenAPI es un token sin su valor (el valor solo se ve al crearlo).

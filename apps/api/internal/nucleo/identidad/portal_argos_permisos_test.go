@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -31,11 +32,25 @@ func TestRolAMedidaSinPermisosPortalArgos(t *testing.T) {
 	_, err := mod.CrearRol.Ejecutar(ctx, identidad.EntradaCrearRol{Codigo: "portal_mano", Nombre: "Portal a mano",
 		Permisos: []nucleo.Permiso{nucleo.PermTicketsVer, nucleo.PermPortalArgosVerTickets}})
 	problemaDe(t, err, http.StatusUnprocessableEntity, "validacion")
+	// El catálogo los marca no asignables (el formulario de roles no los ofrece).
+	cat, err := mod.ListarPermisos.Ejecutar(ctx, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range cat.Data {
+		if p.Asignable == strings.HasPrefix(string(p.Codigo), "portal_argos.") {
+			t.Fatalf("%s: asignable = %v", p.Codigo, p.Asignable)
+		}
+	}
 }
 
-// Revisión B1 (b): integracion_argos e integracion_horus no se dan a una persona.
+// Revisión B1 (b): integracion_argos e integracion_horus no se dan a una persona (al crearla, al
+// asignarle un rol ni al editarla).
 func TestRolesDeIntegracionSoloAIntegraciones(t *testing.T) {
 	ctx := pruebas.ContextoSistema(pruebas.Pool(t))
+	_, err := mod.CrearUsuario.Ejecutar(ctx, identidad.EntradaCrearUsuario{Nombre: "Persona Argos", Correo: pruebas.Correo("pargos"),
+		Tipo: "persona", Contrasena: "contrasena-larga-1", Roles: []identidad.AsignacionRol{{Rol: "integracion_argos"}}})
+	problemaDe(t, err, http.StatusUnprocessableEntity, "validacion")
 	u, err := mod.CrearUsuario.Ejecutar(ctx, identidad.EntradaCrearUsuario{Nombre: "Persona", Correo: pruebas.Correo("persona"),
 		Contrasena: "contrasena-larga-1", Roles: []identidad.AsignacionRol{{Rol: "soporte"}}})
 	if err != nil {
@@ -151,5 +166,56 @@ func TestPuedeEmitirTokenPortal(t *testing.T) {
 	// Sin padre, portal_argos.* no cuentan: el token los pierde al autenticarse.
 	if err := identidad.PuedeEmitirPrueba(base, q, actor, dueno, nil); err != nil {
 		t.Fatalf("token sin padre: %v", err)
+	}
+}
+
+// Revisión B1 (d) en Revalidar (flujos largos): con la sesión del panel o un token cualquiera se
+// quitan portal_argos.*; con el token_portal (hijo de otro token) se conservan.
+func TestRevalidarRecortaPortalArgos(t *testing.T) {
+	pool := pruebas.Pool(t)
+	ctx := pruebas.ContextoSistema(pool)
+	q := identidadbd.New(pool)
+	u, err := mod.CrearUsuario.Ejecutar(ctx, identidad.EntradaCrearUsuario{Nombre: "Con portal", Correo: pruebas.Correo("reval"),
+		Contrasena: "contrasena-larga-1", Roles: []identidad.AsignacionRol{{Rol: rolConPortal(t, ctx, pool)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	azar := func() []byte { return []byte(contexto.NuevoRequestID()) }
+	s, err := q.CrearSesion(ctx, identidadbd.CrearSesionParams{UsuarioID: u.ID, TokenHash: azar(), CsrfHash: azar(),
+		ExpiraEn: time.Now().Add(time.Hour), Origen: "password", Canal: "panel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := func(padre *int64) int64 {
+		tk, err := q.CrearToken(ctx, identidadbd.CrearTokenParams{UsuarioID: u.ID, Nombre: "prueba", Prefijo: "iris_pat_x",
+			Hash: azar(), TokenPadreID: padre})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return tk.ID
+	}
+	padre := token(nil)
+	hijo := token(&padre)
+	const permiso = "portal_argos.ver_tickets"
+	revalidar := func(c context.Context) bool {
+		t.Helper()
+		c, err := identidad.Revalidar(c, pool)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return contexto.PermisosDe(c).Tiene(permiso)
+	}
+	base := contexto.ConActor(context.Background(), contexto.Actor{Tipo: contexto.ActorUsuario, ID: u.ID, Nombre: "Con portal"}, contexto.Permisos{})
+	if revalidar(contexto.ConSesion(base, contexto.Sesion{ID: s.ID, UsuarioID: u.ID})) {
+		t.Fatal("la sesión conserva portal_argos.*")
+	}
+	conToken := func(id int64) context.Context {
+		return contexto.ConActor(context.Background(), contexto.Actor{Tipo: contexto.ActorToken, ID: u.ID, Nombre: "Con portal", TokenID: id}, contexto.Permisos{})
+	}
+	if revalidar(conToken(padre)) {
+		t.Fatal("un token sin padre conserva portal_argos.*")
+	}
+	if !revalidar(conToken(hijo)) {
+		t.Fatal("el token_portal pierde portal_argos.*")
 	}
 }

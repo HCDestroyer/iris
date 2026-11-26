@@ -825,8 +825,13 @@ func TestEnlacesExternosYURLPublica(t *testing.T) {
 		t.Fatalf("sin conectores: %d %s", r.status, r.crudo)
 	}
 	e.anonimo().pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil).problema(t, 401, "no_autenticado")
-	// Sin clientes.ver no conoce los orígenes de Argos ni de Horus.
-	e.usuario("integracion_horus").pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil).problema(t, 403, "prohibido")
+	// Sin clientes.ver no conoce los orígenes de Argos ni de Horus (un rol a medida: los roles de
+	// integración ya no se dan a una persona).
+	if _, err := e.ident.CrearRol.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearRol{
+		Codigo: "sin_clientes", Nombre: "Sin clientes", Permisos: []nucleo.Permiso{nucleo.PermTicketsVer}}); err != nil {
+		t.Fatal(err)
+	}
+	e.usuario("sin_clientes").pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil).problema(t, 403, "prohibido")
 	admin, id, _ := e.conectarHorus()
 	e.conectarArgos(admin)
 	r := lectura.pedir(http.MethodGet, "/api/v1/integraciones/enlaces", nil)
