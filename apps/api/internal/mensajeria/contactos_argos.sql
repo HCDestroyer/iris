@@ -12,7 +12,7 @@ SELECT c.contacto_id, c.cliente_id, c.empresa_id, c.nombre, c.relacion, c.es_tit
         AND (@empresa::bigint = 0 OR ac.empresa_id = @empresa::bigint OR @empresa::bigint = ANY (ac.empresas) OR ac.sin_servicios)) AS cliente_en_empresa,
     (c.persona_cliente_id IS NOT NULL AND EXISTS (SELECT 1 FROM integracion.argos_clientes ap WHERE ap.id = c.persona_cliente_id)) AS persona_conocida
 FROM integracion.argos_contactos c
-WHERE NOT c.es_titular
+WHERE NOT c.es_titular AND NOT c.quitado
   AND EXISTS (SELECT 1 FROM integracion.argos_contacto_telefonos t WHERE t.contacto_id = c.contacto_id AND t.digitos = @digitos::text)
   AND (@empresa::bigint = 0 OR c.empresa_id IS NULL OR c.empresa_id = @empresa::bigint)
 ORDER BY c.cliente_id, c.contacto_id
@@ -42,7 +42,7 @@ VALUES (sqlc.narg('empresa_id'), @conversacion_id, @numero, @acierto, sqlc.narg(
 
 -- name: ContactoArgosDeCliente :one
 -- El contacto de la caché con ese id, solo si es de ese cliente.
-SELECT * FROM integracion.argos_contactos WHERE contacto_id = @contacto_id AND cliente_id = @cliente_id;
+SELECT * FROM integracion.argos_contactos WHERE contacto_id = @contacto_id AND cliente_id = @cliente_id AND NOT quitado;
 
 -- name: NumeroBuscadoEn :one
 -- Cuándo se buscó por última vez el número en los contactos de Argos, si fue después de @desde.
@@ -65,7 +65,7 @@ UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_po
 WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
   AND (c.cliente_id = @cliente_id OR c.contacto_argos_id = sqlc.narg('contacto_id')::bigint)
   AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id
-      AND NOT k.es_titular
+      AND NOT k.es_titular AND NOT k.quitado
       AND EXISTS (SELECT 1 FROM integracion.argos_contacto_telefonos t
           WHERE t.contacto_id = k.contacto_id AND t.digitos = regexp_replace(c.numero, '[^0-9]', '', 'g')))
 RETURNING c.*;
@@ -75,7 +75,7 @@ RETURNING c.*;
 -- con servicios null, todos; sin servicio en el aviso, solo esos. El titular no (es el cliente).
 SELECT k.contacto_id, t.numero, t.principal FROM integracion.argos_contactos k
 JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp
-WHERE k.cliente_id = @cliente_id AND k.avisos AND NOT k.es_titular
+WHERE k.cliente_id = @cliente_id AND k.avisos AND NOT k.es_titular AND NOT k.quitado
   AND (k.empresa_id IS NULL OR k.empresa_id = @empresa::bigint)
   AND (k.servicios IS NULL OR sqlc.narg('servicio_id')::bigint = ANY (k.servicios))
 ORDER BY k.contacto_id, t.principal DESC, t.numero
@@ -90,7 +90,7 @@ UPDATE mensajeria.avisos SET aviso_padre_id = @aviso_padre_id, contacto_argos_id
 SELECT EXISTS (
     SELECT 1 FROM integracion.argos_contactos k
     JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp AND t.numero = @numero::text
-    WHERE k.contacto_id = @contacto_id AND k.cliente_id = @cliente_id AND k.avisos AND NOT k.es_titular
+    WHERE k.contacto_id = @contacto_id AND k.cliente_id = @cliente_id AND k.avisos AND NOT k.es_titular AND NOT k.quitado
       AND (k.servicios IS NULL OR sqlc.narg('servicio_id')::bigint = ANY (k.servicios))
 )::boolean;
 
@@ -99,7 +99,7 @@ SELECT EXISTS (
 SELECT EXISTS (
     SELECT 1 FROM integracion.argos_contactos k
     JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.numero = @numero::text
-    WHERE k.cliente_id = @cliente_id AND (k.empresa_id IS NULL OR k.empresa_id = @empresa::bigint)
+    WHERE k.cliente_id = @cliente_id AND NOT k.quitado AND (k.empresa_id IS NULL OR k.empresa_id = @empresa::bigint)
 )::boolean;
 
 -- name: TicketParaOrden :one

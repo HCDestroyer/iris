@@ -97,6 +97,9 @@ func nuevoEditarUsuario() *auditoria.Caso[EntradaEditarUsuario, Usuario] {
 
 			roles := rolesPrevios[in.ID]
 			if in.Roles != nil {
+				if err := exigirRolesDePersona(antes.Tipo, "roles", *in.Roles); err != nil {
+					return Usuario{}, err
+				}
 				resueltos, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "roles", *in.Roles, rolesPrevios[in.ID]...)
 				if err != nil {
 					return Usuario{}, err

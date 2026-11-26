@@ -1,12 +1,13 @@
 "use client";
 
-import { Boton, Casilla, Esqueleto, EstadoVacio, Etiqueta, Selector, Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo, Tarjeta } from "@iris/ui";
-import { ClipboardList, Plus } from "lucide-react";
+import { Boton, Casilla, Esqueleto, EstadoVacio, Etiqueta, FilaLista, ListaFilas, MenuAcciones, Selector } from "@iris/ui";
+import { ClipboardCheck, ClipboardList, Plus, SquareArrowOutUpRight } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useId, useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
-import { PieLista } from "@/componentes/pie-lista";
+import { piePaginado } from "@/componentes/pie-lista";
 import { InsigniasPlantilla, textoTipoPlantilla } from "@/componentes/plantillas/insignias";
 import { api, resolver } from "@/lib/api/cliente";
 import { usePaginado } from "@/lib/paginado";
@@ -67,76 +68,57 @@ function Resultados({ tipo, todas }: { tipo: TipoOrdenPlantilla | ""; todas: boo
             }),
         ),
     );
+    const router = useRouter();
     const lectura = paginado.primera;
     if (lectura.estado === "cargando") {
         return (
-            <Tarjeta className="grid gap-3 p-4" aria-busy="true">
-                <span className="sr-only" role="status">
-                    Cargando plantillas…
-                </span>
-                {Array.from({ length: 3 }, (_, i) => (
-                    <Esqueleto key={i} className="h-12" />
-                ))}
-            </Tarjeta>
+            <ListaFilas
+                etiqueta="Plantillas"
+                vacio={
+                    <div className="grid gap-3" aria-busy="true">
+                        <span className="sr-only" role="status">
+                            Cargando plantillas…
+                        </span>
+                        {Array.from({ length: 3 }, (_, i) => (
+                            <Esqueleto key={i} className="h-12" />
+                        ))}
+                    </div>
+                }
+            >
+                {[]}
+            </ListaFilas>
         );
     }
     if (lectura.estado === "error") return <ErrorLectura error={lectura.error} que="las plantillas" reintentar={lectura.reintentar} />;
-    const lista = paginado.items;
-    if (lista.length === 0) {
-        return (
-            <Tarjeta>
-                <EstadoVacio icono={ClipboardList} titulo="No hay plantillas con estos filtros" descripcion={todas ? undefined : "Prueba incluir las inactivas."} />
-            </Tarjeta>
-        );
-    }
     return (
-        <>
-            <ul className="grid gap-2 sm:hidden" aria-label="Plantillas">
-                {lista.map((p) => (
-                    <li key={p.id}>
-                        <Link href={`/administracion/plantillas/${p.id}`} className="grid gap-1.5 rounded-lg border bg-background p-3 text-sm hover:border-primary/60" data-plantilla={p.codigo}>
-                            <span className="font-medium">{p.nombre}</span>
-                            <span className="font-mono text-xs text-muted-foreground">
-                                {p.codigo} · v{p.versionActual} · {textoTipoPlantilla(p.tipo)}
-                            </span>
-                            <InsigniasPlantilla p={p} />
-                        </Link>
-                    </li>
-                ))}
-            </ul>
-            <Tarjeta className="hidden overflow-hidden sm:block">
-                <Tabla aria-label="Plantillas">
-                    <TablaEncabezado>
-                        <TablaFila className="hover:bg-transparent">
-                            <TablaTitulo>Plantilla</TablaTitulo>
-                            <TablaTitulo>Tipo de orden</TablaTitulo>
-                            <TablaTitulo>Versión</TablaTitulo>
-                            <TablaTitulo>Estado</TablaTitulo>
-                        </TablaFila>
-                    </TablaEncabezado>
-                    <TablaCuerpo>
-                        {lista.map((p) => (
-                            <TablaFila key={p.id} data-plantilla={p.codigo}>
-                                <TablaCelda>
-                                    <Link href={`/administracion/plantillas/${p.id}`} className="grid hover:underline">
-                                        <span className="font-medium">{p.nombre}</span>
-                                        <span className="font-mono text-xs text-muted-foreground">{p.codigo}</span>
-                                    </Link>
-                                </TablaCelda>
-                                <TablaCelda className="text-muted-foreground">{textoTipoPlantilla(p.tipo)}</TablaCelda>
-                                <TablaCelda className="tabular-nums">v{p.versionActual}</TablaCelda>
-                                <TablaCelda>
-                                    <InsigniasPlantilla p={p} />
-                                </TablaCelda>
-                            </TablaFila>
-                        ))}
-                    </TablaCuerpo>
-                </Tabla>
-            </Tarjeta>
-            <div className="mt-4 grid justify-items-center">
-                <PieLista paginado={paginado} que="plantillas" />
-            </div>
-        </>
+        <ListaFilas
+            etiqueta="Plantillas"
+            {...piePaginado(paginado, "plantillas")}
+            vacio={<EstadoVacio icono={ClipboardList} titulo="No hay plantillas con estos filtros" descripcion={todas ? undefined : "Prueba incluir las inactivas."} />}
+        >
+            {paginado.items.map((p) => (
+                <FilaLista
+                    key={p.id}
+                    data-plantilla={p.codigo}
+                    icono={ClipboardCheck}
+                    tonoIcono={p.activa ? "marca" : "neutro"}
+                    titulo={p.nombre}
+                    detalle={
+                        <>
+                            <span className="font-mono">{p.codigo}</span> · v{p.versionActual} · {textoTipoPlantilla(p.tipo)}
+                        </>
+                    }
+                    href={`/administracion/plantillas/${p.id}`}
+                    extremo={<InsigniasPlantilla p={p} />}
+                    extremoTelefono="debajo"
+                    menu={
+                        <MenuAcciones
+                            etiqueta={`Acciones de ${p.nombre}`}
+                            acciones={[{ id: "abrir", texto: "Abrir plantilla", icono: SquareArrowOutUpRight, alElegir: () => router.push(`/administracion/plantillas/${p.id}`) }]}
+                        />
+                    }
+                />
+            ))}
+        </ListaFilas>
     );
 }
-

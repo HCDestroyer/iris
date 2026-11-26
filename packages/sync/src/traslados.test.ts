@@ -193,6 +193,7 @@ describe("«Por recibir»: situación y formulario", () => {
     const traslado = (id: number, extra: Partial<Traslado> = {}): Traslado => ({
         id,
         estado: "enviado",
+        puedeRecibir: true,
         lineas: [
             { lineaId: 1, productoId: 7, cantidad: 10, series: null },
             { lineaId: 2, productoId: 8, cantidad: 2, series: ["ZTE-1", "ZTE-2"] },

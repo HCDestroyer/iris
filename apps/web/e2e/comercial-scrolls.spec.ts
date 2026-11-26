@@ -53,7 +53,7 @@ test("comercial sin scrolls innecesarios: lista, embudo y detalle", async ({ pag
 
     if (!telefono) {
         await page.goto("/comercial?vista=lista");
-        await expect(page.getByRole("table", { name: "Prospectos" })).toBeVisible();
+        await expect(page.getByRole("list", { name: "Prospectos" })).toBeVisible();
         await revisar(page, nombre("02-lista"));
     }
 

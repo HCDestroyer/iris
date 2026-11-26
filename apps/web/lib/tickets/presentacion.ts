@@ -47,6 +47,7 @@ export function prioridadMayor(a: Prioridad, b: Prioridad): boolean {
 export const ORIGENES: Record<Origen, string> = {
     panel: "Panel",
     portal: "Portal",
+    portal_argos: "Portal de Argos",
     correo: "Correo",
     telegram: "Telegram",
     horus: "Horus",

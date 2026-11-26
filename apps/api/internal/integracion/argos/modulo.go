@@ -79,6 +79,11 @@ type Config struct {
 	// RitmoSincronizacion: pausa mínima entre dos peticiones de la primera sincronización (200 ms:
 	// como máximo 5 por segundo en total, contrato 0.8.0 §2.5).
 	RitmoSincronizacion time.Duration
+	// ContratoIris: la versión del contrato que Iris informa a Argos ("" = ContratoIris). La carga de
+	// vínculos y el permiso de la verificación (0.14.0 §4.5, §6.6) corren solo si es ≥ 0.14.0.
+	ContratoIris string
+	// Vinculos: la carga inicial de vínculos (agenda.CargarVinculos; también con UsarVinculos).
+	Vinculos CargaVinculos
 }
 
 // Modulo reúne los casos de uso del conector Argos.
@@ -98,9 +103,16 @@ type Modulo struct {
 	guardarVerificacion *auditoria.Caso[tandaVerificada, int]
 	// cargaCuentas y cargaBancos: la instantánea de cuentas y bancos (B5); nil = solo contar.
 	cargaCuentas, cargaBancos CargaCatalogoBancario
-	cfg                       Config
-	nucleo                    *conector.Nucleo
-	conexion                  *conector.Conexion
+	// Portal del cliente de Argos (0.9.0 §11): la sesión de cada petición (portal.go).
+	prepararPortal *auditoria.Caso[CabecerasPortal, previoPortal]
+	cerrarPortal   *auditoria.Caso[entradaCerrarPortal, SesionPortal]
+	cfg            Config
+	nucleo         *conector.Nucleo
+	// Carga inicial de vínculos (0.14.0 §6.6).
+	iniciarCarga        *auditoria.Caso[int64, ResultadoCargaVinculos]
+	marcarCargaCerrada  *auditoria.Caso[ResultadoCargaVinculos, ResultadoCargaVinculos]
+	avisarCargaDetenida *auditoria.Caso[entradaCargaDetenida, bool]
+	conexion            *conector.Conexion
 
 	Conectar        *conector.Conectar
 	Previsualizar   *auditoria.Caso[conector.EntradaConectar, conector.Previsualizacion]
@@ -133,7 +145,9 @@ type Modulo struct {
 	InformarSincronizacion *InformarSincronizacion
 	Sincronizar            *auditoria.Caso[EntradaSincronizar, Sincronizacion]
 	EstadoConexion         *auditoria.Caso[struct{}, EstadoConexionArgos]
-	RegistrarCertificado   *auditoria.Caso[EntradaCertificado, ResultadoCertificado]
+	// VerCapacidades: GET /integraciones/argosisp/capacidades (0.14.2 §4.3), para el token de Argos.
+	VerCapacidades       *auditoria.Caso[struct{}, CapacidadesConector]
+	RegistrarCertificado *auditoria.Caso[EntradaCertificado, ResultadoCertificado]
 }
 
 // Alias de los tipos comunes de conexión (el OpenAPI los publica con estos nombres).
@@ -161,6 +175,8 @@ func Nuevo(cfg Config) *Modulo {
 	m := &Modulo{cfg: cfg, verificacion: nuevasVerificaciones(), refrescos: nuevosRefrescos(), guardarFichaInterna: nuevoGuardarFichaInterna(),
 		guardarTrasladoLeido: nuevoGuardarTrasladoLeido(), guardarCuentas: nuevoGuardarCuentas(),
 		guardarContactos: nuevoGuardarContactos()}
+	m.iniciarCarga, m.marcarCargaCerrada = nuevoIniciarCargaVinculos(m), nuevoMarcarCargaCerrada(m)
+	m.avisarCargaDetenida = nuevoAvisarCargaDetenida(m)
 	m.nucleo = conector.Nuevo(conector.Config{
 		Cifrador: cfg.Cifrador, BaseURL: cfg.BaseURL, VentanaWebhook: cfg.VentanaWebhook, VigenciaEnlace: cfg.VigenciaEnlace,
 		PermitirHTTP: cfg.PermitirHTTP, Encolar: cfg.Encolar, Version: cfg.Version,
@@ -173,6 +189,10 @@ func Nuevo(cfg Config) *Modulo {
 		// Primera carga de zonas y routers e informe del contrato (0.5.0), en la transacción de la
 		// activación (también al reconectar: el conector nuevo se activa).
 		AlActivar: func(ctx context.Context, tx pgx.Tx, conectorID int64) error {
+			// 0.14.0 §6.6 (A-1): los vínculos de la misma instancia de Argos pasan al conector nuevo.
+			if err := migrarVinculos(ctx, tx, conectorID); err != nil {
+				return err
+			}
 			if cfg.Encolar == nil {
 				return nil
 			}
@@ -185,9 +205,11 @@ func Nuevo(cfg Config) *Modulo {
 			// 0.8.0 §2.5: primera sincronización de un conector que nunca la tuvo.
 			return m.encolarPrimeraSincronizacion(ctx, tx, conectorID)
 		},
-		Contrato: ContratoIris, Capacidades: capacidades,
+		Contrato: contratoIrisDe(cfg), Capacidades: capacidades,
 		// 0.6.2: el canje exige el receptor de Argos (§1.3) y manda receptor_argos: true.
 		ExigirReceptor: true,
+		// 0.9.0 §1.2: el canje entrega además el token_portal (cuando Iris habla un contrato ≥ 0.9.0).
+		TokenPortal: SoportaPortal(&contratoIris),
 		// 0.6.3: el atk_ de un canje que Iris no completa se revoca en Argos (job).
 		RutaRevocarCanje: "/integraciones/iris/conexion/revocar",
 		// 0.6.3: al reconectar, el iris_pat_ del conector anterior vive hasta que el atk_ nuevo responda.
@@ -222,6 +244,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.InformarSincronizacion = nuevoInformarSincronizacion(m)
 	m.Sincronizar = nuevoSincronizar(m)
 	m.EstadoConexion = nuevoEstadoConexion(m)
+	m.VerCapacidades = nuevoVerCapacidades()
+	m.prepararPortal, m.cerrarPortal = nuevoPrepararPortal(m), nuevoCerrarPortal(m)
 	m.RegistrarCertificado = nuevoRegistrarCertificado()
 	return m
 }
@@ -256,6 +280,12 @@ func (m *Modulo) ClienteActivo(ctx context.Context, q conector.DBTX) (*Cliente, 
 		return nil, err
 	}
 	return m.clienteDe(c), nil
+}
+
+// ConectorActivoID: el id del conector Argos activo (o 503 conector_apagado).
+func (m *Modulo) ConectorActivoID(ctx context.Context, q conector.DBTX) (int64, error) {
+	c, err := m.conectorActivo(ctx, q)
+	return c.ID, err
 }
 
 // HayConectorActivo indica si hay un conector Argos activo (sin descifrar su token).

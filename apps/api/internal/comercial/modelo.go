@@ -14,7 +14,7 @@ type Prospecto struct {
 	ID                int64      `json:"id"`
 	Numero            string     `json:"numero" doc:"PR-000001"`
 	EmpresaID         *int64     `json:"empresaId" nullable:"true" doc:"Empresa en Argos (null sin conector)"`
-	Origen            string     `json:"origen" enum:"panel,web,referido,argos,argos_panel,otro" doc:"argos_panel: lo registró una persona en el panel de Argos (contrato §3.6)"`
+	Origen            string     `json:"origen" enum:"panel,web,referido,argos,argos_panel,portal_argos,otro" doc:"argos_panel: lo registró una persona en el panel de Argos (contrato §3.6); portal_argos: solicitud de servicio del cliente desde el portal de Argos (§11.7)"`
 	Modo              *string    `json:"modo" nullable:"true" enum:"residencial,empresarial" doc:"Solo los registrados desde Argos"`
 	ClienteExistente  *int64     `json:"clienteExistenteId" nullable:"true" doc:"Cliente de Argos que eligió quien lo registró en Argos: al ganar, Iris no lo crea ni lo edita"`
 	ClienteValidado   *bool      `json:"clienteValidado" nullable:"true" doc:"false: Argos no respondió al registrarlo (se confirma después)"`
@@ -37,6 +37,9 @@ type Prospecto struct {
 	GanadoEn          *time.Time `json:"ganadoEn" nullable:"true"`
 	ObraConfirmada    bool       `json:"obraConfirmada" doc:"Se ganó con factibilidad requiere_obra confirmada"`
 	Alta              *Alta      `json:"alta,omitempty" doc:"Alta del cliente (solo ganado)"`
+	SolicitudTipo     *string    `json:"solicitudTipo" nullable:"true" enum:"alta,cambio_plan,traslado,otro" doc:"Solicitud de servicio del portal de Argos (§11.7); null en los demás"`
+	EstadoCliente     *string    `json:"estadoCliente" nullable:"true" enum:"recibida,en_revision,cotizada,en_proceso,completada,no_procede" doc:"Lo que ve el cliente de su solicitud"`
+	TareaArgos        *string    `json:"tareaArgos" nullable:"true" enum:"pendiente,hecha" doc:"Cambio de plan, traslado u otro ganado: la tarea «Abrir en Argos» para que una persona lo aplique allá"`
 	CreadoEn          time.Time  `json:"creadoEn"`
 	ActualizadoEn     time.Time  `json:"actualizadoEn"`
 	Version           int32      `json:"version"`
@@ -44,7 +47,7 @@ type Prospecto struct {
 
 // Alta es el resultado de ganar.
 type Alta struct {
-	Modo            string  `json:"modo" enum:"local,argos" doc:"local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes"`
+	Modo            string  `json:"modo" enum:"local,argos,solicitud" doc:"local: sin conector, la orden con los datos capturados; argos: cliente y servicio por la cola de pendientes; solicitud: cambio de plan, traslado u otro del portal de Argos, sin llamar a Argos (tarea «Abrir en Argos»)"`
 	Estado          string  `json:"estado" enum:"esperando_cliente,esperando_servicio,esperando_activacion,completa" doc:"esperando_activacion: «ganado, alta pendiente»: el servicio existe en Argos y falta activarlo en la instalación"`
 	ClienteArgosID  *int64  `json:"clienteArgosId" nullable:"true"`
 	ServicioArgosID *int64  `json:"servicioArgosId" nullable:"true"`
@@ -62,6 +65,7 @@ func aProspecto(f comercialbd.ComercialProspecto) Prospecto {
 		Estado: f.Estado, Notas: f.Notas, MotivoPerdida: f.MotivoPerdida, PerdidoEn: f.PerdidoEn, GanadoEn: f.GanadoEn,
 		ObraConfirmada: f.ObraConfirmada, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt, Version: f.Version,
 		Modo: f.Modo, ClienteExistente: f.ClienteExistenteID, ClienteValidado: f.ClienteValidado,
+		SolicitudTipo: f.SolicitudTipo, EstadoCliente: f.EstadoCliente, TareaArgos: f.TareaArgos,
 	}
 	if f.AltaModo != nil {
 		p.Alta = &Alta{Modo: *f.AltaModo, Estado: deref(f.AltaEstado), ClienteArgosID: f.ClienteArgosID,

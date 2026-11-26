@@ -117,6 +117,24 @@ func (m *Modulo) Registrar(api huma.API) {
 		"Reemplaza las líneas (por tipo de orden o todos): cupos y/o minutos por día, sumando sus técnicos.", nucleo.PermAgendaFijarCapacidad),
 		m.CapacidadCuadrilla.Ejecutar, func(e *EntradaFijarCapacidad, id int64) { e.ID = id })
 
+	registrarConID(api, accion("asignarJefeCuadrilla", "/api/v1/cuadrillas/{id}/asignar-jefe", "Asignar el jefe de una cuadrilla",
+		"Contrato con Argos 0.11.0 §3.9 (B26). El jefe recibe y firma los traslados a la bodega de la cuadrilla. Debe ser miembro con su ficha vinculada a Argos (422 `jefe_no_miembro`); nadie se asigna a sí mismo (403 `autoasignacion`). `jefeUsuarioId: null` deja la cuadrilla sin jefe. Emite `cuadrilla.actualizada`, que también va a Argos.",
+		nucleo.PermCuadrillasAsignarJefe), m.AsignarJefe.Ejecutar, func(e *EntradaAsignarJefe, id int64) { e.ID = id })
+	conciliar := operacion("cuadrillaParaArgos", http.MethodGet, "/api/v1/integraciones/argosisp/cuadrillas/{id}", "Cuadrilla para conciliar la bodega en Argos",
+		nucleo.PermCuadrillasLeerIntegracion, http.StatusOK, http.StatusNotFound)
+	conciliar.Description += " Contrato 0.11.0 §3.9 y §6.6: lo usa Argos con su `iris_pat_` cuando le falta un `cuadrilla.*`. Responde 404 fuera de las empresas del alcance del token, igual que una cuadrilla que no existe."
+	conciliar.Tags = []string{"integraciones"}
+	huma.Register(api, conciliar, func(ctx context.Context, in *EntradaCuadrillaArgos) (*cuerpo[CuadrillaArgos], error) {
+		return responder(m.CuadrillaArgos.Ejecutar(ctx, *in))
+	})
+	vinculo := operacion("tecnicoParaArgos", http.MethodGet, "/api/v1/integraciones/argosisp/tecnicos/{usuario_id}", "Vínculo de un técnico para conciliar en Argos",
+		nucleo.PermCuadrillasLeerIntegracion, http.StatusOK, http.StatusNotFound)
+	vinculo.Description += " Contrato 0.14.0 §6.6: lo usa Argos con su `iris_pat_` cuando le falta un `tecnico.argos_*` o al reevaluar un vínculo rechazado. `activo: false` equivale a desvinculado; `version` es la del último `tecnico.argos_*`. Responde 404 igual si el vínculo no salió de este conector, si el usuario no tiene ficha de técnico en esa empresa o si está fuera del alcance."
+	vinculo.Tags = []string{"integraciones"}
+	huma.Register(api, vinculo, func(ctx context.Context, in *EntradaTecnicoArgos) (*cuerpo[TecnicoArgos], error) {
+		return responder(m.TecnicoArgos.Ejecutar(ctx, *in))
+	})
+
 	// Técnicos.
 	listar := operacion("listarTecnicos", http.MethodGet, "/api/v1/tecnicos", "Fichas de técnicos (según el alcance)", nucleo.PermAgendaVer, http.StatusOK)
 	huma.Register(api, listar, func(ctx context.Context, in *EntradaListarTecnicos) (*cuerpo[nucleo.Pagina[Tecnico]], error) {

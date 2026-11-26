@@ -16,7 +16,7 @@ const abandonarAdjunto = `-- name: AbandonarAdjunto :one
 UPDATE nucleo.adjuntos
 SET estado = 'rechazado', motivo_rechazo = 'abandonado', version = version + 1, updated_at = now()
 WHERE id = $1 AND estado IN ('pendiente', 'subiendo') AND updated_at < $2
-RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at
+RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at, nombre
 `
 
 type AbandonarAdjuntoParams struct {
@@ -50,12 +50,13 @@ func (q *Queries) AbandonarAdjunto(ctx context.Context, arg AbandonarAdjuntoPara
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nombre,
 	)
 	return i, err
 }
 
 const adjuntoPorID = `-- name: AdjuntoPorID :one
-SELECT id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at FROM nucleo.adjuntos WHERE id = $1
+SELECT id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at, nombre FROM nucleo.adjuntos WHERE id = $1
 `
 
 func (q *Queries) AdjuntoPorID(ctx context.Context, id uuid.UUID) (NucleoAdjunto, error) {
@@ -84,12 +85,13 @@ func (q *Queries) AdjuntoPorID(ctx context.Context, id uuid.UUID) (NucleoAdjunto
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nombre,
 	)
 	return i, err
 }
 
 const adjuntoPorIDParaActualizar = `-- name: AdjuntoPorIDParaActualizar :one
-SELECT id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at FROM nucleo.adjuntos WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at, nombre FROM nucleo.adjuntos WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) AdjuntoPorIDParaActualizar(ctx context.Context, id uuid.UUID) (NucleoAdjunto, error) {
@@ -118,6 +120,7 @@ func (q *Queries) AdjuntoPorIDParaActualizar(ctx context.Context, id uuid.UUID) 
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nombre,
 	)
 	return i, err
 }
@@ -156,7 +159,7 @@ func (q *Queries) AdjuntosAbandonados(ctx context.Context, arg AdjuntosAbandonad
 }
 
 const adjuntosDeEntidad = `-- name: AdjuntosDeEntidad :many
-SELECT id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at FROM nucleo.adjuntos
+SELECT id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at, nombre FROM nucleo.adjuntos
 WHERE entidad = $1 AND entidad_id = $2 AND id > $3
 ORDER BY id
 LIMIT $4
@@ -206,6 +209,7 @@ func (q *Queries) AdjuntosDeEntidad(ctx context.Context, arg AdjuntosDeEntidadPa
 			&i.Version,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Nombre,
 		); err != nil {
 			return nil, err
 		}
@@ -251,7 +255,7 @@ const completarAdjunto = `-- name: CompletarAdjunto :one
 UPDATE nucleo.adjuntos
 SET estado = 'completo', completado_en = now(), version = version + 1, updated_at = now()
 WHERE id = $1 AND estado = 'subiendo' AND recibido = tamano
-RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at
+RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at, nombre
 `
 
 func (q *Queries) CompletarAdjunto(ctx context.Context, id uuid.UUID) (NucleoAdjunto, error) {
@@ -280,6 +284,7 @@ func (q *Queries) CompletarAdjunto(ctx context.Context, id uuid.UUID) (NucleoAdj
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nombre,
 	)
 	return i, err
 }
@@ -368,7 +373,7 @@ INSERT INTO nucleo.adjuntos (
     $10, $11, $12, $13, $14, $15
 )
 ON CONFLICT (id) DO NOTHING
-RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at
+RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at, nombre
 `
 
 type InsertarAdjuntoParams struct {
@@ -433,6 +438,7 @@ func (q *Queries) InsertarAdjunto(ctx context.Context, arg InsertarAdjuntoParams
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nombre,
 	)
 	return i, err
 }
@@ -440,12 +446,12 @@ func (q *Queries) InsertarAdjunto(ctx context.Context, arg InsertarAdjuntoParams
 const insertarAdjuntoCompleto = `-- name: InsertarAdjuntoCompleto :one
 INSERT INTO nucleo.adjuntos (
     id, empresa_id, entidad, entidad_id, tipo, mime, tamano, sha256, recibido, estado,
-    subido_por, almacenamiento, clave, completado_en
+    subido_por, almacenamiento, clave, completado_en, nombre
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $7, 'completo',
-    $9, $10, $11, now()
+    $9, $10, $11, now(), $12
 )
-RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at
+RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at, nombre
 `
 
 type InsertarAdjuntoCompletoParams struct {
@@ -460,6 +466,7 @@ type InsertarAdjuntoCompletoParams struct {
 	SubidoPor      *int64
 	Almacenamiento string
 	Clave          string
+	Nombre         *string
 }
 
 // Un archivo que trajo el sistema (p. ej. un medio de WhatsApp) ya guardado en el almacenamiento.
@@ -476,6 +483,7 @@ func (q *Queries) InsertarAdjuntoCompleto(ctx context.Context, arg InsertarAdjun
 		arg.SubidoPor,
 		arg.Almacenamiento,
 		arg.Clave,
+		arg.Nombre,
 	)
 	var i NucleoAdjunto
 	err := row.Scan(
@@ -501,6 +509,7 @@ func (q *Queries) InsertarAdjuntoCompleto(ctx context.Context, arg InsertarAdjun
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nombre,
 	)
 	return i, err
 }
@@ -540,7 +549,7 @@ const rechazarAdjunto = `-- name: RechazarAdjunto :one
 UPDATE nucleo.adjuntos
 SET estado = 'rechazado', motivo_rechazo = $1, version = version + 1, updated_at = now()
 WHERE id = $2 AND estado IN ('pendiente', 'subiendo')
-RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at
+RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at, nombre
 `
 
 type RechazarAdjuntoParams struct {
@@ -574,6 +583,7 @@ func (q *Queries) RechazarAdjunto(ctx context.Context, arg RechazarAdjuntoParams
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nombre,
 	)
 	return i, err
 }
@@ -582,7 +592,7 @@ const retirarAdjunto = `-- name: RetirarAdjunto :one
 UPDATE nucleo.adjuntos
 SET estado = 'rechazado', motivo_rechazo = $1, version = version + 1, updated_at = now()
 WHERE id = $2 AND estado <> 'rechazado'
-RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at
+RETURNING id, empresa_id, entidad, entidad_id, tipo, clave_checklist, mime, tamano, sha256, recibido, estado, motivo_rechazo, lat, lon, tomado_en, subido_por, almacenamiento, clave, completado_en, version, created_at, updated_at, nombre
 `
 
 type RetirarAdjuntoParams struct {
@@ -618,6 +628,7 @@ func (q *Queries) RetirarAdjunto(ctx context.Context, arg RetirarAdjuntoParams) 
 		&i.Version,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Nombre,
 	)
 	return i, err
 }

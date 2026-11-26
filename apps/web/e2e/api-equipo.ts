@@ -132,7 +132,7 @@ export function apiEquipo(agenda: EscenarioAgenda, ordenes: OrdenDetalle[]): Api
                 if (!puede("agenda.crear_cuadrilla")) return prohibido(route);
                 const nombre = String(b.nombre ?? "").trim();
                 if (cuadrillas.some((c) => c.nombre.toLowerCase() === nombre.toLowerCase())) return validacion(route, "nombre", "Ya hay una cuadrilla con ese nombre");
-                const c: Cuadrilla = { id: siguiente++, nombre, activa: true, empresaId: null, zonaIds, capacidad: [], version: 1, creadoEn: ahora, actualizadoEn: ahora };
+                const c: Cuadrilla = { id: siguiente++, nombre, activa: true, empresaId: null, zonaIds, capacidad: [], jefeUsuarioId: null, version: 1, creadoEn: ahora, actualizadoEn: ahora };
                 cuadrillas.push(c);
                 await json(route, c, 201);
                 return true;

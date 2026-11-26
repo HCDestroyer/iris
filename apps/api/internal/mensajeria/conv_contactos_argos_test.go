@@ -82,7 +82,7 @@ type contactoSembrado struct {
 
 func sembrarContactoEn(ctx context.Context, bd nucleo.BD, c contactoSembrado) error {
 	if _, err := bd.Exec(ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios,
-		consultar, reportar, pagar, avisos, persona_cliente_id) VALUES ($1, $2, 1, 'Luis Pérez', $3, $3 = 'titular', $4, $5, $6, $7, true, $8)
+		consultar, reportar, pagar, avisos, persona_cliente_id, version) VALUES ($1, $2, 1, 'Luis Pérez', $3, $3 = 'titular', $4, $5, $6, $7, true, $8, 1)
 		ON CONFLICT (contacto_id) DO NOTHING`, c.id, c.cliente, c.relacion, c.servicios, c.consultar, c.reportar, c.pagar, c.persona); err != nil {
 		return err
 	}
@@ -382,8 +382,8 @@ func TestContactoQuitadoPierdeElAcceso(t *testing.T) {
 	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2`, cid(c), contacto); n != 1 {
 		t.Fatal("la conversación guarda el contacto con que se asoció")
 	}
-	// Argos lo quita: sale de la caché (como hace el webhook) y llega el evento.
-	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+	// Argos lo quita: queda quitado en la caché (como hace el webhook) y llega el evento.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET quitado = true, leido_en = now() WHERE contacto_id = $1`, contacto); err != nil {
 		t.Fatal(err)
 	}
 	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
@@ -565,7 +565,7 @@ func TestNumeroDeServicioYContacto(t *testing.T) {
 		t.Fatal("al asociar a mano se guarda el contacto, no el por_servicio")
 	}
 	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
-	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET quitado = true, leido_en = now() WHERE contacto_id = $1`, contacto); err != nil {
 		t.Fatal(err)
 	}
 	b.emitirContactos(cliente, contacto, "quitado")
@@ -637,7 +637,7 @@ func TestReasociarNoHeredaVerificacionFuerte(t *testing.T) {
 	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND identidad_verificada_en IS NOT NULL`, cid(c)); n != 1 {
 		t.Fatal("la confirmación del supervisor da la verificación fuerte")
 	}
-	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET quitado = true, leido_en = now() WHERE contacto_id = $1`, contacto); err != nil {
 		t.Fatal(err)
 	}
 	b.emitirContactos(cliente, contacto, "quitado")

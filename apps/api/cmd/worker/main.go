@@ -109,6 +109,8 @@ func correr() error {
 	}
 	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg,
 		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL},
+		// Conciliación de clientes de los tickets del portal de Argos (contrato 0.9.0 §11.2).
+		PortalArgos: conectorArgos,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
@@ -157,12 +159,17 @@ func correr() error {
 	if err != nil {
 		return err
 	}
-	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
+	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop})
 	cmp.SuscribirRetiros(bus, pool, log)
 	// «Dato de Argos cambió» (contrato 0.5.0): argos.datos_cambiados marca las órdenes abiertas.
 	cmp.SuscribirDatosArgos(bus, pool, log)
 	cmp.SuscribirTitularArgos(bus, pool, log)
+	// Bodega de cuadrilla (contrato 0.11.0 §3.9): un usuario desactivado o con otra empresa cambia
+	// los miembros que van a Argos en cuadrilla.actualizada.
+	cmp.Agenda().SuscribirCuadrillas(bus, pool, log)
+	// 0.14.0 §6.6: la carga inicial de vínculos la emite agenda (creada después del conector).
+	conectorArgos.UsarVinculos(cmp.Agenda().CargarVinculos)
 	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,
 	// POST /servicios), encola el servicio y crea la orden de instalación; barrido cada 5 min.
 	comercial.RegistrarAdjuntos()
@@ -171,6 +178,8 @@ func correr() error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	com.SuscribirAltas(bus, pool, log)
+	// Solicitudes del portal de Argos (0.9.0 §11.7): completada al cerrarse su orden.
+	com.SuscribirSolicitudes(bus, pool)
 	com.SuscribirActivacion(bus, pool, log)
 	com.SuscribirRevisionVenta(bus, pool, log)
 	// Mensajería (contrato 0.6.0 §6.6): aviso.entregado, aviso.fallido y contacto.baja → webhooks hacia
@@ -244,7 +253,7 @@ func correr() error {
 			com.RegistrarTrabajos(pool)(w)
 			notif.RegistrarTrabajos(pool)(w)
 		},
-		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
+		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute), soporte.TrabajoPeriodicoConciliar(),
 			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), pendientes.TrabajoPurgaTransito(), inventario.TrabajoPeriodico(5*time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
 			agenda.TrabajoPeriodicoZonas(10*time.Minute),

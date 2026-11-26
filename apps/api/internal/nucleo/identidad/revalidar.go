@@ -23,6 +23,7 @@ func Revalidar(ctx context.Context, bd identidadbd.DBTX) (context.Context, error
 	}
 	q := identidadbd.New(bd)
 	var limite []string
+	portal := false
 	switch s := contexto.SesionDe(ctx); {
 	case actor.TokenID != 0:
 		t, err := q.TokenVigentePorID(ctx, actor.TokenID)
@@ -33,6 +34,7 @@ func Revalidar(ctx context.Context, bd identidadbd.DBTX) (context.Context, error
 			return ctx, err
 		}
 		limite = t.Permisos
+		portal = t.TokenPadreID != nil
 	case s.ID != 0:
 		u, err := q.SesionVigentePorID(ctx, s.ID)
 		if errors.Is(err, pgx.ErrNoRows) || (err == nil && u != actor.ID) {
@@ -56,6 +58,10 @@ func Revalidar(ctx context.Context, bd identidadbd.DBTX) (context.Context, error
 	permisos, err := cargarPermisos(ctx, q, actor.ID, limite)
 	if err != nil {
 		return ctx, err
+	}
+	if !portal {
+		// Como el middleware: portal_argos.* solo en el token_portal.
+		permisos = permisos.SinPrefijo(prefijoPortalArgos)
 	}
 	return contexto.ConActor(ctx, actor, permisos), nil
 }

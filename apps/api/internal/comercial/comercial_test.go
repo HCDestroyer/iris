@@ -61,13 +61,19 @@ type argosFalso struct {
 	lecturaCaida bool
 	actores      map[string]string // Idempotency-Key → X-Iris-Actor recibido
 	serviciosDe  map[string]string // cliente_id → servicios (JSON) de GET /servicios?cliente_id=
+	// contactosDe: cliente_id → contactos (JSON) de GET /clientes/{id}/contactos (§3.5); lecturasContactos las cuenta.
+	contactosDe       map[string]string
+	lecturasContactos int
+	// planesCaidos: GET /planes responde 503.
+	planesCaidos bool
 }
 
 // Argos 1.2 (lo que respondió su equipo): huella del cuerpo crudo, repetición con el 2xx original
 // y Idempotent-Replayed, misma clave con otro cuerpo → 422 idempotency_key_reutilizada.
 func nuevoArgos(t *testing.T) *argosFalso {
 	a := &argosFalso{altas: map[string]int64{}, huellas: map[string]string{}, crudos: map[string][][]byte{},
-		porID: map[string]map[string]any{}, siguiente: 9000, serviciosDe: map[string]string{}, actores: map[string]string{}}
+		porID: map[string]map[string]any{}, siguiente: 9000, serviciosDe: map[string]string{}, actores: map[string]string{},
+		contactosDe: map[string]string{}}
 	json200 := func(w http.ResponseWriter, v string) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(v))
@@ -96,7 +102,12 @@ func nuevoArgos(t *testing.T) *argosFalso {
 	mux.HandleFunc("GET /api/v1/planes", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()
 		a.consultas = append(a.consultas, r.URL.RawQuery)
+		caidos := a.planesCaidos
 		a.mu.Unlock()
+		if caidos {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
 		planes := []string{`{"id":300,"nombre":"Fibra 100","precio":"250.00","activo":true}`,
 			`{"id":301,"nombre":"Fibra 200 (sin precio)","precio":null,"activo":true}`}
 		if r.URL.Query().Get("router_id") == "52" {
@@ -192,6 +203,21 @@ func nuevoArgos(t *testing.T) *argosFalso {
 		json200(w, string(b))
 	}
 	mux.HandleFunc("GET /api/v1/clientes/{id}", leer)
+	mux.HandleFunc("GET /api/v1/clientes/{id}/contactos", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		// 0.14.2 §7.1: X-Iris-Actor: sistema, sin X-Iris-Conversacion ni X-Iris-Contacto.
+		if r.Header.Get("X-Iris-Actor") != "sistema" || r.Header.Get("X-Iris-Conversacion") != "" || r.Header.Get("X-Iris-Contacto") != "" {
+			problema(w, http.StatusForbidden, "actor_no_permitido")
+			return
+		}
+		if a.lecturaCaida {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		a.lecturasContactos++
+		json200(w, `{"data":[`+a.contactosDe[r.PathValue("id")]+`],"nextCursor":null}`)
+	})
 	// Servicios de un cliente de Argos (para validar su empresa): los fijados en serviciosDe.
 	mux.HandleFunc("GET /api/v1/servicios", func(w http.ResponseWriter, r *http.Request) {
 		a.mu.Lock()

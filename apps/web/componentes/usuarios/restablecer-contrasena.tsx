@@ -44,20 +44,42 @@ export function BotonRestablecerContrasena({ usuario, alCambiar, alPerderAlcance
                 <KeyRound />
                 Restablecer contraseña
             </Boton>
-            <DialogoProtegido open={abierto} onOpenChange={setAbierto}>
-                {abierto ? (
-                    <DialogoRestablecer
-                        usuario={usuario}
-                        alCambiar={alCambiar}
-                        alPerderAlcance={() => {
-                            setAbierto(false);
-                            alPerderAlcance?.();
-                        }}
-                        alCerrar={() => setAbierto(false)}
-                    />
-                ) : null}
-            </DialogoProtegido>
+            <DialogoRestablecerContrasena usuario={usuario} abierto={abierto} alCerrar={() => setAbierto(false)} alCambiar={alCambiar} {...(alPerderAlcance ? { alPerderAlcance } : {})} />
         </>
+    );
+}
+
+/**
+ * Solo el diálogo, para abrirlo desde otro lugar (el menú `⋯` de la fila en Usuarios). Quien lo
+ * abre comprueba antes el permiso (`puedeRestablecerContrasena`).
+ */
+export function DialogoRestablecerContrasena({
+    usuario,
+    abierto,
+    alCerrar,
+    alCambiar,
+    alPerderAlcance,
+}: {
+    usuario: Usuario;
+    abierto: boolean;
+    alCerrar: () => void;
+    alCambiar: (u: Usuario) => void;
+    alPerderAlcance?: () => void;
+}) {
+    return (
+        <DialogoProtegido open={abierto} onOpenChange={(a) => (a ? undefined : alCerrar())}>
+            {abierto ? (
+                <DialogoRestablecer
+                    usuario={usuario}
+                    alCambiar={alCambiar}
+                    alPerderAlcance={() => {
+                        alCerrar();
+                        alPerderAlcance?.();
+                    }}
+                    alCerrar={alCerrar}
+                />
+            ) : null}
+        </DialogoProtegido>
     );
 }
 

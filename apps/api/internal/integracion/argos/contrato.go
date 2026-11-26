@@ -12,6 +12,7 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
+	argosbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/argos/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	conectorbd "github.com/HCDestroyer/iris/apps/api/internal/integracion/conector/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
@@ -32,6 +33,10 @@ import (
 
 // ContratoIris es la versión del contrato Iris ↔ ArgosISP que habla esta versión de Iris.
 const ContratoIris = "0.8.1"
+
+// contratoIris: ContratoIris como variable (las funciones de 0.9.0 se encienden cuando sube; las
+// pruebas la cambian para probarlas).
+var contratoIris = ContratoIris
 
 // VersionInventarioTecnico es la primera versión de Argos que entiende `tecnico` (§3.3). Argos
 // 1.5.x lo ignora y, sin bodega_id, responde 422 «bodega_id required».
@@ -83,6 +88,49 @@ const ContratoSinPersonal = "0.8.0"
 // SoportaSinPersonal indica si Argos (por el contrato que informa) acepta motivo sin_personal.
 func SoportaSinPersonal(contrato *string) bool {
 	return conector.VersionAlMenos(contrato, ContratoSinPersonal)
+}
+
+// ContratoBodegaCuadrilla es el primer contrato con la bodega de cuadrilla (0.11.0 §3.9, A47).
+const ContratoBodegaCuadrilla = "0.11.0"
+
+// BodegaDeCuadrilla indica si el conector Argos registrado más reciente (activo o, si no hay, el
+// último) informa contrato ≥ 0.11.0: el material de la app sale con tecnico, bodega_id y
+// X-Iris-Actor. Falla cerrado: false sin conector o sin contrato informado.
+func (m *Modulo) BodegaDeCuadrilla(ctx context.Context, q conector.DBTX) (bool, error) {
+	return m.contratoAlMenos(ctx, q, ContratoBodegaCuadrilla)
+}
+
+// ContratoEquipos es el primer contrato con los equipos del cliente (0.12.0 §3.10, A48):
+// POST /servicios/:id/equipos/cambiar, …/no-recuperado y fecha + recibido_en_iris en el cuerpo.
+const ContratoEquipos = "0.12.0"
+
+// EquiposDelCliente indica si el conector Argos registrado más reciente (activo o, si no hay, el
+// último) informa contrato ≥ 0.12.0. Falla cerrado: false sin conector o sin contrato informado.
+func (m *Modulo) EquiposDelCliente(ctx context.Context, q conector.DBTX) (bool, error) {
+	return m.contratoAlMenos(ctx, q, ContratoEquipos)
+}
+
+// ContratoClavesPorOperacion es el primer contrato con las claves por operación de cambios e
+// intentos, el consumo por actor y bodega, tecnico por línea, la verificación del intento y los
+// webhooks tecnico.argos_* (0.14.0 §3.9, §3.10, §4.5, §6.6).
+const ContratoClavesPorOperacion = "0.14.0"
+
+// ClavesPorOperacion indica si el conector Argos registrado más reciente informa contrato ≥ 0.14.0.
+// Falla cerrado.
+func (m *Modulo) ClavesPorOperacion(ctx context.Context, q conector.DBTX) (bool, error) {
+	return m.contratoAlMenos(ctx, q, ContratoClavesPorOperacion)
+}
+
+// contratoAlMenos: el conector Argos registrado más reciente (activo o, si no hay, el último)
+// informa un contrato ≥ minimo. Falla cerrado.
+func (m *Modulo) contratoAlMenos(ctx context.Context, q conector.DBTX, minimo string) (bool, error) {
+	var contrato *string
+	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1
+		ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1`, Sistema).Scan(&contrato)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	return conector.VersionAlMenos(contrato, minimo), err
 }
 
 // ReconexionSinPersonal indica si el conector Argos activo informa contrato ≥ 0.8.0 (false sin
@@ -346,11 +394,30 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	// receptor_argos (0.6.2): true si el conector tiene guardado el receptor de Argos (url y secreto
 	// cifrado, §6.6). Los canjeados antes de B1 no lo tienen: false, y Argos pide reconectar.
 	receptor := c.WebhookSalidaUrl != nil && len(c.WebhookSalidaSecretoCifrado) > 0
-	errPut := cli.Pedir(ctx, http.MethodPut, rutaContrato, nil, map[string]any{"contrato": ContratoIris, "receptor_argos": receptor}, true,
-		&conector.Recurso{Destino: &puesto})
+	cuerpo := map[string]any{"contrato": k.m.contratoIris(), "receptor_argos": receptor}
+	// 0.9.0 §1.2: a un conector ya conectado, el token_portal va en el PUT si todavía no tiene uno
+	// vigente (hijo de su iris_pat_). Si el PUT no llega a Argos, se revoca y sale en el siguiente.
+	var portalID int64
+	if SoportaPortal(&contratoIris) && c.TokenEntregadoID != nil {
+		vigente, err := argosbd.New(bd).TokenPortalVigente(ctx, c.TokenEntregadoID)
+		if err != nil {
+			return ResultadoContrato{}, err
+		}
+		if !vigente {
+			id, valor, err := k.m.nucleo.EmitirTokenPortal(ctx, *c.TokenEntregadoID)
+			if err != nil {
+				return ResultadoContrato{}, err
+			}
+			portalID, cuerpo["token_portal"] = id, valor
+		}
+	}
+	errPut := cli.Pedir(ctx, http.MethodPut, rutaContrato, nil, cuerpo, true, &conector.Recurso{Destino: &puesto})
+	if portalID != 0 && errPut != nil {
+		k.m.nucleo.RevocarToken(context.WithoutCancel(ctx), portalID, "token_portal_no_entregado")
+	}
 	var put lectura
 	if errPut == nil {
-		informado := ContratoIris
+		informado := k.m.contratoIris()
 		in.Informado = &informado
 		in.Version, in.Contrato = conector.TextoVersion(puesto.VersionArgos, 40), conector.TextoVersion(puesto.Contrato, 20)
 		put = lectura{estado: VersionOK}
@@ -402,6 +469,16 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	r, err := k.guardar.Ejecutar(ctx, in)
 	if err != nil {
 		return r, err
+	}
+	// 0.14.0 §4.5 y §6.6: con 0.14.0 informado y aceptado, el permiso de la verificación y la carga
+	// inicial de vínculos (una vez por conector); se cierra cuando todos tuvieron su 2xx.
+	if errPut == nil {
+		if err := k.iniciarCargaVinculos(ctx, r); err != nil {
+			return r, err
+		}
+		if _, err := k.m.CerrarCargaVinculos(ctx); err != nil && !EsCaido(err) {
+			return r, err
+		}
 	}
 	// Argos caído: River reintenta (el diagnóstico ya quedó guardado).
 	if errGet != nil && EsCaido(errGet) {

@@ -54,6 +54,19 @@ cuentan los cambios con el `phone_number_id` del canal (una app puede servir a v
 demás se descartan y quedan anotados en `mensajeria.entrantes.error`.
 WhatsApp por QR y Telegram son de fases siguientes: QR declarará `PermiteAvisos() = false`.
 
+## Webhooks del vínculo del técnico (contrato con Argos 0.14.0 §6.6)
+
+`tecnico.argos_vinculado` / `tecnico.argos_desvinculado` van solo al conector del que salió el vínculo
+(`webhooks_salida.conector_origen`) y en las empresas de su alcance. Un vinculado espera el `2xx` del
+desvinculado anterior del mismo `id_externo` (otro técnico) o del mismo técnico con versión menor (cambio de
+`id_externo`), también si ese desvinculado sigue en el outbox sin publicar (relay en backoff). Si ese desvinculado ya no va a salir solo (su webhook agotó o el relay no lo pudo publicar) o la espera pasa de 24 h, el vinculado queda `agotado` a la vista (`ultimo_error` con `depende_de:`) y se reenvía a mano. Al programar
+un `tecnico.argos_*` cuyo conector de origen fue reemplazado por el activo de la misma instancia de Argos
+(una reconexión con el evento aún en el outbox), el origen pasa al activo. Un omitido guarda su motivo como
+prefijo de `ultimo_error` (`sin_receptor`, `otro_conector`, `empresa_no_permitida`). Un webhook `agotado`
+se reenvía con `POST /mensajeria/webhooks-salida/{id}/reenviar`
+(`integraciones.reenviar_webhook`, auditado; evento `integracion.webhook_reenviado`; de otra empresa que la
+activa, 404).
+
 ## Eventos
 
 Emite (outbox; detalle en `.claude/integration/contratos/eventos.md`):
@@ -66,6 +79,10 @@ Consume: `aviso.entregado`, `aviso.fallido` (solo los de origen `argos`) y `cont
 `{ id, evento, ocurrido_en, payload }`, `X-Webhook-Id` = `id` (el del evento del outbox), firma v1 con
 el secreto que Argos entregó en el canje, reintentos a 1 min, 5 min, 30 min, 2 h y 12 h, y solo al
 conector Argos activo con contrato ≥ 0.6.0 (si no, `omitido`). Cada aviso emite un solo webhook final.
+
+Webhooks Iris → Argos de 0.9.0 (§6.6, B9): `ticket.estado_cambiado`, `ticket.respondido` y
+`solicitud_servicio.estado_cambiado`, solo a conectores con contrato ≥ 0.9.0, solo con `cliente_id` y
+con la empresa en el alcance del conector (si no, `omitido`), sin cuerpo, notas ni motivos escritos.
 
 ## Aviso de una falla general (`avisos_falla.go`, contrato con Argos 0.13.0 §3.11, B30)
 

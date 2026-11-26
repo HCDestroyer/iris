@@ -298,14 +298,19 @@ WHERE plan_id = @id AND plan_nombre IS DISTINCT FROM @nombre;
 -- estado repetido. Sin fila = nada cambió (un webhook atrasado o de otro estado final).
 INSERT INTO integracion.argos_traslados (
     id, empresa_id, bodega_destino_id, tecnico_id_externo, tecnico_correo, estado, lineas, enviado_en,
-    recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id
+    recibido_en, recibido_por, metodo_recepcion, origen_recepcion, cancelado_en, motivo, entrante_id, cuadrilla_id
 ) VALUES (
     @id, sqlc.narg(empresa_id), sqlc.narg(bodega_destino_id), sqlc.narg(tecnico_id_externo), sqlc.narg(tecnico_correo), @estado, @lineas,
     sqlc.narg(enviado_en), sqlc.narg(recibido_en), sqlc.narg(recibido_por), sqlc.narg(metodo_recepcion), sqlc.narg(origen_recepcion),
-    sqlc.narg(cancelado_en), sqlc.narg(motivo), sqlc.narg(entrante_id)
+    sqlc.narg(cancelado_en), sqlc.narg(motivo), sqlc.narg(entrante_id),
+    -- La cuadrilla (0.11.0 §3.9): la del webhook o, si vino de GET /inventario/traslados/:id (que solo
+    -- trae la bodega), la que Iris conoce de esa bodega.
+    coalesce(sqlc.narg(cuadrilla_id)::bigint,
+             (SELECT bc.cuadrilla_id FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = sqlc.narg(bodega_destino_id)::bigint))
 )
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = coalesce(excluded.empresa_id, integracion.argos_traslados.empresa_id),
+    cuadrilla_id = coalesce(excluded.cuadrilla_id, integracion.argos_traslados.cuadrilla_id),
     bodega_destino_id = coalesce(excluded.bodega_destino_id, integracion.argos_traslados.bodega_destino_id),
     tecnico_id_externo = coalesce(excluded.tecnico_id_externo, integracion.argos_traslados.tecnico_id_externo),
     tecnico_correo = coalesce(excluded.tecnico_correo, integracion.argos_traslados.tecnico_correo),
@@ -322,14 +327,38 @@ ON CONFLICT (id) DO UPDATE SET
 WHERE integracion.argos_traslados.estado = 'enviado' OR integracion.argos_traslados.estado = excluded.estado
 RETURNING *;
 
+-- name: GuardarBodegaCuadrilla :exec
+-- Una bodega `cuadrilla` de Argos (mi-bodega o un webhook de traslado, 0.11.0 §3.9).
+INSERT INTO integracion.argos_bodegas_cuadrilla (bodega_id, empresa_id, cuadrilla_id, nombre, visto_en)
+VALUES (@bodega_id, @empresa_id, @cuadrilla_id, sqlc.narg(nombre), @visto_en)
+ON CONFLICT (bodega_id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, cuadrilla_id = excluded.cuadrilla_id,
+    nombre = coalesce(excluded.nombre, integracion.argos_bodegas_cuadrilla.nombre),
+    visto_en = excluded.visto_en, updated_at = now();
+
+-- name: GuardarBodegaTecnico :exec
+-- Una bodega personal del técnico (mi-bodega, M-268-1).
+INSERT INTO integracion.argos_bodegas_tecnico (bodega_id, empresa_id, usuario_id, visto_en)
+VALUES (@bodega_id, @empresa_id, @usuario_id, @visto_en)
+ON CONFLICT (bodega_id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, usuario_id = excluded.usuario_id, visto_en = excluded.visto_en, updated_at = now();
+
+-- name: CuadrillaDelUsuario :one
+-- La cuadrilla actual del técnico (ficha activa) y su jefe.
+SELECT t.cuadrilla_id::bigint AS cuadrilla_id, c.jefe_usuario_id
+FROM agenda.tecnicos t JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id
+WHERE t.usuario_id = @usuario_id AND t.activo AND c.activa;
+
 -- name: TrasladoPorID :one
 SELECT * FROM integracion.argos_traslados WHERE id = @id;
 
 -- name: TrasladosDeTecnico :many
--- Los del técnico (por su vínculo: id_externo o, si Argos solo mandó el correo, el correo) en la
--- empresa (0 = todas), más recientes primero.
+-- Los del técnico (por su vínculo: id_externo o, si Argos solo mandó el correo, el correo) y los de
+-- su cuadrilla actual (0.11.0 §3.9; los recibe el jefe) en la empresa (0 = todas), más recientes
+-- primero.
 SELECT * FROM integracion.argos_traslados
-WHERE (tecnico_id_externo = @id_externo OR (tecnico_id_externo IS NULL AND @correo::text <> '' AND lower(tecnico_correo) = lower(@correo::text)))
+WHERE ((tecnico_id_externo = @id_externo OR (tecnico_id_externo IS NULL AND @correo::text <> '' AND lower(tecnico_correo) = lower(@correo::text)))
+       OR (sqlc.narg(cuadrilla_id)::bigint IS NOT NULL AND cuadrilla_id = sqlc.narg(cuadrilla_id)::bigint))
   AND (@empresa_id::bigint = 0 OR empresa_id = @empresa_id::bigint)
   AND (sqlc.narg(estado)::text IS NULL OR estado = sqlc.narg(estado)::text)
   AND (@antes_de::bigint = 0 OR id < @antes_de::bigint)
@@ -592,17 +621,78 @@ SET visto_en = @visto_en, ultimo_visto_en = @visto_en, cambiado = true, anterior
 WHERE id = @id
 RETURNING *;
 
--- Contactos del cliente (contrato 0.10.0 §3.5, A42; 0.10.1 §3.8, A46) -------------------------
+-- Portal del cliente de Argos (0.9.0 §11) -------------------------------------------------
 
--- name: GuardarContactoArgos :exec
+-- name: ConectorDeTokenPortal :one
+-- El conector Argos del token_portal: el token es hijo del iris_pat_ que se entregó en el canje de
+-- ese conector (o del que una reconexión sin confirmar todavía reemplaza).
+SELECT c.id, c.estado, c.contrato_remoto
+FROM nucleo.tokens_api t
+JOIN integracion.conectores c ON c.sistema = 'argosisp' AND c.eliminado_en IS NULL
+     AND (t.token_padre_id = c.token_entregado_id OR t.token_padre_id = c.reemplaza_token_id)
+WHERE t.id = @token_id AND t.token_padre_id IS NOT NULL
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1;
+
+-- name: ContarPeticionPortal :one
+-- Tope del conector (§11.2): una petición más en el minuto en curso.
+INSERT INTO integracion.portal_argos_minutos (conector_id, minuto, peticiones)
+VALUES (@conector_id, date_trunc('minute', now()), 1)
+ON CONFLICT (conector_id, minuto) DO UPDATE SET peticiones = integracion.portal_argos_minutos.peticiones + 1
+RETURNING peticiones;
+
+-- name: PurgarPeticionesPortal :exec
+DELETE FROM integracion.portal_argos_minutos WHERE minuto < now() - interval '10 minutes';
+
+-- name: ClienteEnInstantanea :one
+SELECT id, empresa_id, empresas, sin_servicios FROM integracion.argos_clientes WHERE id = @id;
+
+-- name: ContactoEnCache :one
+SELECT * FROM integracion.argos_contactos WHERE contacto_id = @contacto_id;
+
+-- name: GuardarContacto :execrows
+-- La única escritura de un contacto en la caché (portal §11.10 y atención §3.5): todas las columnas,
+-- sin bajar nunca la versión (una lectura vieja que llega tarde no pisa una más nueva). Devuelve 0
+-- filas si la versión guardada es mayor (entonces tampoco se tocan sus teléfonos).
 INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios,
-    consultar, reportar, pagar, avisos, persona_cliente_id, version, sincronizado_en)
+    consultar, reportar, pagar, avisos, persona_cliente_id, version, quitado, leido_en)
 VALUES (@contacto_id, @cliente_id, sqlc.narg('empresa_id'), @nombre, @relacion, @es_titular, sqlc.narg('servicios')::bigint[],
-    @consultar, @reportar, @pagar, @avisos, sqlc.narg('persona_cliente_id'), @version, @sincronizado_en)
-ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = EXCLUDED.cliente_id, empresa_id = EXCLUDED.empresa_id, nombre = EXCLUDED.nombre,
-    relacion = EXCLUDED.relacion, es_titular = EXCLUDED.es_titular, servicios = EXCLUDED.servicios, consultar = EXCLUDED.consultar,
-    reportar = EXCLUDED.reportar, pagar = EXCLUDED.pagar, avisos = EXCLUDED.avisos, persona_cliente_id = EXCLUDED.persona_cliente_id,
-    version = EXCLUDED.version, sincronizado_en = EXCLUDED.sincronizado_en;
+    @consultar, @reportar, @pagar, @avisos, sqlc.narg('persona_cliente_id'), @version, false, now())
+ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = excluded.cliente_id, empresa_id = excluded.empresa_id,
+    nombre = excluded.nombre, relacion = excluded.relacion, es_titular = excluded.es_titular, servicios = excluded.servicios,
+    consultar = excluded.consultar, reportar = excluded.reportar, pagar = excluded.pagar, avisos = excluded.avisos,
+    persona_cliente_id = excluded.persona_cliente_id, version = excluded.version, quitado = false, leido_en = now(), updated_at = now()
+WHERE excluded.version >= integracion.argos_contactos.version;
+
+-- name: QuitarContactosAusentes :execrows
+-- Los contactos del cliente que Argos ya no devuelve: quitados (no se borran; dejan de ver sus tickets
+-- y pierden su rol en la atención).
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = now(), updated_at = now()
+WHERE cliente_id = @cliente_id AND NOT quitado AND NOT (contacto_id = ANY(@vigentes::bigint[]));
+
+-- name: QuitarContacto :execrows
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = now(), updated_at = now()
+WHERE contacto_id = @contacto_id AND cliente_id = @cliente_id AND NOT quitado;
+
+-- name: HayContactosDeCliente :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_contactos WHERE cliente_id = @cliente_id)::boolean;
+
+-- name: TokenPortalVigente :one
+-- El iris_pat_ entregado ya tiene un token_portal vigente (hijo sin revocar ni eliminar).
+SELECT EXISTS (SELECT 1 FROM nucleo.tokens_api WHERE token_padre_id = @padre_id
+    AND revocado_en IS NULL AND eliminado_en IS NULL)::boolean;
+
+-- name: ConectorDeTokenPanel :one
+-- El conector Argos al que pertenece el iris_pat_ del panel (el entregado en su canje o el que una
+-- reconexión sin confirmar todavía reemplaza).
+SELECT c.id, c.estado FROM integracion.conectores c
+WHERE c.sistema = 'argosisp' AND c.eliminado_en IS NULL AND (c.token_entregado_id = @token_id OR c.reemplaza_token_id = @token_id)
+ORDER BY (c.estado = 'activo') DESC, c.id DESC
+LIMIT 1;
+
+-- Contactos del cliente en la atención (contrato 0.10.0 §3.5, A42; 0.10.1 §3.8, A46) --------------
+-- La tabla y su escritura son las del portal (GuardarContacto, QuitarContacto*): aquí, los teléfonos y
+-- cuándo se leyó completo cada cliente.
 
 -- name: BorrarTelefonosContactoArgos :exec
 DELETE FROM integracion.argos_contacto_telefonos WHERE contacto_id = @contacto_id;
@@ -611,16 +701,6 @@ DELETE FROM integracion.argos_contacto_telefonos WHERE contacto_id = @contacto_i
 INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos, whatsapp, principal)
 VALUES (@contacto_id, @numero, @digitos, @whatsapp, @principal)
 ON CONFLICT (contacto_id, numero) DO UPDATE SET digitos = EXCLUDED.digitos, whatsapp = EXCLUDED.whatsapp, principal = EXCLUDED.principal;
-
--- name: BorrarContactosAusentes :execrows
--- Los contactos del cliente que Argos ya no devuelve.
-DELETE FROM integracion.argos_contactos WHERE cliente_id = @cliente_id AND NOT (contacto_id = ANY (@vigentes::bigint[]));
-
--- name: BorrarContactoArgos :execrows
-DELETE FROM integracion.argos_contactos WHERE contacto_id = @contacto_id;
-
--- name: BorrarContactosDeCliente :execrows
-DELETE FROM integracion.argos_contactos WHERE cliente_id = @cliente_id;
 
 -- name: OlvidarContactosLeidos :exec
 -- Invalida la caché del cliente: se vuelve a leer de Argos cuando una persona la necesite.
@@ -633,22 +713,14 @@ ON CONFLICT (cliente_id) DO UPDATE SET sincronizado_en = EXCLUDED.sincronizado_e
 -- name: ContactosLeidosEn :one
 SELECT sincronizado_en FROM integracion.argos_contactos_leidos WHERE cliente_id = @cliente_id;
 
--- name: ContactosDeClienteCache :many
-SELECT * FROM integracion.argos_contactos WHERE cliente_id = @cliente_id ORDER BY contacto_id;
-
--- name: ContactoArgosPorID :one
-SELECT * FROM integracion.argos_contactos WHERE contacto_id = @contacto_id;
-
--- name: TelefonosDeContactoArgos :many
-SELECT * FROM integracion.argos_contacto_telefonos WHERE contacto_id = @contacto_id ORDER BY principal DESC, numero;
-
 -- name: HuellaContactosCliente :one
--- Huella de los contactos del cliente en la caché (ids, si son titulares y sus números): si cambia al
+-- Huella de los contactos vigentes del cliente (ids, si son titulares y sus números): si cambia al
 -- releer, la mensajería revisa las conversaciones asociadas por esos contactos.
 SELECT coalesce(md5(string_agg(k.contacto_id::text || ':' || k.es_titular::text || ':' || coalesce(t.digitos, ''), ','
     ORDER BY k.contacto_id, t.digitos)), '')::text
 FROM integracion.argos_contactos k LEFT JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id
-WHERE k.cliente_id = @cliente_id;
+WHERE k.cliente_id = @cliente_id AND NOT k.quitado;
+
 
 -- Falla general (0.13.0 §3.11): servicios por leer en Argos en un job aparte -------------------------
 

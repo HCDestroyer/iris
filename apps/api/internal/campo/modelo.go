@@ -166,20 +166,26 @@ type NotaOrden struct {
 
 // MaterialOrden: material usado (producto de Argos).
 type MaterialOrden struct {
-	ID               uuid.UUID `json:"id" doc:"Id de la operación del lote que lo registró (o uno v7 del servidor)"`
-	ProductoID       int64     `json:"productoId"`
-	Descripcion      string    `json:"descripcion"`
-	Cantidad         float64   `json:"cantidad"`
-	BodegaID         *int64    `json:"bodegaId" nullable:"true"`
-	ExcedeExistencia bool      `json:"excedeExistencia" doc:"Se usó más de lo que había en la bodega según Argos"`
-	Modalidad        *string   `json:"modalidad" nullable:"true" required:"false" enum:"comodato,consumible_gasto,consumible_cobro" doc:"Modalidad del producto en Argos al registrarlo (≥ 1.6.0); null = no se sabía. Un comodato no va en el consumo"`
-	OcurridoEn       time.Time `json:"ocurridoEn"`
+	ID               uuid.UUID  `json:"id" doc:"Id de la operación del lote que lo registró (o uno v7 del servidor)"`
+	ProductoID       int64      `json:"productoId"`
+	Descripcion      string     `json:"descripcion"`
+	Cantidad         float64    `json:"cantidad"`
+	BodegaID         *int64     `json:"bodegaId" nullable:"true"`
+	ExcedeExistencia bool       `json:"excedeExistencia" doc:"Se usó más de lo que había en la bodega según Argos"`
+	Modalidad        *string    `json:"modalidad" nullable:"true" required:"false" enum:"comodato,consumible_gasto,consumible_cobro" doc:"Modalidad del producto en Argos al registrarlo (≥ 1.6.0); null = no se sabía. Un comodato no va en el consumo"`
+	OcurridoEn       time.Time  `json:"ocurridoEn"`
+	RecibidoEn       *time.Time `json:"recibidoEn,omitempty" doc:"Cuándo lo aceptó el servidor (recibido_en_iris, contrato 0.12.0)"`
+	// Para el cierre (no salen por la API): quién lo registró y si fue desde la app (el lote).
+	registradoPor *int64
+	desdeApp      bool
+	// bodegaTipo: el tipo de la bodega según Argos al registrarlo desde el panel (M-4).
+	bodegaTipo *string
 }
 
 // EquipoOrden: equipo instalado o retirado.
 type EquipoOrden struct {
 	ID         uuid.UUID `json:"id" doc:"Id de la operación del lote que lo registró (o uno v7 del servidor)"`
-	Accion     string    `json:"accion" enum:"instalar,retirar"`
+	Accion     string    `json:"accion" enum:"instalar,retirar,cambio,no_recuperado" doc:"cambio: sale saleUnidadId y entra esta; no_recuperado: intento de recuperación de esta unidad (contrato 0.12.0 §3.10)"`
 	UnidadID   *int64    `json:"unidadId" nullable:"true" doc:"Unidad en el inventario de Argos"`
 	Serie      *string   `json:"serie" nullable:"true"`
 	MAC        *string   `json:"mac" nullable:"true" doc:"AA:BB:CC:DD:EE:FF"`
@@ -187,6 +193,22 @@ type EquipoOrden struct {
 	Condicion  *string   `json:"condicion" nullable:"true" enum:"buena,danada,perdido" doc:"Solo retirar"`
 	Validado   bool      `json:"validado" doc:"Retirado y verificado contra el comodato del servicio en Argos (false: sin conector o Argos no respondió)"`
 	OcurridoEn time.Time `json:"ocurridoEn"`
+	// Cambio de equipo e intento de recuperación (0.12.0 §3.10). Las notas se muestran escapadas.
+	SaleUnidadID   *int64     `json:"saleUnidadId,omitempty"`
+	Motivo         *string    `json:"motivo,omitempty" doc:"cambio: danado, actualizacion, garantia, otro; no_recuperado: cliente_ausente, se_nego, equipo_perdido, otro"`
+	DestinoSale    *string    `json:"destinoSale,omitempty" enum:"funciona,revision,garantia,danado"`
+	CobroPropuesto *string    `json:"cobroPropuesto,omitempty" doc:"Motivo del cobro propuesto (sin monto; lo decide una persona en Argos)"`
+	CobroNota      *string    `json:"cobroNota,omitempty"`
+	Nota           *string    `json:"nota,omitempty"`
+	FotoAdjuntoID  *uuid.UUID `json:"fotoAdjuntoId,omitempty"`
+	Lat            *float64   `json:"lat,omitempty"`
+	Lon            *float64   `json:"lon,omitempty"`
+	PrecisionM     *float32   `json:"precisionM,omitempty"`
+	RecibidoEn     *time.Time `json:"recibidoEn,omitempty" doc:"Cuándo lo aceptó el servidor (recibido_en_iris)"`
+	// registradoPor: quién lo registró y si fue desde la app (para el cierre; no salen por la API).
+	registradoPor    *int64
+	desdeApp         bool
+	enviadoAlAplicar bool
 }
 
 // FirmaOrden: firma del cliente (sin el SVG: es dato sensible; se baja como adjunto).

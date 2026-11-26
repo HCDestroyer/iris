@@ -1,9 +1,10 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import { Aviso, Boton, BotonManualPantalla, cn, Esqueleto, EstadoVacio, InsigniaEstado, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Aviso, Boton, BotonManualPantalla, cn, Esqueleto, EstadoVacio, FranjaFicha, InsigniaEstado, PestanasSegmentadas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
 import {
     GitMerge,
+    LifeBuoy,
     Lock,
     MailWarning,
     MessageSquare,
@@ -198,26 +199,18 @@ function Detalle({ id }: { id: number }) {
     return (
         <div className="grid gap-4 [&>*]:min-w-0">
             <header className="grid gap-3">
-                <div className="flex flex-wrap items-start gap-4">
-                    <div className="grid min-w-0 flex-[1_1_26rem] gap-2">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="mr-1 font-mono text-xs text-muted-foreground">
-                                {t.numero}
-                            </span>
+                <FranjaFicha
+                    icono={LifeBuoy}
+                    titulo={t.asunto}
+                    detalle={[t.numero, t.contacto.nombre, categoria, `llegó por ${ORIGENES[t.origen].toLowerCase()}`].filter(Boolean).join(" · ")}
+                    manual={<BotonManualPantalla />}
+                    insignias={
+                        <>
                             <InsigniaEstadoTicket estado={t.estado} />
                             <InsigniaPrioridad prioridad={t.prioridad} />
-                            <InsigniaEstado
-                                tono={sla.tono}
-                                icono={sla.icono}
-                                texto={`SLA · ${sla.detalle ?? sla.texto}`}
-                                data-sla-cabecera={sla.estado}
-                            />
+                            <InsigniaEstado tono={sla.tono} icono={sla.icono} texto={`SLA · ${sla.detalle ?? sla.texto}`} data-sla-cabecera={sla.estado} />
                             {t.nivelEscalamiento > 0 ? (
-                                <InsigniaEstado
-                                    tono="neutral"
-                                    icono={TrendingUp}
-                                    texto={`Escalado ${t.nivelEscalamiento === 1 ? "1 vez" : `${t.nivelEscalamiento} veces`}`}
-                                />
+                                <InsigniaEstado tono="neutral" icono={TrendingUp} texto={`Escalado ${t.nivelEscalamiento === 1 ? "1 vez" : `${t.nivelEscalamiento} veces`}`} />
                             ) : null}
                             {t.contacto.verificado ? null : (
                                 <InsigniaEstado
@@ -229,29 +222,10 @@ function Detalle({ id }: { id: number }) {
                                 />
                             )}
                             {verHorus ? <BotonVerEn enlace={verHorus} /> : null}
-                        </div>
-                        <div className="flex min-w-0 items-center gap-1.5">
-                            <h1 className="text-[1.375rem] font-semibold tracking-[-0.015em] break-words">{t.asunto}</h1>
-                            <BotonManualPantalla />
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                            {[
-                                t.contacto.nombre,
-                                categoria,
-                                `llegó por ${ORIGENES[t.origen].toLowerCase()}`,
-                            ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                        </p>
-                    </div>
-                    <BarraAcciones
-                        ticket={t}
-                        usuarios={listaUsuarios}
-                        alHecho={alHecho}
-                        recargar={refrescarTodo}
-                        inicial={accionUrl === "asignar" ? "asignar" : null}
-                    />
-                </div>
+                        </>
+                    }
+                    accion={<BarraAcciones ticket={t} usuarios={listaUsuarios} alHecho={alHecho} recargar={refrescarTodo} inicial={accionUrl === "asignar" ? "asignar" : null} />}
+                />
                 {t.ticketPadreId !== null ? (
                     <Aviso
                         tono="info"
@@ -287,7 +261,7 @@ function Detalle({ id }: { id: number }) {
 
             <div className="grid grid-cols-[minmax(0,1fr)] items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
                 <div className="grid min-w-0 content-start gap-4">
-                    <Pestanas<PestanaTicket>
+                    <PestanasSegmentadas<PestanaTicket>
                         etiqueta="Secciones del ticket"
                         seleccionada={pestana}
                         alCambiar={setPestana}

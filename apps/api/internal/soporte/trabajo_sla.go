@@ -59,6 +59,7 @@ func (m *Modulo) RegistrarTrabajos(bd nucleo.BD) func(*river.Workers) {
 		river.AddWorker(w, &TrabajadorProcesarCorreos{BD: bd, Modulo: m})
 		river.AddWorker(w, &TrabajadorEnviarCorreo{BD: bd, Modulo: m})
 		river.AddWorker(w, &TrabajadorAvisarHijos{BD: bd, Modulo: m})
+		river.AddWorker(w, &TrabajadorConciliar{BD: bd, Modulo: m})
 		// Falla general de Argos (contrato 0.13.0 §3.11): cierra el ticket general a los 30 min.
 		river.AddWorker(w, &TrabajadorCerrarFallaGeneral{BD: bd, Modulo: m})
 		river.AddWorker(w, &TrabajadorVencerVerificacion{BD: bd, Modulo: m})
