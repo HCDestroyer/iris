@@ -11533,6 +11533,8 @@ export interface components {
             portal_argos: boolean;
             /** @description Solicitudes de servicio (§11.7) */
             solicitudes_servicio: boolean;
+            /** @description Bloque A de la 0.15.0 (§13.1): Iris guarda y usa tipo_servicio y componentes[] */
+            tipo_servicio: boolean;
         };
         CargoArgos: {
             /** Format: int64 */
@@ -15374,7 +15376,7 @@ export interface components {
             motivoPlan?: string;
             /**
              * Format: int64
-             * @description Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido
+             * @description Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido. Con un plan de cable (contrato 0.15.0 §13.1) se ignora: el servicio va sin router
              */
             routerId?: number;
             /** Format: int32 */
@@ -16696,7 +16698,7 @@ export interface components {
              * @enum {string}
              */
             modo: "al_cerrar" | "exigir_lista" | "pendiente_agente";
-            /** @description Por qué no: sin_capacidad, modo_al_cerrar, activacion_al_cerrar, activacion_en_curso, activacion_lista, no_es_instalacion, sin_servicio, orden_terminada */
+            /** @description Por qué no: sin_capacidad, tipo_sin_router (servicio de cable, 0.15.0), modo_al_cerrar, activacion_al_cerrar, activacion_en_curso, activacion_lista, no_es_instalacion, sin_servicio, orden_terminada */
             noDisponible: string | null;
             /** Format: int64 */
             ordenId: number;
@@ -17229,7 +17231,7 @@ export interface components {
             lat: number | null;
             /** Format: double */
             lon: number | null;
-            /** @description Por qué es indeterminado: sin_conector, conector_apagado, sin_coordenadas, sin_empresa, sin_instantanea, sin_routers_con_coordenadas */
+            /** @description Por qué es indeterminado: sin_conector, conector_apagado, sin_coordenadas, sin_empresa, sin_instantanea, sin_routers_con_coordenadas, planta_no_disponible, tipo_sin_router (plan de cable, contrato argosisp.md 0.15.0 §13.1: sin planta CATV en Argos) */
             motivo: string | null;
             motivoAnulacion: string | null;
             /** @description distancia (router más cercano de la instantánea de Argos), manual (visita técnica), ozmap (fase 6) */
@@ -20148,6 +20150,13 @@ export interface components {
             nombre: string;
             /** @description Mensualidad (decimal, 2 cifras); null si Argos no la publica */
             precio: string | null;
+            /** @description Plan de cable: sin router ni velocidad; la factibilidad queda indeterminada (tipo_sin_router) y el alta no pide router */
+            sinRouter?: boolean;
+            /**
+             * @description Tipo del plan en Argos (0.15.0); ausente si Argos no lo informó (internet)
+             * @enum {string}
+             */
+            tipoServicio?: "internet" | "cable" | "iptv" | "mixto" | "otro";
         };
         PlanOrden: {
             /** Format: int64 */
@@ -20173,7 +20182,7 @@ export interface components {
              */
             modo: "residencial" | "empresarial";
             /** @enum {string|null} */
-            motivo: "sin_conector" | "argos_no_disponible" | "sin_router" | null;
+            motivo: "sin_conector" | "argos_no_disponible" | "sin_router" | "tipo_sin_router" | null;
         };
         Planta: {
             caja: string | null;
@@ -21969,6 +21978,8 @@ export interface components {
             clienteId: number;
             /** @description Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce) */
             codigo: string;
+            /** @description Componentes del servicio (internet, cable, iptv); ausente si Argos no los informó */
+            componentes?: string[] | null;
             /** @description Quien atiende en el sitio; solo con servicios.ver_ubicacion */
             contactoNombre?: string;
             /** @description Teléfono del contacto en sitio tal como está en Argos; solo con servicios.ver_ubicacion */
@@ -22024,6 +22035,8 @@ export interface components {
             routerId?: number;
             /** @description Solo con servicios.ver_red */
             routerNombre?: string;
+            /** @description true: el servicio no tiene router ni velocidad (cable, §13.1 A1). Iris no pide ni ofrece router, velocidad contratada, cambio de plan por router ni activación por aprovisionamiento */
+            sinRouter?: boolean;
             /**
              * Format: date-time
              * @description Cuándo se leyó de Argos
@@ -22031,6 +22044,11 @@ export interface components {
             sincronizadoEn: string;
             /** @description pppoe, ip_estatica o dhcp_fija; solo con servicios.ver_red */
             tipoConexion?: string;
+            /**
+             * @description Tipo de servicio en Argos (0.15.0): internet, cable (CATV por fibra), iptv, mixto u otro (uno que Argos agregó después). Ausente si Argos no lo informó (anterior a 0.15.0): se trata como internet
+             * @enum {string}
+             */
+            tipoServicio?: "internet" | "cable" | "iptv" | "mixto" | "otro";
             /** @description Usuario PPPoE; ausente fuera de pppoe o sin servicios.ver_red */
             userPpp?: string;
             /** Format: int64 */
@@ -22059,8 +22077,15 @@ export interface components {
             precioMensual?: string;
             /** @description Solo con servicios.ver_red */
             router?: string;
+            /** @description Servicio sin router ni velocidad (cable): no se pide router ni se ofrece cambiar el plan por router ni activar por aprovisionamiento */
+            sinRouter?: boolean;
             /** Format: date-time */
             sincronizadoEn: string;
+            /**
+             * @description Tipo de servicio en Argos (0.15.0); ausente si Argos no lo informó (se trata como internet)
+             * @enum {string}
+             */
+            tipoServicio?: "internet" | "cable" | "iptv" | "mixto" | "otro";
             /** @description Nombre de la zona del servicio */
             zona?: string;
         };
@@ -22109,6 +22134,8 @@ export interface components {
             clienteId: number;
             /** @description Código del servicio en Argos (desde el contrato 0.10.0, S-000412: el «número de servicio» que el cliente conoce) */
             codigo: string;
+            /** @description Componentes del servicio (internet, cable, iptv); ausente si Argos no los informó */
+            componentes?: string[] | null;
             /** @description Quien atiende en el sitio; solo con servicios.ver_ubicacion */
             contactoNombre?: string;
             /** @description Teléfono del contacto en sitio tal como está en Argos; solo con servicios.ver_ubicacion */
@@ -22166,6 +22193,8 @@ export interface components {
             routerId?: number;
             /** @description Solo con servicios.ver_red */
             routerNombre?: string;
+            /** @description true: el servicio no tiene router ni velocidad (cable, §13.1 A1). Iris no pide ni ofrece router, velocidad contratada, cambio de plan por router ni activación por aprovisionamiento */
+            sinRouter?: boolean;
             /**
              * Format: date-time
              * @description Cuándo se leyó de Argos
@@ -22173,6 +22202,11 @@ export interface components {
             sincronizadoEn: string;
             /** @description pppoe, ip_estatica o dhcp_fija; solo con servicios.ver_red */
             tipoConexion?: string;
+            /**
+             * @description Tipo de servicio en Argos (0.15.0): internet, cable (CATV por fibra), iptv, mixto u otro (uno que Argos agregó después). Ausente si Argos no lo informó (anterior a 0.15.0): se trata como internet
+             * @enum {string}
+             */
+            tipoServicio?: "internet" | "cable" | "iptv" | "mixto" | "otro";
             /** @description Usuario PPPoE; ausente fuera de pppoe o sin servicios.ver_red */
             userPpp?: string;
             /** @description = zonaNombre (compatibilidad) */
@@ -26207,6 +26241,8 @@ export interface operations {
             query?: {
                 /** @description Router sugerido por la factibilidad: solo los planes que ofrece */
                 routerId?: number;
+                /** @description Solo los planes de ese tipo de servicio (contrato argosisp.md 0.15.0 §13.1: GET /planes?tipo_servicio= de Argos) */
+                tipoServicio?: "internet" | "cable" | "iptv" | "mixto";
             };
             header?: never;
             path?: never;

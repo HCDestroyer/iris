@@ -12,6 +12,8 @@ import (
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	comercialbd "github.com/HCDestroyer/iris/apps/api/internal/comercial/bd"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/contexto"
 )
@@ -129,6 +131,23 @@ func (PlantaPorDistancia) Evaluar(ctx context.Context, empresa *int64, lat, lon 
 	return ev, nil
 }
 
+// planDeCable: el plan es de cable (sin router, §13.1 A1) según la instantánea de planes, con un
+// Argos que informa ≥ 0.15.0. Un plan que Iris no conoce cuenta como internet (como hoy).
+func planDeCable(ctx context.Context, t conector.DBTX, planID *int64) (bool, error) {
+	if planID == nil {
+		return false, nil
+	}
+	con, err := argos.ArgosConTipoServicio(ctx, t)
+	if err != nil || !con {
+		return false, err
+	}
+	p, err := argos.TipoDePlan(ctx, t, *planID)
+	if err != nil {
+		return false, err
+	}
+	return p.Conocido && !p.ConRouter(), nil
+}
+
 // Haversine: distancia en metros entre dos coordenadas.
 func Haversine(lat1, lon1, lat2, lon2 float64) float64 {
 	const radio = 6_371_000.0
@@ -162,6 +181,8 @@ type previoFactibilidad struct {
 	EmpresaID *int64   `json:"empresa_id"`
 	Lat       *float64 `json:"lat"`
 	Lon       *float64 `json:"lon"`
+	// Cable: el plan de interés es de cable y Argos informa ≥ 0.15.0 (§13.1, A4).
+	Cable bool `json:"cable,omitempty"`
 }
 
 // entradaGuardarFactibilidad: la evaluación ya hecha.
@@ -190,7 +211,11 @@ func (m *Modulo) nuevoPrepararFactibilidad() *auditoria.Caso[EntradaFactibilidad
 			if err := exigirEstado(f, "evaluar la factibilidad de", estadosFactibilidad...); err != nil {
 				return previoFactibilidad{}, err
 			}
-			return previoFactibilidad{EmpresaID: f.EmpresaID, Lat: f.Lat, Lon: f.Lon}, nil
+			cable, err := planDeCable(ctx, t, f.PlanInteresID)
+			if err != nil {
+				return previoFactibilidad{}, err
+			}
+			return previoFactibilidad{EmpresaID: f.EmpresaID, Lat: f.Lat, Lon: f.Lon, Cable: cable}, nil
 		},
 	})
 }
@@ -203,7 +228,10 @@ func (m *Modulo) EvaluarFactibilidad(ctx context.Context, in EntradaFactibilidad
 		return Factibilidad{}, err
 	}
 	e := entradaGuardarFactibilidad{EntradaFactibilidad: in}
-	if previo.Lat == nil || previo.Lon == nil {
+	if previo.Cable {
+		// 0.15.0 §13.1 (A4): la planta CATV no está en Argos todavía; no se mide la distancia a un router.
+		e.ev = Evaluacion{Motor: "distancia", Resultado: FactibleIndeterminado, Motivo: argos.CodigoTipoSinRouter}
+	} else if previo.Lat == nil || previo.Lon == nil {
 		e.ev = Evaluacion{Motor: "distancia", Resultado: FactibleIndeterminado, Motivo: MotivoSinCoordenadas}
 	} else if e.ev, err = m.cfg.Planta.Evaluar(ctx, previo.EmpresaID, *previo.Lat, *previo.Lon); err != nil {
 		motor := e.ev.Motor

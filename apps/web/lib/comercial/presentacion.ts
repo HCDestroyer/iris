@@ -93,6 +93,7 @@ const MOTIVOS: Record<string, string> = {
     sin_instantanea: "Todavía no se leyeron los routers de Argos para esta empresa.",
     sin_routers_con_coordenadas: "Ningún router de la empresa tiene coordenadas en Argos.",
     planta_no_disponible: "El servicio de planta externa no respondió.",
+    tipo_sin_router: "El plan es de cable (TV): Argos todavía no tiene la planta de cable, así que no se mide la distancia a un router. Registra una visita técnica.",
     argos_no_disponible: "Argos no respondió.",
 };
 

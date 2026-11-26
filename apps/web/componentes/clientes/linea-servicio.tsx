@@ -1,9 +1,9 @@
 "use client";
 
 import { cn, GrupoOpciones, InsigniaEstado } from "@iris/ui";
-import { Lock, Map as IconoMapa, MapPin, MessageCircle, Network, Router } from "lucide-react";
+import { Globe, Layers, Lock, Map as IconoMapa, MapPin, MessageCircle, MonitorPlay, Network, Router, Shapes, Tv, type LucideIcon } from "lucide-react";
 import { presentacionEstado } from "@/lib/datos/presentacion";
-import { textoPrecio, type ServicioLinea } from "@/lib/datos/servicio";
+import { textoPrecio, textoTipoServicio, type ServicioLinea, type TipoServicio } from "@/lib/datos/servicio";
 import { useSesion } from "@/lib/sesion";
 
 export type { ServicioLinea };
@@ -13,12 +13,28 @@ export type { ServicioLinea };
  * componente que identifica un servicio de Argos de un vistazo, en fichas, selectores y listas.
  *
  *  - Primera línea: el plan completo (envuelve, nunca se recorta) y el estado con icono, texto y color.
- *  - Segunda línea, discreta: precio mensual, zona, router, IP, dirección y código.
+ *  - Segunda línea, discreta: precio mensual, tipo de servicio (0.15.0: «Cable (TV)»; sin router en cable),
+ *    zona, router, IP, dirección y código.
  *
  * El servidor OMITE el router y la IP sin `servicios.ver_red`, y la dirección sin
  * `servicios.ver_ubicacion`: aquí solo se muestra lo que llegó (sin IP no se dice «sin IP»: el
  * técnico solo ve la red de sus órdenes y no se distingue). Sin precio (Argos anterior a 1.18.0) no se muestra nada: nunca «Q0».
  */
+
+const ICONOS_TIPO: Record<TipoServicio, LucideIcon> = { internet: Globe, cable: Tv, iptv: MonitorPlay, mixto: Layers, otro: Shapes };
+
+/** El tipo de servicio (0.15.0 §13.1): ícono + texto, solo si Argos lo informó. */
+function TipoDeServicio({ tipo, className }: { tipo: TipoServicio | undefined; className?: string }) {
+    if (!tipo) return null;
+    const Icono = ICONOS_TIPO[tipo];
+    return (
+        <span className={cn("inline-flex items-center gap-1", className)} data-testid="linea-servicio-tipo" data-tipo={tipo}>
+            <Icono aria-hidden className="size-3 shrink-0" />
+            <span className="sr-only">Tipo </span>
+            {textoTipoServicio(tipo)}
+        </span>
+    );
+}
 
 type Props = {
     servicio: ServicioLinea;
@@ -45,6 +61,7 @@ export function LineaServicio({ servicio: s, variante = "completa", numerado = f
                 <span className="font-medium break-words">{plan}</span>
                 {estado ? <InsigniaEstado tono={estado.tono} icono={estado.icono} texto={estado.texto} /> : null}
                 {precio ? <span className="text-xs tabular-nums">{precio}</span> : null}
+                <TipoDeServicio tipo={s.tipoServicio} className="text-xs text-muted-foreground" />
                 {s.zonaNombre ? <span className="text-xs text-muted-foreground">{s.zonaNombre}</span> : null}
                 {s.ip ? <span className="font-mono text-xs text-muted-foreground">{s.ip}</span> : null}
             </span>
@@ -67,6 +84,7 @@ export function LineaServicio({ servicio: s, variante = "completa", numerado = f
             </div>
             <div className="flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-[0.78125rem] text-muted-foreground" data-testid="linea-servicio-detalle">
                 {precio ? <span className="text-foreground tabular-nums">{precio}</span> : null}
+                <TipoDeServicio tipo={s.tipoServicio} />
                 {s.zonaNombre ? (
                     <span className="inline-flex items-center gap-1">
                         <IconoMapa aria-hidden className="size-3 shrink-0" />
@@ -74,7 +92,7 @@ export function LineaServicio({ servicio: s, variante = "completa", numerado = f
                         {s.zonaNombre}
                     </span>
                 ) : null}
-                {s.routerNombre ? (
+                {s.routerNombre && !s.sinRouter ? (
                     <span className="inline-flex items-center gap-1" data-testid="linea-servicio-router">
                         <Router aria-hidden className="size-3 shrink-0" />
                         <span className="sr-only">Router </span>
