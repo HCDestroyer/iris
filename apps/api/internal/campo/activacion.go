@@ -137,7 +137,7 @@ type WirelessActivacion struct {
 
 // WifiActivacion: el Wi-Fi inicial que escribe el técnico. La clave nunca se guarda en Iris.
 type WifiActivacion struct {
-	SSID  string  `json:"ssid" minLength:"1" maxLength:"32" doc:"1 a 32 caracteres, sin caracteres de control"`
+	SSID  string  `json:"ssid" minLength:"1" maxLength:"32" auditoria:"sensible" doc:"1 a 32 caracteres, sin caracteres de control"`
 	Clave *string `json:"clave,omitempty" minLength:"8" maxLength:"63" auditoria:"sensible" doc:"8 a 63 caracteres imprimibles (WPA2). Nunca se devuelve ni queda en eventos, logs, auditoría ni en la cola: viaja cifrada hasta Argos y se borra"`
 }
 

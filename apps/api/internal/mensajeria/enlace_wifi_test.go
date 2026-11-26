@@ -101,6 +101,13 @@ func TestEnlaceWifiUnSoloUso(t *testing.T) {
 			t.Fatalf("la clave quedó en Iris: %s", sql)
 		}
 	}
+	// El nombre del Wi-Fi tampoco queda en la auditoría (solo la máscara).
+	if n := e.contar("SELECT count(*) FROM auditoria.acciones WHERE entrada::text LIKE '%' || $1 || '%'", "Casa Pérez"); n != 0 {
+		t.Fatalf("el SSID quedó en la auditoría: %d", n)
+	}
+	if n := e.contar(`SELECT count(*) FROM auditoria.acciones WHERE accion = 'servicios.cambiar_wifi' AND entrada->>'ssid' = '***'`); n < 1 {
+		t.Fatalf("la entrada del cambio lleva el ssid enmascarado: %d", n)
+	}
 	// Vencido o con otro cliente en la conversación: 410, sin consumir nada.
 	vencido := strings.Repeat("b", 43)
 	crearOtra := func(tok string, vence time.Time) {

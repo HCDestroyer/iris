@@ -26,6 +26,9 @@ import (
 
 const claveWifiPrueba = "Clave-Secreta-Wifi-2026"
 
+// ssidWifiPrueba: el nombre del Wi-Fi de las pruebas (no debe quedar en la auditoría).
+const ssidWifiPrueba = "Red-Familia-Perez-2026"
+
 var servicioActivacion atomic.Int64
 
 func init() { servicioActivacion.Store(45000) }
@@ -89,7 +92,7 @@ func (e *entornoActivacion) instalacionPropia(tec int64, ct context.Context) cam
 }
 
 func datosActivacion(conClave bool) map[string]any {
-	wifi := map[string]any{"ssid": "Familia Pérez"}
+	wifi := map[string]any{"ssid": ssidWifiPrueba}
 	if conClave {
 		wifi["clave"] = claveWifiPrueba
 	}
@@ -112,6 +115,17 @@ func sinClaveWifi(t *testing.T) {
 	} {
 		if n := contar(t, consulta, "%"+claveWifiPrueba+"%"); n != 0 {
 			t.Fatalf("la clave Wi-Fi quedó fuera del depósito: %d filas en %q", n, consulta[:60])
+		}
+	}
+	// El nombre del Wi-Fi (ssid) tampoco queda en la auditoría: en cualquier nivel de la entrada (también
+	// dentro de las operaciones del lote) y de los cambios, solo la máscara.
+	for _, consulta := range []string{
+		`SELECT count(*) FROM auditoria.acciones a, jsonb_path_query(a.entrada, 'lax $.**.ssid') v WHERE v <> '"***"'::jsonb AND $1 <> ''`,
+		`SELECT count(*) FROM auditoria.acciones a WHERE a.entrada::text LIKE $1`,
+		`SELECT count(*) FROM auditoria.cambios c, jsonb_path_query(coalesce(c.despues, 'null'), 'lax $.**.ssid') v WHERE v <> '"***"'::jsonb AND $1 <> ''`,
+	} {
+		if n := contar(t, consulta, "%"+ssidWifiPrueba+"%"); n != 0 {
+			t.Fatalf("el SSID quedó sin máscara en la auditoría: %d filas en %q", n, consulta[:70])
 		}
 	}
 }
@@ -159,7 +173,7 @@ func TestActivacionSinSenalHastaListaYCierreSinRepetir(t *testing.T) {
 		t.Fatalf("llamada a aprovisionar: %+v", l)
 	}
 	wifi, _ := l.JSON["wifi"].(map[string]any)
-	if wifi["clave"] != claveWifiPrueba || wifi["ssid"] != "Familia Pérez" || l.JSON["origen_id"] != orden || l.JSON["origen_tipo"] != "iris_orden" {
+	if wifi["clave"] != claveWifiPrueba || wifi["ssid"] != ssidWifiPrueba || l.JSON["origen_id"] != orden || l.JSON["origen_tipo"] != "iris_orden" {
 		t.Fatalf("cuerpo de aprovisionar: %+v", l.JSON)
 	}
 	if n := contar(t, "SELECT count(*) FROM integracion.datos_transito WHERE orden_id = $1 AND cifrado IS NOT NULL", o.ID); n != 0 {
@@ -429,7 +443,7 @@ func TestEquipoYWifiDesdeLaOrden(t *testing.T) {
 	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "llamada_verificada"})
 	problema(t, err, 422, "verificacion_requerida")
 	verif := verificacionDePrueba(t, 990)
-	deber(e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "datos_titular", VerificacionID: &verif}))(t)
+	deber(e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr(ssidWifiPrueba), Metodo: "datos_titular", VerificacionID: &verif}))(t)
 	// Métodos del PM: el código al teléfono o al correo aún no; presencial solo el técnico.
 	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel"), Metodo: "codigo_telefono"})
 	problema(t, err, 422, "metodo_no_disponible")
@@ -443,7 +457,7 @@ func TestEquipoYWifiDesdeLaOrden(t *testing.T) {
 	_, err = e.m.CambiarWifi.Ejecutar(e.cs, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Panel 3"), Metodo: "llamada_verificada", VerificacionID: &otra})
 	problema(t, err, 422, "verificacion_requerida")
 	// Tres por día: el cuarto no sale.
-	deber(e.m.CambiarWifi.Ejecutar(ct, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Casa")}))(t)
+	deber(e.m.CambiarWifi.Ejecutar(ct, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr(ssidWifiPrueba)}))(t)
 	_, err = e.m.CambiarWifi.Ejecutar(ct, campo.EntradaWifiOrden{ID: o.ID, SSID: ptr("Casa 3")})
 	problema(t, err, 429, "demasiados_cambios_wifi")
 	sinClaveWifi(t)

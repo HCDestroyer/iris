@@ -264,7 +264,7 @@ func conEnlaceWifi(t *turnoIA, texto string) (string, bool) {
 // EntradaWifiPublico es lo que manda el formulario del enlace (sin sesión: el token es la credencial).
 type EntradaWifiPublico struct {
 	Token string  `json:"-"`
-	SSID  *string `json:"ssid,omitempty" minLength:"1" maxLength:"32" doc:"Nombre nuevo del Wi-Fi"`
+	SSID  *string `json:"ssid,omitempty" minLength:"1" maxLength:"32" auditoria:"sensible" doc:"Nombre nuevo del Wi-Fi"`
 	Clave *string `json:"clave,omitempty" minLength:"8" maxLength:"63" auditoria:"sensible" doc:"Clave nueva (8 a 63). Nunca se devuelve ni queda en Iris"`
 }
 

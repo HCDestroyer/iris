@@ -30,7 +30,7 @@ type EntradaEquipoOrden struct {
 // EntradaWifiOrden es la entrada de servicios.cambiar_wifi desde la orden.
 type EntradaWifiOrden struct {
 	ID    int64   `json:"-"`
-	SSID  *string `json:"ssid,omitempty" minLength:"1" maxLength:"32" doc:"Nombre nuevo del Wi-Fi (1 a 32 caracteres)"`
+	SSID  *string `json:"ssid,omitempty" minLength:"1" maxLength:"32" auditoria:"sensible" doc:"Nombre nuevo del Wi-Fi (1 a 32 caracteres)"`
 	Clave *string `json:"clave,omitempty" minLength:"8" maxLength:"63" auditoria:"sensible" doc:"Clave nueva (8 a 63). Nunca se devuelve ni queda en Iris: viaja cifrada hasta Argos y se borra"`
 	// Metodo: cómo se comprobó que quien pide es el titular (decisión del PM: varias formas). Hoy:
 	// datos_titular (la verificación §7.5, verificacionId) y presencial (el técnico en sitio, en su orden
