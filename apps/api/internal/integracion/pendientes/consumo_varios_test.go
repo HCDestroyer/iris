@@ -2,6 +2,7 @@ package pendientes_test
 
 import (
 	"context"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -46,7 +47,7 @@ func (e *entorno) cerrarDosActores(prefijo string) (string, string, string) {
 		"iris:cargo:"+orden).Scan(&depende); err != nil {
 		e.t.Fatal(err)
 	}
-	if len(depende) != 2 || !((depende[0] == ca.ID && depende[1] == cb.ID) || (depende[0] == cb.ID && depende[1] == ca.ID)) {
+	if len(depende) != 2 || !slices.Contains(depende, ca.ID) || !slices.Contains(depende, cb.ID) {
 		e.t.Fatalf("el cargo depende de los dos consumos: %v (%d, %d)", depende, ca.ID, cb.ID)
 	}
 	return orden, clave(a), clave(b)

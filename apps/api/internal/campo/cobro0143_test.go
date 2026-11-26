@@ -769,7 +769,7 @@ func TestLiberarCargoConA36Vigente(t *testing.T) {
 		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 9, "modalidad": "consumible_cobro",
 			"usuario_id": tec, "desde_app": false, "bodega_tipo": "bodega",
 			"fecha": "2026-11-21T16:00:00Z", "recibido_en_iris": "2026-11-21T16:00:05Z"}},
-		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"}})
+		"cargo": map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"}})
 	if _, err := pruebas.Pool(t).Exec(context.Background(), "INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES (gen_random_uuid(), 'orden.cerrada', 1, $1)",
 		crudo); err != nil {
 		t.Fatal(err)
