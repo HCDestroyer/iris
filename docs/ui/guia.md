@@ -1182,9 +1182,10 @@ de Argos donde se muestra o se elige:
 - **Avisos emergentes:**
     - van después de cada acción que cambia algo, con el texto en `lib/avisos.ts`
       («Orden OT-000042 asignada a Luis Pérez»);
-    - salen abajo a la derecha en escritorio; en el teléfono, dentro de la barra superior (hasta
-      dos líneas, sin tapar el buscador), para no tapar la miga «‹ …», la barra inferior,
-      «Guardar» ni las hojas;
+    - salen abajo a la derecha en escritorio; en el teléfono, a todo el ancho de la barra superior
+      (hasta dos líneas; tres si lleva descripción, sin tapar la miga «‹ …»), para no tapar la
+      barra inferior, «Guardar» ni las hojas; mientras se ven tapan los botones del encabezado,
+      que se pueden tocar cuando el aviso se va o se cierra;
     - donde la pantalla ya confirmaba en línea con detalle (mover una cita, publicar una ruta,
       guardar un rol o una plantilla, conectar Argos), se queda esa confirmación y no se duplica;
     - los errores siguen en la pantalla.

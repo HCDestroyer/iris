@@ -174,6 +174,11 @@ const (
 	// bodega de Argos se consumen materiales y comodatos, así que es de administración.
 	PermAgendaVincularArgos    Permiso = "agenda.vincular_argos"
 	PermAgendaDesvincularArgos Permiso = "agenda.desvincular_argos"
+	// Bodega de cuadrilla (contrato 0.11.0 §3.9, B26). asignar_jefe: el jefe recibe y firma los
+	// traslados y responde por los faltantes (solo admin y supervisor). leer_integracion: Argos
+	// lee la cuadrilla para conciliar su bodega (rol integracion_argos).
+	PermCuadrillasAsignarJefe     Permiso = "cuadrillas.asignar_jefe"
+	PermCuadrillasLeerIntegracion Permiso = "cuadrillas.leer_integracion"
 
 	// Rutas del día (I2): propuesta con OSRM, publicación y ruta propuesta frente a la real.
 	PermRutasVer      Permiso = "rutas.ver"
@@ -466,7 +471,11 @@ var PermisosSensibles = map[Permiso]bool{
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermPlantillasWhatsAppCrear: true, PermPlantillasWhatsAppEditar: true, PermPlantillasWhatsAppBorrar: true,
-	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
+	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true,
+	// El jefe de cuadrilla firma lo que entra a la bodega compartida y responde por los faltantes.
+	PermCuadrillasAsignarJefe: true,
+	// Leer la membresía de todas las cuadrillas para conciliar con Argos: solo el token de Argos.
+	PermCuadrillasLeerIntegracion: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesPedirReconexion: true,
 	PermTicketsConfigurarCaidas:       true,
@@ -572,6 +581,8 @@ var Catalogo = []DefPermiso{
 	{PermCorreoSistemaVer, "Ver la configuración del correo del sistema (nunca la contraseña) y por dónde salen hoy los correos"},
 	{PermCotizacionesAceptar, "Marcar como aceptada por el cliente una cotización vigente"},
 	{PermCotizacionesCrear, "Crear cotizaciones (y versiones nuevas) de un prospecto con los planes de Argos"},
+	{PermCuadrillasAsignarJefe, "Asignar el jefe de una cuadrilla: recibe y firma los traslados a la bodega de la cuadrilla y responde por los faltantes (nunca a uno mismo)"},
+	{PermCuadrillasLeerIntegracion, "Leer una cuadrilla, sus miembros y su jefe para conciliar la bodega de cuadrilla (token de Argos)"},
 	{PermDatosLegalesConfigurar, "Configurar los datos legales del titular (razón social, contacto de privacidad, dirección y país) que publican las páginas de privacidad, términos y eliminación de datos"},
 	{PermDatosLegalesVer, "Ver los datos legales del titular y si las páginas públicas que pide Meta están listas"},
 	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},
@@ -781,7 +792,7 @@ var RolesBase = []DefRol{
 			PermCentralitaAsignarExtension, PermCentralitaLlamar, PermCentralitaTransferir,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
-			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
+			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar, PermCuadrillasAsignarJefe},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
 					PermOrdenesValidarIdentidad,
@@ -846,6 +857,8 @@ var RolesBase = []DefRol{
 			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer,
 			// Prospectos registrados desde Argos (contrato 0.10.0 §3.6, A44): solo registrar.
 			PermProspectosRegistrarIntegracion,
+			// Bodega de cuadrilla (0.11.0 §3.9): conciliar la cuadrilla.
+			PermCuadrillasLeerIntegracion,
 			// Plantillas de WhatsApp que puede usar cada empresa (contrato 0.13.0 §6.7, B32): solo leer.
 			PermPlantillasWhatsAppLeerIntegracion}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
