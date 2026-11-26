@@ -38,12 +38,17 @@ import (
 // ContratoWebhooks es la primera versión del contrato con los webhooks de mensajería.
 const ContratoWebhooks = "0.6.0"
 
+// ContratoCuadrillas es la primera versión del contrato con cuadrilla.creada y
+// cuadrilla.actualizada (0.11.0 §3.9 y §6.6, bodega de cuadrilla).
+const ContratoCuadrillas = "0.11.0"
+
 // EsperasWebhook son las esperas entre intentos (§1.3).
 var EsperasWebhook = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 12 * time.Hour}
 
 // EventosWebhook son los eventos del outbox que van a Argos.
 var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "prospecto.estado_cambiado",
-	"ticket.estado_cambiado", "ticket.respondido", "solicitud_servicio.estado_cambiado"}
+	"ticket.estado_cambiado", "ticket.respondido", "solicitud_servicio.estado_cambiado",
+	"cuadrilla.creada", "cuadrilla.actualizada"}
 
 // contratoMinimoEvento: los eventos que Argos solo recibe con un contrato más nuevo que
 // ContratoWebhooks (§6.6). Con uno anterior, el webhook queda omitido.
@@ -54,6 +59,9 @@ var contratoMinimoEvento = map[string]string{
 	"ticket.estado_cambiado":             "0.9.0",
 	"ticket.respondido":                  "0.9.0",
 	"solicitud_servicio.estado_cambiado": "0.9.0",
+	// 0.11.0 §3.9 y §6.6: bodega de cuadrilla.
+	"cuadrilla.creada":      ContratoCuadrillas,
+	"cuadrilla.actualizada": ContratoCuadrillas,
 }
 
 // conAlcance: los eventos que Argos recibe solo si su empresa está en el alcance del conector (§6.6:
@@ -86,6 +94,9 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		"ticket.estado_cambiado":             {"ticket_id", "numero", "empresa_id", "cliente_id", "servicio_id", "origen", "de", "a", "puede_confirmar"},
 		"ticket.respondido":                  {"ticket_id", "numero", "empresa_id", "cliente_id", "mensaje_id", "autor_tipo", "masivo", "aviso_por_correo"},
 		"solicitud_servicio.estado_cambiado": {"solicitud_id", "numero", "empresa_id", "cliente_id", "tipo", "servicio_id", "de", "a"},
+		// 0.11.0 §6.6: uno por empresa, con los miembros completos (id_externo null sin vínculo I1).
+		"cuadrilla.creada":      {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
+		"cuadrilla.actualizada": {"cuadrilla_id", "empresa_id", "version", "nombre", "activa", "miembros", "jefe_usuario_id"},
 	}[evento]
 	if campos == nil {
 		return nil, false
@@ -102,6 +113,11 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		}
 	case "prospecto.estado_cambiado":
 		if p["origen"] != "argos_panel" {
+			return nil, false
+		}
+	case "cuadrilla.creada", "cuadrilla.actualizada":
+		// Sin empresa (modo sin conector) no hay bodega de cuadrilla en Argos.
+		if p["empresa_id"] == nil {
 			return nil, false
 		}
 	default:

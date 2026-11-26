@@ -94,9 +94,48 @@ ORDER BY nombre, id;
 INSERT INTO agenda.cuadrillas (empresa_id, nombre) VALUES (@empresa_id, @nombre) RETURNING *;
 
 -- name: GuardarCuadrilla :one
-UPDATE agenda.cuadrillas SET nombre = @nombre, activa = @activa, version = version + 1, updated_at = now()
+UPDATE agenda.cuadrillas SET nombre = @nombre, activa = @activa, version = version + 1, version_argos = version_argos + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
+
+-- name: FijarJefeCuadrilla :one
+-- Asigna (o quita, con null) el jefe con la versión leída (B26). Sube las dos versiones: la del
+-- panel y la que viaja a Argos.
+UPDATE agenda.cuadrillas SET jefe_usuario_id = sqlc.narg(jefe_usuario_id), version = version + 1,
+    version_argos = version_argos + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: RevisarCuadrilla :one
+-- Cambió un miembro (ficha, vínculo I1 o usuario): versión nueva para Argos y el jefe que sigue
+-- valiendo (null si dejó de ser miembro con I1). La versión del panel no cambia (nadie editó la
+-- cuadrilla); la cuadrilla ya está tomada FOR UPDATE en la misma transacción.
+UPDATE agenda.cuadrillas SET jefe_usuario_id = sqlc.narg(jefe_usuario_id), version_argos = version_argos + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: MiembrosDeCuadrilla :many
+-- Miembros de la cuadrilla para Argos (§3.9): fichas activas en ella con el usuario activo. El
+-- id_externo (vínculo I1) solo si el usuario opera en la empresa del evento (asignada o
+-- empresas.todas global); sin empresa (modo sin conector), el vínculo tal cual.
+SELECT t.id AS tecnico_id, t.usuario_id, t.argos_id_externo,
+       (sqlc.narg(empresa_id)::bigint IS NULL
+        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = sqlc.narg(empresa_id))
+        OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo
+                   JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                   WHERE ur.usuario_id = t.usuario_id AND rp.permiso = 'empresas.todas'
+                     AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))::boolean AS opera_en_empresa
+FROM agenda.tecnicos t
+JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.cuadrilla_id = @cuadrilla_id AND t.activo AND u.activo
+ORDER BY t.usuario_id;
+
+-- name: EmpresasRegistradas :many
+SELECT id FROM nucleo.empresas ORDER BY id;
+
+-- name: CuadrillasConJefe :many
+-- Cuadrillas de las que el usuario es jefe (para revisarlas cuando cambia su usuario).
+SELECT id FROM agenda.cuadrillas WHERE jefe_usuario_id = @usuario_id ORDER BY id;
 
 -- name: ZonasDeCuadrillas :many
 SELECT * FROM agenda.cuadrilla_zonas WHERE cuadrilla_id = ANY(@cuadrillas::bigint[]) ORDER BY cuadrilla_id, zona_id;
@@ -210,7 +249,7 @@ WHERE id = @id AND version = @version
 RETURNING *;
 
 -- name: TocarCuadrilla :one
-UPDATE agenda.cuadrillas SET version = version + 1, updated_at = now()
+UPDATE agenda.cuadrillas SET version = version + 1, version_argos = version_argos + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
 

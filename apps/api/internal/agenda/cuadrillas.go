@@ -57,7 +57,7 @@ func cuadrillasDe(ctx context.Context, q *agendabd.Queries, fs []agendabd.Agenda
 	salida := make([]Cuadrilla, 0, len(fs))
 	for _, f := range fs {
 		c := Cuadrilla{ID: f.ID, EmpresaID: f.EmpresaID, Nombre: f.Nombre, Activa: f.Activa, ZonaIDs: []int64{},
-			Capacidad: []Capacidad{}, Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt}
+			Capacidad: []Capacidad{}, JefeUsuarioID: f.JefeUsuarioID, Version: f.Version, CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt}
 		for _, z := range zs {
 			if z.CuadrillaID == f.ID {
 				c.ZonaIDs = append(c.ZonaIDs, z.ZonaID)
@@ -169,7 +169,7 @@ func (m *Modulo) nuevoCrearCuadrilla() *auditoria.Caso[EntradaCrearCuadrilla, Cu
 			if err != nil {
 				return Cuadrilla{}, err
 			}
-			return c, t.Emitir("cuadrilla.creada", map[string]any{"cuadrilla_id": f.ID, "nombre": f.Nombre, "zonas": zonas})
+			return c, emitirCuadrilla(ctx, t, q, f, "cuadrilla.creada", map[string]any{"zonas": zonas})
 		},
 	})
 }
@@ -237,7 +237,7 @@ func (m *Modulo) nuevoEditarCuadrilla() *auditoria.Caso[EntradaEditarCuadrilla, 
 			if err != nil {
 				return Cuadrilla{}, err
 			}
-			return c, t.Emitir("cuadrilla.actualizada", map[string]any{"cuadrilla_id": f.ID, "campos": campos, "activa": f.Activa})
+			return c, emitirCuadrilla(ctx, t, q, f, "cuadrilla.actualizada", map[string]any{"campos": campos})
 		},
 	})
 }
@@ -270,7 +270,7 @@ func (m *Modulo) nuevoActivarCuadrilla(activar bool) *auditoria.Caso[EntradaVers
 			if err != nil {
 				return Cuadrilla{}, err
 			}
-			return c, t.Emitir("cuadrilla.actualizada", map[string]any{"cuadrilla_id": f.ID, "campos": []string{"activa"}, "activa": f.Activa})
+			return c, emitirCuadrilla(ctx, t, q, f, "cuadrilla.actualizada", map[string]any{"campos": []string{"activa"}})
 		},
 	})
 }
@@ -315,7 +315,7 @@ func (m *Modulo) nuevoCapacidadCuadrilla() *auditoria.Caso[EntradaFijarCapacidad
 				return Cuadrilla{}, err
 			}
 			t.RegistrarCambios("cuadrilla", f.ID, map[string]any{"capacidad": previa.Capacidad}, map[string]any{"capacidad": c.Capacidad})
-			return c, t.Emitir("cuadrilla.actualizada", map[string]any{"cuadrilla_id": f.ID, "campos": []string{"capacidad"}, "activa": f.Activa})
+			return c, emitirCuadrilla(ctx, t, q, f, "cuadrilla.actualizada", map[string]any{"campos": []string{"capacidad"}})
 		},
 	})
 }
