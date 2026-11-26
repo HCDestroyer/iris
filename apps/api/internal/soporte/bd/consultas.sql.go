@@ -156,7 +156,7 @@ func (q *Queries) CalendarioPorID(ctx context.Context, id int64) (SoporteCalenda
 }
 
 const categoriaPorID = `-- name: CategoriaPorID :one
-SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal FROM soporte.categorias WHERE id = $1
+SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal, conectividad FROM soporte.categorias WHERE id = $1
 `
 
 func (q *Queries) CategoriaPorID(ctx context.Context, id int64) (SoporteCategoria, error) {
@@ -174,6 +174,7 @@ func (q *Queries) CategoriaPorID(ctx context.Context, id int64) (SoporteCategori
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.VisiblePortal,
+		&i.Conectividad,
 	)
 	return i, err
 }
@@ -585,7 +586,7 @@ func (q *Queries) HayEmpresas(ctx context.Context) (bool, error) {
 }
 
 const listarCategorias = `-- name: ListarCategorias :many
-SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal FROM soporte.categorias
+SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal, conectividad FROM soporte.categorias
 WHERE (empresa_id IS NULL OR empresa_id = $1)
   AND (NOT $2::boolean OR activa)
 ORDER BY nombre, id
@@ -617,6 +618,7 @@ func (q *Queries) ListarCategorias(ctx context.Context, arg ListarCategoriasPara
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.VisiblePortal,
+			&i.Conectividad,
 		); err != nil {
 			return nil, err
 		}

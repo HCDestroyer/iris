@@ -620,6 +620,9 @@ func TestValidaciones(t *testing.T) {
 		"reconexion_temporal": {"hasta": "2026-11-10"},
 		"promesa_aceptada":    {"vence_en": "2026-11-10", "monto": "10.00"},
 		"corte_programado":    {"inicio": "2026-11-06T22:00", "fin": "2026-11-07T02:00", "zona": "Llama al 5555-0000"},
+		// Falla general (contrato 0.13.0 §3.11): solo las pide Iris.
+		"falla_general":          {},
+		"falla_general_resuelta": {},
 	}
 	for codigo, v := range deIris {
 		for _, prioridad := range []string{"normal", "urgente"} {

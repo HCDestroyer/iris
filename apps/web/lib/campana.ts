@@ -1,5 +1,5 @@
 import type { Schema } from "@iris/contratos";
-import { Bell, BriefcaseBusiness, FileWarning, Gauge, KeyRound, RefreshCw, Server, ShieldAlert, Sparkles, Unlink, UserCog, type LucideIcon } from "lucide-react";
+import { Activity, Bell, BriefcaseBusiness, FileWarning, Gauge, KeyRound, PhoneMissed, RefreshCw, Server, ShieldAlert, Sparkles, Unlink, UserCog, type LucideIcon } from "lucide-react";
 import { textoPausado } from "./asistente/presentacion";
 
 /*
@@ -10,7 +10,9 @@ import { textoPausado } from "./asistente/presentacion";
  * (contrato con Argos 0.8.0 §1.5): cambió el certificado de la API de Argos; solo informa.
  * `argos_clave_reutilizada` (0.14.0 §3.10): Argos tiene otra acción con la clave de una de Iris; la
  * acción quedó para una persona (`peligro` si es un cambio o un intento de recuperación).
- * `argos_carga_vinculos` (0.14.0 §6.6): la carga de vínculos de técnicos con Argos está detenida. `venta_revisada`
+ * `argos_carga_vinculos` (0.14.0 §6.6): la carga de vínculos de técnicos con Argos está detenida.
+ * `posible_falla_general` (contrato con Argos 0.13.0 §3.11): muchas caídas en pocos minutos; enlace al ticket.
+ * `verificacion_vencida`: el cliente no confirmó tras una falla general y el ticket volvió a abierto. `venta_revisada`
  * (0.10.0 §3.4.8, B20): la instalación cambió el plan o el titular de una venta del vendedor. A los
  * supervisores de la orden: `paso_titular` (Argos aplicó un paso del titular con la orden ya
  * cancelada, fallida o cerrada) y `contrato_sin_firma` (la orden se cerró sin la firma del contrato
@@ -25,7 +27,7 @@ export function tonoAvisoPanel(nivel: AvisoPanel["nivel"]): "info" | "warning" |
     return nivel === "peligro" ? "error" : nivel === "alerta" ? "warning" : "info";
 }
 
-const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert, argos_clave_reutilizada: KeyRound, argos_carga_vinculos: Unlink, venta_revisada: BriefcaseBusiness, paso_titular: UserCog, contrato_sin_firma: FileWarning };
+const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert, argos_clave_reutilizada: KeyRound, argos_carga_vinculos: Unlink, posible_falla_general: Activity, verificacion_vencida: PhoneMissed, venta_revisada: BriefcaseBusiness, paso_titular: UserCog, contrato_sin_firma: FileWarning };
 
 /** El icono del tipo; uno que este panel aún no conoce (o un nombre heredado como «constructor») lleva la campana. */
 export function iconoAvisoPanel(tipo: AvisoPanel["tipo"]): LucideIcon {

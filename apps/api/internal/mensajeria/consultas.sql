@@ -319,3 +319,7 @@ RETURNING *;
 -- name: PostergarWebhook :exec
 -- Espera sin gastar un intento (otro webhook del que depende aún no tuvo su 2xx).
 UPDATE mensajeria.webhooks_salida SET proximo_intento = @proximo_intento, ultimo_error = @ultimo_error, updated_at = now() WHERE id = @id;
+-- name: AvisoSistemaExiste :one
+-- Un aviso que pidió el sistema (sin usuario) con esa clave (el aviso de una falla general: uno por
+-- cliente, incidente y tipo, aunque el evento llegue dos veces).
+SELECT EXISTS (SELECT 1 FROM mensajeria.avisos WHERE usuario_id IS NULL AND idempotency_key = @idempotency_key::text)::boolean;

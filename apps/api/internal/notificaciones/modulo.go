@@ -120,6 +120,10 @@ type Modulo struct {
 	AvisarClaveReutilizada *auditoria.Caso[EntradaAvisarClaveReutilizada, ResultadoAvisarTope]
 	// AvisarCargaVinculos: campana cuando la carga de vínculos con Argos queda detenida (0.14.0 §6.6).
 	AvisarCargaVinculos *auditoria.Caso[EntradaAvisarCargaVinculos, ResultadoAvisarTope]
+	// AvisarPosibleFalla: campana de supervisión con una posible falla general (contrato 0.13.0 §3.11).
+	AvisarPosibleFalla *auditoria.Caso[EntradaAvisarPosibleFalla, ResultadoAvisarTope]
+	// AvisarVerificacion: campana del asignado cuando vence la verificación tras una falla general.
+	AvisarVerificacion *auditoria.Caso[EntradaAvisarVerificacion, ResultadoAvisarTope]
 	// AvisarVentaRevisada: campana del vendedor cuando la instalación cambia su venta (B20).
 	AvisarVentaRevisada *auditoria.Caso[EntradaAvisarVentaRevisada, ResultadoAvisarTope]
 	// AvisarSupervision: campana de los supervisores de la orden (paso_titular, contrato_sin_firma).
@@ -174,6 +178,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.AvisarCertificadoArgos = m.nuevoAvisarCertificadoArgos()
 	m.AvisarClaveReutilizada = m.nuevoAvisarClaveReutilizada()
 	m.AvisarCargaVinculos = m.nuevoAvisarCargaVinculos()
+	m.AvisarPosibleFalla = m.nuevoAvisarPosibleFalla()
+	m.AvisarVerificacion = m.nuevoAvisarVerificacion()
 	m.AvisarVentaRevisada = m.nuevoAvisarVentaRevisada()
 	m.AvisarSupervision = m.nuevoAvisarSupervision()
 	m.prepararCorreo = m.nuevoPrepararCorreo()

@@ -281,6 +281,17 @@ func (m *Modulo) nuevoIncidenteHorus() *auditoria.Caso[EntradaIncidenteHorus, Re
 				}
 				return obsoleto(ctx, t, q, in.EntranteID)
 			}
+			// Horus confirma que el router volvió: los hijos de fallas generales de Argos ya cerradas con
+			// servicio en ese router se resuelven (contrato con Argos 0.13.0 §3.11).
+			if in.Estado == horus.EstadoArriba && in.Tipo == "router" && in.RouterID != nil {
+				n, err := m.resolverConfirmadosPorHorus(ctx, t, q, empresa, *in.RouterID, in.OcurridoEn)
+				if err != nil {
+					return ResultadoHorus{}, err
+				}
+				if n > 0 {
+					t.Anotar(map[string]any{"hijos_falla_resueltos": n})
+				}
+			}
 			ultimo, err := q.UltimoMaestro(ctx, soportebd.UltimoMaestroParams{Maestro: in.Tipo, RouterID: in.RouterID, InfraID: in.InfraID, EmpresaID: empresa})
 			hay := err == nil
 			if err != nil && !errors.Is(err, pgx.ErrNoRows) {

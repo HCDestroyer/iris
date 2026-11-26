@@ -92,6 +92,7 @@ func (w *trabajadorCatalogos) Timeout(*river.Job[ArgsSincronizarCatalogos]) time
 // RegistrarWorkers agrega los workers del conector al cliente de River del worker.
 func (m *Modulo) RegistrarWorkers(workers *river.Workers, bd nucleo.BD) {
 	river.AddWorker(workers, &trabajadorEntrante{m: m, bd: bd})
+	river.AddWorker(workers, &trabajadorVerificarIncidente{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorCatalogos{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorPreciosPlan{m: m, bd: bd})
 	river.AddWorker(workers, &trabajadorCuentas{m: m, bd: bd})

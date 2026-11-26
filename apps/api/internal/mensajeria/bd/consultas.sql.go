@@ -303,6 +303,19 @@ func (q *Queries) AvisoPorProveedor(ctx context.Context, arg AvisoPorProveedorPa
 	return i, err
 }
 
+const avisoSistemaExiste = `-- name: AvisoSistemaExiste :one
+SELECT EXISTS (SELECT 1 FROM mensajeria.avisos WHERE usuario_id IS NULL AND idempotency_key = $1::text)::boolean
+`
+
+// Un aviso que pidió el sistema (sin usuario) con esa clave (el aviso de una falla general: uno por
+// cliente, incidente y tipo, aunque el evento llegue dos veces).
+func (q *Queries) AvisoSistemaExiste(ctx context.Context, idempotencyKey string) (bool, error) {
+	row := q.db.QueryRow(ctx, avisoSistemaExiste, idempotencyKey)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const avisosSinConfirmar = `-- name: AvisosSinConfirmar :many
 SELECT id FROM mensajeria.avisos WHERE estado = 'en_cola' AND created_at < $1 ORDER BY created_at LIMIT 200
 `

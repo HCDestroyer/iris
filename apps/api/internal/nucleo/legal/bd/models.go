@@ -927,6 +927,25 @@ type IntegracionArgosEliminado struct {
 	CreatedAt     time.Time
 }
 
+type IntegracionArgosIncidenteLectura struct {
+	EntranteID  int64
+	ConectorID  int64
+	IncidenteID string
+	EmpresaID   int64
+	Paginar     bool
+	Cursor      *string
+	TerminadaEn *time.Time
+	CreatedAt   time.Time
+	Paginas     int32
+}
+
+type IntegracionArgosIncidenteServicio struct {
+	EntranteID int64
+	ServicioID int64
+	Estado     string
+	Intentos   int32
+}
+
 type IntegracionArgosRouter struct {
 	ID             int64
 	EmpresaID      *int64
@@ -2917,11 +2936,19 @@ type NucleoUsuariosRole struct {
 	UpdatedAt   time.Time
 }
 
+type SoporteAvisosFallaCliente struct {
+	Incidente int64
+	ClienteID int64
+	Tipo      string
+	TicketID  int64
+	EnviadoEn time.Time
+}
+
 type SoporteAvisosHijo struct {
 	MaestroID int64
 	Aviso     string
 	HijoID    int64
-	MensajeID int64
+	MensajeID *int64
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -2989,6 +3016,7 @@ type SoporteCategoria struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	VisiblePortal bool
+	Conectividad  bool
 }
 
 type SoporteCorreosEntrante struct {
@@ -3089,6 +3117,62 @@ type SoporteHorusEstado struct {
 }
 
 type SoporteHorusEvento struct {
+	EntranteID int64
+	Evento     string
+	EmpresaID  *int64
+	Resultado  string
+	TicketID   *int64
+	Detalle    *string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type SoporteIncidenteRedHijo struct {
+	Incidente   int64
+	TicketID    int64
+	VinculadoEn time.Time
+}
+
+type SoporteIncidenteRedServicio struct {
+	Incidente  int64
+	ServicioID int64
+}
+
+type SoporteIncidentesRed struct {
+	ID          int64
+	IncidenteID string
+	EmpresaID   int64
+	Alcance     string
+	AlcanceID   string
+	TicketID    int64
+	Estado      string
+	Desde       time.Time
+	Hasta       *time.Time
+	CerradaEn   *time.Time
+	ReusaDe     *int64
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type SoporteIncidentesRedCierre struct {
+	IncidenteID string
+	EmpresaID   int64
+	Hasta       *time.Time
+	CerradoEn   time.Time
+}
+
+type SoporteRedAjuste struct {
+	EmpresaID         int64
+	CaidasUmbral      int32
+	CaidasVentanaMin  int32
+	FallaUmbral       int32
+	VerificacionHoras int32
+	Version           int32
+	ActualizadoPor    *int64
+	UpdatedAt         time.Time
+}
+
+type SoporteRedEvento struct {
 	EntranteID int64
 	Evento     string
 	EmpresaID  *int64

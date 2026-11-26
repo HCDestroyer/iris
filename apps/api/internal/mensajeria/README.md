@@ -80,6 +80,14 @@ Consume: `aviso.entregado`, `aviso.fallido` (solo los de origen `argos`) y `cont
 el secreto que Argos entregó en el canje, reintentos a 1 min, 5 min, 30 min, 2 h y 12 h, y solo al
 conector Argos activo con contrato ≥ 0.6.0 (si no, `omitido`). Cada aviso emite un solo webhook final.
 
+## Aviso de una falla general (`avisos_falla.go`, contrato con Argos 0.13.0 §3.11, B30)
+
+El worker consume `soporte.aviso_falla` y pide un aviso como cualquier otro (`EnviarAviso`, actor
+sistema), con las plantillas `falla_general` y `falla_general_resuelta` (las pide solo Iris, sin
+variables: nunca el servicio ni la dirección). Aplican las reglas de §6.5: permiso de contacto, baja,
+límite diario, horario de silencio y plantilla aprobada. Clave `iris:falla:<incidente>:<cliente>:<tipo>`:
+un evento repetido no manda otro. El aviso lo crea el worker y lo manda este proceso (su cola).
+
 ## Plantillas de WhatsApp por cuenta (`plantillas_wa_*.go`, `plantillas_whatsapp.sql`)
 
 Contrato: `.claude/integration/contratos/plantillas-whatsapp.md`. Las plantillas viven por cuenta
