@@ -348,7 +348,7 @@ por el autologin desde Argos iniciar una conversación pide `POST /api/v1/sesion
   (`comercial.prospecto_telefonos` o `prospectos.telefono`), solo los que el usuario ve con
   `prospectos.ver` y su alcance, cada uno con `prospectoId`, `numero`, `nombre`, `estado` y
   `principal`. Nunca la dirección, el plan ni la cotización.
-- **Prospecto del número (B23):** una conversación nueva sin cliente queda ubicada en el prospecto
+- **Prospecto del número (B23):** una conversación nueva cuyo número no es de ninguna persona de la empresa (ni de un cliente ni de varios) queda ubicada en el prospecto
   (`contacto.tipo = prospecto`) si hay **uno solo** abierto en la empresa con ese número, sea el
   principal o no. `contacto.prospectoRestringido = true` cuando el prospecto se registró desde Argos
   y el número no es su principal: a ese número no se le comparte la cotización, la dirección ni el

@@ -275,8 +275,8 @@ func (m *Modulo) conversacionDe(ctx context.Context, t *auditoria.Tx, canal mens
 	if err != nil {
 		return c, false, err
 	}
-	// Sin cliente: un solo prospecto abierto de la empresa con ese número, en cualquiera de sus
-	// teléfonos (contrato con Argos §3.6, P2), queda ubicado. Si el número no es el principal, la
+	// Sin ninguna persona con ese número (ni una ni varias): un solo prospecto abierto de la empresa
+	// con ese número, en cualquiera de sus teléfonos (contrato con Argos §3.6, P2), queda ubicado. Si el número no es el principal, la
 	// ficha lo marca (prospectoRestringido) y no se le comparte la cotización, la dirección ni el plan.
 	var prospecto *int64
 	if cliente == nil {

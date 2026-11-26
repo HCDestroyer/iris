@@ -622,11 +622,14 @@ func (q *Queries) ConexionMetaParaActualizar(ctx context.Context) (MensajeriaCon
 const conversacionTieneVinculos = `-- name: ConversacionTieneVinculos :one
 
 SELECT (EXISTS (SELECT 1 FROM mensajeria.conversacion_vinculos v WHERE v.conversacion_id = $1::bigint)
+     OR EXISTS (SELECT 1 FROM mensajeria.conversaciones c WHERE c.id = $1::bigint AND c.prospecto_id IS NOT NULL)
      OR EXISTS (SELECT 1 FROM mensajeria.boletas b WHERE b.conversacion_id = $1::bigint)
      OR EXISTS (SELECT 1 FROM mensajeria.promesas pr WHERE pr.conversacion_id = $1::bigint))::boolean
 `
 
 // Pasar una conversación a otra empresa ---------------------------------------------------------------
+// Un prospecto ligado (creado desde la conversación o ubicado por su número, §3.6) también cuenta:
+// es de la empresa que la atiende.
 func (q *Queries) ConversacionTieneVinculos(ctx context.Context, id int64) (bool, error) {
 	row := q.db.QueryRow(ctx, conversacionTieneVinculos, id)
 	var column_1 bool

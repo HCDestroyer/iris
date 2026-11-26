@@ -226,9 +226,15 @@ func (b *BuscarCoincidencias) Ejecutar(ctx context.Context, in EntradaConversaci
 }
 
 // prospectoUnicoDelNumero: el prospecto abierto de la empresa con ese número en cualquiera de sus
-// teléfonos (§3.6, P2), si es uno solo; con varios o ninguno, nil (la ficha los muestra en las
-// coincidencias a quien los ve).
+// teléfonos (§3.6, P2), si es uno solo y el número no es de ninguna persona de la empresa (titular o
+// contacto). Un número de un cliente, aunque sea de varios y no se asocie solo, nunca se presenta
+// como prospecto. Con varios prospectos o ninguno, nil (la ficha los muestra en las coincidencias a
+// quien los ve).
 func prospectoUnicoDelNumero(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string) (*int64, error) {
+	personas, err := personasDelNumero(ctx, q, empresa, numero)
+	if err != nil || len(personas) > 0 {
+		return nil, err
+	}
 	ps, err := q.ProspectosDelNumero(ctx, mensajeriabd.ProspectosDelNumeroParams{Digitos: soloDigitos(numero), Empresa: empresa})
 	if err != nil || len(ps) != 1 {
 		return nil, err

@@ -138,4 +138,19 @@ func TestConvProspectoPorCualquierNumero(t *testing.T) {
 	if k := contacto(conCliente); k["tipo"] != "cliente" || k["prospectoId"] != nil {
 		t.Fatalf("con cliente: %v", k)
 	}
+
+	// El número es de dos clientes (no se asocia solo: se pide el número de servicio) y además es un
+	// número adicional de un prospecto: nunca se presenta como prospecto.
+	deDos := numeroCliente()
+	prospecto(1, nil, "nuevo", "", numeroCliente(), deDos)
+	for _, nombre := range []string{"Cliente A", "Cliente B"} {
+		if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_clientes (id, empresa_id, nombre, movil, sincronizado_en, empresas)
+			VALUES ($1, 1, $2, $3, now(), '{1}')`, siguienteCliente.Add(1), nombre, "+"+deDos); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b.texto(deDos, "wamid.pn6", "Hola")
+	if k := contacto(deDos); k["tipo"] != "desconocido" || k["prospectoId"] != nil || k["clienteId"] != nil {
+		t.Fatalf("número de dos clientes y de un prospecto: %v", k)
+	}
 }

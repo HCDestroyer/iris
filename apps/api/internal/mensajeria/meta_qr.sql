@@ -243,7 +243,10 @@ SELECT EXISTS (SELECT 1 FROM mensajeria.contactos_iris WHERE coalesce(empresa_id
 -- Pasar una conversación a otra empresa ---------------------------------------------------------------
 
 -- name: ConversacionTieneVinculos :one
+-- Un prospecto ligado (creado desde la conversación o ubicado por su número, §3.6) también cuenta:
+-- es de la empresa que la atiende.
 SELECT (EXISTS (SELECT 1 FROM mensajeria.conversacion_vinculos v WHERE v.conversacion_id = sqlc.arg(id)::bigint)
+     OR EXISTS (SELECT 1 FROM mensajeria.conversaciones c WHERE c.id = sqlc.arg(id)::bigint AND c.prospecto_id IS NOT NULL)
      OR EXISTS (SELECT 1 FROM mensajeria.boletas b WHERE b.conversacion_id = sqlc.arg(id)::bigint)
      OR EXISTS (SELECT 1 FROM mensajeria.promesas pr WHERE pr.conversacion_id = sqlc.arg(id)::bigint))::boolean;
 

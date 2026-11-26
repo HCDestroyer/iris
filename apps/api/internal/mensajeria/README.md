@@ -268,7 +268,8 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
 - **Contactos:** solo el id del cliente de Argos (los datos salen de la instantánea); coincidencias
   por teléfono con `GET /clientes?telefono=` (o la instantánea si Argos no responde); contactos
   propios de Iris (`mensajeria.contactos_iris`) que se unen a la ficha de Argos. Prospectos por
-  cualquiera de sus números (contrato con Argos §3.6, P2, B23): una conversación nueva sin cliente
+  cualquiera de sus números (contrato con Argos §3.6, P2, B23): una conversación nueva cuyo número
+  no es de ningún cliente (ni de uno ni de varios)
   queda en el único prospecto abierto de su empresa con ese número; las coincidencias listan los
   prospectos a quien los ve (`prospectos.ver` con alcance), sin dirección, plan ni cotización; y
   `contacto.prospectoRestringido` marca el número que no es el principal (no se le comparte la
