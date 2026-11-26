@@ -12,9 +12,9 @@ export type ContadorFicha = {
 };
 
 export type PropsFranjaFicha = {
-    /** Nombre de lo que se ve («José López», «OT-000042»). Es el `<h1>` de la ficha. */
+    /** Nombre de lo que se ve («José López», «OT-000042»). Es el `<h1>` de la ficha (hasta 2 líneas; completo en `title`). */
     titulo: ReactNode;
-    /** Bajo el título: código, tipo, cliente. */
+    /** Bajo el título: código, tipo, cliente. Una línea: si se corta, el texto completo va en `title`. */
     detalle?: ReactNode;
     /** Ícono de Lucide en su ficha de color índigo tenue. */
     icono?: LucideIcon;
@@ -51,11 +51,17 @@ export function FranjaFicha({ titulo, detalle, icono: Icono, avatar, insignias, 
                     ) : null)}
                 <div className="grid min-w-0 gap-0.5">
                     <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                        <h1 className="min-w-0 truncate text-xl leading-tight font-bold tracking-[-0.015em]">{titulo}</h1>
+                        <h1 className="line-clamp-2 min-w-0 text-xl leading-tight font-bold tracking-[-0.015em] break-words" {...(typeof titulo === "string" ? { title: titulo } : {})}>
+                            {titulo}
+                        </h1>
                         {manual}
                         {insignias}
                     </div>
-                    {detalle ? <p className="truncate text-sm text-muted-foreground">{detalle}</p> : null}
+                    {detalle ? (
+                        <p className="truncate text-sm text-muted-foreground" {...(typeof detalle === "string" ? { title: detalle } : {})}>
+                            {detalle}
+                        </p>
+                    ) : null}
                 </div>
             </div>
             {contadores.length > 0 ? (
@@ -69,7 +75,7 @@ export function FranjaFicha({ titulo, detalle, icono: Icono, avatar, insignias, 
                 </dl>
             ) : null}
             {accion || mas ? (
-                <div className="ml-auto flex flex-none items-center gap-2">
+                <div data-slot="acciones-ficha" className="ml-auto flex max-w-full min-w-0 flex-wrap items-center gap-2">
                     {accion}
                     {mas}
                 </div>

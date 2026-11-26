@@ -1385,6 +1385,28 @@ veces un QR). El escáner nunca acepta en silencio el primero que ve:
   `@iris/ui` (`app/campo/_componentes/escaner-equipo.tsx`); la nativa con expo-camera
   (`src/pantallas/orden/Escaner.tsx`, lógica en `src/campo/escaner.ts`).
 
+## Listas y fichas del rediseño (fase 2, nov. 2026)
+
+- **Listas en `ListaFilas`:** tickets, órdenes (vista «Lista»; «Columnas» sigue con tarjetas por
+  estado), usuarios, prospectos (lista, también en el teléfono), plantillas de formulario y
+  plantillas de WhatsApp. Cada fila abre la ficha (enlace) y lleva su menú `⋯` («Acciones de
+  <nombre o número>»); tickets, órdenes y prospectos tienen además «Vista rápida».
+    - Cargando, error con «Reintentar» y vacío van dentro de la misma tarjeta (`vacio`); el pie dice
+      «Mostrando n …» o «No hay más ….», con «Cargar más» o, si falló, el error con «Reintentar»
+      (`errorMas`). En el panel lo arma `pieListaFilas` / `piePaginado` (`componentes/pie-lista.tsx`).
+    - En el teléfono los estados que hay que ver (SLA, prioridad, pendientes en Argos) bajan a su
+      línea bajo el título (`extremoTelefono="debajo"`); por omisión el extremo se oculta.
+    - Tickets: el buscador y los filtros son la cabecera de la lista y la selección múltiple su
+      barra; al cambiar los filtros la lista vuelve a leer sin remontarse (no se pierde el foco).
+    - Usuarios: «Reiniciar MFA» y «Restablecer contraseña» pasan al menú `⋯` de la fila (sección
+      «Acceso»); solo aparecen cuando se pueden hacer.
+- **Fichas con `FranjaFicha` y `PestanasSegmentadas`:** ticket (la barra de acciones de siempre
+  es la acción de la franja), orden, técnico, prospecto, usuario y plantilla de formulario. Lo que
+  dice la franja no se repite en las pestañas (el MFA y el estado del usuario salen de «Datos»).
+- **Siguen como `Tabla` (con motivo):** los reportes (cifras por columna que se comparan entre
+  filas), las líneas de una cotización (documento con cantidades, precios y totales) y las cifras
+  del estado de Argos (dato y número, sin filas que abrir). No son listas de cosas que se abren.
+
 ## Plan por fases
 
 Cada fase:
@@ -1405,7 +1427,7 @@ Cada fase:
 | Voz E1b (en revisión) | Llamar al cliente: permiso del contacto, «Llamar», «Devolver la llamada», límites y ajustes | I3 |
 | 6 · Portal de clientes | Mis casos, nuevo caso y conversación con el mismo estilo | I3 |
 | Rediseño 1 (esta PR) | Tokens `--iris-*` (índigo/cian), logo en degradado, piezas nuevas de `@iris/ui`, marco del panel (menú isla, encabezado sin barra, scroll por dentro, «?» del manual) y la app del técnico | rediseño |
-| Rediseño 2 | Las 11 tablas a `ListaFilas` (con `VistaRapida` y `MenuAcciones`) y las fichas a `FranjaFicha` + `PestanasSegmentadas` | rediseño |
+| Rediseño 2 (en revisión) | Las listas a `ListaFilas` (con `VistaRapida` y `MenuAcciones`) y las fichas a `FranjaFicha` + `PestanasSegmentadas` (ver «Listas y fichas del rediseño») | rediseño |
 
 ## Uso rápido
 

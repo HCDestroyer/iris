@@ -1,7 +1,7 @@
 "use client";
 
 import type { LucideIcon } from "lucide-react";
-import type { ComponentProps, MouseEvent, ReactNode } from "react";
+import { Children, type ComponentProps, type MouseEvent, type ReactNode } from "react";
 import { Link } from "react-aria-components";
 import { cn } from "../utilidades";
 import { Boton } from "./boton";
@@ -31,6 +31,8 @@ export type PropsListaFilas = Omit<ComponentProps<"ul">, "children"> & {
     /** «Cargar más» (paginación por cursor). */
     alCargarMas?: () => void;
     cargandoMas?: boolean;
+    /** Falló «Cargar más»: el aviso con «Reintentar» (`Aviso`) va en el pie en lugar del botón. */
+    errorMas?: ReactNode;
     /** Sin filas: lo que se muestra en su lugar (`EstadoVacio`). */
     vacio?: ReactNode;
     className?: string;
@@ -42,8 +44,9 @@ export type PropsListaFilas = Omit<ComponentProps<"ul">, "children"> & {
  * «Cargar más». Es una lista semántica (`<ul>` con nombre): cada fila lleva su enlace o botón
  * principal, su casilla y su menú `⋯`, que funcionan con el teclado como cualquier control.
  */
-export function ListaFilas({ etiqueta, children, cabecera, seleccion, resumen, alCargarMas, cargandoMas = false, vacio, className, ...props }: PropsListaFilas) {
-    const conFilas = Array.isArray(children) ? children.some(Boolean) : Boolean(children);
+export function ListaFilas({ etiqueta, children, cabecera, seleccion, resumen, alCargarMas, cargandoMas = false, errorMas, vacio, className, ...props }: PropsListaFilas) {
+    // Las filas, sin contar los huecos (`null`, `false`) ni las listas vacías de un `map`.
+    const conFilas = Children.toArray(children).length > 0;
     return (
         <section data-slot="lista-filas" aria-label={etiqueta} className={cn("surface-card flex min-h-0 min-w-0 flex-col overflow-hidden", className)}>
             {cabecera ? <div className="flex flex-none flex-wrap items-center gap-2 border-b border-border p-3">{cabecera}</div> : null}
@@ -55,10 +58,12 @@ export function ListaFilas({ etiqueta, children, cabecera, seleccion, resumen, a
             ) : (
                 <div className="p-6">{vacio}</div>
             )}
-            {resumen || alCargarMas ? (
-                <footer className="flex flex-none items-center gap-3 border-t border-border px-4 py-3 text-sm text-muted-foreground">
-                    <span className="min-w-0 flex-1 truncate">{resumen}</span>
-                    {alCargarMas ? (
+            {resumen || alCargarMas || errorMas ? (
+                <footer className="flex flex-none flex-wrap items-center gap-3 border-t border-border px-4 py-3 text-sm text-muted-foreground">
+                    {resumen ? <span className="min-w-0 flex-1 truncate">{resumen}</span> : <span className="flex-1" />}
+                    {errorMas ? (
+                        <div className="w-full">{errorMas}</div>
+                    ) : alCargarMas ? (
                         <Boton variante="contorno" tamano="sm" onClick={alCargarMas} disabled={cargandoMas}>
                             {cargandoMas ? <Cargando tamano="sm" decorativo /> : null}
                             {cargandoMas ? "Cargando…" : "Cargar más"}
@@ -79,6 +84,11 @@ export type PropsFilaLista = {
     tonoIcono?: TonoIconoFila;
     /** A la derecha del texto: estados (`InsigniaEstado`), hora, montos. */
     extremo?: ReactNode;
+    /**
+     * En el teléfono (menos de 640 px) el extremo se oculta por omisión; con `"debajo"` baja a su
+     * propia línea bajo el título (para estados que hay que ver: SLA, prioridad, pendientes).
+     */
+    extremoTelefono?: "oculto" | "debajo";
     /** Al inicio: la casilla de la selección múltiple. */
     casilla?: ReactNode;
     /** Al final: el menú `⋯` (`MenuAcciones`). */
@@ -101,7 +111,22 @@ export type PropsFilaLista = {
  * derecha y el menú `⋯`. El título es el control principal (enlace a la ficha o botón que abre la
  * vista rápida) y toda la fila responde al clic; la casilla y el menú no lo disparan.
  */
-export function FilaLista({ titulo, detalle, icono: Icono, tonoIcono = "neutro", extremo, casilla, menu, href, alAbrir, etiqueta, activa = false, className, ...props }: PropsFilaLista) {
+export function FilaLista({
+    titulo,
+    detalle,
+    icono: Icono,
+    tonoIcono = "neutro",
+    extremo,
+    extremoTelefono = "oculto",
+    casilla,
+    menu,
+    href,
+    alAbrir,
+    etiqueta,
+    activa = false,
+    className,
+    ...props
+}: PropsFilaLista) {
     const contenido = (
         <>
             <span className="block truncate font-semibold text-foreground">{titulo}</span>
@@ -117,6 +142,7 @@ export function FilaLista({ titulo, detalle, icono: Icono, tonoIcono = "neutro",
             aria-current={activa ? "true" : undefined}
             className={cn(
                 "relative flex min-w-0 items-center gap-3 px-4 py-2.5 transition-colors",
+                extremo && extremoTelefono === "debajo" && "flex-wrap sm:flex-nowrap",
                 activa ? "bg-primario-suave" : "hover:bg-[var(--iris-relleno)]/60",
                 className,
             )}
@@ -139,7 +165,17 @@ export function FilaLista({ titulo, detalle, icono: Icono, tonoIcono = "neutro",
             ) : (
                 <div className="grid min-w-0 flex-1 gap-0.5 text-sm">{contenido}</div>
             )}
-            {extremo ? <div className="relative z-[1] hidden flex-none items-center gap-2 sm:flex">{extremo}</div> : null}
+            {extremo ? (
+                <div
+                    data-slot="extremo-fila"
+                    className={cn(
+                        "relative z-[1] flex-none items-center gap-2",
+                        extremoTelefono === "debajo" ? "order-last flex w-full flex-wrap sm:order-none sm:w-auto sm:flex-nowrap" : "hidden sm:flex",
+                    )}
+                >
+                    {extremo}
+                </div>
+            ) : null}
             {menu ? <div className="relative z-[1] flex-none">{menu}</div> : null}
         </li>
     );
