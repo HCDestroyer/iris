@@ -1594,8 +1594,11 @@ ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = excluded.cliente_id, empres
     consultar = excluded.consultar, reportar = excluded.reportar, pagar = excluded.pagar, avisos = excluded.avisos,
     persona_cliente_id = excluded.persona_cliente_id, version = excluded.version, quitado = false,
     leido_en = greatest(integracion.argos_contactos.leido_en, excluded.leido_en), updated_at = now()
-WHERE excluded.version > integracion.argos_contactos.version
-    OR (excluded.version = integracion.argos_contactos.version AND excluded.leido_en >= integracion.argos_contactos.leido_en)
+WHERE (excluded.version > integracion.argos_contactos.version
+    OR (excluded.version = integracion.argos_contactos.version AND excluded.leido_en >= integracion.argos_contactos.leido_en))
+    -- Un quitado posterior al inicio de la lectura gana aunque ella traiga una versión mayor (Argos lo
+    -- editó y después lo quitó mientras se leía): solo lo revive una lectura que empezó después.
+    AND NOT (integracion.argos_contactos.quitado AND excluded.leido_en < integracion.argos_contactos.leido_en)
 `
 
 type GuardarContactoParams struct {
@@ -2271,7 +2274,7 @@ func (q *Queries) PurgarPeticionesPortal(ctx context.Context) error {
 }
 
 const quitarContacto = `-- name: QuitarContacto :execrows
-UPDATE integracion.argos_contactos SET quitado = true, leido_en = now(), updated_at = now()
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = clock_timestamp(), updated_at = now()
 WHERE contacto_id = $1 AND cliente_id = $2 AND NOT quitado
 `
 
@@ -2280,6 +2283,8 @@ type QuitarContactoParams struct {
 	ClienteID  int64
 }
 
+// leido_en con clock_timestamp() (no now(), que es el inicio de la transacción): la hora real del
+// quitado, para compararla con el inicio de una lectura en curso.
 func (q *Queries) QuitarContacto(ctx context.Context, arg QuitarContactoParams) (int64, error) {
 	result, err := q.db.Exec(ctx, quitarContacto, arg.ContactoID, arg.ClienteID)
 	if err != nil {
@@ -2289,7 +2294,7 @@ func (q *Queries) QuitarContacto(ctx context.Context, arg QuitarContactoParams) 
 }
 
 const quitarContactosAusentes = `-- name: QuitarContactosAusentes :execrows
-UPDATE integracion.argos_contactos SET quitado = true, leido_en = now(), updated_at = now()
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = clock_timestamp(), updated_at = now()
 WHERE cliente_id = $1 AND NOT quitado AND NOT (contacto_id = ANY($2::bigint[]))
     AND leido_en <= $3::timestamptz
 `

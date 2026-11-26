@@ -665,19 +665,24 @@ ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = excluded.cliente_id, empres
     consultar = excluded.consultar, reportar = excluded.reportar, pagar = excluded.pagar, avisos = excluded.avisos,
     persona_cliente_id = excluded.persona_cliente_id, version = excluded.version, quitado = false,
     leido_en = greatest(integracion.argos_contactos.leido_en, excluded.leido_en), updated_at = now()
-WHERE excluded.version > integracion.argos_contactos.version
-    OR (excluded.version = integracion.argos_contactos.version AND excluded.leido_en >= integracion.argos_contactos.leido_en);
+WHERE (excluded.version > integracion.argos_contactos.version
+    OR (excluded.version = integracion.argos_contactos.version AND excluded.leido_en >= integracion.argos_contactos.leido_en))
+    -- Un quitado posterior al inicio de la lectura gana aunque ella traiga una versión mayor (Argos lo
+    -- editó y después lo quitó mientras se leía): solo lo revive una lectura que empezó después.
+    AND NOT (integracion.argos_contactos.quitado AND excluded.leido_en < integracion.argos_contactos.leido_en);
 
 -- name: QuitarContactosAusentes :execrows
 -- Los contactos del cliente que Argos ya no devuelve: quitados (no se borran; dejan de ver sus tickets
 -- y pierden su rol en la atención). Solo los que no se escribieron después de que empezó esta lectura
 -- (@leido_en): una lectura vieja no quita un contacto que guardó una más nueva.
-UPDATE integracion.argos_contactos SET quitado = true, leido_en = now(), updated_at = now()
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = clock_timestamp(), updated_at = now()
 WHERE cliente_id = @cliente_id AND NOT quitado AND NOT (contacto_id = ANY(@vigentes::bigint[]))
     AND leido_en <= @leido_en::timestamptz;
 
 -- name: QuitarContacto :execrows
-UPDATE integracion.argos_contactos SET quitado = true, leido_en = now(), updated_at = now()
+-- leido_en con clock_timestamp() (no now(), que es el inicio de la transacción): la hora real del
+-- quitado, para compararla con el inicio de una lectura en curso.
+UPDATE integracion.argos_contactos SET quitado = true, leido_en = clock_timestamp(), updated_at = now()
 WHERE contacto_id = @contacto_id AND cliente_id = @cliente_id AND NOT quitado;
 
 -- name: HayContactosDeCliente :one

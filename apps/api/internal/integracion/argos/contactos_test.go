@@ -359,12 +359,35 @@ func TestContactosCarreraQuitadoNoRevive(t *testing.T) {
 		t.Fatal("la caché queda leída a la hora en que empezó la lectura, antes del quitado")
 	}
 
-	// Argos lo vuelve a agregar (versión 3): vuelve, con sus permisos.
+	// Argos lo vuelve a agregar (versión 3) y la lectura empieza después del quitado: vuelve.
 	ca.mu.Lock()
-	ca.lista = []map[string]any{contacto(3, true)}
+	ca.lista = []map[string]any{contacto(3, false)}
 	ca.mu.Unlock()
 	refrescar()
-	if n := e.contar(`SELECT count(*) FROM integracion.argos_contactos WHERE contacto_id = 90 AND NOT quitado AND version = 3 AND pagar AND avisos`); n != 1 {
-		t.Fatal("con una versión mayor vuelve")
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_contactos WHERE contacto_id = 90 AND NOT quitado AND version = 3`); n != 1 {
+		t.Fatal("con una versión mayor, leída después del quitado, vuelve")
+	}
+
+	// Argos lo edita (v4, con pagar y avisos) y después lo quita. Una lectura que empezó entre la
+	// edición y el quitado trae v4; el quitado lo deja en v3. La lectura vieja, aunque traiga una versión
+	// mayor, no lo revive ni le da pagar y avisos.
+	ca.mu.Lock()
+	ca.lista = []map[string]any{contacto(4, true)}
+	ca.durante = func() {
+		r := e.procesarWebhook(conID, secreto, argos.EventoContactosCambiados, map[string]any{"cliente_id": cliente, "empresa_id": 1, "contacto_id": 90, "accion": "quitado"})
+		if r.Resultado != "aplicado" {
+			t.Errorf("quitado: %+v", r)
+		}
+	}
+	ca.mu.Unlock()
+	refrescar()
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_contactos WHERE contacto_id = 90 AND quitado AND version = 3 AND NOT pagar AND NOT avisos`); n != 1 {
+		t.Fatal("una lectura v4 iniciada antes del quitado no revive al contacto")
+	}
+
+	// Una lectura que empieza después del quitado y trae v4: vuelve, con sus permisos.
+	refrescar()
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_contactos WHERE contacto_id = 90 AND NOT quitado AND version = 4 AND pagar AND avisos`); n != 1 {
+		t.Fatal("una lectura posterior al quitado con v4 lo devuelve")
 	}
 }

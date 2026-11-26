@@ -565,7 +565,9 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
   la `version`** (una lectura vieja que llega tarde no pisa una más nueva). Cada lectura toma la hora de la
   base **antes** de pedir a Argos y la guarda en `leido_en`: con la misma versión, solo escribe si empezó
   después del último cambio de la fila, así que un `quitado` por webhook (que no sube la versión) llegado
-  mientras se leía no se revive ni recupera permisos; una versión mayor sí vuelve. `argos_contactos_leidos`
+  mientras se leía no se revive ni recupera permisos. Un contacto quitado (con `clock_timestamp()`) solo
+  vuelve con una lectura que empezó después del quitado, aunque una anterior traiga una versión mayor
+  (Argos lo editó y después lo quitó mientras se leía). `argos_contactos_leidos`
   se marca con esa misma hora de inicio (nunca retrocede). Sin `permisos` de Argos, todos en
   `false` (lo seguro; los valores por defecto de la base también son `false`).
 - **`quitado` (estado propio de Iris, no del contrato):** un contacto que Argos quitó (`accion: quitado`), que
