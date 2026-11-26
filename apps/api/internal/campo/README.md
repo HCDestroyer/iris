@@ -189,6 +189,11 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 - `orden.cerrada` suma, por equipo, `motivo`, `foto_ref`, `fecha` y `recibido_en_iris`; en el cambio,
   `sale_unidad_id`, `entra`, `destino_sale` y `cobro_propuesto { motivo }`; en el intento, `ubicacion`.
   Los materiales suman `fecha` y `recibido_en_iris`.
+- **Estado e historial de cada equipo** (`GET /ordenes/{id}/equipos/estado`, `ordenes.ver` u
+  `ordenes.ver_propias`): las unidades del servicio de la orden y las que la orden instaló, retiró,
+  cambió o no recuperó, con el estado que avisó Argos y sus últimos 20 movimientos, sin costos
+  (instantánea de `integracion/argos`, llenada por `inventario.unidad_estado_cambiado` e
+  `inventario.equipo_cambiado`). Vacío si Argos no avisó nada (contrato < 0.12.0).
 
 ## App de campo (contratos/sync.md; claves camelCase)
 
