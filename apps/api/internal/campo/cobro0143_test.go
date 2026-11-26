@@ -764,7 +764,11 @@ func TestLiberarCargoConA36Vigente(t *testing.T) {
 	e.falso.rechazar("/inventario/consumos", "existencia_insuficiente")
 	crudo, _ := json.Marshal(map[string]any{"orden_id": o.ID, "tipo": "instalacion", "resultado": "exitosa", "cliente_id": 990,
 		"servicio_id": *o.ServicioID, "empresa_id": 1, "bodega_id": 9, "activacion": map[string]any{"modo": "al_cerrar", "estado": "ninguna"},
-		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 9, "modalidad": "consumible_cobro"}},
+		// Una línea registrada desde el panel, como la manda campo en orden.cerrada (0.14.0): quién, desde dónde,
+		// el tipo de la bodega en Argos y cuándo; así el consumo sale y lo rechaza Argos (no nace incompleto).
+		"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 9, "modalidad": "consumible_cobro",
+			"usuario_id": tec, "desde_app": false, "bodega_tipo": "bodega",
+			"fecha": "2026-11-21T16:00:00Z", "recibido_en_iris": "2026-11-21T16:00:05Z"}},
 		"cargo":      map[string]any{"producto_id": 5, "monto": "50.00", "descripcion": "Cable"}})
 	if _, err := pruebas.Pool(t).Exec(context.Background(), "INSERT INTO integracion.outbox (id, evento, empresa_id, payload) VALUES (gen_random_uuid(), 'orden.cerrada', 1, $1)",
 		crudo); err != nil {
@@ -779,8 +783,8 @@ func TestLiberarCargoConA36Vigente(t *testing.T) {
 		t.Fatal(err)
 	}
 	consumo := e.pendienteDe(clave)
-	if consumo.Estado != pendientes.EstadoFallidoNegocio {
-		t.Fatalf("consumo rechazado: %+v", consumo)
+	if consumo.Estado != pendientes.EstadoFallidoNegocio || consumo.DatosIncompletos || e.falso.porClave(clave) == nil {
+		t.Fatalf("consumo enviado y rechazado por Argos (no incompleto): %+v", consumo)
 	}
 	if c := e.pendienteDe("iris:cargo:" + orden); !c.EsperaConsumo {
 		t.Fatalf("el cargo espera al consumo: %+v", c)
