@@ -60,6 +60,12 @@ func TestValidarBienvenidaEnlacesYUnicode(t *testing.T) {
 		"Ve a 203.0.113.5", "Ve a 203.0.113.5:8080", "host:8080", "evil\u3002com", "evil\uff61com",
 		// El largo se mide también sobre el texto tal como llega (NFKC lo acorta: «e» + acento es «é»).
 		strings.Repeat("e\u0301", 41),
+		// Dígitos de cualquier sistema y con cualquier separador que no sea letra.
+		"Cuenta \u0665\u0665\u0661\u0662", "Cuenta \u096b\u096b\u0967\u0968", "Tel 55,12,34,56", "Tel 55_12_34", "Tel (55)12",
+		"Tel 5 5 1 2", "Cuenta 1234",
+		// Rellenos invisibles que se ven como espacio.
+		"Ana\u3164\u3164\u3164\u3164Pérez", "Ana\u115f\u115f\u115f\u115fPérez", "Ana\u2800\u2800\u2800\u2800Pérez",
+		"\u3164", "\u2800\u2800",
 	}
 	for _, v := range malos {
 		for _, campo := range []string{"nombre", "plan"} {
@@ -73,7 +79,7 @@ func TestValidarBienvenidaEnlacesYUnicode(t *testing.T) {
 			t.Errorf("nombre %q: %s", v, msg)
 		}
 	}
-	for _, v := range []string{"Fibra 100 Mbps", "Plan Hogar 2.0", "Internet 10/5", "IPTV + Internet", "Fibra 100 Mbps (promo)"} {
+	for _, v := range []string{"Fibra 100 Mbps", "Plan Hogar 2.0", "Internet 10/5", "IPTV + Internet", "Fibra 100 Mbps (promo)", "Plan 2 x 100"} {
 		if msg := validarBienvenida("plan", v); msg != "" {
 			t.Errorf("plan %q: %s", v, msg)
 		}
