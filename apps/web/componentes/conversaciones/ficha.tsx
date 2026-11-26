@@ -690,7 +690,7 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
                                 </ul>
                             )
                         ) : null}
-                        {coincidencias.estado === "listo" ? <ListaProspectosNumero prospectos={coincidencias.datos.prospectos ?? []} /> : null}
+                        {coincidencias.estado === "listo" ? <ListaProspectosNumero prospectos={coincidencias.datos.prospectos ?? []} sinNota={conv.contacto.prospectoRestringido === true} /> : null}
                     </section>
                     {error ? (
                         <Aviso

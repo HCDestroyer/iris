@@ -31,10 +31,13 @@ export function AvisoProspectoRestringido() {
     );
 }
 
-/** Prospectos abiertos con el número (solo los que el usuario ve), con enlace a su ficha. */
-export function ListaProspectosNumero({ prospectos }: { prospectos: readonly CoincidenciaProspecto[] }) {
+/**
+ * Prospectos abiertos con el número (solo los que el usuario ve), con enlace a su ficha. sinNota: la
+ * ficha ya muestra el aviso de la restricción (un mismo dato, una sola vez por pantalla).
+ */
+export function ListaProspectosNumero({ prospectos, sinNota = false }: { prospectos: readonly CoincidenciaProspecto[]; sinNota?: boolean }) {
     if (prospectos.length === 0) return null;
-    const restringido = prospectos.some((p) => !p.principal);
+    const restringido = !sinNota && prospectos.some((p) => !p.principal);
     return (
         <div className="grid min-w-0 grid-cols-1 gap-1.5" data-testid="prospectos-numero">
             <ul className="grid gap-1.5" aria-label="Prospectos con este número">

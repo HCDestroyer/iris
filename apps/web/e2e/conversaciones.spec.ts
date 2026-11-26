@@ -319,7 +319,8 @@ test.describe("bandeja de conversaciones", () => {
         await expect(lista).toContainText("PR-000911 · Nuevo · número principal");
         await expect(lista).toContainText("PR-000912 · Contactado · otro número del prospecto");
         await expect(lista.getByRole("link", { name: "Ver el prospecto PR-000912" })).toHaveAttribute("href", "/comercial/912");
-        await expect(ficha.getByTestId("prospectos-numero")).toContainText("código enviado al número principal");
+        // La restricción ya está en el aviso: la lista no la repite.
+        await expect(ficha.getByText("No compartas la cotización, la dirección ni el plan")).toHaveCount(1);
         await expect(ficha).toBeInViewport({ ratio: 1 });
         await esperarSinDesbordes(page);
         await page.screenshot({ path: path.join(carpeta, `bandeja-prospecto-numero-${info.project.name}.png`) });
@@ -331,6 +332,10 @@ test.describe("bandeja de conversaciones", () => {
         const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
         await expect(ficha.getByRole("link", { name: "Ver prospecto" })).toBeVisible();
         await expect(ficha.getByText("No es el número principal del prospecto")).toHaveCount(0);
+        // Sin el aviso, la nota bajo la lista recuerda la restricción del prospecto donde no es el principal.
+        await expect(ficha.getByTestId("prospectos-numero")).toContainText("código enviado al número principal");
+        // La hoja termina de entrar antes de medir.
+        await expect(ficha).toBeInViewport({ ratio: 1 });
         await esperarSinDesbordes(page);
     });
 
