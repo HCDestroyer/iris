@@ -465,7 +465,10 @@ func TestCapacidadesParaArgos(t *testing.T) {
 	}
 	r := pedir(p.panel).ok(t, http.StatusOK)
 	caps, ok := r["capacidades"].(map[string]any)
-	if r["contrato_iris"] != argos.ContratoIris || !ok || len(r) != 2 || caps["portal_argos"] != false {
+	// Las marcas siguen a la versión que habla Iris (§4.3, §4.6).
+	v := argos.ContratoIris
+	if r["contrato_iris"] != v || !ok || len(r) != 2 || caps["portal_argos"] != argos.SoportaPortal(&v) ||
+		caps["tipo_servicio"] != argos.SoportaTipoServicio(&v) {
 		t.Fatalf("capacidades: %v", r)
 	}
 	pedir(p.portal).problema(t, http.StatusForbidden, "prohibido")

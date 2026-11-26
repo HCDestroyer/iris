@@ -650,7 +650,7 @@ WHERE id = @id RETURNING *;
 -- name: ConectorDeTokenPortal :one
 -- El conector Argos del token_portal: el token es hijo del iris_pat_ que se entregó en el canje de
 -- ese conector (o del que una reconexión sin confirmar todavía reemplaza).
-SELECT c.id, c.estado, c.contrato_remoto
+SELECT c.id, c.estado, c.contrato_remoto, c.contrato_informado
 FROM nucleo.tokens_api t
 JOIN integracion.conectores c ON c.sistema = 'argosisp' AND c.eliminado_en IS NULL
      AND (t.token_padre_id = c.token_entregado_id OR t.token_padre_id = c.reemplaza_token_id)

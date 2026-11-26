@@ -24,6 +24,8 @@ export const TIPOS_ORDEN: Record<TipoOrden, string> = {
     retiro: "Retiro",
     cambio_equipo: "Cambio de equipo",
     mantenimiento: "Mantenimiento",
+    corte_catv: "Corte de cable (TV)",
+    reconexion_catv: "Reconexión de cable (TV)",
 };
 
 export const MOTIVOS_FALLA: Record<MotivoFalla, string> = {

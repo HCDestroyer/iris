@@ -124,6 +124,8 @@ type entradaAplicar struct {
 	// titular: servicio.titular_cambiado (0.10.0 §3.4.4): se emite el evento interno si la ficha
 	// releída del titular nuevo lo confirma.
 	titular *titularCambiado
+	// corte: servicio.corte_manual_* (0.15.0 §13.2), validado: se emite argos.corte_manual.
+	corte *eventoCorte
 }
 
 // ProcesarEntrante aplica un webhook guardado: lee de Argos lo que haga falta (fuera de
@@ -219,6 +221,12 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 	}
 	if in.red != nil {
 		if err := emitirRed(ctx, t, *in.red, e.ID, p.m.cfg.Encolar); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
+	}
+	if in.corte != nil {
+		if err := emitirCorte(t, *in.corte); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"
@@ -383,6 +391,10 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		// Solo por el webhook firmado; la empresa y cada servicio se validan (lee Argos fuera de la
 		// transacción los que Iris no conoce).
 		in.red, in.omitido, in.errArgos = p.leerRed(ctx, bd, e)
+		return p.aplicar.Ejecutar(ctx, in)
+	case EventoCorteManualSolicitado, EventoCorteManualCancelado:
+		// 0.15.0 §13.2: el payload firmado trae solo ids y códigos; se valida la empresa y el servicio.
+		in.corte, in.omitido, in.errArgos = p.leerCorte(ctx, bd, e)
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoCuentaBancariaCambiada:
 		// Se relee la cuenta en Argos y se guarda lo que diga Argos, nunca el payload (§7.8).

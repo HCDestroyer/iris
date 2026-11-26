@@ -10,6 +10,7 @@ import { useEnlacesExternos } from "@/componentes/enlaces-externos";
 import { TarjetaEncuesta } from "@/componentes/encuestas/tarjeta-encuesta";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { IgualarAsignacion } from "@/componentes/ordenes/asignacion-ticket-orden";
+import { CorteManualOrden, InsigniaPrioridad } from "@/componentes/ordenes/corte-manual";
 import { AvisoDatosArgos, MarcaDatosArgos } from "@/componentes/ordenes/datos-argos";
 import { InsigniaEstadoOrden, InsigniaOrigenOrden, InsigniaTipoOrden, MarcaPendienteArgos } from "@/componentes/ordenes/insignias";
 import { PieLista } from "@/componentes/pie-lista";
@@ -147,6 +148,7 @@ function Detalle({ id }: { id: number }) {
                         <>
                             <InsigniaEstadoOrden estado={o.estado} />
                             <InsigniaTipoOrden tipo={o.tipo} />
+                            <InsigniaPrioridad prioridad={o.prioridad} />
                             <InsigniaOrigenOrden origen={o.origen} />
                             {resumen ? <MarcaPendienteArgos resumen={resumen} /> : null}
                             {datosArgos ? <MarcaDatosArgos cambios={datosArgos} /> : null}
@@ -185,6 +187,7 @@ function Detalle({ id }: { id: number }) {
                                 etiqueta: "Resumen",
                                 contenido: (
                                     <div className="grid gap-4">
+                                        {o.corteManual ? <CorteManualOrden corte={o.corteManual} /> : null}
                                         <Tarjeta>
                                             <TarjetaContenido className="grid gap-4 pt-5">
                                                 {o.descripcion ? <p className="text-sm break-words whitespace-pre-wrap">{o.descripcion}</p> : null}

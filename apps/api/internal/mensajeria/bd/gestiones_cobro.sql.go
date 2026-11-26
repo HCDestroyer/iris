@@ -13,14 +13,20 @@ import (
 )
 
 const contratoArgosActivo = `-- name: ContratoArgosActivo :one
-SELECT contrato_remoto FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo' LIMIT 1
+SELECT contrato_remoto, contrato_informado FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo' LIMIT 1
 `
 
-func (q *Queries) ContratoArgosActivo(ctx context.Context) (*string, error) {
+type ContratoArgosActivoRow struct {
+	ContratoRemoto    *string
+	ContratoInformado *string
+}
+
+// Los contratos del conector Argos activo (el acordado sale de conector.ContratoAcordado).
+func (q *Queries) ContratoArgosActivo(ctx context.Context) (ContratoArgosActivoRow, error) {
 	row := q.db.QueryRow(ctx, contratoArgosActivo)
-	var contrato_remoto *string
-	err := row.Scan(&contrato_remoto)
-	return contrato_remoto, err
+	var i ContratoArgosActivoRow
+	err := row.Scan(&i.ContratoRemoto, &i.ContratoInformado)
+	return i, err
 }
 
 const fijarPendienteGestionCobro = `-- name: FijarPendienteGestionCobro :exec

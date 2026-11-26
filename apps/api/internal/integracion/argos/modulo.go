@@ -208,8 +208,9 @@ func Nuevo(cfg Config) *Modulo {
 		Contrato: contratoIrisDe(cfg), Capacidades: capacidades,
 		// 0.6.2: el canje exige el receptor de Argos (§1.3) y manda receptor_argos: true.
 		ExigirReceptor: true,
-		// 0.9.0 §1.2: el canje entrega además el token_portal (cuando Iris habla un contrato ≥ 0.9.0).
-		TokenPortal: SoportaPortal(&contratoIris),
+		// 0.9.0 §1.2: el canje entrega además el token_portal (cuando Iris habla un contrato ≥ 0.9.0;
+		// la misma versión que manda en Contrato).
+		TokenPortal: soportaPortalIris(cfg),
 		// 0.6.3: el atk_ de un canje que Iris no completa se revoca en Argos (job).
 		RutaRevocarCanje: "/integraciones/iris/conexion/revocar",
 		// 0.6.3: al reconectar, el iris_pat_ del conector anterior vive hasta que el atk_ nuevo responda.
@@ -244,7 +245,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.InformarSincronizacion = nuevoInformarSincronizacion(m)
 	m.Sincronizar = nuevoSincronizar(m)
 	m.EstadoConexion = nuevoEstadoConexion(m)
-	m.VerCapacidades = nuevoVerCapacidades()
+	m.VerCapacidades = nuevoVerCapacidades(m)
 	m.prepararPortal, m.cerrarPortal = nuevoPrepararPortal(m), nuevoCerrarPortal(m)
 	m.RegistrarCertificado = nuevoRegistrarCertificado()
 	return m
@@ -258,7 +259,7 @@ func (m *Modulo) Nucleo() *conector.Nucleo { return m.nucleo }
 
 // clienteDe arma el cliente HTTP de Argos de un conector leído (token descifrado).
 func (m *Modulo) clienteDe(c conector.Leido) *Cliente {
-	return &Cliente{Cliente: m.conexion.Cliente(c), contrato: c.ContratoRemoto}
+	return &Cliente{Cliente: m.conexion.Cliente(c), contrato: c.ContratoAcordado()}
 }
 
 // conectorActivo devuelve el conector Argos activo o 503 conector_apagado.

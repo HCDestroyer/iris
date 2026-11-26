@@ -49,8 +49,9 @@ type Orden struct {
 	ID               int64         `json:"id"`
 	Numero           string        `json:"numero" doc:"Número legible (OT-000123)"`
 	EmpresaID        *int64        `json:"empresaId" nullable:"true" doc:"Empresa en Argos; null sin conector"`
-	Tipo             string        `json:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento"`
+	Tipo             string        `json:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv" doc:"corte_catv y reconexion_catv: corte manual del cable pedido por Argos (contrato 0.15.0 §13.2)"`
 	TipoID           int64         `json:"tipoId"`
+	Prioridad        string        `json:"prioridad" required:"false" enum:"normal,alta" doc:"alta: la reconexión de cable (0.15.0 §13.2, B5)"`
 	PlantillaID      *int64        `json:"plantillaId" nullable:"true" doc:"Plantilla de checklist"`
 	TicketID         *int64        `json:"ticketId" nullable:"true" doc:"Ticket de origen"`
 	ProspectoID      *int64        `json:"prospectoId" nullable:"true" doc:"Prospecto de origen (fase 4)"`
@@ -79,7 +80,7 @@ type Orden struct {
 	Version          int32         `json:"version"`
 	CreadoEn         time.Time     `json:"creadoEn"`
 	ActualizadoEn    time.Time     `json:"actualizadoEn"`
-	Origen           string        `json:"origen,omitempty" enum:"panel,api,argos,sistema,asistente" doc:"De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema"`
+	Origen           string        `json:"origen,omitempty" enum:"panel,api,argos,sistema,asistente" doc:"De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado o corte manual del cable) o sistema"`
 	PausadaDesde     *string       `json:"pausadaDesde,omitempty" enum:"en_camino,en_sitio" doc:"Solo pausada: el estado al que vuelve al reanudar"`
 	PausadaEn        *time.Time    `json:"pausadaEn,omitempty" doc:"Solo pausada: inicio de la pausa en curso"`
 	TiempoPausadoSeg int64         `json:"tiempoPausadoSeg" required:"false" doc:"Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)"`
@@ -101,7 +102,7 @@ func aOrden(f campobd.CampoOrden, tipo string) Orden {
 		Resultado: f.Resultado, MotivoFalla: f.MotivoFalla, Motivo: f.Motivo, Version: f.Version,
 		CreadoEn: f.CreatedAt, ActualizadoEn: f.UpdatedAt, Origen: f.Origen,
 		PausadaDesde: f.PausadaDesde, PausadaEn: f.PausadaEn, TiempoPausadoSeg: f.PausadaSeg,
-		DatosArgosCambiados: datosArgosDe(f),
+		DatosArgosCambiados: datosArgosDe(f), Prioridad: f.Prioridad,
 	}
 }
 
@@ -243,6 +244,8 @@ type OrdenDetalle struct {
 	Cita          *CitaOrden        `json:"cita,omitempty" doc:"Cita de la agenda (con la ventana acordada con el cliente); ausente si no está programada"`
 	// DatosArgos: la copia de Argos con la que se creó (solo en GET /ordenes/{id}).
 	DatosArgos *argos.CopiaArgos `json:"datosArgos,omitempty" doc:"Solo en el detalle (GET /ordenes/{id}): lo que Iris sabía del cliente y del servicio de Argos al crear la orden (dirección, teléfono, plan, IP…). Se conserva tal cual; el panel lo muestra si la ficha no se puede leer. Ausente si se creó sin cliente de Argos o sin su instantánea"`
+	// CorteManual: la solicitud de Argos de una orden corte_catv o reconexion_catv (0.15.0 §13.2).
+	CorteManual *CorteManualOrden `json:"corteManual,omitempty" doc:"Solo en una orden de corte o reconexión de cable: la solicitud de Argos (causa visible) y lo que Iris le informa"`
 }
 
 // CitaOrden es la cita de la agenda de una orden programada.
@@ -257,7 +260,7 @@ type CitaOrden struct {
 // TipoOrden con sus plantillas.
 type TipoOrden struct {
 	ID            int64       `json:"id"`
-	Codigo        string      `json:"codigo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento"`
+	Codigo        string      `json:"codigo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv"`
 	Nombre        string      `json:"nombre"`
 	DuracionMin   int32       `json:"duracionMin" doc:"Duración estimada"`
 	PlantillaID   *int64      `json:"plantillaId" nullable:"true" doc:"Plantilla por defecto"`

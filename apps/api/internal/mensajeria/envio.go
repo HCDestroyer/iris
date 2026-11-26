@@ -112,6 +112,17 @@ func nuevoPrepararEnvio(m *Modulo) *auditoria.Caso[entradaPreparar, preparado] {
 				if !puede {
 					return preparado{Accion: accionNada, Final: true}, m.fallar(ctx, t, a, MotivoRechazado, texto("el contacto ya no puede recibir avisos"))
 				}
+			} else if a.Canal != nil {
+				// El aviso del titular: una baja dada mientras esperaba (horario de silencio, número
+				// pausado) manda sobre el aviso (§6.4). No es un motivo de §6.6: sale como
+				// rechazado_por_canal con detalle «baja», un solo aviso.fallido.
+				v, err := q.ConsentimientoVigente(ctx, mensajeriabd.ConsentimientoVigenteParams{EmpresaID: a.EmpresaID, ClienteID: a.ClienteID, Canal: *a.Canal})
+				if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+					return preparado{}, err
+				}
+				if err == nil && v.Estado == "baja" {
+					return preparado{Accion: accionNada, Final: true}, m.fallar(ctx, t, a, MotivoRechazado, texto(MotivoBaja))
+				}
 			}
 			r, err := m.resolverPorID(ctx, q, a.CanalID, a.EmpresaID)
 			if err != nil {

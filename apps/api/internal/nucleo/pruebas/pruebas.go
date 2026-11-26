@@ -192,12 +192,18 @@ func Correo(prefijo string) string {
 }
 
 // TokensFalsos implementa conector.Tokens para pruebas con un Argos falso que no valida el
-// iris_pat_ del canje: emite uno fijo (sin fila: id 0), confirma y revoca sin hacer nada.
+// iris_pat_ del canje: emite uno fijo (sin fila: id 0) y su token_portal, confirma y revoca sin hacer nada.
 type TokensFalsos struct{}
 
 // EmitirTokenCanje devuelve un iris_pat_ fijo.
 func (TokensFalsos) EmitirTokenCanje(context.Context, string, time.Time) (int64, string, error) {
 	return 0, "iris_pat_" + strings.Repeat("p", 32), nil
+}
+
+// EmitirTokenPortal devuelve un token_portal fijo (sin fila: id 0), como el del canje (contrato con
+// Argos 0.9.0 §1.2: Iris ≥ 0.9.0 lo entrega en cada canje).
+func (TokensFalsos) EmitirTokenPortal(context.Context, int64) (int64, string, error) {
+	return 0, "iris_pat_" + strings.Repeat("q", 32), nil
 }
 
 // ConfirmarTokenCanje no hace nada.

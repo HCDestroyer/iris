@@ -4,6 +4,7 @@ import {
     Ban,
     CalendarClock,
     CircleCheck,
+    CircleDot,
     CircleDashed,
     CirclePause,
     CircleX,
@@ -18,6 +19,7 @@ import {
     Repeat,
     Router,
     TriangleAlert,
+    Unplug,
     Truck,
     Wrench,
     Clock,
@@ -59,9 +61,31 @@ export const TIPOS_ORDEN: Record<TipoOrden, { icono: LucideIcon; texto: string }
     retiro: { icono: PackageMinus, texto: "Retiro" },
     cambio_equipo: { icono: Repeat, texto: "Cambio de equipo" },
     mantenimiento: { icono: Hammer, texto: "Mantenimiento" },
+    // Corte manual de respaldo del cable (contrato con Argos 0.15.0 §13.2): solo los abre Argos.
+    corte_catv: { icono: Unplug, texto: "Corte de cable (TV)" },
+    reconexion_catv: { icono: PlugZap, texto: "Reconexión de cable (TV)" },
 };
 
-export const ORDEN_TIPOS: readonly TipoOrden[] = ["instalacion", "visita", "retiro", "cambio_equipo", "mantenimiento"];
+/** Los tipos que una persona puede crear (los de cable solo los abre Argos). */
+export type TipoOrdenCreable = Schema<"EntradaCrearOrden">["tipo"];
+export const ORDEN_TIPOS: readonly TipoOrdenCreable[] = ["instalacion", "visita", "retiro", "cambio_equipo", "mantenimiento"];
+/** Todos los tipos, para filtrar. */
+export const ORDEN_TIPOS_TODOS: readonly TipoOrden[] = [...ORDEN_TIPOS, "corte_catv", "reconexion_catv"];
+
+/** Causa del corte manual (lo que Argos informa; `causaTexto` ya viene para mostrar). */
+export type CorteManual = NonNullable<OrdenDetalle["corteManual"]>;
+export const ESTADOS_CORTE: Record<CorteManual["estado"], Presentacion> = {
+    abierta: { tono: "neutral", icono: CircleDot, texto: "Sin asignar" },
+    en_curso: { tono: "info", icono: Truck, texto: "En curso" },
+    resuelta: { tono: "success", icono: CircleCheck, texto: "Hecho" },
+    no_realizada: { tono: "error", icono: CircleX, texto: "No se pudo" },
+    cancelada: { tono: "neutral", icono: Ban, texto: "Cancelada por Argos" },
+};
+export const MOTIVOS_CORTE: Record<NonNullable<CorteManual["motivoCodigo"]>, string> = {
+    sin_acceso: "Sin acceso",
+    equipo_no_encontrado: "Equipo no encontrado",
+    otro: "Otro motivo",
+};
 
 /** Columnas del tablero: los tres estados finales comparten la última. */
 export type ModalidadMaterial = NonNullable<NonNullable<OrdenDetalle["materiales"]>[number]["modalidad"]>;

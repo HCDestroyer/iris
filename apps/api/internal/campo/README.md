@@ -416,7 +416,13 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   webhook `instalacion.*` (`argos.instalacion_resuelta`) o, a los 10 min, `GET /aprovisionamientos/:id`
   (`campo.consultar_activaciones`, cada 2 min); un intento resuelto no cambia. Un agotado sigue vivo hasta
   reintentarse o resolverse a mano en la cola (nunca dos aprovisionamientos a la vez). Estado:
-  `GET /ordenes/{id}/activacion`.
+  `GET /ordenes/{id}/activacion` (el `actual` es el intento vivo si lo hay; si no, el último).
+- **`409 aprovisionamiento_en_curso`** (0.14.3 §12.2): si `extensions.aprovisionamiento_id` es de otro intento
+  de Iris de la misma orden, no es ajeno: el intento nuevo queda `fallido` con `aprovisionamiento_propio` y el
+  anterior vuelve a `en_proceso` (lo resuelven su webhook o la consulta). Si la orden tiene otro intento enviado
+  sin respuesta todavía en la cola, primero se reintenta ese y el nuevo espera. Si no, es ajeno (`iniciado_por:
+  argos`, `iris` de otra orden o sin dato): `fallido` con esa causa, sin tomar su `aprovisionamiento_id` ni su
+  resultado; con el servicio activado fuera, la orden se cierra como «activado fuera de la orden».
 - **Modo** por empresa (`POST /campo/ajustes`: `activacionModo`, `cierreExigeBienvenida`) o plantilla: `al_cerrar`
   (de fábrica), `exigir_lista` (el cierre exitoso exige el intento listo o un supervisor con
   `ordenes.cerrar_sin_activacion` y `sinActivacionMotivo`; con `cierre_exige_bienvenida`, además la bienvenida) o
@@ -461,3 +467,32 @@ con `activacion.estado: activado_fuera`, sin supervisor ni comodato. Una bienven
 El servicio del paquete (`ServicioCampo`) trae `tipoServicio` y `sinRouter`. Un servicio sin router (cable, regla A1)
 no ofrece cambiar el plan por router (`planes.motivo: tipo_sin_router`, sin llamar a `GET /planes?router_id=`) ni
 «Activar servicio» (`noDisponible: tipo_sin_router`; la activación sale al cerrar). Pruebas: `tipo_servicio_test.go`.
+
+## Corte manual de respaldo del cable (contrato argosisp.md 0.15.0 §13.2, B34; `corte_manual.go`)
+
+- **Consume** `argos.corte_manual` (`SuscribirCortes` en cmd/worker). La solicitud vive en `campo.cortes_manuales` (clave
+  `solicitud_id`; una `version` menor o igual que la guardada no cambia nada). `solicitado` abre una orden nueva
+  `corte_catv` o `reconexion_catv` (`origen = argos`, idempotente por `argos.corte_manual:<solicitud_id>`; la reconexión
+  con `prioridad = alta`), con la causa en la descripción y en `corteManual` del detalle. Con `descarte` (empresa fuera
+  del alcance o servicio desconocido) se guarda sin abrir nada.
+- **Cancelaciones fuera de orden (B4):** con la orden `pendiente` o `programada`, se cancela y se informa `cancelada`; con el
+  técnico en camino, en sitio o pausado, queda `cancelacionPedida` y decide el cierre; con el corte ya `resuelta`, se
+  vuelve a informar `resuelta`; un `cancelado` antes del `solicitado` se guarda (`cancelada_antes`) y el solicitado de una
+  versión menor o igual ya no abre nada.
+- **Emite** `corte_manual.estado_cambiado` (contador `version` propio) desde `avisarCorte`, en la transacción de cada cambio
+  de la orden: `en_curso` al asignar, y al cerrar según el ítem `resultado` del checklist de cierre (plantillas comunes
+  `corte_catv` y `reconexion_catv`): «Hecho» → `resuelta`; «Sin acceso», «Equipo no encontrado», «Otro motivo» →
+  `no_realizada` con su `motivo_codigo`; fallar → `no_realizada` (`sin_acceso` u `otro`). Los terminales no retroceden.
+- **No hace (B6–B8):** la orden no tiene ticket (ni `ticket.*` ni portal de Argos), no manda encuesta ni avisos al
+  cliente y su cierre no encola `activar-instalacion` ni retiro. En un servicio mixto solo se toca el cable (lo dice la
+  orden).
+- **Seguridad (revisión de #297):** la clave es `(conector_id, solicitud_id)`. Un aviso con `descarte`, o con otra empresa,
+  servicio o acción que la solicitud guardada, solo se anota (`ignorado`) y no toca nada; la empresa de la auditoría es la
+  de la solicitud. Los candados van orden → solicitud, como el resto de campo. Las plantillas del sistema `corte_catv` y
+  `reconexion_catv` no cambian de tipo ni pierden el ítem `resultado` (422 `plantilla_corte_protegida`). El Down de la
+  migración falla si ya hay órdenes, citas, capacidades, plantillas o checklists de estos tipos.
+- **Riesgo conocido:** un corte hecho sin señal con la orden ya cancelada en el servidor (Argos canceló antes de que el
+  técnico saliera) solo queda en las notas y adjuntos de la orden: el lote recibe `orden_cancelada` y a Argos no se le
+  informa `resuelta` (`contratos/sync.md`).
+- Pruebas: `corte_manual_test.go` (solicitado, asignado y cerrado por `POST /sync/lote`; reconexión con prioridad alta;
+  no realizada; cancelaciones fuera de orden; descarte).

@@ -158,7 +158,7 @@ func SinAprobacion() *nucleo.Problema {
 // conector activo). q puede ser una transacción o el pool.
 func (m *Modulo) ApruebaComprobantes(ctx context.Context, q conector.DBTX) (bool, error) {
 	var contrato *string
-	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+	err := q.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -176,7 +176,7 @@ func (m *Modulo) clienteDecision(ctx context.Context) (*Cliente, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !SoportaAprobarComprobantes(c.ContratoRemoto) {
+	if !SoportaAprobarComprobantes(c.ContratoAcordado()) {
 		return nil, SinAprobacion()
 	}
 	return m.clienteDe(c), nil

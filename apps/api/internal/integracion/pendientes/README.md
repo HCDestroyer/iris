@@ -64,7 +64,11 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 - **409 por type (contrato 0.3.1 §3.1):** de los 409, solo `idempotencia_en_curso` se reintenta;
   los demás (`servicio_no_pendiente`, `user_ppp_duplicado`…, también sin type o con
   `about:blank`) y el 422 `idempotency_key_reutilizada` son de negocio (`pendientes.EsNegocio`,
-  que también usa comercial).
+  que también usa comercial). Excepción, `409 aprovisionamiento_en_curso` de `aprovisionar` (0.14.3
+  §12.2): se lee `extensions` (`aprovisionamiento_id`, `iniciado_por`); si nombra un intento de Iris de
+  la misma orden queda `fallido_negocio` con código `aprovisionamiento_propio` (la activación sigue el
+  anterior); si otro intento de la orden salió sin respuesta y sigue en la cola, es temporal (se
+  reintenta primero ese); si no, `fallido_negocio` ajeno con `iniciado_por` en `ultimo_error`.
 - **`activar-instalacion` (§3.1):** el cuerpo no lleva `version` (una leída al encolar quedaría
   vieja y el reintento nunca avanzaría); solo `origen_tipo` y `origen_id`. Si el servicio ya no
   está `pendiente_instalacion`, Argos responde `409 servicio_no_pendiente`: `fallido_negocio`
@@ -273,7 +277,9 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   uno confirma su cobro (si alguno no lo confirma, fallido para el supervisor). Liberar el cargo al resolver a mano
   uno de ellos responde 422 `cargo_en_otro_consumo` si otro ya lo cobró o aún no termina (se cobraría dos veces).
 - **`consumible_cobro` (forma anterior):** el cargo se encola `esperaConsumo` (nunca sale): queda `resuelto_manual`
-  (`cobrado_con_consumo`) si el consumo confirma su cobro en `cargos[]`; si no, fallido incompleto, visible.
+  (`cobrado_con_consumo`) si el consumo confirma su cobro en `cargos[]`; si no, fallido incompleto, visible. Un
+  cargo que nació incompleto por otra causa y se corrige con un cierre repetido cuando sus consumos ya terminaron se
+  decide en el acto (`fijarEsperaConsumo`): ningún consumo nuevo lo despertaría.
 - **Aprovisionar con Wi-Fi y 422 `capacidad_no_disponible`:** se reenvía sin `wifi` con la clave `<clave>:sin-wifi`; la
   clave cifrada se descarta y el intento de campo sigue con la nueva clave.
 - **Activado fuera de la orden:** solo la unidad que devuelve `GET /servicios/:id/equipo` cuenta como aprovisionada; el

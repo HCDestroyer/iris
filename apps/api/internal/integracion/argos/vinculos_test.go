@@ -23,7 +23,8 @@ import (
 // sus vinculados (los omitidos no cuentan). Mientras Iris informe una versión anterior, nada de esto
 // corre aunque Argos hable 0.14.0.
 func TestCargaDeVinculosAlInformar014(t *testing.T) {
-	e := nuevoEntorno(t)
+	// Primero Iris fijada en 0.8.1 (anterior a la 0.14.0); más abajo, un módulo que informa 0.14.0.
+	e := nuevoEntornoCon(t, func(cfg *argos.Config) { cfg.ContratoIris = "0.8.1" })
 	e.argos.con(func() { e.argos.version, e.argos.contratoMax = "1.30.0", "0.14.0" })
 	_, id, _ := e.conectado()
 	ctx := pruebas.ContextoSistema(e.pool)
@@ -39,7 +40,7 @@ func TestCargaDeVinculosAlInformar014(t *testing.T) {
 			WHERE c.id = $1 AND $2 = ANY(t.permisos)`, id, permiso) == 1
 	}
 
-	// Iris informa 0.8.1 (el de esta versión): sin carga ni permiso, aunque Argos hable 0.14.0.
+	// Iris informa 0.8.1: sin carga ni permiso, aunque Argos hable 0.14.0.
 	if _, err := e.mod.InformarContrato.Ejecutar(ctx, id); err != nil {
 		t.Fatal(err)
 	}

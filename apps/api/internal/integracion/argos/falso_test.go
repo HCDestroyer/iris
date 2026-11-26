@@ -80,7 +80,10 @@ type argosFalso struct {
 	// contratoMax: el contrato más nuevo que conoce este Argos (1.15.0 = "0.7.0"): si Iris informa uno
 	// posterior, registra y responde el suyo. Vacío = registra lo que mande Iris.
 	contratoMax string
-	tecnicos    []map[string]any
+	// noSoportaMayor (0.14.0 §3.3): con contratoMax, un PUT …/contrato mayor responde 422
+	// contrato_no_soportado y no se registra; GET …/estado responde el contrato que habla (contratoMax).
+	noSoportaMayor bool
+	tecnicos       []map[string]any
 	// retrasoTecnicos: cuánto tarda cada página de GET /inventario/tecnicos (Argos lento).
 	retrasoTecnicos time.Duration
 	planes          []map[string]any
@@ -90,6 +93,8 @@ type argosFalso struct {
 	sinc080    sinc080
 	contratos  int      // PUT /integraciones/iris/contrato recibidos
 	informados []string // el contrato de cada PUT, tal como lo mandó Iris
+	rechazados []string // los contratos de los PUT rechazados con 422 contrato_no_soportado
+	portales   int      // PUT …/contrato que trajeron token_portal
 	// webhookURL: el receptor que responde el canje (vacío = el de su propio host).
 	webhookURL string
 	// sinWebhook: el canje no devuelve el bloque webhook (Argos fuera de contrato, 0.6.2).
@@ -208,12 +213,21 @@ func (a *argosFalso) rutas050(mux *http.ServeMux) {
 				return
 			}
 		}
-		a.contrato, _ = p["contrato"].(string)
+		informado, _ := p["contrato"].(string)
+		if a.noSoportaMayor && a.contratoMax != "" && !conector.VersionAlMenos(&a.contratoMax, informado) {
+			a.rechazados = append(a.rechazados, informado)
+			problema(w, 422, "urn:argosisp:problema:contrato_no_soportado", "Argos no habla ese contrato")
+			return
+		}
+		a.contrato = informado
 		a.informados = append(a.informados, a.contrato)
 		if a.contratoMax != "" {
 			a.contrato = a.contratoMax
 		}
 		a.contratos++
+		if _, ok := p["token_portal"]; ok {
+			a.portales++
+		}
 		a.receptores = append(a.receptores, p["receptor_argos"])
 		a.cargados = append(a.cargados, p["vinculos_cargados"])
 		escribir(w, map[string]any{"contrato": a.contrato, "version_argos": a.version})
