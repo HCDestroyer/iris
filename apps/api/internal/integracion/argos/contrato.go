@@ -32,12 +32,12 @@ import (
 //   - 0.6.3: el PUT (o cualquier llamada autenticada) con el atk_ de una reconexión la confirma en
 //     Argos; Iris solo lo usa con el conector nuevo ya activo (la activación encola este job).
 
-// ContratoIris es la versión del contrato Iris ↔ ArgosISP que habla esta versión de Iris.
+// ContratoIris es la versión del contrato Iris ↔ ArgosISP que habla esta versión de Iris. La versión
+// que Iris usa en todas partes (canje, PUT …/contrato, token_portal, capacidades y estado) sale de
+// Modulo.contratoIris(), que solo cambia con Config.ContratoIris (pruebas); Iris informa la menor
+// entre esa y la de Argos (contratoAInformar), y lo que hace hacia Argos depende del contrato acordado
+// con el conector (conector.ContratoAcordado: la menor entre la de Argos y la que Argos aceptó).
 const ContratoIris = "0.8.1"
-
-// contratoIris: ContratoIris como variable (las funciones de 0.9.0 se encienden cuando sube; las
-// pruebas la cambian para probarlas).
-var contratoIris = ContratoIris
 
 // VersionInventarioTecnico es la primera versión de Argos que entiende `tecnico` (§3.3). Argos
 // 1.5.x lo ignora y, sin bodega_id, responde 422 «bodega_id required».
@@ -126,7 +126,7 @@ func (m *Modulo) ClavesPorOperacion(ctx context.Context, q conector.DBTX) (bool,
 // informa un contrato ≥ minimo. Falla cerrado.
 func (m *Modulo) contratoAlMenos(ctx context.Context, q conector.DBTX, minimo string) (bool, error) {
 	var contrato *string
-	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1
+	err := q.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE sistema = $1
 		ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1`, Sistema).Scan(&contrato)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -138,7 +138,7 @@ func (m *Modulo) contratoAlMenos(ctx context.Context, q conector.DBTX, minimo st
 // conector activo: falla cerrado). q puede ser una transacción o el pool.
 func (m *Modulo) ReconexionSinPersonal(ctx context.Context, q conector.DBTX) (bool, error) {
 	var contrato *string
-	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+	err := q.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -160,7 +160,7 @@ func SoportaTitularEmpresa(contrato *string) bool {
 // sin conector activo: falla cerrado). q puede ser una transacción o el pool.
 func TitularEmpresaDisponible(ctx context.Context, q conector.DBTX) (bool, error) {
 	var contrato *string
-	err := q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+	err := q.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -428,34 +428,44 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	ctx, visto := conector.ConCapturaTLS(ctx)
 	defer k.m.registrarCertificadoVisto(context.WithoutCancel(ctx), conectorID, visto)
 	in := entradaGuardarContrato{ConectorID: conectorID}
-	var puesto EstadoIris
 	// receptor_argos (0.6.2): true si el conector tiene guardado el receptor de Argos (url y secreto
 	// cifrado, §6.6). Los canjeados antes de B1 no lo tienen: false, y Argos pide reconectar.
 	receptor := c.WebhookSalidaUrl != nil && len(c.WebhookSalidaSecretoCifrado) > 0
-	cuerpo := map[string]any{"contrato": k.m.contratoIris(), "receptor_argos": receptor}
-	// 0.9.0 §1.2: a un conector ya conectado, el token_portal va en el PUT si todavía no tiene uno
-	// vigente (hijo de su iris_pat_). Si el PUT no llega a Argos, se revoca y sale en el siguiente.
-	var portalID int64
-	if SoportaPortal(&contratoIris) && c.TokenEntregadoID != nil {
-		vigente, err := argosbd.New(bd).TokenPortalVigente(ctx, c.TokenEntregadoID)
-		if err != nil {
-			return ResultadoContrato{}, err
-		}
-		if !vigente {
-			id, valor, err := k.m.nucleo.EmitirTokenPortal(ctx, *c.TokenEntregadoID)
+	// informar manda PUT …/contrato con una versión. 0.9.0 §1.2: a un conector ya conectado, el
+	// token_portal va en el PUT (si la versión informada incluye el portal) cuando todavía no tiene
+	// uno vigente (hijo de su iris_pat_). Si el PUT no llega a Argos, se revoca y sale en el siguiente.
+	// errBD: un error de la base de Iris (corta el job); err: la respuesta de Argos.
+	informar := func(version string) (puesto EstadoIris, err, errBD error) {
+		cuerpo := map[string]any{"contrato": version, "receptor_argos": receptor}
+		var portalID int64
+		if SoportaPortal(&version) && c.TokenEntregadoID != nil {
+			vigente, err := argosbd.New(bd).TokenPortalVigente(ctx, c.TokenEntregadoID)
 			if err != nil {
-				return ResultadoContrato{}, err
+				return puesto, nil, err
 			}
-			portalID, cuerpo["token_portal"] = id, valor
+			if !vigente {
+				id, valor, err := k.m.nucleo.EmitirTokenPortal(ctx, *c.TokenEntregadoID)
+				if err != nil {
+					return puesto, nil, err
+				}
+				portalID, cuerpo["token_portal"] = id, valor
+			}
 		}
+		err = cli.Pedir(ctx, http.MethodPut, rutaContrato, nil, cuerpo, true, &conector.Recurso{Destino: &puesto})
+		if portalID != 0 && err != nil {
+			k.m.nucleo.RevocarToken(context.WithoutCancel(ctx), portalID, "token_portal_no_entregado")
+		}
+		return puesto, err, nil
 	}
-	errPut := cli.Pedir(ctx, http.MethodPut, rutaContrato, nil, cuerpo, true, &conector.Recurso{Destino: &puesto})
-	if portalID != 0 && errPut != nil {
-		k.m.nucleo.RevocarToken(context.WithoutCancel(ctx), portalID, "token_portal_no_entregado")
+	// Iris informa la versión que habla (cada revisión lo intenta de nuevo: sube sola cuando Argos sube).
+	aInformar := k.m.contratoIris()
+	puesto, errPut, errBD := informar(aInformar)
+	if errBD != nil {
+		return ResultadoContrato{}, errBD
 	}
 	var put lectura
 	if errPut == nil {
-		informado := k.m.contratoIris()
+		informado := aInformar
 		in.Informado = &informado
 		in.Version, in.Contrato = conector.TextoVersion(puesto.VersionArgos, 40), conector.TextoVersion(puesto.Contrato, 20)
 		put = lectura{estado: VersionOK}
@@ -467,6 +477,23 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	}
 	var estado EstadoIris
 	errGet := cli.Pedir(ctx, http.MethodGet, rutaEstado, nil, nil, true, &conector.Recurso{Destino: &estado})
+	var er *ErrorArgos
+	noSoportado := errors.As(errPut, &er) && er.Status == http.StatusUnprocessableEntity && er.Codigo == "contrato_no_soportado"
+	if leido := conector.TextoVersion(estado.Contrato, 20); noSoportado && errGet == nil && leido != nil {
+		// §3.3 (0.14.0): Argos responde 422 contrato_no_soportado a una versión mayor que la que habla y
+		// no la registra. Iris informa entonces la de Argos (la menor de las dos): Argos registra lo que
+		// los dos hablan, en vez de quedarse con la última que aceptó.
+		if objetivo := k.m.contratoAInformar(leido); objetivo != aInformar {
+			otro, err, errBD := informar(objetivo)
+			if errBD != nil {
+				return ResultadoContrato{}, errBD
+			}
+			if err == nil {
+				errPut, put, in.Informado, in.SinInformado = nil, lectura{estado: VersionOK}, &objetivo, false
+				in.Version, in.Contrato = conector.TextoVersion(otro.VersionArgos, 40), conector.TextoVersion(otro.Contrato, 20)
+			}
+		}
+	}
 	if errGet == nil {
 		in.Capacidades, in.ConCapacidades = estado.Capacidades, true
 		if v := conector.TextoVersion(estado.VersionArgos, 40); v != nil {

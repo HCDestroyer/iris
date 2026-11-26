@@ -320,7 +320,7 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 		in.Estado, in.Error = "pendiente", texto("sin conector Argos activo")
 	case err != nil:
 		return err
-	case !conector.VersionAlMenos(c.ContratoRemoto, ContratoMinimo(w.Evento)) || c.WebhookSalidaUrl == nil:
+	case !conector.VersionAlMenos(conector.ContratoAcordado(c.ContratoRemoto, c.ContratoInformado), ContratoMinimo(w.Evento)) || c.WebhookSalidaUrl == nil:
 		in.Estado, in.ConectorID = "omitido", &c.ID
 		in.Error = texto(MotivoSinReceptor + ": el conector Argos no habla el contrato " + ContratoMinimo(w.Evento) + " o no informó su receptor de webhooks")
 	case conAlcance[w.Evento] && !c.AlcanceGlobal && !slices.Contains(c.Empresas, empresaDelPayload(w.Payload)):

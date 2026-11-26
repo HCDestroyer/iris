@@ -273,7 +273,9 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   uno confirma su cobro (si alguno no lo confirma, fallido para el supervisor). Liberar el cargo al resolver a mano
   uno de ellos responde 422 `cargo_en_otro_consumo` si otro ya lo cobró o aún no termina (se cobraría dos veces).
 - **`consumible_cobro` (forma anterior):** el cargo se encola `esperaConsumo` (nunca sale): queda `resuelto_manual`
-  (`cobrado_con_consumo`) si el consumo confirma su cobro en `cargos[]`; si no, fallido incompleto, visible.
+  (`cobrado_con_consumo`) si el consumo confirma su cobro en `cargos[]`; si no, fallido incompleto, visible. Un
+  cargo que nació incompleto por otra causa y se corrige con un cierre repetido cuando sus consumos ya terminaron se
+  decide en el acto (`fijarEsperaConsumo`): ningún consumo nuevo lo despertaría.
 - **Aprovisionar con Wi-Fi y 422 `capacidad_no_disponible`:** se reenvía sin `wifi` con la clave `<clave>:sin-wifi`; la
   clave cifrada se descarta y el intento de campo sigue con la nueva clave.
 - **Activado fuera de la orden:** solo la unidad que devuelve `GET /servicios/:id/equipo` cuenta como aprovisionada; el

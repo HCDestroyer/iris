@@ -417,6 +417,27 @@ partes (ficha, ticket, orden, comercial y app de campo).
   `PUT /integraciones/iris/contrato`. Cada función nueva sigue dependiendo del contrato que informó Argos
   (§4.1): con un Argos de contrato < 0.8.0 se comporta como en 0.7.1 y el conector queda en `ok`.
 
+## Versión de Iris y contrato acordado
+
+- **Una sola fuente de la versión que habla Iris:** `Modulo.contratoIris()` (`Config.ContratoIris`, que solo
+  usan las pruebas, o `ContratoIris`). La usan el canje (`contrato` y el `token_portal`), el
+  `PUT /integraciones/iris/contrato` (también el del cierre de la carga de vínculos, que repite la ya
+  aceptada), `GET /integraciones/argosisp/capacidades` (`contrato_iris` y las marcas del portal) y
+  `GET /integraciones/argosisp/estado`.
+- **Lo que Argos no soporta (§3.3, 0.14.0):** a un `422 contrato_no_soportado` del PUT, Iris lee
+  `GET …/estado` e informa la menor entre la suya y la de Argos; la revisión siguiente vuelve a probar la
+  suya (sube sola cuando Argos sube).
+- **Contrato acordado:** lo que Iris hace hacia Argos se enciende con
+  `conector.ContratoAcordado(contrato_remoto, contrato_informado)`: la menor entre la que informó Argos y la
+  que Argos aceptó de Iris (sin informe guardado, la de Argos). Es la misma regla que la función SQL
+  `integracion.contrato_acordado` (migración `…_integracion_contrato_acordado`; una prueba compara las dos),
+  que usan las consultas que leen el contrato del conector (`contratoAlMenos`, `ReconexionSinPersonal`,
+  `TitularEmpresaDisponible`, `SoportaContactos`, `Aprovisionamiento`, `ApruebaComprobantes`, la lectura de
+  facturas y el concepto de instalación) y, en Go, el cliente de Argos (`X-Iris-Contacto`), las cuentas
+  bancarias, los contactos, el portal, las capacidades del conector, los webhooks de mensajería, las
+  gestiones de cobro y comercial. La primera sincronización (0.8.0) sigue con el contrato de Argos: Iris
+  informa ≥ 0.8.1 desde la 0.33.0.
+
 ## Contrato 0.14.0: carga de vínculos y permiso de la verificación (§4.5, §6.6)
 
 Detrás de la versión que informa Iris (`Config.ContratoIris`, por defecto `ContratoIris`): con 0.14.0

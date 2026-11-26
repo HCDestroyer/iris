@@ -109,7 +109,7 @@ const CapacidadSoloContrato = "contrato"
 func (m *Modulo) Aprovisionamiento(ctx context.Context, q conector.DBTX, empresa *int64, tecnologia string) (bool, error) {
 	var contrato *string
 	var crudo []byte
-	err := q.QueryRow(ctx, `SELECT contrato_remoto, capacidades_aprovisionamiento FROM integracion.conectores
+	err := q.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado), capacidades_aprovisionamiento FROM integracion.conectores
 		WHERE sistema = $1 AND estado = 'activo' ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato, &crudo)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil

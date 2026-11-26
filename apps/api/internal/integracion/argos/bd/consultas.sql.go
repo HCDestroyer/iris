@@ -780,7 +780,7 @@ func (q *Queries) ConectorDeTokenPanel(ctx context.Context, tokenID *int64) (Con
 
 const conectorDeTokenPortal = `-- name: ConectorDeTokenPortal :one
 
-SELECT c.id, c.estado, c.contrato_remoto
+SELECT c.id, c.estado, c.contrato_remoto, c.contrato_informado
 FROM nucleo.tokens_api t
 JOIN integracion.conectores c ON c.sistema = 'argosisp' AND c.eliminado_en IS NULL
      AND (t.token_padre_id = c.token_entregado_id OR t.token_padre_id = c.reemplaza_token_id)
@@ -790,9 +790,10 @@ LIMIT 1
 `
 
 type ConectorDeTokenPortalRow struct {
-	ID             int64
-	Estado         string
-	ContratoRemoto *string
+	ID                int64
+	Estado            string
+	ContratoRemoto    *string
+	ContratoInformado *string
 }
 
 // Portal del cliente de Argos (0.9.0 §11) -------------------------------------------------
@@ -801,7 +802,12 @@ type ConectorDeTokenPortalRow struct {
 func (q *Queries) ConectorDeTokenPortal(ctx context.Context, tokenID int64) (ConectorDeTokenPortalRow, error) {
 	row := q.db.QueryRow(ctx, conectorDeTokenPortal, tokenID)
 	var i ConectorDeTokenPortalRow
-	err := row.Scan(&i.ID, &i.Estado, &i.ContratoRemoto)
+	err := row.Scan(
+		&i.ID,
+		&i.Estado,
+		&i.ContratoRemoto,
+		&i.ContratoInformado,
+	)
 	return i, err
 }
 

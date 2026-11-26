@@ -479,16 +479,16 @@ func ClaveContacto(cliente, telefono int64) string {
 	return "iris:contacto:" + idTexto(cliente) + ":pt" + idTexto(telefono)
 }
 
-// contratoArgosAlMenos: el conector Argos informó un contrato ≥ minima.
+// contratoArgosAlMenos: el contrato acordado con el conector Argos es ≥ minima.
 func contratoArgosAlMenos(ctx context.Context, q *comercialbd.Queries, minima string) (bool, error) {
-	v, err := q.ContratoArgosRemoto(ctx)
+	v, err := q.ContratoArgosAcordado(ctx)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return conector.VersionAlMenos(v, minima), nil
+	return conector.VersionAlMenos(conector.ContratoAcordado(v.ContratoRemoto, v.ContratoInformado), minima), nil
 }
 
 // encolarContactos: los números del prospecto con nombre (que no son el principal) se crean como

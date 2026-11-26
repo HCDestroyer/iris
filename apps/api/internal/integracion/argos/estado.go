@@ -215,9 +215,10 @@ type CapacidadesIris struct {
 	AdjuntosTicket      bool `json:"adjuntos_ticket" doc:"Adjuntos en los tickets del portal (§11.6)"`
 }
 
-// CapacidadesDeIris: con un Iris que habla el contrato 0.9.0, las tres.
-func CapacidadesDeIris() CapacidadesIris {
-	si := SoportaPortal(&contratoIris)
+// CapacidadesDeIris: las marcas de un Iris que habla la versión contrato (Modulo.contratoIris): con
+// el contrato 0.9.0 o posterior, las tres.
+func CapacidadesDeIris(contrato string) CapacidadesIris {
+	si := SoportaPortal(&contrato)
 	return CapacidadesIris{PortalArgos: si, SolicitudesServicio: si, AdjuntosTicket: si}
 }
 
@@ -264,7 +265,7 @@ func nuevoEstadoConexion(m *Modulo) *auditoria.Caso[struct{}, EstadoConexionArgo
 		AuditarExito: func(EstadoConexionArgos) bool { return false },
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (EstadoConexionArgos, error) {
 			t.FijarEmpresa(0)
-			r := EstadoConexionArgos{ContratoIris: m.contratoIris(), Capacidades: CapacidadesDeIris(), FuncionesApagadas: []FuncionApagada{}, Instantaneas: []InstantaneaArgos{},
+			r := EstadoConexionArgos{ContratoIris: m.contratoIris(), Capacidades: CapacidadesDeIris(m.contratoIris()), FuncionesApagadas: []FuncionApagada{}, Instantaneas: []InstantaneaArgos{},
 				Empresas: []EmpresaAlcance{}, Fallos: FallosArgos{Pendientes: []PendientesPorEstado{}, WebhooksRechazados: m.RechazosSinAuditar()}}
 			q := argosbd.New(t)
 			var f conectorbd.IntegracionConectore
@@ -295,7 +296,7 @@ func nuevoEstadoConexion(m *Modulo) *auditoria.Caso[struct{}, EstadoConexionArgo
 			}
 			c := m.nucleo.AConector(f)
 			r.Conector, r.ContratoArgos, r.VersionArgos, r.AlcanceGlobal = &c, f.ContratoRemoto, f.VersionRemota, f.AlcanceGlobal
-			r.FuncionesApagadas = FuncionesApagadas(f.VersionRemota, f.ContratoRemoto)
+			r.FuncionesApagadas = FuncionesApagadas(f.VersionRemota, conector.ContratoAcordado(f.ContratoRemoto, f.ContratoInformado))
 			if a, err := q.ActivacionDeConector(ctx, f.ID); err == nil {
 				r.Activacion = &ActivacionConector{En: a.CreatedAt, UsuarioID: a.ActorID, ActorNombre: a.ActorNombre}
 			} else if !errors.Is(err, pgx.ErrNoRows) {
