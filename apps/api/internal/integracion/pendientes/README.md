@@ -64,7 +64,11 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 - **409 por type (contrato 0.3.1 §3.1):** de los 409, solo `idempotencia_en_curso` se reintenta;
   los demás (`servicio_no_pendiente`, `user_ppp_duplicado`…, también sin type o con
   `about:blank`) y el 422 `idempotency_key_reutilizada` son de negocio (`pendientes.EsNegocio`,
-  que también usa comercial).
+  que también usa comercial). Excepción, `409 aprovisionamiento_en_curso` de `aprovisionar` (0.14.3
+  §12.2): se lee `extensions` (`aprovisionamiento_id`, `iniciado_por`); si nombra un intento de Iris de
+  la misma orden queda `fallido_negocio` con código `aprovisionamiento_propio` (la activación sigue el
+  anterior); si otro intento de la orden salió sin respuesta y sigue en la cola, es temporal (se
+  reintenta primero ese); si no, `fallido_negocio` ajeno con `iniciado_por` en `ultimo_error`.
 - **`activar-instalacion` (§3.1):** el cuerpo no lleva `version` (una leída al encolar quedaría
   vieja y el reintento nunca avanzaría); solo `origen_tipo` y `origen_id`. Si el servicio ya no
   está `pendiente_instalacion`, Argos responde `409 servicio_no_pendiente`: `fallido_negocio`

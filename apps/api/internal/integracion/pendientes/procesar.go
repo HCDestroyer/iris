@@ -261,6 +261,9 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	}
 	r.Negocio = EsNegocioEn(f.Operacion, er)
 	r.Error = describir(er)
+	if f.Operacion == OpAprovisionar && er.Status == http.StatusConflict && r.Codigo == CodigoAprovisionamientoEnCurso {
+		m.aprovisionamientoEnCurso(ctx, f, er, &r)
+	}
 	if r.Negocio && esCargoSinCapacidad(f.Operacion, er.Status, r.Codigo) && f.ReemplazoDe == nil && !f.EnvioSinRespuesta {
 		// El cargo queda terminal y sus demás líneas salen como un cobro de reemplazo (0.14.3 §3): hace
 		// falta el concepto de instalación de la empresa. Si no se puede leer ahora, el intento cuenta
@@ -289,7 +292,7 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		}
 	}
 	if !r.Negocio {
-		r.Espera = min(er.ReintentarEn(), conector.MaxRetryAfter)
+		r.Espera = max(r.Espera, min(er.ReintentarEn(), conector.MaxRetryAfter))
 	}
 	return r
 }

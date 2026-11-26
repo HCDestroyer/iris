@@ -192,9 +192,14 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 			if c, ok := strings.CutPrefix(rechazo, "409:"); ok {
 				status, rechazo = http.StatusConflict, c
 			}
+			// «codigo;{json}»: el json va como extensions del problem+json.
+			ext := ""
+			if c, e, ok := strings.Cut(rechazo, ";"); ok {
+				rechazo, ext = c, `,"extensions":`+e
+			}
 			w.Header().Set("Content-Type", "application/problem+json")
 			w.WriteHeader(status)
-			_, _ = w.Write([]byte(`{"type":"urn:argos:` + rechazo + `","title":"Rechazado","status":` + strconv.Itoa(status) + `,"detail":"El documento no cumple la regla"}`))
+			_, _ = w.Write([]byte(`{"type":"urn:argos:` + rechazo + `","title":"Rechazado","status":` + strconv.Itoa(status) + `,"detail":"El documento no cumple la regla"` + ext + `}`))
 			return
 		}
 		switch {
