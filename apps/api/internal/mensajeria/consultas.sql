@@ -275,8 +275,8 @@ SELECT * FROM mensajeria.webhooks_salida WHERE id = $1;
 -- Datos de otros módulos (solo lectura) --------------------------------------------------------
 
 -- name: ConectorArgosParaWebhooks :one
--- El conector Argos activo con su receptor (§6.6).
-SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
+-- El conector Argos activo con su receptor (§6.6) y sus contratos (el acordado: conector.ContratoAcordado).
+SELECT id, contrato_remoto, contrato_informado, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo';
 
 -- name: CuentasParaBienvenida :many

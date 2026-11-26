@@ -268,7 +268,7 @@ func nuevoPrepararPortal(m *Modulo) *auditoria.Caso[CabecerasPortal, previoPorta
 			if c.Estado != "activo" {
 				return p, nucleo.Conflicto("argos_apagado", "El conector con Argos está apagado en Iris")
 			}
-			p.ConectorID, p.contratoRemoto = c.ID, c.ContratoRemoto
+			p.ConectorID, p.contratoRemoto = c.ID, conector.ContratoAcordado(c.ContratoRemoto, c.ContratoInformado)
 			// Cabeceras.
 			if !patronIDArgos.MatchString(strings.TrimSpace(in.Empresa)) {
 				return p, cabeceraRequerida("Falta X-Iris-Empresa o no es el id de una empresa de Argos")

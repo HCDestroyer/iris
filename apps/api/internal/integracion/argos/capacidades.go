@@ -53,7 +53,7 @@ type DeclararMensajeria func(ctx context.Context, q argosbd.DBTX, empresas []int
 // FijarCapacidadesMensajeria conecta el cálculo de capacidades.mensajeria[] (nil = sin la marca).
 func (m *Modulo) FijarCapacidadesMensajeria(f DeclararMensajeria) { m.capMensajeria = f }
 
-// capacidadesMensajeria: con un conector que informó contrato ≥ 0.15.0, las empresas de su alcance
+// capacidadesMensajeria: con un conector cuyo contrato acordado es ≥ 0.15.0, las empresas de su alcance
 // (todas las registradas con alcance global) con lo que la mensajería declara; nil si no aplica.
 func (m *Modulo) capacidadesMensajeria(ctx context.Context, t *auditoria.Tx, conectorID int64) ([]CapacidadMensajeria, error) {
 	if m.capMensajeria == nil {
@@ -62,7 +62,8 @@ func (m *Modulo) capacidadesMensajeria(ctx context.Context, t *auditoria.Tx, con
 	var contrato *string
 	var empresas []int64
 	var global bool
-	if err := t.QueryRow(ctx, `SELECT contrato_remoto, empresas, coalesce(alcance_global, false) FROM integracion.conectores WHERE id = $1`,
+	if err := t.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado), empresas, coalesce(alcance_global, false)
+		FROM integracion.conectores WHERE id = $1`,
 		conectorID).Scan(&contrato, &empresas, &global); err != nil {
 		return nil, err
 	}
@@ -107,11 +108,11 @@ func nuevoVerCapacidades(m *Modulo) *auditoria.Caso[struct{}, CapacidadesConecto
 				return CapacidadesConector{}, err
 			}
 			t.FijarEntidad("conector", c.ID)
-			caps := CapacidadesDeIris()
+			caps := CapacidadesDeIris(m.contratoIris())
 			if caps.Mensajeria, err = m.capacidadesMensajeria(ctx, t, c.ID); err != nil {
 				return CapacidadesConector{}, err
 			}
-			return CapacidadesConector{ContratoIris: ContratoIris, Capacidades: caps}, nil
+			return CapacidadesConector{ContratoIris: m.contratoIris(), Capacidades: caps}, nil
 		},
 	})
 }

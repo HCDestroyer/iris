@@ -832,7 +832,7 @@ func (m *Modulo) crearContactoEnArgos(ctx context.Context, t *auditoria.Tx, a al
 		return nil, nil
 	}
 	var contrato *string
-	err := t.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1
+	err := t.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE sistema = $1
 		ORDER BY (estado = 'activo') DESC, id DESC LIMIT 1`, argos.Sistema).Scan(&contrato)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil

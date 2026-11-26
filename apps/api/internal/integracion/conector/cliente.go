@@ -130,6 +130,10 @@ type ErrorRemoto struct {
 	// Reglas: errors[].rule del problem+json (futuro, fecha…), solo las que son un código simple
 	// (máx. 20; no van en paralelo a Campos).
 	Reglas []string
+	// Extensiones: los miembros de extensión del problem+json (RFC 9457), de primer nivel o dentro
+	// de `extensions`, solo los que son un número o un código simple (máx. 20). Ej.:
+	// aprovisionamiento_id e iniciado_por del 409 aprovisionamiento_en_curso (0.14.3 §12.2).
+	Extensiones map[string]string
 
 	reintentarEn time.Duration
 	causa        error
@@ -513,6 +517,7 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 	if json.Unmarshal(crudo, &p) == nil {
 		e.Tipo, e.Titulo, e.Detalle = p.Type, p.Title, p.Detail
 		e.Codigo = codigoDeProblema(p.Code, p.Type)
+		e.Extensiones = extensionesDe(crudo)
 		for i, f := range p.Errors {
 			if i >= 20 {
 				break
@@ -546,6 +551,52 @@ func (c *Cliente) errorDeRespuesta(resp *http.Response, crudo []byte) *ErrorRemo
 		}
 	}
 	return e
+}
+
+// miembrosProblema: los miembros propios de RFC 9457 y de Argos, que no son extensiones.
+var miembrosProblema = map[string]bool{"type": true, "title": true, "status": true, "detail": true, "instance": true,
+	"code": true, "errors": true, "extensions": true}
+
+// extensionesDe: los miembros de extensión escalares del problem+json (número o código simple). Los
+// de `extensions` mandan sobre los de primer nivel. Nada de texto libre: no pueden traer datos del
+// equipo ni credenciales.
+func extensionesDe(crudo []byte) map[string]string {
+	var todo map[string]json.RawMessage
+	if json.Unmarshal(crudo, &todo) != nil {
+		return nil
+	}
+	out := map[string]string{}
+	agregar := func(m map[string]json.RawMessage, pisar bool) {
+		for k, v := range m {
+			if miembrosProblema[k] || !codigoSimple.MatchString(k) || len(out) >= 20 {
+				continue
+			}
+			if _, ya := out[k]; ya && !pisar {
+				continue
+			}
+			var n json.Number
+			var s string
+			switch {
+			case json.Unmarshal(v, &n) == nil:
+				if _, err := strconv.ParseInt(n.String(), 10, 64); err == nil {
+					out[k] = n.String()
+				}
+			case json.Unmarshal(v, &s) == nil && codigoSimple.MatchString(s):
+				out[k] = s
+			}
+		}
+	}
+	agregar(todo, false)
+	if crudoExt, ok := todo["extensions"]; ok {
+		var ext map[string]json.RawMessage
+		if json.Unmarshal(crudoExt, &ext) == nil {
+			agregar(ext, true)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // codigoSimple: un código de error corto y sin texto libre (actor_sin_vinculo).

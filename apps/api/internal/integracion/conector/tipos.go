@@ -65,7 +65,7 @@ func (n *Nucleo) AConector(f conectorbd.IntegracionConectore) Conector {
 // capacidadesDe: las del sistema según la versión guardada (vacía si el sistema no las define).
 func (n *Nucleo) capacidadesDe(f conectorbd.IntegracionConectore) []string {
 	if c := n.sistema(f.Sistema); c != nil && c.s.Capacidades != nil {
-		if caps := c.s.Capacidades(f.VersionRemota, f.ContratoRemoto); caps != nil {
+		if caps := c.s.Capacidades(f.VersionRemota, ContratoAcordado(f.ContratoRemoto, f.ContratoInformado)); caps != nil {
 			return caps
 		}
 	}
@@ -331,9 +331,59 @@ func VersionAlMenos(v *string, minima string) bool {
 	return true
 }
 
+// VersionMenor devuelve la menor de dos versiones semver. Si una no es una versión, devuelve la otra
+// (y a si ninguna lo es).
+func VersionMenor(a, b string) string {
+	pa, okA := partesVersion(a)
+	pb, okB := partesVersion(b)
+	switch {
+	case !okA && okB:
+		return b
+	case !okB:
+		return a
+	}
+	for i := range pa {
+		if pa[i] != pb[i] {
+			if pa[i] < pb[i] {
+				return a
+			}
+			return b
+		}
+	}
+	return a
+}
+
+// ContratoAcordado es la versión del contrato que vale entre Iris y el otro sistema: la menor entre la
+// que el otro dice hablar (remoto) y la que Iris le informó y aceptó (informado). Cada lado usa una
+// función solo si el otro informó un contrato que la incluye (contrato con Argos §4.3–§4.6), así que
+// una función de Iris hacia el otro sistema se enciende solo si las dos versiones la alcanzan. remoto
+// nil: nil (falla cerrado). informado nil (conector sin informe guardado): vale remoto.
+func ContratoAcordado(remoto, informado *string) *string {
+	if remoto == nil || informado == nil {
+		return remoto
+	}
+	if _, ok := partesVersion(*remoto); !ok {
+		return remoto
+	}
+	if _, ok := partesVersion(*informado); !ok {
+		return remoto
+	}
+	v := VersionMenor(*remoto, *informado)
+	return &v
+}
+
+// EspaciosVersion: lo que se recorta a los lados de una versión. Es el mismo conjunto que
+// integracion.partes_version en SQL (una prueba compara las dos reglas). Después del recorte se
+// quita una sola «v» inicial y nada más (ni una «v» final ni repetida).
+const EspaciosVersion = " \t\n\r\v\f"
+
+// DigitosParteVersion: cada parte de una versión tiene de 1 a 9 dígitos (cabe en int32 aquí y en
+// SQL); una más larga no es una versión (falla cerrado en los dos lados).
+const DigitosParteVersion = 9
+
 func partesVersion(v string) ([3]int, bool) {
 	var p [3]int
-	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	v = strings.TrimPrefix(strings.Trim(v, EspaciosVersion), "v")
 	if i := strings.IndexAny(v, "-+"); i >= 0 {
 		v = v[:i]
 	}
@@ -342,8 +392,11 @@ func partesVersion(v string) ([3]int, bool) {
 		return p, false
 	}
 	for i, t := range trozos {
+		if len(t) == 0 || len(t) > DigitosParteVersion || strings.Trim(t, "0123456789") != "" {
+			return p, false
+		}
 		n, err := strconv.Atoi(t)
-		if err != nil || n < 0 {
+		if err != nil {
 			return p, false
 		}
 		p[i] = n

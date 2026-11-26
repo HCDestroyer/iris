@@ -58,7 +58,8 @@ func TestTipoServicioReglaA1(t *testing.T) {
 }
 
 func TestTipoServicioInstantaneaYWebhooks(t *testing.T) {
-	e := nuevoEntorno(t)
+	// Los dos lados en 0.15.0: el bloque A depende del contrato acordado (el menor de los dos).
+	e := nuevoEntornoCon(t, func(cfg *argos.Config) { cfg.ContratoIris = "0.15.0" })
 	e.limpiarSinc()
 	e.sembrarSinc("1.30.0", "0.15.0")
 	e.argos.con(func() {
@@ -171,13 +172,13 @@ func TestTipoServicioInstantaneaYWebhooks(t *testing.T) {
 
 // capacidades.tipo_servicio: true solo con un Iris que habla la 0.15.0 (§4.6).
 func TestCapacidadTipoServicio(t *testing.T) {
-	if argos.CapacidadesDeIris().TipoServicio != argos.SoportaTipoServicio(ptrTexto(argos.ContratoIris)) {
-		t.Fatal("la marca sigue al contrato de Iris")
-	}
-	restaurar := argos.ConContratoIris("0.15.0")
-	defer restaurar()
-	if !argos.CapacidadesDeIris().TipoServicio {
-		t.Fatal("con la 0.15.0, capacidades.tipo_servicio = true")
+	for _, c := range []struct {
+		contrato string
+		tipo     bool
+	}{{argos.ContratoIris, argos.SoportaTipoServicio(ptrTexto(argos.ContratoIris))}, {"0.14.3", false}, {"0.15.0", true}} {
+		if got := argos.CapacidadesDeIris(c.contrato).TipoServicio; got != c.tipo {
+			t.Errorf("contrato %s: capacidades.tipo_servicio = %v", c.contrato, got)
+		}
 	}
 }
 

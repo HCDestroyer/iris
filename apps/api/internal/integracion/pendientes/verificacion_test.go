@@ -266,4 +266,14 @@ func TestVerificacionSoloConContrato014Informado(t *testing.T) {
 	if n := e.contar(`SELECT count(*) FROM integracion.verificaciones_intento WHERE clave = $1`, clave); n != 0 {
 		t.Fatalf("sin conector habilitado no cuenta para el tope: %d", n)
 	}
+	// Con la regla del contrato acordado (revisión de #299): 0.14.0 informado a un Argos que habla
+	// 0.12.0 no basta (la menor de las dos es 0.12.0).
+	e.exec(`UPDATE integracion.conectores SET contrato_informado = '0.14.0', contrato_remoto = '0.12.0' WHERE id = $1`, e.conID)
+	_, err = e.m.VerificarIntento(argos, pendientes.EntradaVerificarIntento{EmpresaID: 1, IdempotencyKey: clave})
+	if s, codigo := codigoDe(t, err); s != 404 || codigo != "no_encontrado" {
+		t.Fatalf("con Argos en 0.12.0: %d %s", s, codigo)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.verificaciones_intento WHERE clave = $1`, clave); n != 0 {
+		t.Fatalf("con Argos en 0.12.0 no cuenta para el tope: %d", n)
+	}
 }

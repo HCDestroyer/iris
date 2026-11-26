@@ -60,6 +60,17 @@ func TestCapacidadesMensajeria0150(t *testing.T) {
 	if caps := leer(); caps["mensajeria"] != nil || pedidas != nil {
 		t.Fatalf("mensajeria con Argos 0.14.3: %v", caps)
 	}
+	// Argos 0.15.0, pero el contrato acordado (el que Iris informó y Argos aceptó) es 0.14.3: sin la marca.
+	fijar("0.15.0", []int64{1}, false)
+	if _, err := bd.Exec(ctx, `UPDATE integracion.conectores SET contrato_informado = '0.14.3' WHERE id = $1`, p.e.conID); err != nil {
+		t.Fatal(err)
+	}
+	if caps := leer(); caps["mensajeria"] != nil || pedidas != nil {
+		t.Fatalf("mensajeria con contrato acordado 0.14.3: %v", caps)
+	}
+	if _, err := bd.Exec(ctx, `UPDATE integracion.conectores SET contrato_informado = NULL WHERE id = $1`, p.e.conID); err != nil {
+		t.Fatal(err)
+	}
 	// Argos 0.15.0: solo las empresas del alcance del conector.
 	fijar("0.15.0", []int64{1, 2}, false)
 	caps := leer()

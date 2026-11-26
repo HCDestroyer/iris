@@ -59,6 +59,9 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 					"No se pudo encolar la sincronización; vuelve a intentar en unos minutos")
 			}
 			q := argosbd.New(t)
+			// La sincronización corre con el contrato acordado (la menor entre la de Argos y la que
+			// Argos aceptó de Iris), como el resto de lo que Iris hace hacia Argos.
+			acordado := conector.ContratoAcordado(f.ContratoRemoto, f.ContratoInformado)
 			sinc, err := q.SincronizacionEnCurso(ctx, f.ID)
 			modo := "reanudar"
 			switch {
@@ -67,7 +70,7 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 				return Sincronizacion{}, err
 			default:
 				ultima, errU := q.UltimaSincronizacion(ctx, f.ID)
-				if errU == nil && ultima.Estado == SincConErrores && SoportaPrimeraSincronizacion(f.ContratoRemoto) == ultima.Informar {
+				if errU == nil && ultima.Estado == SincConErrores && SoportaPrimeraSincronizacion(acordado) == ultima.Informar {
 					ahora, err := q.RelojBD(ctx)
 					if err != nil {
 						return Sincronizacion{}, err
@@ -94,7 +97,7 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 					return Sincronizacion{}, errU
 				} else {
 					// Volver a lanzar una que acaba de terminar completa no aporta nada y carga a Argos.
-					if errU == nil && ultima.Estado == SincCompleta && ultima.TerminadaEn != nil && mismoTexto(ultima.ContratoRemoto, f.ContratoRemoto) {
+					if errU == nil && ultima.Estado == SincCompleta && ultima.TerminadaEn != nil && mismoTexto(ultima.ContratoRemoto, acordado) {
 						ahora, err := q.RelojBD(ctx)
 						if err != nil {
 							return Sincronizacion{}, err
@@ -104,7 +107,7 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 								"La última sincronización terminó completa hace menos de 10 minutos. Espera un poco para volver a lanzarla.")
 						}
 					}
-					r, err := crearSincronizacion(ctx, t, m, entradaCrearSincronizacion{ConectorID: f.ID, Contrato: f.ContratoRemoto, Origen: "manual"})
+					r, err := crearSincronizacion(ctx, t, m, entradaCrearSincronizacion{ConectorID: f.ID, Contrato: acordado, Origen: "manual"})
 					if err != nil {
 						return Sincronizacion{}, err
 					}
@@ -221,21 +224,13 @@ type CapacidadesIris struct {
 	Mensajeria []CapacidadMensajeria `json:"mensajeria,omitempty" required:"false" doc:"Contrato 0.15.0 §13.3 (solo en GET …/capacidades, a un Argos ≥ 0.15.0): por empresa del alcance del conector, los canales por los que Iris entrega recordatorios y los códigos de §6.3 aprobados en cada uno. Ausente = entrega_auto false para todas"`
 }
 
-// CapacidadesDeIris: con un Iris que habla el contrato 0.9.0, las tres del portal; con la 0.15.0,
-// también tipo_servicio (§4.6: Argos las usa solo si Iris informa ≥ 0.15.0).
-func CapacidadesDeIris() CapacidadesIris {
-	si := SoportaPortal(&contratoIris)
-	return CapacidadesIris{PortalArgos: si, SolicitudesServicio: si, AdjuntosTicket: si, TipoServicio: SoportaTipoServicio(&contratoIris),
-		CorteManual: SoportaCorteManual(&contratoIris)}
-}
-
-// ConContratoIris cambia la versión del contrato que habla este Iris (las marcas de capacidades y las
-// funciones que dependen de ella) y devuelve cómo restaurarla. SOLO para pruebas: en producción la
-// versión es ContratoIris.
-func ConContratoIris(v string) (restaurar func()) {
-	antes := contratoIris
-	contratoIris = v
-	return func() { contratoIris = antes }
+// CapacidadesDeIris: las marcas de un Iris que habla la versión contrato (Modulo.contratoIris): con
+// el contrato 0.9.0 o posterior, las tres del portal; con la 0.15.0, también tipo_servicio y
+// corte_manual (§4.6: Argos las usa solo si Iris informa ≥ 0.15.0).
+func CapacidadesDeIris(contrato string) CapacidadesIris {
+	si := SoportaPortal(&contrato)
+	return CapacidadesIris{PortalArgos: si, SolicitudesServicio: si, AdjuntosTicket: si, TipoServicio: SoportaTipoServicio(&contrato),
+		CorteManual: SoportaCorteManual(&contrato)}
 }
 
 // FuncionesApagadas: lo que Iris deja de hacer con este Argos (§4.1, §3.3, §4.2).
@@ -281,7 +276,7 @@ func nuevoEstadoConexion(m *Modulo) *auditoria.Caso[struct{}, EstadoConexionArgo
 		AuditarExito: func(EstadoConexionArgos) bool { return false },
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (EstadoConexionArgos, error) {
 			t.FijarEmpresa(0)
-			r := EstadoConexionArgos{ContratoIris: m.contratoIris(), Capacidades: CapacidadesDeIris(), FuncionesApagadas: []FuncionApagada{}, Instantaneas: []InstantaneaArgos{},
+			r := EstadoConexionArgos{ContratoIris: m.contratoIris(), Capacidades: CapacidadesDeIris(m.contratoIris()), FuncionesApagadas: []FuncionApagada{}, Instantaneas: []InstantaneaArgos{},
 				Empresas: []EmpresaAlcance{}, Fallos: FallosArgos{Pendientes: []PendientesPorEstado{}, WebhooksRechazados: m.RechazosSinAuditar()}}
 			q := argosbd.New(t)
 			var f conectorbd.IntegracionConectore
@@ -312,7 +307,7 @@ func nuevoEstadoConexion(m *Modulo) *auditoria.Caso[struct{}, EstadoConexionArgo
 			}
 			c := m.nucleo.AConector(f)
 			r.Conector, r.ContratoArgos, r.VersionArgos, r.AlcanceGlobal = &c, f.ContratoRemoto, f.VersionRemota, f.AlcanceGlobal
-			r.FuncionesApagadas = FuncionesApagadas(f.VersionRemota, f.ContratoRemoto)
+			r.FuncionesApagadas = FuncionesApagadas(f.VersionRemota, conector.ContratoAcordado(f.ContratoRemoto, f.ContratoInformado))
 			if a, err := q.ActivacionDeConector(ctx, f.ID); err == nil {
 				r.Activacion = &ActivacionConector{En: a.CreatedAt, UsuarioID: a.ActorID, ActorNombre: a.ActorNombre}
 			} else if !errors.Is(err, pgx.ErrNoRows) {

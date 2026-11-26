@@ -187,7 +187,7 @@ func (m *Modulo) nuevoRegistrarGestionCobro() *auditoria.Caso[entradaGestionInte
 				return GestionCobro{}, nucleo.Conflicto("argos_apagado", "El conector con Argos está apagado en Iris")
 			case err != nil:
 				return GestionCobro{}, err
-			case !conector.VersionAlMenos(contrato, ContratoGestionesCobro):
+			case !conector.VersionAlMenos(conector.ContratoAcordado(contrato.ContratoRemoto, contrato.ContratoInformado), ContratoGestionesCobro):
 				return GestionCobro{}, nucleo.Conflicto("argos_sin_gestiones",
 					"El Argos conectado todavía no recibe gestiones de cobro (necesita el contrato "+ContratoGestionesCobro+" o posterior)")
 			}

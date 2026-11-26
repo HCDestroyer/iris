@@ -177,7 +177,7 @@ func (m *Modulo) candidatosAuto(ctx context.Context, q *mensajeriabd.Queries, in
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return nil, err
 		}
-		if !conector.VersionAlMenos(contrato, ContratoEntregaAuto) {
+		if !conector.VersionAlMenos(conector.ContratoAcordado(contrato.ContratoRemoto, contrato.ContratoInformado), ContratoEntregaAuto) {
 			return nil, canalNoPermitido("canal_preferido auto necesita un Argos que informe el contrato " + ContratoEntregaAuto + " o posterior")
 		}
 	}
