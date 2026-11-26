@@ -35,4 +35,6 @@ eventos internos `horus.*`, lecturas de salud y router). Ver el README de cada u
 **La outbox no se purga.** Las filas publicadas se quedan en `integracion.outbox`. La deduplicación
 de algunos avisos depende de eso: comercial no repite `orden.contrato_sin_firma` con el mismo motivo
 para la misma clave de pendiente o cotización (y empresa) si ya está en la outbox
-(`AvisoSinFirmaPrevio`). Si algún día se purga, esos avisos necesitan su propia marca.
+(`AvisoSinFirmaPrevio`). Dos avisos a la vez no se duplican porque comercial toma antes el
+prospecto con `FOR UPDATE` (no un advisory lock) y recién entonces mira la outbox. Si algún día se
+purga, esos avisos necesitan su propia marca.
