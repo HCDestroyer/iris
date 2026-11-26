@@ -357,7 +357,9 @@ func (m *Modulo) noDisponible(ctx context.Context, t *auditoria.Tx, q *campobd.Q
 	case f.Estado == EstadoCancelada || f.Estado == EstadoFallida:
 		return "orden_terminada", nil
 	}
-	if s, err := q.ServicioArgos(ctx, *f.ServicioID); err == nil && !argos.ConRouter(s.TipoServicio, s.Componentes, s.RouterID, true) {
+	// Solo la instantánea de la misma empresa que la orden (como el paquete, sync_paquete.go).
+	if s, err := q.ServicioArgos(ctx, *f.ServicioID); err == nil && (f.EmpresaID == nil || *f.EmpresaID == s.EmpresaID) &&
+		!argos.ConRouter(s.TipoServicio, s.Componentes, s.RouterID, true) {
 		// 0.15.0 §13.1 (A1, A3): un servicio de cable no se aprovisiona (Argos respondería 422
 		// tipo_sin_router): se activa al cerrar.
 		return argos.CodigoTipoSinRouter, nil

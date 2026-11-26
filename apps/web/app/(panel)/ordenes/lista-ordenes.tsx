@@ -174,7 +174,15 @@ function TarjetaOrden({ orden: o, marca, tecnico }: PropsTarjeta & { orden: Orde
     );
 }
 
-const TONO_TIPO = { instalacion: "marca", visita: "info", retiro: "neutro", cambio_equipo: "atencion", mantenimiento: "info" } as const satisfies Record<Orden["tipo"], "marca" | "info" | "neutro" | "atencion">;
+const TONO_TIPO = {
+    instalacion: "marca",
+    visita: "info",
+    retiro: "neutro",
+    cambio_equipo: "atencion",
+    mantenimiento: "info",
+    corte_catv: "atencion",
+    reconexion_catv: "atencion",
+} as const satisfies Record<Orden["tipo"], "marca" | "info" | "neutro" | "atencion">;
 
 /** Lista de órdenes (`ListaFilas`): cada fila abre la ficha; su menú `⋯` tiene la vista rápida. */
 function Lista({ ordenes, pie, ...props }: PropsTarjeta & { ordenes: readonly Orden[]; pie: ReturnType<typeof piePaginado> }) {

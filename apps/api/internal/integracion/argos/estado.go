@@ -218,14 +218,16 @@ type CapacidadesIris struct {
 	AdjuntosTicket      bool `json:"adjuntos_ticket" doc:"Adjuntos en los tickets del portal (§11.6)"`
 	// 0.15.0 §4.6 (G1): las marcas nuevas van en este mismo objeto.
 	TipoServicio bool `json:"tipo_servicio" doc:"Bloque A de la 0.15.0 (§13.1): Iris guarda y usa tipo_servicio y componentes[]"`
+	CorteManual  bool `json:"corte_manual" doc:"Bloque B de la 0.15.0 (§13.2): Iris atiende servicio.corte_manual_* y devuelve corte_manual.estado_cambiado"`
 }
 
 // CapacidadesDeIris: las marcas de un Iris que habla la versión contrato (Modulo.contratoIris): con
-// el contrato 0.9.0 o posterior, las tres del portal; con la 0.15.0, también tipo_servicio (§4.6:
-// Argos las usa solo si Iris informa ≥ 0.15.0).
+// el contrato 0.9.0 o posterior, las tres del portal; con la 0.15.0, también tipo_servicio y
+// corte_manual (§4.6: Argos las usa solo si Iris informa ≥ 0.15.0).
 func CapacidadesDeIris(contrato string) CapacidadesIris {
 	si := SoportaPortal(&contrato)
-	return CapacidadesIris{PortalArgos: si, SolicitudesServicio: si, AdjuntosTicket: si, TipoServicio: SoportaTipoServicio(&contrato)}
+	return CapacidadesIris{PortalArgos: si, SolicitudesServicio: si, AdjuntosTicket: si, TipoServicio: SoportaTipoServicio(&contrato),
+		CorteManual: SoportaCorteManual(&contrato)}
 }
 
 // FuncionesApagadas: lo que Iris deja de hacer con este Argos (§4.1, §3.3, §4.2).
