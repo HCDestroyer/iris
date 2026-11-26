@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -346,15 +345,16 @@ func (v Ventana) String() string {
 }
 
 var (
-	reCodigoCliente    = regexp.MustCompile(`^[A-Za-z0-9-]{1,30}$`)
-	reDigitos4         = regexp.MustCompile(`[0-9](?:[\s.\-/]?[0-9]){3,}`)
-	reEnlaceBienvenida = regexp.MustCompile(`(?i)(https?://|www\.|[a-z0-9-]+\.(com|net|org|gt|io|co|info|biz|me|app|xyz|ly|link)\b)`)
+	reCodigoCliente = regexp.MustCompile(`^[A-Za-z0-9-]{1,30}$`)
 )
 
 // validarBienvenida aplica §12.5 a las variables de Argos de bienvenida_servicio: nombre hasta 60 y
-// plan hasta 80 caracteres, sin saltos de línea, URLs ni dominios, ni secuencias de 4 o más dígitos
-// (la lista blanca de §6.3: así no se cuela un número de cuenta ni un enlace); codigo_cliente
-// alfanumérico con guiones (1 a 30).
+// plan hasta 80 caracteres, revisados con motivoTextoInseguro (sin saltos de línea ni caracteres de
+// control o formato, sin 4 o más espacios, sin enlaces, dominios, IP ni correos, una barra solo entre
+// números) y sin 7 o más dígitos sin una letra en medio, de cualquier sistema y con cualquier separador salvo la barra de una velocidad (la lista blanca de §6.3: así no se cuela un número
+// de cuenta ni un enlace); codigo_cliente alfanumérico con guiones (1 a 30). Ninguna variable de la
+// bienvenida es un enlace: el de la empresa, si lo hay, va fijo en la plantilla aprobada en Meta,
+// nunca en un dato de Argos.
 func validarBienvenida(nombre, valor string) string {
 	switch nombre {
 	case "nombre", "plan":
@@ -362,15 +362,8 @@ func validarBienvenida(nombre, valor string) string {
 		if nombre == "plan" {
 			max = 80
 		}
-		switch {
-		case len([]rune(valor)) > max:
-			return "Hasta " + strconv.Itoa(max) + " caracteres"
-		case strings.ContainsAny(valor, "\r\n"):
-			return "Sin saltos de línea"
-		case reEnlaceBienvenida.MatchString(valor):
-			return "Sin enlaces ni dominios"
-		case reDigitos4.MatchString(valor):
-			return "Sin secuencias de 4 o más dígitos"
+		if msg := motivoTextoInseguro(valor, reglasTexto{max: max, barraEntreNumeros: true, maxDigitos: 6}); msg != "" {
+			return msg
 		}
 	case "codigo_cliente":
 		if !reCodigoCliente.MatchString(valor) {
