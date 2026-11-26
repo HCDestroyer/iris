@@ -90,7 +90,7 @@ type Modulo struct {
 
 	Listar             *auditoria.Caso[EntradaListar, nucleo.Pagina[Pendiente]]
 	Reintentar         *auditoria.Caso[EntradaReintentar, Pendiente]
-	ResolverManual     *auditoria.Caso[EntradaResolverManual, Pendiente]
+	ResolverManual     *CasoResolverManual
 	EncolarCierreOrden *auditoria.Caso[OrdenCerrada, ResultadoCierre]
 	resolver           *auditoria.Caso[resultadoIntento, Pendiente]
 	resolverListos     *auditoria.Caso[time.Time, int]
@@ -107,7 +107,7 @@ func Nuevo(cfg Config) *Modulo {
 	m := &Modulo{cfg: cfg}
 	m.Listar = nuevoListar(m)
 	m.Reintentar = nuevoReintentar(m)
-	m.ResolverManual = nuevoResolverManual(m)
+	m.ResolverManual = &CasoResolverManual{m: m, caso: nuevoResolverManual(m)}
 	m.EncolarCierreOrden = nuevoEncolarCierreOrden(m)
 	m.resolver = nuevoResolver(m)
 	m.resolverListos = auditoria.Nuevo(auditoria.Caso[time.Time, int]{
