@@ -146,13 +146,10 @@ func TestContrato081BuscarRedInvalido(t *testing.T) {
 }
 
 // Con B4 (sin_personal), B5 (cuentas bancarias) y B7 (conexión de un paso) en Iris, Iris informa el
-// contrato 0.8.1: en el canje y en el PUT …/contrato. Con un Argos que habla 0.8.1 el conector queda
+// contrato 0.8.1 (fijado aquí; la versión de fábrica la prueba TestContratoIris064): en el canje y en el PUT …/contrato. Con un Argos que habla 0.8.1 el conector queda
 // en ok; con uno de contrato 0.7.0 también (§4.1: cada función nueva depende del contrato del otro).
 func TestContratoIris081SeInforma(t *testing.T) {
-	if argos.ContratoIris != "0.8.1" {
-		t.Fatalf("ContratoIris: %s", argos.ContratoIris)
-	}
-	e := nuevoEntorno(t)
+	e := nuevoEntornoCon(t, func(cfg *argos.Config) { cfg.ContratoIris = "0.8.1" })
 	admin, id := e.conectado070()
 	var canje map[string]any
 	e.argos.con(func() { canje = e.argos.canjes[len(e.argos.canjes)-1] })

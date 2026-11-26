@@ -637,13 +637,14 @@ func (q *Queries) ClientesAvisadosEn(ctx context.Context, arg ClientesAvisadosEn
 
 const conectorArgosParaWebhooks = `-- name: ConectorArgosParaWebhooks :one
 
-SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
+SELECT id, contrato_remoto, contrato_informado, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo'
 `
 
 type ConectorArgosParaWebhooksRow struct {
 	ID                          int64
 	ContratoRemoto              *string
+	ContratoInformado           *string
 	WebhookSalidaUrl            *string
 	WebhookSalidaSecretoCifrado []byte
 	Empresas                    []int64
@@ -651,13 +652,14 @@ type ConectorArgosParaWebhooksRow struct {
 }
 
 // Datos de otros módulos (solo lectura) --------------------------------------------------------
-// El conector Argos activo con su receptor (§6.6).
+// El conector Argos activo con su receptor (§6.6) y sus contratos (el acordado: conector.ContratoAcordado).
 func (q *Queries) ConectorArgosParaWebhooks(ctx context.Context) (ConectorArgosParaWebhooksRow, error) {
 	row := q.db.QueryRow(ctx, conectorArgosParaWebhooks)
 	var i ConectorArgosParaWebhooksRow
 	err := row.Scan(
 		&i.ID,
 		&i.ContratoRemoto,
+		&i.ContratoInformado,
 		&i.WebhookSalidaUrl,
 		&i.WebhookSalidaSecretoCifrado,
 		&i.Empresas,

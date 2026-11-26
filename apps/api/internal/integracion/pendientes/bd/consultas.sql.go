@@ -962,12 +962,13 @@ func (q *Queries) ConceptosInstalacionVigentes(ctx context.Context, ordenID int6
 
 const conectorDeToken = `-- name: ConectorDeToken :one
 SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = $1
-  AND CASE WHEN contrato_informado ~ '^[0-9]+\.[0-9]+\.[0-9]+$'
-           THEN string_to_array(contrato_informado, '.')::int[] >= '{0,14,0}'::int[] ELSE false END
+  AND coalesce(integracion.partes_version(contrato_informado) IS NOT NULL
+      AND integracion.partes_version(integracion.contrato_acordado(contrato_remoto, contrato_informado)) >= '{0,14,0}'::numeric[], false)
 `
 
 // El conector Argos al que Iris entregó este token (el que consulta la verificación), solo si Iris
-// ya le informó contrato ≥ 0.14.0 (§4.5: la verificación y su permiso van detrás de esa versión).
+// y Argos acordaron contrato ≥ 0.14.0 (§4.5: la verificación y su permiso van detrás de esa versión).
+// Con la regla de versión de siempre (integracion.contrato_acordado y partes_version, iguales a Go).
 func (q *Queries) ConectorDeToken(ctx context.Context, tokenID *int64) (int64, error) {
 	row := q.db.QueryRow(ctx, conectorDeToken, tokenID)
 	var id int64

@@ -330,19 +330,25 @@ func (q *Queries) ContarRoutersDeEmpresa(ctx context.Context, empresaID int64) (
 	return count, err
 }
 
-const contratoArgosRemoto = `-- name: ContratoArgosRemoto :one
-SELECT contrato_remoto FROM integracion.conectores
+const contratoArgosAcordado = `-- name: ContratoArgosAcordado :one
+SELECT contrato_remoto, contrato_informado FROM integracion.conectores
 WHERE sistema = 'argosisp' AND eliminado_en IS NULL
 ORDER BY (estado = 'activo') DESC, id DESC
 LIMIT 1
 `
 
-// La versión del contrato que informó el conector Argos (null si no la informó o no hay).
-func (q *Queries) ContratoArgosRemoto(ctx context.Context) (*string, error) {
-	row := q.db.QueryRow(ctx, contratoArgosRemoto)
-	var contrato_remoto *string
-	err := row.Scan(&contrato_remoto)
-	return contrato_remoto, err
+type ContratoArgosAcordadoRow struct {
+	ContratoRemoto    *string
+	ContratoInformado *string
+}
+
+// Los contratos del conector Argos (el acordado sale de conector.ContratoAcordado: la menor entre la
+// que informó Argos y la que Iris le informó; null si no la informó o no hay).
+func (q *Queries) ContratoArgosAcordado(ctx context.Context) (ContratoArgosAcordadoRow, error) {
+	row := q.db.QueryRow(ctx, contratoArgosAcordado)
+	var i ContratoArgosAcordadoRow
+	err := row.Scan(&i.ContratoRemoto, &i.ContratoInformado)
+	return i, err
 }
 
 const contratoFirmadoDe = `-- name: ContratoFirmadoDe :one

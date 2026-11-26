@@ -394,9 +394,10 @@ SELECT
 -- con dos peticiones simultáneas.
 SELECT pg_advisory_xact_lock(hashtextextended('comercial.registro_argos:' || @empresa_id::bigint, 0));
 
--- name: ContratoArgosRemoto :one
--- La versión del contrato que informó el conector Argos (null si no la informó o no hay).
-SELECT contrato_remoto FROM integracion.conectores
+-- name: ContratoArgosAcordado :one
+-- Los contratos del conector Argos (el acordado sale de conector.ContratoAcordado: la menor entre la
+-- que informó Argos y la que Iris le informó; null si no la informó o no hay).
+SELECT contrato_remoto, contrato_informado FROM integracion.conectores
 WHERE sistema = 'argosisp' AND eliminado_en IS NULL
 ORDER BY (estado = 'activo') DESC, id DESC
 LIMIT 1;

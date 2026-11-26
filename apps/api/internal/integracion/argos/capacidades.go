@@ -29,7 +29,7 @@ type CapacidadesConector struct {
 	Capacidades  CapacidadesIris `json:"capacidades"`
 }
 
-func nuevoVerCapacidades() *auditoria.Caso[struct{}, CapacidadesConector] {
+func nuevoVerCapacidades(m *Modulo) *auditoria.Caso[struct{}, CapacidadesConector] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, CapacidadesConector]{
 		Accion: "integraciones.ver_capacidades", Permiso: nucleo.PermIntegracionesVerCapacidades, SinEmpresa: true,
 		AuditarExito: soloLecturas[CapacidadesConector],
@@ -55,7 +55,7 @@ func nuevoVerCapacidades() *auditoria.Caso[struct{}, CapacidadesConector] {
 				return CapacidadesConector{}, err
 			}
 			t.FijarEntidad("conector", c.ID)
-			return CapacidadesConector{ContratoIris: ContratoIris, Capacidades: CapacidadesDeIris()}, nil
+			return CapacidadesConector{ContratoIris: m.contratoIris(), Capacidades: CapacidadesDeIris(m.contratoIris())}, nil
 		},
 	})
 }

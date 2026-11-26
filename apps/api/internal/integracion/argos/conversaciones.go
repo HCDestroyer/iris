@@ -71,7 +71,7 @@ func (m *Modulo) clienteAtencion(ctx context.Context, a AtencionIris) (*Cliente,
 	if err != nil {
 		return nil, err
 	}
-	return &Cliente{Cliente: m.clienteDe(con).conAtencion(a), contrato: con.ContratoRemoto}, nil
+	return &Cliente{Cliente: m.clienteDe(con).conAtencion(a), contrato: con.ContratoAcordado()}, nil
 }
 
 // ClienteTelefono es un cliente de GET /clientes?telefono= con dónde coincide el número.

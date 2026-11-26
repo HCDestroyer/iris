@@ -39,7 +39,7 @@ func (m *Modulo) ConceptoInstalacion(ctx context.Context, empresa int64) (int64,
 	}
 	// codigo_sistema existe desde la 0.14.3: con un Argos anterior el concepto es desconocido.
 	var contrato *string
-	if err := bd.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+	if err := bd.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato); err != nil {
 		return 0, err
 	}
@@ -149,7 +149,7 @@ func (m *Modulo) LeerFacturaOrigenIris(ctx context.Context, empresa int64, orden
 		return f, nucleo.ErrSinBD
 	}
 	var contrato *string
-	if err := bd.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+	if err := bd.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato); err != nil {
 		return f, err
 	}

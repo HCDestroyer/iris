@@ -337,6 +337,11 @@ type Leido struct {
 	secreto string
 }
 
+// ContratoAcordado: el contrato que vale con este conector (ContratoAcordado de remoto e informado).
+func (l Leido) ContratoAcordado() *string {
+	return ContratoAcordado(l.ContratoRemoto, l.ContratoInformado)
+}
+
 // Token devuelve el token del otro sistema (atk_…, hf_pat_…).
 func (l Leido) Token() string { return l.token }
 

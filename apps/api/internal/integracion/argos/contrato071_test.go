@@ -14,13 +14,10 @@ import (
 // Contrato Iris ↔ ArgosISP 0.7.1 (A24). Es aditivo: Iris informa 0.7.1 y sigue trabajando igual con
 // un Argos 1.15.x, que solo conoce 0.7.0.
 
-// Iris informa su contrato (hoy 0.8.1). Un Argos 1.15.0 (contrato 0.7.0) sigue siendo compatible: «Revisar ahora» lo
+// Iris (fijada en 0.8.1) informa su contrato. Un Argos 1.15.0 (contrato 0.7.0) sigue siendo compatible: «Revisar ahora» lo
 // deja en ok, con sus capacidades, y solo informa las dos versiones.
 func TestContrato071ConArgos115SigueCompatible(t *testing.T) {
-	if argos.ContratoIris != "0.8.1" {
-		t.Fatalf("ContratoIris: %s", argos.ContratoIris)
-	}
-	e := nuevoEntorno(t)
+	e := nuevoEntornoCon(t, func(cfg *argos.Config) { cfg.ContratoIris = "0.8.1" })
 	admin, id := e.conectado070()
 	revisar := func() map[string]any {
 		t.Helper()

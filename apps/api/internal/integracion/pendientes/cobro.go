@@ -738,47 +738,78 @@ func despuesDeHecho(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integra
 			return err
 		}
 		for _, c := range esperan {
-			var cuerpo struct {
-				ProductoID json.Number `json:"producto_id"`
-			}
-			_ = json.Unmarshal(c.Payload, &cuerpo)
-			producto, _ := cuerpo.ProductoID.Int64()
 			// Con varios consumos del producto (uno por actor y bodega, 0.14.0) el cargo depende de todos: se
 			// decide cuando todos están hechos, y está cobrado solo si cada uno confirma su cobro.
-			listo, cobrado, err := consumosDelCargo(ctx, q, c, f, producto)
+			listo, cobrado, err := consumosDelCargo(ctx, q, c, f, productoDelCargo(c))
 			if err != nil {
 				return err
 			}
 			if !listo {
 				continue
 			}
-			var g pendientesbd.IntegracionPendiente
-			if cobrado {
-				g, err = q.ResolverEsperaConsumo(ctx, pendientesbd.ResolverEsperaConsumoParams{
-					Motivo: "Argos cobró el consumible_cobro con el consumo de la orden", Ahora: ahora, ID: c.ID})
-			} else {
-				g, err = q.FallarEsperaConsumo(ctx, pendientesbd.FallarEsperaConsumoParams{
-					Motivo: "datos incompletos: el consumo no confirmó el cobro del consumible_cobro; revísalo en Argos", ID: c.ID})
-			}
-			if errors.Is(err, pgx.ErrNoRows) {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			t.RegistrarCambios("pendiente", g.ID, map[string]any{"estado": c.Estado}, map[string]any{"estado": g.Estado})
-			if cobrado {
-				err = t.Emitir(EventoResueltoManual, eventoResueltoManual{PendienteID: g.ID, Operacion: g.Operacion, Entidad: g.Entidad,
-					EntidadID: g.EntidadID, IdempotencyKey: g.IdempotencyKey, De: c.Estado, Motivo: deref(g.ResueltoMotivo)})
-			} else {
-				err = t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(g), Detalle: deref(g.UltimoError)})
-			}
-			if err != nil {
+			if _, err := decidirEsperaConsumo(ctx, t, q, c, cobrado, ahora); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// productoDelCargo: el producto_id del cuerpo de un cargo de la forma anterior (0 si no lo trae).
+func productoDelCargo(c pendientesbd.IntegracionPendiente) int64 {
+	var cuerpo struct {
+		ProductoID json.Number `json:"producto_id"`
+	}
+	_ = json.Unmarshal(c.Payload, &cuerpo)
+	producto, _ := cuerpo.ProductoID.Int64()
+	return producto
+}
+
+// decidirEsperaConsumo cierra la espera de un cargo de un consumible_cobro con sus consumos ya hechos:
+// resuelto si todos confirmaron el cobro; si no, fallido e incompleto (visible al supervisor). Devuelve
+// el cargo como quedó (el mismo si otra transacción ya lo decidió).
+func decidirEsperaConsumo(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries, c pendientesbd.IntegracionPendiente,
+	cobrado bool, ahora time.Time) (pendientesbd.IntegracionPendiente, error) {
+	var g pendientesbd.IntegracionPendiente
+	var err error
+	if cobrado {
+		g, err = q.ResolverEsperaConsumo(ctx, pendientesbd.ResolverEsperaConsumoParams{
+			Motivo: "Argos cobró el consumible_cobro con el consumo de la orden", Ahora: ahora, ID: c.ID})
+	} else {
+		g, err = q.FallarEsperaConsumo(ctx, pendientesbd.FallarEsperaConsumoParams{
+			Motivo: "datos incompletos: el consumo no confirmó el cobro del consumible_cobro; revísalo en Argos", ID: c.ID})
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return c, nil
+	}
+	if err != nil {
+		return c, err
+	}
+	t.RegistrarCambios("pendiente", g.ID, map[string]any{"estado": c.Estado}, map[string]any{"estado": g.Estado})
+	if cobrado {
+		err = t.Emitir(EventoResueltoManual, eventoResueltoManual{PendienteID: g.ID, Operacion: g.Operacion, Entidad: g.Entidad,
+			EntidadID: g.EntidadID, IdempotencyKey: g.IdempotencyKey, De: c.Estado, Motivo: deref(g.ResueltoMotivo)})
+	} else {
+		err = t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(g), Detalle: deref(g.UltimoError)})
+	}
+	return g, err
+}
+
+// fijarEsperaConsumo deja el cargo de un consumible_cobro esperando a su consumo. Si sus consumos ya
+// terminaron (un cierre repetido corrige un cargo que nació incompleto por otra causa, después de que
+// el consumo quedó hecho), se decide en el acto: ningún consumo nuevo lo despertaría y quedaría
+// bloqueado para siempre.
+func fijarEsperaConsumo(ctx context.Context, t *auditoria.Tx, q *pendientesbd.Queries, id int64,
+	ahora time.Time) (pendientesbd.IntegracionPendiente, error) {
+	c, err := q.FijarEsperaConsumo(ctx, id)
+	if err != nil || len(c.DependeDe) == 0 {
+		return c, err
+	}
+	listo, cobrado, err := consumosDelCargo(ctx, q, c, pendientesbd.IntegracionPendiente{}, productoDelCargo(c))
+	if err != nil || !listo {
+		return c, err
+	}
+	return decidirEsperaConsumo(ctx, t, q, c, cobrado, ahora)
 }
 
 // aprovisionarSinWifi: Argos rechazó un aprovisionar con 422 capacidad_no_disponible (la empresa no
