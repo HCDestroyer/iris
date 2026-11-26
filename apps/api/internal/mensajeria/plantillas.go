@@ -8,6 +8,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
@@ -306,22 +309,32 @@ func parsearInstante(valor string, zona *time.Location) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// validarConcepto aplica C7 (0.15.0 §6.3): 1 a 60 caracteres, sin saltos de línea, caracteres de
-// control ni URL o dominios.
+// validarConcepto aplica C7 (0.15.0 §6.3) sobre el texto normalizado con NFKC (así «pago․com» con
+// U+2024 es «pago.com»): 1 a 60 caracteres; sin caracteres de control, de formato ni separadores de
+// línea o párrafo (Cc, Cf, Zl, Zp: también U+0085, U+2028 y U+2029); sin 4 o más espacios seguidos;
+// y sin nada con forma de enlace: un punto seguido de dos o más letras (cualquier dominio, no una
+// lista), «/» ni «@». concepto es el nombre de un producto del catálogo de Argos: nunca lleva eso.
 func validarConcepto(valor string) string {
-	n := len([]rune(valor))
+	v := norm.NFKC.String(valor)
+	n := len([]rune(v))
 	switch {
-	case strings.TrimSpace(valor) == "" || n > 60:
+	case strings.TrimSpace(v) == "" || n > 60:
 		return "Concepto de 1 a 60 caracteres"
-	case strings.ContainsAny(valor, "\r\n"):
-		return "Sin saltos de línea"
-	case strings.ContainsFunc(valor, func(r rune) bool { return r < 0x20 || r == 0x7f }):
-		return "Sin caracteres de control"
-	case reEnlaceBienvenida.MatchString(valor):
-		return "Sin enlaces ni dominios"
+	case strings.ContainsFunc(v, func(r rune) bool { return unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp) }):
+		return "Sin saltos de línea ni caracteres de control o de formato"
+	case reEspacios4.MatchString(v):
+		return "Sin 4 o más espacios seguidos"
+	case strings.ContainsAny(v, "/@") || reDominio.MatchString(v):
+		return "Sin enlaces, dominios ni correos"
 	}
 	return ""
 }
+
+var (
+	// reDominio: un punto seguido de dos o más letras (de cualquier alfabeto): «evil.shop», «bit.do».
+	reDominio   = regexp.MustCompile(`\.\pL{2,}`)
+	reEspacios4 = regexp.MustCompile(`\s{4,}`)
+)
 
 // venceEn: hasta cuándo tiene sentido el aviso según su variable de caducidad. Una plantilla de Argos
 // sin esa variable (o sin su valor) vence a las 72 h de pedida (0.15.0, C9); una de Iris sin

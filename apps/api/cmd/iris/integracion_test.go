@@ -28,3 +28,18 @@ func TestIntegracionCrearExpiresInFueraDeRango(t *testing.T) {
 		}
 	}
 }
+
+// Contrato 0.15.0 §13.3: el modo simulado (declara todos los códigos) no arranca la API en producción.
+func TestCapacidadesMensajeriaSinSimuladoEnProduccion(t *testing.T) {
+	if _, err := capacidadesMensajeria(true, "https://iris.ejemplo.gt"); err == nil {
+		t.Fatal("simulado con IRIS_BASE_URL https pública debía fallar")
+	}
+	for _, c := range []struct {
+		simulado bool
+		base     string
+	}{{false, "https://iris.ejemplo.gt"}, {true, "http://localhost:3000"}, {true, ""}} {
+		if d, err := capacidadesMensajeria(c.simulado, c.base); err != nil || d == nil {
+			t.Fatalf("%v %q: %v", c.simulado, c.base, err)
+		}
+	}
+}

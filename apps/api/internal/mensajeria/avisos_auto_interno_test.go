@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,6 +87,27 @@ func TestCanalParaAvisos(t *testing.T) {
 	} {
 		if got := canalParaAvisos(c.f); got != c.ok {
 			t.Errorf("%s/%s: %v", c.f.Tipo, c.f.TipoConexion, got)
+		}
+	}
+}
+
+// concepto (C7, revisión de seguridad): nada con forma de enlace, correo, separador Unicode ni
+// caracteres de control o formato, también disfrazado (NFKC).
+func TestValidarConcepto(t *testing.T) {
+	malos := []string{
+		"pagos-claro.ru", "bit.do/x", "evil.shop", "mi-pago.online", "pago\u2024com", "PAGO.COM", "pago．com",
+		"TV\u2028Premium", "TV\u2029Premium", "TV\u0085Premium", "TV\nPremium", "TV\rPremium", "TV\x07", "TV\u200bPremium",
+		"TV\u202ePremium", "TV    Premium", "a/b", "soporte@isp", "https://x", "", "   ", strings.Repeat("a", 61),
+	}
+	for _, v := range malos {
+		if validarConcepto(v) == "" {
+			t.Errorf("debía rechazar %q", v)
+		}
+	}
+	buenos := []string{"TV Premium", "Netflix Básico", "Plan 2.0 Fibra", "Ñandú 3", "Paquete HD + Deportes", strings.Repeat("ñ", 60), "Dr. Pérez"}
+	for _, v := range buenos {
+		if msg := validarConcepto(v); msg != "" {
+			t.Errorf("rechazó %q: %s", v, msg)
 		}
 	}
 }

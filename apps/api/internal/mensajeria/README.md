@@ -112,7 +112,10 @@ WhatsApp**: correo y Telegram los sigue mandando Argos (C4).
 - **Códigos nuevos (§6.3)** `corte_proximo`, `promesa_por_vencer`, `debito_fallido` (`reintenta_el`
   opcional), `debito_desactivado`, `suscripcion_suspendida` y `suscripcion_reactivada` (`concepto`), con
   sus sugeridas utility. `concepto` (también opcional en `factura_por_vencer` y `factura_vencida`): 1 a
-  60 caracteres, sin saltos de línea, caracteres de control ni URL, o 422 `variable_invalida`. Una
+  60 caracteres tras normalizar con NFKC, sin caracteres Unicode Cc, Cf, Zl ni Zp (saltos de línea,
+  U+0085, U+2028, U+2029, de formato), sin 4 o más espacios seguidos y sin nada con forma de enlace (un
+  punto seguido de dos o más letras, `/` o `@`), o 422 `variable_invalida`. `IRIS_MENSAJERIA_SIMULADO`
+  tampoco arranca la API con una `IRIS_BASE_URL` https pública (el simulado declara todos los códigos). Una
   opcional nunca va vacía a Meta: por posición solo van las obligatorias; con mapa de datos, si la
   plantilla la pide y el aviso no la trae, `canal_no_disponible`.
 - **Vencimiento (C9).** `corte_proximo` en `fecha_corte`, `promesa_por_vencer` en `vence_en`,
