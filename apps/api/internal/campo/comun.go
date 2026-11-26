@@ -490,10 +490,14 @@ func cambioDeEstado(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, an
 	if err := historial(ctx, t, q, despues.ID, "estado", &antes.Estado, &despues.Estado, motivo, datos, ocurrido); err != nil {
 		return err
 	}
-	return t.Emitir("orden.estado_cambiada", map[string]any{
+	if err := t.Emitir("orden.estado_cambiada", map[string]any{
 		"orden_id": despues.ID, "numero": despues.Numero, "de": antes.Estado, "a": despues.Estado, "motivo": motivo,
 		"tecnico_id": despues.TecnicoID,
-	})
+	}); err != nil {
+		return err
+	}
+	// Corte manual de Argos (0.15.0 §13.2): el estado de la orden se informa a Argos.
+	return avisarCorte(ctx, t, q, despues)
 }
 
 // actorUsuario: id del actor si es un usuario (para marcado_por, registrado_por…).

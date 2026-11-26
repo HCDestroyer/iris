@@ -64,11 +64,13 @@ var EsperasWebhook = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Min
 // EventosWebhook son los eventos del outbox que van a Argos.
 var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "prospecto.estado_cambiado",
 	"ticket.estado_cambiado", "ticket.respondido", "solicitud_servicio.estado_cambiado",
-	"cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado}
+	"cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado, eventoCorteManual}
 
 const (
 	eventoVinculado    = "tecnico.argos_vinculado"
 	eventoDesvinculado = "tecnico.argos_desvinculado"
+	// eventoCorteManual: el estado del corte manual del cable (0.15.0 §13.2, B34; lo emite campo).
+	eventoCorteManual = "corte_manual.estado_cambiado"
 )
 
 // contratoMinimoEvento: los eventos que Argos solo recibe con un contrato más nuevo que
@@ -86,11 +88,15 @@ var contratoMinimoEvento = map[string]string{
 	// 0.14.0 §6.6: vínculo de cada técnico.
 	eventoVinculado:    ContratoVinculos,
 	eventoDesvinculado: ContratoVinculos,
+	// 0.15.0 §6.6 y §13.2: corte manual de respaldo.
+	eventoCorteManual: "0.15.0",
 }
 
 // conAlcance: los eventos que Argos recibe solo si su empresa está en el alcance del conector (§6.6:
 // tickets y solicitudes de clientes dentro del alcance).
-var conAlcance = map[string]bool{"ticket.estado_cambiado": true, "ticket.respondido": true, "solicitud_servicio.estado_cambiado": true}
+var conAlcance = map[string]bool{"ticket.estado_cambiado": true, "ticket.respondido": true, "solicitud_servicio.estado_cambiado": true,
+	// 0.15.0 §13.2: el corte manual solo a la empresa del alcance (y solo al conector que lo pidió, abajo).
+	eventoCorteManual: true}
 
 // ContratoMinimo devuelve la versión del contrato con que Argos recibe el evento.
 func ContratoMinimo(evento string) string {
@@ -124,6 +130,8 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		// 0.14.0 §6.6: el conector de origen y la carga no viajan (van en su columna y en el outbox).
 		eventoVinculado:    {"tecnico_id", "usuario_id", "empresa_id", "version", "id_externo", "anterior_id_externo"},
 		eventoDesvinculado: {"tecnico_id", "usuario_id", "empresa_id", "version", "id_externo", "motivo"},
+		// 0.15.0 §6.6: version es el contador de Iris por solicitud_id; nunca la orden interna ni el servicio.
+		eventoCorteManual: {"solicitud_id", "empresa_id", "version", "estado", "motivo_codigo", "referencia", "referencia_tipo", "ocurrido_en"},
 	}[evento]
 	if campos == nil {
 		return nil, false
@@ -142,7 +150,7 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		if p["origen"] != "argos_panel" {
 			return nil, false
 		}
-	case "cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado:
+	case "cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado, eventoCorteManual:
 		// Sin empresa (modo sin conector) no hay bodega ni vínculo en Argos.
 		if p["empresa_id"] == nil {
 			return nil, false
@@ -206,7 +214,7 @@ func (m *Modulo) SuscribirWebhooks(bus *integracion.Bus, bd nucleo.BD) {
 	}
 }
 
-// origenVinculo: el conector del que salió el vínculo de un tecnico.argos_* (solo a él se manda) y
+// origenVinculo: el conector del que salió el vínculo de un tecnico.argos_* o el corte manual (solo a él se manda) y
 // la carga inicial a la que pertenece (0.14.0 §6.6). Ninguno de los dos viaja a Argos.
 type origenVinculo struct {
 	ConectorID *int64     `json:"conector_id"`
@@ -222,7 +230,7 @@ func (o origenVinculo) carga() pgtype.UUID {
 
 func vinculoDe(evento string, crudo json.RawMessage) origenVinculo {
 	var o origenVinculo
-	if evento != eventoVinculado && evento != eventoDesvinculado {
+	if evento != eventoVinculado && evento != eventoDesvinculado && evento != eventoCorteManual {
 		return o
 	}
 	if json.Unmarshal(crudo, &o) != nil {
@@ -326,6 +334,10 @@ func (m *Modulo) entregarUno(ctx context.Context, bd nucleo.BD, id uuid.UUID) er
 	case conAlcance[w.Evento] && !c.AlcanceGlobal && !slices.Contains(c.Empresas, empresaDelPayload(w.Payload)):
 		in.Estado, in.ConectorID = "omitido", &c.ID
 		in.Error = texto(MotivoEmpresaNoPermitida + ": la empresa del evento no está en el alcance del conector Argos")
+	case w.Evento == eventoCorteManual && (w.ConectorOrigen == nil || *w.ConectorOrigen != c.ID):
+		// 0.15.0 §13.2: el estado vuelve solo al conector que pidió el corte (uno reemplazado no la conoce).
+		in.Estado, in.ConectorID = "omitido", &c.ID
+		in.Error = texto(MotivoOtroConector + ": la solicitud de corte no salió de este conector Argos")
 	case (w.Evento == eventoVinculado || w.Evento == eventoDesvinculado) && (w.ConectorOrigen == nil || *w.ConectorOrigen != c.ID):
 		// 0.14.0 §6.6: solo al conector del que salió el id_externo.
 		in.Estado, in.ConectorID = "omitido", &c.ID

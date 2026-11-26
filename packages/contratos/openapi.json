@@ -3813,7 +3813,9 @@
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": [
               "string",
@@ -3909,6 +3911,10 @@
             "description": "Adjuntos en los tickets del portal (§11.6)",
             "type": "boolean"
           },
+          "corte_manual": {
+            "description": "Bloque B de la 0.15.0 (§13.2): Iris atiende servicio.corte_manual_* y devuelve corte_manual.estado_cambiado",
+            "type": "boolean"
+          },
           "mensajeria": {
             "description": "Contrato 0.15.0 §13.3 (solo en GET …/capacidades, a un Argos ≥ 0.15.0): por empresa del alcance del conector, los canales por los que Iris entrega recordatorios y los códigos de §6.3 aprobados en cada uno. Ausente = entrega_auto false para todas",
             "items": {
@@ -3936,7 +3942,8 @@
           "portal_argos",
           "solicitudes_servicio",
           "adjuntos_ticket",
-          "tipo_servicio"
+          "tipo_servicio",
+          "corte_manual"
         ],
         "type": "object"
       },
@@ -4688,7 +4695,9 @@
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": "string"
           },
@@ -7510,6 +7519,71 @@
           "origenDetalle",
           "enUso",
           "entorno"
+        ],
+        "type": "object"
+      },
+      "CorteManualOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "accion": {
+            "enum": [
+              "corte",
+              "reconexion"
+            ],
+            "type": "string"
+          },
+          "cancelacionPedida": {
+            "description": "Argos canceló con el técnico ya en camino o en sitio: si no se hizo, al cerrar queda cancelada",
+            "type": "boolean"
+          },
+          "causa": {
+            "description": "Código de Argos (sin_onu, instancia_no_operativa, smartolt_fallo, catv_no_soportado u otra)",
+            "type": "string"
+          },
+          "causaTexto": {
+            "description": "Por qué SmartOLT no pudo, para mostrar",
+            "type": "string"
+          },
+          "componente": {
+            "description": "Solo se toca este componente (cable; en un servicio mixto, el internet sigue igual)",
+            "type": "string"
+          },
+          "estado": {
+            "description": "Lo que Iris informó (o informará) a Argos",
+            "enum": [
+              "abierta",
+              "en_curso",
+              "resuelta",
+              "no_realizada",
+              "cancelada"
+            ],
+            "type": "string"
+          },
+          "motivoCodigo": {
+            "enum": [
+              "sin_acceso",
+              "equipo_no_encontrado",
+              "otro"
+            ],
+            "type": "string"
+          },
+          "solicitadaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "solicitudId": {
+            "description": "Id de la solicitud en Argos",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "solicitudId",
+          "accion",
+          "causa",
+          "causaTexto",
+          "componente",
+          "estado"
         ],
         "type": "object"
       },
@@ -12890,7 +12964,9 @@
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": "string"
           }
@@ -13805,7 +13881,9 @@
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": "string"
           },
@@ -24963,7 +25041,7 @@
             "type": "string"
           },
           "origen": {
-            "description": "De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema",
+            "description": "De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado o corte manual del cable) o sistema",
             "enum": [
               "panel",
               "api",
@@ -24993,6 +25071,14 @@
               "integer",
               "null"
             ]
+          },
+          "prioridad": {
+            "description": "alta: la reconexión de cable (0.15.0 §13.2, B5)",
+            "enum": [
+              "normal",
+              "alta"
+            ],
+            "type": "string"
           },
           "programadaFin": {
             "format": "date-time",
@@ -25062,12 +25148,15 @@
             "type": "integer"
           },
           "tipo": {
+            "description": "corte_catv y reconexion_catv: corte manual del cable pedido por Argos (contrato 0.15.0 §13.2)",
             "enum": [
               "instalacion",
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": "string"
           },
@@ -25197,6 +25286,10 @@
           "contacto": {
             "$ref": "#/components/schemas/ContactoOrden"
           },
+          "corteManual": {
+            "$ref": "#/components/schemas/CorteManualOrden",
+            "description": "Solo en una orden de corte o reconexión de cable: la solicitud de Argos (causa visible) y lo que Iris le informa"
+          },
           "creadoEn": {
             "format": "date-time",
             "type": "string"
@@ -25343,7 +25436,7 @@
             "type": "string"
           },
           "origen": {
-            "description": "De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema",
+            "description": "De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado o corte manual del cable) o sistema",
             "enum": [
               "panel",
               "api",
@@ -25387,6 +25480,14 @@
               "integer",
               "null"
             ]
+          },
+          "prioridad": {
+            "description": "alta: la reconexión de cable (0.15.0 §13.2, B5)",
+            "enum": [
+              "normal",
+              "alta"
+            ],
+            "type": "string"
           },
           "programadaFin": {
             "format": "date-time",
@@ -25464,12 +25565,15 @@
             "type": "integer"
           },
           "tipo": {
+            "description": "corte_catv y reconexion_catv: corte manual del cable pedido por Argos (contrato 0.15.0 §13.2)",
             "enum": [
               "instalacion",
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": "string"
           },
@@ -25599,6 +25703,10 @@
           "contacto": {
             "$ref": "#/components/schemas/ContactoOrden"
           },
+          "corteManual": {
+            "$ref": "#/components/schemas/CorteManualOrden",
+            "description": "Solo en una orden de corte o reconexión de cable: la solicitud de Argos (causa visible) y lo que Iris le informa"
+          },
           "creadoEn": {
             "format": "date-time",
             "type": "string"
@@ -25745,7 +25853,7 @@
             "type": "string"
           },
           "origen": {
-            "description": "De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema",
+            "description": "De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado o corte manual del cable) o sistema",
             "enum": [
               "panel",
               "api",
@@ -25785,6 +25893,14 @@
               "integer",
               "null"
             ]
+          },
+          "prioridad": {
+            "description": "alta: la reconexión de cable (0.15.0 §13.2, B5)",
+            "enum": [
+              "normal",
+              "alta"
+            ],
+            "type": "string"
           },
           "programadaFin": {
             "format": "date-time",
@@ -25858,12 +25974,15 @@
             "type": "integer"
           },
           "tipo": {
+            "description": "corte_catv y reconexion_catv: corte manual del cable pedido por Argos (contrato 0.15.0 §13.2)",
             "enum": [
               "instalacion",
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": "string"
           },
@@ -26085,7 +26204,7 @@
             "type": "string"
           },
           "origen": {
-            "description": "De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema",
+            "description": "De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado o corte manual del cable) o sistema",
             "enum": [
               "panel",
               "api",
@@ -26115,6 +26234,14 @@
               "integer",
               "null"
             ]
+          },
+          "prioridad": {
+            "description": "alta: la reconexión de cable (0.15.0 §13.2, B5)",
+            "enum": [
+              "normal",
+              "alta"
+            ],
+            "type": "string"
           },
           "programadaFin": {
             "format": "date-time",
@@ -26184,12 +26311,15 @@
             "type": "integer"
           },
           "tipo": {
+            "description": "corte_catv y reconexion_catv: corte manual del cable pedido por Argos (contrato 0.15.0 §13.2)",
             "enum": [
               "instalacion",
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": "string"
           },
@@ -27920,6 +28050,8 @@
               "retiro",
               "cambio_equipo",
               "mantenimiento",
+              "corte_catv",
+              "reconexion_catv",
               ""
             ],
             "type": "string"
@@ -29899,7 +30031,9 @@
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": [
               "string",
@@ -30011,7 +30145,9 @@
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": [
               "string",
@@ -37649,7 +37785,9 @@
               "visita",
               "retiro",
               "cambio_equipo",
-              "mantenimiento"
+              "mantenimiento",
+              "corte_catv",
+              "reconexion_catv"
             ],
             "type": "string"
           },
@@ -80946,7 +81084,9 @@
                   "visita",
                   "retiro",
                   "cambio_equipo",
-                  "mantenimiento"
+                  "mantenimiento",
+                  "corte_catv",
+                  "reconexion_catv"
                 ],
                 "type": "string"
               },
@@ -86700,7 +86840,9 @@
                 "visita",
                 "retiro",
                 "cambio_equipo",
-                "mantenimiento"
+                "mantenimiento",
+                "corte_catv",
+                "reconexion_catv"
               ],
               "type": "string"
             }
@@ -94036,6 +94178,8 @@
                 "retiro",
                 "cambio_equipo",
                 "mantenimiento",
+                "corte_catv",
+                "reconexion_catv",
                 ""
               ],
               "type": "string"

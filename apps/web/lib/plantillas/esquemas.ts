@@ -89,7 +89,7 @@ const base = {
         .string()
         .trim()
         .refine((v) => runas(v) <= 1000, "Admite hasta 1000 caracteres"),
-    tipo: z.enum(["", "instalacion", "visita", "retiro", "cambio_equipo", "mantenimiento"]),
+    tipo: z.enum(["", "instalacion", "visita", "retiro", "cambio_equipo", "mantenimiento", "corte_catv", "reconexion_catv"]),
     requiereFirma: z.boolean(),
     items: z.array(esquemaItem).min(1, "Agrega al menos un ítem").max(MAX_ITEMS, `Admite hasta ${MAX_ITEMS} ítems`),
 };

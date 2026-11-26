@@ -215,6 +215,7 @@ type CapacidadesIris struct {
 	AdjuntosTicket      bool `json:"adjuntos_ticket" doc:"Adjuntos en los tickets del portal (§11.6)"`
 	// 0.15.0 §4.6 (G1): las marcas nuevas van en este mismo objeto.
 	TipoServicio bool `json:"tipo_servicio" doc:"Bloque A de la 0.15.0 (§13.1): Iris guarda y usa tipo_servicio y componentes[]"`
+	CorteManual  bool `json:"corte_manual" doc:"Bloque B de la 0.15.0 (§13.2): Iris atiende servicio.corte_manual_* y devuelve corte_manual.estado_cambiado"`
 	// Mensajeria (0.15.0 §4.6 y §13.3, bloque C): solo en GET …/capacidades y solo a un conector que
 	// informó contrato ≥ 0.15.0; ausente = entrega_auto false para todas las empresas.
 	Mensajeria []CapacidadMensajeria `json:"mensajeria,omitempty" required:"false" doc:"Contrato 0.15.0 §13.3 (solo en GET …/capacidades, a un Argos ≥ 0.15.0): por empresa del alcance del conector, los canales por los que Iris entrega recordatorios y los códigos de §6.3 aprobados en cada uno. Ausente = entrega_auto false para todas"`
@@ -224,7 +225,8 @@ type CapacidadesIris struct {
 // también tipo_servicio (§4.6: Argos las usa solo si Iris informa ≥ 0.15.0).
 func CapacidadesDeIris() CapacidadesIris {
 	si := SoportaPortal(&contratoIris)
-	return CapacidadesIris{PortalArgos: si, SolicitudesServicio: si, AdjuntosTicket: si, TipoServicio: SoportaTipoServicio(&contratoIris)}
+	return CapacidadesIris{PortalArgos: si, SolicitudesServicio: si, AdjuntosTicket: si, TipoServicio: SoportaTipoServicio(&contratoIris),
+		CorteManual: SoportaCorteManual(&contratoIris)}
 }
 
 // ConContratoIris cambia la versión del contrato que habla este Iris (las marcas de capacidades y las

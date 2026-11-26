@@ -11497,7 +11497,7 @@ export interface components {
              * @description Tipo de orden; null = todos los tipos
              * @enum {string|null}
              */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | null;
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv" | null;
         };
         CapacidadMensajeria: {
             /** @description Solo los canales que Iris implementa y tiene operativos para la empresa (hoy solo whatsapp) */
@@ -11527,6 +11527,8 @@ export interface components {
         CapacidadesIris: {
             /** @description Adjuntos en los tickets del portal (§11.6) */
             adjuntos_ticket: boolean;
+            /** @description Bloque B de la 0.15.0 (§13.2): Iris atiende servicio.corte_manual_* y devuelve corte_manual.estado_cambiado */
+            corte_manual: boolean;
             /** @description Contrato 0.15.0 §13.3 (solo en GET …/capacidades, a un Argos ≥ 0.15.0): por empresa del alcance del conector, los canales por los que Iris entrega recordatorios y los códigos de §6.3 aprobados en cada uno. Ausente = entrega_auto false para todas */
             mensajeria?: components["schemas"]["CapacidadMensajeria"][] | null;
             /** @description Tickets del cliente en el portal de Argos (§11.3–§11.6) */
@@ -11774,7 +11776,7 @@ export interface components {
              */
             tecnicoId: number;
             /** @enum {string} */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv";
             /** Format: date-time */
             ventanaFin: string | null;
             /** Format: date-time */
@@ -12744,6 +12746,32 @@ export interface components {
              * @description 0 si no hay ajuste guardado
              */
             version: number;
+        };
+        CorteManualOrden: {
+            /** @enum {string} */
+            accion: "corte" | "reconexion";
+            /** @description Argos canceló con el técnico ya en camino o en sitio: si no se hizo, al cerrar queda cancelada */
+            cancelacionPedida?: boolean;
+            /** @description Código de Argos (sin_onu, instancia_no_operativa, smartolt_fallo, catv_no_soportado u otra) */
+            causa: string;
+            /** @description Por qué SmartOLT no pudo, para mostrar */
+            causaTexto: string;
+            /** @description Solo se toca este componente (cable; en un servicio mixto, el internet sigue igual) */
+            componente: string;
+            /**
+             * @description Lo que Iris informó (o informará) a Argos
+             * @enum {string}
+             */
+            estado: "abierta" | "en_curso" | "resuelta" | "no_realizada" | "cancelada";
+            /** @enum {string} */
+            motivoCodigo?: "sin_acceso" | "equipo_no_encontrado" | "otro";
+            /** Format: date-time */
+            solicitadaEn?: string;
+            /**
+             * Format: int64
+             * @description Id de la solicitud en Argos
+             */
+            solicitudId: number;
         };
         Cotizacion: {
             /** Format: date-time */
@@ -14661,7 +14689,7 @@ export interface components {
              * @description Tipo de orden; ausente = cualquiera
              * @enum {string}
              */
-            tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv";
         };
         EntradaCrearProspecto: {
             /** Format: email */
@@ -15012,7 +15040,7 @@ export interface components {
              * @description Ausente = cualquiera
              * @enum {string}
              */
-            tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv";
             /**
              * Format: int32
              * @description Versión leída; si cambió, 409
@@ -18863,7 +18891,7 @@ export interface components {
             /** @description Número legible (OT-000123) */
             numero: string;
             /**
-             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema
+             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado o corte manual del cable) o sistema
              * @enum {string}
              */
             origen?: "panel" | "api" | "argos" | "sistema" | "asistente";
@@ -18882,6 +18910,11 @@ export interface components {
              * @description Plantilla de checklist
              */
             plantillaId: number | null;
+            /**
+             * @description alta: la reconexión de cable (0.15.0 §13.2, B5)
+             * @enum {string}
+             */
+            prioridad?: "normal" | "alta";
             /** Format: date-time */
             programadaFin: string | null;
             /** Format: date-time */
@@ -18915,8 +18948,11 @@ export interface components {
              * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
              */
             tiempoPausadoSeg?: number;
-            /** @enum {string} */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /**
+             * @description corte_catv y reconexion_catv: corte manual del cable pedido por Argos (contrato 0.15.0 §13.2)
+             * @enum {string}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv";
             /** Format: int64 */
             tipoId: number;
             /** Format: int32 */
@@ -18956,6 +18992,8 @@ export interface components {
             clienteId: number | null;
             comodato: components["schemas"]["Comodato"];
             contacto: components["schemas"]["ContactoOrden"];
+            /** @description Solo en una orden de corte o reconexión de cable: la solicitud de Argos (causa visible) y lo que Iris le informa */
+            corteManual?: components["schemas"]["CorteManualOrden"];
             /** Format: date-time */
             creadoEn: string;
             /** Format: int64 */
@@ -19002,7 +19040,7 @@ export interface components {
             /** @description Número legible (OT-000123) */
             numero: string;
             /**
-             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema
+             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado o corte manual del cable) o sistema
              * @enum {string}
              */
             origen?: "panel" | "api" | "argos" | "sistema" | "asistente";
@@ -19025,6 +19063,11 @@ export interface components {
              * @description Plantilla de checklist
              */
             plantillaId: number | null;
+            /**
+             * @description alta: la reconexión de cable (0.15.0 §13.2, B5)
+             * @enum {string}
+             */
+            prioridad?: "normal" | "alta";
             /** Format: date-time */
             programadaFin: string | null;
             /** Format: date-time */
@@ -19062,8 +19105,11 @@ export interface components {
              * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
              */
             tiempoPausadoSeg?: number;
-            /** @enum {string} */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /**
+             * @description corte_catv y reconexion_catv: corte manual del cable pedido por Argos (contrato 0.15.0 §13.2)
+             * @enum {string}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv";
             /** Format: int64 */
             tipoId: number;
             /** Format: int32 */
@@ -19100,6 +19146,8 @@ export interface components {
              */
             clienteId: number | null;
             contacto: components["schemas"]["ContactoOrden"];
+            /** @description Solo en una orden de corte o reconexión de cable: la solicitud de Argos (causa visible) y lo que Iris le informa */
+            corteManual?: components["schemas"]["CorteManualOrden"];
             /** Format: date-time */
             creadoEn: string;
             /** Format: int64 */
@@ -19146,7 +19194,7 @@ export interface components {
             /** @description Número legible (OT-000123) */
             numero: string;
             /**
-             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema
+             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado o corte manual del cable) o sistema
              * @enum {string}
              */
             origen?: "panel" | "api" | "argos" | "sistema" | "asistente";
@@ -19167,6 +19215,11 @@ export interface components {
              * @description Plantilla de checklist
              */
             plantillaId: number | null;
+            /**
+             * @description alta: la reconexión de cable (0.15.0 §13.2, B5)
+             * @enum {string}
+             */
+            prioridad?: "normal" | "alta";
             /** Format: date-time */
             programadaFin: string | null;
             /** Format: date-time */
@@ -19202,8 +19255,11 @@ export interface components {
              * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
              */
             tiempoPausadoSeg?: number;
-            /** @enum {string} */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /**
+             * @description corte_catv y reconexion_catv: corte manual del cable pedido por Argos (contrato 0.15.0 §13.2)
+             * @enum {string}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv";
             /** Format: int64 */
             tipoId: number;
             /** Format: int32 */
@@ -19279,7 +19335,7 @@ export interface components {
             /** @description Número legible (OT-000123) */
             numero: string;
             /**
-             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado) o sistema
+             * @description De dónde vino: panel, api, asistente (la agendó el asistente de IA de mensajería), argos (retiro automático por servicio retirado o corte manual del cable) o sistema
              * @enum {string}
              */
             origen?: "panel" | "api" | "argos" | "sistema" | "asistente";
@@ -19298,6 +19354,11 @@ export interface components {
              * @description Plantilla de checklist
              */
             plantillaId: number | null;
+            /**
+             * @description alta: la reconexión de cable (0.15.0 §13.2, B5)
+             * @enum {string}
+             */
+            prioridad?: "normal" | "alta";
             /** Format: date-time */
             programadaFin: string | null;
             /** Format: date-time */
@@ -19331,8 +19392,11 @@ export interface components {
              * @description Segundos pausados en las pausas ya terminadas (la en curso se cuenta desde pausadaEn)
              */
             tiempoPausadoSeg?: number;
-            /** @enum {string} */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            /**
+             * @description corte_catv y reconexion_catv: corte manual del cable pedido por Argos (contrato 0.15.0 §13.2)
+             * @enum {string}
+             */
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv";
             /** Format: int64 */
             tipoId: number;
             /** Format: int32 */
@@ -19749,7 +19813,7 @@ export interface components {
              * @description Vacío si oculta
              * @enum {string}
              */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "";
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv" | "";
             /** Format: date-time */
             ventanaFin: string | null;
             /**
@@ -20346,7 +20410,7 @@ export interface components {
              * @description Tipo de orden para el que se ofrece; null = cualquiera
              * @enum {string|null}
              */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | null;
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv" | null;
             /**
              * Format: int32
              * @description Versión de la fila (control de concurrencia: editar, activar y desactivar la piden)
@@ -20396,7 +20460,7 @@ export interface components {
              * @description Tipo de orden para el que se ofrece; null = cualquiera
              * @enum {string|null}
              */
-            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | null;
+            tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv" | null;
             /**
              * Format: int32
              * @description Versión de la fila (control de concurrencia: editar, activar y desactivar la piden)
@@ -22962,7 +23026,7 @@ export interface components {
         };
         TipoOrden: {
             /** @enum {string} */
-            codigo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+            codigo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv";
             /**
              * Format: int32
              * @description Duración estimada
@@ -51514,7 +51578,7 @@ export interface operations {
                 /** @description Uno o varios estados (estado=pendiente,programada) */
                 estado?: ("pendiente" | "programada" | "en_camino" | "en_sitio" | "pausada" | "cerrada" | "fallida" | "cancelada")[] | null;
                 /** @description Uno o varios tipos */
-                tipo?: ("instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento")[] | null;
+                tipo?: ("instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv")[] | null;
                 tecnicoId?: number;
                 /** @description Solo órdenes sin técnico */
                 sinTecnico?: boolean;
@@ -55324,7 +55388,7 @@ export interface operations {
                 /** @description Tamaño de página */
                 limit?: number;
                 /** @description Las de ese tipo y las de cualquier tipo */
-                tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento";
+                tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv";
                 /** @description Busca en nombre y código */
                 q?: string;
                 /** @description Incluye las inactivas */
@@ -59966,7 +60030,7 @@ export interface operations {
                 /** @description Día en hora de Guatemala (YYYY-MM-DD); hoy por defecto */
                 fecha?: string;
                 /** @description Tipo de orden: duración y capacidad por tipo */
-                tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "";
+                tipo?: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv" | "";
                 cuadrillaId?: number;
                 habilidad?: string;
                 /** @description Orden que se va a reprogramar: su cita actual no cuenta como ocupada */
