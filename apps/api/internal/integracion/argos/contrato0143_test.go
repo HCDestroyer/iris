@@ -161,7 +161,11 @@ func TestFuncionesSegunElContratoAcordado(t *testing.T) {
 // La regla en SQL (integracion.contrato_acordado) es la misma que conector.ContratoAcordado.
 func TestContratoAcordadoSQLIgualAGo(t *testing.T) {
 	pool := pruebas.Pool(t)
-	valores := []any{nil, "0.8.1", "0.9.0", "0.14.3", "0.14.3-rc1", "v0.14.2", "0.9", "1.0.0", "raro", "0.10.0+b"}
+	valores := []any{nil, "0.8.1", "0.9.0", "0.14.3", "0.14.3-rc1", "v0.14.2", "0.9", "1.0.0", "raro", "0.10.0+b",
+		// Raros: vacío, dos partes, espacios y tabuladores, ceros a la izquierda, más de 9 dígitos por
+		// parte (no cabe igual en los dos lados) y otros que no son una versión.
+		"", "0.14", " 0.14.3 ", "\t0.14.3", "0.14.3\n", "\u00a00.14.3", "00.014.003", "999999999.0.0", "1000000000.0.0",
+		"9999999999999999999", "0.9999999999999999999", "0.14.3.1", ".", "v", "0..3", "+1.0.0", "1.-0.0"}
 	for _, a := range valores {
 		for _, b := range valores {
 			var sql *string

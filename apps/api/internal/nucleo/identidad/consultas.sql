@@ -288,23 +288,18 @@ WHERE id = @id AND eliminado_en IS NULL AND (revocado_en IS NOT NULL OR expira_e
 RETURNING *;
 
 -- name: TokensUsadosPorConectoresActivos :many
--- Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo), con sus
--- token_portal hijos.
+-- Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo).
 SELECT DISTINCT t.id::bigint AS id FROM integracion.conectores c
 CROSS JOIN LATERAL (VALUES (c.token_entregado_id), (c.reemplaza_token_id)) AS t (id)
-WHERE c.estado = 'activo' AND t.id IS NOT NULL
-UNION
-SELECT h.id::bigint AS id FROM nucleo.tokens_api h
-JOIN integracion.conectores c ON c.estado = 'activo' AND h.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id);
+WHERE c.estado = 'activo' AND t.id IS NOT NULL;
 
 -- name: TokenUsadoPorConectorActivo :one
 -- Un conector activo depende del token: el iris_pat_ que Iris le entregó en el canje, o el del
--- conector al que reemplaza mientras dura la reconexión sin corte, y el token_portal hijo de
--- cualquiera de los dos (0.9.0 §1.2).
-SELECT EXISTS (SELECT 1 FROM integracion.conectores c
-               WHERE c.estado = 'activo' AND (c.token_entregado_id = @id::bigint OR c.reemplaza_token_id = @id::bigint
-                     OR EXISTS (SELECT 1 FROM nucleo.tokens_api h WHERE h.id = @id::bigint
-                                AND h.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id))))::boolean;
+-- conector al que reemplaza mientras dura la reconexión sin corte. El token_portal hijo NO: si se
+-- filtra, el admin lo revoca o elimina solo y el siguiente PUT …/contrato entrega otro (solo
+-- RevocarTokensDeUsuario lo conserva, para no cortar el portal al revocar todos los del usuario).
+SELECT EXISTS (SELECT 1 FROM integracion.conectores
+               WHERE estado = 'activo' AND (token_entregado_id = @id::bigint OR reemplaza_token_id = @id::bigint))::boolean;
 
 -- name: TokensEliminables :many
 -- Los revocados o vencidos (sin eliminar) que el actor ve, como en ListarTokens; el caso de uso

@@ -2998,15 +2998,14 @@ func (q *Queries) TokenPorIDParaActualizar(ctx context.Context, id int64) (Nucle
 }
 
 const tokenUsadoPorConectorActivo = `-- name: TokenUsadoPorConectorActivo :one
-SELECT EXISTS (SELECT 1 FROM integracion.conectores c
-               WHERE c.estado = 'activo' AND (c.token_entregado_id = $1::bigint OR c.reemplaza_token_id = $1::bigint
-                     OR EXISTS (SELECT 1 FROM nucleo.tokens_api h WHERE h.id = $1::bigint
-                                AND h.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id))))::boolean
+SELECT EXISTS (SELECT 1 FROM integracion.conectores
+               WHERE estado = 'activo' AND (token_entregado_id = $1::bigint OR reemplaza_token_id = $1::bigint))::boolean
 `
 
 // Un conector activo depende del token: el iris_pat_ que Iris le entregó en el canje, o el del
-// conector al que reemplaza mientras dura la reconexión sin corte, y el token_portal hijo de
-// cualquiera de los dos (0.9.0 §1.2).
+// conector al que reemplaza mientras dura la reconexión sin corte. El token_portal hijo NO: si se
+// filtra, el admin lo revoca o elimina solo y el siguiente PUT …/contrato entrega otro (solo
+// RevocarTokensDeUsuario lo conserva, para no cortar el portal al revocar todos los del usuario).
 func (q *Queries) TokenUsadoPorConectorActivo(ctx context.Context, id int64) (bool, error) {
 	row := q.db.QueryRow(ctx, tokenUsadoPorConectorActivo, id)
 	var column_1 bool
@@ -3198,13 +3197,9 @@ const tokensUsadosPorConectoresActivos = `-- name: TokensUsadosPorConectoresActi
 SELECT DISTINCT t.id::bigint AS id FROM integracion.conectores c
 CROSS JOIN LATERAL (VALUES (c.token_entregado_id), (c.reemplaza_token_id)) AS t (id)
 WHERE c.estado = 'activo' AND t.id IS NOT NULL
-UNION
-SELECT h.id::bigint AS id FROM nucleo.tokens_api h
-JOIN integracion.conectores c ON c.estado = 'activo' AND h.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id)
 `
 
-// Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo), con sus
-// token_portal hijos.
+// Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo).
 func (q *Queries) TokensUsadosPorConectoresActivos(ctx context.Context) ([]int64, error) {
 	rows, err := q.db.Query(ctx, tokensUsadosPorConectoresActivos)
 	if err != nil {

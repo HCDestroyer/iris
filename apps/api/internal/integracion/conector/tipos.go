@@ -372,9 +372,17 @@ func ContratoAcordado(remoto, informado *string) *string {
 	return &v
 }
 
+// EspaciosVersion: lo que se recorta a los lados de una versión. Es el mismo conjunto que
+// integracion.partes_version en SQL (una prueba compara las dos reglas).
+const EspaciosVersion = " \t\n\r\v\f"
+
+// DigitosParteVersion: cada parte de una versión tiene de 1 a 9 dígitos (cabe en int32 aquí y en
+// SQL); una más larga no es una versión (falla cerrado en los dos lados).
+const DigitosParteVersion = 9
+
 func partesVersion(v string) ([3]int, bool) {
 	var p [3]int
-	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+	v = strings.TrimPrefix(strings.Trim(v, EspaciosVersion), "v")
 	if i := strings.IndexAny(v, "-+"); i >= 0 {
 		v = v[:i]
 	}
@@ -383,8 +391,11 @@ func partesVersion(v string) ([3]int, bool) {
 		return p, false
 	}
 	for i, t := range trozos {
+		if len(t) == 0 || len(t) > DigitosParteVersion || strings.Trim(t, "0123456789") != "" {
+			return p, false
+		}
 		n, err := strconv.Atoi(t)
-		if err != nil || n < 0 {
+		if err != nil {
 			return p, false
 		}
 		p[i] = n

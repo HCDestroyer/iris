@@ -59,6 +59,9 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 					"No se pudo encolar la sincronización; vuelve a intentar en unos minutos")
 			}
 			q := argosbd.New(t)
+			// La sincronización corre con el contrato acordado (la menor entre la de Argos y la que
+			// Argos aceptó de Iris), como el resto de lo que Iris hace hacia Argos.
+			acordado := conector.ContratoAcordado(f.ContratoRemoto, f.ContratoInformado)
 			sinc, err := q.SincronizacionEnCurso(ctx, f.ID)
 			modo := "reanudar"
 			switch {
@@ -67,7 +70,7 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 				return Sincronizacion{}, err
 			default:
 				ultima, errU := q.UltimaSincronizacion(ctx, f.ID)
-				if errU == nil && ultima.Estado == SincConErrores && SoportaPrimeraSincronizacion(f.ContratoRemoto) == ultima.Informar {
+				if errU == nil && ultima.Estado == SincConErrores && SoportaPrimeraSincronizacion(acordado) == ultima.Informar {
 					ahora, err := q.RelojBD(ctx)
 					if err != nil {
 						return Sincronizacion{}, err
@@ -94,7 +97,7 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 					return Sincronizacion{}, errU
 				} else {
 					// Volver a lanzar una que acaba de terminar completa no aporta nada y carga a Argos.
-					if errU == nil && ultima.Estado == SincCompleta && ultima.TerminadaEn != nil && mismoTexto(ultima.ContratoRemoto, f.ContratoRemoto) {
+					if errU == nil && ultima.Estado == SincCompleta && ultima.TerminadaEn != nil && mismoTexto(ultima.ContratoRemoto, acordado) {
 						ahora, err := q.RelojBD(ctx)
 						if err != nil {
 							return Sincronizacion{}, err
@@ -104,7 +107,7 @@ func nuevoSincronizar(m *Modulo) *auditoria.Caso[EntradaSincronizar, Sincronizac
 								"La última sincronización terminó completa hace menos de 10 minutos. Espera un poco para volver a lanzarla.")
 						}
 					}
-					r, err := crearSincronizacion(ctx, t, m, entradaCrearSincronizacion{ConectorID: f.ID, Contrato: f.ContratoRemoto, Origen: "manual"})
+					r, err := crearSincronizacion(ctx, t, m, entradaCrearSincronizacion{ConectorID: f.ID, Contrato: acordado, Origen: "manual"})
 					if err != nil {
 						return Sincronizacion{}, err
 					}
