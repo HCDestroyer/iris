@@ -113,7 +113,8 @@ type entradaAplicar struct {
 	promesa *promesaCambiada
 	// cuenta: cuenta_bancaria.cambiada (0.8.0 §7.8): la cuenta releída de Argos para la instantánea.
 	cuenta *lecturaCuentas
-	// contactos: cliente.contactos_cambiados (0.10.0 §2.3): la caché de contactos del portal (§11.10).
+	// contactos: cliente.contactos_cambiados (0.10.0 §2.3): la caché de contactos del portal (§11.10) y
+	// de la atención (§3.5).
 	contactos *cambioContactos
 	// red: caídas repetidas y falla general (0.13.0 §3.11), validadas: se emite el evento interno.
 	red *eventoRed
@@ -199,7 +200,7 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		r.Resultado = "aplicado"
 	}
 	if in.contactos != nil {
-		cambio, err := aplicarContactos(ctx, q, *in.contactos)
+		cambio, err := aplicarContactos(ctx, t, q, e, *in.contactos)
 		if err != nil {
 			return r, err
 		}
@@ -357,6 +358,7 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		}
 		in.promesa, in.omitido = promesaDe(e, con)
 	case EventoContactosCambiados:
+		// Se releen los contactos del cliente en Argos (nunca el payload, que no trae números).
 		in.contactos, in.omitido, in.errArgos = p.leerContactosWebhook(ctx, bd, e)
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoCaidasRepetidas, EventoFallaGeneralAbierta, EventoFallaGeneralCerrada:

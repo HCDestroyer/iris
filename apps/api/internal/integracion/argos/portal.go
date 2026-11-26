@@ -198,23 +198,10 @@ type entradaCerrarPortal struct {
 	CabecerasPortal
 	previo     previoPortal
 	validacion *ClienteValidado
-	contactos  []contactoArgos
-	errArgos   error
-}
-
-// contactoArgos es un contacto de GET /clientes/:id/contactos (§3.5). Sin teléfonos: Iris no los
-// guarda en esta caché.
-type contactoArgos struct {
-	ContactoID int64    `json:"contacto_id"`
-	ClienteID  int64    `json:"cliente_id"`
-	EmpresaID  *int64   `json:"empresa_id"`
-	Nombre     string   `json:"nombre"`
-	Servicios  *[]int64 `json:"servicios"`
-	Permisos   struct {
-		Consultar bool `json:"consultar"`
-		Reportar  bool `json:"reportar"`
-	} `json:"permisos"`
-	Version int32 `json:"version"`
+	contactos  []ContactoClienteArgos
+	// contactosInicio: hora de la base en que empezó la lectura de contactos en Argos.
+	contactosInicio time.Time
+	errArgos        error
 }
 
 // SesionPortal resuelve la sesión de una petición de §11 (ver el comentario del archivo).
@@ -232,26 +219,32 @@ func (m *Modulo) SesionPortal(ctx context.Context, cab CabecerasPortal) (SesionP
 		in.validacion = &v
 	}
 	if previo.contactoID != nil && (previo.contacto == nil || previo.contacto.Version < previo.contactoVersion) {
-		in.contactos, in.errArgos = m.leerContactosArgos(ctx, cab.ClienteID)
+		in.contactosInicio, in.contactos, in.errArgos = m.leerContactosArgos(ctx, cab.ClienteID)
 		if in.errArgos == nil && in.contactos == nil {
-			in.contactos = []contactoArgos{} // leída y vacía: el contacto ya no está
+			in.contactos = []ContactoClienteArgos{} // leída y vacía: el contacto ya no está
 		}
 	}
 	return m.cerrarPortal.Ejecutar(ctx, in)
 }
 
 // leerContactosArgos: GET /clientes/:id/contactos con el conector activo.
-func (m *Modulo) leerContactosArgos(ctx context.Context, cliente int64) ([]contactoArgos, error) {
+// Devuelve también la hora de la base en que empezó la lectura (para guardarContactos).
+func (m *Modulo) leerContactosArgos(ctx context.Context, cliente int64) (time.Time, []ContactoClienteArgos, error) {
 	bd := nucleo.BDDe(ctx)
 	if bd == nil {
-		return nil, nucleo.ErrSinBD
+		return time.Time{}, nil, nucleo.ErrSinBD
 	}
-	cli, err := m.ClienteActivo(ctx, bd)
+	c, err := m.conectorActivo(ctx, bd)
 	if err != nil {
-		return nil, err
+		return time.Time{}, nil, err
 	}
-	return conector.Todas[contactoArgos](ctx, cli.ConCabecera("X-Iris-Actor", ActorLecturaContactos),
-		"/clientes/"+strconv.FormatInt(cliente, 10)+"/contactos", nil)
+	inicio, err := inicioLectura(ctx, bd)
+	if err != nil {
+		return time.Time{}, nil, err
+	}
+	cli := m.clienteDe(c)
+	l, err := leerContactosDe(ctx, &Cliente{Cliente: cli.ConCabecera(CabeceraActor, ActorLecturaContactos), contrato: cli.contrato}, cliente)
+	return inicio, l, err
 }
 
 func nuevoPrepararPortal(m *Modulo) *auditoria.Caso[CabecerasPortal, previoPortal] {
@@ -423,7 +416,7 @@ func nuevoCerrarPortal(m *Modulo) *auditoria.Caso[entradaCerrarPortal, SesionPor
 					t.Anotar(map[string]any{"contactos": "argos_no_respondio"})
 					return s, ArgosNoDisponiblePortal()
 				}
-				leido, err := guardarContactosLeidos(ctx, q, s.ClienteID, in.contactos, *p.contactoID)
+				leido, err := guardarContactosLeidos(ctx, t, q, s.ClienteID, in.contactos, in.contactosInicio, *p.contactoID)
 				if err != nil {
 					return s, err
 				}
@@ -441,32 +434,11 @@ func nuevoCerrarPortal(m *Modulo) *auditoria.Caso[entradaCerrarPortal, SesionPor
 	})
 }
 
-// guardarContactosLeidos guarda en la caché los contactos que devolvió Argos, marca quitados los
-// que ya no vienen y devuelve el pedido (nil si no está).
-func guardarContactosLeidos(ctx context.Context, q *argosbd.Queries, cliente int64, contactos []contactoArgos, buscado int64) (*argosbd.IntegracionArgosContacto, error) {
-	vigentes := make([]int64, 0, len(contactos))
-	for _, c := range contactos {
-		if c.ContactoID <= 0 || c.Version <= 0 {
-			continue
-		}
-		if c.ClienteID != 0 && c.ClienteID != cliente {
-			continue // la lista es del cliente de la ruta: nunca se guarda otro
-		}
-		var servicios []int64
-		if c.Servicios != nil {
-			servicios = *c.Servicios
-			if servicios == nil {
-				servicios = []int64{}
-			}
-		}
-		if err := q.GuardarContacto(ctx, argosbd.GuardarContactoParams{ContactoID: c.ContactoID, ClienteID: cliente, EmpresaID: c.EmpresaID,
-			Nombre: recortarRunas(strings.TrimSpace(c.Nombre), 200), Servicios: servicios, Consultar: c.Permisos.Consultar,
-			Reportar: c.Permisos.Reportar, Version: c.Version}); err != nil {
-			return nil, err
-		}
-		vigentes = append(vigentes, c.ContactoID)
-	}
-	if _, err := q.QuitarContactosAusentes(ctx, argosbd.QuitarContactosAusentesParams{ClienteID: cliente, Vigentes: vigentes}); err != nil {
+// guardarContactosLeidos guarda en la caché los contactos que devolvió Argos (la misma escritura que
+// la atención, guardarContactos: marca quitados los que ya no vienen y nunca baja la versión) y
+// devuelve el pedido (nil si no está).
+func guardarContactosLeidos(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, cliente int64, contactos []ContactoClienteArgos, inicio time.Time, buscado int64) (*argosbd.IntegracionArgosContacto, error) {
+	if err := guardarYAvisar(ctx, t, q, cliente, contactos, inicio); err != nil {
 		return nil, err
 	}
 	if buscado == 0 {
@@ -501,69 +473,3 @@ func ServicioFueraDelContacto() *nucleo.Problema { return servicioFueraDelContac
 
 // PermisoDeContacto: 403 permiso_de_contacto (§11.10).
 func PermisoDeContacto(detalle string) *nucleo.Problema { return permisoDeContacto(detalle) }
-
-// Caché de contactos por webhook (§2.3, cliente.contactos_cambiados; §11.10) -----------------
-
-// EventoContactosCambiados: Argos avisa que cambió un contacto de un cliente (sin números).
-const EventoContactosCambiados = "cliente.contactos_cambiados"
-
-// cambioContactos: lo que se aplica de cliente.contactos_cambiados.
-type cambioContactos struct {
-	ClienteID  int64
-	ContactoID int64
-	// Quitado: accion quitado (no se relee: deja de ver sus tickets enseguida).
-	Quitado bool
-	// Leidos: los contactos del cliente releídos en Argos (con otra acción); nil si no se releyó.
-	Leidos []contactoArgos
-}
-
-type payloadContactos struct {
-	ClienteID  int64  `json:"cliente_id"`
-	ContactoID int64  `json:"contacto_id"`
-	Accion     string `json:"accion"`
-}
-
-// leerContactosWebhook: con accion quitado no se lee Argos; con otra, se relee la lista del cliente
-// solo si la caché ya tiene contactos suyos (si no, se leerá cuando el portal los pida).
-func (p *ProcesarEntrante) leerContactosWebhook(ctx context.Context, bd conector.DBTX, e conector.Entrante) (*cambioContactos, string, error) {
-	var d payloadContactos
-	if err := conector.Decodificar(e.Payload, &d); err != nil || d.ClienteID <= 0 {
-		return nil, "payload_invalido", nil
-	}
-	c := &cambioContactos{ClienteID: d.ClienteID, ContactoID: d.ContactoID}
-	if d.Accion == "quitado" {
-		c.Quitado = true
-		return c, "", nil
-	}
-	hay, err := argosbd.New(bd).HayContactosDeCliente(ctx, d.ClienteID)
-	if err != nil {
-		return nil, "", err
-	}
-	if !hay {
-		return nil, "contactos_sin_cache", nil
-	}
-	cli, err := p.clienteArgos(ctx, bd, e.ConectorID)
-	if err != nil {
-		return nil, "", err
-	}
-	leidos, err := conector.Todas[contactoArgos](ctx, cli.ConCabecera("X-Iris-Actor", ActorLecturaContactos),
-		"/clientes/"+strconv.FormatInt(d.ClienteID, 10)+"/contactos", nil)
-	if err != nil {
-		return nil, "", err
-	}
-	if leidos == nil {
-		leidos = []contactoArgos{}
-	}
-	c.Leidos = leidos
-	return c, "", nil
-}
-
-// aplicarContactos guarda el cambio en la caché.
-func aplicarContactos(ctx context.Context, q *argosbd.Queries, c cambioContactos) (bool, error) {
-	if c.Quitado {
-		n, err := q.QuitarContacto(ctx, argosbd.QuitarContactoParams{ContactoID: c.ContactoID, ClienteID: c.ClienteID})
-		return n > 0, err
-	}
-	_, err := guardarContactosLeidos(ctx, q, c.ClienteID, c.Leidos, 0)
-	return err == nil, err
-}

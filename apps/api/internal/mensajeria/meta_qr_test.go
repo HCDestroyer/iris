@@ -905,11 +905,22 @@ func TestPrestamoVisibilidad(t *testing.T) {
 	if _, err := p.bd.Exec(p.ctx, `UPDATE mensajeria.conversacion_mensajes SET adjunto_id = $2 WHERE id = $1`, nota.cuerpo["id"], adjNota); err != nil {
 		t.Fatal(err)
 	}
+	// Con un contacto de Argos y verificación fuerte de la empresa 1 (B22): al pasarla, nada de eso queda.
+	if _, err := p.bd.Exec(p.ctx, `UPDATE mensajeria.conversaciones SET contacto_argos_id = 4242 WHERE id = $1`, c1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.bd.Exec(p.ctx, `UPDATE mensajeria.conversaciones SET identidad_verificada_en = now(), identidad_vence_en = now() + interval '1 hour'
+		WHERE id = $1`, c1); err != nil {
+		t.Fatal(err)
+	}
 	// La dueña pasa la suya a la empresa 2: desde ahí solo la ve la 2 (con los mensajes del cliente).
 	d := p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil)
 	pe := p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/pasar-empresa", c1), map[string]any{"version": d.cuerpo["version"], "empresaId": 2,
 		"nota": "Es cliente de Cable Norte"})
 	p.exigir(pe, http.StatusOK, "soloLectura", "true")
+	if n := p.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id IS NULL AND identidad_verificada_en IS NULL`, c1); n != 1 {
+		t.Fatal("al pasar de empresa no quedan el contacto de Argos ni la verificación fuerte")
+	}
 	p.exigir(p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil), http.StatusNotFound)
 	v := p.api(p.sup2, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c1), nil)
 	p.exigir(v, http.StatusOK, "soloLectura", "<nil>")

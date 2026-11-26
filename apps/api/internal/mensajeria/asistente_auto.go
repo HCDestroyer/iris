@@ -218,6 +218,9 @@ type turnoIA struct {
 	telefono string
 	// vigencia: el verificacionFuerteMin de la empresa (el nivel se recalcula en cada herramienta).
 	vigencia time.Duration
+	// variosClientes: el número está en varios clientes y la conversación no tiene cliente: se ofrece
+	// elegir_cliente (§3.5, B22).
+	variosClientes bool
 }
 
 // resultadoTurno es cómo terminó el bucle (lo auditado: ids, motivo y tokens; nunca el texto).
@@ -893,6 +896,14 @@ func (m *Modulo) prepararTurno(ctx context.Context, t *auditoria.Tx, in entradaT
 		}
 	}
 	estado := "Verificación del cliente: " + map[string]string{"": "sin verificar", VerificacionNumero: "por su número", VerificacionFuerte: "identidad verificada"}[nivel] + "."
+	// Quién escribe (§3.5, §3.8): titular, contacto con sus permisos, servicios a su cargo, o un
+	// número que está en varios clientes (sin datos de ninguno).
+	if dc, err := m.datoContactoIA(ctx, q, c); err != nil {
+		return nada, err
+	} else if dc != "" {
+		estado += " " + dc
+		tu.variosClientes = c.ClienteID == nil
+	}
 	if len(yaHizo) > 0 {
 		estado += " En esta conversación ya: " + strings.Join(yaHizo, "; ") + "."
 	}
@@ -970,6 +981,9 @@ func (m *Modulo) AtenderSolo(ctx context.Context, conversacion int64) (espera ti
 	if !AutonomoDisponible {
 		return 0, false, false, nil
 	}
+	// Los contactos del número en Argos, antes del turno (B22): el asistente atiende con el rol de
+	// quien escribe y, con un número de varios clientes, pide el número de servicio.
+	m.PrepararContactosConv(ctx, conversacion, ActorAsistenteIA)
 	// Si llega otro mensaje mientras corre un turno, la vuelta siguiente lo atiende.
 	for range 3 {
 		p, err := m.Asistente.prepararTurno.Ejecutar(ctx, entradaTurno{ConversacionID: conversacion})

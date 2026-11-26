@@ -40,6 +40,9 @@ const (
 	HerrPedirReconexion = "pedir_reconexion"
 	HerrPasarAPersona   = "pasar_a_persona"
 	HerrVerificarIdent  = "verificar_identidad"
+	// HerrElegirCliente: con un número en varios clientes, compara el número de servicio que da el
+	// cliente (§3.5, B22). No devuelve datos de ningún cliente.
+	HerrElegirCliente = "elegir_cliente"
 )
 
 // herramientasDeLectura: las que no cambian nada (las únicas, con pasar_a_persona, del respaldo en JSON).
@@ -57,7 +60,7 @@ var accionDeHerramienta = map[string]string{
 	HerrBuscarManual: "responder_dudas", HerrEstadoServicio: "avisar_fallas", HerrConsultarSaldo: "dar_saldo", HerrCrearTicket: "crear_ticket",
 	HerrSimularPromesa: "promesa_pago", HerrPedirPromesa: "promesa_pago", HerrCuentasBoleta: "recibir_boleta", HerrRegistrarBoleta: "recibir_boleta",
 	HerrPedirReconexion: "reconexion_temporal", HerrPasarAPersona: "pasar_a_persona", HerrVerificarIdent: HerrVerificarIdent,
-	HerrOfrecerVisita: "agendar_visita", HerrAgendarVisita: "agendar_visita",
+	HerrOfrecerVisita: "agendar_visita", HerrAgendarVisita: "agendar_visita", HerrElegirCliente: HerrElegirCliente,
 }
 
 // ArgosReconexion es la reconexión temporal de Argos (contrato con Argos §7.3): una promesa ligada
@@ -88,6 +91,13 @@ func (m *Modulo) herramientasDe(t *turnoIA) []HerramientaIA {
 		}
 	}
 	conArgos := m.cfg.Argos != nil && t.clienteID != 0
+	if t.variosClientes && t.clienteID == 0 {
+		// No es una acción del perfil: sin ella el asistente no puede saber de quién se trata.
+		t.acciones[HerrElegirCliente] = true
+		hs = append(hs, HerramientaIA{Nombre: HerrElegirCliente,
+			Descripcion: "El número está en varios clientes. Pídele al cliente su número de servicio (como S-000412) y pásalo aquí. Solo dice si coincide; nunca muestra datos de ningún cliente. Pocos intentos.",
+			Parametros:  map[string]any{"referencia": pTexto("El número de servicio que escribió el cliente")}})
+	}
 	si("responder_dudas", HerramientaIA{Nombre: HerrBuscarManual, Descripcion: "Busca en los manuales de la empresa. Úsala cuando <datos> no alcance para responder una duda.",
 		Parametros: map[string]any{"consulta": pTexto("Palabras clave de lo que pregunta el cliente")}})
 	if t.clienteID != 0 {
@@ -247,6 +257,8 @@ func (m *Modulo) ejecutarHerramienta(ctx context.Context, t *turnoIA, l LlamadaI
 		res, hecha = m.herrReconexion(ctx, t, l, hecha)
 	case HerrVerificarIdent:
 		res, hecha = m.herrVerificarIdentidad(ctx, t, l, hecha)
+	case HerrElegirCliente:
+		res, hecha = m.herrElegirCliente(ctx, t, l, hecha)
 	case HerrOfrecerVisita:
 		res, hecha = m.herrOfrecerVisita(ctx, t, l, hecha)
 	case HerrAgendarVisita:
@@ -341,11 +353,34 @@ func (m *Modulo) herrEstadoServicio(ctx context.Context, t *turnoIA, l LlamadaIA
 		return rechazo("esta herramienta no lleva argumentos."), h
 	}
 	q := mensajeriabd.New(nucleo.BDDe(ctx))
-	svs, err := q.ServiciosClienteAsistente(ctx, mensajeriabd.ServiciosClienteAsistenteParams{ClienteID: t.clienteID, Empresa: t.empresa, ServicioID: t.servicioID})
+	todos, err := q.ServiciosClienteAsistente(ctx, mensajeriabd.ServiciosClienteAsistenteParams{ClienteID: t.clienteID, Empresa: t.empresa, ServicioID: t.servicioID})
 	if err != nil {
 		return resHerramienta{fallo: true}, h
 	}
-	fallas, err := q.FallasHorusCliente(ctx, mensajeriabd.FallasHorusClienteParams{ClienteID: t.clienteID, Empresa: t.empresa})
+	// Quién escribe (§3.5): un contacto, solo sus servicios y con «consultar».
+	c, err := q.ConversacionClientePorID(ctx, t.conv)
+	if err != nil || c.ClienteID == nil || *c.ClienteID != t.clienteID {
+		return resHerramienta{fallo: true}, h
+	}
+	rol, err := m.rolDeConversacion(ctx, q, c)
+	if err != nil {
+		return resHerramienta{fallo: true}, h
+	}
+	if !rol.Propio.permite(PermisoContactoConsultar) {
+		return rechazo("quien escribe no tiene permiso del titular para consultar el estado del servicio. No des estados, precios ni fallas."), h
+	}
+	svs := todos[:0:0]
+	for _, s := range todos {
+		if rol.Propio.cubre(s.ID) {
+			svs = append(svs, s)
+		}
+	}
+	// Solo las fallas de sus servicios (§3.5): un contacto acotado no se entera de las de otros.
+	var filtroServ []int64
+	if !rol.Propio.esTitular() {
+		filtroServ = rol.Propio.Servicios
+	}
+	fallas, err := q.FallasHorusCliente(ctx, mensajeriabd.FallasHorusClienteParams{ClienteID: t.clienteID, Empresa: t.empresa, Servicios: filtroServ})
 	if err != nil {
 		return resHerramienta{fallo: true}, h
 	}
@@ -396,8 +431,17 @@ func (m *Modulo) herrConsultarSaldo(ctx context.Context, t *turnoIA, l LlamadaIA
 	}
 	cctx, cancelar := context.WithTimeout(ctx, PlazoCuentaIA)
 	defer cancelar()
-	e, err := m.cfg.Argos.EstadoCuentaCliente(cctx, argos.AtencionIris{Actor: ActorAsistenteIA, Conversacion: "iris:conversacion:" + strconv.FormatInt(t.conv, 10),
-		EmpresaID: t.empresa}, t.clienteID)
+	c, err := mensajeriabd.New(nucleo.BDDe(ctx)).ConversacionClientePorID(ctx, t.conv)
+	if err != nil || c.ClienteID == nil || *c.ClienteID != t.clienteID {
+		return resHerramienta{fallo: true}, h
+	}
+	// Quién escribe (§3.5): un contacto sin «consultar» (o sin un servicio suyo identificado) no
+	// recibe el estado de cuenta.
+	e, err := m.estadoCuentaConv(cctx, argos.AtencionIris{Actor: ActorAsistenteIA, Conversacion: "iris:conversacion:" + strconv.FormatInt(t.conv, 10),
+		EmpresaID: t.empresa}, c)
+	if errors.Is(err, errSinConsultar) {
+		return rechazo("quien escribe es un contacto del cliente y el titular no le permite consultar el saldo de ese servicio. No hables de saldos ni deudas."), h
+	}
 	if err != nil {
 		slog.InfoContext(ctx, "asistente: no se pudo leer el estado de cuenta", "conversacion_id", t.conv, "caido", conector.EsCaido(err))
 		return resHerramienta{fallo: true}, h
@@ -476,9 +520,35 @@ func (m *Modulo) servicioDelCliente(ctx context.Context, t *turnoIA, servicio in
 	if servicio <= 0 || t.clienteID == 0 {
 		return false
 	}
-	ok, err := mensajeriabd.New(nucleo.BDDe(ctx)).ServicioDeClienteEmpresa(ctx, mensajeriabd.ServicioDeClienteEmpresaParams{ServicioID: servicio,
+	q := mensajeriabd.New(nucleo.BDDe(ctx))
+	ok, err := q.ServicioDeClienteEmpresa(ctx, mensajeriabd.ServicioDeClienteEmpresaParams{ServicioID: servicio,
 		ClienteID: t.clienteID, Empresa: t.empresa})
-	return err == nil && ok
+	if err != nil {
+		return false
+	}
+	if ok {
+		return true
+	}
+	// Un servicio de otro cliente a cargo de quien escribe (§3.8, B25): el permiso del contacto lo
+	// decide el caso de uso (accesoAServicio).
+	c, err := q.ConversacionClientePorID(ctx, t.conv)
+	if err != nil {
+		return false
+	}
+	rol, err := m.rolDeConversacion(ctx, q, c)
+	if err != nil {
+		return false
+	}
+	s, err := q.ServicioInstantaneaPorID(ctx, servicio)
+	if err != nil || s.EmpresaID != t.empresa {
+		return false
+	}
+	for _, k := range rol.ACargo {
+		if k.ClienteID == s.ClienteID && k.cubre(s.ID) {
+			return true
+		}
+	}
+	return false
 }
 
 // herrPromesa: simular y pedir. Pedir siempre simula primero en el servidor; Argos decide (canal ia).
@@ -919,4 +989,34 @@ func esTransitorioArgos(err error) bool {
 	}
 	// Un rechazo de Argos por la integración (cabeceras, Idempotency-Key, empresa) no cambia al repetir.
 	return (p.Status >= http.StatusInternalServerError && p.Codigo() != CodigoPromesaIntegracion) || p.Codigo() == "idempotencia_en_curso"
+}
+
+// herrElegirCliente compara el número de servicio que dio el cliente con los clientes que comparten
+// el número (§3.5, ajustes g, ac y ah). Si coincide, la conversación queda asociada (no verificada,
+// §7.5) y el turno sigue con ese cliente; si no, solo cuántos intentos quedan. Nunca un dato de nadie.
+func (m *Modulo) herrElegirCliente(ctx context.Context, t *turnoIA, l LlamadaIA, h accionHecha) (resHerramienta, accionHecha) {
+	var a struct {
+		Referencia string `json:"referencia"`
+	}
+	if args(l.Argumentos, &a) != nil || strings.TrimSpace(a.Referencia) == "" || len(a.Referencia) > 40 {
+		return rechazo("argumentos no válidos (referencia: el número de servicio)."), h
+	}
+	r, err := m.Conv.ElegirClient.Ejecutar(ctx, EntradaElegirCliente{ID: t.conv, Referencia: a.Referencia})
+	var p *nucleo.Problema
+	switch {
+	case errors.As(err, &p) && p.Status == http.StatusTooManyRequests:
+		return rechazo("se agotaron los intentos para identificar al cliente. Pásalo con una persona."), h
+	case err != nil:
+		if d, ok := esDeNegocio(err); ok {
+			return rechazo(d), h
+		}
+		return resHerramienta{fallo: true}, h
+	}
+	if !r.Coincide {
+		return resHerramienta{contenido: fmt.Sprintf("No coincide. Quedan %d intentos en esta conversación. Pide que revise el número en su factura.", r.Intentos.Conversacion)}, h
+	}
+	// El turno sigue con el cliente elegido (identificado por su número, sin la verificación fuerte).
+	t.clienteID, t.verificado, t.numeroVerificado = *r.Conversacion.Contacto.ClienteID, true, true
+	h.actividadTipo, h.actividadTexto = "cliente_identificado", "Identificó al cliente por su número de servicio"
+	return resHerramienta{contenido: "Coincide: ya sabes de qué cliente se trata. Sigue atendiendo; no repitas datos que el cliente no te dio."}, h
 }

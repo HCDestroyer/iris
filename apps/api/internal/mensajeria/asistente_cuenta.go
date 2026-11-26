@@ -2,6 +2,7 @@ package mensajeria
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -67,8 +68,12 @@ func (m *Modulo) leerCuentaIA(ctx context.Context, id uuid.UUID) *cuentaIA {
 	}
 	cctx, cancelar := context.WithTimeout(ctx, PlazoCuentaIA)
 	defer cancelar()
-	e, err := m.cfg.Argos.EstadoCuentaCliente(cctx, argos.AtencionIris{Actor: ActorAsistenteIA,
-		Conversacion: "iris:conversacion:" + strconv.FormatInt(c.ID, 10), EmpresaID: empresa}, *c.ClienteID)
+	// Quién escribe (§3.5): un contacto sin «consultar» no tiene estado de cuenta.
+	e, err := m.estadoCuentaConv(cctx, argos.AtencionIris{Actor: ActorAsistenteIA,
+		Conversacion: "iris:conversacion:" + strconv.FormatInt(c.ID, 10), EmpresaID: empresa}, c)
+	if errors.Is(err, errSinConsultar) {
+		return nil
+	}
 	if err != nil {
 		// Solo el motivo resumido (nunca la respuesta de Argos).
 		motivo := "error"

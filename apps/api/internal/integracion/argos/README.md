@@ -555,6 +555,43 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
 - `codigo` ya se guardaba. Con el formato de A45 (`S-000412`) el asistente lo usa en la etiqueta corta
   (`<codigo> · «plan» · «zona»`, §10.5 ajuste ag); con otra forma sigue «Servicio n».
 
+## Contratos 0.10.0 y 0.10.1: contactos del cliente (A42, A46 / B22, B25)
+
+- **Caché de lectura** (`contactos.go`): `integracion.argos_contactos` (rol, `servicios[]`, permisos,
+  `persona_cliente_id`, `version`), `argos_contacto_telefonos` (solo números E.164, con sus dígitos para
+  buscar) y `argos_contactos_leidos` (cuándo se leyeron completos). Argos es el dueño: nada se edita a mano.
+  Es una sola tabla y una sola escritura para el portal (§11.10) y la atención: `guardarContactos` (consulta
+  `GuardarContacto`) guarda todas las columnas, cambia los teléfonos solo si escribió la fila y **nunca baja
+  la `version`** (una lectura vieja que llega tarde no pisa una más nueva). Cada lectura toma la hora de la
+  base **antes** de pedir a Argos y la guarda en `leido_en`: con la misma versión, solo escribe si empezó
+  después del último cambio de la fila, así que un `quitado` por webhook (que no sube la versión) llegado
+  mientras se leía no se revive ni recupera permisos. Un contacto quitado (con `clock_timestamp()`) solo
+  vuelve con una lectura que empezó después del quitado, aunque una anterior traiga una versión mayor
+  (Argos lo editó y después lo quitó mientras se leía). `argos_contactos_leidos`
+  se marca con esa misma hora de inicio (nunca retrocede). Sin `permisos` de Argos, todos en
+  `false` (lo seguro; los valores por defecto de la base también son `false`).
+- **`quitado` (estado propio de Iris, no del contrato):** un contacto que Argos quitó (`accion: quitado`), que
+  ya no viene en la lista del cliente o cuyo cliente ya no existe (`404`) **no se borra**: se marca
+  `quitado = true` con `leido_en`, y conserva su `version`. Ninguna lectura lo usa (portal, rol en la
+  conversación, avisos de cobro, consentimiento: todas filtran `NOT quitado`, y las de la mensajería además
+  `coalesce(empresa_id, 0)` de la empresa). Si vuelve a venir de Argos con la misma versión o una mayor, deja
+  de estar quitado.
+- `RefrescarContactos` lee `GET /clientes/:id/contactos` si la caché tiene más de 24 h (auditado como
+  `clientes.sincronizar_contactos`); `BuscarContactos` llama `GET /contactos/buscar?telefono=`. Las dos
+  exigen `X-Iris-Actor` de quien atiende; con Argos < 0.10.0 no llaman a nada.
+- **Webhook `cliente.contactos_cambiados`:** solo de clientes que Iris conoce. Un solo manejador
+  (`aplicarContactos`) para el portal y la atención. Con `quitado`, el contacto queda quitado al momento, sin
+  leer Argos; si no, Iris relee con `X-Iris-Actor: sistema` (0.14.2: solo en esa ruta, nunca con
+  `X-Iris-Conversacion` ni `X-Iris-Contacto`). Si Argos no responde o no lo acepta, el webhook falla y se
+  reintenta (la caché queda como estaba). Emite `argos.contactos_cambiados`, sin números ni nombres.
+- **`X-Iris-Contacto` (§7.1):** con Argos ≥ 0.10.1 va en toda ruta de §7 con `X-Iris-Conversacion`:
+  `titular` o el `contacto_id` (`AtencionIris.Contacto`). Con uno anterior no se manda. El estado de
+  cuenta acepta `?servicio_id=` (`EstadoCuentaServicio`) para un contacto con servicios acotados.
+- **Con Argos caído la caché no vence:** `RefrescarContactos` no toca nada si Argos no responde (solo un
+  `404` deja quitados los contactos del cliente); la mensajería sigue con los contactos que tenía, por viejos que sean, y el rol
+  sigue fallando cerrado si el contacto o su número ya no están. Cada relectura que cambia contactos o
+  números emite `argos.contactos_cambiados` para que la mensajería revise sus conversaciones.
+
 ## Contrato 0.9.0, bloque P: portal del cliente de Argos (`portal.go`, B8 y B28)
 
 - `SesionPortal` resuelve cada petición de §11: solo el `token_portal` de un conector Argos (403

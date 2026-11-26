@@ -165,9 +165,27 @@ func (m *Modulo) prepararVisita(ctx context.Context, t *turnoIA, servicioPedido 
 		return no(rechazo("la identidad del cliente no está verificada: agendar una visita exige verificarla (verificar_identidad) o una persona."))
 	}
 	q := mensajeriabd.New(nucleo.BDDe(ctx))
-	svs, err := q.ServiciosParaVisita(ctx, mensajeriabd.ServiciosParaVisitaParams{ClienteID: t.clienteID, Empresa: t.empresa})
+	todos, err := q.ServiciosParaVisita(ctx, mensajeriabd.ServiciosParaVisitaParams{ClienteID: t.clienteID, Empresa: t.empresa})
 	if err != nil {
 		return no(resHerramienta{fallo: true})
+	}
+	// Quién la pide (§3.5): un contacto, solo con «reportar» y sobre sus servicios.
+	c, err := q.ConversacionClientePorID(ctx, t.conv)
+	if err != nil || c.ClienteID == nil || *c.ClienteID != t.clienteID {
+		return no(resHerramienta{fallo: true})
+	}
+	rol, err := m.rolDeConversacion(ctx, q, c)
+	if err != nil {
+		return no(resHerramienta{fallo: true})
+	}
+	if !rol.Propio.permite(PermisoContactoReportar) {
+		return no(rechazo("quien escribe no tiene permiso del titular para reportar fallas ni pedir visitas. Pasa a una persona."))
+	}
+	svs := todos[:0:0]
+	for _, s := range todos {
+		if rol.Propio.cubre(s.ID) {
+			svs = append(svs, s)
+		}
 	}
 	servicio := servicioPedido
 	if servicio == 0 && t.servicioID != nil {

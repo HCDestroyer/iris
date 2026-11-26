@@ -900,18 +900,36 @@ type IntegracionArgosCliente struct {
 }
 
 type IntegracionArgosContacto struct {
+	ContactoID       int64
+	ClienteID        int64
+	EmpresaID        *int64
+	Nombre           string
+	Servicios        []int64
+	Consultar        bool
+	Reportar         bool
+	Version          int32
+	Quitado          bool
+	LeidoEn          time.Time
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Relacion         string
+	EsTitular        bool
+	Pagar            bool
+	Avisos           bool
+	PersonaClienteID *int64
+}
+
+type IntegracionArgosContactoTelefono struct {
 	ContactoID int64
-	ClienteID  int64
-	EmpresaID  *int64
-	Nombre     string
-	Servicios  []int64
-	Consultar  bool
-	Reportar   bool
-	Version    int32
-	Quitado    bool
-	LeidoEn    time.Time
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	Numero     string
+	Digitos    string
+	Whatsapp   bool
+	Principal  bool
+}
+
+type IntegracionArgosContactosLeido struct {
+	ClienteID      int64
+	SincronizadoEn time.Time
 }
 
 type IntegracionArgosCopia struct {
@@ -1406,36 +1424,39 @@ type MensajeriaAsistenteVerificacione struct {
 }
 
 type MensajeriaAviso struct {
-	ID             uuid.UUID
-	EmpresaID      int64
-	ClienteID      int64
-	ServicioID     *int64
-	Plantilla      string
-	Variables      []byte
-	CanalPreferido string
-	Prioridad      string
-	Origen         string
-	Estado         string
-	Motivo         *string
-	Detalle        *string
-	Canal          *string
-	CanalID        *int64
-	Remitente      *string
-	Destino        *string
-	ProveedorID    *string
-	UsuarioID      *int64
-	TokenID        *int64
-	IdempotencyKey *string
-	HashPeticion   []byte
-	VenceEn        *time.Time
-	ProgramadoEn   *time.Time
-	EnviadoEn      *time.Time
-	EntregadoEn    *time.Time
-	LeidoEn        *time.Time
-	FinalizadoEn   *time.Time
-	Intentos       int32
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID              uuid.UUID
+	EmpresaID       int64
+	ClienteID       int64
+	ServicioID      *int64
+	Plantilla       string
+	Variables       []byte
+	CanalPreferido  string
+	Prioridad       string
+	Origen          string
+	Estado          string
+	Motivo          *string
+	Detalle         *string
+	Canal           *string
+	CanalID         *int64
+	Remitente       *string
+	Destino         *string
+	ProveedorID     *string
+	UsuarioID       *int64
+	TokenID         *int64
+	IdempotencyKey  *string
+	HashPeticion    []byte
+	VenceEn         *time.Time
+	ProgramadoEn    *time.Time
+	EnviadoEn       *time.Time
+	EntregadoEn     *time.Time
+	LeidoEn         *time.Time
+	FinalizadoEn    *time.Time
+	Intentos        int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	AvisoPadreID    pgtype.UUID
+	ContactoArgosID *int64
+	CopiasMotivo    *string
 }
 
 type MensajeriaBoleta struct {
@@ -1476,6 +1497,7 @@ type MensajeriaBoleta struct {
 	ResolucionAgotadaEn *time.Time
 	PorAsistente        bool
 	CuentaValidacion    *string
+	ContactoArgos       *string
 }
 
 type MensajeriaCanal struct {
@@ -1782,6 +1804,7 @@ type MensajeriaConsentimiento struct {
 	HashPeticion   []byte
 	EntranteID     *int64
 	CreatedAt      time.Time
+	Telefono       *string
 }
 
 type MensajeriaConsentimientosNumero struct {
@@ -1810,6 +1833,12 @@ type MensajeriaContactoIris struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	Origen    string
+}
+
+type MensajeriaContactosBuscado struct {
+	Empresa   int64
+	Digitos   string
+	BuscadoEn time.Time
 }
 
 type MensajeriaConvEvento struct {
@@ -1884,6 +1913,7 @@ type MensajeriaConversacion struct {
 	AsistenteReanudadoEn    *time.Time
 	AsistenteAtencionDesde  *time.Time
 	AsistentePausaPrevio    *string
+	ContactoArgosID         *int64
 }
 
 type MensajeriaConversacionEtiqueta struct {
@@ -1988,6 +2018,17 @@ type MensajeriaDisponibilidad struct {
 	HorarioHasta    *time.Time
 	Version         int32
 	UpdatedAt       time.Time
+}
+
+type MensajeriaEleccionesCliente struct {
+	ID             int64
+	EmpresaID      *int64
+	ConversacionID int64
+	Numero         string
+	Acierto        bool
+	ClienteID      *int64
+	UsuarioID      *int64
+	CreadoEn       time.Time
 }
 
 type MensajeriaEntrante struct {

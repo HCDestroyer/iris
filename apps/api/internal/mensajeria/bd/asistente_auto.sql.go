@@ -269,7 +269,7 @@ func (q *Queries) BloquearVerificacionesCliente(ctx context.Context, arg Bloquea
 }
 
 const boletaPorReferenciaConv = `-- name: BoletaPorReferenciaConv :one
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion FROM mensajeria.boletas
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion, contacto_argos FROM mensajeria.boletas
 WHERE conversacion_id = $1 AND referencia = $2 AND coalesce(empresa_id, 0) = $3::bigint
 ORDER BY created_at DESC LIMIT 1
 `
@@ -321,6 +321,7 @@ func (q *Queries) BoletaPorReferenciaConv(ctx context.Context, arg BoletaPorRefe
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
 		&i.CuentaValidacion,
+		&i.ContactoArgos,
 	)
 	return i, err
 }
@@ -601,7 +602,7 @@ const fijarAsistenteConv = `-- name: FijarAsistenteConv :one
 UPDATE mensajeria.conversaciones
 SET asistente_estado = $1, asistente_turnos = $2, asistente_presento_en = $3, updated_at = now()
 WHERE id = $4
-RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo
+RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo, contacto_argos_id
 `
 
 type FijarAsistenteConvParams struct {
@@ -678,6 +679,7 @@ func (q *Queries) FijarAsistenteConv(ctx context.Context, arg FijarAsistenteConv
 		&i.AsistenteReanudadoEn,
 		&i.AsistenteAtencionDesde,
 		&i.AsistentePausaPrevio,
+		&i.ContactoArgosID,
 	)
 	return i, err
 }
@@ -2041,7 +2043,7 @@ func (q *Queries) TurnosRecientesEmpresa(ctx context.Context, arg TurnosReciente
 }
 
 const ultimaBoletaConv = `-- name: UltimaBoletaConv :one
-SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion FROM mensajeria.boletas
+SELECT id, empresa_id, conversacion_id, cliente_id, servicio_id, adjunto_id, metodo, cuenta_bancaria_id, banco_origen_id, referencia, monto, fecha_deposito, nota, estado, comprobante_id, detalle, intentos, proximo_intento, registrada_por, created_at, updated_at, decidida_en, decidida_por, pago_id, motivo_rechazo, causa_rechazo, verificado_por_nombre, aviso_cliente, aviso_mensaje_id, resolucion, resolucion_en, resolucion_proximo, resolucion_intentos, resolucion_error, resolucion_agotada_en, por_asistente, cuenta_validacion, contacto_argos FROM mensajeria.boletas
 WHERE conversacion_id = $1 AND cliente_id = $2 AND coalesce(empresa_id, 0) = $3::bigint
 ORDER BY created_at DESC LIMIT 1
 `
@@ -2094,6 +2096,7 @@ func (q *Queries) UltimaBoletaConv(ctx context.Context, arg UltimaBoletaConvPara
 		&i.ResolucionAgotadaEn,
 		&i.PorAsistente,
 		&i.CuentaValidacion,
+		&i.ContactoArgos,
 	)
 	return i, err
 }
