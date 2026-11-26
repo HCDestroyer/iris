@@ -1,7 +1,7 @@
 "use client";
 
-import { Aviso, Boton, BotonManualPantalla, cn, Esqueleto, EstadoVacio, Pestanas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
-import { Check, CircleX, ExternalLink, SearchX } from "lucide-react";
+import { Aviso, Boton, BotonManualPantalla, cn, Esqueleto, EstadoVacio, FranjaFicha, PestanasSegmentadas, Tarjeta, TarjetaContenido, TarjetaEncabezado, TarjetaTitulo } from "@iris/ui";
+import { Check, CircleX, ExternalLink, Handshake, SearchX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import type { ReactNode } from "react";
@@ -96,16 +96,7 @@ function Detalle({ id }: { id: number }) {
     return (
         <>
             <header className="mb-4 grid gap-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="grid min-w-0 gap-1">
-                        <span className="font-mono text-sm text-muted-foreground tabular-nums">{d.numero}</span>
-                        <div className="flex min-w-0 items-center gap-1.5">
-                            <h1 className="text-2xl font-semibold tracking-[-0.015em] break-words">{d.nombre}</h1>
-                            <BotonManualPantalla />
-                        </div>
-                    </div>
-                    <InsigniaProspecto estado={d.estado} />
-                </div>
+                <FranjaFicha icono={Handshake} titulo={d.nombre} detalle={d.numero} manual={<BotonManualPantalla />} insignias={<InsigniaProspecto estado={d.estado} />} />
                 <Pasos estado={d.estado} />
                 {d.estado === "perdido" ? (
                     <Aviso tono="error" icono={CircleX} titulo="Prospecto perdido">
@@ -114,7 +105,7 @@ function Detalle({ id }: { id: number }) {
                 ) : null}
                 <BarraAcciones detalle={d} usuarios={listaUsuarios} recargar={recargar} />
             </header>
-            <Pestanas<PestanaProspecto>
+            <PestanasSegmentadas<PestanaProspecto>
                 etiqueta="Secciones del prospecto"
                 seleccionada={pestana}
                 alCambiar={setPestana}

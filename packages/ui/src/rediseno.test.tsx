@@ -217,6 +217,25 @@ describe("ListaFilas y FilaLista", () => {
         expect(html).toContain("Cargar más");
     });
 
+    it("extremo: oculto en el teléfono por omisión; con `debajo` baja a su línea bajo el título", () => {
+        const oculto = renderToStaticMarkup(<FilaLista titulo="A" extremo={<span>estado</span>} />);
+        expect(oculto).toMatch(/data-slot="extremo-fila" class="[^"]*hidden sm:flex/);
+        const debajo = renderToStaticMarkup(<FilaLista titulo="A" extremo={<span>estado</span>} extremoTelefono="debajo" />);
+        expect(debajo).toMatch(/data-slot="fila-lista" class="[^"]*flex-wrap sm:flex-nowrap/);
+        expect(debajo).toMatch(/data-slot="extremo-fila" class="[^"]*order-last flex w-full/);
+        expect(debajo).not.toMatch(/data-slot="extremo-fila" class="[^"]*hidden/);
+    });
+
+    it("pie: el error de «Cargar más» reemplaza al botón", () => {
+        const html = renderToStaticMarkup(
+            <ListaFilas etiqueta="Órdenes" alCargarMas={nada} errorMas={<p>No se pudieron cargar más órdenes</p>}>
+                <FilaLista titulo="OT-1" />
+            </ListaFilas>,
+        );
+        expect(html).toContain("No se pudieron cargar más órdenes");
+        expect(html).not.toContain("Cargar más<");
+    });
+
     it("sin filas muestra lo que diga `vacio`", () => {
         const html = renderToStaticMarkup(
             <ListaFilas etiqueta="Tickets" vacio={<p>No hay tickets</p>}>
@@ -225,6 +244,14 @@ describe("ListaFilas y FilaLista", () => {
         );
         expect(html).toContain("No hay tickets");
         expect(html).not.toContain("<ul");
+        // Un hueco y un `map` vacío tampoco son filas.
+        const huecos = renderToStaticMarkup(
+            <ListaFilas etiqueta="Tickets" vacio={<p>No hay tickets</p>}>
+                {null}
+                {[].map(() => null)}
+            </ListaFilas>,
+        );
+        expect(huecos).toContain("No hay tickets");
     });
 });
 
@@ -246,10 +273,14 @@ describe("FranjaFicha", () => {
             />,
         );
         expect(html).toMatch(/<section data-slot="franja-ficha" class="surface-card flex/);
-        expect(html).toMatch(/<h1[^>]*>José López<\/h1>/);
+        expect(html).toMatch(/<h1[^>]*title="José López"[^>]*>José López<\/h1>/);
+        // Título y detalle cortados: el texto completo queda en `title`.
+        expect(html).toMatch(/<p class="truncate[^"]*" title="CLI-00412 · Zona Norte">/);
         expect(html).toMatch(/<dt[^>]*>Tickets abiertos<\/dt><dd[^>]*>2<\/dd>/);
         expect(html).toContain('data-clave="clientes/ficha"');
         expect(html).toMatch(/ml-auto.*Crear orden.*más/s);
+        // Las acciones bajan y se acomodan en el teléfono: nunca desbordan la franja.
+        expect(html).toMatch(/data-slot="acciones-ficha" class="[^"]*max-w-full min-w-0 flex-wrap/);
     });
 });
 
