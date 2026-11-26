@@ -254,6 +254,8 @@ type Modulo struct {
 	autorizarEquipo *auditoria.Caso[EntradaEquipoOrden, int64]
 	CambiarWifi     *auditoria.Caso[EntradaWifiOrden, equipos.CambioWifi]
 	CambiosWifi     *auditoria.Caso[EntradaEquipoOrden, []equipos.CambioWifi]
+	// EstadoEquipos: estado e historial de las unidades de la orden según Argos (0.12.0, B27).
+	EstadoEquipos *auditoria.Caso[EntradaEquipoOrden, []argos.EstadoUnidad]
 	// Cobro de la instalación (cobro.go; 0.9.0 §3, B15).
 	RegistrarCobro    *RegistradorCobro
 	avisoCobro        *auditoria.Caso[pendientes.Registro, bool]
@@ -364,6 +366,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.autorizarEquipo = m.nuevoAutorizarEquipo()
 	m.CambiarWifi = m.nuevoCambiarWifi()
 	m.CambiosWifi = m.nuevoCambiosWifi()
+	m.EstadoEquipos = m.nuevoEstadoEquipos()
 	m.RegistrarCobro = &RegistradorCobro{m: m, caso: m.nuevoRegistrarCobro()}
 	m.avisoCobro = m.nuevoAvisoCobro()
 	m.activacionSinWifi = m.nuevaActivacionSinWifi()

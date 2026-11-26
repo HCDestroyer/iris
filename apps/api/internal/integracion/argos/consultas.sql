@@ -823,3 +823,53 @@ WHERE integracion.argos_planes.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: PlanPorID :one
 SELECT * FROM integracion.argos_planes WHERE id = @id;
+
+-- Equipos del cliente (0.12.0 §2.3, B27) ------------------------------------------------------
+
+-- name: GuardarEstadoUnidad :exec
+-- El estado de la unidad (inventario.unidad_estado_cambiado): solo si el hecho no es más viejo que el
+-- guardado. El servicio viene con el estado (null = sin servicio).
+INSERT INTO integracion.argos_unidades (unidad_id, empresa_id, servicio_id, estado, estado_en, servicio_en, entrante_id)
+VALUES (@unidad_id, @empresa_id, sqlc.narg('servicio_id'), @estado, @ocurrido_en, @ocurrido_en, @entrante_id)
+ON CONFLICT (unidad_id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, estado = excluded.estado, estado_en = excluded.estado_en,
+    servicio_id = CASE WHEN integracion.argos_unidades.servicio_en IS NULL OR integracion.argos_unidades.servicio_en <= excluded.estado_en
+                       THEN excluded.servicio_id ELSE integracion.argos_unidades.servicio_id END,
+    servicio_en = greatest(integracion.argos_unidades.servicio_en, excluded.estado_en),
+    entrante_id = excluded.entrante_id, actualizado_en = now()
+WHERE integracion.argos_unidades.estado_en IS NULL OR integracion.argos_unidades.estado_en <= excluded.estado_en;
+
+-- name: GuardarServicioUnidad :exec
+-- El servicio de la unidad por un cambio de equipo (inventario.equipo_cambiado): la que entra queda en
+-- el servicio y la que sale, sin servicio. No toca el estado (llega por su propio webhook).
+INSERT INTO integracion.argos_unidades (unidad_id, empresa_id, servicio_id, servicio_en, entrante_id)
+VALUES (@unidad_id, @empresa_id, sqlc.narg('servicio_id'), @ocurrido_en, @entrante_id)
+ON CONFLICT (unidad_id) DO UPDATE SET
+    empresa_id = excluded.empresa_id, servicio_id = excluded.servicio_id, servicio_en = excluded.servicio_en,
+    entrante_id = excluded.entrante_id, actualizado_en = now()
+WHERE integracion.argos_unidades.servicio_en IS NULL OR integracion.argos_unidades.servicio_en <= excluded.servicio_en;
+
+-- name: AgregarHistorialUnidad :exec
+INSERT INTO integracion.argos_unidades_historial (unidad_id, empresa_id, servicio_id, tipo, de, a, motivo, destino_sale,
+    origen, origen_id, ocurrido_en, entrante_id)
+VALUES (@unidad_id, @empresa_id, sqlc.narg('servicio_id'), @tipo, sqlc.narg('de'), sqlc.narg('a'), sqlc.narg('motivo'),
+    sqlc.narg('destino_sale'), sqlc.narg('origen'), sqlc.narg('origen_id'), @ocurrido_en, @entrante_id)
+ON CONFLICT (entrante_id, unidad_id, tipo) DO NOTHING;
+
+-- name: UnidadesDeServicioOIDs :many
+-- Las unidades asociadas al servicio o con esos ids (las de una orden), de las empresas dadas.
+SELECT * FROM integracion.argos_unidades
+WHERE empresa_id = ANY(@empresas::bigint[]) AND (servicio_id = @servicio_id::bigint OR unidad_id = ANY(@unidades::bigint[]))
+ORDER BY unidad_id;
+
+-- name: HistorialDeUnidades :many
+-- Los últimos renglones (hasta @limite por unidad) del historial de esas unidades.
+SELECT h.id, h.unidad_id, h.empresa_id, h.servicio_id, h.tipo, h.de, h.a, h.motivo, h.destino_sale, h.origen, h.origen_id,
+    h.ocurrido_en
+FROM (
+    SELECT x.*, row_number() OVER (PARTITION BY x.unidad_id ORDER BY x.ocurrido_en DESC, x.id DESC) AS n
+    FROM integracion.argos_unidades_historial x
+    WHERE x.unidad_id = ANY(@unidades::bigint[]) AND x.empresa_id = ANY(@empresas::bigint[])
+) h
+WHERE h.n <= @limite::bigint
+ORDER BY h.unidad_id, h.ocurrido_en DESC, h.id DESC;
