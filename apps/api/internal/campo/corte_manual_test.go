@@ -359,39 +359,77 @@ func TestCorteManualClavePorConector(t *testing.T) {
 // se interbloquea (40P01). Gana uno: cancelada, o resuelta (y el cancelado tardío la vuelve a informar).
 func TestCorteManualCanceladoMientrasCierra(t *testing.T) {
 	e := nuevoEntornoCorte(t)
-	for i := range 8 {
-		sol := solicitudCorte + 31 + int64(i)
+	for i := range 25 {
+		sol := solicitudCorte + 100 + int64(i)
 		r := e.aviso("solicitado", sol, 1, "corte", "8801", nil)
 		o := e.asignar(*r.OrdenID)
+		// En sitio y con el checklist marcado: el lote que compite solo cierra (la transacción que toma la
+		// orden y al final la solicitud).
+		esperar(t, e.lote(e.ct, op(campo.OpLlegar, o.ID, nil),
+			op(campo.OpChecklistMarcar, o.ID, map[string]any{"codigo": "resultado", "valor": "Hecho"})), "aplicada", "aplicada")
 		var errLote, errAviso error
 		var lote campo.RespuestaLote
+		salida := make(chan struct{})
 		listo := make(chan struct{})
 		go func() {
 			defer close(listo)
-			lote, errLote = e.m.Lote(e.ct, campo.EntradaLote{DispositivoID: "tel-" + pruebas.Unico(), Plataforma: "pwa", Operaciones: []campo.OperacionLote{
-				op(campo.OpLlegar, o.ID, nil),
-				op(campo.OpChecklistMarcar, o.ID, map[string]any{"codigo": "resultado", "valor": "Hecho"}),
-				op(campo.OpCerrar, o.ID, map[string]any{"resultado": "exitosa"}),
-			}})
+			<-salida
+			lote, errLote = e.m.Lote(e.ct, campo.EntradaLote{DispositivoID: "tel-" + pruebas.Unico(), Plataforma: "pwa",
+				Operaciones: []campo.OperacionLote{op(campo.OpCerrar, o.ID, map[string]any{"resultado": "exitosa"})}})
 		}()
+		close(salida)
 		_, errAviso = e.avisoCon(campo.EntradaCorteArgos{Evento: "cancelado", SolicitudID: sol, Version: 2, ServicioID: 8801})
 		<-listo
 		for _, err := range []error{errLote, errAviso} {
-			if err != nil && strings.Contains(err.Error(), "40P01") {
-				t.Fatalf("interbloqueo: %v", err)
-			}
 			if err != nil {
-				t.Fatalf("vuelta %d: %v", i, err)
+				t.Fatalf("vuelta %d (¿interbloqueo?): %v", i, err)
 			}
 		}
 		for _, res := range lote.Resultados {
-			if res.Error != nil && strings.Contains(res.Error.Detail, "deadlock") {
-				t.Fatalf("interbloqueo en el lote: %+v", res.Error)
+			if res.Error != nil && res.Error.Status >= 500 {
+				t.Fatalf("vuelta %d, el lote falló (¿interbloqueo?): %+v", i, res.Error)
 			}
 		}
 		if u := e.ultimo(sol); u["estado"] != "cancelada" && u["estado"] != "resuelta" {
 			t.Fatalf("vuelta %d: %v", i, u)
 		}
+	}
+}
+
+// Orden de los candados, sin depender del azar: mientras otra transacción tiene la orden (como el lote al
+// cerrar), el cancelado espera por la orden sin haber tomado la solicitud; así el que cierra puede tomar la
+// solicitud después (orden → solicitud) y nadie se interbloquea.
+func TestCorteManualCanceladoEsperaLaOrdenAntesQueLaSolicitud(t *testing.T) {
+	e := nuevoEntornoCorte(t)
+	ctx := context.Background()
+	sol := solicitudCorte + 200
+	r := e.aviso("solicitado", sol, 1, "corte", "8801", nil)
+	o := e.asignar(*r.OrdenID)
+	tx, err := pruebas.Pool(t).Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, "SELECT 1 FROM campo.ordenes WHERE id = $1 FOR UPDATE", o.ID); err != nil {
+		t.Fatal(err)
+	}
+	listo := make(chan error, 1)
+	go func() {
+		_, err := e.avisoCon(campo.EntradaCorteArgos{Evento: "cancelado", SolicitudID: sol, Version: 2, ServicioID: 8801})
+		listo <- err
+	}()
+	time.Sleep(300 * time.Millisecond) // el cancelado ya está esperando
+	if _, err := tx.Exec(ctx, "SELECT 1 FROM campo.cortes_manuales WHERE conector_id = $1 AND solicitud_id = $2 FOR UPDATE NOWAIT", e.conector, sol); err != nil {
+		t.Fatalf("el cancelado tomó la solicitud antes que la orden (interbloqueo con el cierre): %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-listo; err != nil {
+		t.Fatal(err)
+	}
+	if u := e.ultimo(sol); u["estado"] != "cancelada" {
+		t.Fatalf("cancelada: %v", u)
 	}
 }
 

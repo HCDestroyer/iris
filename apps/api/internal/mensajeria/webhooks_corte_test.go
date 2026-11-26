@@ -54,6 +54,18 @@ func TestWebhookCorteManualSoloContrato0150(t *testing.T) {
 	t.Cleanup(func() {
 		_, _ = e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET contrato_remoto = '0.6.0' WHERE id = $1`, e.conector)
 	})
+	// Alcance del conector: la empresa 1.
+	var empresas []int64
+	var global *bool
+	if err := e.bd.QueryRow(e.ctx, `SELECT empresas, alcance_global FROM integracion.conectores WHERE id = $1`, e.conector).Scan(&empresas, &global); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET empresas = $2, alcance_global = $3 WHERE id = $1`, e.conector, empresas, global)
+	})
+	if _, err := e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET empresas = '{1}', alcance_global = false WHERE id = $1`, e.conector); err != nil {
+		t.Fatal(err)
+	}
 	publicar(emitir(8102, 1))
 	ws := e.receptor.de("corte_manual.estado_cambiado", "solicitud_id", 8102)
 	if len(ws) != 1 {
@@ -79,17 +91,6 @@ func TestWebhookCorteManualSoloContrato0150(t *testing.T) {
 	}
 
 	// Revisión de #297: solo al conector que pidió el corte y solo en las empresas de su alcance.
-	var empresas []int64
-	var global *bool
-	if err := e.bd.QueryRow(e.ctx, `SELECT empresas, alcance_global FROM integracion.conectores WHERE id = $1`, e.conector).Scan(&empresas, &global); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_, _ = e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET empresas = $2, alcance_global = $3 WHERE id = $1`, e.conector, empresas, global)
-	})
-	if _, err := e.bd.Exec(e.ctx, `UPDATE integracion.conectores SET empresas = '{1}', alcance_global = false WHERE id = $1`, e.conector); err != nil {
-		t.Fatal(err)
-	}
 	otro := emitirDe(8103, 1, 1, e.conector+1000)
 	publicar(otro)
 	ajena := emitirDe(8104, 1, 2, e.conector)
