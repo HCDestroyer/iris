@@ -83,11 +83,12 @@ CREATE TABLE integracion.portal_argos_minutos (
 );
 
 -- Webhooks a Argos (§6.6, 0.9.0): tickets y solicitudes de servicio (se conservan los de cuadrilla,
--- 20261125220001).
+-- 20261125220001, y los de vínculos de técnicos, 20261125220009).
 ALTER TABLE mensajeria.webhooks_salida DROP CONSTRAINT webhooks_salida_evento_check;
 ALTER TABLE mensajeria.webhooks_salida ADD CONSTRAINT webhooks_salida_evento_check
     CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'prospecto.estado_cambiado',
                       'cuadrilla.creada', 'cuadrilla.actualizada',
+                      'tecnico.argos_vinculado', 'tecnico.argos_desvinculado',
                       'ticket.estado_cambiado', 'ticket.respondido', 'solicitud_servicio.estado_cambiado'));
 
 -- +goose Down
@@ -96,7 +97,8 @@ WHERE evento IN ('ticket.estado_cambiado', 'ticket.respondido', 'solicitud_servi
 ALTER TABLE mensajeria.webhooks_salida DROP CONSTRAINT webhooks_salida_evento_check;
 ALTER TABLE mensajeria.webhooks_salida ADD CONSTRAINT webhooks_salida_evento_check
     CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'prospecto.estado_cambiado',
-                      'cuadrilla.creada', 'cuadrilla.actualizada'));
+                      'cuadrilla.creada', 'cuadrilla.actualizada',
+                      'tecnico.argos_vinculado', 'tecnico.argos_desvinculado'));
 DROP TABLE integracion.portal_argos_minutos;
 DROP TABLE integracion.argos_contactos;
 DROP INDEX comercial.prospectos_solicitudes_cliente_idx;

@@ -69,6 +69,35 @@ describe("lote (I2)", () => {
         expect(motor.obtenerEstado().pendientes).toBe(0);
     });
 
+    it("0.13.1: cambios e intentos de la sesión anterior quedan bloqueados hasta que vuelva su autor", async () => {
+        // El actor en Argos (X-Iris-Actor) es el usuario autenticado que envía el lote: la cola es del
+        // usuario y nunca sale con la sesión de otra persona, ni lleva un campo de actor.
+        let duena = true;
+        const { motor, transporte } = await montar({
+            verificarIdentidad: () => (duena ? Promise.resolve() : Promise.reject(errorSesionAjena())),
+        });
+        await motor.registrar("orden.llegar", 1, {});
+        await motor.registrar("equipo.no_recuperado", 1, {
+            unidadId: 91,
+            motivo: "cliente_ausente",
+            fotoAdjuntoId: "0193f000-0000-7000-8000-0000000000aa",
+            lat: 14.6,
+            lon: -90.5,
+            precisionM: 12,
+        });
+        transporte.llamadas.length = 0;
+        duena = false;
+        await expect(motor.sincronizar()).rejects.toMatchObject({ codigo: "sesion_ajena" });
+        expect(transporte.lotes).toEqual([]);
+        expect(motor.obtenerEstado()).toMatchObject({ conexion: "sin_sesion", pendientes: 2 });
+        duena = true;
+        await motor.sincronizar();
+        const enviado = transporte.lotes.flatMap((l) => l.operaciones ?? []).find((op) => op.tipo === "equipo.no_recuperado");
+        expect(enviado).toBeDefined();
+        expect(Object.keys(enviado?.datos ?? {})).not.toContain("registradoPor");
+        expect(motor.obtenerEstado().pendientes).toBe(0);
+    });
+
     it("parte el lote por bytes (firma SVG grande)", async () => {
         const { motor, transporte } = await montar({ bytesLote: 1400 });
         const svg = `<svg>${"M1 1L2 2".repeat(80)}</svg>`;

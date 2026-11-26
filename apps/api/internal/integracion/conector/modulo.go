@@ -374,9 +374,13 @@ func (c *Conexion) guardarWebhookSalida(ctx context.Context, t *auditoria.Tx, id
 		return invalido("webhook.url", "debe ser una URL https sin usuario, consulta ni fragmento")
 	}
 	b, err := url.Parse(base)
-	if err != nil || !strings.EqualFold(u.Hostname(), b.Hostname()) {
+	// El host del receptor y el de la API, normalizados igual (mayúsculas, punto final y puerto por
+	// defecto): la misma máquina escrita distinto es la misma.
+	if err != nil || strings.TrimSuffix(strings.ToLower(u.Hostname()), ".") != strings.TrimSuffix(strings.ToLower(b.Hostname()), ".") {
 		return invalido("webhook.url", "su host debe ser el de la API ("+b.Hostname()+")")
 	}
+	u.Host = hostNormalizado(u)
+	u.Scheme = strings.ToLower(u.Scheme)
 	if len(w.Secreto) < 16 || len(w.Secreto) > 512 {
 		return invalido("webhook.secreto", "el secreto debe tener de 16 a 512 caracteres")
 	}

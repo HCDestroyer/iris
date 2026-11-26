@@ -264,7 +264,7 @@ func nuevoEstadoConexion(m *Modulo) *auditoria.Caso[struct{}, EstadoConexionArgo
 		AuditarExito: func(EstadoConexionArgos) bool { return false },
 		Logica: func(ctx context.Context, t *auditoria.Tx, _ struct{}) (EstadoConexionArgos, error) {
 			t.FijarEmpresa(0)
-			r := EstadoConexionArgos{ContratoIris: ContratoIris, Capacidades: CapacidadesDeIris(), FuncionesApagadas: []FuncionApagada{}, Instantaneas: []InstantaneaArgos{},
+			r := EstadoConexionArgos{ContratoIris: m.contratoIris(), Capacidades: CapacidadesDeIris(), FuncionesApagadas: []FuncionApagada{}, Instantaneas: []InstantaneaArgos{},
 				Empresas: []EmpresaAlcance{}, Fallos: FallosArgos{Pendientes: []PendientesPorEstado{}, WebhooksRechazados: m.RechazosSinAuditar()}}
 			q := argosbd.New(t)
 			var f conectorbd.IntegracionConectore

@@ -322,13 +322,14 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 		for _, mt := range materiales {
 			if mt.OrdenID == f.ID {
 				d.Materiales = append(d.Materiales, MaterialOrden{ID: mt.ID, ProductoID: mt.ProductoID, Descripcion: mt.Descripcion,
-					Cantidad: numero(mt.Cantidad), BodegaID: mt.BodegaID, ExcedeExistencia: mt.ExcedeExistencia, Modalidad: mt.Modalidad, OcurridoEn: mt.OcurridoEn})
+					Cantidad: numero(mt.Cantidad), BodegaID: mt.BodegaID, ExcedeExistencia: mt.ExcedeExistencia, Modalidad: mt.Modalidad, OcurridoEn: mt.OcurridoEn,
+					RecibidoEn: &mt.CreatedAt, registradoPor: mt.RegistradoPor, desdeApp: mt.DesdeTecnico || mt.OperacionID != nil,
+					bodegaTipo: mt.BodegaTipo})
 			}
 		}
 		for _, e := range equipos {
 			if e.OrdenID == f.ID {
-				d.Equipos = append(d.Equipos, EquipoOrden{ID: e.ID, Accion: e.Accion, UnidadID: e.UnidadID, Serie: e.Serie,
-					MAC: e.Mac, Modelo: e.Modelo, Condicion: e.Condicion, Validado: e.Validado, OcurridoEn: e.OcurridoEn})
+				d.Equipos = append(d.Equipos, equipoDeFila(e))
 			}
 		}
 		for _, fi := range firmas {
@@ -457,4 +458,14 @@ func aPausa(p campobd.CampoOrdenPausa) PausaOrden {
 		o.DuracionSeg = ptr(int64(p.Fin.Sub(p.Inicio) / time.Second))
 	}
 	return o
+}
+
+// equipoDeFila: el equipo de la orden desde su fila.
+func equipoDeFila(e campobd.CampoOrdenEquipo) EquipoOrden {
+	return EquipoOrden{ID: e.ID, Accion: e.Accion, UnidadID: e.UnidadID, Serie: e.Serie,
+		MAC: e.Mac, Modelo: e.Modelo, Condicion: e.Condicion, Validado: e.Validado, OcurridoEn: e.OcurridoEn,
+		SaleUnidadID: e.SaleUnidadID, Motivo: e.Motivo, DestinoSale: e.DestinoSale, CobroPropuesto: e.CobroMotivo,
+		CobroNota: e.CobroNota, Nota: e.Nota, FotoAdjuntoID: e.FotoAdjuntoID, Lat: e.Lat, Lon: e.Lon, PrecisionM: e.PrecisionM,
+		RecibidoEn: e.RecibidoEn, registradoPor: e.RegistradoPor, desdeApp: e.OperacionID != nil,
+		enviadoAlAplicar: e.EnviadoAlAplicar}
 }

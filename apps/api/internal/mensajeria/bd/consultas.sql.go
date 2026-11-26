@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const actualizarCanal = `-- name: ActualizarCanal :one
@@ -103,6 +104,23 @@ func (q *Queries) ActualizarCanal(ctx context.Context, arg ActualizarCanalParams
 		&i.RechazadoPorEnvio,
 	)
 	return i, err
+}
+
+const agotarWebhook = `-- name: AgotarWebhook :exec
+UPDATE mensajeria.webhooks_salida SET estado = 'agotado', ultimo_error = $1, updated_at = now()
+WHERE id = $2 AND estado = 'pendiente'
+`
+
+type AgotarWebhookParams struct {
+	UltimoError *string
+	ID          uuid.UUID
+}
+
+// El vinculado que espera un desvinculado que no saldrá (o pasadas 24 h): agotado a la vista, para
+// reenviarlo (POST …/reenviar) cuando su dependencia se resuelva.
+func (q *Queries) AgotarWebhook(ctx context.Context, arg AgotarWebhookParams) error {
+	_, err := q.db.Exec(ctx, agotarWebhook, arg.UltimoError, arg.ID)
+	return err
 }
 
 const avisoParaActualizar = `-- name: AvisoParaActualizar :one
@@ -576,8 +594,7 @@ func (q *Queries) ClientesAvisadosEn(ctx context.Context, arg ClientesAvisadosEn
 
 const conectorArgosParaWebhooks = `-- name: ConectorArgosParaWebhooks :one
 
-SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas,
-       coalesce(alcance_global, false)::boolean AS alcance_global
+SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo'
 `
 
@@ -740,6 +757,83 @@ UPDATE mensajeria.avisos SET intentos = intentos + 1, enviado_en = NULL, updated
 func (q *Queries) ContarIntento(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, contarIntento, id)
 	return err
+}
+
+const desvinculadoAnteriorFallido = `-- name: DesvinculadoAnteriorFallido :one
+SELECT (EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado = 'agotado'
+      AND ((d.payload->>'id_externo' = $1::text AND d.created_at < $2)
+        OR ((d.payload->>'usuario_id')::bigint = $3::bigint AND (d.payload->>'version')::int < $4::int))
+) OR EXISTS (
+    SELECT 1 FROM integracion.outbox o
+    WHERE o.evento = 'tecnico.argos_desvinculado' AND o.publicado_en IS NULL AND o.fallido_en IS NOT NULL
+      AND ((o.payload->>'id_externo' = $1::text AND o.id < $5::uuid)
+        OR ((o.payload->>'usuario_id')::bigint = $3::bigint AND (o.payload->>'version')::int < $4::int))
+))::boolean
+`
+
+type DesvinculadoAnteriorFallidoParams struct {
+	IDExterno string
+	Antes     time.Time
+	UsuarioID int64
+	Version   int32
+	EventoID  uuid.UUID
+}
+
+// El desvinculado del que depende el vinculado ya no va a salir solo: su webhook agotó los reintentos
+// o el relay no lo pudo publicar (outbox con fallido_en). Mismas reglas de dependencia que arriba.
+func (q *Queries) DesvinculadoAnteriorFallido(ctx context.Context, arg DesvinculadoAnteriorFallidoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, desvinculadoAnteriorFallido,
+		arg.IDExterno,
+		arg.Antes,
+		arg.UsuarioID,
+		arg.Version,
+		arg.EventoID,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const desvinculadoAnteriorSinEntregar = `-- name: DesvinculadoAnteriorSinEntregar :one
+SELECT (EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado IN ('pendiente', 'agotado')
+      AND ((d.payload->>'id_externo' = $1::text AND d.created_at < $2)
+        OR ((d.payload->>'usuario_id')::bigint = $3::bigint AND (d.payload->>'version')::int < $4::int))
+) OR EXISTS (
+    SELECT 1 FROM integracion.outbox o
+    WHERE o.evento = 'tecnico.argos_desvinculado' AND o.publicado_en IS NULL
+      AND ((o.payload->>'id_externo' = $1::text AND o.id < $5::uuid)
+        OR ((o.payload->>'usuario_id')::bigint = $3::bigint AND (o.payload->>'version')::int < $4::int))
+))::boolean
+`
+
+type DesvinculadoAnteriorSinEntregarParams struct {
+	IDExterno string
+	Antes     time.Time
+	UsuarioID int64
+	Version   int32
+	EventoID  uuid.UUID
+}
+
+// 0.14.0 §6.6: el vinculado de un técnico no sale hasta el 2xx del desvinculado anterior del mismo
+// id_externo (el que lo liberó, de otro técnico) ni del desvinculado anterior del mismo técnico
+// (M-3: cambió su id_externo; mismo cambio, versión menor), aunque haya agotado sus reintentos
+// (POST …/webhooks-salida/{id}/reenviar lo vuelve a mandar).
+// También los que siguen en el outbox sin publicar (el relay falló y quedaron en backoff).
+func (q *Queries) DesvinculadoAnteriorSinEntregar(ctx context.Context, arg DesvinculadoAnteriorSinEntregarParams) (bool, error) {
+	row := q.db.QueryRow(ctx, desvinculadoAnteriorSinEntregar,
+		arg.IDExterno,
+		arg.Antes,
+		arg.UsuarioID,
+		arg.Version,
+		arg.EventoID,
+	)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const entranteParaProcesar = `-- name: EntranteParaProcesar :one
@@ -1142,8 +1236,13 @@ func (q *Queries) InsertarEntrante(ctx context.Context, arg InsertarEntrantePara
 
 const insertarWebhookSalida = `-- name: InsertarWebhookSalida :exec
 
-INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento, conector_origen, carga_id)
+VALUES ($1, $2, $3, $4, $5, $6,
+        coalesce((SELECT a.id FROM integracion.conectores a
+                  WHERE a.sistema = 'argosisp' AND a.estado = 'activo' AND a.id <> $7::bigint
+                    AND integracion.misma_instancia_argos(a.id, $7::bigint)
+                  ORDER BY a.id DESC LIMIT 1), $7::bigint),
+        $8)
 ON CONFLICT (id) DO NOTHING
 `
 
@@ -1154,11 +1253,15 @@ type InsertarWebhookSalidaParams struct {
 	Payload        []byte
 	OcurridoEn     time.Time
 	ProximoIntento time.Time
+	ConectorOrigen *int64
+	CargaID        pgtype.UUID
 }
 
 // Webhooks hacia Argos -------------------------------------------------------------------------
 // proximo_intento con el reloj del módulo (no el now() de la base): el despacho compara contra ese
 // mismo reloj, y en las pruebas es fijo.
+// 0.14.0 §6.6: un conector de origen ya reemplazado por el activo de la misma instancia de Argos (una
+// reconexión con el evento aún en el outbox) pasa al activo.
 func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhookSalidaParams) error {
 	_, err := q.db.Exec(ctx, insertarWebhookSalida,
 		arg.ID,
@@ -1167,6 +1270,8 @@ func (q *Queries) InsertarWebhookSalida(ctx context.Context, arg InsertarWebhook
 		arg.Payload,
 		arg.OcurridoEn,
 		arg.ProximoIntento,
+		arg.ConectorOrigen,
+		arg.CargaID,
 	)
 	return err
 }
@@ -1553,6 +1658,58 @@ func (q *Queries) PausarCanal(ctx context.Context, arg PausarCanalParams) error 
 	return err
 }
 
+const postergarWebhook = `-- name: PostergarWebhook :exec
+UPDATE mensajeria.webhooks_salida SET proximo_intento = $1, ultimo_error = $2, updated_at = now() WHERE id = $3
+`
+
+type PostergarWebhookParams struct {
+	ProximoIntento time.Time
+	UltimoError    *string
+	ID             uuid.UUID
+}
+
+// Espera sin gastar un intento (otro webhook del que depende aún no tuvo su 2xx).
+func (q *Queries) PostergarWebhook(ctx context.Context, arg PostergarWebhookParams) error {
+	_, err := q.db.Exec(ctx, postergarWebhook, arg.ProximoIntento, arg.UltimoError, arg.ID)
+	return err
+}
+
+const reenviarWebhookSalida = `-- name: ReenviarWebhookSalida :one
+UPDATE mensajeria.webhooks_salida
+SET estado = 'pendiente', intentos = 0, proximo_intento = $1, ultimo_error = NULL, updated_at = now()
+WHERE id = $2 AND estado = 'agotado'
+RETURNING id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id
+`
+
+type ReenviarWebhookSalidaParams struct {
+	ProximoIntento time.Time
+	ID             uuid.UUID
+}
+
+// Un agotado vuelve a la cola con sus intentos en cero (acción de una persona, auditada).
+func (q *Queries) ReenviarWebhookSalida(ctx context.Context, arg ReenviarWebhookSalidaParams) (MensajeriaWebhooksSalida, error) {
+	row := q.db.QueryRow(ctx, reenviarWebhookSalida, arg.ProximoIntento, arg.ID)
+	var i MensajeriaWebhooksSalida
+	err := row.Scan(
+		&i.ID,
+		&i.Evento,
+		&i.EmpresaID,
+		&i.Payload,
+		&i.OcurridoEn,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.UltimoError,
+		&i.ConectorID,
+		&i.EntregadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
+	)
+	return i, err
+}
+
 const registrarPruebaCanal = `-- name: RegistrarPruebaCanal :one
 UPDATE mensajeria.canales
 SET ultima_prueba_en = $1, ultimo_estado = $2, ultimo_detalle = $3, rechazado_por_envio = false
@@ -1689,7 +1846,7 @@ func (q *Queries) SiguienteIDCanal(ctx context.Context) (int64, error) {
 }
 
 const webhookParaEnviar = `-- name: WebhookParaEnviar :one
-SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at FROM mensajeria.webhooks_salida WHERE id = $1 AND estado = 'pendiente' FOR UPDATE SKIP LOCKED
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id FROM mensajeria.webhooks_salida WHERE id = $1 AND estado = 'pendiente' FOR UPDATE SKIP LOCKED
 `
 
 func (q *Queries) WebhookParaEnviar(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
@@ -1709,12 +1866,41 @@ func (q *Queries) WebhookParaEnviar(ctx context.Context, id uuid.UUID) (Mensajer
 		&i.EntregadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
+	)
+	return i, err
+}
+
+const webhookParaReenviar = `-- name: WebhookParaReenviar :one
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id FROM mensajeria.webhooks_salida WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) WebhookParaReenviar(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
+	row := q.db.QueryRow(ctx, webhookParaReenviar, id)
+	var i MensajeriaWebhooksSalida
+	err := row.Scan(
+		&i.ID,
+		&i.Evento,
+		&i.EmpresaID,
+		&i.Payload,
+		&i.OcurridoEn,
+		&i.Estado,
+		&i.Intentos,
+		&i.ProximoIntento,
+		&i.UltimoError,
+		&i.ConectorID,
+		&i.EntregadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
 	)
 	return i, err
 }
 
 const webhookPorID = `-- name: WebhookPorID :one
-SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at FROM mensajeria.webhooks_salida WHERE id = $1
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id FROM mensajeria.webhooks_salida WHERE id = $1
 `
 
 func (q *Queries) WebhookPorID(ctx context.Context, id uuid.UUID) (MensajeriaWebhooksSalida, error) {
@@ -1734,12 +1920,14 @@ func (q *Queries) WebhookPorID(ctx context.Context, id uuid.UUID) (MensajeriaWeb
 		&i.EntregadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ConectorOrigen,
+		&i.CargaID,
 	)
 	return i, err
 }
 
 const webhooksPorEnviar = `-- name: WebhooksPorEnviar :many
-SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at FROM mensajeria.webhooks_salida
+SELECT id, evento, empresa_id, payload, ocurrido_en, estado, intentos, proximo_intento, ultimo_error, conector_id, entregado_en, created_at, updated_at, conector_origen, carga_id FROM mensajeria.webhooks_salida
 WHERE estado = 'pendiente' AND proximo_intento <= $1
 ORDER BY proximo_intento
 LIMIT $2
@@ -1774,6 +1962,8 @@ func (q *Queries) WebhooksPorEnviar(ctx context.Context, arg WebhooksPorEnviarPa
 			&i.EntregadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ConectorOrigen,
+			&i.CargaID,
 		); err != nil {
 			return nil, err
 		}

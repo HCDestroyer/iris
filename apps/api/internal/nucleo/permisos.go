@@ -177,8 +177,14 @@ const (
 	// Bodega de cuadrilla (contrato 0.11.0 §3.9, B26). asignar_jefe: el jefe recibe y firma los
 	// traslados y responde por los faltantes (solo admin y supervisor). leer_integracion: Argos
 	// lee la cuadrilla para conciliar su bodega (rol integracion_argos).
-	PermCuadrillasAsignarJefe     Permiso = "cuadrillas.asignar_jefe"
+	PermCuadrillasAsignarJefe Permiso = "cuadrillas.asignar_jefe"
+	// Equipos del cliente (0.12.0 §10.7 d, B27): con Argos < 0.12.0, una persona declara la pérdida
+	// de un comodato que no se pudo recuperar (nunca sale sola desde el cierre).
+	PermOrdenesDeclararPerdida    Permiso = "ordenes.declarar_perdida"
 	PermCuadrillasLeerIntegracion Permiso = "cuadrillas.leer_integracion"
+	// PermAdjuntosVerificarIntegracion: Argos verifica de servidor a servidor un cambio o un intento
+	// de recuperación por su Idempotency-Key (0.14.0 §3.10; solo el rol integracion_argos).
+	PermAdjuntosVerificarIntegracion Permiso = "adjuntos.verificar_integracion"
 
 	// Rutas del día (I2): propuesta con OSRM, publicación y ruta propuesta frente a la real.
 	PermRutasVer      Permiso = "rutas.ver"
@@ -266,6 +272,9 @@ const (
 	// PermIntegracionesSincronizar: reanudar o volver a lanzar la primera sincronización con Argos
 	// (contrato 0.8.0 §2.5).
 	PermIntegracionesSincronizar Permiso = "integraciones.sincronizar"
+	// PermIntegracionesReenviarWebhook: volver a mandar a Argos un webhook de Iris que agotó sus
+	// reintentos (POST /mensajeria/webhooks-salida/{id}/reenviar; contrato 0.14.0 §6.6).
+	PermIntegracionesReenviarWebhook Permiso = "integraciones.reenviar_webhook"
 )
 
 // Adjuntos (fotos, firmas, documentos de órdenes y tickets) y cola de pendientes hacia Argos.
@@ -494,7 +503,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermUsuariosAsignarRol: true, PermUsuariosQuitarRol: true, PermUsuariosCerrarSesiones: true,
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
-	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true,
+	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true, PermIntegracionesReenviarWebhook: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
 	PermFactibilidadConfigurar: true, PermProspectosConfigurarSolicitudes: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermPlantillasWhatsAppCrear: true, PermPlantillasWhatsAppEditar: true, PermPlantillasWhatsAppBorrar: true,
@@ -502,7 +511,7 @@ var PermisosSensibles = map[Permiso]bool{
 	// El jefe de cuadrilla firma lo que entra a la bodega compartida y responde por los faltantes.
 	PermCuadrillasAsignarJefe: true,
 	// Leer la membresía de todas las cuadrillas para conciliar con Argos: solo el token de Argos.
-	PermCuadrillasLeerIntegracion: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
+	PermCuadrillasLeerIntegracion: true, PermAdjuntosVerificarIntegracion: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesPedirReconexion: true,
 	PermTicketsConfigurarCaidas:       true,
@@ -538,6 +547,7 @@ var Catalogo = []DefPermiso{
 	{PermAccesosVer, "Ver el historial de accesos (quién entró, cuándo, por qué canal y con qué resultado) y las sesiones activas de los usuarios"},
 	{PermAdjuntosSubir, "Registrar y subir adjuntos (fotos, firmas, documentos) de las órdenes y tickets que puedes trabajar"},
 	{PermAdjuntosVer, "Ver y descargar los adjuntos de las órdenes y tickets que puedes ver (lectura auditada)"},
+	{PermAdjuntosVerificarIntegracion, "Verificar que un cambio o un intento de recuperación lo mandó Iris, con su foto (token de Argos)"},
 	{PermAgendaActivarCuadrilla, "Activar una cuadrilla"},
 	{PermAgendaActivarTecnico, "Activar la ficha de agenda de un técnico"},
 	{PermAgendaActivarZona, "Activar una zona"},
@@ -627,6 +637,7 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesEliminar, "Eliminar un conector apagado que ya no se usa (queda en la auditoría; sus credenciales se borran)"},
+	{PermIntegracionesReenviarWebhook, "Volver a mandar a Argos un aviso de Iris (webhook) que agotó sus reintentos, p. ej. el vínculo de un técnico"},
 	{PermIntegracionesReintentar, "Reintentar a mano una acción pendiente hacia Argos (fallida o agotada)"},
 	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
 	{PermIntegracionesRevisarVersion, "Releer ya la versión de Argos en un conector (diagnóstico: la URL base y el status de la última lectura)"},
@@ -662,6 +673,7 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
 	{PermOrdenesCompletarDatos, "Completar los datos que falten del titular y del lugar de una instalación antes de activarla (el técnico solo en sus órdenes en sitio; despacho y supervisor desde el panel)"},
 	{PermOrdenesCrear, "Crear órdenes de trabajo (también desde un ticket)"},
+	{PermOrdenesDeclararPerdida, "Declarar perdido un equipo en comodato que no se pudo recuperar (solo con Argos anterior a 0.12.0; desde 0.12.0 lo decide una persona en Argos)"},
 	{PermOrdenesDescartarDatosArgos, "Descartar el aviso «Dato de Argos cambió» de una orden sin cambiar sus datos"},
 	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
 	{PermOrdenesIgualarAsignacion, "Igualar la asignación (técnico y cuadrilla) de una orden y su ticket, en el sentido que se elija"},
@@ -828,7 +840,8 @@ var RolesBase = []DefRol{
 			PermCentralitaAsignarExtension, PermCentralitaLlamar, PermCentralitaTransferir,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
-			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar, PermCuadrillasAsignarJefe},
+			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar, PermCuadrillasAsignarJefe,
+			PermOrdenesDeclararPerdida},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
 				[]Permiso{PermFactibilidadConfigurar, PermProspectosConfigurarSolicitudes, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
 					PermOrdenesValidarIdentidad,
@@ -900,6 +913,8 @@ var RolesBase = []DefRol{
 			PermPortalArgosConfirmarSolucion, PermPortalArgosSolicitarServicio, PermPortalArgosVerSolicitudes,
 			// Bodega de cuadrilla (0.11.0 §3.9): conciliar la cuadrilla.
 			PermCuadrillasLeerIntegracion,
+			// Equipos del cliente (0.14.0 §3.10): verificar cambios e intentos.
+			PermAdjuntosVerificarIntegracion,
 			// Plantillas de WhatsApp que puede usar cada empresa (contrato 0.13.0 §6.7, B32): solo leer.
 			PermPlantillasWhatsAppLeerIntegracion}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",

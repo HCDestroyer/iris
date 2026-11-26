@@ -380,9 +380,9 @@ WHERE id = @id
 RETURNING *;
 
 -- name: CrearMaterial :one
-INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia,
+INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, bodega_tipo, desde_tecnico, excede_existencia,
                                     registrado_por, canal, ocurrido_en, operacion_id, modalidad)
-VALUES (@id, @orden_id, @producto_id, @descripcion, @cantidad, @bodega_id, @excede_existencia,
+VALUES (@id, @orden_id, @producto_id, @descripcion, @cantidad, @bodega_id, sqlc.narg(bodega_tipo), @desde_tecnico, @excede_existencia,
         @registrado_por, @canal, @ocurrido_en, @operacion_id, sqlc.narg(modalidad))
 RETURNING *;
 
@@ -398,6 +398,67 @@ SELECT * FROM campo.orden_materiales WHERE orden_id = ANY(@ordenes::bigint[]) OR
 INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, validado, registrado_por, canal, ocurrido_en, operacion_id)
 VALUES (@id, @orden_id, @accion, @unidad_id, @serie, @mac, @modelo, @condicion, @validado, @registrado_por, @canal, @ocurrido_en, @operacion_id)
 RETURNING *;
+
+-- name: CrearEquipoCliente :one
+-- Cambio de equipo o intento de recuperación (contrato 0.12.0 §3.10, B27).
+INSERT INTO campo.orden_equipos (
+    id, orden_id, accion, unidad_id, serie, mac, modelo, validado, registrado_por, canal, ocurrido_en, operacion_id,
+    sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en
+) VALUES (
+    @id, @orden_id, @accion, sqlc.narg(unidad_id), sqlc.narg(serie), sqlc.narg(mac), '', @validado, sqlc.narg(registrado_por), @canal,
+    @ocurrido_en, sqlc.narg(operacion_id), sqlc.narg(sale_unidad_id), @motivo, sqlc.narg(destino_sale), sqlc.narg(cobro_motivo),
+    sqlc.narg(cobro_nota), sqlc.narg(nota), sqlc.narg(foto_adjunto_id), sqlc.narg(lat), sqlc.narg(lon), sqlc.narg(precision_m), @recibido_en
+)
+RETURNING *;
+
+-- name: BloquearIntentosDeUnidad :exec
+-- Serializa los intentos de recuperación de una unidad (A-271-2): dos lotes a la vez no pasan los dos.
+SELECT pg_advisory_xact_lock(hashtextextended('campo.no_recuperado:' || @unidad_id::bigint::text, 0));
+
+-- name: IntentosNoRecuperado :one
+-- Intentos de recuperación de la unidad en el día local, por la fecha del teléfono o por la hora en
+-- que los recibió el servidor (A-271-2: una fecha de otro día no evade el límite).
+SELECT count(*)::int FROM campo.orden_equipos
+WHERE accion = 'no_recuperado' AND unidad_id = @unidad_id
+  AND ((ocurrido_en >= @desde AND ocurrido_en < @hasta) OR (recibido_en >= @recibido_desde AND recibido_en < @recibido_hasta));
+
+-- name: FotoUsadaEnEquipo :one
+-- La foto ya respalda otro cambio o intento (M-271-3).
+SELECT EXISTS (SELECT 1 FROM campo.orden_equipos WHERE foto_adjunto_id = @foto_adjunto_id)::boolean;
+
+-- name: PosicionDeReferencia :one
+-- La última posición del técnico en los 30 min anteriores a la fecha del intento, contando solo las
+-- que Iris recibió antes de aceptar el lote (0.13.1 §3.10; M-271-4).
+SELECT lat, lon, registrada_en FROM campo.posiciones
+WHERE tecnico_id = @tecnico_id AND registrada_en <= @hasta AND registrada_en >= @desde AND created_at <= @recibido_antes
+ORDER BY registrada_en DESC
+LIMIT 1;
+
+-- name: LlegadaDelActor :one
+-- La llegada del actor (0.13.1 §3.10): su último orden.llegar en la orden (programada o en camino →
+-- en sitio), del mismo día y no posterior a la fecha.
+SELECT ocurrido_en FROM campo.orden_eventos
+WHERE orden_id = @orden_id AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
+  AND actor_id = @actor_id AND ocurrido_en >= @desde AND ocurrido_en <= @hasta
+ORDER BY ocurrido_en DESC, id DESC
+LIMIT 1;
+
+-- name: AsignacionesDeOrden :many
+-- El historial de asignación de la orden (asignaciones y programaciones con técnico o cuadrilla),
+-- con la hora del servidor: para orden_reasignada (0.14.0 §3.10).
+SELECT ocurrido_en,
+       (datos ? 'tecnico_id')::boolean AS trae_tecnico, coalesce((datos->>'tecnico_id')::bigint, 0)::bigint AS tecnico_id,
+       (datos ? 'cuadrilla_id')::boolean AS trae_cuadrilla, coalesce((datos->>'cuadrilla_id')::bigint, 0)::bigint AS cuadrilla_id
+FROM campo.orden_eventos
+WHERE orden_id = @orden_id AND tipo IN ('asignada', 'programada') AND (datos ? 'tecnico_id' OR datos ? 'cuadrilla_id')
+ORDER BY ocurrido_en, id;
+
+-- name: MembresiasDe :many
+-- Los periodos del usuario en cada cuadrilla (agenda.cuadrilla_miembros, hora del servidor).
+SELECT cuadrilla_id, desde, hasta FROM agenda.cuadrilla_miembros WHERE usuario_id = @usuario_id ORDER BY desde;
+
+-- name: BodegaEsDeCuadrilla :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = @bodega_id AND cuadrilla_id = @cuadrilla_id)::boolean;
 
 -- name: EquiposDeOrdenes :many
 SELECT * FROM campo.orden_equipos WHERE orden_id = ANY(@ordenes::bigint[]) ORDER BY orden_id, ocurrido_en, created_at;
@@ -508,6 +569,47 @@ SELECT EXISTS (SELECT 1 FROM campo.orden_cambios WHERE tecnico_id = @tecnico_id 
 -- name: BodegaDeTecnico :one
 -- La bodega de Argos de la ficha de agenda del técnico (usuario).
 SELECT bodega_id FROM agenda.tecnicos WHERE usuario_id = @usuario_id AND activo;
+
+-- name: BodegaDeSuCuadrilla :many
+-- La bodega es la de la cuadrilla actual del técnico en la empresa (contrato 0.11.0 §3.9): ficha
+-- activa en una cuadrilla activa y la bodega vista en Argos para esa cuadrilla y empresa. Al quitar
+-- al técnico de la cuadrilla deja de serlo en ese momento (corte de sus lotes con esa bodega).
+-- FOR SHARE de la ficha (B-268-3): quitarlo de la cuadrilla (UPDATE de la ficha) espera a esta
+-- transacción, y si ya lo estaban quitando, esta espera y relee la ficha nueva.
+SELECT t.id FROM agenda.tecnicos t
+JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
+JOIN integracion.argos_bodegas_cuadrilla bc ON bc.cuadrilla_id = t.cuadrilla_id
+WHERE t.usuario_id = @usuario_id AND t.activo AND bc.bodega_id = @bodega_id AND bc.empresa_id = @empresa_id
+FOR SHARE OF t;
+
+-- name: BodegaPersonalDelTecnico :one
+-- La bodega es la personal del técnico en la empresa de la orden (M-268-1): la vista en mi-bodega
+-- para ese usuario y empresa. Sin empresa (modo sin conector), la de su ficha.
+SELECT (EXISTS (
+    SELECT 1 FROM integracion.argos_bodegas_tecnico bt
+    WHERE bt.usuario_id = @usuario_id AND bt.bodega_id = @bodega_id AND bt.empresa_id = @empresa_id
+) OR (@empresa_id::bigint = 0 AND EXISTS (
+    SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = @usuario_id AND t.activo AND t.bodega_id = @bodega_id
+)))::boolean;
+
+-- name: EsBodegaDeTecnicoOCuadrilla :one
+-- La bodega es de una cuadrilla o la personal de un técnico según Argos (0.13.1 §3.9): desde el panel
+-- no se usa (despacho solo con bodegas tipo = bodega).
+SELECT (EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = @bodega::bigint)
+     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = @bodega::bigint)
+     OR EXISTS (SELECT 1 FROM agenda.tecnicos ft WHERE ft.bodega_id = @bodega::bigint))::boolean;
+
+-- name: BodegasPermitidas :many
+-- Las bodegas que el técnico puede elegir en la empresa (personal y de su cuadrilla actual): las
+-- únicas cuyas existencias se leen de Argos para el lote (B-268-2).
+SELECT bt.bodega_id FROM integracion.argos_bodegas_tecnico bt WHERE bt.usuario_id = @usuario_id AND bt.empresa_id = @empresa_id
+UNION
+SELECT bc.bodega_id FROM agenda.tecnicos t
+JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
+JOIN integracion.argos_bodegas_cuadrilla bc ON bc.cuadrilla_id = t.cuadrilla_id
+WHERE t.usuario_id = @usuario_id AND t.activo AND bc.empresa_id = @empresa_id
+UNION
+SELECT t.bodega_id FROM agenda.tecnicos t WHERE @empresa_id::bigint = 0 AND t.usuario_id = @usuario_id AND t.activo AND t.bodega_id IS NOT NULL;
 
 -- name: VinculoArgosDeTecnico :one
 -- El vínculo con Argos de la ficha del técnico (contrato 0.5.0 §3.3): va como tecnico en orden.cerrada.
@@ -719,6 +821,17 @@ SELECT count(*)::bigint FROM campo.ordenes o
 WHERE o.origen = 'asistente' AND o.empresa_id IS NOT DISTINCT FROM sqlc.narg('empresa_id')::bigint
   AND o.created_at >= now() - interval '24 hours';
 
+-- name: MarcarEnviadoAlAplicar :exec
+-- El cambio o el intento ya se encoló hacia Argos al aplicarse (0.14.0 §3.10).
+UPDATE campo.orden_equipos SET enviado_al_aplicar = true WHERE id = @id;
+
+-- name: IntentosDeUnidadEnOrden :one
+-- Intentos de recuperación de la unidad en la orden (con Argos < 0.14.0, uno por unidad y orden).
+SELECT count(*)::int FROM campo.orden_equipos WHERE orden_id = @orden_id AND accion = 'no_recuperado' AND unidad_id = @unidad_id;
+
+-- name: DejoAlgunaCuadrilla :one
+-- El usuario dejó alguna cuadrilla (para leer de Argos la bodega de la unidad que entra, M-7).
+SELECT EXISTS (SELECT 1 FROM agenda.cuadrilla_miembros WHERE usuario_id = @usuario_id AND hasta IS NOT NULL)::boolean;
 -- --- Paso «Confirmar titular y plan» (contrato argosisp.md 0.10.0 §3.4, B18) -------------------
 
 -- name: TitularDeOrden :one

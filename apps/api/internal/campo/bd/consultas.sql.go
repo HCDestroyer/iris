@@ -246,6 +246,100 @@ func (q *Queries) AsegurarParticionPosiciones(ctx context.Context, fecha time.Ti
 	return err
 }
 
+const asignacionesDeOrden = `-- name: AsignacionesDeOrden :many
+SELECT ocurrido_en,
+       (datos ? 'tecnico_id')::boolean AS trae_tecnico, coalesce((datos->>'tecnico_id')::bigint, 0)::bigint AS tecnico_id,
+       (datos ? 'cuadrilla_id')::boolean AS trae_cuadrilla, coalesce((datos->>'cuadrilla_id')::bigint, 0)::bigint AS cuadrilla_id
+FROM campo.orden_eventos
+WHERE orden_id = $1 AND tipo IN ('asignada', 'programada') AND (datos ? 'tecnico_id' OR datos ? 'cuadrilla_id')
+ORDER BY ocurrido_en, id
+`
+
+type AsignacionesDeOrdenRow struct {
+	OcurridoEn    time.Time
+	TraeTecnico   bool
+	TecnicoID     int64
+	TraeCuadrilla bool
+	CuadrillaID   int64
+}
+
+// El historial de asignación de la orden (asignaciones y programaciones con técnico o cuadrilla),
+// con la hora del servidor: para orden_reasignada (0.14.0 §3.10).
+func (q *Queries) AsignacionesDeOrden(ctx context.Context, ordenID int64) ([]AsignacionesDeOrdenRow, error) {
+	rows, err := q.db.Query(ctx, asignacionesDeOrden, ordenID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AsignacionesDeOrdenRow
+	for rows.Next() {
+		var i AsignacionesDeOrdenRow
+		if err := rows.Scan(
+			&i.OcurridoEn,
+			&i.TraeTecnico,
+			&i.TecnicoID,
+			&i.TraeCuadrilla,
+			&i.CuadrillaID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const bloquearIntentosDeUnidad = `-- name: BloquearIntentosDeUnidad :exec
+SELECT pg_advisory_xact_lock(hashtextextended('campo.no_recuperado:' || $1, 0))
+`
+
+// Serializa los intentos de recuperación de una unidad (A-271-2): dos lotes a la vez no pasan los dos.
+func (q *Queries) BloquearIntentosDeUnidad(ctx context.Context, unidadIdpgCatalogint8 string) error {
+	_, err := q.db.Exec(ctx, bloquearIntentosDeUnidad, unidadIdpgCatalogint8)
+	return err
+}
+
+const bodegaDeSuCuadrilla = `-- name: BodegaDeSuCuadrilla :many
+SELECT t.id FROM agenda.tecnicos t
+JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
+JOIN integracion.argos_bodegas_cuadrilla bc ON bc.cuadrilla_id = t.cuadrilla_id
+WHERE t.usuario_id = $1 AND t.activo AND bc.bodega_id = $2 AND bc.empresa_id = $3
+FOR SHARE OF t
+`
+
+type BodegaDeSuCuadrillaParams struct {
+	UsuarioID int64
+	BodegaID  int64
+	EmpresaID int64
+}
+
+// La bodega es la de la cuadrilla actual del técnico en la empresa (contrato 0.11.0 §3.9): ficha
+// activa en una cuadrilla activa y la bodega vista en Argos para esa cuadrilla y empresa. Al quitar
+// al técnico de la cuadrilla deja de serlo en ese momento (corte de sus lotes con esa bodega).
+// FOR SHARE de la ficha (B-268-3): quitarlo de la cuadrilla (UPDATE de la ficha) espera a esta
+// transacción, y si ya lo estaban quitando, esta espera y relee la ficha nueva.
+func (q *Queries) BodegaDeSuCuadrilla(ctx context.Context, arg BodegaDeSuCuadrillaParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, bodegaDeSuCuadrilla, arg.UsuarioID, arg.BodegaID, arg.EmpresaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const bodegaDeTecnico = `-- name: BodegaDeTecnico :one
 
 SELECT bodega_id FROM agenda.tecnicos WHERE usuario_id = $1 AND activo
@@ -258,6 +352,84 @@ func (q *Queries) BodegaDeTecnico(ctx context.Context, usuarioID int64) (*int64,
 	var bodega_id *int64
 	err := row.Scan(&bodega_id)
 	return bodega_id, err
+}
+
+const bodegaEsDeCuadrilla = `-- name: BodegaEsDeCuadrilla :one
+SELECT EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla WHERE bodega_id = $1 AND cuadrilla_id = $2)::boolean
+`
+
+type BodegaEsDeCuadrillaParams struct {
+	BodegaID    int64
+	CuadrillaID int64
+}
+
+func (q *Queries) BodegaEsDeCuadrilla(ctx context.Context, arg BodegaEsDeCuadrillaParams) (bool, error) {
+	row := q.db.QueryRow(ctx, bodegaEsDeCuadrilla, arg.BodegaID, arg.CuadrillaID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const bodegaPersonalDelTecnico = `-- name: BodegaPersonalDelTecnico :one
+SELECT (EXISTS (
+    SELECT 1 FROM integracion.argos_bodegas_tecnico bt
+    WHERE bt.usuario_id = $1 AND bt.bodega_id = $2 AND bt.empresa_id = $3
+) OR ($3::bigint = 0 AND EXISTS (
+    SELECT 1 FROM agenda.tecnicos t WHERE t.usuario_id = $1 AND t.activo AND t.bodega_id = $2
+)))::boolean
+`
+
+type BodegaPersonalDelTecnicoParams struct {
+	UsuarioID int64
+	BodegaID  int64
+	EmpresaID int64
+}
+
+// La bodega es la personal del técnico en la empresa de la orden (M-268-1): la vista en mi-bodega
+// para ese usuario y empresa. Sin empresa (modo sin conector), la de su ficha.
+func (q *Queries) BodegaPersonalDelTecnico(ctx context.Context, arg BodegaPersonalDelTecnicoParams) (bool, error) {
+	row := q.db.QueryRow(ctx, bodegaPersonalDelTecnico, arg.UsuarioID, arg.BodegaID, arg.EmpresaID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const bodegasPermitidas = `-- name: BodegasPermitidas :many
+SELECT bt.bodega_id FROM integracion.argos_bodegas_tecnico bt WHERE bt.usuario_id = $1 AND bt.empresa_id = $2
+UNION
+SELECT bc.bodega_id FROM agenda.tecnicos t
+JOIN agenda.cuadrillas c ON c.id = t.cuadrilla_id AND c.activa
+JOIN integracion.argos_bodegas_cuadrilla bc ON bc.cuadrilla_id = t.cuadrilla_id
+WHERE t.usuario_id = $1 AND t.activo AND bc.empresa_id = $2
+UNION
+SELECT t.bodega_id FROM agenda.tecnicos t WHERE $2::bigint = 0 AND t.usuario_id = $1 AND t.activo AND t.bodega_id IS NOT NULL
+`
+
+type BodegasPermitidasParams struct {
+	UsuarioID int64
+	EmpresaID int64
+}
+
+// Las bodegas que el técnico puede elegir en la empresa (personal y de su cuadrilla actual): las
+// únicas cuyas existencias se leen de Argos para el lote (B-268-2).
+func (q *Queries) BodegasPermitidas(ctx context.Context, arg BodegasPermitidasParams) ([]int64, error) {
+	rows, err := q.db.Query(ctx, bodegasPermitidas, arg.UsuarioID, arg.EmpresaID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var bodega_id int64
+		if err := rows.Scan(&bodega_id); err != nil {
+			return nil, err
+		}
+		items = append(items, bodega_id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const borrarItemsDeVersion = `-- name: BorrarItemsDeVersion :exec
@@ -692,7 +864,7 @@ func (q *Queries) CrearCambio(ctx context.Context, arg CrearCambioParams) error 
 const crearEquipo = `-- name: CrearEquipo :one
 INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, validado, registrado_por, canal, ocurrido_en, operacion_id)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado
+RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en, enviado_al_aplicar
 `
 
 type CrearEquipoParams struct {
@@ -744,6 +916,114 @@ func (q *Queries) CrearEquipo(ctx context.Context, arg CrearEquipoParams) (Campo
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Validado,
+		&i.SaleUnidadID,
+		&i.Motivo,
+		&i.DestinoSale,
+		&i.CobroMotivo,
+		&i.CobroNota,
+		&i.Nota,
+		&i.FotoAdjuntoID,
+		&i.Lat,
+		&i.Lon,
+		&i.PrecisionM,
+		&i.RecibidoEn,
+		&i.EnviadoAlAplicar,
+	)
+	return i, err
+}
+
+const crearEquipoCliente = `-- name: CrearEquipoCliente :one
+INSERT INTO campo.orden_equipos (
+    id, orden_id, accion, unidad_id, serie, mac, modelo, validado, registrado_por, canal, ocurrido_en, operacion_id,
+    sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en
+) VALUES (
+    $1, $2, $3, $4, $5, $6, '', $7, $8, $9,
+    $10, $11, $12, $13, $14, $15,
+    $16, $17, $18, $19, $20, $21, $22
+)
+RETURNING id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en, enviado_al_aplicar
+`
+
+type CrearEquipoClienteParams struct {
+	ID            uuid.UUID
+	OrdenID       int64
+	Accion        string
+	UnidadID      *int64
+	Serie         *string
+	Mac           *string
+	Validado      bool
+	RegistradoPor *int64
+	Canal         string
+	OcurridoEn    time.Time
+	OperacionID   *uuid.UUID
+	SaleUnidadID  *int64
+	Motivo        *string
+	DestinoSale   *string
+	CobroMotivo   *string
+	CobroNota     *string
+	Nota          *string
+	FotoAdjuntoID *uuid.UUID
+	Lat           *float64
+	Lon           *float64
+	PrecisionM    *float32
+	RecibidoEn    *time.Time
+}
+
+// Cambio de equipo o intento de recuperación (contrato 0.12.0 §3.10, B27).
+func (q *Queries) CrearEquipoCliente(ctx context.Context, arg CrearEquipoClienteParams) (CampoOrdenEquipo, error) {
+	row := q.db.QueryRow(ctx, crearEquipoCliente,
+		arg.ID,
+		arg.OrdenID,
+		arg.Accion,
+		arg.UnidadID,
+		arg.Serie,
+		arg.Mac,
+		arg.Validado,
+		arg.RegistradoPor,
+		arg.Canal,
+		arg.OcurridoEn,
+		arg.OperacionID,
+		arg.SaleUnidadID,
+		arg.Motivo,
+		arg.DestinoSale,
+		arg.CobroMotivo,
+		arg.CobroNota,
+		arg.Nota,
+		arg.FotoAdjuntoID,
+		arg.Lat,
+		arg.Lon,
+		arg.PrecisionM,
+		arg.RecibidoEn,
+	)
+	var i CampoOrdenEquipo
+	err := row.Scan(
+		&i.ID,
+		&i.OrdenID,
+		&i.Accion,
+		&i.UnidadID,
+		&i.Serie,
+		&i.Mac,
+		&i.Modelo,
+		&i.Condicion,
+		&i.RegistradoPor,
+		&i.Canal,
+		&i.OcurridoEn,
+		&i.OperacionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Validado,
+		&i.SaleUnidadID,
+		&i.Motivo,
+		&i.DestinoSale,
+		&i.CobroMotivo,
+		&i.CobroNota,
+		&i.Nota,
+		&i.FotoAdjuntoID,
+		&i.Lat,
+		&i.Lon,
+		&i.PrecisionM,
+		&i.RecibidoEn,
+		&i.EnviadoAlAplicar,
 	)
 	return i, err
 }
@@ -890,11 +1170,11 @@ func (q *Queries) CrearItems(ctx context.Context, arg CrearItemsParams) error {
 }
 
 const crearMaterial = `-- name: CrearMaterial :one
-INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia,
+INSERT INTO campo.orden_materiales (id, orden_id, producto_id, descripcion, cantidad, bodega_id, bodega_tipo, desde_tecnico, excede_existencia,
                                     registrado_por, canal, ocurrido_en, operacion_id, modalidad)
-VALUES ($1, $2, $3, $4, $5, $6, $7,
-        $8, $9, $10, $11, $12)
-RETURNING id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
+        $10, $11, $12, $13, $14)
+RETURNING id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad, bodega_tipo, desde_tecnico
 `
 
 type CrearMaterialParams struct {
@@ -904,6 +1184,8 @@ type CrearMaterialParams struct {
 	Descripcion      string
 	Cantidad         pgtype.Numeric
 	BodegaID         *int64
+	BodegaTipo       *string
+	DesdeTecnico     bool
 	ExcedeExistencia bool
 	RegistradoPor    *int64
 	Canal            string
@@ -920,6 +1202,8 @@ func (q *Queries) CrearMaterial(ctx context.Context, arg CrearMaterialParams) (C
 		arg.Descripcion,
 		arg.Cantidad,
 		arg.BodegaID,
+		arg.BodegaTipo,
+		arg.DesdeTecnico,
 		arg.ExcedeExistencia,
 		arg.RegistradoPor,
 		arg.Canal,
@@ -943,6 +1227,8 @@ func (q *Queries) CrearMaterial(ctx context.Context, arg CrearMaterialParams) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Modalidad,
+		&i.BodegaTipo,
+		&i.DesdeTecnico,
 	)
 	return i, err
 }
@@ -1252,6 +1538,18 @@ func (q *Queries) CrearVersion(ctx context.Context, arg CrearVersionParams) (Cam
 	return i, err
 }
 
+const dejoAlgunaCuadrilla = `-- name: DejoAlgunaCuadrilla :one
+SELECT EXISTS (SELECT 1 FROM agenda.cuadrilla_miembros WHERE usuario_id = $1 AND hasta IS NOT NULL)::boolean
+`
+
+// El usuario dejó alguna cuadrilla (para leer de Argos la bodega de la unidad que entra, M-7).
+func (q *Queries) DejoAlgunaCuadrilla(ctx context.Context, usuarioID int64) (bool, error) {
+	row := q.db.QueryRow(ctx, dejoAlgunaCuadrilla, usuarioID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const descartarDatosArgosOrden = `-- name: DescartarDatosArgosOrden :one
 UPDATE campo.ordenes SET
     datos_argos_cambiados_en = NULL, datos_argos_campos = '{}', version = version + 1, updated_at = now()
@@ -1405,7 +1703,7 @@ func (q *Queries) EmpresaRegistrada(ctx context.Context, id int64) (bool, error)
 }
 
 const equipoPorID = `-- name: EquipoPorID :one
-SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado FROM campo.orden_equipos WHERE id = $1
+SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en, enviado_al_aplicar FROM campo.orden_equipos WHERE id = $1
 `
 
 func (q *Queries) EquipoPorID(ctx context.Context, id uuid.UUID) (CampoOrdenEquipo, error) {
@@ -1427,12 +1725,24 @@ func (q *Queries) EquipoPorID(ctx context.Context, id uuid.UUID) (CampoOrdenEqui
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Validado,
+		&i.SaleUnidadID,
+		&i.Motivo,
+		&i.DestinoSale,
+		&i.CobroMotivo,
+		&i.CobroNota,
+		&i.Nota,
+		&i.FotoAdjuntoID,
+		&i.Lat,
+		&i.Lon,
+		&i.PrecisionM,
+		&i.RecibidoEn,
+		&i.EnviadoAlAplicar,
 	)
 	return i, err
 }
 
 const equiposDeOrdenes = `-- name: EquiposDeOrdenes :many
-SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado FROM campo.orden_equipos WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
+SELECT id, orden_id, accion, unidad_id, serie, mac, modelo, condicion, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, validado, sale_unidad_id, motivo, destino_sale, cobro_motivo, cobro_nota, nota, foto_adjunto_id, lat, lon, precision_m, recibido_en, enviado_al_aplicar FROM campo.orden_equipos WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
 `
 
 func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenEquipo, error) {
@@ -1460,6 +1770,18 @@ func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]Camp
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Validado,
+			&i.SaleUnidadID,
+			&i.Motivo,
+			&i.DestinoSale,
+			&i.CobroMotivo,
+			&i.CobroNota,
+			&i.Nota,
+			&i.FotoAdjuntoID,
+			&i.Lat,
+			&i.Lon,
+			&i.PrecisionM,
+			&i.RecibidoEn,
+			&i.EnviadoAlAplicar,
 		); err != nil {
 			return nil, err
 		}
@@ -1469,6 +1791,21 @@ func (q *Queries) EquiposDeOrdenes(ctx context.Context, ordenes []int64) ([]Camp
 		return nil, err
 	}
 	return items, nil
+}
+
+const esBodegaDeTecnicoOCuadrilla = `-- name: EsBodegaDeTecnicoOCuadrilla :one
+SELECT (EXISTS (SELECT 1 FROM integracion.argos_bodegas_cuadrilla bc WHERE bc.bodega_id = $1::bigint)
+     OR EXISTS (SELECT 1 FROM integracion.argos_bodegas_tecnico bt WHERE bt.bodega_id = $1::bigint)
+     OR EXISTS (SELECT 1 FROM agenda.tecnicos ft WHERE ft.bodega_id = $1::bigint))::boolean
+`
+
+// La bodega es de una cuadrilla o la personal de un técnico según Argos (0.13.1 §3.9): desde el panel
+// no se usa (despacho solo con bodegas tipo = bodega).
+func (q *Queries) EsBodegaDeTecnicoOCuadrilla(ctx context.Context, bodega int64) (bool, error) {
+	row := q.db.QueryRow(ctx, esBodegaDeTecnicoOCuadrilla, bodega)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const esPlantillaDeTipo = `-- name: EsPlantillaDeTipo :one
@@ -1764,6 +2101,18 @@ func (q *Queries) FormulariosDeOrdenes(ctx context.Context, ordenes []int64) ([]
 		return nil, err
 	}
 	return items, nil
+}
+
+const fotoUsadaEnEquipo = `-- name: FotoUsadaEnEquipo :one
+SELECT EXISTS (SELECT 1 FROM campo.orden_equipos WHERE foto_adjunto_id = $1)::boolean
+`
+
+// La foto ya respalda otro cambio o intento (M-271-3).
+func (q *Queries) FotoUsadaEnEquipo(ctx context.Context, fotoAdjuntoID *uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, fotoUsadaEnEquipo, fotoAdjuntoID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const guardarAjustes = `-- name: GuardarAjustes :one
@@ -2342,6 +2691,52 @@ func (q *Queries) InsertarPosiciones(ctx context.Context, arg InsertarPosiciones
 	return result.RowsAffected(), nil
 }
 
+const intentosDeUnidadEnOrden = `-- name: IntentosDeUnidadEnOrden :one
+SELECT count(*)::int FROM campo.orden_equipos WHERE orden_id = $1 AND accion = 'no_recuperado' AND unidad_id = $2
+`
+
+type IntentosDeUnidadEnOrdenParams struct {
+	OrdenID  int64
+	UnidadID *int64
+}
+
+// Intentos de recuperación de la unidad en la orden (con Argos < 0.14.0, uno por unidad y orden).
+func (q *Queries) IntentosDeUnidadEnOrden(ctx context.Context, arg IntentosDeUnidadEnOrdenParams) (int32, error) {
+	row := q.db.QueryRow(ctx, intentosDeUnidadEnOrden, arg.OrdenID, arg.UnidadID)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const intentosNoRecuperado = `-- name: IntentosNoRecuperado :one
+SELECT count(*)::int FROM campo.orden_equipos
+WHERE accion = 'no_recuperado' AND unidad_id = $1
+  AND ((ocurrido_en >= $2 AND ocurrido_en < $3) OR (recibido_en >= $4 AND recibido_en < $5))
+`
+
+type IntentosNoRecuperadoParams struct {
+	UnidadID      *int64
+	Desde         time.Time
+	Hasta         time.Time
+	RecibidoDesde *time.Time
+	RecibidoHasta *time.Time
+}
+
+// Intentos de recuperación de la unidad en el día local, por la fecha del teléfono o por la hora en
+// que los recibió el servidor (A-271-2: una fecha de otro día no evade el límite).
+func (q *Queries) IntentosNoRecuperado(ctx context.Context, arg IntentosNoRecuperadoParams) (int32, error) {
+	row := q.db.QueryRow(ctx, intentosNoRecuperado,
+		arg.UnidadID,
+		arg.Desde,
+		arg.Hasta,
+		arg.RecibidoDesde,
+		arg.RecibidoHasta,
+	)
+	var column_1 int32
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const invalidarFirma = `-- name: InvalidarFirma :execrows
 UPDATE campo.firmas SET invalidada_en = $1, updated_at = now()
 WHERE orden_id = $2 AND invalidada_en IS NULL
@@ -2699,6 +3094,35 @@ func (q *Queries) ListarTipos(ctx context.Context) ([]CampoTiposOrden, error) {
 	return items, nil
 }
 
+const llegadaDelActor = `-- name: LlegadaDelActor :one
+SELECT ocurrido_en FROM campo.orden_eventos
+WHERE orden_id = $1 AND tipo = 'estado' AND a = 'en_sitio' AND de IN ('programada', 'en_camino')
+  AND actor_id = $2 AND ocurrido_en >= $3 AND ocurrido_en <= $4
+ORDER BY ocurrido_en DESC, id DESC
+LIMIT 1
+`
+
+type LlegadaDelActorParams struct {
+	OrdenID int64
+	ActorID *int64
+	Desde   time.Time
+	Hasta   time.Time
+}
+
+// La llegada del actor (0.13.1 §3.10): su último orden.llegar en la orden (programada o en camino →
+// en sitio), del mismo día y no posterior a la fecha.
+func (q *Queries) LlegadaDelActor(ctx context.Context, arg LlegadaDelActorParams) (time.Time, error) {
+	row := q.db.QueryRow(ctx, llegadaDelActor,
+		arg.OrdenID,
+		arg.ActorID,
+		arg.Desde,
+		arg.Hasta,
+	)
+	var ocurrido_en time.Time
+	err := row.Scan(&ocurrido_en)
+	return ocurrido_en, err
+}
+
 const marcaChecklist = `-- name: MarcaChecklist :one
 
 SELECT orden_id, item_id, valor, marcado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, formulario_id FROM campo.orden_checklist WHERE formulario_id = $1 AND item_id = $2
@@ -2793,8 +3217,18 @@ func (q *Queries) MarcarDatosArgos(ctx context.Context, arg MarcarDatosArgosPara
 	return items, nil
 }
 
+const marcarEnviadoAlAplicar = `-- name: MarcarEnviadoAlAplicar :exec
+UPDATE campo.orden_equipos SET enviado_al_aplicar = true WHERE id = $1
+`
+
+// El cambio o el intento ya se encoló hacia Argos al aplicarse (0.14.0 §3.10).
+func (q *Queries) MarcarEnviadoAlAplicar(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, marcarEnviadoAlAplicar, id)
+	return err
+}
+
 const materialPorID = `-- name: MaterialPorID :one
-SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad FROM campo.orden_materiales WHERE id = $1
+SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad, bodega_tipo, desde_tecnico FROM campo.orden_materiales WHERE id = $1
 `
 
 func (q *Queries) MaterialPorID(ctx context.Context, id uuid.UUID) (CampoOrdenMaterial, error) {
@@ -2815,12 +3249,14 @@ func (q *Queries) MaterialPorID(ctx context.Context, id uuid.UUID) (CampoOrdenMa
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Modalidad,
+		&i.BodegaTipo,
+		&i.DesdeTecnico,
 	)
 	return i, err
 }
 
 const materialesDeOrdenes = `-- name: MaterialesDeOrdenes :many
-SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad FROM campo.orden_materiales WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
+SELECT id, orden_id, producto_id, descripcion, cantidad, bodega_id, excede_existencia, registrado_por, canal, ocurrido_en, operacion_id, created_at, updated_at, modalidad, bodega_tipo, desde_tecnico FROM campo.orden_materiales WHERE orden_id = ANY($1::bigint[]) ORDER BY orden_id, ocurrido_en, created_at
 `
 
 func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]CampoOrdenMaterial, error) {
@@ -2847,7 +3283,40 @@ func (q *Queries) MaterialesDeOrdenes(ctx context.Context, ordenes []int64) ([]C
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Modalidad,
+			&i.BodegaTipo,
+			&i.DesdeTecnico,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const membresiasDe = `-- name: MembresiasDe :many
+SELECT cuadrilla_id, desde, hasta FROM agenda.cuadrilla_miembros WHERE usuario_id = $1 ORDER BY desde
+`
+
+type MembresiasDeRow struct {
+	CuadrillaID int64
+	Desde       time.Time
+	Hasta       *time.Time
+}
+
+// Los periodos del usuario en cada cuadrilla (agenda.cuadrilla_miembros, hora del servidor).
+func (q *Queries) MembresiasDe(ctx context.Context, usuarioID int64) ([]MembresiasDeRow, error) {
+	rows, err := q.db.Query(ctx, membresiasDe, usuarioID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []MembresiasDeRow
+	for rows.Next() {
+		var i MembresiasDeRow
+		if err := rows.Scan(&i.CuadrillaID, &i.Desde, &i.Hasta); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -4048,6 +4517,40 @@ func (q *Queries) PlantillasVisibles(ctx context.Context, arg PlantillasVisibles
 		return nil, err
 	}
 	return items, nil
+}
+
+const posicionDeReferencia = `-- name: PosicionDeReferencia :one
+SELECT lat, lon, registrada_en FROM campo.posiciones
+WHERE tecnico_id = $1 AND registrada_en <= $2 AND registrada_en >= $3 AND created_at <= $4
+ORDER BY registrada_en DESC
+LIMIT 1
+`
+
+type PosicionDeReferenciaParams struct {
+	TecnicoID     int64
+	Hasta         time.Time
+	Desde         time.Time
+	RecibidoAntes time.Time
+}
+
+type PosicionDeReferenciaRow struct {
+	Lat          float64
+	Lon          float64
+	RegistradaEn time.Time
+}
+
+// La última posición del técnico en los 30 min anteriores a la fecha del intento, contando solo las
+// que Iris recibió antes de aceptar el lote (0.13.1 §3.10; M-271-4).
+func (q *Queries) PosicionDeReferencia(ctx context.Context, arg PosicionDeReferenciaParams) (PosicionDeReferenciaRow, error) {
+	row := q.db.QueryRow(ctx, posicionDeReferencia,
+		arg.TecnicoID,
+		arg.Hasta,
+		arg.Desde,
+		arg.RecibidoAntes,
+	)
+	var i PosicionDeReferenciaRow
+	err := row.Scan(&i.Lat, &i.Lon, &i.RegistradaEn)
+	return i, err
 }
 
 const posicionesCercanas = `-- name: PosicionesCercanas :many

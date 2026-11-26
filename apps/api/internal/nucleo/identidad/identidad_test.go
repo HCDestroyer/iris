@@ -85,7 +85,7 @@ func TestSemillaIdempotenteYRolesBase(t *testing.T) {
 	if !slices.Equal(porCodigo["lectura"].Permisos, []nucleo.Permiso{nucleo.PermAgendaVer, nucleo.PermChatVer, nucleo.PermClientesVer, nucleo.PermConversacionesVer, nucleo.PermLlamadasVer, nucleo.PermManualesVer, nucleo.PermOrdenesVer, nucleo.PermPermisosVer, nucleo.PermProspectosVer, nucleo.PermReportesVer, nucleo.PermRolesVer, nucleo.PermRutasVer, nucleo.PermTicketsVer, nucleo.PermUsuariosVer}) {
 		t.Fatalf("lectura: %v", porCodigo["lectura"].Permisos)
 	}
-	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermCuadrillasLeerIntegracion, nucleo.PermIntegracionesVerCapacidades, nucleo.PermMensajeriaEnviar, nucleo.PermMensajeriaRegistrarConsentimiento,
+	if !slices.Equal(porCodigo["integracion_argos"].Permisos, []nucleo.Permiso{nucleo.PermAdjuntosVerificarIntegracion, nucleo.PermCuadrillasLeerIntegracion, nucleo.PermIntegracionesVerCapacidades, nucleo.PermMensajeriaEnviar, nucleo.PermMensajeriaRegistrarConsentimiento,
 		nucleo.PermMensajeriaVer, nucleo.PermOrdenesVer, nucleo.PermPlantillasWhatsAppLeerIntegracion, nucleo.PermPortalEmitir,
 		// Portal del cliente de Argos (0.9.0 §11): solo valen en el token_portal.
 		nucleo.PermPortalArgosConfirmarSolucion, nucleo.PermPortalArgosCrearTicket, nucleo.PermPortalArgosResponderTicket,

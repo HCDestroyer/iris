@@ -64,6 +64,14 @@ type AgendaCuadrilla struct {
 	VersionArgos  int32
 }
 
+type AgendaCuadrillaMiembro struct {
+	ID          int64
+	UsuarioID   int64
+	CuadrillaID int64
+	Desde       time.Time
+	Hasta       *time.Time
+}
+
 type AgendaCuadrillaZona struct {
 	CuadrillaID int64
 	ZonaID      int64
@@ -166,6 +174,8 @@ type AgendaTecnico struct {
 	ArgosNombre       *string
 	ArgosVinculadoEn  *time.Time
 	ArgosVinculadoPor *int64
+	VersionVinculo    int32
+	ArgosConectorID   *int64
 }
 
 type AgendaTurno struct {
@@ -322,21 +332,33 @@ type CampoOrdenChecklistHistorial struct {
 }
 
 type CampoOrdenEquipo struct {
-	ID            uuid.UUID
-	OrdenID       int64
-	Accion        string
-	UnidadID      *int64
-	Serie         *string
-	Mac           *string
-	Modelo        string
-	Condicion     *string
-	RegistradoPor *int64
-	Canal         string
-	OcurridoEn    time.Time
-	OperacionID   pgtype.UUID
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
-	Validado      bool
+	ID               uuid.UUID
+	OrdenID          int64
+	Accion           string
+	UnidadID         *int64
+	Serie            *string
+	Mac              *string
+	Modelo           string
+	Condicion        *string
+	RegistradoPor    *int64
+	Canal            string
+	OcurridoEn       time.Time
+	OperacionID      pgtype.UUID
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	Validado         bool
+	SaleUnidadID     *int64
+	Motivo           *string
+	DestinoSale      *string
+	CobroMotivo      *string
+	CobroNota        *string
+	Nota             *string
+	FotoAdjuntoID    pgtype.UUID
+	Lat              *float64
+	Lon              *float64
+	PrecisionM       *float32
+	RecibidoEn       *time.Time
+	EnviadoAlAplicar bool
 }
 
 type CampoOrdenEvento struct {
@@ -388,6 +410,8 @@ type CampoOrdenMateriale struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Modalidad        *string
+	BodegaTipo       *string
+	DesdeTecnico     bool
 }
 
 type CampoOrdenNota struct {
@@ -815,6 +839,25 @@ type IntegracionAbrirArgosCuota struct {
 	Pedidos   int32
 }
 
+type IntegracionArgosBodegasCuadrilla struct {
+	BodegaID    int64
+	EmpresaID   int64
+	CuadrillaID int64
+	Nombre      *string
+	VistoEn     time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type IntegracionArgosBodegasTecnico struct {
+	BodegaID  int64
+	EmpresaID int64
+	UsuarioID int64
+	VistoEn   time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type IntegracionArgosCertificado struct {
 	ID            int64
 	ConectorID    int64
@@ -1034,6 +1077,7 @@ type IntegracionArgosTraslado struct {
 	EntranteID       *int64
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	CuadrillaID      *int64
 }
 
 type IntegracionArgosZona struct {
@@ -1106,6 +1150,10 @@ type IntegracionConectore struct {
 	VersionDetalle              *string
 	EliminadoEn                 *time.Time
 	EliminadoPor                *int64
+	VinculosCargaID             pgtype.UUID
+	VinculosCargaN              *int32
+	VinculosCargadosEn          *time.Time
+	VinculosCargaAvisadaEn      *time.Time
 }
 
 type IntegracionDatosTransito struct {
@@ -1156,51 +1204,60 @@ type IntegracionOutbox struct {
 }
 
 type IntegracionPendiente struct {
-	ID                int64
-	EmpresaID         *int64
-	Sistema           string
-	Operacion         string
-	IdempotencyKey    string
-	Entidad           string
-	EntidadID         string
-	Metodo            string
-	Ruta              string
-	Payload           []byte
-	DependeDe         []int64
-	DatosIncompletos  bool
-	Estado            string
-	Intentos          int32
-	ProximoIntento    time.Time
-	TomadoEn          *time.Time
-	UltimoError       *string
-	UltimoStatus      *int32
-	HechoEn           *time.Time
-	EventoID          pgtype.UUID
-	Version           int32
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	Conflicto         *string
-	ConflictoPayload  []byte
-	ConflictoEn       *time.Time
-	Respuesta         []byte
-	Plantilla         []byte
-	PorResolver       bool
-	Verificar         []string
-	TecnicoUsuarioID  *int64
-	CodigoError       *string
-	ResueltoMotivo    *string
-	ResueltoPor       *int64
-	ResueltoEn        *time.Time
-	Actor             *string
-	TransitoID        pgtype.UUID
-	ResueltoComo      *string
-	ResueltoClienteID *int64
+	ID                    int64
+	EmpresaID             *int64
+	Sistema               string
+	Operacion             string
+	IdempotencyKey        string
+	Entidad               string
+	EntidadID             string
+	Metodo                string
+	Ruta                  string
+	Payload               []byte
+	DependeDe             []int64
+	DatosIncompletos      bool
+	Estado                string
+	Intentos              int32
+	ProximoIntento        time.Time
+	TomadoEn              *time.Time
+	UltimoError           *string
+	UltimoStatus          *int32
+	HechoEn               *time.Time
+	EventoID              pgtype.UUID
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	Conflicto             *string
+	ConflictoPayload      []byte
+	ConflictoEn           *time.Time
+	Respuesta             []byte
+	Plantilla             []byte
+	PorResolver           bool
+	Verificar             []string
+	TecnicoUsuarioID      *int64
+	CodigoError           *string
+	ResueltoMotivo        *string
+	ResueltoPor           *int64
+	ResueltoEn            *time.Time
+	Actor                 *string
+	TransitoID            pgtype.UUID
+	ResueltoComo          *string
+	ResueltoClienteID     *int64
+	EnviadoAConector      *int64
+	EsperandoVinculoDesde *time.Time
 }
 
 type IntegracionPortalArgosMinuto struct {
 	ConectorID int64
 	Minuto     time.Time
 	Peticiones int32
+}
+
+type IntegracionVerificacionesIntento struct {
+	ID           int64
+	ConectorID   int64
+	Clave        string
+	ConsultadaEn time.Time
 }
 
 type MensajeriaAjustesBandeja struct {
@@ -2535,6 +2592,8 @@ type MensajeriaWebhooksSalida struct {
 	EntregadoEn    *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	ConectorOrigen *int64
+	CargaID        pgtype.UUID
 }
 
 type NotificacionesAviso struct {
