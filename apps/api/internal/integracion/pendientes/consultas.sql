@@ -53,8 +53,11 @@ SELECT EXISTS (
 )::boolean;
 
 -- name: ConectorDeToken :one
--- El conector Argos al que Iris entregó este token (el que consulta la verificación).
-SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = @token_id;
+-- El conector Argos al que Iris entregó este token (el que consulta la verificación), solo si Iris
+-- ya le informó contrato ≥ 0.14.0 (§4.5: la verificación y su permiso van detrás de esa versión).
+SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = @token_id
+  AND CASE WHEN contrato_informado ~ '^[0-9]+\.[0-9]+\.[0-9]+$'
+           THEN string_to_array(contrato_informado, '.')::int[] >= '{0,14,0}'::int[] ELSE false END;
 
 -- name: ContarVerificaciones :one
 -- Consultas de verificación del conector en el último minuto y de la clave desde @dia.
@@ -317,6 +320,58 @@ SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_por = 
 WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
 RETURNING *;
 
+-- name: EstadoVinculo :one
+-- 0.14.0 §6.6: el estado del vínculo VIGENTE del técnico en la empresa (M-3: el último
+-- tecnico.argos_* emitido para esa empresa, comparado con el id_externo de la ficha, no la última
+-- fila de webhook) y de su webhook hacia este conector. Estados: entregado, pendiente, agotado,
+-- omitido (de su webhook); sin_programar (aún en el outbox); otro_conector; sin_vinculo; carga_abierta
+-- (el conector aún no cerró su carga inicial de vínculos: tras reconectar, nada se hereda). motivo: el de
+-- un omitido (prefijo de ultimo_error: sin_receptor, otro_conector, empresa_no_permitida).
+SELECT CASE WHEN (SELECT c.vinculos_cargados_en FROM integracion.conectores c WHERE c.id = @conector_id::bigint) IS NULL THEN 'carga_abierta'
+            ELSE coalesce(v.estado, 'sin_vinculo') END::text AS estado,
+       coalesce(v.motivo, '')::text AS motivo
+FROM agenda.tecnicos t
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN o.evento <> 'tecnico.argos_vinculado' OR t.argos_id_externo IS NULL OR o.payload->>'id_externo' <> t.argos_id_externo THEN 'sin_vinculo'
+        WHEN w.id IS NULL THEN 'sin_programar'
+        WHEN w.conector_origen IS DISTINCT FROM @conector_id::bigint THEN 'otro_conector'
+        ELSE w.estado END AS estado,
+        CASE WHEN w.estado = 'omitido' THEN split_part(coalesce(w.ultimo_error, ''), ':', 1) END AS motivo
+    FROM integracion.outbox o LEFT JOIN mensajeria.webhooks_salida w ON w.id = o.id
+    WHERE o.evento IN ('tecnico.argos_vinculado', 'tecnico.argos_desvinculado')
+      AND (o.payload->>'tecnico_id')::bigint = t.id AND (o.payload->>'empresa_id')::bigint = @empresa_id::bigint
+    ORDER BY (o.payload->>'version')::int DESC, o.id DESC LIMIT 1) v ON true
+WHERE t.usuario_id = @usuario_id::bigint;
+
+-- name: PostergarPendiente :one
+-- Espera una dependencia que no es otro pendiente (el vinculado del técnico): vuelve a pendiente sin
+-- gastar un intento. esperando_vinculo_desde guarda el comienzo de la espera (tope de 24 h).
+UPDATE integracion.pendientes SET estado = 'pendiente', proximo_intento = @proximo_intento, tomado_en = NULL,
+    ultimo_error = @ultimo_error, codigo_error = @codigo_error, updated_at = now(),
+    esperando_vinculo_desde = coalesce(esperando_vinculo_desde, @ahora)
+WHERE id = @id AND estado = 'en_curso'
+RETURNING esperando_vinculo_desde::timestamptz;
+
+-- name: BloquearPorVinculo :one
+-- El vinculado agotó sus reintentos o la espera llegó al tope: bloqueado a la vista, sin depende_de.
+UPDATE integracion.pendientes SET estado = 'bloqueado', tomado_en = NULL, ultimo_error = @ultimo_error,
+    codigo_error = 'depende_de_vinculado', version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('en_curso', 'pendiente')
+RETURNING *;
+
+-- name: BloqueadosPorVinculo :many
+SELECT * FROM integracion.pendientes WHERE estado = 'bloqueado' AND codigo_error = 'depende_de_vinculado' ORDER BY id LIMIT 500;
+
+-- name: DesbloquearPorVinculo :one
+-- El vinculado tuvo su 2xx: vuelve a la cola, con la espera en cero.
+UPDATE integracion.pendientes SET estado = 'pendiente', proximo_intento = @ahora, ultimo_error = NULL, codigo_error = NULL,
+    esperando_vinculo_desde = NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'bloqueado' AND codigo_error = 'depende_de_vinculado'
+RETURNING *;
+
+-- name: TerminarEsperaVinculo :exec
+UPDATE integracion.pendientes SET esperando_vinculo_desde = NULL WHERE id = @id;
 -- --- Depósito de tránsito (contrato 0.10.0 §3.4.8) --------------------------------------------
 
 -- name: GuardarTransito :exec

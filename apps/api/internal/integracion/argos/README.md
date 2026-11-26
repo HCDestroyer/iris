@@ -417,6 +417,29 @@ partes (ficha, ticket, orden, comercial y app de campo).
   `PUT /integraciones/iris/contrato`. Cada función nueva sigue dependiendo del contrato que informó Argos
   (§4.1): con un Argos de contrato < 0.8.0 se comporta como en 0.7.1 y el conector queda en `ok`.
 
+## Contrato 0.14.0: carga de vínculos y permiso de la verificación (§4.5, §6.6)
+
+Detrás de la versión que informa Iris (`Config.ContratoIris`, por defecto `ContratoIris`): con 0.14.0
+informado y aceptado por un Argos que lo habla, una vez por conector, `InformarContrato` suma
+`adjuntos.verificar_integracion` al `iris_pat_` vigente (si tiene lista de permisos) y pide a agenda la carga
+inicial de vínculos (`Config.Vinculos` / `UsarVinculos`). El job `integracion.argos_cerrar_carga_vinculos`
+(cada minuto) cierra la carga con `PUT /integraciones/iris/contrato { contrato, receptor_argos,
+vinculos_cargados }` cuando todos sus vinculados tuvieron el `2xx` (los omitidos no cuentan; uno agotado la
+deja abierta). Columnas: `integracion.conectores.vinculos_carga_id`, `vinculos_carga_n`,
+`vinculos_cargados_en`. Con un vinculado de la carga `agotado`, la carga no se cierra y se emite
+`argos.carga_vinculos_detenida` una vez por episodio (`vinculos_carga_avisada_en`; aviso de campana al
+admin).
+
+**Reconexión (A-1).** Al activar un conector de la misma instancia de Argos que otro
+(`integracion.misma_instancia_argos`: `base_url` normalizada —host en minúsculas, sin punto final ni puerto
+por defecto; se guarda así desde el canje, y la migración normalizó las ya guardadas; el receptor de
+webhooks que manda Argos se compara y se guarda igual— y, si los dos lo traen, el mismo `remoto_id`), `migrarVinculos`
+pasa al nuevo, en la transacción de la activación, los `agenda.tecnicos.argos_conector_id` y el
+`conector_origen` de los webhooks `tecnico.argos_*` aún sin entregar. Lo entregado y la carga cerrada no se
+heredan: el conector nuevo corre su carga inicial al informar 0.14.0 (reemite los vinculados con versión
+mayor) y, hasta cerrarla, `depende_de` espera. Un evento que seguía en el outbox con el conector viejo se
+programa hacia el activo de la misma instancia (mensajeria).
+
 ## Contrato 0.7.1 (A24)
 
 - Iris informó `0.7.1` hasta la 0.8.1. Es aditivo: con un Argos 1.15.x (que solo conoce 0.7.0) todo sigue igual. Iris informa

@@ -186,6 +186,17 @@ ficha expone `argos { idExterno, correo, nombre, vinculadoEn }`. No usa el vínc
 - Las rutas llaman a `CrearTecnicoVerificado` y `EditarTecnicoVerificado`. Si se llama al caso de
   uso sin esa verificación, también responde 422.
 
+## Vínculo del técnico hacia Argos (contrato 0.14.0 §6.6, `vinculos_argos.go`)
+
+- `tecnico.argos_vinculado` / `tecnico.argos_desvinculado`: uno por empresa del usuario, cada uno con una
+  `version` nueva (`agenda.tecnicos.version_vinculo`) y el conector del que salió el vínculo
+  (`argos_conector_id`, fijado al vincular). Salen al vincular y desvincular, al activar o desactivar la ficha
+  (`motivo: desactivado`), al desactivar el usuario y al asignarle o quitarle una empresa (solo en ella).
+- `CargarVinculos`: la carga inicial al informar 0.14.0 (la llama argos), con `carga_id`.
+- `GET /api/v1/integraciones/argosisp/tecnicos/{usuario_id}?empresa_id=` (`cuadrillas.leer_integracion`):
+  `{ tecnico_id, usuario_id, empresa_id, id_externo, version, activo }`, solo para el conector del vínculo;
+  fuera del alcance, sin ficha, sin la empresa o de otro conector, el mismo `404`.
+
 ## Huecos ofrecibles para el asistente (`huecos.go`)
 
 Lo usa mensajería para `agendar_visita` (`contratos/conversaciones.md` §17.10). Sin HTTP, sin eventos

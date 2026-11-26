@@ -174,6 +174,8 @@ type AgendaTecnico struct {
 	ArgosNombre       *string
 	ArgosVinculadoEn  *time.Time
 	ArgosVinculadoPor *int64
+	VersionVinculo    int32
+	ArgosConectorID   *int64
 }
 
 type AgendaTurno struct {
@@ -1113,6 +1115,10 @@ type IntegracionConectore struct {
 	VersionDetalle              *string
 	EliminadoEn                 *time.Time
 	EliminadoPor                *int64
+	VinculosCargaID             *uuid.UUID
+	VinculosCargaN              *int32
+	VinculosCargadosEn          *time.Time
+	VinculosCargaAvisadaEn      *time.Time
 }
 
 type IntegracionDatosTransito struct {
@@ -1163,46 +1169,47 @@ type IntegracionOutbox struct {
 }
 
 type IntegracionPendiente struct {
-	ID                int64
-	EmpresaID         *int64
-	Sistema           string
-	Operacion         string
-	IdempotencyKey    string
-	Entidad           string
-	EntidadID         string
-	Metodo            string
-	Ruta              string
-	Payload           []byte
-	DependeDe         []int64
-	DatosIncompletos  bool
-	Estado            string
-	Intentos          int32
-	ProximoIntento    time.Time
-	TomadoEn          *time.Time
-	UltimoError       *string
-	UltimoStatus      *int32
-	HechoEn           *time.Time
-	EventoID          *uuid.UUID
-	Version           int32
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
-	Conflicto         *string
-	ConflictoPayload  []byte
-	ConflictoEn       *time.Time
-	Respuesta         []byte
-	Plantilla         []byte
-	PorResolver       bool
-	Verificar         []string
-	TecnicoUsuarioID  *int64
-	CodigoError       *string
-	ResueltoMotivo    *string
-	ResueltoPor       *int64
-	ResueltoEn        *time.Time
-	Actor             *string
-	TransitoID        *uuid.UUID
-	ResueltoComo      *string
-	ResueltoClienteID *int64
-	EnviadoAConector  *int64
+	ID                    int64
+	EmpresaID             *int64
+	Sistema               string
+	Operacion             string
+	IdempotencyKey        string
+	Entidad               string
+	EntidadID             string
+	Metodo                string
+	Ruta                  string
+	Payload               []byte
+	DependeDe             []int64
+	DatosIncompletos      bool
+	Estado                string
+	Intentos              int32
+	ProximoIntento        time.Time
+	TomadoEn              *time.Time
+	UltimoError           *string
+	UltimoStatus          *int32
+	HechoEn               *time.Time
+	EventoID              *uuid.UUID
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	Conflicto             *string
+	ConflictoPayload      []byte
+	ConflictoEn           *time.Time
+	Respuesta             []byte
+	Plantilla             []byte
+	PorResolver           bool
+	Verificar             []string
+	TecnicoUsuarioID      *int64
+	CodigoError           *string
+	ResueltoMotivo        *string
+	ResueltoPor           *int64
+	ResueltoEn            *time.Time
+	Actor                 *string
+	TransitoID            *uuid.UUID
+	ResueltoComo          *string
+	ResueltoClienteID     *int64
+	EnviadoAConector      *int64
+	EsperandoVinculoDesde *time.Time
 }
 
 type IntegracionVerificacionesIntento struct {
@@ -2544,6 +2551,8 @@ type MensajeriaWebhooksSalida struct {
 	EntregadoEn    *time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	ConectorOrigen *int64
+	CargaID        *uuid.UUID
 }
 
 type NotificacionesAviso struct {

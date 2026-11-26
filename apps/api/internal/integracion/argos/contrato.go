@@ -389,11 +389,11 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	// receptor_argos (0.6.2): true si el conector tiene guardado el receptor de Argos (url y secreto
 	// cifrado, §6.6). Los canjeados antes de B1 no lo tienen: false, y Argos pide reconectar.
 	receptor := c.WebhookSalidaUrl != nil && len(c.WebhookSalidaSecretoCifrado) > 0
-	errPut := cli.Pedir(ctx, http.MethodPut, rutaContrato, nil, map[string]any{"contrato": ContratoIris, "receptor_argos": receptor}, true,
+	errPut := cli.Pedir(ctx, http.MethodPut, rutaContrato, nil, map[string]any{"contrato": k.m.contratoIris(), "receptor_argos": receptor}, true,
 		&conector.Recurso{Destino: &puesto})
 	var put lectura
 	if errPut == nil {
-		informado := ContratoIris
+		informado := k.m.contratoIris()
 		in.Informado = &informado
 		in.Version, in.Contrato = conector.TextoVersion(puesto.VersionArgos, 40), conector.TextoVersion(puesto.Contrato, 20)
 		put = lectura{estado: VersionOK}
@@ -445,6 +445,16 @@ func (k *InformarContrato) Ejecutar(ctx context.Context, conectorID int64) (Resu
 	r, err := k.guardar.Ejecutar(ctx, in)
 	if err != nil {
 		return r, err
+	}
+	// 0.14.0 §4.5 y §6.6: con 0.14.0 informado y aceptado, el permiso de la verificación y la carga
+	// inicial de vínculos (una vez por conector); se cierra cuando todos tuvieron su 2xx.
+	if errPut == nil {
+		if err := k.iniciarCargaVinculos(ctx, r); err != nil {
+			return r, err
+		}
+		if _, err := k.m.CerrarCargaVinculos(ctx); err != nil && !EsCaido(err) {
+			return r, err
+		}
 	}
 	// Argos caído: River reintenta (el diagnóstico ya quedó guardado).
 	if errGet != nil && EsCaido(errGet) {

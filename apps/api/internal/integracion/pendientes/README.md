@@ -98,7 +98,28 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 ## Eventos
 
 Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agotado`,
-`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado` y `_resuelto_manual` (contratos/eventos.md, «Pendientes hacia Argos»).
+`_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado`, `_resuelto_manual` y
+`_clave_reutilizada` (contratos/eventos.md, «Pendientes hacia Argos»).
+
+## Contrato 0.14.0: vínculo del técnico y clave reutilizada (§6.6, §3.10)
+
+- **`depende_de` el vinculado (`vinculo.go`).** Con Iris informando 0.14.0 (`argos.Config.ContratoIris`) y
+  un Argos que lo habla, una operación que lleva `tecnico` (arriba o en una línea) no sale antes del `2xx`
+  del `tecnico.argos_vinculado` VIGENTE de su técnico en esa empresa (el último `tecnico.argos_*` emitido,
+  con el `id_externo` de la ficha) hacia el conector activo. Sin `2xx` todavía, espera cada
+  `EsperaVinculo` (1 min) con `codigo_error = depende_de_vinculado`, sin gastar intentos, hasta
+  `TopeEsperaVinculo` (24 h, desde `esperando_vinculo_desde`). Al tope, o si el vinculado quedó `agotado`,
+  pasa a `bloqueado` (`integracion.pendiente_bloqueado` con `depende_de: null`), y vuelve solo a la cola
+  (`_desbloqueado`) cuando el vinculado tiene el `2xx` (se reenvía con `POST
+  /mensajeria/webhooks-salida/{id}/reenviar`). Mientras el conector activo no cierre su carga inicial de vínculos
+  (`carga_abierta`, p. ej. tras reconectar) también espera. Un vinculado `omitido` deja la operación
+  `fallido_negocio` con el motivo del omitido: `empresa_no_permitida` (fuera del alcance), `sin_receptor`
+  (el conector no informó su receptor) u `otro_conector`. Un bloqueado solo se desbloquea con el `2xx`
+  (sin conector activo sigue bloqueado).
+- **Clave reutilizada.** Un `422 idempotency_key_reutilizada` deja el pendiente `fallido_negocio` y emite
+  `integracion.pendiente_clave_reutilizada` (`seguridad` en cambios e intentos): la campana avisa al admin.
+- **Verificación.** `GET …/intentos-recuperacion/verificacion` solo responde a un conector al que Iris ya
+  informó 0.14.0; antes, el mismo `404`.
 
 ## Contrato 0.12.0: equipos del cliente (B27)
 

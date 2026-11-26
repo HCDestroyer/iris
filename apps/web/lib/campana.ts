@@ -1,5 +1,5 @@
 import type { Schema } from "@iris/contratos";
-import { Activity, Bell, BriefcaseBusiness, FileWarning, Gauge, PhoneMissed, RefreshCw, Server, ShieldAlert, Sparkles, UserCog, type LucideIcon } from "lucide-react";
+import { Activity, Bell, BriefcaseBusiness, FileWarning, Gauge, KeyRound, PhoneMissed, RefreshCw, Server, ShieldAlert, Sparkles, Unlink, UserCog, type LucideIcon } from "lucide-react";
 import { textoPausado } from "./asistente/presentacion";
 
 /*
@@ -8,6 +8,9 @@ import { textoPausado } from "./asistente/presentacion";
  * tope del mes. `servidor_ia_caido`, `servidor_ia_incompatible` y `servidor_ia_umbral`
  * (contratos/voz.md §4.12): uno por episodio, a quien administra la instalación. `argos_certificado`
  * (contrato con Argos 0.8.0 §1.5): cambió el certificado de la API de Argos; solo informa.
+ * `argos_clave_reutilizada` (0.14.0 §3.10): Argos tiene otra acción con la clave de una de Iris; la
+ * acción quedó para una persona (`peligro` si es un cambio o un intento de recuperación).
+ * `argos_carga_vinculos` (0.14.0 §6.6): la carga de vínculos de técnicos con Argos está detenida.
  * `posible_falla_general` (contrato con Argos 0.13.0 §3.11): muchas caídas en pocos minutos; enlace al ticket.
  * `verificacion_vencida`: el cliente no confirmó tras una falla general y el ticket volvió a abierto. `venta_revisada`
  * (0.10.0 §3.4.8, B20): la instalación cambió el plan o el titular de una venta del vendedor. A los
@@ -24,7 +27,7 @@ export function tonoAvisoPanel(nivel: AvisoPanel["nivel"]): "info" | "warning" |
     return nivel === "peligro" ? "error" : nivel === "alerta" ? "warning" : "info";
 }
 
-const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert, posible_falla_general: Activity, verificacion_vencida: PhoneMissed, venta_revisada: BriefcaseBusiness, paso_titular: UserCog, contrato_sin_firma: FileWarning };
+const ICONO_TIPO: Record<AvisoPanel["tipo"], LucideIcon> = { asistente_tope: Sparkles, servidor_ia_caido: Server, servidor_ia_incompatible: RefreshCw, servidor_ia_umbral: Gauge, argos_certificado: ShieldAlert, argos_clave_reutilizada: KeyRound, argos_carga_vinculos: Unlink, posible_falla_general: Activity, verificacion_vencida: PhoneMissed, venta_revisada: BriefcaseBusiness, paso_titular: UserCog, contrato_sin_firma: FileWarning };
 
 /** El icono del tipo; uno que este panel aún no conoce (o un nombre heredado como «constructor») lleva la campana. */
 export function iconoAvisoPanel(tipo: AvisoPanel["tipo"]): LucideIcon {
@@ -66,6 +69,12 @@ export function detalleAvisoPanel(a: Pick<AvisoPanel, "tipo" | "nivel" | "datos"
     if (tipo === "servidor_ia_caido") return `Lo que el asistente atendía solo pasa a personas hasta que vuelva. Iris lo sigue intentando sola.${repetido}`;
     if (tipo === "servidor_ia_incompatible") return `El asistente no lo usa hasta actualizar. El tablero dice qué hay que actualizar.${repetido}`;
     if (tipo === "servidor_ia_umbral") return `${detalleUmbral(a.datos)}${repetido}`;
+    if (tipo === "argos_carga_vinculos") return "Algún vínculo de técnico no llegó a Argos tras varios intentos. Reenvíalo desde la conexión con Argos; mientras tanto, Argos no acepta material con técnico.";
+    if (tipo === "argos_clave_reutilizada") {
+        return a.datos["seguridad"] === true
+            ? "Puede ser un intento ajeno. Iris no lo reintenta: revisa la acción en Argos antes de resolverla."
+            : "Iris no la reintenta: revisa en Argos qué quedó con esa clave y resuélvela a mano.";
+    }
     if (tipo === "argos_certificado") return "Lo normal es la renovación automática del certificado. Iris no detuvo nada; si no la esperabas, revisa el servidor de Argos.";
     if (tipo === "paso_titular") return "Lo hecho en Argos no se deshace solo: revisa la orden y, si hace falta, corrígelo en Argos.";
     if (tipo === "contrato_sin_firma") return "Argos ya tiene el cambio, pero el titular no firmó el contrato nuevo: consigue su firma o corrígelo en Argos.";

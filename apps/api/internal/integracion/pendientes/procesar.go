@@ -44,6 +44,10 @@ func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 	if _, err := m.BarrerFotos(ctx); err != nil {
 		return 0, fmt.Errorf("pendientes: revisar fotos de intentos: %w", err)
 	}
+	// Bloqueados por el vinculado de su técnico que ya tuvo el 2xx: vuelven a la cola.
+	if err := m.desbloquearPorVinculo(ctx, ahora); err != nil {
+		return 0, fmt.Errorf("pendientes: desbloquear por vínculo: %w", err)
+	}
 	n := 0
 	for n < maxPorCorrida {
 		f, ok, err := m.tomar(ctx, ahora)
@@ -51,6 +55,12 @@ func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 			return n, err
 		}
 		n++
+		// 0.14.0 §6.6: la operación con `tecnico` no sale antes del 2xx del vinculado de su técnico.
+		if sigue, err := m.dependeDeVinculo(ctx, f, ahora); err != nil {
+			return n, err
+		} else if !sigue {
+			continue
+		}
 		res := m.intentar(ctx, f)
 		res.ahora = ahora
 		if _, err := m.resolver.Ejecutar(ctx, res); err != nil {
@@ -559,6 +569,14 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				map[string]any{"estado": f.Estado, "intentos": f.Intentos})
 			if evento != "" {
 				if err := t.Emitir(evento, payload); err != nil {
+					return Pendiente{}, err
+				}
+			}
+			if f.Estado == EstadoFallidoNegocio && in.Codigo == CodigoIdempotenciaReutilizada {
+				// Nunca la clave ni los cuerpos: el aviso lleva al pendiente.
+				if err := t.Emitir(EventoClaveReutilizada, map[string]any{"pendiente_id": f.ID, "operacion": f.Operacion,
+					"entidad": f.Entidad, "entidad_id": f.EntidadID, "empresa_id": f.EmpresaID,
+					"seguridad": f.Operacion == OpCambio || f.Operacion == OpNoRecuperado}); err != nil {
 					return Pendiente{}, err
 				}
 			}

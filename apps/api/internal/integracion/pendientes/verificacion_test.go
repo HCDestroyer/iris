@@ -25,7 +25,7 @@ func (e *entorno) tokenArgos(entregado bool, permisos []nucleo.Permiso, empresas
 		e.t.Fatal(err)
 	}
 	if entregado {
-		e.exec(`UPDATE integracion.conectores SET token_entregado_id = $2 WHERE id = $1`, e.conID, token)
+		e.exec(`UPDATE integracion.conectores SET token_entregado_id = $2, contrato_informado = '0.14.0' WHERE id = $1`, e.conID, token)
 	}
 	mapa := map[string][]contexto.Alcance{}
 	for _, p := range permisos {
@@ -247,5 +247,23 @@ func TestIntentoConFotoCompletaFueraDeVentana(t *testing.T) {
 	p := e.pendientes(orden)["iris:no_recuperado:"+orden+":122:"+intento]
 	if p.Estado != "fallido_negocio" || e.contar(`SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND codigo_error = $2`, p.ID, pendientes.CodigoFotoFueraDeVentana) != 1 {
 		t.Fatalf("fuera de la ventana: %+v", p)
+	}
+}
+
+// 0.14.0 §4.5: la verificación solo responde a un conector al que Iris ya informó 0.14.0; antes,
+// el mismo 404 que una clave que no existe (el permiso del token no basta).
+func TestVerificacionSoloConContrato014Informado(t *testing.T) {
+	e := nuevoEntorno(t)
+	e.argos16()
+	e.contrato("0.14.0")
+	argos := e.tokenArgos(true, []nucleo.Permiso{nucleo.PermAdjuntosVerificarIntegracion}, 1)
+	clave := "iris:no_recuperado:" + nuevaOrden() + ":1:" + uuid.Must(uuid.NewV7()).String()
+	e.exec(`UPDATE integracion.conectores SET contrato_informado = '0.8.1' WHERE id = $1`, e.conID)
+	_, err := e.m.VerificarIntento(argos, pendientes.EntradaVerificarIntento{EmpresaID: 1, IdempotencyKey: clave})
+	if s, codigo := codigoDe(t, err); s != 404 || codigo != "no_encontrado" {
+		t.Fatalf("con 0.8.1 informado: %d %s", s, codigo)
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.verificaciones_intento WHERE clave = $1`, clave); n != 0 {
+		t.Fatalf("sin conector habilitado no cuenta para el tope: %d", n)
 	}
 }

@@ -220,8 +220,15 @@ SELECT id FROM mensajeria.entrantes WHERE procesado_en IS NULL AND created_at < 
 -- name: InsertarWebhookSalida :exec
 -- proximo_intento con el reloj del módulo (no el now() de la base): el despacho compara contra ese
 -- mismo reloj, y en las pruebas es fijo.
-INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento)
-VALUES (@id, @evento, @empresa_id, @payload, @ocurrido_en, @proximo_intento)
+-- 0.14.0 §6.6: un conector de origen ya reemplazado por el activo de la misma instancia de Argos (una
+-- reconexión con el evento aún en el outbox) pasa al activo.
+INSERT INTO mensajeria.webhooks_salida (id, evento, empresa_id, payload, ocurrido_en, proximo_intento, conector_origen, carga_id)
+VALUES (@id, @evento, @empresa_id, @payload, @ocurrido_en, @proximo_intento,
+        coalesce((SELECT a.id FROM integracion.conectores a
+                  WHERE a.sistema = 'argosisp' AND a.estado = 'activo' AND a.id <> sqlc.narg(conector_origen)::bigint
+                    AND integracion.misma_instancia_argos(a.id, sqlc.narg(conector_origen)::bigint)
+                  ORDER BY a.id DESC LIMIT 1), sqlc.narg(conector_origen)::bigint),
+        sqlc.narg(carga_id))
 ON CONFLICT (id) DO NOTHING;
 
 -- name: WebhooksPorEnviar :many
@@ -257,9 +264,61 @@ SELECT * FROM mensajeria.webhooks_salida WHERE id = $1;
 
 -- name: ConectorArgosParaWebhooks :one
 -- El conector Argos activo con su receptor (§6.6).
-SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado
+SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo';
 
+-- name: DesvinculadoAnteriorSinEntregar :one
+-- 0.14.0 §6.6: el vinculado de un técnico no sale hasta el 2xx del desvinculado anterior del mismo
+-- id_externo (el que lo liberó, de otro técnico) ni del desvinculado anterior del mismo técnico
+-- (M-3: cambió su id_externo; mismo cambio, versión menor), aunque haya agotado sus reintentos
+-- (POST …/webhooks-salida/{id}/reenviar lo vuelve a mandar).
+-- También los que siguen en el outbox sin publicar (el relay falló y quedaron en backoff).
+SELECT (EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado IN ('pendiente', 'agotado')
+      AND ((d.payload->>'id_externo' = @id_externo::text AND d.created_at < @antes)
+        OR ((d.payload->>'usuario_id')::bigint = @usuario_id::bigint AND (d.payload->>'version')::int < @version::int))
+) OR EXISTS (
+    SELECT 1 FROM integracion.outbox o
+    WHERE o.evento = 'tecnico.argos_desvinculado' AND o.publicado_en IS NULL
+      AND ((o.payload->>'id_externo' = @id_externo::text AND o.id < @evento_id::uuid)
+        OR ((o.payload->>'usuario_id')::bigint = @usuario_id::bigint AND (o.payload->>'version')::int < @version::int))
+))::boolean;
+
+-- name: DesvinculadoAnteriorFallido :one
+-- El desvinculado del que depende el vinculado ya no va a salir solo: su webhook agotó los reintentos
+-- o el relay no lo pudo publicar (outbox con fallido_en). Mismas reglas de dependencia que arriba.
+SELECT (EXISTS (
+    SELECT 1 FROM mensajeria.webhooks_salida d
+    WHERE d.evento = 'tecnico.argos_desvinculado' AND d.estado = 'agotado'
+      AND ((d.payload->>'id_externo' = @id_externo::text AND d.created_at < @antes)
+        OR ((d.payload->>'usuario_id')::bigint = @usuario_id::bigint AND (d.payload->>'version')::int < @version::int))
+) OR EXISTS (
+    SELECT 1 FROM integracion.outbox o
+    WHERE o.evento = 'tecnico.argos_desvinculado' AND o.publicado_en IS NULL AND o.fallido_en IS NOT NULL
+      AND ((o.payload->>'id_externo' = @id_externo::text AND o.id < @evento_id::uuid)
+        OR ((o.payload->>'usuario_id')::bigint = @usuario_id::bigint AND (o.payload->>'version')::int < @version::int))
+))::boolean;
+
+-- name: AgotarWebhook :exec
+-- El vinculado que espera un desvinculado que no saldrá (o pasadas 24 h): agotado a la vista, para
+-- reenviarlo (POST …/reenviar) cuando su dependencia se resuelva.
+UPDATE mensajeria.webhooks_salida SET estado = 'agotado', ultimo_error = @ultimo_error, updated_at = now()
+WHERE id = @id AND estado = 'pendiente';
+
+-- name: WebhookParaReenviar :one
+SELECT * FROM mensajeria.webhooks_salida WHERE id = $1 FOR UPDATE;
+
+-- name: ReenviarWebhookSalida :one
+-- Un agotado vuelve a la cola con sus intentos en cero (acción de una persona, auditada).
+UPDATE mensajeria.webhooks_salida
+SET estado = 'pendiente', intentos = 0, proximo_intento = @proximo_intento, ultimo_error = NULL, updated_at = now()
+WHERE id = @id AND estado = 'agotado'
+RETURNING *;
+
+-- name: PostergarWebhook :exec
+-- Espera sin gastar un intento (otro webhook del que depende aún no tuvo su 2xx).
+UPDATE mensajeria.webhooks_salida SET proximo_intento = @proximo_intento, ultimo_error = @ultimo_error, updated_at = now() WHERE id = @id;
 -- name: AvisoSistemaExiste :one
 -- Un aviso que pidió el sistema (sin usuario) con esa clave (el aviso de una falla general: uno por
 -- cliente, incidente y tipo, aunque el evento llegue dos veces).
