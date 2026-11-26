@@ -56,6 +56,13 @@ func (m *Modulo) nuevoResolverTicket() *auditoria.Caso[EntradaResolverTicket, Ti
 			if err := m.generarEncuestaTicket(ctx, t, q, f); err != nil {
 				return Ticket{}, err
 			}
+			if f.Maestro != nil && *f.Maestro == MaestroFallaGeneral {
+				// Un general que una persona reabrió y vuelve a resolver: si su falla sigue cerrada, otra
+				// vez se cierra a los 30 min.
+				if err := m.reprogramarCierreGeneral(ctx, t, q, f); err != nil {
+					return Ticket{}, err
+				}
+			}
 			if f.Maestro != nil {
 				// El aviso a los hijos va en un job (tandas), no en esta transacción.
 				if err := m.encolarAviso(ctx, t, f, AvisoResuelto, solucion); err != nil {

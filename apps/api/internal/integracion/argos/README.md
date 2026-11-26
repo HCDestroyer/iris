@@ -532,6 +532,29 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
 - `codigo` ya se guardaba. Con el formato de A45 (`S-000412`) el asistente lo usa en la etiqueta corta
   (`<codigo> · «plan» · «zona»`, §10.5 ajuste ag); con otra forma sigue «Servicio n».
 
+## Contrato 0.13.0: caídas repetidas y falla general (§3.11, A49/A50; B29/B30)
+
+`red.go`. Solo por el webhook firmado (§2.3); se procesan en el job de entrantes y salen como eventos
+internos que consume soporte:
+
+- `servicio.caidas_repetidas` → `argos.caidas_repetidas`, si la empresa está en el alcance del conector
+  y el servicio es de esa empresa (instantánea o `GET /servicios/:id`). Iris decide con su umbral.
+- `red.falla_general_abierta` → `argos.falla_general_abierta` enseguida y **sin leer Argos**: `servicios[]`
+  son los que la instantánea tiene en esa empresa, `descartados` los de otra empresa, `por_verificar` los
+  ids que Iris no conoce y `paginando` si `cantidad` pasa de los ids del evento (hasta 5000).
+- Lo que falta lo lee el job `integracion.argos_verificar_incidente` (`red_verificar.go`, uno por
+  entrante; tablas `integracion.argos_incidente_lecturas` y `argos_incidente_servicios`): el resto con
+  `GET /incidentes-red/:id/servicios?empresa_id=&cursor=&limit=1000` (un 404 = fuera del alcance; un
+  error reintenta solo la página) y cada id desconocido con `GET /servicios/:id`, con un presupuesto de
+  300 lecturas por vuelta y tandas de 100, cada una en su transacción, que salen como
+  `argos.falla_general_servicios` (válidos, `descartados` y `no_verificados`). Un error de Argos con un
+  id cuenta un intento solo para ese id (a los 3, `no_verificado`, aparte de los descartados) y el job
+  vuelve en un minuto.
+- `red.falla_general_cerrada` → `argos.falla_general_cerrada` (sin servicios).
+- Omitidos (quedan en la auditoría): `payload_invalido` (sin `incidente_id`, empresa, `desde`, o con
+  un `alcance` fuera de `router|olt|pon|zona`), `empresa_fuera_de_alcance`, `servicio_de_otra_empresa`.
+- El conector necesita el permiso `incidentes_red.leer` en Argos (§1.1) para la lectura paginada.
+
 ## Cambio de titular (contrato 0.10.0 §3.4.4, B17; 0.14.1)
 
 - **`servicio.titular_cambiado`** (`titular_cambiado.go`): Iris relee al titular nuevo y, si Argos

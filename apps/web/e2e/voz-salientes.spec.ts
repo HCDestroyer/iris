@@ -367,6 +367,26 @@ test.describe("voz salientes › llamar", () => {
         const api = await abrir(page, "/conversaciones?c=41", { voz: { ...CON_PERMISO, recibe: false } });
         const ofrecer = page.getByText("Puedes contestar llamadas de WhatsApp aquí");
         await expect(ofrecer).toBeVisible();
+        if (test.info().project.name.startsWith("telefono")) {
+            // En el teléfono el aviso va arriba: su contenido no se sale de la caja (ni por arriba de la
+            // pantalla ni hacia la conversación) y no tapa «Llamada» de la cabecera de la conversación.
+            const region = page.locator('[data-region="avisos-emergentes"]');
+            await expect
+                .poll(async () => {
+                    const caja = await region.locator('[data-slot="toast"]').boundingBox();
+                    const c = await region.locator('[data-slot="toast-content"]').boundingBox();
+                    const b = await page.getByRole("button", { name: "Llamada", exact: true }).boundingBox();
+                    if (caja === null || c === null || b === null) return false;
+                    const libre = await page.evaluate(
+                        ([x, y]) => document.elementFromPoint(x, y)?.closest('[data-slot="boton-llamada"]') !== null,
+                        [b.x + b.width / 2, b.y + b.height / 2] as const,
+                    );
+                    return caja.y >= 0 && c.y >= caja.y && c.y + c.height <= caja.y + caja.height + 0.5 && libre;
+                })
+                .toBe(true);
+            await expect(region.getByText(/Enciende «Recibir llamadas»/)).toBeVisible();
+            await expect(region.getByRole("button", { name: "Encender recibir llamadas" })).toBeVisible();
+        }
         const l = await llamar(page, api);
         await expect(ofrecer).toHaveCount(0);
         await feedListo(page, api);
