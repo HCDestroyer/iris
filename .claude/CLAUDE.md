@@ -260,6 +260,7 @@ Una tarea está terminada solo si:
 | `argos.carga_vinculos_detenida` | integracion (argos, carga de vínculos 0.14.0) | conector_id, carga_id, agotados, episodio; uno por episodio |
 | `integracion.pendiente_clave_reutilizada` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, empresa_id (o null), seguridad (cambio o intento); nunca la clave ni los cuerpos |
 | `aviso.creado` | mensajeria | aviso_id, empresa_id, cliente_id, servicio_id (o null), plantilla, estado (en_cola \| bloqueado), motivo (o null), origen (argos \| iris), prioridad, programado_en (o null), aviso_padre_id (solo en la copia a un contacto) |
+| `aviso.bloqueado` | mensajeria (0.15.0, auto) | aviso_id, empresa_id, cliente_id, motivo (canal_no_disponible), detalle, origen; interno, sin webhook a Argos (lo ve con GET) |
 | `aviso.enviado` / `aviso.leido` | mensajeria | aviso_id, origen; canal, canal_id (o null) (enviado); leido_en (leido) |
 | `aviso.entregado` / `aviso.fallido` | mensajeria | aviso_id, idempotency_key, empresa_id, cliente_id, canal (o null), origen; entregado_en, leido_en (o null) (entregado); motivo (vencido, numero_invalido, rechazado_por_canal, agotado), detalle (o null) (fallido). Uno por aviso; van a Argos (§6.6) |
 | `consentimiento.registrado` | mensajeria | consentimiento_id, empresa_id, cliente_id, canal, estado (acepta \| baja), origen, ocurrido_en, estado_vigente, por_numero (permiso de un número de contacto; nunca el número) |

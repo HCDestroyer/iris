@@ -1663,6 +1663,66 @@ func (q *Queries) ListarCanales(ctx context.Context, arg ListarCanalesParams) ([
 	return items, nil
 }
 
+const marcarBloqueadoEnCola = `-- name: MarcarBloqueadoEnCola :one
+UPDATE mensajeria.avisos
+SET estado = 'bloqueado', motivo = $1, detalle = $2, canal = NULL, finalizado_en = now(), updated_at = now()
+WHERE id = $3 AND estado = 'en_cola' AND enviado_en IS NULL
+RETURNING id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id, canales_permitidos, suscripcion_id, recordatorio
+`
+
+type MarcarBloqueadoEnColaParams struct {
+	Motivo  *string
+	Detalle *string
+	ID      uuid.UUID
+}
+
+// Un aviso auto que perdió su canal antes del primer envío (0.15.0 §13.3, C2): queda bloqueado, sin
+// canal, como si no hubiera habido ninguno al crearlo.
+func (q *Queries) MarcarBloqueadoEnCola(ctx context.Context, arg MarcarBloqueadoEnColaParams) (MensajeriaAviso, error) {
+	row := q.db.QueryRow(ctx, marcarBloqueadoEnCola, arg.Motivo, arg.Detalle, arg.ID)
+	var i MensajeriaAviso
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.ClienteID,
+		&i.ServicioID,
+		&i.Plantilla,
+		&i.Variables,
+		&i.CanalPreferido,
+		&i.Prioridad,
+		&i.Origen,
+		&i.Estado,
+		&i.Motivo,
+		&i.Detalle,
+		&i.Canal,
+		&i.CanalID,
+		&i.Remitente,
+		&i.Destino,
+		&i.ProveedorID,
+		&i.UsuarioID,
+		&i.TokenID,
+		&i.IdempotencyKey,
+		&i.HashPeticion,
+		&i.VenceEn,
+		&i.ProgramadoEn,
+		&i.EnviadoEn,
+		&i.EntregadoEn,
+		&i.LeidoEn,
+		&i.FinalizadoEn,
+		&i.Intentos,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AvisoPadreID,
+		&i.ContactoArgosID,
+		&i.CopiasMotivo,
+		&i.OrdenID,
+		&i.CanalesPermitidos,
+		&i.SuscripcionID,
+		&i.Recordatorio,
+	)
+	return i, err
+}
+
 const marcarCanalRechazadoPorEnvio = `-- name: MarcarCanalRechazadoPorEnvio :exec
 UPDATE mensajeria.canales
 SET ultima_prueba_en = $1, ultimo_estado = $2, ultimo_detalle = $3, rechazado_por_envio = true

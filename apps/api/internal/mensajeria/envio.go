@@ -121,6 +121,11 @@ func nuevoPrepararEnvio(m *Modulo) *auditoria.Caso[entradaPreparar, preparado] {
 					return preparado{}, err
 				}
 				if err == nil && v.Estado == "baja" {
+					if a.CanalPreferido == CanalAuto && a.EnviadoEn == nil {
+						// Con auto, antes del primer envío la baja es causa del canal (C2): el aviso queda
+						// bloqueado con canal_no_disponible y Argos lo manda por sus canales (C12).
+						return preparado{Accion: accionNada, Final: true}, m.bloquearSinCanal(ctx, t, a, *a.Canal+": "+MotivoBaja)
+					}
 					return preparado{Accion: accionNada, Final: true}, m.fallar(ctx, t, a, MotivoRechazado, texto(MotivoBaja))
 				}
 			}
@@ -232,6 +237,20 @@ func nuevoRegistrarEnvio(m *Modulo) *auditoria.Caso[entradaRegistrar, registrado
 			return registrado{}, nil
 		},
 	})
+}
+
+// bloquearSinCanal deja bloqueado con canal_no_disponible un aviso auto en cola que perdió su único
+// canal antes del primer envío (0.15.0 §13.3, C2). Como un bloqueado al crearlo, no tiene webhook final
+// hacia Argos (lo ve con GET /avisos/:id); emite aviso.bloqueado (interno).
+func (m *Modulo) bloquearSinCanal(ctx context.Context, t *auditoria.Tx, a mensajeriabd.MensajeriaAviso, detalle string) error {
+	motivo := MotivoCanalNoDisponible
+	f, err := mensajeriabd.New(t).MarcarBloqueadoEnCola(ctx, mensajeriabd.MarcarBloqueadoEnColaParams{ID: a.ID, Motivo: &motivo, Detalle: &detalle})
+	if err != nil {
+		return err
+	}
+	t.RegistrarCambios("aviso", f.ID, auditable(a), auditable(f))
+	return t.Emitir("aviso.bloqueado", map[string]any{"aviso_id": f.ID, "empresa_id": f.EmpresaID, "cliente_id": f.ClienteID,
+		"motivo": motivo, "detalle": detalle, "origen": f.Origen})
 }
 
 // fallar deja el aviso fallido y emite aviso.fallido (el webhook final hacia Argos).

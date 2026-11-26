@@ -192,6 +192,14 @@ RETURNING *;
 -- name: MarcarLeido :one
 UPDATE mensajeria.avisos SET leido_en = @leido_en, updated_at = now() WHERE id = @id RETURNING *;
 
+-- name: MarcarBloqueadoEnCola :one
+-- Un aviso auto que perdió su canal antes del primer envío (0.15.0 §13.3, C2): queda bloqueado, sin
+-- canal, como si no hubiera habido ninguno al crearlo.
+UPDATE mensajeria.avisos
+SET estado = 'bloqueado', motivo = @motivo, detalle = @detalle, canal = NULL, finalizado_en = now(), updated_at = now()
+WHERE id = @id AND estado = 'en_cola' AND enviado_en IS NULL
+RETURNING *;
+
 -- name: MarcarFallido :one
 UPDATE mensajeria.avisos
 SET estado = 'fallido', motivo = @motivo, detalle = @detalle, canal = coalesce(canal, @canal),

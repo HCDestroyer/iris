@@ -98,6 +98,10 @@ func TestValidarConcepto(t *testing.T) {
 		"pagos-claro.ru", "bit.do/x", "evil.shop", "mi-pago.online", "pago\u2024com", "PAGO.COM", "pago．com",
 		"TV\u2028Premium", "TV\u2029Premium", "TV\u0085Premium", "TV\nPremium", "TV\rPremium", "TV\x07", "TV\u200bPremium",
 		"TV\u202ePremium", "TV    Premium", "a/b", "soporte@isp", "https://x", "", "   ", strings.Repeat("a", 61),
+		// IP, puerto y puntos ideográficos (segunda revisión).
+		"203.0.113.5", "203.0.113.5:8080", "TV:8080", "evil\u3002com", "evil\uff61com",
+		// El largo cuenta también sobre lo que llega: NFKC lo acorta («e» + acento es «é»).
+		strings.Repeat("e\u0301", 31),
 	}
 	for _, v := range malos {
 		if validarConcepto(v) == "" {
