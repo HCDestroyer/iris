@@ -53,7 +53,10 @@ const (
 	PermTicketsReabrir       Permiso = "tickets.reabrir"
 	PermTicketsCerrar        Permiso = "tickets.cerrar"
 	PermTicketsFusionar      Permiso = "tickets.fusionar"
-	PermTicketsVerNotas      Permiso = "tickets.ver_notas"
+	// PermTicketsConfigurarCaidas: umbrales de caídas repetidas y de posible falla general de la
+	// empresa (contrato con Argos 0.13.0 §3.11, B29). Admin y supervisión.
+	PermTicketsConfigurarCaidas Permiso = "tickets.configurar_caidas"
+	PermTicketsVerNotas         Permiso = "tickets.ver_notas"
 	// PermTicketsListarTodos: un token (de integración o de API) lista tickets sin filtro de
 	// cliente. Sin él, GET /tickets por token exige clienteId (422 filtro_cliente_requerido).
 	// No cambia nada para las personas del panel. Un token nunca supera los permisos de su
@@ -478,6 +481,7 @@ var PermisosSensibles = map[Permiso]bool{
 	PermCuadrillasLeerIntegracion: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesPedirReconexion: true,
+	PermTicketsConfigurarCaidas:       true,
 	PermConversacionesIniciar:         true, PermCampoConfigurar: true,
 	// El SMTP con el que Iris escribe a sus usuarios (servidor, credenciales y remitente).
 	PermCorreoSistemaConfigurar: true,
@@ -690,6 +694,7 @@ var Catalogo = []DefPermiso{
 	{PermSSOEmitir, "Pedir un ticket de autologin («Ver en Iris») para abrir un ticket, una orden o un prospecto (lo usa Argos con el token del canje)"},
 	{PermTicketsAsignar, "Asignar tickets a un usuario o a una cuadrilla"},
 	{PermTicketsCerrar, "Cerrar tickets (sin resolver, con motivo)"},
+	{PermTicketsConfigurarCaidas, "Cambiar cuántas caídas de un servicio abren un ticket y cuándo Iris avisa una posible falla general"},
 	{PermTicketsCrear, "Crear tickets de soporte"},
 	{PermTicketsCrearOrden, "Crear la orden de trabajo de un ticket ya asignada (y programada si se elige fecha) en un paso"},
 	{PermTicketsEscalar, "Escalar tickets (subir prioridad o nivel)"},
@@ -784,6 +789,7 @@ var RolesBase = []DefRol{
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermIntegracionesVer, PermEmpresasVer,
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
+			PermTicketsConfigurarCaidas,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar, PermLlamadasDesbloquearNumero,

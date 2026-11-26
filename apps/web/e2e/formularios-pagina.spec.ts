@@ -418,6 +418,13 @@ test.describe("formularios en pantalla propia", () => {
             // En el teléfono va sobre la fila del encabezado (rediseño: 8 + 44 px): no baja al contenido.
             const caja = await aviso.boundingBox();
             expect(caja && caja.y + caja.height <= 60).toBe(true);
+            // Y su contenido tampoco se sale de la caja (ni arriba de la pantalla ni hacia el contenido).
+            await expect
+                .poll(async () => {
+                    const c = await aviso.locator('[data-slot="toast-content"]').boundingBox();
+                    return c !== null && c.y >= 0 && c.y + c.height <= 60;
+                })
+                .toBe(true);
         }
         // Con el aviso a la vista, la miga se pulsa (Playwright falla si algo la tapa).
         await migas(page).getByRole("link", { name: "Tickets" }).click();

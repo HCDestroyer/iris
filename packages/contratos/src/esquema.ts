@@ -8523,6 +8523,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/ajustes-caidas": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Umbrales de caídas repetidas y de posible falla general
+         * @description Permiso: `tickets.ver`. De la empresa activa (contrato con Argos 0.13.0 §3.11). `version` 0 = los de fábrica: 3 caídas en 60 min, 20 tickets de caídas en 10 min y 24 h de espera de la respuesta del cliente tras una falla general.
+         */
+        get: operations["verAjustesCaidas"];
+        put?: never;
+        /**
+         * Cambiar los umbrales de caídas repetidas
+         * @description Permiso: `tickets.configurar_caidas`. Con el permiso sin límite de zona. `version` la leída (0 = de fábrica); si cambió, 409. Emite `soporte.caidas_ajustes_cambiados`.
+         */
+        post: operations["guardarAjustesCaidas"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/resumen": {
         parameters: {
             query?: never;
@@ -9975,6 +9999,33 @@ export interface components {
              */
             version: number;
         };
+        AjustesRed: {
+            /**
+             * Format: int32
+             * @description Caídas que abren un ticket (de fábrica 3)
+             */
+            caidasUmbral: number;
+            /**
+             * Format: int32
+             * @description En cuántos minutos (de fábrica 60)
+             */
+            caidasVentanaMin: number;
+            /**
+             * Format: int32
+             * @description Tickets de caídas en 10 min a partir de los cuales Iris deja de abrirlos y avisa una posible falla general (de fábrica 20)
+             */
+            fallaUmbral: number;
+            /**
+             * Format: int32
+             * @description Horas que un ticket espera la respuesta del cliente tras cerrarse una falla general antes de volver a abierto (de fábrica 24)
+             */
+            verificacionHoras: number;
+            /**
+             * Format: int32
+             * @description 0 = de fábrica
+             */
+            version: number;
+        };
         AjustesVoz: {
             /**
              * Format: int32
@@ -10253,10 +10304,10 @@ export interface components {
              */
             nivel: "info" | "alerta" | "peligro";
             /**
-             * @description paso_titular: un paso del titular quedó hecho en Argos con la orden ya cancelada, fallida o cerrada (datos: orden_id, pendiente_id, operacion, estado_orden); a los supervisores de la orden. contrato_sin_firma: la orden se cerró con el contrato regenerado sin firmar (datos: orden_id, contrato_id, prospecto_id, operacion, motivo cierre_sin_firma|cambio_tras_cierre); a los supervisores de la orden. venta_revisada: la instalación cambió el plan o el titular de una venta del vendedor (B20; datos: prospecto_id, orden_id, motivo plan|titular, cotizacion_id). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
+             * @description verificacion_vencida: el cliente no respondió a la verificación tras cerrarse una falla general y el ticket asignado volvió a abierto (datos: ticket_id, numero). posible_falla_general: muchas caídas de servicios de la empresa en pocos minutos; Iris las agrupó en un ticket (contrato con Argos 0.13.0 §3.11; datos: ticket_id, tickets). paso_titular: un paso del titular quedó hecho en Argos con la orden ya cancelada, fallida o cerrada (datos: orden_id, pendiente_id, operacion, estado_orden); a los supervisores de la orden. contrato_sin_firma: la orden se cerró con el contrato regenerado sin firmar (datos: orden_id, contrato_id, prospecto_id, operacion, motivo cierre_sin_firma|cambio_tras_cierre); a los supervisores de la orden. venta_revisada: la instalación cambió el plan o el titular de una venta del vendedor (B20; datos: prospecto_id, orden_id, motivo plan|titular, cotizacion_id). argos_certificado: cambió el certificado TLS de la API de Argos sin reconectar (contrato 0.8.0 §1.5; solo informa, datos: conector_id, huella_sha256, huella_anterior). asistente_tope: el asistente de IA de la empresa llegó al 80 % o al 100 % de su tope del mes. servidor_ia_caido, servidor_ia_incompatible y servidor_ia_umbral: el servidor de IA de la instalación no responde, no es compatible o pasó un umbral (contratos/voz.md §4.12; datos de servidor_ia_umbral: tipo vram|disco|temperatura|saturacion, valor y umbral)
              * @enum {string}
              */
-            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado" | "venta_revisada" | "paso_titular" | "contrato_sin_firma";
+            tipo: "asistente_tope" | "servidor_ia_caido" | "servidor_ia_incompatible" | "servidor_ia_umbral" | "argos_certificado" | "posible_falla_general" | "verificacion_vencida" | "venta_revisada" | "paso_titular" | "contrato_sin_firma";
             /** @description Texto en español, listo para mostrar */
             titulo: string;
         };
@@ -18809,7 +18860,7 @@ export interface components {
          * @description Permiso del ACL: nombre de la acción (`modulo.verbo`). Catálogo en internal/nucleo/permisos.go.
          * @enum {string}
          */
-        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "cuadrillas.asignar_jefe" | "cuadrillas.leer_integracion" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cambiar_plan" | "ordenes.cambiar_titular" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.completar_datos" | "ordenes.crear" | "ordenes.declarar_perdida" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.validar_identidad" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.leer_integracion" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.registrar_integracion" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
+        Permiso: "accesos.ver" | "adjuntos.subir" | "adjuntos.ver" | "agenda.activar_cuadrilla" | "agenda.activar_tecnico" | "agenda.activar_zona" | "agenda.anular_ausencia" | "agenda.anular_tarea" | "agenda.completar_tarea" | "agenda.crear_cuadrilla" | "agenda.crear_tarea" | "agenda.crear_tecnico" | "agenda.crear_zona" | "agenda.desactivar_cuadrilla" | "agenda.desactivar_tecnico" | "agenda.desactivar_zona" | "agenda.desvincular_argos" | "agenda.editar_cuadrilla" | "agenda.editar_tecnico" | "agenda.editar_zona" | "agenda.fijar_capacidad" | "agenda.fijar_turnos" | "agenda.registrar_ausencia" | "agenda.ver" | "agenda.vincular_argos" | "boletas.aprobar" | "boletas.rechazar" | "buzones.activar" | "buzones.crear" | "buzones.desactivar" | "buzones.editar" | "buzones.ver" | "campo.configurar" | "campo.recibir_traslado" | "campo.registrar_posiciones" | "campo.sincronizar" | "campo.ver_actividad" | "campo.ver_bodega" | "campo.ver_posiciones" | "canales.configurar" | "centralita.asignar_extension" | "centralita.configurar" | "centralita.llamar" | "centralita.transferir" | "chat.enviar" | "chat.supervisar" | "chat.ver" | "clientes.estado_cuenta" | "clientes.ver" | "contratos.crear" | "contratos.firmar" | "conversaciones.asignar" | "conversaciones.asociar" | "conversaciones.categorizar" | "conversaciones.configurar" | "conversaciones.etiquetar" | "conversaciones.iniciar" | "conversaciones.pasar" | "conversaciones.pausar_asistente" | "conversaciones.pedir_reconexion" | "conversaciones.registrar_boleta" | "conversaciones.registrar_promesa" | "conversaciones.resolver" | "conversaciones.responder" | "conversaciones.sugerencias" | "conversaciones.supervisar" | "conversaciones.tomar" | "conversaciones.transferir" | "conversaciones.ver" | "correo_sistema.configurar" | "correo_sistema.ver" | "cotizaciones.aceptar" | "cotizaciones.crear" | "cuadrillas.asignar_jefe" | "cuadrillas.leer_integracion" | "datos_legales.configurar" | "datos_legales.ver" | "empresas.adoptar" | "empresas.crear" | "empresas.editar" | "empresas.todas" | "empresas.ver" | "encuestas.compartir" | "encuestas.ver" | "factibilidad.configurar" | "factibilidad.evaluar" | "factibilidad.registrar_manual" | "integraciones.abrir_argos" | "integraciones.activar" | "integraciones.conectar" | "integraciones.desactivar" | "integraciones.eliminar" | "integraciones.reintentar" | "integraciones.resolver_pendiente" | "integraciones.revisar_version" | "integraciones.sincronizar" | "integraciones.ver" | "integraciones.ver_pendientes" | "llamadas.anotar" | "llamadas.colgar" | "llamadas.configurar" | "llamadas.contestar" | "llamadas.desbloquear_numero" | "llamadas.descartar_devolucion" | "llamadas.llamar" | "llamadas.rechazar" | "llamadas.solicitar_permiso" | "llamadas.ver" | "manuales.editar" | "manuales.revocar_enlace" | "manuales.ver" | "mensajeria.asistente_configurar" | "mensajeria.conexion_meta" | "mensajeria.configurar" | "mensajeria.enviar" | "mensajeria.registrar_consentimiento" | "mensajeria.ver" | "ordenes.aplicar_datos_argos" | "ordenes.asignar" | "ordenes.asignar_formulario" | "ordenes.cambiar_plan" | "ordenes.cambiar_titular" | "ordenes.cancelar" | "ordenes.cerrar" | "ordenes.completar_datos" | "ordenes.crear" | "ordenes.declarar_perdida" | "ordenes.descartar_datos_argos" | "ordenes.fallar" | "ordenes.igualar_asignacion" | "ordenes.iniciar_camino" | "ordenes.listar_todos" | "ordenes.llegar" | "ordenes.pausar" | "ordenes.programar" | "ordenes.reabrir" | "ordenes.reanudar" | "ordenes.registrar" | "ordenes.reprogramar" | "ordenes.tomar" | "ordenes.validar_identidad" | "ordenes.ver" | "ordenes.ver_propias" | "permisos.ver" | "plantillas.activar" | "plantillas.crear" | "plantillas.desactivar" | "plantillas.editar" | "plantillas.ver" | "plantillas_whatsapp.borrar" | "plantillas_whatsapp.crear" | "plantillas_whatsapp.editar" | "plantillas_whatsapp.leer_integracion" | "plantillas_whatsapp.sincronizar" | "plantillas_whatsapp.ver" | "portal.emitir" | "prospectos.asignar" | "prospectos.contactar" | "prospectos.crear" | "prospectos.editar" | "prospectos.ganar" | "prospectos.perder" | "prospectos.reabrir" | "prospectos.registrar_actividad" | "prospectos.registrar_integracion" | "prospectos.ver" | "reportes.ver" | "roles.activar" | "roles.crear" | "roles.desactivar" | "roles.editar" | "roles.ver" | "rutas.proponer" | "rutas.publicar" | "rutas.ver" | "servicios.ver_red" | "servicios.ver_ubicacion" | "servidor_ia.administrar" | "servidor_ia.ver" | "servidor_ia.ver_uso" | "sso.emitir" | "tickets.asignar" | "tickets.cerrar" | "tickets.configurar_caidas" | "tickets.crear" | "tickets.crear_orden" | "tickets.escalar" | "tickets.fusionar" | "tickets.listar_todos" | "tickets.nota_interna" | "tickets.poner_en_espera" | "tickets.reabrir" | "tickets.reanudar" | "tickets.resolver" | "tickets.responder" | "tickets.ver" | "tickets.ver_notas" | "tokens.crear" | "tokens.eliminar" | "tokens.revocar" | "tokens.ver" | "usuarios.asignar_empresa" | "usuarios.asignar_rol" | "usuarios.cerrar_sesiones" | "usuarios.crear" | "usuarios.desactivar" | "usuarios.editar" | "usuarios.quitar_empresa" | "usuarios.quitar_rol" | "usuarios.reiniciar_mfa" | "usuarios.restablecer_contrasena" | "usuarios.ver" | "voz.configurar";
         PermisoInfo: {
             codigo: components["schemas"]["Permiso"];
             descripcion: string;
@@ -56391,6 +56442,134 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    verAjustesCaidas: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesRed"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    guardarAjustesCaidas: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422 */
+                "Idempotency-Key"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AjustesRed"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AjustesRed"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
