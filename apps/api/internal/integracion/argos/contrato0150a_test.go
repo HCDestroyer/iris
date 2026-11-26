@@ -58,7 +58,8 @@ func TestTipoServicioReglaA1(t *testing.T) {
 }
 
 func TestTipoServicioInstantaneaYWebhooks(t *testing.T) {
-	e := nuevoEntorno(t)
+	// Los dos lados en 0.15.0: el bloque A depende del contrato acordado (el menor de los dos).
+	e := nuevoEntornoCon(t, func(cfg *argos.Config) { cfg.ContratoIris = "0.15.0" })
 	e.limpiarSinc()
 	e.sembrarSinc("1.30.0", "0.15.0")
 	e.argos.con(func() {
