@@ -778,7 +778,6 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			}
 			t.FijarEmpresa(empresa)
 			registrado := false
-			var err error
 			if m.cfg.Argos != nil {
 				if registrado, err = m.cfg.Argos.HayConectorRegistrado(ctx, t); err != nil {
 					return res, err
