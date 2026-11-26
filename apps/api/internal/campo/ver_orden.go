@@ -37,7 +37,7 @@ type EntradaVerOrden struct {
 type EntradaListarOrdenes struct {
 	nucleo.ParamsPagina
 	Estado      []string  `query:"estado" enum:"pendiente,programada,en_camino,en_sitio,pausada,cerrada,fallida,cancelada" doc:"Uno o varios estados (estado=pendiente,programada)"`
-	Tipo        []string  `query:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento" doc:"Uno o varios tipos"`
+	Tipo        []string  `query:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv" doc:"Uno o varios tipos"`
 	TecnicoID   int64     `query:"tecnicoId" minimum:"0"`
 	SinTecnico  bool      `query:"sinTecnico" doc:"Solo órdenes sin técnico"`
 	TicketID    int64     `query:"ticketId" minimum:"0"`
@@ -313,6 +313,13 @@ func detalles(ctx context.Context, q *campobd.Queries, ordenes []campobd.CampoOr
 			Materiales: []MaterialOrden{}, Equipos: []EquipoOrden{}, Adjuntos: []AdjuntoOrden{},
 			Formularios: []FormularioOrden{}, Pausas: []PausaOrden{}}
 		d.Formularios, d.Checklist, d.RequiereFirma = forms.deOrden(f.ID)
+		if c := codigos[f.TipoID]; c == TipoCorteCATV || c == TipoReconexionCATV {
+			if cm, err := q.CorteManualDeOrden(ctx, &f.ID); err == nil {
+				d.CorteManual = corteDeFila(cm)
+			} else if !errors.Is(err, pgx.ErrNoRows) {
+				return nil, err
+			}
+		}
 		for _, n := range notas {
 			if n.OrdenID == f.ID {
 				d.Notas = append(d.Notas, NotaOrden{ID: n.ID, Texto: n.Texto, AutorID: n.AutorID, AutorNombre: n.AutorNombre,

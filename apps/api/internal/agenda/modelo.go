@@ -37,7 +37,7 @@ func aZona(f agendabd.AgendaZona) Zona {
 
 // Capacidad diaria por tipo de orden (día local).
 type Capacidad struct {
-	Tipo    *string `json:"tipo" nullable:"true" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento" doc:"Tipo de orden; null = todos los tipos"`
+	Tipo    *string `json:"tipo" nullable:"true" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv" doc:"Tipo de orden; null = todos los tipos"`
 	Cupos   *int32  `json:"cupos" nullable:"true" minimum:"1" maximum:"200" doc:"Citas por día; null = sin límite de cupos"`
 	Minutos *int32  `json:"minutos" nullable:"true" minimum:"1" maximum:"10080" doc:"Minutos programados por día; null = sin límite de minutos"`
 }

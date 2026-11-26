@@ -41,7 +41,7 @@ type PlantillaFormulario struct {
 	Codigo        string          `json:"codigo" doc:"Único por empresa (las comunes, entre las comunes)"`
 	Nombre        string          `json:"nombre"`
 	Descripcion   string          `json:"descripcion"`
-	Tipo          *string         `json:"tipo" nullable:"true" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento" doc:"Tipo de orden para el que se ofrece; null = cualquiera"`
+	Tipo          *string         `json:"tipo" nullable:"true" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv" doc:"Tipo de orden para el que se ofrece; null = cualquiera"`
 	EmpresaID     *int64          `json:"empresaId" nullable:"true" doc:"null = común a todas las empresas"`
 	RequiereFirma bool            `json:"requiereFirma"`
 	Activa        bool            `json:"activa" doc:"Solo las activas se pueden agregar a una orden; los formularios ya agregados siguen"`
@@ -88,7 +88,7 @@ type EntradaCrearPlantilla struct {
 	Codigo        string                 `json:"codigo" pattern:"^[a-z0-9_]{2,60}$"`
 	Nombre        string                 `json:"nombre" minLength:"1" maxLength:"120"`
 	Descripcion   string                 `json:"descripcion,omitempty" maxLength:"1000"`
-	Tipo          *string                `json:"tipo,omitempty" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento" doc:"Tipo de orden; ausente = cualquiera"`
+	Tipo          *string                `json:"tipo,omitempty" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv" doc:"Tipo de orden; ausente = cualquiera"`
 	RequiereFirma bool                   `json:"requiereFirma,omitempty"`
 	Comun         bool                   `json:"comun,omitempty" doc:"Común a todas las empresas (exige empresas.todas con empresas registradas); por defecto, de la empresa activa"`
 	Borrador      bool                   `json:"borrador,omitempty" doc:"Nace desactivada: mientras nunca se haya activado, editarla reescribe la versión 1 (sin versiones nuevas). Activa (por defecto) o activada alguna vez, toda edición crea una versión"`
@@ -101,7 +101,7 @@ type EntradaEditarPlantilla struct {
 	Version       int32                  `json:"version" minimum:"1" doc:"Versión leída; si cambió, 409"`
 	Nombre        string                 `json:"nombre" minLength:"1" maxLength:"120"`
 	Descripcion   string                 `json:"descripcion,omitempty" maxLength:"1000"`
-	Tipo          *string                `json:"tipo,omitempty" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento" doc:"Ausente = cualquiera"`
+	Tipo          *string                `json:"tipo,omitempty" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv" doc:"Ausente = cualquiera"`
 	RequiereFirma bool                   `json:"requiereFirma,omitempty"`
 	Items         []EntradaItemPlantilla `json:"items" minItems:"1" maxItems:"100"`
 }
@@ -115,7 +115,7 @@ type EntradaVersionPlantilla struct {
 // EntradaListarPlantillas filtra el catálogo (por nombre, paginado por cursor).
 type EntradaListarPlantillas struct {
 	nucleo.ParamsPagina
-	Tipo  string `query:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento" doc:"Las de ese tipo y las de cualquier tipo"`
+	Tipo  string `query:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv" doc:"Las de ese tipo y las de cualquier tipo"`
 	Q     string `query:"q" maxLength:"120" doc:"Busca en nombre y código"`
 	Todas bool   `query:"todas" doc:"Incluye las inactivas"`
 }
@@ -217,7 +217,7 @@ func validarTipoPlantilla(tipo *string) (*string, error) {
 	if tipo == nil || strings.TrimSpace(*tipo) == "" {
 		return nil, nil
 	}
-	if !slices.Contains([]string{"instalacion", "visita", "retiro", "cambio_equipo", "mantenimiento"}, *tipo) {
+	if !slices.Contains([]string{"instalacion", "visita", "retiro", "cambio_equipo", "mantenimiento", "corte_catv", "reconexion_catv"}, *tipo) {
 		return nil, campoInvalido("tipo", "Tipo de orden desconocido", "enum")
 	}
 	return tipo, nil

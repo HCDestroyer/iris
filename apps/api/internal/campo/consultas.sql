@@ -167,11 +167,11 @@ SELECT * FROM integracion.argos_servicios WHERE id = ANY(@ids::bigint[]);
 INSERT INTO campo.ordenes (
     empresa_id, tipo_id, plantilla_id, ticket_id, prospecto_id, cliente_id, servicio_id, zona_id,
     cuadrilla_id, bodega_id, direccion, lat, lon, contacto_nombre, contacto_telefono, descripcion,
-    creado_por, idempotencia, origen, referencia
+    creado_por, idempotencia, origen, referencia, prioridad
 ) VALUES (
     @empresa_id, @tipo_id, @plantilla_id, @ticket_id, @prospecto_id, @cliente_id, @servicio_id, @zona_id,
     @cuadrilla_id, @bodega_id, @direccion, @lat, @lon, @contacto_nombre, @contacto_telefono, @descripcion,
-    @creado_por, sqlc.narg(idempotencia), @origen, sqlc.narg(referencia)
+    @creado_por, sqlc.narg(idempotencia), @origen, sqlc.narg(referencia), @prioridad
 )
 RETURNING *;
 
@@ -922,3 +922,41 @@ WHERE p.entidad = 'orden' AND p.entidad_id = (@orden_id::bigint)::text
            AND NOT EXISTS (SELECT 1 FROM comercial.cotizaciones c
                            WHERE c.idempotencia = 'iris:venta:' || p.idempotency_key AND c.estado IN ('aceptada', 'reemplazada'))))
 ORDER BY p.id DESC LIMIT 1;
+
+-- Corte manual de respaldo (contrato argosisp.md 0.15.0 §13.2, B34) ---------------------------
+
+-- name: CorteManualParaActualizar :one
+SELECT * FROM campo.cortes_manuales WHERE solicitud_id = @solicitud_id FOR UPDATE;
+
+-- name: CorteManualDeOrden :one
+SELECT * FROM campo.cortes_manuales WHERE orden_id = @orden_id;
+
+-- name: CorteManualDeOrdenParaActualizar :one
+SELECT * FROM campo.cortes_manuales WHERE orden_id = @orden_id FOR UPDATE;
+
+-- name: CrearCorteManual :one
+INSERT INTO campo.cortes_manuales (
+    solicitud_id, conector_id, empresa_id, servicio_id, cliente_id, accion, causa, componente, solicitada_en,
+    version_argos, estado, descarte, orden_id, entrante_id
+) VALUES (
+    @solicitud_id, @conector_id, @empresa_id, @servicio_id, sqlc.narg(cliente_id), @accion, @causa, @componente,
+    sqlc.narg(solicitada_en), @version_argos, @estado, sqlc.narg(descarte), sqlc.narg(orden_id), sqlc.narg(entrante_id)
+)
+RETURNING *;
+
+-- name: GuardarCorteManual :one
+UPDATE campo.cortes_manuales SET
+    version_argos = @version_argos, version_iris = @version_iris, estado = @estado, descarte = sqlc.narg(descarte),
+    motivo_codigo = sqlc.narg(motivo_codigo), cancelacion_pedida = @cancelacion_pedida, orden_id = sqlc.narg(orden_id),
+    causa = @causa, entrante_id = sqlc.narg(entrante_id), updated_at = now()
+WHERE solicitud_id = @solicitud_id
+RETURNING *;
+
+-- name: ResultadoCorteDeOrden :one
+-- La marca vigente del ítem «resultado» del checklist de cierre de la orden (texto de la opción).
+SELECT (c.valor #>> '{}')::text AS valor
+FROM campo.orden_checklist c
+JOIN campo.plantilla_items i ON i.id = c.item_id
+WHERE c.orden_id = @orden_id AND i.codigo = 'resultado'
+ORDER BY c.ocurrido_en DESC
+LIMIT 1;

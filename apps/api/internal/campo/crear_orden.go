@@ -49,6 +49,9 @@ type EntradaCrearOrden struct {
 	ClaveIdempotencia string `json:"-"`
 	// Origen lo fija el caso interno (argos: retiro automático); si no, sale del canal.
 	Origen string `json:"-"`
+	// prioridad: alta en la reconexión de cable (0.15.0 §13.2, B5); normal por defecto. Solo la fija
+	// el caso interno del corte manual.
+	prioridad string
 	// sinCuadrillaDelTicket: la cuadrilla es la indicada (o ninguna), no la del ticket
 	// (tickets.crear_orden elige la asignación explícitamente).
 	sinCuadrillaDelTicket bool
@@ -320,7 +323,7 @@ func (m *Modulo) nuevoCrearOrden() *auditoria.Caso[EntradaCrearOrden, Orden] {
 				BodegaID: datos.BodegaID, Direccion: *direccion, Lat: datos.Lat, Lon: datos.Lon,
 				ContactoNombre: contacto.Nombre, ContactoTelefono: contacto.Telefono,
 				Descripcion: strings.TrimSpace(in.Descripcion), CreadoPor: actorUsuario(t), Idempotencia: idem,
-				Origen: origenDe(ctx, in.Origen), Referencia: recortar(argosHoy.referencia, 500),
+				Origen: origenDe(ctx, in.Origen), Referencia: recortar(argosHoy.referencia, 500), Prioridad: prioridadDe(in.prioridad),
 			})
 			if err != nil {
 				return Orden{}, err
@@ -426,4 +429,17 @@ func completarDesdeArgos(ctx context.Context, q *campobd.Queries, in *EntradaCre
 		}
 	}
 	return nil
+}
+
+// Prioridades de la orden.
+const (
+	PrioridadNormal = "normal"
+	PrioridadAlta   = "alta"
+)
+
+func prioridadDe(p string) string {
+	if p == PrioridadAlta {
+		return PrioridadAlta
+	}
+	return PrioridadNormal
 }

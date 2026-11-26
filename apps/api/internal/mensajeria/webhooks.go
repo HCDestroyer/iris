@@ -64,11 +64,13 @@ var EsperasWebhook = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Min
 // EventosWebhook son los eventos del outbox que van a Argos.
 var EventosWebhook = []string{"aviso.entregado", "aviso.fallido", "contacto.baja", "prospecto.estado_cambiado",
 	"ticket.estado_cambiado", "ticket.respondido", "solicitud_servicio.estado_cambiado",
-	"cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado}
+	"cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado, eventoCorteManual}
 
 const (
 	eventoVinculado    = "tecnico.argos_vinculado"
 	eventoDesvinculado = "tecnico.argos_desvinculado"
+	// eventoCorteManual: el estado del corte manual del cable (0.15.0 §13.2, B34; lo emite campo).
+	eventoCorteManual = "corte_manual.estado_cambiado"
 )
 
 // contratoMinimoEvento: los eventos que Argos solo recibe con un contrato más nuevo que
@@ -86,6 +88,8 @@ var contratoMinimoEvento = map[string]string{
 	// 0.14.0 §6.6: vínculo de cada técnico.
 	eventoVinculado:    ContratoVinculos,
 	eventoDesvinculado: ContratoVinculos,
+	// 0.15.0 §6.6 y §13.2: corte manual de respaldo.
+	eventoCorteManual: "0.15.0",
 }
 
 // conAlcance: los eventos que Argos recibe solo si su empresa está en el alcance del conector (§6.6:
@@ -124,6 +128,8 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		// 0.14.0 §6.6: el conector de origen y la carga no viajan (van en su columna y en el outbox).
 		eventoVinculado:    {"tecnico_id", "usuario_id", "empresa_id", "version", "id_externo", "anterior_id_externo"},
 		eventoDesvinculado: {"tecnico_id", "usuario_id", "empresa_id", "version", "id_externo", "motivo"},
+		// 0.15.0 §6.6: version es el contador de Iris por solicitud_id; nunca la orden interna ni el servicio.
+		eventoCorteManual: {"solicitud_id", "empresa_id", "version", "estado", "motivo_codigo", "referencia", "referencia_tipo", "ocurrido_en"},
 	}[evento]
 	if campos == nil {
 		return nil, false
@@ -142,7 +148,7 @@ func payloadArgos(evento string, crudo json.RawMessage) (map[string]any, bool) {
 		if p["origen"] != "argos_panel" {
 			return nil, false
 		}
-	case "cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado:
+	case "cuadrilla.creada", "cuadrilla.actualizada", eventoVinculado, eventoDesvinculado, eventoCorteManual:
 		// Sin empresa (modo sin conector) no hay bodega ni vínculo en Argos.
 		if p["empresa_id"] == nil {
 			return nil, false
