@@ -556,3 +556,40 @@ func TestConsumibleCobroSinConfirmar(t *testing.T) {
 		}
 	}
 }
+
+// Un cargo de un consumible_cobro que nació incompleto por otra causa (monto en cero) no espera al
+// consumo; si el consumo queda hecho y un cierre repetido corrige el cargo, la espera se decide en el
+// acto con los consumos ya hechos: nada más lo despertaría (antes quedaba bloqueado para siempre).
+func TestCargoCorregidoConConsumoYaHecho(t *testing.T) {
+	e := nuevoEntorno(t)
+	orden := nuevaOrden()
+	cierre := func(monto string) map[string]any {
+		return map[string]any{
+			"orden_id": orden, "tipo": "visita", "resultado": "exitosa", "cliente_id": 10, "servicio_id": 20, "bodega_id": 3,
+			"materiales": []any{map[string]any{"producto_id": 5, "cantidad": 1, "bodega_id": 3, "modalidad": "consumible_cobro"}},
+			"cargo":      map[string]any{"producto_id": 5, "monto": monto, "descripcion": "Cable"},
+		}
+	}
+	e.argos.mu.Lock()
+	e.argos.cuerpos["/inventario/consumos"] = `{"id": 901, "movimientos": [{"id": 901}], "cargos": [{"id": 32, "producto_id": 5, "monto": "50.00"}]}`
+	e.argos.mu.Unlock()
+	e.cerrar(cierre("0"))
+	e.procesar()
+	ps := e.pendientes(orden)
+	if f := ps["iris:cargo:"+orden]; f.Estado != "fallido_negocio" || !f.Incompleto || strings.Contains(f.Error, "consumible_cobro") {
+		t.Fatalf("el cargo nace incompleto por el monto: %+v", f)
+	}
+	if f := ps["iris:consumo:"+orden]; f.Estado != "hecho" {
+		t.Fatalf("consumo hecho: %+v", f)
+	}
+	e.cerrar(cierre("50.00"))
+	e.procesar()
+	if f := e.pendientes(orden)["iris:cargo:"+orden]; f.Estado != "resuelto_manual" {
+		t.Fatalf("el cargo corregido se decide con el consumo ya hecho (no queda bloqueado): %+v", f)
+	}
+	for _, l := range e.argos.copia() {
+		if l.Clave == "iris:cargo:"+orden {
+			t.Fatal("el cargo de un consumible_cobro salió hacia Argos")
+		}
+	}
+}
