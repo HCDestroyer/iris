@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.38.0](https://github.com/HCDestroyer/iris/compare/v0.37.0...v0.38.0) (2026-11-26)
+
+
+### Funcionalidades
+
+* **agenda:** B26/B27 vínculos de técnicos hacia Argos, carga inicial y aviso de clave reutilizada (0.14.0 §6.6) ([#278](https://github.com/HCDestroyer/iris/issues/278)) ([f69f03e](https://github.com/HCDestroyer/iris/commit/f69f03ead68706ccbf2a82c87d59891196248a0b))
+* **agenda:** jefe de cuadrilla y cuadrilla.* hacia Argos (B26, 1/3) ([#265](https://github.com/HCDestroyer/iris/issues/265)) ([7040627](https://github.com/HCDestroyer/iris/commit/7040627b48590012ef04bdb4816d57a5e0806f08))
+* **campo:** bloque E de la 0.9.0, activación, equipos, cobro y bienvenida (B12, B14–B16) ([#286](https://github.com/HCDestroyer/iris/issues/286)) ([643dd91](https://github.com/HCDestroyer/iris/commit/643dd91f61a965bb8cbc74589558355c7723d7be))
+* **campo:** cambio de equipo y «no se pudo recuperar» (B27) ([#271](https://github.com/HCDestroyer/iris/issues/271)) ([a2d2834](https://github.com/HCDestroyer/iris/commit/a2d2834e49791dacd89d097252cc507e2f81f0f5))
+* **comercial:** venta a instalación B17, B20, B21, empresarial y paso desde el panel ([#280](https://github.com/HCDestroyer/iris/issues/280)) ([c83d3fd](https://github.com/HCDestroyer/iris/commit/c83d3fdeff018a3fdcb09823943460d23176d7bc))
+* **integracion:** contrato 0.14.3 con Argos (versión única, acordada y H3) ([#299](https://github.com/HCDestroyer/iris/issues/299)) ([3e90948](https://github.com/HCDestroyer/iris/commit/3e9094842fb2b58878998dda023703291f6faee1))
+* **integracion:** portal del cliente de Argos (B8–B11, B13, B28) ([#283](https://github.com/HCDestroyer/iris/issues/283)) ([b90bf08](https://github.com/HCDestroyer/iris/commit/b90bf0845842e0a3813695bf41fcf9418e2b13fe))
+* **inventario:** bodega de cuadrilla en el lote, la recepción y Argos (B26, 2/3) ([#268](https://github.com/HCDestroyer/iris/issues/268)) ([5a4a5c5](https://github.com/HCDestroyer/iris/commit/5a4a5c5838cd939c4c0f35d8d3602ffa3a34b056))
+* **mensajeria:** contactos del cliente y servicios a cargo en la atención (B22, B25) ([#287](https://github.com/HCDestroyer/iris/issues/287)) ([936de82](https://github.com/HCDestroyer/iris/commit/936de82a1034cfe45de2a08b2b476f410608fadb))
+* **mensajeria:** gestiones de cobro hacia Argos (B31) ([#282](https://github.com/HCDestroyer/iris/issues/282)) ([fce30c4](https://github.com/HCDestroyer/iris/commit/fce30c4bf5d78169bb9ebae76d7bedac388fe921))
+* **mensajeria:** plantillas de WhatsApp para Argos (B32) ([#279](https://github.com/HCDestroyer/iris/issues/279)) ([e465b73](https://github.com/HCDestroyer/iris/commit/e465b73bd0d1d3ccff39006abf32e3004af9acc3))
+* **soporte:** caídas repetidas y falla general desde Argos (B29, B30) ([#285](https://github.com/HCDestroyer/iris/issues/285)) ([a06598f](https://github.com/HCDestroyer/iris/commit/a06598f0d52160d541704e96d3b7c65c8f5d1b0e))
+* **ui:** rediseño fase 1, colores, logo, marco y app del técnico ([#277](https://github.com/HCDestroyer/iris/issues/277)) ([9bf9c14](https://github.com/HCDestroyer/iris/commit/9bf9c14234549c8329f09b9a47769e8981125942))
+
+
+### Correcciones
+
+* **comercial:** seguimiento de venta a instalación ([#292](https://github.com/HCDestroyer/iris/issues/292)) ([0304a0d](https://github.com/HCDestroyer/iris/commit/0304a0d5b010897b5bdae8e5f0677d0bca9edb69))
+* **mensajeria:** el aviso del titular revisa la baja al enviarse ([#298](https://github.com/HCDestroyer/iris/issues/298)) ([e161914](https://github.com/HCDestroyer/iris/commit/e16191430512fe75c2165f5320cbb0a7d51aaff6))
+
 ## [0.37.0](https://github.com/HCDestroyer/iris/compare/v0.36.0...v0.37.0) (2026-11-22)
 
 
