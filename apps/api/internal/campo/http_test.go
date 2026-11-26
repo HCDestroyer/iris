@@ -146,7 +146,8 @@ func TestHTTPDespachoYTecnico(t *testing.T) {
 	if r := tec.pedir(http.MethodGet, ruta, nil); r.status != 200 || len(r.cuerpo["checklist"].([]any)) == 0 {
 		t.Fatalf("detalle: %d %s", r.status, r.crudo)
 	}
-	if r := tec.pedir(http.MethodGet, "/api/v1/tipos-orden", nil); r.status != 200 || len(r.cuerpo["data"].([]any)) != 5 {
+	// Siete tipos: los cinco de siempre y los dos del corte manual del cable (0.15.0 §13.2).
+	if r := tec.pedir(http.MethodGet, "/api/v1/tipos-orden", nil); r.status != 200 || len(r.cuerpo["data"].([]any)) != 7 {
 		t.Fatalf("tipos: %d %s", r.status, r.crudo)
 	}
 
