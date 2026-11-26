@@ -179,6 +179,10 @@ func (m *Modulo) nuevoVincularArgos() *VincularArgos {
 			}); err != nil {
 				return TecnicoDetalle{}, err
 			}
+			// El id_externo del miembro cambió: cuadrilla.actualizada para Argos (§3.9).
+			if err := revisarCuadrillas(ctx, t, q, []*int64{f.CuadrillaID}); err != nil {
+				return TecnicoDetalle{}, err
+			}
 			return m.detalleDe(ctx, q, f)
 		},
 	})
@@ -255,6 +259,10 @@ func (m *Modulo) nuevoDesvincularArgos() *auditoria.Caso[EntradaDesvincularArgos
 			if err := t.Emitir("tecnico.argos_desvinculado", map[string]any{
 				"tecnico_id": f.ID, "usuario_id": f.UsuarioID, "id_externo": *antes.ArgosIDExterno, "motivo": motivo,
 			}); err != nil {
+				return TecnicoDetalle{}, err
+			}
+			// Sin vínculo I1 no consume de la bodega de la cuadrilla ni puede ser su jefe (§3.9).
+			if err := revisarCuadrillas(ctx, t, q, []*int64{f.CuadrillaID}); err != nil {
 				return TecnicoDetalle{}, err
 			}
 			return m.detalleDe(ctx, q, f)

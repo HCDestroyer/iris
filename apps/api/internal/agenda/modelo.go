@@ -50,6 +50,7 @@ type Cuadrilla struct {
 	Activa        bool        `json:"activa"`
 	ZonaIDs       []int64     `json:"zonaIds" doc:"Zonas que atiende; vacío = todas"`
 	Capacidad     []Capacidad `json:"capacidad" doc:"Capacidad diaria de la cuadrilla (suma de sus técnicos)"`
+	JefeUsuarioID *int64      `json:"jefeUsuarioId" nullable:"true" doc:"Jefe de cuadrilla: recibe y firma los traslados a su bodega (contrato 0.11.0 §3.9)"`
 	Version       int32       `json:"version"`
 	CreadoEn      time.Time   `json:"creadoEn"`
 	ActualizadoEn time.Time   `json:"actualizadoEn"`
