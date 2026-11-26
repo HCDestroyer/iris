@@ -178,6 +178,9 @@ type PeticionCanje struct {
 	// ReceptorArgos (contrato Iris ↔ ArgosISP 0.6.2): esta versión de Iris guarda el receptor que
 	// devuelve el canje (y rechaza uno sin él), así que va siempre true; nil = no se manda (Horus).
 	ReceptorArgos *bool `json:"receptor_argos,omitempty"`
+	// TokenPortal (contrato Iris ↔ ArgosISP 0.9.0 §1.2): el token del portal del cliente de Argos; vacío
+	// = no se manda (Iris < 0.9.0 u Horus).
+	TokenPortal string `json:"token_portal,omitempty"`
 }
 
 // WebhookCanje es un receptor de webhooks y su secreto HMAC, en el canje.

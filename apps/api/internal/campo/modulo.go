@@ -96,10 +96,27 @@ type Inventario interface {
 	Existencias(ctx context.Context, empresaID, bodegaID int64) ([]Existencia, error)
 	// BodegaDeEmpresa: la bodega existe en la empresa (para que despacho use otra bodega).
 	BodegaDeEmpresa(ctx context.Context, empresaID, bodegaID int64) (bool, error)
+	// TipoDeBodega: bodega, tecnico o cuadrilla según Argos; "" si no es de la empresa (despacho
+	// solo usa bodegas tipo = bodega, 0.13.1 §3.9).
+	TipoDeBodega(ctx context.Context, empresaID, bodegaID int64) (string, error)
+	// BodegaDeUnidad: la bodega donde está la unidad según Argos (nil si en ninguna de la empresa),
+	// para el corte inmediato de §3.9 (M-7).
+	BodegaDeUnidad(ctx context.Context, empresaID, unidadID int64) (*int64, error)
+}
+
+// EquiposArgos encola hacia Argos un cambio o un intento de recuperación al aplicarse la operación
+// del lote (contrato 0.14.0 §3.10; pendientes.Modulo de I1). nil = como en 0.12.0, salen al cerrar.
+type EquiposArgos interface {
+	// ClavesPorOperacion: Argos informa contrato ≥ 0.14.0 (falla cerrado).
+	ClavesPorOperacion(ctx context.Context, t *auditoria.Tx) (bool, error)
+	// EncolarAlAplicar recibe el cuerpo de orden.cerrada con ese único equipo; true si lo encoló.
+	EncolarAlAplicar(ctx context.Context, t *auditoria.Tx, orden []byte) (bool, error)
 }
 
 // Config del módulo.
 type Config struct {
+	// Equipos: cambios e intentos hacia Argos al aplicarse (nil = al cerrar la orden).
+	Equipos EquiposArgos
 	// Reloj da la hora actual (time.Now por defecto). Las pruebas lo fijan.
 	Reloj func() time.Time
 	// AsegurarArgos (argos.Modulo.AsegurarInstantanea): antes de crear una orden con cliente y
@@ -161,6 +178,8 @@ type Modulo struct {
 	UsarMaterial        *auditoria.Caso[EntradaUsarMaterial, Orden]
 	InstalarEquipo      *auditoria.Caso[EntradaEquipo, Orden]
 	RetirarEquipo       *auditoria.Caso[EntradaEquipo, Orden]
+	CambiarEquipo       *auditoria.Caso[EntradaCambiarEquipo, Orden]
+	NoRecuperado        *auditoria.Caso[EntradaNoRecuperado, Orden]
 	CapturarFirma       *auditoria.Caso[EntradaCapturarFirma, Orden]
 	RegistrarAdjunto    *auditoria.Caso[EntradaRegistrarAdjunto, Orden]
 	VerOrden            *auditoria.Caso[EntradaVerOrden, OrdenDetalle]
@@ -270,6 +289,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.UsarMaterial = m.nuevoUsarMaterial()
 	m.InstalarEquipo = m.nuevoEquipo(AccionInstalar)
 	m.RetirarEquipo = m.nuevoEquipo(AccionRetirar)
+	m.CambiarEquipo = m.nuevoCambiarEquipo()
+	m.NoRecuperado = m.nuevoNoRecuperado()
 	m.CapturarFirma = m.nuevoCapturarFirma()
 	m.RegistrarAdjunto = m.nuevoRegistrarAdjunto()
 	m.VerOrden = m.nuevoVerOrden(nucleo.PermOrdenesVer)

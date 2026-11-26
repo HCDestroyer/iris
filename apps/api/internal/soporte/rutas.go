@@ -90,6 +90,7 @@ func (m *Modulo) Registrar(api huma.API) {
 			return responder(m.ListarTickets.Ejecutar(ctx, *in))
 		})
 
+	m.registrarAjustesRed(api)
 	huma.Register(api, operacion("resumirTickets", http.MethodGet, "/api/v1/tickets/resumen", "Resumen de la bandeja: contadores, tickets urgentes y los últimos 7 días", nucleo.PermTicketsVer, http.StatusOK),
 		func(ctx context.Context, _ *struct{}) (*cuerpo[ResumenTickets], error) {
 			return responder(m.ResumirTickets.Ejecutar(ctx, EntradaResumirTickets{}))
@@ -174,5 +175,6 @@ func (m *Modulo) Registrar(api huma.API) {
 
 	m.registrarBuzones(api)
 	m.registrarPortal(api)
+	m.registrarPortalArgos(api)
 	m.registrarEncuestas(api)
 }

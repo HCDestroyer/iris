@@ -352,8 +352,17 @@ func TestHorusCaidaMaestroUnicoHijosYPropuesta(t *testing.T) {
 
 // colaJobs guarda los jobs que el módulo encolaría en River.
 type colaJobs struct {
-	mu   sync.Mutex
-	args []soporte.ArgsAvisarHijos
+	mu      sync.Mutex
+	args    []soporte.ArgsAvisarHijos
+	cierres []soporte.ArgsCerrarFallaGeneral
+}
+
+func (c *colaJobs) tomarCierres() []soporte.ArgsCerrarFallaGeneral {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	a := c.cierres
+	c.cierres = nil
+	return a
 }
 
 func (c *colaJobs) tomar() []soporte.ArgsAvisarHijos {
@@ -368,10 +377,13 @@ func nuevoModuloConCola(inicio time.Time) (*soporte.Modulo, *reloj, *colaJobs) {
 	r := &reloj{t: inicio}
 	c := &colaJobs{}
 	m := soporte.Nuevo(soporte.Config{Reloj: r.ahora, Encolar: func(_ context.Context, _ pgx.Tx, args river.JobArgs) error {
-		if a, ok := args.(soporte.ArgsAvisarHijos); ok {
-			c.mu.Lock()
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		switch a := args.(type) {
+		case soporte.ArgsAvisarHijos:
 			c.args = append(c.args, a)
-			c.mu.Unlock()
+		case soporte.ArgsCerrarFallaGeneral:
+			c.cierres = append(c.cierres, a)
 		}
 		return nil
 	}})

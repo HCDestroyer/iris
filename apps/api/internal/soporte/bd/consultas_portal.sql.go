@@ -7,7 +7,88 @@ package soportebd
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
+
+const adjuntoDeMensajePublico = `-- name: AdjuntoDeMensajePublico :one
+SELECT a.id, a.empresa_id, a.entidad, a.entidad_id, a.tipo, a.clave_checklist, a.mime, a.tamano, a.sha256, a.recibido, a.estado, a.motivo_rechazo, a.lat, a.lon, a.tomado_en, a.subido_por, a.almacenamiento, a.clave, a.completado_en, a.version, a.created_at, a.updated_at, a.nombre FROM nucleo.adjuntos a
+WHERE a.id = $1 AND a.estado = 'completo'
+  AND EXISTS (SELECT 1 FROM soporte.ticket_mensajes m WHERE m.ticket_id = $2 AND m.publico AND a.id = ANY(m.adjuntos))
+`
+
+type AdjuntoDeMensajePublicoParams struct {
+	AdjuntoID uuid.UUID
+	TicketID  int64
+}
+
+// El adjunto es de un mensaje público del ticket (§11.6); si no, ninguna fila.
+func (q *Queries) AdjuntoDeMensajePublico(ctx context.Context, arg AdjuntoDeMensajePublicoParams) (NucleoAdjunto, error) {
+	row := q.db.QueryRow(ctx, adjuntoDeMensajePublico, arg.AdjuntoID, arg.TicketID)
+	var i NucleoAdjunto
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.Entidad,
+		&i.EntidadID,
+		&i.Tipo,
+		&i.ClaveChecklist,
+		&i.Mime,
+		&i.Tamano,
+		&i.Sha256,
+		&i.Recibido,
+		&i.Estado,
+		&i.MotivoRechazo,
+		&i.Lat,
+		&i.Lon,
+		&i.TomadoEn,
+		&i.SubidoPor,
+		&i.Almacenamiento,
+		&i.Clave,
+		&i.CompletadoEn,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Nombre,
+	)
+	return i, err
+}
+
+const adjuntosPorIDs = `-- name: AdjuntosPorIDs :many
+SELECT id, mime, tamano, nombre FROM nucleo.adjuntos WHERE id = ANY($1::uuid[]) AND estado = 'completo'
+`
+
+type AdjuntosPorIDsRow struct {
+	ID     uuid.UUID
+	Mime   string
+	Tamano int64
+	Nombre *string
+}
+
+func (q *Queries) AdjuntosPorIDs(ctx context.Context, ids []uuid.UUID) ([]AdjuntosPorIDsRow, error) {
+	rows, err := q.db.Query(ctx, adjuntosPorIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdjuntosPorIDsRow
+	for rows.Next() {
+		var i AdjuntosPorIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Mime,
+			&i.Tamano,
+			&i.Nombre,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const clienteDeArgos = `-- name: ClienteDeArgos :one
 SELECT c.nombre, c.telefono, c.zona_id FROM integracion.argos_clientes c
@@ -37,12 +118,37 @@ func (q *Queries) ClienteDeArgos(ctx context.Context, arg ClienteDeArgosParams) 
 	return i, err
 }
 
+const conteoTicketsContacto = `-- name: ConteoTicketsContacto :one
+SELECT count(*) FILTER (WHERE estado IN ('nuevo', 'abierto', 'en_espera'))::bigint AS abiertos,
+       count(*) FILTER (WHERE created_at > now() - interval '1 hour')::bigint AS ultima_hora
+FROM soporte.tickets
+WHERE creado_por_contacto = $1::bigint AND empresa_id = $2::bigint AND origen = 'portal_argos'
+`
+
+type ConteoTicketsContactoParams struct {
+	ContactoID int64
+	EmpresaID  int64
+}
+
+type ConteoTicketsContactoRow struct {
+	Abiertos   int64
+	UltimaHora int64
+}
+
+// Topes propios del contacto (§11.10): abiertos por él y creados en la última hora.
+func (q *Queries) ConteoTicketsContacto(ctx context.Context, arg ConteoTicketsContactoParams) (ConteoTicketsContactoRow, error) {
+	row := q.db.QueryRow(ctx, conteoTicketsContacto, arg.ContactoID, arg.EmpresaID)
+	var i ConteoTicketsContactoRow
+	err := row.Scan(&i.Abiertos, &i.UltimaHora)
+	return i, err
+}
+
 const conteoTicketsPortal = `-- name: ConteoTicketsPortal :one
 
 SELECT count(*) FILTER (WHERE estado IN ('nuevo', 'abierto', 'en_espera'))::bigint AS abiertos,
        count(*) FILTER (WHERE created_at > now() - interval '1 hour')::bigint AS ultima_hora
 FROM soporte.tickets
-WHERE cliente_id = $1::bigint AND empresa_id = $2::bigint AND origen = 'portal'
+WHERE cliente_id = $1::bigint AND empresa_id = $2::bigint AND origen IN ('portal', 'portal_argos')
 `
 
 type ConteoTicketsPortalParams struct {
@@ -65,29 +171,38 @@ func (q *Queries) ConteoTicketsPortal(ctx context.Context, arg ConteoTicketsPort
 }
 
 const datosTicketPortal = `-- name: DatosTicketPortal :one
-SELECT c.nombre AS categoria_nombre,
-       coalesce(p.estado IN ('nuevo', 'abierto', 'en_espera'), false)::boolean AS padre_abierto
+SELECT c.nombre AS categoria_nombre, c.codigo AS categoria_codigo,
+       coalesce(p.estado IN ('nuevo', 'abierto', 'en_espera'), false)::boolean AS padre_abierto,
+       ac.nombre AS contacto_nombre
 FROM soporte.tickets t
 LEFT JOIN soporte.categorias c ON c.id = t.categoria_id
 LEFT JOIN soporte.tickets p ON p.id = t.ticket_padre_id
+LEFT JOIN integracion.argos_contactos ac ON ac.contacto_id = t.creado_por_contacto
 WHERE t.id = $1
 `
 
 type DatosTicketPortalRow struct {
 	CategoriaNombre *string
+	CategoriaCodigo *string
 	PadreAbierto    bool
+	ContactoNombre  *string
 }
 
-// Nombre de la categoría y si el incidente maestro (padre) sigue abierto.
+// Nombre de la categoría, si el incidente maestro (padre) sigue abierto y el contacto que lo abrió.
 func (q *Queries) DatosTicketPortal(ctx context.Context, id int64) (DatosTicketPortalRow, error) {
 	row := q.db.QueryRow(ctx, datosTicketPortal, id)
 	var i DatosTicketPortalRow
-	err := row.Scan(&i.CategoriaNombre, &i.PadreAbierto)
+	err := row.Scan(
+		&i.CategoriaNombre,
+		&i.CategoriaCodigo,
+		&i.PadreAbierto,
+		&i.ContactoNombre,
+	)
 	return i, err
 }
 
 const listarCategoriasPortal = `-- name: ListarCategoriasPortal :many
-SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal FROM soporte.categorias
+SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal, conectividad FROM soporte.categorias
 WHERE visible_portal AND activa AND (empresa_id IS NULL OR empresa_id = $1::bigint)
 ORDER BY nombre, id
 `
@@ -113,6 +228,7 @@ func (q *Queries) ListarCategoriasPortal(ctx context.Context, empresaID int64) (
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.VisiblePortal,
+			&i.Conectividad,
 		); err != nil {
 			return nil, err
 		}
@@ -125,7 +241,7 @@ func (q *Queries) ListarCategoriasPortal(ctx context.Context, empresaID int64) (
 }
 
 const listarMensajesPublicos = `-- name: ListarMensajesPublicos :many
-SELECT id, ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, adjuntos, created_at, updated_at, idempotencia FROM soporte.ticket_mensajes
+SELECT id, ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, adjuntos, created_at, updated_at, idempotencia, contacto_id FROM soporte.ticket_mensajes
 WHERE ticket_id = $1 AND publico AND id > $2
 ORDER BY id
 LIMIT $3
@@ -160,6 +276,7 @@ func (q *Queries) ListarMensajesPublicos(ctx context.Context, arg ListarMensajes
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Idempotencia,
+			&i.ContactoID,
 		); err != nil {
 			return nil, err
 		}
@@ -173,39 +290,47 @@ func (q *Queries) ListarMensajesPublicos(ctx context.Context, arg ListarMensajes
 
 const listarTicketsCliente = `-- name: ListarTicketsCliente :many
 
-SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id, c.nombre AS categoria_nombre,
-       coalesce(p.estado IN ('nuevo', 'abierto', 'en_espera'), false)::boolean AS padre_abierto
+SELECT t.id, t.numero, t.empresa_id, t.cliente_id, t.servicio_id, t.zona_id, t.contacto_nombre, t.contacto_telefono, t.contacto_correo, t.categoria_id, t.prioridad, t.estado, t.origen, t.asunto, t.asignado_a, t.cuadrilla_id, t.nivel_escalamiento, t.sla_id, t.calendario_id, t.sla_inicio, t.sla_respuesta_min, t.sla_resolucion_min, t.pausa_seg, t.riesgo_respuesta, t.vence_respuesta, t.riesgo_resolucion, t.vence_resolucion, t.primera_respuesta_en, t.en_espera_desde, t.resuelto_en, t.cerrado_en, t.ticket_padre_id, t.fusionado_en_id, t.version, t.created_at, t.updated_at, t.idempotencia, t.contacto_verificado, t.maestro, t.router_id, t.infra_id, t.incidente_nombre, t.hallazgo_id, t.url_horus, t.propuesta, t.propuesta_en, t.propuesta_motivo, t.propuesta_origen, t.propuesta_orden_id, t.creado_por_contacto, t.cliente_revision, c.nombre AS categoria_nombre, c.codigo AS categoria_codigo,
+       coalesce(p.estado IN ('nuevo', 'abierto', 'en_espera'), false)::boolean AS padre_abierto,
+       ac.nombre AS contacto_nombre
 FROM soporte.tickets t
 LEFT JOIN soporte.categorias c ON c.id = t.categoria_id
 LEFT JOIN soporte.tickets p ON p.id = t.ticket_padre_id
+LEFT JOIN integracion.argos_contactos ac ON ac.contacto_id = t.creado_por_contacto
 WHERE t.cliente_id = $1::bigint AND t.empresa_id = $2::bigint
   AND ($3::bigint IS NULL OR t.id < $3)
   AND (cardinality($4::text[]) = 0 OR t.estado = ANY($4::text[]))
+  AND ($5::bigint IS NULL OR t.servicio_id = $5)
 ORDER BY t.id DESC
-LIMIT $5
+LIMIT $6
 `
 
 type ListarTicketsClienteParams struct {
-	ClienteID int64
-	EmpresaID int64
-	AntesDe   *int64
-	Estados   []string
-	Limite    int32
+	ClienteID  int64
+	EmpresaID  int64
+	AntesDe    *int64
+	Estados    []string
+	ServicioID *int64
+	Limite     int32
 }
 
 type ListarTicketsClienteRow struct {
 	SoporteTicket   SoporteTicket
 	CategoriaNombre *string
+	CategoriaCodigo *string
 	PadreAbierto    bool
+	ContactoNombre  *string
 }
 
 // Portal del cliente (actor cliente: cliente y empresa de Argos de la sesión) ------------
+// servicio_id (opcional): solo los de ese servicio (portal de Argos, §11.10: con un contacto, obligatorio).
 func (q *Queries) ListarTicketsCliente(ctx context.Context, arg ListarTicketsClienteParams) ([]ListarTicketsClienteRow, error) {
 	rows, err := q.db.Query(ctx, listarTicketsCliente,
 		arg.ClienteID,
 		arg.EmpresaID,
 		arg.AntesDe,
 		arg.Estados,
+		arg.ServicioID,
 		arg.Limite,
 	)
 	if err != nil {
@@ -265,8 +390,12 @@ func (q *Queries) ListarTicketsCliente(ctx context.Context, arg ListarTicketsCli
 			&i.SoporteTicket.PropuestaMotivo,
 			&i.SoporteTicket.PropuestaOrigen,
 			&i.SoporteTicket.PropuestaOrdenID,
+			&i.SoporteTicket.CreadoPorContacto,
+			&i.SoporteTicket.ClienteRevision,
 			&i.CategoriaNombre,
+			&i.CategoriaCodigo,
 			&i.PadreAbierto,
+			&i.ContactoNombre,
 		); err != nil {
 			return nil, err
 		}
@@ -278,11 +407,48 @@ func (q *Queries) ListarTicketsCliente(ctx context.Context, arg ListarTicketsCli
 	return items, nil
 }
 
+const marcarTicketPortalArgos = `-- name: MarcarTicketPortalArgos :exec
+
+UPDATE soporte.tickets SET creado_por_contacto = $1, cliente_revision = $2
+WHERE id = $3
+`
+
+type MarcarTicketPortalArgosParams struct {
+	ContactoID      *int64
+	ClienteRevision *string
+	ID              int64
+}
+
+// Portal del cliente de Argos (contrato 0.9.0 §11) ---------------------------------------
+// El contacto que lo abrió (§11.10) y si el cliente queda por conciliar con Argos (§11.2).
+func (q *Queries) MarcarTicketPortalArgos(ctx context.Context, arg MarcarTicketPortalArgosParams) error {
+	_, err := q.db.Exec(ctx, marcarTicketPortalArgos, arg.ContactoID, arg.ClienteRevision, arg.ID)
+	return err
+}
+
+const mensajesContactoUltimoMinuto = `-- name: MensajesContactoUltimoMinuto :one
+SELECT count(*)::bigint FROM soporte.ticket_mensajes m
+WHERE m.contacto_id = $1::bigint AND m.empresa_id = $2::bigint
+  AND m.autor_tipo = 'cliente' AND m.canal = 'portal_argos' AND m.created_at > now() - interval '1 minute'
+`
+
+type MensajesContactoUltimoMinutoParams struct {
+	ContactoID int64
+	EmpresaID  int64
+}
+
+func (q *Queries) MensajesContactoUltimoMinuto(ctx context.Context, arg MensajesContactoUltimoMinutoParams) (int64, error) {
+	row := q.db.QueryRow(ctx, mensajesContactoUltimoMinuto, arg.ContactoID, arg.EmpresaID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const mensajesPortalUltimoMinuto = `-- name: MensajesPortalUltimoMinuto :one
 SELECT count(*)::bigint FROM soporte.ticket_mensajes m
 JOIN soporte.tickets t ON t.id = m.ticket_id
 WHERE t.cliente_id = $1::bigint AND t.empresa_id = $2::bigint
-  AND m.autor_tipo = 'cliente' AND m.canal = 'portal' AND m.created_at > now() - interval '1 minute'
+  AND m.autor_tipo = 'cliente' AND m.canal IN ('portal', 'portal_argos') AND m.created_at > now() - interval '1 minute'
 `
 
 type MensajesPortalUltimoMinutoParams struct {
@@ -295,6 +461,24 @@ func (q *Queries) MensajesPortalUltimoMinuto(ctx context.Context, arg MensajesPo
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
+}
+
+const resolverClienteRevision = `-- name: ResolverClienteRevision :execrows
+UPDATE soporte.tickets SET cliente_revision = $1
+WHERE id = $2 AND cliente_revision = 'pendiente'
+`
+
+type ResolverClienteRevisionParams struct {
+	ClienteRevision *string
+	ID              int64
+}
+
+func (q *Queries) ResolverClienteRevision(ctx context.Context, arg ResolverClienteRevisionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, resolverClienteRevision, arg.ClienteRevision, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const servicioDeCliente = `-- name: ServicioDeCliente :one
@@ -318,4 +502,38 @@ func (q *Queries) ServicioDeCliente(ctx context.Context, arg ServicioDeClientePa
 	var i ServicioDeClienteRow
 	err := row.Scan(&i.ID, &i.ZonaID)
 	return i, err
+}
+
+const ticketsClientePorConciliar = `-- name: TicketsClientePorConciliar :many
+SELECT id, cliente_id, empresa_id FROM soporte.tickets
+WHERE cliente_revision = 'pendiente' AND cliente_id IS NOT NULL
+ORDER BY id
+LIMIT $1
+`
+
+type TicketsClientePorConciliarRow struct {
+	ID        int64
+	ClienteID *int64
+	EmpresaID *int64
+}
+
+// Tickets del portal de Argos creados sin poder confirmar el cliente con Argos (§11.2).
+func (q *Queries) TicketsClientePorConciliar(ctx context.Context, limite int32) ([]TicketsClientePorConciliarRow, error) {
+	rows, err := q.db.Query(ctx, ticketsClientePorConciliar, limite)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TicketsClientePorConciliarRow
+	for rows.Next() {
+		var i TicketsClientePorConciliarRow
+		if err := rows.Scan(&i.ID, &i.ClienteID, &i.EmpresaID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }

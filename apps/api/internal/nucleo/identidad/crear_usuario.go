@@ -49,6 +49,9 @@ func nuevoCrearUsuario() *auditoria.Caso[EntradaCrearUsuario, Usuario] {
 					return Usuario{}, err
 				}
 			}
+			if err := exigirRolesDePersona(tipo, "roles", in.Roles); err != nil {
+				return Usuario{}, err
+			}
 			roles, err := resolverRoles(ctx, q, contexto.PermisosDe(ctx), "roles", in.Roles)
 			if err != nil {
 				return Usuario{}, err
@@ -192,6 +195,29 @@ func exigirCrearIntegracion(ctx context.Context, roles []AsignacionRol) error {
 		if !soloRolesDeIntegracion([]AsignacionRol{r}) || r.ZonaID != nil || r.CuadrillaID != nil {
 			errores = append(errores, nucleo.ErrorCampo{Field: fmt.Sprintf("roles[%d].rol", i),
 				Message: "Una integración solo admite su rol de integración (integracion_argos, integracion_horus), sin alcance", Rule: "rol_integracion"})
+		}
+	}
+	if len(errores) > 0 {
+		return nucleo.Validacion(errores...)
+	}
+	return nil
+}
+
+// exigirRolesDePersona: a un usuario de tipo persona no se le dan roles de integración
+// (integracion_argos, integracion_horus): sus permisos son los de un conector (422).
+func exigirRolesDePersona(tipo, campo string, roles []AsignacionRol) error {
+	if tipo == "integracion" {
+		return nil
+	}
+	var errores []nucleo.ErrorCampo
+	for i, r := range roles {
+		if soloRolesDeIntegracion([]AsignacionRol{r}) {
+			f := campo
+			if len(roles) > 1 || campo == "roles" {
+				f = fmt.Sprintf("%s[%d].rol", campo, i)
+			}
+			errores = append(errores, nucleo.ErrorCampo{Field: f,
+				Message: "El rol " + r.Rol + " es de un conector: solo se da a usuarios de tipo integración", Rule: "rol_integracion"})
 		}
 	}
 	if len(errores) > 0 {

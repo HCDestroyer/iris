@@ -132,6 +132,7 @@ func op(id, metodo, ruta, resumen string, permiso nucleo.Permiso, status int, er
 
 // Registrar publica las rutas (en el proceso de mensajería y en el OpenAPI de la API).
 func (m *Modulo) Registrar(api huma.API) {
+	m.registrarReenviarWebhook(api)
 	enviar := op("enviarAviso", http.MethodPost, "/avisos", "Pedir un aviso (contrato Iris ↔ ArgosISP §6.2)", nucleo.PermMensajeriaEnviar,
 		http.StatusAccepted, http.StatusBadRequest, http.StatusServiceUnavailable)
 	enviar.Description += " Idempotency-Key obligatoria (`argos:aviso:<plantilla>:<envio_id>`; 400 `idempotency_key_requerida`): repetirla con el mismo cuerpo " +
@@ -185,6 +186,7 @@ func (m *Modulo) Registrar(api huma.API) {
 	huma.Register(api, plant, func(ctx context.Context, in *EntradaPlantillas) (*cuerpo[ListaPlantillas], error) {
 		return responder(m.ListarPlantillas.Ejecutar(ctx, *in))
 	})
+	m.registrarPlantillasArgos(api)
 
 	huma.Register(api, op("listarCanalesMensajeria", http.MethodGet, "/canales", "Canales de mensajería configurados (sin credenciales)",
 		nucleo.PermMensajeriaConfigurar, http.StatusOK), func(ctx context.Context, _ *struct{}) (*cuerpo[ListaCanales], error) {

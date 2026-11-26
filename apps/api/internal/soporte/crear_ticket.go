@@ -125,6 +125,11 @@ type opcionesCrear struct {
 	incidente *datosIncidente
 	// nota: nota interna inicial (del sistema).
 	nota string
+	// portal: lo abre el cliente desde el portal de Argos (§11.4): su alcance es su cliente (no la
+	// zona de un permiso) y el primer mensaje lo escribe quien llama (con sus adjuntos).
+	portal *argos.SesionPortal
+	// repetida: si no es nil, queda en true cuando la misma operación ya había creado el ticket.
+	repetida *bool
 }
 
 type datosIncidente struct {
@@ -150,8 +155,15 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 		previo, err := q.TicketPorIdempotencia(ctx, idem)
 		if err == nil {
 			t.FijarEntidad("ticket", previo.ID)
-			if err := verificarAcceso(ctx, nucleo.PermTicketsVer, previo); err != nil {
+			if op.portal != nil {
+				if !visibleEnPortal(*op.portal, previo) {
+					return cero, noEncontrado()
+				}
+			} else if err := verificarAcceso(ctx, nucleo.PermTicketsVer, previo); err != nil {
 				return cero, err
+			}
+			if op.repetida != nil {
+				*op.repetida = true
 			}
 			t.FijarEmpresa(deref(previo.EmpresaID))
 			t.Anotar(map[string]any{"repetida": true})
@@ -183,6 +195,9 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 	}
 	if err := validarOrigen(ctx, origen); err != nil {
 		return cero, err
+	}
+	if (origen == OrigenPortalArgos) != (op.portal != nil) {
+		return cero, nucleo.ReglaNegocio("origen_no_permitido", "El origen portal_argos solo vale desde el portal de Argos")
 	}
 	if in.ServicioID != nil && in.ClienteID == nil {
 		return cero, nucleo.Validacion(nucleo.ErrorCampo{Field: "clienteId", Message: "Un servicio exige su cliente", Rule: "required"})
@@ -218,7 +233,7 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 	}
 	// La zona es del catálogo de agenda (llave foránea): existe, activa y de la empresa. La del
 	// portal ya viene del espejo de Argos (agenda.ZonaDeArgos).
-	if in.ZonaID != nil && contexto.ActorDe(ctx).Tipo != contexto.ActorCliente {
+	if in.ZonaID != nil && contexto.ActorDe(ctx).Tipo != contexto.ActorCliente && op.portal == nil {
 		if err := agenda.ValidarZona(ctx, t, "zonaId", *in.ZonaID, empresa); err != nil {
 			return cero, err
 		}
@@ -226,7 +241,7 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 
 	// Al crear no hay cuadrilla: un alcance limitado se juzga por la zona. El actor cliente no
 	// tiene permisos de usuario: su alcance es su propio cliente (lo fija el portal).
-	if contexto.ActorDe(ctx).Tipo != contexto.ActorCliente {
+	if contexto.ActorDe(ctx).Tipo != contexto.ActorCliente && op.portal == nil {
 		if global, zonas, _ := contexto.PermisosDe(ctx).Alcances(string(nucleo.PermTicketsCrear)); !global &&
 			(in.ZonaID == nil || !slices.Contains(zonas, *in.ZonaID)) {
 			return cero, fueraDeAlcance("Tu permiso tickets.crear se limita a otras zonas; indica una zona tuya")
@@ -263,6 +278,25 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 		}
 	}
 	var maestro *soportebd.SoporteTicket
+	var falla *soportebd.SoporteIncidentesRed
+	if padreID == nil && op.incidente == nil && origen != "horus" && empresa != nil && in.ServicioID != nil && categoria != nil && categoria.Conectividad {
+		// Falla general de Argos abierta con el servicio (contrato 0.13.0 §3.11): un ticket de
+		// conectividad nace hijo del ticket general. El incidente se lee con candado compartido: si el
+		// cierre llega a la vez, espera a este COMMIT (y ve al hijo) o ya cerró y no devuelve nada.
+		inc, err := q.IncidenteAbiertoDeServicioCompartido(ctx, soportebd.IncidenteAbiertoDeServicioCompartidoParams{EmpresaID: *empresa, ServicioID: *in.ServicioID})
+		switch {
+		case err == nil:
+			g, err := q.TicketPorIDCompartido(ctx, inc.TicketID)
+			if err != nil {
+				return cero, err
+			}
+			if g.Estado != EstadoCerrado {
+				padreID, falla = &g.ID, &inc
+			}
+		case !errors.Is(err, pgx.ErrNoRows):
+			return cero, err
+		}
+	}
 	if padreID == nil && op.incidente == nil && origen != "horus" {
 		if maestro, err = vincularMaestro(ctx, q, empresa, in.ClienteID, in.ServicioID); err != nil {
 			return cero, err
@@ -328,6 +362,26 @@ func (m *Modulo) crearTicket(ctx context.Context, t *auditoria.Tx, in EntradaCre
 	if op.nota != "" {
 		if _, err := mensajeSistema(ctx, q, f, false, op.nota); err != nil {
 			return cero, err
+		}
+	}
+	if falla != nil {
+		if _, err := mensajeSistema(ctx, q, f, false, "Vinculado automáticamente a la falla general "+falla.IncidenteID+
+			": el servicio está afectado según Argos."); err != nil {
+			return cero, err
+		}
+		t.Anotar(map[string]any{"vinculado_a": falla.TicketID, "falla_general": falla.IncidenteID})
+		if err := q.RegistrarHijoIncidente(ctx, soportebd.RegistrarHijoIncidenteParams{Incidente: falla.ID, TicketID: f.ID}); err != nil {
+			return cero, err
+		}
+		if f.ClienteID != nil {
+			// El aviso de falla al cliente (uno por cliente e incidente) sale por el job de avisos.
+			g, err := q.TicketPorID(ctx, falla.TicketID)
+			if err != nil {
+				return cero, err
+			}
+			if err := m.encolarAvisoFalla(ctx, t, g, *falla, AvisoFallaAbierta); err != nil {
+				return cero, err
+			}
 		}
 	}
 	if maestro != nil {

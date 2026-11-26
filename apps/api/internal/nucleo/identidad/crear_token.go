@@ -55,6 +55,10 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 					if !nucleo.EsPermiso(string(p)) {
 						return TokenCreado{}, nucleo.Validacion(nucleo.ErrorCampo{Field: fmt.Sprintf("permisos[%d]", i), Message: "Permiso desconocido", Rule: "enum"})
 					}
+					if esPermisoPortalArgos(string(p)) && tokenPadreDe(ctx) == nil {
+						return TokenCreado{}, nucleo.ReglaNegocio("permiso_solo_token_portal",
+							"El permiso "+string(p)+" es solo del token_portal que Iris entrega a Argos en el canje")
+					}
 					if !slices.Contains(limite, string(p)) {
 						limite = append(limite, string(p))
 					}
@@ -119,7 +123,7 @@ func nuevoCrearToken() *auditoria.Caso[EntradaCrearToken, TokenCreado] {
 			}
 			fila, err := q.CrearToken(ctx, identidadbd.CrearTokenParams{
 				UsuarioID: dueno, Nombre: nombre, Prefijo: prefijoVisible(valor), Hash: Hash256(valor),
-				Permisos: limite, ExpiraEn: expira, CreadoPor: creadoPor, Via: via,
+				Permisos: limite, ExpiraEn: expira, CreadoPor: creadoPor, Via: via, TokenPadreID: tokenPadreDe(ctx),
 			})
 			if err != nil {
 				return TokenCreado{}, err
@@ -162,6 +166,21 @@ func puedeEmitir(ctx context.Context, q *identidadbd.Queries, actor contexto.Act
 		efectivos, err := cargarPermisos(ctx, q, dueno.ID, limite)
 		if err != nil {
 			return err
+		}
+		if tokenPadreDe(ctx) == nil {
+			// No es un token_portal: al autenticarse pierde portal_argos.*, que no cuentan.
+			efectivos = efectivos.SinPrefijo(prefijoPortalArgos)
+		} else if !esTokenDeCanje(ctx) {
+			return nucleo.Prohibido("Un token derivado (token_portal) solo se emite en el canje del conector")
+		} else {
+			// token_portal (EmitirTokenPortal, en el canje): solo puede llevar portal_argos.*, que vienen
+			// del rol integracion_argos del dueño; nada más.
+			for _, p := range efectivos.Lista() {
+				if !esPermisoPortalArgos(p) {
+					return nucleo.Prohibido("Un token_portal solo lleva permisos portal_argos.*")
+				}
+			}
+			return nil
 		}
 		if falta, ok := quien.Cubre(efectivos); !ok {
 			return nucleo.Prohibido("El token tendría el permiso " + falta + ", que el token con el que lo creas no tiene; limita sus permisos")

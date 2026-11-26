@@ -18,6 +18,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/nucleo/adjuntos"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte/correo"
 )
 
@@ -54,6 +55,17 @@ type Config struct {
 	// AsegurarArgos (argos.Modulo.AsegurarInstantanea): antes de crear un ticket con cliente y
 	// servicio, los deja en la instantánea para validarlos. nil = no se verifica.
 	AsegurarArgos argos.Asegurador
+	// PortalArgos resuelve la sesión del portal del cliente de Argos (argos.Modulo.SesionPortal,
+	// contrato 0.9.0 §11) y valida clientes al conciliar. nil = las rutas de §11 responden 503.
+	PortalArgos PortalArgos
+	// Almacen guarda los adjuntos que sube el portal de Argos (§11.6). nil = no se aceptan.
+	Almacen adjuntos.Almacen
+}
+
+// PortalArgos es lo que soporte usa del conector Argos para el portal del cliente (§11).
+type PortalArgos interface {
+	SesionPortal(ctx context.Context, cab argos.CabecerasPortal) (argos.SesionPortal, error)
+	ValidarCliente(ctx context.Context, clienteID int64) (argos.ClienteValidado, error)
 }
 
 // ConfigCorreo de la entrada y salida por correo.
@@ -128,6 +140,14 @@ type Modulo struct {
 	HallazgoResuelto *auditoria.Caso[horus.HallazgoResuelto, ResultadoHorus]
 	DescartarHorus   *auditoria.Caso[EntradaDescartarHorus, ResultadoHorus]
 	AvisarTanda      *auditoria.Caso[ArgsAvisarHijos, int]
+	// Caídas repetidas y falla general desde Argos (contrato 0.13.0 §3.11; B29 y B30).
+	CaidasArgos        *auditoria.Caso[EntradaCaidas, ResultadoRed]
+	FallaArgos         *auditoria.Caso[EntradaFalla, ResultadoRed]
+	CerrarFallaGeneral *auditoria.Caso[ArgsCerrarFallaGeneral, bool]
+	VencerVerificacion *auditoria.Caso[ArgsVencerVerificacion, bool]
+	FallaServicios     *auditoria.Caso[EntradaFallaServicios, ResultadoRed]
+	VerAjustesRed      *auditoria.Caso[struct{}, AjustesRed]
+	GuardarAjustesRed  *auditoria.Caso[AjustesRed, AjustesRed]
 
 	// Portal del cliente (actor cliente): portal.go.
 	ListarTicketsPortal     *auditoria.Caso[EntradaListarTicketsPortal, nucleo.Pagina[TicketPortal]]
@@ -137,6 +157,18 @@ type Modulo struct {
 	ResponderTicketPortal   *auditoria.Caso[EntradaResponderTicketPortal, TicketPortalConMensaje]
 	ConfirmarSolucionPortal *auditoria.Caso[EntradaConfirmarSolucion, TicketPortal]
 	ListarCategoriasPortal  *auditoria.Caso[struct{}, nucleo.Pagina[CategoriaPortal]]
+
+	// Portal del cliente de Argos (contrato 0.9.0 §11): portal_argos.go.
+	CategoriasPortalArgos  *auditoria.Caso[argos.SesionPortal, nucleo.Pagina[CategoriaPortal]]
+	TicketsPortalArgos     *auditoria.Caso[EntradaTicketsPortalArgos, nucleo.Pagina[TicketPortalArgos]]
+	VerTicketPortalArgos   *auditoria.Caso[EntradaTicketPortalArgos, TicketPortalArgos]
+	MensajesPortalArgos    *auditoria.Caso[EntradaTicketPortalArgos, nucleo.Pagina[MensajePortalArgos]]
+	AdjuntoPortalArgos     *auditoria.Caso[EntradaAdjuntoPortalArgos, AdjuntoDescargado]
+	CrearTicketPortalArgos *auditoria.Caso[EntradaCrearTicketArgos, TicketPortalArgos]
+	ResponderPortalArgos   *auditoria.Caso[EntradaResponderArgos, TicketYMensajeArgos]
+	ConfirmarPortalArgos   *auditoria.Caso[EntradaConfirmarArgos, TicketPortalArgos]
+	// ConciliarClientes: tickets creados sin poder confirmar el cliente con Argos (§11.2; job).
+	ConciliarClientes *ConciliadorClientes
 
 	// Encuestas de satisfacción: encuestas.go.
 	VerEncuestaPublica *auditoria.Caso[EntradaEncuestaPublica, EncuestaPublica]
@@ -193,6 +225,13 @@ func Nuevo(cfg Config) *Modulo {
 	m.HallazgoResuelto = m.nuevoHallazgoResuelto()
 	m.DescartarHorus = m.nuevoDescartarHorus()
 	m.AvisarTanda = m.nuevoAvisarTanda()
+	m.CaidasArgos = m.nuevoCaidasArgos()
+	m.FallaArgos = m.nuevoFallaArgos()
+	m.CerrarFallaGeneral = m.nuevoCerrarFallaGeneral()
+	m.VencerVerificacion = m.nuevoVencerVerificacion()
+	m.FallaServicios = m.nuevoFallaServicios()
+	m.VerAjustesRed = m.nuevoVerAjustesRed()
+	m.GuardarAjustesRed = m.nuevoGuardarAjustesRed()
 	m.ListarTicketsPortal = m.nuevoListarTicketsPortal()
 	m.VerTicketPortal = m.nuevoVerTicketPortal()
 	m.ListarMensajesPortal = m.nuevoListarMensajesPortal()
@@ -200,6 +239,15 @@ func Nuevo(cfg Config) *Modulo {
 	m.ResponderTicketPortal = m.nuevoResponderTicketPortal()
 	m.ConfirmarSolucionPortal = m.nuevoConfirmarSolucionPortal()
 	m.ListarCategoriasPortal = nuevoListarCategoriasPortal()
+	m.CategoriasPortalArgos = nuevoCategoriasPortalArgos()
+	m.TicketsPortalArgos = m.nuevoTicketsPortalArgos()
+	m.VerTicketPortalArgos = m.nuevoVerTicketPortalArgos()
+	m.MensajesPortalArgos = m.nuevoMensajesPortalArgos()
+	m.AdjuntoPortalArgos = m.nuevoAdjuntoPortalArgos()
+	m.CrearTicketPortalArgos = m.nuevoCrearTicketPortalArgos()
+	m.ResponderPortalArgos = m.nuevoResponderPortalArgos()
+	m.ConfirmarPortalArgos = m.nuevoConfirmarPortalArgos()
+	m.ConciliarClientes = m.nuevoConciliarClientes()
 	m.VerEncuestaPublica = m.nuevoVerEncuestaPublica()
 	m.ResponderEncuesta = m.nuevoResponderEncuesta()
 	m.ListarEncuestas = m.nuevoListarEncuestas()

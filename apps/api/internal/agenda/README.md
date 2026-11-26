@@ -138,7 +138,31 @@ por SQL, `UPDATE agenda.zonas SET empresa_id = …, activa = true`— o la reemp
   `tecnico.actualizado`, `tecnico.ausencia_registrada`, `tecnico.ausencia_anulada`, `ruta.propuesta`,
   `ruta.publicada`, `ruta.desactualizada`, `tarea.creada`, `tarea.completada`, `tarea.anulada`
   (`.claude/integration/contratos/eventos.md`).
-- **Consume:** nada (el espejo de zonas lee la instantánea que refresca el conector de Argos).
+- **Consume:** `usuario.desactivado`, `usuario.empresa_asignada` y `usuario.empresa_quitada` (las
+  cuadrillas del usuario vuelven a avisar a Argos; abajo). El espejo de zonas lee la instantánea que
+  refresca el conector de Argos.
+
+## Bodega de cuadrilla y jefe (B26, contrato con Argos 0.11.0 §3.9)
+
+- **Jefe:** `POST /cuadrillas/{id}/asignar-jefe` (`cuadrillas.asignar_jefe`, solo admin y
+  supervisor; permiso sensible) con la `version` de la cuadrilla; `jefeUsuarioId: null` la deja sin
+  jefe. Debe ser miembro (ficha activa en la cuadrilla, usuario activo) con vínculo I1: si no, 422
+  `jefe_no_miembro`. Nadie se asigna a sí mismo (403 `autoasignacion`). Si el jefe sale de la
+  cuadrilla, se desactiva su ficha o su usuario, o pierde el vínculo I1, la cuadrilla queda sin
+  jefe en la misma transacción.
+- **`cuadrilla.creada` / `cuadrilla.actualizada`** llevan `empresa_id`, `version` (la de Argos:
+  `version_argos`, entera y creciente), `nombre`, `activa`, `miembros[] { usuario_id, id_externo }`
+  completos (id_externo null sin vínculo I1 o si el usuario no opera en esa empresa) y
+  `jefe_usuario_id`. Un evento por empresa: la suya o, sin empresa, uno por cada empresa registrada.
+  Salen también cuando cambia un miembro: su ficha entra o sale (`tecnico.cuadrilla_id`), se activa o
+  desactiva, cambia su vínculo I1, o su usuario se desactiva o cambia de empresas. `version_argos`
+  sube con cada evento; la `version` del panel solo con las ediciones (mover un técnico no da 409 a
+  quien edita la cuadrilla). Mensajería los manda a Argos (`webhooks_salida`) solo con contrato
+  ≥ 0.11.0 y nunca sin empresa.
+- **Conciliar:** `GET /integraciones/argosisp/cuadrillas/{id}?empresa_id=`
+  (`cuadrillas.leer_integracion`, rol `integracion_argos`) → `{ cuadrilla_id, empresa_id, version,
+  activa, miembros[], jefe_usuario_id }`. Fuera de las empresas del token, de otra empresa o
+  inexistente: el mismo 404.
 
 ## Vínculo con el usuario de Argos (I1, contrato 0.5.0 §3.3)
 
@@ -161,6 +185,17 @@ ficha expone `argos { idExterno, correo, nombre, vinculadoEn }`. No usa el vínc
   transacción; si no, 422 `bodega_invalida` o el error del conector).
 - Las rutas llaman a `CrearTecnicoVerificado` y `EditarTecnicoVerificado`. Si se llama al caso de
   uso sin esa verificación, también responde 422.
+
+## Vínculo del técnico hacia Argos (contrato 0.14.0 §6.6, `vinculos_argos.go`)
+
+- `tecnico.argos_vinculado` / `tecnico.argos_desvinculado`: uno por empresa del usuario, cada uno con una
+  `version` nueva (`agenda.tecnicos.version_vinculo`) y el conector del que salió el vínculo
+  (`argos_conector_id`, fijado al vincular). Salen al vincular y desvincular, al activar o desactivar la ficha
+  (`motivo: desactivado`), al desactivar el usuario y al asignarle o quitarle una empresa (solo en ella).
+- `CargarVinculos`: la carga inicial al informar 0.14.0 (la llama argos), con `carga_id`.
+- `GET /api/v1/integraciones/argosisp/tecnicos/{usuario_id}?empresa_id=` (`cuadrillas.leer_integracion`):
+  `{ tecnico_id, usuario_id, empresa_id, id_externo, version, activo }`, solo para el conector del vínculo;
+  fuera del alcance, sin ficha, sin la empresa o de otro conector, el mismo `404`.
 
 ## Huecos ofrecibles para el asistente (`huecos.go`)
 

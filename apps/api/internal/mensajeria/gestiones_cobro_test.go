@@ -252,8 +252,8 @@ func TestGestionesCobroContacto(t *testing.T) {
 	// El hijo de Marta: contacto 4400 de su cliente, solo del primer servicio.
 	num := numeroCliente()
 	contacto := cliente*100 + 1
-	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, servicios)
-		VALUES ($1, $2, 1, 'José', 'familiar', $3)`, contacto, cliente, []int64{cliente * 10}); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, version, consultar, reportar, pagar, avisos, nombre, relacion, servicios)
+		VALUES ($1, $2, 1, 1, true, true, true, true, 'José', 'familiar', $3)`, contacto, cliente, []int64{cliente * 10}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos) VALUES ($1, $2, $3)`,
@@ -297,8 +297,8 @@ func TestGestionesCobroContacto(t *testing.T) {
 	// Otro contacto del mismo número (de todos los servicios): si la conversación se asoció por él
 	// (contacto_argos_id), la gestión sale a su nombre, no a nombre del primero del número.
 	contacto2 := cliente*100 + 2
-	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, servicios)
-		VALUES ($1, $2, 1, 'Ana', 'familiar', NULL)`, contacto2, cliente); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, version, consultar, reportar, pagar, avisos, nombre, relacion, servicios)
+		VALUES ($1, $2, 1, 1, true, true, true, true, 'Ana', 'familiar', NULL)`, contacto2, cliente); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos) VALUES ($1, $2, $3)`,
@@ -313,6 +313,12 @@ func TestGestionesCobroContacto(t *testing.T) {
 	if p := b.pendienteDeGestion(fmt.Sprint(r.cuerpo["id"])); p.contacto == nil || *p.contacto != fmt.Sprint(contacto2) {
 		t.Fatalf("X-Iris-Contacto del contacto asociado: %+v", p)
 	}
+	// Argos quitó ese contacto (quitado, la fila queda): la conversación asociada por él queda sin rol.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET quitado = true WHERE contacto_id = $1`, contacto2); err != nil {
+		t.Fatal(err)
+	}
+	b.exigir(b.gestionar(b.supervisor, ruta, map[string]any{"tipo": "llamada", "resultado": "contesto", "ocurridoEn": ahora, "servicioId": cliente*10 + 1}),
+		http.StatusUnprocessableEntity, "type", "urn:iris:problema:cliente_sin_confirmar")
 
 	// Otro número asociado a mano al mismo cliente («verificado» sin verificado_por), sin ser su teléfono
 	// ni un contacto: 422 cliente_sin_confirmar, nunca a nombre del titular.
@@ -371,8 +377,8 @@ func TestGestionesCobroACargo(t *testing.T) {
 		t.Fatal(err)
 	}
 	contacto := mama*100 + 1
-	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, servicios, persona_cliente_id)
-		VALUES ($1, $2, 1, 'José', 'familiar', NULL, $3)`, contacto, mama, jose); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, version, consultar, reportar, pagar, avisos, nombre, relacion, servicios, persona_cliente_id)
+		VALUES ($1, $2, 1, 1, true, true, true, true, 'José', 'familiar', NULL, $3)`, contacto, mama, jose); err != nil {
 		t.Fatal(err)
 	}
 	digitos := soloDigitosPrueba(numero)
@@ -436,6 +442,14 @@ func TestGestionesCobroACargo(t *testing.T) {
 	}
 	b.exigirCampo(gestion(ruta, mama*10), "servicioId", "servicio_del_cliente")
 	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET servicios = NULL WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	// El vínculo quitado en Argos: ya no está a cargo (el mismo 422).
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET quitado = true WHERE contacto_id = $1`, contacto); err != nil {
+		t.Fatal(err)
+	}
+	b.exigirCampo(gestion(ruta, mama*10), "servicioId", "servicio_del_cliente")
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET quitado = false WHERE contacto_id = $1`, contacto); err != nil {
 		t.Fatal(err)
 	}
 	// Sin «pagar» en ese vínculo: 403.

@@ -24,6 +24,8 @@ type EntradaCompleto struct {
 	Tipo  string
 	Mime  string
 	Datos []byte
+	// Nombre: el del archivo, ya saneado (opcional; lo muestra el portal de Argos, §11.6).
+	Nombre *string
 }
 
 // GuardarCompleto escribe el archivo en el almacenamiento y lo registra completo en la transacción
@@ -49,7 +51,7 @@ func GuardarCompleto(ctx context.Context, t *auditoria.Tx, almacen Almacen, id u
 	}
 	f, err := adjuntosbd.New(t).InsertarAdjuntoCompleto(ctx, adjuntosbd.InsertarAdjuntoCompletoParams{ID: id, EmpresaID: in.EmpresaID,
 		Entidad: in.Entidad, EntidadID: in.EntidadID, Tipo: in.Tipo, Mime: mime, Tamano: int64(len(in.Datos)), Sha256: sha,
-		Almacenamiento: almacen.Nombre(), Clave: clave})
+		Almacenamiento: almacen.Nombre(), Clave: clave, Nombre: in.Nombre})
 	if err != nil {
 		return Adjunto{}, err
 	}

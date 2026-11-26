@@ -158,25 +158,29 @@ Una tarea está terminada solo si:
 | Evento | Emite | Payload |
 | --- | --- | --- |
 | `ticket.creado` | soporte | ticket_id, empresa_id, cliente_id (o null), servicio_id (o null), categoria, prioridad, origen |
-| `ticket.estado_cambiado` | soporte | ticket_id, de, a, motivo |
+| `ticket.estado_cambiado` | soporte | ticket_id, de, a, motivo, numero, empresa_id, cliente_id, servicio_id, origen; va a Argos (§6.6, 0.9.0) sin motivo y con puede_confirmar |
 | `ticket.asignado` | soporte | ticket_id, usuario_id (o null), cuadrilla_id (o null) |
-| `ticket.respondido` | soporte | ticket_id, mensaje_id |
+| `ticket.respondido` | soporte | ticket_id, mensaje_id, numero, empresa_id, cliente_id, autor_tipo (agente, sistema), masivo, aviso_por_correo; va a Argos (§6.6, 0.9.0) |
 | `ticket.escalado` | soporte | ticket_id, de, a, nivel, motivo |
 | `ticket.fusionado` | soporte | ticket_id, destino_id, motivo (o null) |
 | `ticket.sla_en_riesgo` / `ticket.sla_vencido` | soporte (cron) | ticket_id, sla, vence_en |
 | `ticket.resolucion_propuesta` | soporte (Horus, cierre de orden) | ticket_id, accion (resolver \| cerrar), motivo, origen (horus \| orden), entrante_id (o null), orden_id (o null) |
-| `ticket.mensaje_cliente` | soporte (portal) | ticket_id, mensaje_id, canal |
+| `ticket.mensaje_cliente` | soporte (portal, portal de Argos) | ticket_id, mensaje_id, canal (portal, portal_argos); nunca vuelve a Argos |
 | `encuesta.enviada` | soporte | encuesta_id, entidad (ticket \| orden), entidad_id, canal (correo \| enlace) |
 | `encuesta.respondida` | soporte (público) | encuesta_id, entidad, entidad_id, calificacion, alerta (true si ≤ 2) |
 | `encuesta.anulada` | soporte | encuesta_id, entidad (ticket), entidad_id, motivo (reabierto \| fusionado) |
 | `soporte.horus_descartado` | soporte (Horus) | evento, entrante_id, empresa_id (o null), motivo, detalle |
+| `soporte.posible_falla_general` | soporte (caídas de Argos) | ticket_id, empresa_id, tickets, agrupados |
+| `soporte.caidas_ajustes_cambiados` | soporte | empresa_id, campos[], caidas_umbral, caidas_ventana_min, falla_umbral, verificacion_horas |
+| `soporte.aviso_falla` | soporte (falla general) | incidente, empresa_id, cliente_id, tipo (apertura, cierre), ticket_id; nunca servicio ni dirección |
+| `soporte.verificacion_vencida` | soporte (falla general) | ticket_id, numero, empresa_id, asignado_a (o null) |
 | `correo.recibido` | soporte (worker de correo) | correo_id, buzon_id, estado, resultado (o null), ticket_id (o null), mensaje_id (o null), motivo (o null) |
 | `buzon.creado` / `buzon.actualizado` / `buzon.activado` / `buzon.desactivado` | soporte | buzon_id; correo (creado) |
 | `orden.creada` | campo | orden_id, tipo, ticket_id (o null), cliente_id, servicio_id, zona_id, origen (panel, api, argos, sistema, asistente) |
 | `orden.asignada` | campo | orden_id, tecnico_id (o null), cuadrilla_id (o null), tecnico_anterior_id (o null), origen (asignar, tomar, programar, reprogramar, crear), motivo (o null) |
 | `orden.programada` | agenda | orden_id, tecnico_id, cuadrilla_id, inicio, fin, ventana_inicio/ventana_fin (o null), reprogramada, origen (programar, reprogramar, asignar), motivo (o null) |
 | `orden.estado_cambiada` | campo | orden_id, de, a, motivo |
-| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id, usuario_id), equipos[] (accion: instalar \| retirar \| cambio \| no_recuperado, unidad_id, serie, mac, condicion, bodega_id, usuario_id en instalar y retirar; cambio: sale_unidad_id, entra, motivo, destino_sale, cobro_propuesto?; no_recuperado: motivo, foto_ref; cambio y no_recuperado solo resumen: salen a Argos al aplicarse), cargo (o null: producto_id?, monto?, descripcion) |
+| `orden.cerrada` | campo | orden_id, tipo, resultado, servicio_id, cliente_id, tecnico_id, bodega_id, retirar_servicio, equipos_validados, materiales[] (producto_id, cantidad, bodega_id, bodega_tipo (o null), usuario_id (o null), desde_app, fecha, recibido_en_iris), equipos[] (accion: instalar \| retirar \| cambio \| no_recuperado, unidad_id, serie, mac, condicion, bodega_id, usuario_id (o null), desde_app, enviado_al_aplicar, fecha, recibido_en_iris; cambio: sale_unidad_id, entra, motivo, destino_sale, cobro_propuesto?; no_recuperado: motivo, foto_ref (obligatoria desde 0.14.0)), cargo (o null: producto_id?, monto?, descripcion) |
 | `orden.pausada` / `orden.reanudada` | campo | orden_id, pausa_id; motivo, nota (o null), desde (pausada); a, duracion_seg, tiempo_pausado_seg (reanudada) |
 | `orden.formulario_agregado` / `orden.formulario_quitado` | campo | orden_id, formulario_id, plantilla_id, origen; version_id, numero_version (agregado) |
 | `campo.ajustes_cambiados` | campo | empresa_id (o null), campos[], tecnicos_toman_libres |
@@ -185,11 +189,14 @@ Una tarea está terminada solo si:
 | `cuadrilla.creada` / `cuadrilla.actualizada` | agenda | cuadrilla_id, empresa_id, version, miembros[] (usuario_id, id_externo o null), jefe_usuario_id (o null); nombre, zonas[] (creada); campos[], activa (actualizada); van también a Argos |
 | `tecnico.creado` / `tecnico.actualizado` | agenda | tecnico_id (ficha), usuario_id; cuadrilla_id (creado); campos[], activo (actualizado) |
 | `tecnico.ausencia_registrada` / `tecnico.ausencia_anulada` | agenda | tecnico_id, usuario_id, ausencia_id; inicio, fin, motivo, citas_en_conflicto (registrada); motivo (anulada) |
-| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, empresa_id, version, id_externo; anterior_id_externo (vinculado); motivo, p. ej. desactivado (desvinculado); van también a Argos (contrato ≥ 0.14.0) |
+| `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` | agenda (I1) | tecnico_id, usuario_id, empresa_id, version, id_externo, conector_id (o null), carga_id (o null); anterior_id_externo (vinculado); motivo (o null; desactivado) (desvinculado); uno por empresa, todos con la misma version (un contador por técnico, uno por cambio); al cambiar el id_externo, primero el desvinculado del anterior; van a Argos ≥ 0.14.0 (§6.6), sin conector_id ni carga_id |
 | `tarea.creada` / `tarea.completada` / `tarea.anulada` | agenda | tarea_id, empresa_id, tecnico_id; creada_por, inicio, fin, duracion_min, orden_id (o null), cliente_id (o null), origen, solapa_con (creada); completada_por, completada_en (completada); anulada_por, motivo (o null) (anulada) |
 | `ruta.propuesta` / `ruta.publicada` | agenda | ruta_id, tecnico_id, fecha, ordenes[], motor, degradada; modo, motivo_motor (propuesta); reemplaza_id, version (publicada) |
 | `ruta.desactualizada` | agenda | ruta_id, tecnico_id, fecha, estado, orden_id, motivo |
-| `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id (creado); modo (local, argos), contrato_id, cotizacion_id, orden_id (o null), pendientes[] (ganado); motivo (perdido) |
+| `prospecto.creado` / `prospecto.ganado` / `prospecto.perdido` | comercial | prospecto_id, empresa_id; origen, zona_id, vendedor_id, solicitud_tipo (portal_argos) (creado); modo (local, argos, solicitud), contrato_id (o null), cotizacion_id, orden_id (o null), pendientes[], tarea_argos (solicitud) (ganado); motivo (perdido) |
+| `prospecto.tarea_argos_completada` | comercial (portal de Argos) | prospecto_id, empresa_id, solicitud_tipo |
+| `solicitudes.ajustes_cambiados` | comercial (portal de Argos) | empresa_id, cambio_plan_exige_contrato, version |
+| `solicitud_servicio.estado_cambiado` | comercial (portal de Argos) | solicitud_id, numero, empresa_id, cliente_id, tipo, servicio_id (o null), de, a (estado_cliente); va a Argos (§6.6, 0.9.0) |
 | `prospecto.actualizado` / `prospecto.asignado` / `prospecto.estado_cambiado` / `prospecto.actividad_registrada` | comercial | prospecto_id; campos[] (actualizado); vendedor_id, vendedor_anterior_id (asignado); de, a, motivo (estado); actividad_id, tipo (actividad) |
 | `prospecto.alta_actualizada` | comercial (alta en Argos) | prospecto_id, estado (esperando_servicio, esperando_activacion, completa), cliente_id, servicio_id (o null), orden_id (o null); también al pasar al titular nuevo (B17) |
 | `prospecto.venta_revisada` | comercial (B20, cambio de plan o titular hecho en Argos) | prospecto_id, empresa_id, vendedor_id (o null), orden_id, motivo (plan, titular), cotizacion_id (la revisión, vigente), contrato_id (regenerado en borrador, se firma en la orden; o null con la orden cancelada, fallida o cerrada) |
@@ -217,6 +224,9 @@ Una tarea está terminada solo si:
 | `argos.comprobante_resuelto` | integracion (argos, webhook de Argos) | comprobante_id, estado (aprobado, rechazado), empresa_id, cliente_id, servicio_id (o null), canal, pago_id (o null), servicio_estado (o null), entrante_id; es solo un aviso (sin monto, motivo ni causa) |
 | `argos.promesa_cambiada` | integracion (argos, webhooks promesa.*) | promesa_id, estado, tipo, empresa_id, cliente_id, servicio_id, comprobante_id (o null), canal, vence, motivo_reconexion (o null), motivo (cancelada), entrante_id; nunca el monto |
 | `argos.contactos_cambiados` | integracion (argos, webhook `cliente.contactos_cambiados`) | cliente_id, empresa_id (o null), contacto_id (o null), accion (creado, editado, quitado), persona_cliente_id (o null), entrante_id; nunca números ni nombres |
+| `argos.caidas_repetidas` | integracion (argos, webhook servicio.caidas_repetidas) | servicio_id, empresa_id, cliente_id (o null), router_id (o null), sesiones, ventana_minutos, desde, hasta, entrante_id |
+| `argos.falla_general_abierta` / `argos.falla_general_cerrada` | integracion (argos, webhooks red.falla_general_*) | incidente_id, empresa_id, alcance, alcance_id, desde, hasta (o null), entrante_id; servicios[] (los de la instantánea), descartados, por_verificar, paginando (abierta); nunca nombres ni direcciones |
+| `argos.falla_general_servicios` | integracion (argos, job argos.verificar_incidente) | incidente_id, empresa_id, entrante_id, servicios[] (verificados en Argos), descartados, no_verificados |
 | `argos.cuenta_bancaria_cambiada` | integracion (argos, webhook de Argos y relecturas) | cuenta_bancaria_id, empresa_id, campos[], activa, creada, entrante_id (o null); nunca el número de cuenta ni el titular |
 | `orden.datos_argos_cambiados` | campo (I1) | orden_id, numero, entidad, campos[], entrante_id |
 | `argos.titular_cambiado` | integracion (argos, webhook servicio.titular_cambiado confirmado con Argos; B17) | servicio_id, empresa_id (o null), de_cliente_id (o null), a_cliente_id, de_cliente_eliminado, origen_tipo (o null), origen_id (o null), tipo_titular (persona, empresa), entrante_id; nunca el documento ni el motivo |
@@ -235,7 +245,10 @@ Una tarea está terminada solo si:
 | `integracion.pendiente_omitido` | integracion (pendientes) | orden_id, motivo, operaciones[] |
 | `integracion.pendiente_corregido` / `integracion.pendiente_conflicto` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key; estado, motivo, payload_anterior, payload_nuevo (conflicto) |
 | `integracion.pendiente_bloqueado` / `integracion.pendiente_desbloqueado` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, depende_de; motivo (bloqueado) |
-| `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null) |
+| `integracion.pendiente_resuelto_manual` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, idempotency_key, de, motivo, usuario_id (o null), resuelto_cliente_id (o null: cliente final de un cambio de titular) |
+| `integracion.webhook_reenviado` | mensajeria (webhooks a Argos) | webhook_id, evento, empresa_id (o null), intentos_anteriores |
+| `argos.carga_vinculos_detenida` | integracion (argos, carga de vínculos 0.14.0) | conector_id, carga_id, agotados, episodio; uno por episodio |
+| `integracion.pendiente_clave_reutilizada` | integracion (pendientes) | pendiente_id, operacion, entidad, entidad_id, empresa_id (o null), seguridad (cambio o intento); nunca la clave ni los cuerpos |
 | `aviso.creado` | mensajeria | aviso_id, empresa_id, cliente_id, servicio_id (o null), plantilla, estado (en_cola \| bloqueado), motivo (o null), origen (argos \| iris), prioridad, programado_en (o null), aviso_padre_id (solo en la copia a un contacto) |
 | `aviso.enviado` / `aviso.leido` | mensajeria | aviso_id, origen; canal, canal_id (o null) (enviado); leido_en (leido) |
 | `aviso.entregado` / `aviso.fallido` | mensajeria | aviso_id, idempotency_key, empresa_id, cliente_id, canal (o null), origen; entregado_en, leido_en (o null) (entregado); motivo (vencido, numero_invalido, rechazado_por_canal, agotado), detalle (o null) (fallido). Uno por aviso; van a Argos (§6.6) |

@@ -109,6 +109,8 @@ func correr() error {
 	}
 	sop := soporte.Nuevo(soporte.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Cifrador: acfg.Cifrador, Correo: ccfg,
 		Encuestas: soporte.ConfigEncuestas{Claves: clavesEnc, BaseURL: cfg.BaseURL},
+		// Conciliación de clientes de los tickets del portal de Argos (contrato 0.9.0 §11.2).
+		PortalArgos: conectorArgos,
 		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
@@ -118,6 +120,8 @@ func correr() error {
 	// Tickets desde Horus: incidentes maestros por router o servicio de infraestructura y
 	// tickets por hallazgo (eventos internos horus.* del conector).
 	sop.SuscribirHorus(bus, pool)
+	// Caídas repetidas y falla general de Argos (contrato 0.13.0 §3.11): eventos internos argos.* del conector.
+	sop.SuscribirArgosRed(bus, pool)
 	// Acciones en Argos al cerrar una orden (contrato §3): suscriptor de orden.cerrada y cola de
 	// pendientes con reintentos (1 min, 5 min, 30 min, 2 h, 12 h).
 	// Cifrador: abre el depósito de tránsito del paso del titular (contrato 0.10.0 §3.4.8).
@@ -155,12 +159,17 @@ func correr() error {
 	if err != nil {
 		return err
 	}
-	cmp := campo.Nuevo(campo.Config{AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
+	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop})
 	cmp.SuscribirRetiros(bus, pool, log)
 	// «Dato de Argos cambió» (contrato 0.5.0): argos.datos_cambiados marca las órdenes abiertas.
 	cmp.SuscribirDatosArgos(bus, pool, log)
 	cmp.SuscribirTitularArgos(bus, pool, log)
+	// Bodega de cuadrilla (contrato 0.11.0 §3.9): un usuario desactivado o con otra empresa cambia
+	// los miembros que van a Argos en cuadrilla.actualizada.
+	cmp.Agenda().SuscribirCuadrillas(bus, pool, log)
+	// 0.14.0 §6.6: la carga inicial de vínculos la emite agenda (creada después del conector).
+	conectorArgos.UsarVinculos(cmp.Agenda().CargarVinculos)
 	// Comercial: al quedar hechos los pendientes del alta de un prospecto ganado (POST /clientes,
 	// POST /servicios), encola el servicio y crea la orden de instalación; barrido cada 5 min.
 	comercial.RegistrarAdjuntos()
@@ -169,6 +178,8 @@ func correr() error {
 			return integracion.Encolar(cliente)(ctx, tx, args)
 		}})
 	com.SuscribirAltas(bus, pool, log)
+	// Solicitudes del portal de Argos (0.9.0 §11.7): completada al cerrarse su orden.
+	com.SuscribirSolicitudes(bus, pool)
 	com.SuscribirActivacion(bus, pool, log)
 	com.SuscribirRevisionVenta(bus, pool, log)
 	// Mensajería (contrato 0.6.0 §6.6): aviso.entregado, aviso.fallido y contacto.baja → webhooks hacia
@@ -183,6 +194,19 @@ func correr() error {
 	// Reconexión temporal (contrato 0.8.0 §7.3): promesa.* de Argos → argos.promesa_cambiada → la
 	// reconexión de la conversación guarda cómo terminó y con qué motivo la guardó Argos.
 	msj.SuscribirPromesas(bus, pool)
+	// Falla general de Argos (contrato 0.13.0 §3.11): soporte.aviso_falla → aviso por WhatsApp con las
+	// reglas de §6.5 (permiso, baja, límite diario, silencio y plantilla). Lo crea aquí y lo manda el
+	// proceso de mensajería (su cola).
+	entMsj, err := mensajeria.EntornoDesdeVariables()
+	if err != nil {
+		return err
+	}
+	msjAvisos := mensajeria.Nuevo(mensajeria.Config{Cifrador: acfg.Cifrador, Contactos: conectorArgos, Simulado: entMsj.Simulado,
+		LimiteDiario: entMsj.LimiteDiario, PorMinuto: entMsj.PorMinuto, Silencio: entMsj.Silencio, MetaURL: entMsj.MetaURL,
+		Encolar: func(ctx context.Context, tx pgx.Tx, args river.JobArgs) error {
+			return integracion.Encolar(cliente)(ctx, tx, args)
+		}})
+	msjAvisos.SuscribirAvisosFalla(bus, pool)
 	// Notificaciones push por FCM (contratos/push.md): suscriptor de chat, menciones, bandeja y
 	// órdenes; un job por envío y la purga de cada hora. Sin IRIS_FCM_* no manda nada.
 	fcm, estPush := notificaciones.ConfigDesdeEntorno()
@@ -229,7 +253,7 @@ func correr() error {
 			com.RegistrarTrabajos(pool)(w)
 			notif.RegistrarTrabajos(pool)(w)
 		},
-		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute),
+		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute), soporte.TrabajoPeriodicoConciliar(),
 			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), pendientes.TrabajoPurgaTransito(), inventario.TrabajoPeriodico(5*time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
 			agenda.TrabajoPeriodicoZonas(10*time.Minute),

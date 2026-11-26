@@ -94,9 +94,48 @@ ORDER BY nombre, id;
 INSERT INTO agenda.cuadrillas (empresa_id, nombre) VALUES (@empresa_id, @nombre) RETURNING *;
 
 -- name: GuardarCuadrilla :one
-UPDATE agenda.cuadrillas SET nombre = @nombre, activa = @activa, version = version + 1, updated_at = now()
+UPDATE agenda.cuadrillas SET nombre = @nombre, activa = @activa, version = version + 1, version_argos = version_argos + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
+
+-- name: FijarJefeCuadrilla :one
+-- Asigna (o quita, con null) el jefe con la versión leída (B26). Sube las dos versiones: la del
+-- panel y la que viaja a Argos.
+UPDATE agenda.cuadrillas SET jefe_usuario_id = sqlc.narg(jefe_usuario_id), version = version + 1,
+    version_argos = version_argos + 1, updated_at = now()
+WHERE id = @id AND version = @version
+RETURNING *;
+
+-- name: RevisarCuadrilla :one
+-- Cambió un miembro (ficha, vínculo I1 o usuario): versión nueva para Argos y el jefe que sigue
+-- valiendo (null si dejó de ser miembro con I1). La versión del panel no cambia (nadie editó la
+-- cuadrilla); la cuadrilla ya está tomada FOR UPDATE en la misma transacción.
+UPDATE agenda.cuadrillas SET jefe_usuario_id = sqlc.narg(jefe_usuario_id), version_argos = version_argos + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: MiembrosDeCuadrilla :many
+-- Miembros de la cuadrilla para Argos (§3.9): fichas activas en ella con el usuario activo. El
+-- id_externo (vínculo I1) solo si el usuario opera en la empresa del evento (asignada o
+-- empresas.todas global); sin empresa (modo sin conector), el vínculo tal cual.
+SELECT t.id AS tecnico_id, t.usuario_id, t.argos_id_externo,
+       (sqlc.narg(empresa_id)::bigint IS NULL
+        OR EXISTS (SELECT 1 FROM nucleo.usuarios_empresas ue WHERE ue.usuario_id = t.usuario_id AND ue.empresa_id = sqlc.narg(empresa_id))
+        OR EXISTS (SELECT 1 FROM nucleo.usuarios_roles ur JOIN nucleo.roles ra ON ra.id = ur.rol_id AND ra.activo
+                   JOIN nucleo.roles_permisos rp ON rp.rol_id = ur.rol_id
+                   WHERE ur.usuario_id = t.usuario_id AND rp.permiso = 'empresas.todas'
+                     AND ur.zona_id IS NULL AND ur.cuadrilla_id IS NULL))::boolean AS opera_en_empresa
+FROM agenda.tecnicos t
+JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.cuadrilla_id = @cuadrilla_id AND t.activo AND u.activo
+ORDER BY t.usuario_id;
+
+-- name: EmpresasRegistradas :many
+SELECT id FROM nucleo.empresas ORDER BY id;
+
+-- name: CuadrillasConJefe :many
+-- Cuadrillas de las que el usuario es jefe (para revisarlas cuando cambia su usuario).
+SELECT id FROM agenda.cuadrillas WHERE jefe_usuario_id = @usuario_id ORDER BY id;
 
 -- name: ZonasDeCuadrillas :many
 SELECT * FROM agenda.cuadrilla_zonas WHERE cuadrilla_id = ANY(@cuadrillas::bigint[]) ORDER BY cuadrilla_id, zona_id;
@@ -210,7 +249,7 @@ WHERE id = @id AND version = @version
 RETURNING *;
 
 -- name: TocarCuadrilla :one
-UPDATE agenda.cuadrillas SET version = version + 1, updated_at = now()
+UPDATE agenda.cuadrillas SET version = version + 1, version_argos = version_argos + 1, updated_at = now()
 WHERE id = @id AND version = @version
 RETURNING *;
 
@@ -555,3 +594,36 @@ SELECT EXISTS (SELECT 1 FROM integracion.argos_clientes
 SELECT tecnico_id, inicio, fin FROM agenda.tareas
 WHERE tecnico_id = ANY(@tecnicos::bigint[]) AND estado = 'pendiente' AND inicio < @hasta AND fin > @desde
 ORDER BY tecnico_id, inicio;
+
+-- Vínculo con Argos de cada técnico (contrato 0.14.0 §6.6) ---------------------------------
+
+-- name: TecnicoParaVinculo :one
+-- La ficha vigente, tomada para armar un tecnico.argos_* (M-1: nada de contenido viejo).
+SELECT * FROM agenda.tecnicos WHERE id = @id FOR UPDATE;
+
+-- name: SubirVersionVinculo :one
+-- Cada cambio del vínculo sube la versión una vez (entera y creciente por técnico; la misma en los
+-- eventos de todas sus empresas).
+UPDATE agenda.tecnicos SET version_vinculo = version_vinculo + 1 WHERE id = @id RETURNING version_vinculo;
+
+-- name: FijarConectorVinculo :one
+-- El conector del que salió el id_externo: el Argos activo al vincular.
+UPDATE agenda.tecnicos t SET argos_conector_id = (
+    SELECT c.id FROM integracion.conectores c WHERE c.sistema = 'argosisp' AND c.estado = 'activo' ORDER BY c.id DESC LIMIT 1)
+WHERE t.id = @tecnico_id RETURNING t.argos_conector_id;
+
+-- name: EmpresasDelUsuario :many
+SELECT empresa_id FROM nucleo.usuarios_empresas WHERE usuario_id = @usuario_id ORDER BY empresa_id;
+
+-- name: VinculosVigentesDeConector :many
+-- Los vínculos vigentes que salieron de un conector (carga inicial al informar 0.14.0).
+SELECT t.* FROM agenda.tecnicos t JOIN nucleo.usuarios u ON u.id = t.usuario_id
+WHERE t.argos_id_externo IS NOT NULL AND t.activo AND u.activo AND t.argos_conector_id = @conector_id
+ORDER BY t.id;
+
+-- name: ConectorDeTokenArgos :one
+-- El conector Argos al que Iris entregó este token (el que concilia).
+SELECT id FROM integracion.conectores WHERE sistema = 'argosisp' AND token_entregado_id = @token_id;
+
+-- name: UsuarioActivo :one
+SELECT activo FROM nucleo.usuarios WHERE id = @id;

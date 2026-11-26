@@ -80,7 +80,7 @@ sql:
         package: pendientesbd
         out: internal/integracion/pendientes/bd
   - <<: *base
-    queries: [internal/soporte/consultas.sql, internal/soporte/consultas_correo.sql, internal/soporte/consultas_horus.sql,
+    queries: [internal/soporte/consultas.sql, internal/soporte/consultas_correo.sql, internal/soporte/consultas_horus.sql, internal/soporte/consultas_red.sql,
       internal/soporte/consultas_portal.sql, internal/soporte/consultas_encuestas.sql]
     gen:
       go:

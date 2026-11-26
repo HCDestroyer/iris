@@ -62,6 +62,12 @@ type Modulo struct {
 	ActivarCuadrilla    *auditoria.Caso[EntradaVersion, Cuadrilla]
 	DesactivarCuadrilla *auditoria.Caso[EntradaVersion, Cuadrilla]
 	CapacidadCuadrilla  *auditoria.Caso[EntradaFijarCapacidad, Cuadrilla]
+	AsignarJefe         *auditoria.Caso[EntradaAsignarJefe, Cuadrilla]
+	CuadrillaArgos      *auditoria.Caso[EntradaCuadrillaArgos, CuadrillaArgos]
+	// TecnicoArgos: el vínculo de un técnico para que Argos concilie (0.14.0 §6.6).
+	TecnicoArgos   *auditoria.Caso[EntradaTecnicoArgos, TecnicoArgos]
+	cargarVinculos *auditoria.Caso[EntradaCargaVinculos, int]
+	RevisarUsuario *auditoria.Caso[EntradaRevisarUsuario, ResultadoRevisarUsuario]
 
 	ListarTecnicos    *auditoria.Caso[EntradaListarTecnicos, nucleo.Pagina[Tecnico]]
 	VerTecnico        *auditoria.Caso[EntradaVerTecnico, TecnicoDetalle]
@@ -123,6 +129,11 @@ func Nuevo(cfg Config) *Modulo {
 	m.ActivarCuadrilla = m.nuevoActivarCuadrilla(true)
 	m.DesactivarCuadrilla = m.nuevoActivarCuadrilla(false)
 	m.CapacidadCuadrilla = m.nuevoCapacidadCuadrilla()
+	m.AsignarJefe = m.nuevoAsignarJefe()
+	m.CuadrillaArgos = m.nuevoCuadrillaArgos()
+	m.TecnicoArgos = m.nuevoTecnicoArgos()
+	m.cargarVinculos = m.nuevoCargarVinculos()
+	m.RevisarUsuario = m.nuevoRevisarUsuario()
 	m.ListarTecnicos = m.nuevoListarTecnicos()
 	m.VerTecnico = m.nuevoVerTecnico()
 	m.CandidatosTecnico = m.nuevoCandidatosTecnico()

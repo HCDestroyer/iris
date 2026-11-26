@@ -78,10 +78,14 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   su `nombre` (`bodega_nombre`), para buscar por código y decir «De tu bodega: Bodega Norte» en la
   app. La descripción sale de `producto_nombre` (ExistenciaInventario de Argos) o, en versiones
   anteriores, de `descripcion` / `nombre`.
-- **Bodega:** materiales siempre de la bodega de la orden (la del técnico). Otra bodega solo la
-  indica quien tiene `ordenes.asignar` con alcance (despacho, supervisor) desde el panel, y debe
-  existir en la empresa según Argos (`Inventario.BodegaDeEmpresa`; sin conector, 422
-  `bodega_invalida`). Desde el lote, `bodegaId` se rechaza.
+- **Bodega:** sin `bodegaId`, la bodega de la orden (la del técnico). Desde el lote (B26, contrato
+  0.11.0 §3.9), `bodegaId` es la bodega personal del técnico o la de su cuadrilla actual en la empresa
+  de la orden (`integracion.argos_bodegas_cuadrilla`, que se llena al leer «Mi bodega» o con los
+  traslados); si no, 403 `no_es_miembro` antes de mirar existencias. Al quitarlo de la cuadrilla, sus
+  lotes con esa bodega se cortan desde ese momento. Nunca se cambia de bodega en silencio. Desde el
+  panel, otra bodega solo la indica quien tiene `ordenes.asignar` con alcance (despacho, supervisor), y
+  debe existir en la empresa según Argos (`Inventario.BodegaDeEmpresa`; sin conector, 422
+  `bodega_invalida`).
 - **Equipos:** se instala solo en instalación y cambio de equipo, se retira solo en retiro y cambio
   de equipo (422 `equipo_no_admitido`). Con conector, lo retirado debe estar en el comodato del
   servicio (por unidad o serie; 422 `equipo_no_en_comodato`) y queda `validado`; sin conector o con
@@ -169,6 +173,22 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
   (`firmas.invalidada_en`, queda como evidencia): el nuevo cierre pide otra.
 - **Idempotencia:** `crear` guarda la `Idempotency-Key` (por credencial); las demás acciones la
   toleran con `version` y su estado; el lote, por id de operación.
+
+## Equipos del cliente (B27, contrato con Argos 0.12.0 §3.10)
+
+- **`equipo.cambiar`** (orden `cambio_equipo`, `ordenes.cambiar_equipo`): la unidad que sale
+  (`saleUnidadId`, en comodato del servicio) y la que entra (`entra`), motivo, destino de la que sale
+  (por defecto `revision`; `funciona` no vale con `danado` o `garantia`), foto y cobro propuesto
+  opcionales (sin monto). Cuenta como equipo instalado y retirado para el cierre.
+- **`equipo.no_recuperado`** (orden `retiro`, `ordenes.no_recuperado`): solo en sitio; motivo, foto de la
+  orden (obligatoria con `se_nego` y `equipo_perdido`), ubicación y nota; un intento por unidad al día
+  en Iris (429 `demasiados_intentos`). Cuenta como equipo retirado para el cierre.
+- La fecha del teléfono no puede ser anterior a la asignación de la orden; `recibido_en` es la hora
+  del servidor. Las notas (≤ 500) se ven en la orden, pero nunca van en eventos ni en la auditoría
+  (`***`).
+- `orden.cerrada` suma, por equipo, `motivo`, `foto_ref`, `fecha` y `recibido_en_iris`; en el cambio,
+  `sale_unidad_id`, `entra`, `destino_sale` y `cobro_propuesto { motivo }`; en el intento, `ubicacion`.
+  Los materiales suman `fecha` y `recibido_en_iris`.
 
 ## App de campo (contratos/sync.md; claves camelCase)
 

@@ -191,10 +191,14 @@ type Modulo struct {
 	// ServidorIA: el servidor de IA de la instalación (contratos/voz.md §4).
 	ServidorIA *CasosServidorIA
 
-	EnviarAviso             *EnviarAviso
+	EnviarAviso *EnviarAviso
+	// ReenviarWebhook vuelve a la cola un webhook agotado hacia Argos (0.14.0 §6.6).
+	ReenviarWebhook         *auditoria.Caso[EntradaReenviarWebhook, WebhookSalida]
 	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
 	RegistrarConsentimiento *RegistrarConsentimiento
 	ListarPlantillas        *auditoria.Caso[EntradaPlantillas, ListaPlantillas]
+	// PlantillasArgos: lo que Argos lee de las plantillas de WhatsApp de una empresa (§6.7, B32).
+	PlantillasArgos *auditoria.Caso[EntradaPlantillasArgos, ListaPlantillasArgos]
 	// GestionesCobro: gestiones de cobro hacia Argos (contrato 0.13.0 §3.12, B31).
 	GestionesCobro  *GestionesCobro
 	CrearCanal      *CasoCanal[EntradaCrearCanal]
@@ -395,9 +399,11 @@ func Nuevo(cfg Config) *Modulo {
 	m := &Modulo{cfg: cfg, difusor: nuevoDifusor(), difusorConv: nuevoDifusor(), lecturas: make(chan struct{}, cfg.ChatLecturas),
 		resumenes: nuevoCacheResumen(vigenciaResumen)}
 	m.EnviarAviso = nuevoEnviarAviso(m)
+	m.ReenviarWebhook = nuevoReenviarWebhook(m)
 	m.VerAviso = nuevoVerAviso(m)
 	m.RegistrarConsentimiento = nuevoRegistrarConsentimiento(m)
 	m.ListarPlantillas = nuevoListarPlantillas(m)
+	m.PlantillasArgos = m.nuevoPlantillasArgos()
 	m.CrearCanal = nuevoCasoCrearCanal(m)
 	m.ActualizarCanal = nuevoCasoActualizarCanal(m)
 	m.ActivarCanal = nuevoCambioCanal(m, "mensajeria.activar_canal", true)

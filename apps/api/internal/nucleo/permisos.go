@@ -53,7 +53,10 @@ const (
 	PermTicketsReabrir       Permiso = "tickets.reabrir"
 	PermTicketsCerrar        Permiso = "tickets.cerrar"
 	PermTicketsFusionar      Permiso = "tickets.fusionar"
-	PermTicketsVerNotas      Permiso = "tickets.ver_notas"
+	// PermTicketsConfigurarCaidas: umbrales de caídas repetidas y de posible falla general de la
+	// empresa (contrato con Argos 0.13.0 §3.11, B29). Admin y supervisión.
+	PermTicketsConfigurarCaidas Permiso = "tickets.configurar_caidas"
+	PermTicketsVerNotas         Permiso = "tickets.ver_notas"
 	// PermTicketsListarTodos: un token (de integración o de API) lista tickets sin filtro de
 	// cliente. Sin él, GET /tickets por token exige clienteId (422 filtro_cliente_requerido).
 	// No cambia nada para las personas del panel. Un token nunca supera los permisos de su
@@ -171,6 +174,17 @@ const (
 	// bodega de Argos se consumen materiales y comodatos, así que es de administración.
 	PermAgendaVincularArgos    Permiso = "agenda.vincular_argos"
 	PermAgendaDesvincularArgos Permiso = "agenda.desvincular_argos"
+	// Bodega de cuadrilla (contrato 0.11.0 §3.9, B26). asignar_jefe: el jefe recibe y firma los
+	// traslados y responde por los faltantes (solo admin y supervisor). leer_integracion: Argos
+	// lee la cuadrilla para conciliar su bodega (rol integracion_argos).
+	PermCuadrillasAsignarJefe Permiso = "cuadrillas.asignar_jefe"
+	// Equipos del cliente (0.12.0 §10.7 d, B27): con Argos < 0.12.0, una persona declara la pérdida
+	// de un comodato que no se pudo recuperar (nunca sale sola desde el cierre).
+	PermOrdenesDeclararPerdida    Permiso = "ordenes.declarar_perdida"
+	PermCuadrillasLeerIntegracion Permiso = "cuadrillas.leer_integracion"
+	// PermAdjuntosVerificarIntegracion: Argos verifica de servidor a servidor un cambio o un intento
+	// de recuperación por su Idempotency-Key (0.14.0 §3.10; solo el rol integracion_argos).
+	PermAdjuntosVerificarIntegracion Permiso = "adjuntos.verificar_integracion"
 
 	// Rutas del día (I2): propuesta con OSRM, publicación y ruta propuesta frente a la real.
 	PermRutasVer      Permiso = "rutas.ver"
@@ -188,6 +202,12 @@ const (
 	PermProspectosPerder             Permiso = "prospectos.perder"
 	PermProspectosReabrir            Permiso = "prospectos.reabrir"
 	PermProspectosGanar              Permiso = "prospectos.ganar"
+	// PermProspectosCompletarTareaArgos: marcar hecha la tarea «Abrir en Argos» de una solicitud del
+	// portal de Argos ganada (contrato 0.9.0 §11.7): una persona ya la aplicó en Argos.
+	PermProspectosCompletarTareaArgos Permiso = "prospectos.completar_tarea_argos"
+	// PermProspectosConfigurarSolicitudes: los ajustes de las solicitudes del portal de Argos por empresa
+	// (§10.4 punto 10: exigir contrato en un cambio de plan). Administración: admin y supervisor.
+	PermProspectosConfigurarSolicitudes Permiso = "prospectos.configurar_solicitudes"
 	// PermProspectosRegistrarIntegracion: registrar un prospecto desde Argos (contrato 0.10.0 §3.6,
 	// A44). Solo del rol integracion_argos: no lee, no lista ni edita prospectos.
 	PermProspectosRegistrarIntegracion Permiso = "prospectos.registrar_integracion"
@@ -243,12 +263,18 @@ const (
 	// PermIntegracionesEliminar: borrado lógico de un conector apagado (POST /integraciones/conectores/{id}/eliminar).
 	PermIntegracionesEliminar Permiso = "integraciones.eliminar"
 	PermIntegracionesVer      Permiso = "integraciones.ver"
+	// PermIntegracionesVerCapacidades: GET /integraciones/argosisp/capacidades (contrato con Argos
+	// 0.14.2 §4.3): solo el token del panel de Argos lee las capacidades de su conector.
+	PermIntegracionesVerCapacidades Permiso = "integraciones.ver_capacidades"
 	// PermIntegracionesRevisarVersion: releer ya la versión del otro sistema (diagnóstico del
 	// conector; POST /integraciones/conectores/{id}/revisar-version).
 	PermIntegracionesRevisarVersion Permiso = "integraciones.revisar_version"
 	// PermIntegracionesSincronizar: reanudar o volver a lanzar la primera sincronización con Argos
 	// (contrato 0.8.0 §2.5).
 	PermIntegracionesSincronizar Permiso = "integraciones.sincronizar"
+	// PermIntegracionesReenviarWebhook: volver a mandar a Argos un webhook de Iris que agotó sus
+	// reintentos (POST /mensajeria/webhooks-salida/{id}/reenviar; contrato 0.14.0 §6.6).
+	PermIntegracionesReenviarWebhook Permiso = "integraciones.reenviar_webhook"
 )
 
 // Adjuntos (fotos, firmas, documentos de órdenes y tickets) y cola de pendientes hacia Argos.
@@ -304,6 +330,9 @@ const (
 	PermPlantillasWhatsAppCrear       Permiso = "plantillas_whatsapp.crear"
 	PermPlantillasWhatsAppEditar      Permiso = "plantillas_whatsapp.editar"
 	PermPlantillasWhatsAppBorrar      Permiso = "plantillas_whatsapp.borrar"
+	// PermPlantillasWhatsAppLeerIntegracion: Argos lee las plantillas que puede usar una empresa de
+	// su alcance (contrato 0.13.0 §6.7, B32). Solo del rol integracion_argos; no edita nada.
+	PermPlantillasWhatsAppLeerIntegracion Permiso = "plantillas_whatsapp.leer_integracion"
 )
 
 // Voz, etapa E1 (contratos/voz.md §8.2): llamadas entrantes de WhatsApp contestadas en el panel.
@@ -450,6 +479,24 @@ const (
 	PermSSOEmitir Permiso = "sso.emitir"
 )
 
+// Portal del cliente de Argos (contrato argosisp.md 0.9.0 §11, B8): solo el token_portal de un
+// conector Argos (§1.2), del rol integracion_argos. Ningún rol de persona los recibe y, aunque un
+// admin los tenga (todos), las rutas de §11 exigen ese token (403 solo_integracion_argos).
+const (
+	PermPortalArgosVerTickets        Permiso = "portal_argos.ver_tickets"
+	PermPortalArgosCrearTicket       Permiso = "portal_argos.crear_ticket"
+	PermPortalArgosResponderTicket   Permiso = "portal_argos.responder_ticket"
+	PermPortalArgosConfirmarSolucion Permiso = "portal_argos.confirmar_solucion"
+	PermPortalArgosSolicitarServicio Permiso = "portal_argos.solicitar_servicio"
+	PermPortalArgosVerSolicitudes    Permiso = "portal_argos.ver_solicitudes"
+)
+
+// PermisosPortalArgos son los del token_portal (§1.2), en este orden.
+func PermisosPortalArgos() []Permiso {
+	return []Permiso{PermPortalArgosVerTickets, PermPortalArgosCrearTicket, PermPortalArgosResponderTicket,
+		PermPortalArgosConfirmarSolucion, PermPortalArgosSolicitarServicio, PermPortalArgosVerSolicitudes}
+}
+
 // PermisosSensibles son los de administración (usuarios, tokens, empresas, buzones,
 // integraciones, plantillas, configuración comercial y emisión de accesos), no los de ver ni los
 // operativos. Una sola fuente para el autologin desde Argos: quien tiene alguno (o
@@ -464,13 +511,18 @@ var PermisosSensibles = map[Permiso]bool{
 	PermUsuariosAsignarRol: true, PermUsuariosQuitarRol: true, PermUsuariosCerrarSesiones: true,
 	PermEmpresasCrear: true, PermEmpresasEditar: true, PermEmpresasAdoptar: true,
 	PermBuzonesCrear: true, PermBuzonesEditar: true, PermBuzonesActivar: true, PermBuzonesDesactivar: true,
-	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true,
+	PermIntegracionesConectar: true, PermIntegracionesActivar: true, PermIntegracionesDesactivar: true, PermIntegracionesEliminar: true, PermIntegracionesReintentar: true, PermIntegracionesRevisarVersion: true, PermIntegracionesSincronizar: true, PermIntegracionesReenviarWebhook: true,
 	PermIntegracionesResolverPendiente: true, PermPlantillasCrear: true, PermPlantillasEditar: true, PermPlantillasActivar: true, PermPlantillasDesactivar: true,
-	PermFactibilidadConfigurar: true, PermPortalEmitir: true, PermSSOEmitir: true,
+	PermFactibilidadConfigurar: true, PermProspectosConfigurarSolicitudes: true, PermPortalEmitir: true, PermSSOEmitir: true,
 	PermPlantillasWhatsAppCrear: true, PermPlantillasWhatsAppEditar: true, PermPlantillasWhatsAppBorrar: true,
-	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
+	PermAgendaVincularArgos: true, PermAgendaDesvincularArgos: true,
+	// El jefe de cuadrilla firma lo que entra a la bodega compartida y responde por los faltantes.
+	PermCuadrillasAsignarJefe: true,
+	// Leer la membresía de todas las cuadrillas para conciliar con Argos: solo el token de Argos.
+	PermCuadrillasLeerIntegracion: true, PermAdjuntosVerificarIntegracion: true, PermMensajeriaConfigurar: true, PermMensajeriaConexionMeta: true, PermMensajeriaAsistenteConfigurar: true, PermCanalesConfigurar: true, PermConversacionesConfigurar: true,
 	PermConversacionesRegistrarPromesa: true, PermConversacionesRegistrarBoleta: true, PermConversacionesSupervisar: true,
 	PermConversacionesPedirReconexion: true,
+	PermTicketsConfigurarCaidas:       true,
 	PermConversacionesIniciar:         true, PermCampoConfigurar: true,
 	// El SMTP con el que Iris escribe a sus usuarios (servidor, credenciales y remitente).
 	PermCorreoSistemaConfigurar: true,
@@ -503,6 +555,7 @@ var Catalogo = []DefPermiso{
 	{PermAccesosVer, "Ver el historial de accesos (quién entró, cuándo, por qué canal y con qué resultado) y las sesiones activas de los usuarios"},
 	{PermAdjuntosSubir, "Registrar y subir adjuntos (fotos, firmas, documentos) de las órdenes y tickets que puedes trabajar"},
 	{PermAdjuntosVer, "Ver y descargar los adjuntos de las órdenes y tickets que puedes ver (lectura auditada)"},
+	{PermAdjuntosVerificarIntegracion, "Verificar que un cambio o un intento de recuperación lo mandó Iris, con su foto (token de Argos)"},
 	{PermAgendaActivarCuadrilla, "Activar una cuadrilla"},
 	{PermAgendaActivarTecnico, "Activar la ficha de agenda de un técnico"},
 	{PermAgendaActivarZona, "Activar una zona"},
@@ -575,6 +628,8 @@ var Catalogo = []DefPermiso{
 	{PermCorreoSistemaVer, "Ver la configuración del correo del sistema (nunca la contraseña) y por dónde salen hoy los correos"},
 	{PermCotizacionesAceptar, "Marcar como aceptada por el cliente una cotización vigente"},
 	{PermCotizacionesCrear, "Crear cotizaciones (y versiones nuevas) de un prospecto con los planes de Argos"},
+	{PermCuadrillasAsignarJefe, "Asignar el jefe de una cuadrilla: recibe y firma los traslados a la bodega de la cuadrilla y responde por los faltantes (nunca a uno mismo)"},
+	{PermCuadrillasLeerIntegracion, "Leer una cuadrilla, sus miembros y su jefe para conciliar la bodega de cuadrilla (token de Argos)"},
 	{PermDatosLegalesConfigurar, "Configurar los datos legales del titular (razón social, contacto de privacidad, dirección y país) que publican las páginas de privacidad, términos y eliminación de datos"},
 	{PermDatosLegalesVer, "Ver los datos legales del titular y si las páginas públicas que pide Meta están listas"},
 	{PermEmpresasAdoptar, "Asignar una empresa a los datos operativos guardados sin empresa (modo sin conector); solo admin global"},
@@ -592,11 +647,13 @@ var Catalogo = []DefPermiso{
 	{PermIntegracionesConectar, "Conectar Iris con ArgosISP u Horus (enlace de conexión)"},
 	{PermIntegracionesDesactivar, "Desactivar un conector con ArgosISP u Horus"},
 	{PermIntegracionesEliminar, "Eliminar un conector apagado que ya no se usa (queda en la auditoría; sus credenciales se borran)"},
+	{PermIntegracionesReenviarWebhook, "Volver a mandar a Argos un aviso de Iris (webhook) que agotó sus reintentos, p. ej. el vínculo de un técnico"},
 	{PermIntegracionesReintentar, "Reintentar a mano una acción pendiente hacia Argos (fallida o agotada)"},
 	{PermIntegracionesResolverPendiente, "Dar por resuelta a mano una acción hacia Argos que Argos rechazó o que nació incompleta (ya corregida en Argos): no vuelve a salir y lo que esperaba por ella sale"},
 	{PermIntegracionesRevisarVersion, "Releer ya la versión de Argos en un conector (diagnóstico: la URL base y el status de la última lectura)"},
 	{PermIntegracionesSincronizar, "Reanudar o volver a lanzar la primera sincronización con Argos (solo lee de Argos: zonas, planes, routers, cuentas, clientes y servicios)"},
 	{PermIntegracionesVer, "Ver los conectores y su estado (nunca el token ni el secreto)"},
+	{PermIntegracionesVerCapacidades, "Leer las capacidades de Iris del conector del token (lo usa Argos con el token de su panel)"},
 	{PermIntegracionesVerPendientes, "Ver la cola de acciones pendientes hacia Argos y su último error"},
 	{PermLlamadasAnotar, "Dejar la nota y el resultado de una llamada que atendiste (o de cualquiera, si supervisas)"},
 	{PermLlamadasColgar, "Terminar la llamada que tienes (o cualquiera, si supervisas)"},
@@ -626,6 +683,7 @@ var Catalogo = []DefPermiso{
 	{PermOrdenesCerrar, "Cerrar órdenes de trabajo con su checklist, equipos, firma y adjuntos"},
 	{PermOrdenesCompletarDatos, "Completar los datos que falten del titular y del lugar de una instalación antes de activarla (el técnico solo en sus órdenes en sitio; despacho y supervisor desde el panel)"},
 	{PermOrdenesCrear, "Crear órdenes de trabajo (también desde un ticket)"},
+	{PermOrdenesDeclararPerdida, "Declarar perdido un equipo en comodato que no se pudo recuperar (solo con Argos anterior a 0.12.0; desde 0.12.0 lo decide una persona en Argos)"},
 	{PermOrdenesDescartarDatosArgos, "Descartar el aviso «Dato de Argos cambió» de una orden sin cambiar sus datos"},
 	{PermOrdenesFallar, "Marcar una orden como fallida con su motivo"},
 	{PermOrdenesIgualarAsignacion, "Igualar la asignación (técnico y cuadrilla) de una orden y su ticket, en el sentido que se elija"},
@@ -651,10 +709,19 @@ var Catalogo = []DefPermiso{
 	{PermPlantillasWhatsAppBorrar, "Borrar plantillas de WhatsApp (también en Meta)"},
 	{PermPlantillasWhatsAppCrear, "Crear plantillas de WhatsApp y enviarlas a Meta"},
 	{PermPlantillasWhatsAppEditar, "Editar plantillas de WhatsApp, decidir dónde se usan y cambiar sus ajustes"},
+	{PermPlantillasWhatsAppLeerIntegracion, "Leer las plantillas de WhatsApp que puede usar una empresa (lo usa Argos con su token de integración; no edita nada)"},
 	{PermPlantillasWhatsAppSincronizar, "Sincronizar con Meta las plantillas de WhatsApp de una cuenta"},
 	{PermPlantillasWhatsAppVer, "Ver las plantillas de WhatsApp de las cuentas de la empresa, su estado en Meta y su historial"},
 	{PermPortalEmitir, "Emitir tickets de acceso al portal de soporte para un cliente de Argos (lo usa Argos con su token de integración)"},
+	{PermPortalArgosConfirmarSolucion, "Portal de Argos: el cliente confirma la solución de su ticket (solo el token_portal de Argos)"},
+	{PermPortalArgosCrearTicket, "Portal de Argos: el cliente abre un ticket (solo el token_portal de Argos)"},
+	{PermPortalArgosResponderTicket, "Portal de Argos: el cliente escribe en su ticket (solo el token_portal de Argos)"},
+	{PermPortalArgosSolicitarServicio, "Portal de Argos: el cliente pide un servicio, que llega a ventas como prospecto (solo el token_portal de Argos)"},
+	{PermPortalArgosVerSolicitudes, "Portal de Argos: el cliente ve sus solicitudes de servicio (solo el token_portal de Argos)"},
+	{PermPortalArgosVerTickets, "Portal de Argos: el cliente ve sus tickets y categorías (solo el token_portal de Argos)"},
 	{PermProspectosAsignar, "Asignar un prospecto a un vendedor"},
+	{PermProspectosCompletarTareaArgos, "Marcar hecha la tarea «Abrir en Argos» de una solicitud del portal de Argos ganada (cambio de plan, traslado u otro)"},
+	{PermProspectosConfigurarSolicitudes, "Configurar las solicitudes del portal de Argos de la empresa (exigir contrato para ganar un cambio de plan)"},
 	{PermProspectosContactar, "Marcar un prospecto como contactado"},
 	{PermProspectosCrear, "Registrar prospectos (panel, web, referidos…)"},
 	{PermProspectosEditar, "Editar los datos de un prospecto"},
@@ -681,6 +748,7 @@ var Catalogo = []DefPermiso{
 	{PermSSOEmitir, "Pedir un ticket de autologin («Ver en Iris») para abrir un ticket, una orden o un prospecto (lo usa Argos con el token del canje)"},
 	{PermTicketsAsignar, "Asignar tickets a un usuario o a una cuadrilla"},
 	{PermTicketsCerrar, "Cerrar tickets (sin resolver, con motivo)"},
+	{PermTicketsConfigurarCaidas, "Cambiar cuántas caídas de un servicio abren un ticket y cuándo Iris avisa una posible falla general"},
 	{PermTicketsCrear, "Crear tickets de soporte"},
 	{PermTicketsCrearOrden, "Crear la orden de trabajo de un ticket ya asignada (y programada si se elige fecha) en un paso"},
 	{PermTicketsEscalar, "Escalar tickets (subir prioridad o nivel)"},
@@ -765,7 +833,7 @@ var permisosAtencion = []Permiso{PermConversacionesVer, PermConversacionesRespon
 var permisosComercial = []Permiso{
 	PermProspectosVer, PermProspectosCrear, PermProspectosEditar, PermProspectosAsignar, PermProspectosContactar,
 	PermProspectosRegistrarActividad, PermProspectosPerder, PermProspectosReabrir, PermProspectosGanar,
-	PermFactibilidadEvaluar, PermCotizacionesCrear, PermCotizacionesAceptar, PermContratosCrear, PermContratosFirmar,
+	PermProspectosCompletarTareaArgos, PermFactibilidadEvaluar, PermCotizacionesCrear, PermCotizacionesAceptar, PermContratosCrear, PermContratosFirmar,
 }
 
 // RolesBase son los roles que crea y mantiene el seed (CLAUDE.md §8). Sus permisos se
@@ -776,15 +844,17 @@ var RolesBase = []DefRol{
 		Permisos: append([]Permiso{PermUsuariosVer, PermRolesVer, PermPermisosVer, PermTokensVer,
 			PermClientesVer, PermClientesEstadoCuenta, PermServiciosVerRed, PermServiciosVerUbicacion, PermIntegracionesVer, PermEmpresasVer,
 			PermAdjuntosSubir, PermAdjuntosVer, PermIntegracionesReintentar, PermIntegracionesResolverPendiente, PermIntegracionesVerPendientes,
+			PermTicketsConfigurarCaidas,
 			PermBuzonesVer, PermBuzonesCrear, PermBuzonesEditar, PermBuzonesActivar, PermBuzonesDesactivar,
 			PermChatVer, PermChatEnviar, PermChatSupervisar,
 			PermLlamadasConfigurar, PermLlamadasDescartarDevolucion, PermLlamadasSolicitarPermiso, PermLlamadasLlamar, PermLlamadasDesbloquearNumero,
 			PermCentralitaAsignarExtension, PermCentralitaLlamar, PermCentralitaTransferir,
 			PermConversacionesSupervisar, PermConversacionesAsignar, PermConversacionesTransferir, PermConversacionesAsociar,
 			PermConversacionesRegistrarBoleta, PermConversacionesRegistrarPromesa, PermConversacionesRegistrarGestionCobro, PermConversacionesConfigurar, PermCanalesConfigurar, PermManualesEditar, PermManualesRevocarEnlace,
-			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar},
+			PermConversacionesIniciar, PermPlantillasWhatsAppVer, PermPlantillasWhatsAppSincronizar, PermCuadrillasAsignarJefe,
+			PermOrdenesDeclararPerdida},
 			slices.Concat(permisosAtencion, permisosTickets, permisosOrdenes, permisosAgenda, permisosRutas, permisosPlantillas, permisosComercial,
-				[]Permiso{PermFactibilidadConfigurar, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
+				[]Permiso{PermFactibilidadConfigurar, PermProspectosConfigurarSolicitudes, PermFactibilidadRegistrarManual, PermReportesVer, PermEncuestasVer, PermEncuestasCompartir,
 					PermOrdenesValidarIdentidad,
 					// Paso «Confirmar titular y plan» desde el panel (0.10.0 §3.4, «Quién»): completar datos y cambiar el plan.
 					PermOrdenesCompletarDatos, PermOrdenesCambiarPlan})...)},
@@ -846,15 +916,27 @@ var RolesBase = []DefRol{
 			// Mensajería (contrato 0.6.0 §1.2 y §6): avisos, permisos de contacto y plantillas.
 			PermMensajeriaEnviar, PermMensajeriaRegistrarConsentimiento, PermMensajeriaVer,
 			// Prospectos registrados desde Argos (contrato 0.10.0 §3.6, A44): solo registrar.
-			PermProspectosRegistrarIntegracion}},
+			PermProspectosRegistrarIntegracion,
+			// Capacidades de su conector (0.14.2 §4.3); nunca integraciones.ver.
+			PermIntegracionesVerCapacidades,
+			// Portal del cliente de Argos (0.9.0 §11): solo los usa el token_portal, recortado a estos.
+			PermPortalArgosVerTickets, PermPortalArgosCrearTicket, PermPortalArgosResponderTicket,
+			PermPortalArgosConfirmarSolucion, PermPortalArgosSolicitarServicio, PermPortalArgosVerSolicitudes,
+			// Bodega de cuadrilla (0.11.0 §3.9): conciliar la cuadrilla.
+			PermCuadrillasLeerIntegracion,
+			// Equipos del cliente (0.14.0 §3.10): verificar cambios e intentos.
+			PermAdjuntosVerificarIntegracion,
+			// Plantillas de WhatsApp que puede usar cada empresa (contrato 0.13.0 §6.7, B32): solo leer.
+			PermPlantillasWhatsAppLeerIntegracion}},
 	{Codigo: "integracion_horus", Nombre: "Integración Horus", Descripcion: "Token de Horus Flow en Iris (contrato §1.2)",
 		Permisos: []Permiso{PermTicketsVer, PermTicketsCrear}},
 }
 
-// PermisosDeRol devuelve los permisos efectivos de un rol base.
+// PermisosDeRol devuelve los permisos efectivos de un rol base. «Todos» (admin) no incluye
+// portal_argos.*: solo los lleva integracion_argos y solo se ejercen con el token_portal.
 func (r DefRol) PermisosDeRol() []Permiso {
 	if r.Todos {
-		return CodigosPermisos()
+		return slices.DeleteFunc(CodigosPermisos(), func(p Permiso) bool { return strings.HasPrefix(string(p), "portal_argos.") })
 	}
 	return r.Permisos
 }
@@ -915,7 +997,7 @@ var modulosPermiso = map[string][2]string{
 	"cotizaciones": {"comercial", "Comercial"}, "contratos": {"comercial", "Comercial"},
 	"reportes": {"reportes", "Reportes"},
 	"clientes": {"integraciones", "Argos e integraciones"}, "integraciones": {"integraciones", "Argos e integraciones"},
-	"portal": {"integraciones", "Argos e integraciones"}, "sso": {"integraciones", "Argos e integraciones"},
+	"portal": {"integraciones", "Argos e integraciones"}, "portal_argos": {"integraciones", "Argos e integraciones"}, "sso": {"integraciones", "Argos e integraciones"},
 	"servidor_ia": {"integraciones", "Argos e integraciones"},
 	"usuarios":    {"usuarios", "Usuarios y accesos"}, "accesos": {"usuarios", "Usuarios y accesos"},
 	"tokens": {"usuarios", "Usuarios y accesos"},

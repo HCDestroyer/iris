@@ -6,6 +6,7 @@ package contexto
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -94,6 +95,21 @@ func TodosLosPermisos() Permisos { return Permisos{todos: true} }
 // NuevosPermisos arma el conjunto a partir de permiso → alcances (vacío o con un Alcance global
 // = sin límite).
 func NuevosPermisos(mapa map[string][]Alcance) Permisos {
+	return Permisos{mapa: mapa}
+}
+
+// SinPrefijo devuelve el conjunto sin los permisos que empiezan con prefijo (p. ej. "portal_argos."):
+// los que solo valen en un token aparte. Con todos (actor sistema), no cambia.
+func (p Permisos) SinPrefijo(prefijo string) Permisos {
+	if p.todos || len(p.mapa) == 0 {
+		return p
+	}
+	mapa := make(map[string][]Alcance, len(p.mapa))
+	for k, v := range p.mapa {
+		if !strings.HasPrefix(k, prefijo) {
+			mapa[k] = v
+		}
+	}
 	return Permisos{mapa: mapa}
 }
 

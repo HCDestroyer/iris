@@ -96,6 +96,8 @@ type argosFalso struct {
 	sinWebhook bool
 	// receptores: receptor_argos de cada PUT …/contrato (0.6.2; nil = no vino).
 	receptores []any
+	// cargados: vinculos_cargados de cada PUT …/contrato (0.14.0 §6.6; nil = no vino).
+	cargados []any
 	// Contrato 0.6.3 §1.3. tokenCanje: el atk_ que entrega el próximo canje (vacío = token). Con un
 	// token en uso, el canje nuevo queda pendiente hasta la primera llamada autenticada con su atk_:
 	// entonces reemplaza a token (y el anterior deja de autenticar).
@@ -112,6 +114,11 @@ type argosFalso struct {
 	retryAfter map[string]string
 	// sso: autologin Iris → Argos (contrato 0.7.0 §1.3; contrato070_test.go).
 	sso ssoFalso
+	// incidentes: servicios de cada incidente de red por empresa («<incidente>:<empresa>»; contrato
+	// 0.13.0 §3.11, red_test.go). Sin entrada: 404.
+	incidentes map[string][]int64
+	// cursorFijo: el incidente devuelve siempre el mismo nextCursor (Argos con un error de paginación).
+	cursorFijo map[string]string
 }
 
 type usoToken struct {
@@ -174,6 +181,7 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 	a.rutas050(mux)
 	a.rutas070(mux)
 	a.rutas080(mux)
+	mux.HandleFunc("GET /api/v1/incidentes-red/{id}/servicios", a.conToken(a.serviciosIncidente))
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 	return a
@@ -207,6 +215,7 @@ func (a *argosFalso) rutas050(mux *http.ServeMux) {
 		}
 		a.contratos++
 		a.receptores = append(a.receptores, p["receptor_argos"])
+		a.cargados = append(a.cargados, p["vinculos_cargados"])
 		escribir(w, map[string]any{"contrato": a.contrato, "version_argos": a.version})
 	}))
 	mux.HandleFunc("GET /api/v1/integraciones/iris/estado", solo16(func(w http.ResponseWriter, _ *http.Request) {

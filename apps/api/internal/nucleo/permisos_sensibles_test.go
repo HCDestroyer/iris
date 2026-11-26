@@ -12,7 +12,9 @@ import (
 // autologin).
 func TestPermisosSensiblesCubrenLaAdministracion(t *testing.T) {
 	operativos := []string{"tickets.", "ordenes.", "prospectos.", "campo.", "agenda.", "rutas.", "cotizaciones.",
-		"contratos.", "encuestas.", "clientes.", "adjuntos.", "mensajeria.", "chat.", "conversaciones.", "manuales.", "llamadas."}
+		"contratos.", "encuestas.", "clientes.", "adjuntos.", "mensajeria.", "chat.", "conversaciones.", "manuales.", "llamadas.",
+		// Portal de Argos (0.9.0 §11): solo el token_portal, en nombre del cliente.
+		"portal_argos."}
 	operativosSueltos := map[nucleo.Permiso]bool{nucleo.PermFactibilidadEvaluar: true, nucleo.PermFactibilidadRegistrarManual: true,
 		nucleo.PermEmpresasTodas: true, // empresas.todas es un alcance: esPrivilegiado lo cuenta aparte
 		// Pedir para uno mismo el enlace a Argos no administra nada: lo tienen los roles de atención.
@@ -20,7 +22,10 @@ func TestPermisosSensiblesCubrenLaAdministracion(t *testing.T) {
 		// Llamar y transferir con su propia extensión (teléfono de Iris, E4c) es trabajo de atención.
 		nucleo.PermCentralitaLlamar: true, nucleo.PermCentralitaTransferir: true,
 		// Releer de Meta las plantillas de WhatsApp no cambia ninguna (decisión del PM: supervisión y soporte).
-		nucleo.PermPlantillasWhatsAppSincronizar: true}
+		nucleo.PermPlantillasWhatsAppSincronizar: true,
+		// Argos lee las plantillas que puede usar una empresa (contrato 0.13.0 §6.7): solo lectura, del
+		// rol integracion_argos.
+		nucleo.PermPlantillasWhatsAppLeerIntegracion: true}
 	for _, d := range nucleo.Catalogo {
 		c := string(d.Codigo)
 		_, accion, _ := strings.Cut(c, ".")

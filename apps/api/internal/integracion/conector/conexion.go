@@ -58,7 +58,23 @@ func (n *Nucleo) validarOrigen(crudo, campo string) (*url.URL, error) {
 }
 
 func origenDe(u *url.URL) string {
-	return u.Scheme + "://" + u.Host + strings.TrimRight(u.EscapedPath(), "/")
+	// Normalizada (0.14.0 §6.6, identidad de la instancia): esquema y host en minúsculas, sin el punto
+	// final del host ni el puerto por defecto, y sin la barra final.
+	return strings.ToLower(u.Scheme) + "://" + hostNormalizado(u) + strings.TrimRight(u.EscapedPath(), "/")
+}
+
+// hostNormalizado: el host en minúsculas, sin el punto final y sin el puerto por defecto del esquema.
+func hostNormalizado(u *url.URL) string {
+	esquema := strings.ToLower(u.Scheme)
+	host := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	porDefecto := map[string]string{"https": "443", "http": "80"}
+	if p := u.Port(); p != "" && p != porDefecto[esquema] {
+		host += ":" + p
+	}
+	return host
 }
 
 // validarBase es validarOrigen más la protección contra SSRF para una IP escrita tal cual (un
@@ -404,6 +420,13 @@ func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[
 		}
 	}()
 	g.secreto, g.tokenEntregado = secreto, tokenID
+	// token_portal (0.9.0 §1.2): hijo del iris_pat_ de arriba, así que muere con él si el canje falla.
+	var tokenPortal string
+	if c.s.TokenPortal {
+		if _, tokenPortal, err = c.n.EmitirTokenPortal(ctx, tokenID); err != nil {
+			return Conector{}, err
+		}
+	}
 	cli := c.clienteHacia(g.Base, "")
 	// receptor_argos (0.6.2): la petición sale antes de conocer el receptor del otro sistema (llega
 	// en la respuesta), pero esta versión de Iris lo exige y lo guarda o rechaza el canje: true.
@@ -416,7 +439,7 @@ func (c *Conexion) canjearYGuardar(ctx context.Context, guardar *auditoria.Caso[
 	g.errRemoto = cli.Pedir(ctx, http.MethodPost, c.s.RutaCanje, nil, PeticionCanje{
 		Codigo: codigo, Sistema: "iris", BaseURL: c.n.cfg.BaseURL, Token: valor,
 		Webhook:      WebhookCanje{URL: c.n.URLWebhook(c.s.Nombre, g.ConectorID), Secreto: secreto},
-		CodeVerifier: verificador, Contrato: c.s.Contrato, ReceptorArgos: receptor,
+		CodeVerifier: verificador, Contrato: c.s.Contrato, ReceptorArgos: receptor, TokenPortal: tokenPortal,
 	}, false, &Recurso{Destino: &g.respuesta})
 	if g.errRemoto != nil && mapear != nil {
 		g.errRemoto = mapear(g.errRemoto)

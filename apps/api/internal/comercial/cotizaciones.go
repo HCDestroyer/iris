@@ -585,6 +585,15 @@ type EntradaVerCotizacion struct {
 type EntradaAceptarCotizacion struct {
 	ID      int64 `json:"-"`
 	Version int32 `json:"version" minimum:"1" doc:"Versión de la cotización"`
+	// EvidenciaCliente: obligatoria en una solicitud del portal de Argos (el cliente no ve la cotización en
+	// su portal): cómo y cuándo la aceptó.
+	EvidenciaCliente *EvidenciaAceptacion `json:"evidenciaCliente,omitempty" doc:"Solicitudes del portal de Argos: obligatoria (422 validacion)"`
+}
+
+// EvidenciaAceptacion: por qué canal y cuándo aceptó el cliente (queda auditada con quién la registró).
+type EvidenciaAceptacion struct {
+	Canal string    `json:"canal" enum:"telefono,whatsapp,presencial,correo"`
+	Fecha time.Time `json:"fecha" doc:"Cuándo la aceptó el cliente (no en el futuro ni antes de la cotización)"`
 }
 
 // cotizacionVisible: la cotización y su prospecto, visible para el actor (404 si no).
@@ -677,6 +686,11 @@ func (m *Modulo) nuevoAceptarCotizacion() *auditoria.Caso[EntradaAceptarCotizaci
 				return Cotizacion{}, transicionInvalida("Solo se acepta la cotización vigente (esta está " + c.Estado + ")")
 			}
 			ahora := m.ahora()
+			if antes.SolicitudTipo != nil {
+				if err := validarEvidencia(in.EvidenciaCliente, c, ahora); err != nil {
+					return Cotizacion{}, err
+				}
+			}
 			if !c.VigenteHasta.After(ahora) {
 				return Cotizacion{}, nucleo.ReglaNegocio("cotizacion_vencida", "La cotización venció el "+m.diaLocal(c.VigenteHasta)+"; crea una revisión nueva")
 			}
@@ -685,6 +699,16 @@ func (m *Modulo) nuevoAceptarCotizacion() *auditoria.Caso[EntradaAceptarCotizaci
 				return Cotizacion{}, nucleo.VerificarVersion(err, "cotizacion", c.ID)
 			}
 			t.RegistrarCambios("cotizacion", f.ID, c, f)
+			if antes.SolicitudTipo != nil {
+				ev := in.EvidenciaCliente
+				if err := q.RegistrarEvidenciaAceptacion(ctx, comercialbd.RegistrarEvidenciaAceptacionParams{ID: f.ID, Canal: &ev.Canal,
+					ClienteEn: &ev.Fecha, RegistradaPor: actorUsuario(t)}); err != nil {
+					return Cotizacion{}, err
+				}
+				t.Anotar(map[string]any{"evidencia_cliente": map[string]any{"canal": ev.Canal, "fecha": ev.Fecha, "registrada_por": actorUsuario(t)}})
+				t.RegistrarCambios("cotizacion", f.ID, map[string]any{"aceptacion_canal": nil}, map[string]any{"aceptacion_canal": ev.Canal,
+					"aceptacion_cliente_en": ev.Fecha})
+			}
 			// El prospecto sube de versión (cambió su embudo).
 			if _, err := guardar(ctx, t, q, antes, antes); err != nil {
 				return Cotizacion{}, err
@@ -750,4 +774,22 @@ func (m *Modulo) GenerarPDFCotizacion(ctx context.Context, in EntradaVerCotizaci
 		return Cotizacion{}, err
 	}
 	return m.VerCotizacion.Ejecutar(ctx, in)
+}
+
+// validarEvidencia: la evidencia de aceptación de una solicitud del portal de Argos (revisión H3).
+func validarEvidencia(ev *EvidenciaAceptacion, c comercialbd.ComercialCotizacion, ahora time.Time) error {
+	if ev == nil {
+		return nucleo.Validacion(nucleo.ErrorCampo{Field: "evidenciaCliente", Rule: "required",
+			Message: "En una solicitud del portal de Argos, registra cómo y cuándo aceptó el cliente"})
+	}
+	switch ev.Canal {
+	case "telefono", "whatsapp", "presencial", "correo":
+	default:
+		return nucleo.Validacion(nucleo.ErrorCampo{Field: "evidenciaCliente.canal", Rule: "enum", Message: "telefono, whatsapp, presencial o correo"})
+	}
+	if ev.Fecha.IsZero() || ev.Fecha.After(ahora.Add(5*time.Minute)) || ev.Fecha.Before(c.CreatedAt.Add(-time.Minute)) {
+		return nucleo.Validacion(nucleo.ErrorCampo{Field: "evidenciaCliente.fecha", Rule: "fecha",
+			Message: "La fecha no puede estar en el futuro ni ser anterior a la cotización"})
+	}
+	return nil
 }

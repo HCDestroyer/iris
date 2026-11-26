@@ -541,7 +541,7 @@ func (q *Queries) CrearCorreoSaliente(ctx context.Context, arg CrearCorreoSalien
 const crearMensajeCliente = `-- name: CrearMensajeCliente :one
 INSERT INTO soporte.ticket_mensajes (ticket_id, empresa_id, publico, autor_tipo, autor_nombre, canal, cuerpo)
 VALUES ($1, $2, true, 'cliente', $3, $4, $5)
-RETURNING id, ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, adjuntos, created_at, updated_at, idempotencia
+RETURNING id, ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, adjuntos, created_at, updated_at, idempotencia, contacto_id
 `
 
 type CrearMensajeClienteParams struct {
@@ -575,6 +575,7 @@ func (q *Queries) CrearMensajeCliente(ctx context.Context, arg CrearMensajeClien
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Idempotencia,
+		&i.ContactoID,
 	)
 	return i, err
 }
@@ -582,7 +583,7 @@ func (q *Queries) CrearMensajeCliente(ctx context.Context, arg CrearMensajeClien
 const crearNotaCorreo = `-- name: CrearNotaCorreo :one
 INSERT INTO soporte.ticket_mensajes (ticket_id, empresa_id, publico, autor_tipo, autor_nombre, canal, cuerpo)
 VALUES ($1, $2, false, 'sistema', $3, 'correo', $4)
-RETURNING id, ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, adjuntos, created_at, updated_at, idempotencia
+RETURNING id, ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, adjuntos, created_at, updated_at, idempotencia, contacto_id
 `
 
 type CrearNotaCorreoParams struct {
@@ -616,6 +617,7 @@ func (q *Queries) CrearNotaCorreo(ctx context.Context, arg CrearNotaCorreoParams
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Idempotencia,
+		&i.ContactoID,
 	)
 	return i, err
 }
@@ -894,7 +896,7 @@ func (q *Queries) MarcarCorreoEnviado(ctx context.Context, arg MarcarCorreoEnvia
 
 const mensajePorID = `-- name: MensajePorID :one
 
-SELECT id, ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, adjuntos, created_at, updated_at, idempotencia FROM soporte.ticket_mensajes WHERE id = $1
+SELECT id, ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, adjuntos, created_at, updated_at, idempotencia, contacto_id FROM soporte.ticket_mensajes WHERE id = $1
 `
 
 // Correos salientes ------------------------------------------------------------
@@ -915,6 +917,7 @@ func (q *Queries) MensajePorID(ctx context.Context, id int64) (SoporteTicketMens
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Idempotencia,
+		&i.ContactoID,
 	)
 	return i, err
 }
@@ -1009,7 +1012,7 @@ func (q *Queries) TicketDeHilo(ctx context.Context, arg TicketDeHiloParams) (int
 }
 
 const ticketPorNumero = `-- name: TicketPorNumero :one
-SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo, propuesta_origen, propuesta_orden_id FROM soporte.tickets WHERE numero = $1
+SELECT id, numero, empresa_id, cliente_id, servicio_id, zona_id, contacto_nombre, contacto_telefono, contacto_correo, categoria_id, prioridad, estado, origen, asunto, asignado_a, cuadrilla_id, nivel_escalamiento, sla_id, calendario_id, sla_inicio, sla_respuesta_min, sla_resolucion_min, pausa_seg, riesgo_respuesta, vence_respuesta, riesgo_resolucion, vence_resolucion, primera_respuesta_en, en_espera_desde, resuelto_en, cerrado_en, ticket_padre_id, fusionado_en_id, version, created_at, updated_at, idempotencia, contacto_verificado, maestro, router_id, infra_id, incidente_nombre, hallazgo_id, url_horus, propuesta, propuesta_en, propuesta_motivo, propuesta_origen, propuesta_orden_id, creado_por_contacto, cliente_revision FROM soporte.tickets WHERE numero = $1
 `
 
 func (q *Queries) TicketPorNumero(ctx context.Context, numero string) (SoporteTicket, error) {
@@ -1065,6 +1068,8 @@ func (q *Queries) TicketPorNumero(ctx context.Context, numero string) (SoporteTi
 		&i.PropuestaMotivo,
 		&i.PropuestaOrigen,
 		&i.PropuestaOrdenID,
+		&i.CreadoPorContacto,
+		&i.ClienteRevision,
 	)
 	return i, err
 }

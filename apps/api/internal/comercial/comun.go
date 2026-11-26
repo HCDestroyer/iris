@@ -290,10 +290,14 @@ func cambioDeEstado(ctx context.Context, t *auditoria.Tx, q *comercialbd.Queries
 		return err
 	}
 	// empresa_id y origen: el webhook a Argos (contrato 0.10.0 §6.6) sale solo de los argos_panel.
-	return t.Emitir("prospecto.estado_cambiado", map[string]any{
+	if err := t.Emitir("prospecto.estado_cambiado", map[string]any{
 		"prospecto_id": despues.ID, "de": antes.Estado, "a": despues.Estado, "motivo": motivo,
 		"empresa_id": despues.EmpresaID, "origen": despues.Origen,
-	})
+	}); err != nil {
+		return err
+	}
+	// Solicitud del portal de Argos (0.9.0 §11.7): lo que ve el cliente.
+	return sincronizarEstadoCliente(ctx, t, q, despues, false)
 }
 
 // actorUsuario: id del actor si es un usuario.

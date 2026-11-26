@@ -20,6 +20,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/campo"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
+	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
 
 // Tablas operativas con empresa_id que se adoptan al pasar de «sin conector» a empresas
@@ -62,6 +63,9 @@ type Config struct {
 	Clientes ValidadorClientes
 	// URLBase es IRIS_BASE_URL: arma url_iris de §3.6 (enlace plano al prospecto).
 	URLBase string
+	// PortalArgos resuelve la sesión del portal del cliente de Argos (argos.Modulo, 0.9.0 §11). nil =
+	// las rutas de solicitudes responden 503.
+	PortalArgos soporte.PortalArgos
 	// VigenciaCotizacion: días que vale una cotización si no se indica (15).
 	VigenciaCotizacion time.Duration
 }
@@ -119,8 +123,18 @@ type Modulo struct {
 
 	prepararRegistroArgos *auditoria.Caso[EntradaRegistrarArgos, previoRegistroArgos]
 	registrarArgos        *auditoria.Caso[entradaRegistroArgos, resultadoRegistroArgos]
-	contarRegistroArgos   *auditoria.Caso[entradaRegistroArgos, struct{}]
-	confirmarCliente      *auditoria.Caso[entradaConfirmarCliente, struct{}]
+	// Solicitudes de servicio del portal de Argos (0.9.0 §11.7): solicitudes_portal.go.
+	crearSolicitud    *auditoria.Caso[EntradaCrearSolicitud, SolicitudServicio]
+	ListarSolicitudes *auditoria.Caso[EntradaSolicitudes, nucleo.Pagina[SolicitudServicio]]
+	VerSolicitud      *auditoria.Caso[EntradaVerSolicitud, SolicitudServicio]
+	ordenDeSolicitud  *auditoria.Caso[entradaOrdenSolicitud, struct{}]
+	// CompletarTareaArgos: una persona aplicó en Argos la solicitud ganada (§11.7).
+	CompletarTareaArgos *auditoria.Caso[EntradaCompletarTareaArgos, Prospecto]
+	// Ajustes de las solicitudes por empresa (§10.4 punto 10).
+	VerAjustesSolicitudes     *auditoria.Caso[struct{}, AjustesSolicitudes]
+	CambiarAjustesSolicitudes *auditoria.Caso[EntradaAjustesSolicitudes, AjustesSolicitudes]
+	contarRegistroArgos       *auditoria.Caso[entradaRegistroArgos, struct{}]
+	confirmarCliente          *auditoria.Caso[entradaConfirmarCliente, struct{}]
 }
 
 // Nuevo arma el módulo.
@@ -184,6 +198,10 @@ func Nuevo(cfg Config) *Modulo {
 	m.marcarErrorAlta = m.nuevoMarcarErrorAlta()
 	m.prepararRegistroArgos = m.nuevoPrepararRegistroArgos()
 	m.registrarArgos = m.nuevoRegistrarArgos()
+	m.crearSolicitud, m.ListarSolicitudes, m.VerSolicitud = m.nuevoCrearSolicitud(), m.nuevoListarSolicitudes(), m.nuevoVerSolicitud()
+	m.ordenDeSolicitud = m.nuevoOrdenDeSolicitud()
+	m.CompletarTareaArgos = m.nuevoCompletarTareaArgos()
+	m.VerAjustesSolicitudes, m.CambiarAjustesSolicitudes = m.nuevoVerAjustesSolicitudes(), m.nuevoCambiarAjustesSolicitudes()
 	m.contarRegistroArgos = m.nuevoContarRegistroArgos()
 	m.confirmarCliente = m.nuevoConfirmarCliente()
 	return m

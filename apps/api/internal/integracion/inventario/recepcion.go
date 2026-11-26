@@ -95,7 +95,7 @@ func (m *Modulo) ConfirmarTraslado(ctx context.Context, id int64) error {
 	q := argosbd.New(bd)
 	f, err := q.TrasladoPorID(ctx, id)
 	switch {
-	case err == nil && conTecnico(f):
+	case err == nil && conDestino(f):
 		return nil
 	case err != nil && !errors.Is(err, pgx.ErrNoRows):
 		return err
@@ -115,7 +115,7 @@ func (m *Modulo) ConfirmarTraslado(ctx context.Context, id int64) error {
 		return TrasladoSinConfirmar("Argos respondió, pero la orden de traslado no quedó guardada: se reintenta sola")
 	case err != nil:
 		return err
-	case !conTecnico(f):
+	case !conDestino(f):
 		return trasladoNoDisponible()
 	}
 	return nil
@@ -123,6 +123,47 @@ func (m *Modulo) ConfirmarTraslado(ctx context.Context, id int64) error {
 
 func conTecnico(f argosbd.IntegracionArgosTraslado) bool {
 	return f.TecnicoIDExterno != nil || f.TecnicoCorreo != nil
+}
+
+// conDestino: Iris sabe a quién va: a un técnico o a una bodega de cuadrilla (0.11.0 §3.9).
+func conDestino(f argosbd.IntegracionArgosTraslado) bool {
+	return conTecnico(f) || f.CuadrillaID != nil
+}
+
+// Destino del traslado para un usuario.
+type destino int
+
+const (
+	destinoAjeno        destino = iota // de otro técnico o de otra cuadrilla: como si no existiera
+	destinoMiembro                     // de su cuadrilla, pero no es el jefe: lo ve «en camino»
+	destinoDestinatario                // lo recibe y firma: su técnico o el jefe de la cuadrilla
+)
+
+// CodigoSoloJefeRecibe: un miembro que no es el jefe intenta recibir un traslado de la cuadrilla.
+const CodigoSoloJefeRecibe = "solo_jefe_recibe"
+
+// destinoDe: a quién va el traslado según Iris para este usuario. Un traslado a una bodega de
+// cuadrilla lo recibe el jefe actual de la cuadrilla actual del usuario (si el jefe cambió mientras
+// venía en camino, recibe el nuevo; sin jefe, espera); los demás miembros lo ven en camino.
+func destinoDe(ctx context.Context, q argosbd.DBTX, f argosbd.IntegracionArgosTraslado, usuario int64, v vinculo) (destino, error) {
+	if f.CuadrillaID != nil {
+		c, err := argosbd.New(q).CuadrillaDelUsuario(ctx, usuario)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return destinoAjeno, nil
+		case err != nil:
+			return destinoAjeno, err
+		case c.CuadrillaID != *f.CuadrillaID:
+			return destinoAjeno, nil
+		case c.JefeUsuarioID != nil && *c.JefeUsuarioID == usuario:
+			return destinoDestinatario, nil
+		}
+		return destinoMiembro, nil
+	}
+	if conTecnico(f) && esDestinatario(f, v) {
+		return destinoDestinatario, nil
+	}
+	return destinoAjeno, nil
 }
 
 // EntradaRecibirTraslado son los `datos` de la operación traslado.recibir del lote de campo.
@@ -189,7 +230,7 @@ func (m *Modulo) Encolar(ctx context.Context, t *auditoria.Tx, in EntradaRecibir
 	}
 	t.FijarEntidad(EntidadTraslado, in.TrasladoID)
 	empresa := contexto.EmpresaDe(ctx)
-	tr, err := m.exigirTraslado(ctx, t, in.TrasladoID, v, empresa)
+	tr, err := m.exigirTraslado(ctx, t, in.TrasladoID, usuario, v, empresa)
 	if err != nil {
 		return EstadoRecepcion{}, err
 	}
@@ -274,7 +315,11 @@ func (m *Modulo) Encolar(ctx context.Context, t *auditoria.Tx, in EntradaRecibir
 			otroEsDestinatario := false
 			if r.TecnicoUsuarioID != nil {
 				if ov, err := vinculoDe(ctx, t, *r.TecnicoUsuarioID); err == nil {
-					otroEsDestinatario = esDestinatario(tr, ov)
+					d, err := destinoDe(ctx, t, tr, *r.TecnicoUsuarioID, ov)
+					if err != nil {
+						return EstadoRecepcion{}, err
+					}
+					otroEsDestinatario = d == destinoDestinatario
 				}
 			}
 			if otroEsDestinatario && r.Estado != pendientes.EstadoFallidoNegocio {
@@ -311,7 +356,7 @@ func (m *Modulo) Encolar(ctx context.Context, t *auditoria.Tx, in EntradaRecibir
 // exigirTraslado: lo que Iris sabe del traslado (webhooks y ConfirmarTraslado). Sin conocerlo, o sin
 // saber a qué técnico va, no se encola: si no, cualquiera podría tomar la clave iris:recepcion:<id> de
 // un traslado ajeno (o futuro) y bloquear al destinatario.
-func (m *Modulo) exigirTraslado(ctx context.Context, q argosbd.DBTX, id int64, v vinculo, empresa int64) (argosbd.IntegracionArgosTraslado, error) {
+func (m *Modulo) exigirTraslado(ctx context.Context, q argosbd.DBTX, id, usuario int64, v vinculo, empresa int64) (argosbd.IntegracionArgosTraslado, error) {
 	f, err := argosbd.New(q).TrasladoPorID(ctx, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return f, TrasladoSinConfirmar("Iris aún no conoce esta orden de traslado: se reintenta sola")
@@ -319,10 +364,18 @@ func (m *Modulo) exigirTraslado(ctx context.Context, q argosbd.DBTX, id int64, v
 	if err != nil {
 		return f, err
 	}
+	d, err := destinoDe(ctx, q, f, usuario, v)
+	if err != nil {
+		return f, err
+	}
 	switch {
-	case !conTecnico(f) || !esDestinatario(f, v) || (empresa != 0 && f.EmpresaID != nil && *f.EmpresaID != empresa):
+	case d == destinoAjeno || (empresa != 0 && f.EmpresaID != nil && *f.EmpresaID != empresa):
 		// Primero quién es: a otro técnico no se le dice si existe ni en qué estado está.
 		return f, trasladoNoDisponible()
+	case d == destinoMiembro:
+		// Antes de encolar (0.11.0 §10.6 k): solo el jefe recibe y firma lo que llega a la cuadrilla.
+		return f, problemaRecepcion(http.StatusForbidden, CodigoSoloJefeRecibe,
+			"Solo el jefe de la cuadrilla recibe y firma este traslado")
 	case f.Estado == "cancelado":
 		return f, problemaRecepcion(http.StatusConflict, "traslado_cancelado", "Argos canceló esta orden de traslado")
 	}
@@ -641,7 +694,11 @@ func registrarAdjuntos() {
 			return 0, nucleo.NoEncontrado("")
 		case err != nil:
 			return 0, err
-		case !conTecnico(f) || !esDestinatario(f, v):
+		}
+		// La firma la registra y la ve solo quien recibe (el jefe, en una cuadrilla).
+		if d, err := destinoDe(ctx, q, f, usuario, v); err != nil {
+			return 0, err
+		} else if d != destinoDestinatario {
 			return 0, nucleo.NoEncontrado("")
 		}
 		if f.EmpresaID != nil {

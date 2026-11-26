@@ -14,7 +14,7 @@ import (
 )
 
 const contactoArgosDeCliente = `-- name: ContactoArgosDeCliente :one
-SELECT contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios, consultar, reportar, pagar, avisos, persona_cliente_id, version, sincronizado_en FROM integracion.argos_contactos WHERE contacto_id = $1 AND cliente_id = $2
+SELECT contacto_id, cliente_id, empresa_id, nombre, servicios, consultar, reportar, version, quitado, leido_en, created_at, updated_at, relacion, es_titular, pagar, avisos, persona_cliente_id FROM integracion.argos_contactos WHERE contacto_id = $1 AND cliente_id = $2 AND NOT quitado
 `
 
 type ContactoArgosDeClienteParams struct {
@@ -31,16 +31,19 @@ func (q *Queries) ContactoArgosDeCliente(ctx context.Context, arg ContactoArgosD
 		&i.ClienteID,
 		&i.EmpresaID,
 		&i.Nombre,
-		&i.Relacion,
-		&i.EsTitular,
 		&i.Servicios,
 		&i.Consultar,
 		&i.Reportar,
+		&i.Version,
+		&i.Quitado,
+		&i.LeidoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Relacion,
+		&i.EsTitular,
 		&i.Pagar,
 		&i.Avisos,
 		&i.PersonaClienteID,
-		&i.Version,
-		&i.SincronizadoEn,
 	)
 	return i, err
 }
@@ -49,7 +52,7 @@ const contactoConAvisosVigente = `-- name: ContactoConAvisosVigente :one
 SELECT EXISTS (
     SELECT 1 FROM integracion.argos_contactos k
     JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp AND t.numero = $1::text
-    WHERE k.contacto_id = $2 AND k.cliente_id = $3 AND k.avisos AND NOT k.es_titular
+    WHERE k.contacto_id = $2 AND k.cliente_id = $3 AND k.avisos AND NOT k.es_titular AND NOT k.quitado
       AND (k.servicios IS NULL OR $4::bigint = ANY (k.servicios))
 )::boolean
 `
@@ -83,7 +86,7 @@ SELECT c.contacto_id, c.cliente_id, c.empresa_id, c.nombre, c.relacion, c.es_tit
         AND ($1::bigint = 0 OR ac.empresa_id = $1::bigint OR $1::bigint = ANY (ac.empresas) OR ac.sin_servicios)) AS cliente_en_empresa,
     (c.persona_cliente_id IS NOT NULL AND EXISTS (SELECT 1 FROM integracion.argos_clientes ap WHERE ap.id = c.persona_cliente_id)) AS persona_conocida
 FROM integracion.argos_contactos c
-WHERE NOT c.es_titular
+WHERE NOT c.es_titular AND NOT c.quitado
   AND EXISTS (SELECT 1 FROM integracion.argos_contacto_telefonos t WHERE t.contacto_id = c.contacto_id AND t.digitos = $2::text)
   AND ($1::bigint = 0 OR c.empresa_id IS NULL OR c.empresa_id = $1::bigint)
 ORDER BY c.cliente_id, c.contacto_id
@@ -158,7 +161,7 @@ func (q *Queries) ContactosArgosDelNumero(ctx context.Context, arg ContactosArgo
 const contactosConAvisos = `-- name: ContactosConAvisos :many
 SELECT k.contacto_id, t.numero, t.principal FROM integracion.argos_contactos k
 JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.whatsapp
-WHERE k.cliente_id = $1 AND k.avisos AND NOT k.es_titular
+WHERE k.cliente_id = $1 AND k.avisos AND NOT k.es_titular AND NOT k.quitado
   AND (k.empresa_id IS NULL OR k.empresa_id = $2::bigint)
   AND (k.servicios IS NULL OR $3::bigint = ANY (k.servicios))
 ORDER BY k.contacto_id, t.principal DESC, t.numero
@@ -205,7 +208,7 @@ UPDATE mensajeria.conversaciones c SET cliente_verificado = false, verificado_po
 WHERE c.contacto_argos_id IS NOT NULL AND c.cliente_verificado
   AND (c.cliente_id = $1 OR c.contacto_argos_id = $2::bigint)
   AND NOT EXISTS (SELECT 1 FROM integracion.argos_contactos k WHERE k.contacto_id = c.contacto_argos_id AND k.cliente_id = c.cliente_id
-      AND NOT k.es_titular
+      AND NOT k.es_titular AND NOT k.quitado
       AND EXISTS (SELECT 1 FROM integracion.argos_contacto_telefonos t
           WHERE t.contacto_id = k.contacto_id AND t.digitos = regexp_replace(c.numero, '[^0-9]', '', 'g')))
 RETURNING c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.asignado_a, c.asignado_en, c.estado, c.cliente_id, c.servicio_id, c.contacto_iris_id, c.prospecto_id, c.asociacion, c.cliente_verificado, c.verificado_por, c.ultimo_entrante_en, c.espera_desde, c.sla_vence_en, c.sla_avisado, c.resuelta_en, c.reabierta_en, c.ultimo_seq, c.ultimo_mensaje_id, c.ultima_actividad, c.version, c.created_at, c.updated_at, c.fuera_horario_hasta, c.guardia_hasta, c.bot_espera_en, c.bot_vence_en, c.bot_motivo, c.bot_atendio_en, c.bot_menu, c.categoria_id, c.categoria_confianza, c.categoria_origen, c.categoria_en, c.clasificado_mensaje_id, c.asistente_actividad_tipo, c.asistente_actividad_texto, c.asistente_actividad_en, c.cola_origen, c.asistente_transfirio_en, c.asistente_estado, c.asistente_turnos, c.asistente_presento_en, c.identidad_verificada_en, c.identidad_vence_en, c.bot_diferido_mensaje_id, c.asistente_motivo_paso, c.asistente_pausado_en, c.asistente_pausado_por, c.asistente_pausa_motivo, c.asistente_reanudado_en, c.asistente_atencion_desde, c.asistente_pausa_previo, c.contacto_argos_id
@@ -300,11 +303,18 @@ func (q *Queries) DesverificarConvsSinContacto(ctx context.Context, arg Desverif
 }
 
 const eleccionesClienteConv = `-- name: EleccionesClienteConv :one
-SELECT count(*)::bigint FROM mensajeria.elecciones_cliente WHERE conversacion_id = $1 AND NOT acierto
+SELECT count(*)::bigint FROM mensajeria.elecciones_cliente WHERE conversacion_id = $1
+  AND coalesce(empresa_id, 0) = $2::bigint AND NOT acierto
 `
 
-func (q *Queries) EleccionesClienteConv(ctx context.Context, conversacionID int64) (int64, error) {
-	row := q.db.QueryRow(ctx, eleccionesClienteConv, conversacionID)
+type EleccionesClienteConvParams struct {
+	ConversacionID int64
+	Empresa        int64
+}
+
+// Solo los de la empresa actual de la conversación: pasarla a otra empresa empieza de cero.
+func (q *Queries) EleccionesClienteConv(ctx context.Context, arg EleccionesClienteConvParams) (int64, error) {
+	row := q.db.QueryRow(ctx, eleccionesClienteConv, arg.ConversacionID, arg.Empresa)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -449,7 +459,7 @@ const numeroDeContactoDelCliente = `-- name: NumeroDeContactoDelCliente :one
 SELECT EXISTS (
     SELECT 1 FROM integracion.argos_contactos k
     JOIN integracion.argos_contacto_telefonos t ON t.contacto_id = k.contacto_id AND t.numero = $1::text
-    WHERE k.cliente_id = $2 AND (k.empresa_id IS NULL OR k.empresa_id = $3::bigint)
+    WHERE k.cliente_id = $2 AND NOT k.quitado AND (k.empresa_id IS NULL OR k.empresa_id = $3::bigint)
 )::boolean
 `
 

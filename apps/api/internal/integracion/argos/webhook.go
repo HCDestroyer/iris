@@ -113,8 +113,11 @@ type entradaAplicar struct {
 	promesa *promesaCambiada
 	// cuenta: cuenta_bancaria.cambiada (0.8.0 §7.8): la cuenta releída de Argos para la instantánea.
 	cuenta *lecturaCuentas
-	// contactos: cliente.contactos_cambiados (0.10.0 §3.5): la caché de contactos del cliente.
+	// contactos: cliente.contactos_cambiados (0.10.0 §2.3): la caché de contactos del portal (§11.10) y
+	// de la atención (§3.5).
 	contactos *cambioContactos
+	// red: caídas repetidas y falla general (0.13.0 §3.11), validadas: se emite el evento interno.
+	red *eventoRed
 	// titular: servicio.titular_cambiado (0.10.0 §3.4.4): se emite el evento interno si la ficha
 	// releída del titular nuevo lo confirma.
 	titular *titularCambiado
@@ -197,7 +200,16 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		r.Resultado = "aplicado"
 	}
 	if in.contactos != nil {
-		if err := aplicarContactos(ctx, t, q, e, *in.contactos); err != nil {
+		cambio, err := aplicarContactos(ctx, t, q, e, *in.contactos)
+		if err != nil {
+			return r, err
+		}
+		if cambio {
+			r.Resultado = "aplicado"
+		}
+	}
+	if in.red != nil {
+		if err := emitirRed(ctx, t, *in.red, e.ID, p.m.cfg.Encolar); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"
@@ -348,6 +360,11 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 	case EventoContactosCambiados:
 		// Se releen los contactos del cliente en Argos (nunca el payload, que no trae números).
 		in.contactos, in.omitido, in.errArgos = p.leerContactosWebhook(ctx, bd, e)
+		return p.aplicar.Ejecutar(ctx, in)
+	case EventoCaidasRepetidas, EventoFallaGeneralAbierta, EventoFallaGeneralCerrada:
+		// Solo por el webhook firmado; la empresa y cada servicio se validan (lee Argos fuera de la
+		// transacción los que Iris no conoce).
+		in.red, in.omitido, in.errArgos = p.leerRed(ctx, bd, e)
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoCuentaBancariaCambiada:
 		// Se relee la cuenta en Argos y se guarda lo que diga Argos, nunca el payload (§7.8).

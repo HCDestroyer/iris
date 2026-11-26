@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 )
 
@@ -80,7 +82,7 @@ type contactoSembrado struct {
 
 func sembrarContactoEn(ctx context.Context, bd nucleo.BD, c contactoSembrado) error {
 	if _, err := bd.Exec(ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios,
-		consultar, reportar, pagar, avisos, persona_cliente_id) VALUES ($1, $2, 1, 'Luis Pérez', $3, $3 = 'titular', $4, $5, $6, $7, true, $8)
+		consultar, reportar, pagar, avisos, persona_cliente_id, version) VALUES ($1, $2, 1, 'Luis Pérez', $3, $3 = 'titular', $4, $5, $6, $7, true, $8, 1)
 		ON CONFLICT (contacto_id) DO NOTHING`, c.id, c.cliente, c.relacion, c.servicios, c.consultar, c.reportar, c.pagar, c.persona); err != nil {
 		return err
 	}
@@ -380,8 +382,8 @@ func TestContactoQuitadoPierdeElAcceso(t *testing.T) {
 	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2`, cid(c), contacto); n != 1 {
 		t.Fatal("la conversación guarda el contacto con que se asoció")
 	}
-	// Argos lo quita: sale de la caché (como hace el webhook) y llega el evento.
-	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+	// Argos lo quita: queda quitado en la caché (como hace el webhook) y llega el evento.
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET quitado = true, leido_en = now() WHERE contacto_id = $1`, contacto); err != nil {
 		t.Fatal(err)
 	}
 	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
@@ -554,13 +556,16 @@ func TestNumeroDeServicioYContacto(t *testing.T) {
 	c := b.conv(num)
 	ruta := "/conversaciones/" + cid(c)
 	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/desasociar", map[string]any{"version": ver(c)}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id IS NULL`, cid(c)); n != 1 {
+		t.Fatal("al desasociar se quita el contacto de Argos")
+	}
 	r := b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(b.conv(num)), "clienteId": cliente})
 	b.exigir(r, http.StatusOK)
 	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2`, cid(c), contacto); n != 1 {
 		t.Fatal("al asociar a mano se guarda el contacto, no el por_servicio")
 	}
 	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
-	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET quitado = true, leido_en = now() WHERE contacto_id = $1`, contacto); err != nil {
 		t.Fatal(err)
 	}
 	b.emitirContactos(cliente, contacto, "quitado")
@@ -632,7 +637,7 @@ func TestReasociarNoHeredaVerificacionFuerte(t *testing.T) {
 	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND identidad_verificada_en IS NOT NULL`, cid(c)); n != 1 {
 		t.Fatal("la confirmación del supervisor da la verificación fuerte")
 	}
-	if _, err := b.bd.Exec(b.ctx, `DELETE FROM integracion.argos_contactos WHERE contacto_id = $1`, contacto); err != nil {
+	if _, err := b.bd.Exec(b.ctx, `UPDATE integracion.argos_contactos SET quitado = true, leido_en = now() WHERE contacto_id = $1`, contacto); err != nil {
 		t.Fatal(err)
 	}
 	b.emitirContactos(cliente, contacto, "quitado")
@@ -649,4 +654,73 @@ func TestReasociarNoHeredaVerificacionFuerte(t *testing.T) {
 		t.Fatal("asociar a mano empieza sin verificación fuerte y sin contacto")
 	}
 	b.exigirProblema(b.api(b.agente, http.MethodPost, ruta+"/promesas/simular", map[string]any{"servicioId": ss[0]}), http.StatusUnprocessableEntity, "cliente_sin_confirmar")
+}
+
+// Bajo 1 de la aprobación: confirmar una conversación cuyo contacto cambia (el número pasó a ser de un
+// contacto del cliente) vuelve a dar la verificación fuerte y emite cliente_confirmado otra vez.
+func TestConfirmarConContactoNuevo(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, _ := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	b.texto(num, "wamid.cc1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(c), "clienteId": cliente}), http.StatusOK)
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM mensajeria.conversaciones WHERE id = $1 AND contacto_argos_id = $2 AND identidad_verificada_en IS NOT NULL`,
+		cid(c), contacto); n != 1 {
+		t.Fatal("confirma al contacto nuevo con verificación fuerte")
+	}
+	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.cliente_confirmado' AND payload->>'conversacion_id' = $1`, cid(c)); n != 2 {
+		t.Fatalf("cliente_confirmado de cada confirmación: %d", n)
+	}
+}
+
+// Bajo 1 de la aprobación final: los intentos fallidos de elegir cliente son de la empresa actual de la
+// conversación; al pasarla a otra empresa, esa empieza con sus 3 intentos.
+func TestEleccionesPorEmpresa(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	b.texto(num, "wamid.ep1", "Hola")
+	c := b.conv(num)
+	id, _ := strconv.ParseInt(cid(c), 10, 64)
+	for range 3 {
+		if _, err := b.bd.Exec(b.ctx, `INSERT INTO mensajeria.elecciones_cliente (empresa_id, conversacion_id, numero, acierto, creado_en)
+			VALUES (1, $1, $2, false, now())`, id, "+"+num); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := mensajeriabd.New(b.bd)
+	if n, err := q.EleccionesClienteConv(b.ctx, mensajeriabd.EleccionesClienteConvParams{ConversacionID: id, Empresa: 1}); err != nil || n != 3 {
+		t.Fatalf("empresa 1: %d %v", n, err)
+	}
+	if n, err := q.EleccionesClienteConv(b.ctx, mensajeriabd.EleccionesClienteConvParams{ConversacionID: id, Empresa: 2}); err != nil || n != 0 {
+		t.Fatalf("en la empresa 2 empieza de cero: %d %v", n, err)
+	}
+}
+
+// Info de la aprobación final: una conversación resuelta ya confirmada que se confirma con un contacto
+// nuevo confirma a ese contacto y emite cliente_confirmado.
+func TestConfirmarResueltaConContactoNuevo(t *testing.T) {
+	b := nuevaBandeja(t, nil)
+	num := numeroCliente()
+	cliente, _ := b.clienteArgos("Ana Pérez", "", codigoUnico())
+	b.texto(num, "wamid.cr1", "Hola")
+	c := b.conv(num)
+	ruta := "/conversaciones/" + cid(c)
+	b.exigir(b.api(b.agente, http.MethodPost, ruta+"/asociar-cliente", map[string]any{"version": ver(c), "clienteId": cliente}), http.StatusOK)
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	if _, err := b.bd.Exec(b.ctx, `UPDATE mensajeria.conversaciones SET estado = 'resuelta', resuelta_en = now() WHERE id = $1`, cid(c)); err != nil {
+		t.Fatal(err)
+	}
+	contacto := siguienteCliente.Add(1)
+	b.sembrarContacto(contactoSembrado{id: contacto, cliente: cliente, relacion: "familiar", consultar: true, reportar: true, pagar: true, numero: num})
+	b.exigir(b.api(b.supervisor, http.MethodPost, ruta+"/confirmar-cliente", map[string]any{"version": ver(b.conv(num))}), http.StatusOK)
+	if n := b.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'conversacion.cliente_confirmado' AND payload->>'conversacion_id' = $1
+		AND (payload->>'contacto_argos_id')::bigint = $2`, cid(c), contacto); n != 1 {
+		t.Fatalf("cliente_confirmado del contacto nuevo: %d", n)
+	}
 }

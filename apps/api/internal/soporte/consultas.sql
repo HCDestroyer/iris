@@ -144,8 +144,10 @@ LIMIT @limite;
 -- Mensajes e historial ---------------------------------------------------------
 
 -- name: CrearMensaje :one
-INSERT INTO soporte.ticket_mensajes (ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, idempotencia)
-VALUES (@ticket_id, @empresa_id, @publico, @autor_tipo, @autor_id, @autor_nombre, @canal, @cuerpo, sqlc.narg(idempotencia))
+INSERT INTO soporte.ticket_mensajes (ticket_id, empresa_id, publico, autor_tipo, autor_id, autor_nombre, canal, cuerpo, idempotencia,
+    contacto_id, adjuntos)
+VALUES (@ticket_id, @empresa_id, @publico, @autor_tipo, @autor_id, @autor_nombre, @canal, @cuerpo, sqlc.narg(idempotencia),
+    sqlc.narg(contacto_id), coalesce(sqlc.narg(adjuntos)::uuid[], '{}'))
 RETURNING *;
 
 -- name: MensajePorIdempotencia :one

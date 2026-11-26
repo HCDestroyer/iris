@@ -144,6 +144,8 @@ func Middleware(log *slog.Logger) func(http.Handler) http.Handler {
 							nucleo.EscribirProblema(w, nucleo.ErrorInterno())
 							return
 						}
+						// portal_argos.* solo valen en el token_portal (contrato con Argos 0.9.0 §1.2).
+						permisos = permisos.SinPrefijo(prefijoPortalArgos)
 						ctx = contexto.ConActor(ctx, contexto.Actor{Tipo: contexto.ActorUsuario, ID: u.ID, Nombre: u.Nombre}, permisos)
 						ctx = contexto.ConCanal(ctx, canalDeSesion(r))
 						if err := q.TocarSesion(ctx, s.ID); err != nil {
@@ -176,6 +178,11 @@ func autenticarBearer(ctx context.Context, q *identidadbd.Queries, auth string) 
 	if err != nil {
 		slog.ErrorContext(ctx, "identidad: cargar permisos del token", "err", err)
 		return ctx, nucleo.ErrorInterno()
+	}
+	if t.TokenPadreID == nil {
+		// portal_argos.* solo valen en el token_portal (contrato con Argos 0.9.0 §1.2): el iris_pat_ del
+		// panel de Argos no los tiene aunque los traiga el rol integracion_argos.
+		permisos = permisos.SinPrefijo(prefijoPortalArgos)
 	}
 	tipo, canal := contexto.ActorToken, contexto.CanalAPI
 	if u.Tipo == "integracion" {

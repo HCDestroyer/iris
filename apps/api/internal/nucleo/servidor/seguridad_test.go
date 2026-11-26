@@ -383,3 +383,30 @@ func TestIdempotenciaRetomaClaveAbandonada(t *testing.T) {
 		t.Fatalf("tras retomarla, se repite: %d %s", rep.status, rep.crudo)
 	}
 }
+
+// Revisión B1 (d): la sesión del panel no trae portal_argos.* aunque su rol los tenga. El rol se
+// inserta a mano (CrearRol ya no los deja y admin ya no los tiene), para que la prueba falle si el
+// middleware deja de quitarlos.
+func TestSesionSinPermisosPortalArgos(t *testing.T) {
+	e := nuevoEntorno(t)
+	pool := pruebas.Pool(t)
+	ctx := context.Background()
+	codigo := "portal_sesion_" + pruebas.Unico()
+	var rol int64
+	if err := pool.QueryRow(ctx, `INSERT INTO nucleo.roles (codigo, nombre, descripcion, sistema) VALUES ($1, $1, '', false) RETURNING id`, codigo).Scan(&rol); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO nucleo.roles_permisos (rol_id, permiso) VALUES ($1, 'tickets.ver'), ($1, 'portal_argos.ver_tickets')`, rol); err != nil {
+		t.Fatal(err)
+	}
+	_, correo := e.usuario(codigo)
+	c := e.cliente()
+	c.entrar(correo)
+	yo := c.pedir(http.MethodGet, "/api/v1/yo", nil)
+	if yo.status != http.StatusOK || !strings.Contains(string(yo.crudo), "tickets.ver") {
+		t.Fatalf("yo: %d %s", yo.status, yo.crudo)
+	}
+	if strings.Contains(string(yo.crudo), "portal_argos.") {
+		t.Fatalf("la sesión trae portal_argos.*: %s", yo.crudo)
+	}
+}

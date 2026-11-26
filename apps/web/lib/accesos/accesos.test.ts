@@ -12,13 +12,13 @@ import {
     inicioDiaGuatemala,
     queryAccesos,
 } from "./esquemas";
-import { agruparPermisos, CANALES, ESTADOS_ACTIVIDAD, nombrePlataforma, RESULTADOS, sensiblesAgregados, textoActividad, textoAlcance } from "./presentacion";
+import { agruparPermisos, CANALES, permisosAsignables, ESTADOS_ACTIVIDAD, nombrePlataforma, RESULTADOS, sensiblesAgregados, textoActividad, textoAlcance } from "./presentacion";
 
 const catalogo: Schema<"PermisoInfo">[] = [
-    { codigo: "tickets.ver", descripcion: "Ver tickets", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: false },
-    { codigo: "buzones.crear", descripcion: "Crear buzones", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: true },
-    { codigo: "roles.crear", descripcion: "Crear roles", modulo: "roles", moduloNombre: "Roles y permisos", sensible: true },
-    { codigo: "agenda.ver", descripcion: "Ver agenda", modulo: "agenda", moduloNombre: "Agenda y rutas", sensible: false },
+    { codigo: "tickets.ver", descripcion: "Ver tickets", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: false, asignable: true },
+    { codigo: "buzones.crear", descripcion: "Crear buzones", modulo: "soporte", moduloNombre: "Soporte (tickets)", sensible: true, asignable: true },
+    { codigo: "roles.crear", descripcion: "Crear roles", modulo: "roles", moduloNombre: "Roles y permisos", sensible: true, asignable: true },
+    { codigo: "agenda.ver", descripcion: "Ver agenda", modulo: "agenda", moduloNombre: "Agenda y rutas", sensible: false, asignable: true },
 ];
 
 describe("presentación de accesos", () => {
@@ -47,6 +47,17 @@ describe("presentación de accesos", () => {
         expect(grupos[2]?.permisos.map((p) => p.codigo)).toEqual(["buzones.crear", "tickets.ver"]);
         expect(sensiblesAgregados(catalogo, ["buzones.crear"], ["buzones.crear", "roles.crear", "tickets.ver"]).map((p) => p.codigo)).toEqual(["roles.crear"]);
         expect(sensiblesAgregados(catalogo, [], ["tickets.ver"])).toEqual([]);
+    });
+
+    it("el formulario de roles no ofrece portal_argos.* (no asignables)", () => {
+        const conPortal: Schema<"PermisoInfo">[] = [
+            ...catalogo,
+            { codigo: "integraciones.ver", descripcion: "Ver integraciones", modulo: "integraciones", moduloNombre: "Argos e integraciones", sensible: false, asignable: true },
+            { codigo: "portal_argos.ver_tickets", descripcion: "Portal de Argos", modulo: "integraciones", moduloNombre: "Argos e integraciones", sensible: false, asignable: false },
+        ];
+        const integraciones = agruparPermisos(permisosAsignables(conPortal)).find((g) => g.modulo === "integraciones");
+        // «Todo el módulo» marca exactamente estos códigos.
+        expect(integraciones?.permisos.map((p) => p.codigo)).toEqual(["integraciones.ver"]);
     });
 
     it("alcance legible", () => {

@@ -54,6 +54,19 @@ cuentan los cambios con el `phone_number_id` del canal (una app puede servir a v
 demás se descartan y quedan anotados en `mensajeria.entrantes.error`.
 WhatsApp por QR y Telegram son de fases siguientes: QR declarará `PermiteAvisos() = false`.
 
+## Webhooks del vínculo del técnico (contrato con Argos 0.14.0 §6.6)
+
+`tecnico.argos_vinculado` / `tecnico.argos_desvinculado` van solo al conector del que salió el vínculo
+(`webhooks_salida.conector_origen`) y en las empresas de su alcance. Un vinculado espera el `2xx` del
+desvinculado anterior del mismo `id_externo` (otro técnico) o del mismo técnico con versión menor (cambio de
+`id_externo`), también si ese desvinculado sigue en el outbox sin publicar (relay en backoff). Si ese desvinculado ya no va a salir solo (su webhook agotó o el relay no lo pudo publicar) o la espera pasa de 24 h, el vinculado queda `agotado` a la vista (`ultimo_error` con `depende_de:`) y se reenvía a mano. Al programar
+un `tecnico.argos_*` cuyo conector de origen fue reemplazado por el activo de la misma instancia de Argos
+(una reconexión con el evento aún en el outbox), el origen pasa al activo. Un omitido guarda su motivo como
+prefijo de `ultimo_error` (`sin_receptor`, `otro_conector`, `empresa_no_permitida`). Un webhook `agotado`
+se reenvía con `POST /mensajeria/webhooks-salida/{id}/reenviar`
+(`integraciones.reenviar_webhook`, auditado; evento `integracion.webhook_reenviado`; de otra empresa que la
+activa, 404).
+
 ## Eventos
 
 Emite (outbox; detalle en `.claude/integration/contratos/eventos.md`):
@@ -66,6 +79,18 @@ Consume: `aviso.entregado`, `aviso.fallido` (solo los de origen `argos`) y `cont
 `{ id, evento, ocurrido_en, payload }`, `X-Webhook-Id` = `id` (el del evento del outbox), firma v1 con
 el secreto que Argos entregó en el canje, reintentos a 1 min, 5 min, 30 min, 2 h y 12 h, y solo al
 conector Argos activo con contrato ≥ 0.6.0 (si no, `omitido`). Cada aviso emite un solo webhook final.
+
+Webhooks Iris → Argos de 0.9.0 (§6.6, B9): `ticket.estado_cambiado`, `ticket.respondido` y
+`solicitud_servicio.estado_cambiado`, solo a conectores con contrato ≥ 0.9.0, solo con `cliente_id` y
+con la empresa en el alcance del conector (si no, `omitido`), sin cuerpo, notas ni motivos escritos.
+
+## Aviso de una falla general (`avisos_falla.go`, contrato con Argos 0.13.0 §3.11, B30)
+
+El worker consume `soporte.aviso_falla` y pide un aviso como cualquier otro (`EnviarAviso`, actor
+sistema), con las plantillas `falla_general` y `falla_general_resuelta` (las pide solo Iris, sin
+variables: nunca el servicio ni la dirección). Aplican las reglas de §6.5: permiso de contacto, baja,
+límite diario, horario de silencio y plantilla aprobada. Clave `iris:falla:<incidente>:<cliente>:<tipo>`:
+un evento repetido no manda otro. El aviso lo crea el worker y lo manda este proceso (su cola).
 
 ## Plantillas de WhatsApp por cuenta (`plantillas_wa_*.go`, `plantillas_whatsapp.sql`)
 
@@ -95,6 +120,18 @@ cada variable recibe su dato (`parametros`): las variables del aviso, los deriva
 - Emite `plantilla_whatsapp.creada`, `.actualizada`, `.enviada`, `.estado_cambiado`,
   `.categoria_cambiada`, `.calidad_cambiada`, `.borrada`, `.sincronizada` y
   `plantillas_whatsapp.ajustes_cambiados`. No consume eventos.
+- **Lectura de Argos** (`plantillas_wa_argos.go`, contrato con Argos 0.13.0 §6.7, B32):
+  `GET /api/v1/integraciones/argosisp/plantillas-whatsapp?empresa_id=` con
+  `plantillas_whatsapp.leer_integracion` (solo el rol `integracion_argos`). La API la reenvía a este
+  proceso como un delegado más (`RutaPlantillasArgos`). Solo el token de integración (otro actor: 403
+  `solo_integracion_argos`) y solo empresas de su alcance (403 `empresa_no_permitida`). Devuelve
+  `{ data: [{ nombre, idioma, categoria, estado, codigos_aviso[], vista_previa }] }`: las plantillas
+  con el uso `avisos` (o sin usos, las migradas) de las cuentas de las que la empresa es dueña y de la
+  cuenta de un número prestado activo cuyo préstamo incluye `avisos`; sin borradores ni borradas, y
+  las de marketing solo con marketing activado por la dueña. `codigos_aviso` solo trae códigos del
+  catálogo de §6.3; `vista_previa` es el cuerpo con `{{dato}}`. Nunca el id de la cuenta, el id de
+  Meta ni el motivo de un rechazo. No audita la lectura correcta (como `GET /mensajeria/plantillas`).
+  Los números sin cuenta (`wabaId` vacío, con su mapa propio) no salen: no tienen estado de Meta.
 
 ## Chat interno del equipo (fase 1)
 

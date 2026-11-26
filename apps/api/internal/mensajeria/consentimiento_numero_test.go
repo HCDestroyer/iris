@@ -23,8 +23,8 @@ func claveNumero(cliente int64, numero string, cuando time.Time) string {
 // sembrarContactoAviso siembra un contacto del cliente en la caché de Argos con un número con WhatsApp.
 func (e *entorno) sembrarContactoAviso(cliente, contacto int64, numero string, avisos bool, servicios any) {
 	e.t.Helper()
-	if _, err := e.bd.Exec(e.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, servicios, avisos)
-		VALUES ($1, $2, 1, 'Luis', 'familiar', $3, $4) ON CONFLICT DO NOTHING`, contacto, cliente, servicios, avisos); err != nil {
+	if _, err := e.bd.Exec(e.ctx, `INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, servicios, avisos, version)
+		VALUES ($1, $2, 1, 'Luis', 'familiar', $3, $4, 1) ON CONFLICT DO NOTHING`, contacto, cliente, servicios, avisos); err != nil {
 		e.t.Fatal(err)
 	}
 	if _, err := e.bd.Exec(e.ctx, `INSERT INTO integracion.argos_contacto_telefonos (contacto_id, numero, digitos, whatsapp, principal)
@@ -187,7 +187,7 @@ func TestAvisosAContactosLimites(t *testing.T) {
 		WHERE p.cliente_id = $1 AND a.estado = 'en_cola' ORDER BY a.created_at LIMIT 1`, clientes[0]).Scan(&copia); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.bd.Exec(e.ctx, `DELETE FROM integracion.argos_contactos WHERE cliente_id = $1`, clientes[0]); err != nil {
+	if _, err := e.bd.Exec(e.ctx, `UPDATE integracion.argos_contactos SET quitado = true WHERE cliente_id = $1`, clientes[0]); err != nil {
 		t.Fatal(err)
 	}
 	e.enviar(copia)

@@ -56,11 +56,12 @@ type argosFalso struct {
 	detalle    string
 	cuerpos    map[string]string // ruta → cuerpo del 2xx (por defecto {"ok":true})
 	tipos      map[string]string // ruta → type del problem+json (por defecto urn:argos:sin_existencias)
+	retry      map[string]string // ruta → Retry-After de la respuesta de error
 	campos     []string          // errors[].field del problem+json (vacío: sin errors)
 }
 
 func nuevoArgosFalso(t *testing.T) *argosFalso {
-	a := &argosFalso{respuestas: map[string][]int{}, cuerpos: map[string]string{}, tipos: map[string]string{}}
+	a := &argosFalso{respuestas: map[string][]int{}, cuerpos: map[string]string{}, tipos: map[string]string{}, retry: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v1/integraciones/iris/conexion/canjear", func(w http.ResponseWriter, r *http.Request) {
 		// 0.6.2: el canje trae el receptor de Argos en su propio host (sin él, 422 webhook_invalido).
@@ -85,6 +86,9 @@ func nuevoArgosFalso(t *testing.T) *argosFalso {
 		}
 		if status >= 400 {
 			w.Header().Set("Content-Type", "application/problem+json")
+			if v := a.retry[ruta]; v != "" {
+				w.Header().Set("Retry-After", v)
+			}
 			w.WriteHeader(status)
 			tipo, ok := a.tipos[ruta]
 			if !ok {
@@ -131,6 +135,8 @@ type entorno struct {
 	pool  *pgxpool.Pool
 	argos *argosFalso
 	am    *argos.Modulo
+	// acfg: la configuración del conector (para armar uno que informe otra versión del contrato).
+	acfg  argos.Config
 	m     *pendientes.Modulo
 	bus   *integracion.Bus
 	reloj time.Time
@@ -160,17 +166,18 @@ func nuevoEntorno(t *testing.T) *entorno {
 	}
 	fa := nuevoArgosFalso(t)
 	encolados := &[]string{}
-	am := argos.Nuevo(argos.Config{
+	acfg := argos.Config{
 		Encolar: func(_ context.Context, _ pgx.Tx, args river.JobArgs) error {
 			*encolados = append(*encolados, args.Kind())
 			return nil
 		},
 		Cifrador: cif, BaseURL: "https://iris.prueba", PermitirHTTP: true, Timeout: 2 * time.Second, Origenes: []string{fa.srv.URL},
 		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
-	})
+	}
+	am := argos.Nuevo(acfg)
 	// El canje entrega un iris_pat_ (contrato §1.2); aquí uno fijo: el Argos falso no lo valida.
 	am.Nucleo().FijarTokens(pruebas.TokensFalsos{})
-	e := &entorno{t: t, pool: pool, argos: fa, am: am, bus: integracion.NuevoBus(), encolados: encolados,
+	e := &entorno{t: t, pool: pool, argos: fa, am: am, acfg: acfg, bus: integracion.NuevoBus(), encolados: encolados,
 		reloj: time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)}
 	e.m = pendientes.Nuevo(pendientes.Config{Argos: am, Reloj: func() time.Time { return e.reloj }})
 	e.m.Suscribir(e.bus)
@@ -426,7 +433,7 @@ func TestErrorDeNegocioNoSeReintentaYNoGuardaCredenciales(t *testing.T) {
 func TestRetiroYCambioDeEquipoConDependencia(t *testing.T) {
 	e := nuevoEntorno(t)
 	retiro := nuevaOrden()
-	e.cerrar(map[string]any{"orden_id": retiro, "tipo": "retiro", "resultado": "exitosa", "servicio_id": 30, "bodega_id": 3, "retirar_servicio": true,
+	e.cerrar(map[string]any{"orden_id": retiro, "tipo": "retiro", "resultado": "exitosa", "empresa_id": 1, "servicio_id": 30, "bodega_id": 3, "retirar_servicio": true,
 		"equipos": []any{
 			map[string]any{"accion": "retirar", "unidad_id": 71, "serie": "A1", "condicion": "bueno"},
 			map[string]any{"accion": "retirar", "unidad_id": 72, "serie": "A2", "condicion": "perdido"},
@@ -439,8 +446,34 @@ func TestRetiroYCambioDeEquipoConDependencia(t *testing.T) {
 	if l := porClave["iris:devolucion:"+retiro+":71"]; l.Ruta != "/servicios/30/equipos/71/devolver" || l.Cuerpo["bodega_id"] != float64(3) || l.Cuerpo["condicion"] != "bueno" {
 		t.Fatalf("devolución: %+v", l)
 	}
-	if l := porClave["iris:perdida:"+retiro+":72"]; l.Ruta != "/servicios/30/equipos/72/perdida" {
-		t.Fatalf("pérdida: %+v", l)
+	// B27 (0.12.0 §10.7 d): la pérdida nunca sale sola desde el cierre. Con Argos anterior queda para
+	// una persona con ordenes.declarar_perdida; al reintentarla, sale.
+	if l, llamada := porClave["iris:perdida:"+retiro+":72"]; llamada {
+		t.Fatalf("la pérdida no sale sola desde el cierre: %+v", l)
+	}
+	perdida := e.pendientes(retiro)["iris:perdida:"+retiro+":72"]
+	if perdida.Estado != "fallido_negocio" || perdida.Incompleto || perdida.Error != pendientes.EsperaPersonaPerdida {
+		t.Fatalf("pérdida esperando a una persona: %+v", perdida)
+	}
+	ident := identidad.Nuevo(identidad.Config{})
+	u, err := ident.CrearUsuario.Ejecutar(pruebas.ContextoSistema(e.pool), identidad.EntradaCrearUsuario{
+		Nombre: "Supervisor de pérdidas", Correo: pruebas.Correo("sup"), Contrasena: "contrasena-de-prueba-123"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	soloReintentar := pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, nucleo.PermIntegracionesReintentar)
+	if _, err := e.m.Reintentar.Ejecutar(soloReintentar, pendientes.EntradaReintentar{ID: perdida.ID, Version: perdida.Version}); err == nil {
+		t.Fatal("sin ordenes.declarar_perdida no se declara la pérdida")
+	} else if p, _ := nucleo.AProblema(err); p == nil || p.Status != 403 {
+		t.Fatalf("403: %v", err)
+	}
+	declara := pruebas.ContextoUsuarioEnEmpresa(e.pool, u.ID, 1, nucleo.PermIntegracionesReintentar, nucleo.PermOrdenesDeclararPerdida)
+	if _, err := e.m.Reintentar.Ejecutar(declara, pendientes.EntradaReintentar{ID: perdida.ID, Version: perdida.Version}); err != nil {
+		t.Fatal(err)
+	}
+	e.procesar()
+	if l := e.llamadaA("iris:perdida:" + retiro + ":72"); l.Ruta != "/servicios/30/equipos/72/perdida" {
+		t.Fatalf("pérdida declarada por una persona: %+v", l)
 	}
 	if l := porClave["iris:retiro:"+retiro]; l.Ruta != "/servicios/30/retirar" {
 		t.Fatalf("retiro del servicio: %+v", l)
