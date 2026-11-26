@@ -165,7 +165,9 @@ func TestContratoAcordadoSQLIgualAGo(t *testing.T) {
 		// Raros: vacío, dos partes, espacios y tabuladores, ceros a la izquierda, más de 9 dígitos por
 		// parte (no cabe igual en los dos lados) y otros que no son una versión.
 		"", "0.14", " 0.14.3 ", "\t0.14.3", "0.14.3\n", "\u00a00.14.3", "00.014.003", "999999999.0.0", "1000000000.0.0",
-		"9999999999999999999", "0.9999999999999999999", "0.14.3.1", ".", "v", "0..3", "+1.0.0", "1.-0.0"}
+		"9999999999999999999", "0.9999999999999999999", "0.14.3.1", ".", "v", "0..3", "+1.0.0", "1.-0.0",
+		// La «v»: una sola al inicio, después de recortar los espacios; nunca al final ni repetida.
+		"0.14.3v", "vv0.14.3", "v0.14.3v", " v 0.14.3", "\v0.14.3", " v0.14.3\t", "V0.14.3"}
 	for _, a := range valores {
 		for _, b := range valores {
 			var sql *string

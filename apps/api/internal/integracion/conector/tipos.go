@@ -373,7 +373,8 @@ func ContratoAcordado(remoto, informado *string) *string {
 }
 
 // EspaciosVersion: lo que se recorta a los lados de una versión. Es el mismo conjunto que
-// integracion.partes_version en SQL (una prueba compara las dos reglas).
+// integracion.partes_version en SQL (una prueba compara las dos reglas). Después del recorte se
+// quita una sola «v» inicial y nada más (ni una «v» final ni repetida).
 const EspaciosVersion = " \t\n\r\v\f"
 
 // DigitosParteVersion: cada parte de una versión tiene de 1 a 9 dígitos (cabe en int32 aquí y en
