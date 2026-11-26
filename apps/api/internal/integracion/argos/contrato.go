@@ -37,7 +37,7 @@ import (
 // Modulo.contratoIris(), que solo cambia con Config.ContratoIris (pruebas); Iris informa la menor
 // entre esa y la de Argos (contratoAInformar), y lo que hace hacia Argos depende del contrato acordado
 // con el conector (conector.ContratoAcordado: la menor entre la de Argos y la que Argos aceptó).
-const ContratoIris = "0.8.1"
+const ContratoIris = "0.14.3"
 
 // VersionInventarioTecnico es la primera versión de Argos que entiende `tecnico` (§3.3). Argos
 // 1.5.x lo ignora y, sin bodega_id, responde 422 «bodega_id required».

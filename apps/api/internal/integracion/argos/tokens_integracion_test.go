@@ -37,8 +37,15 @@ func TestRevocarTokensDeIntegracionConservaElDelConector(t *testing.T) {
 		t.Fatalf("eliminar el viejo: %d %s", r.status, r.crudo)
 	}
 
+	// El token_portal del canje (0.9.0 §1.2, hijo del iris_pat_) también es del conector: se conserva.
+	var portal int64
+	if err := e.pool.QueryRow(t.Context(), `SELECT id FROM nucleo.tokens_api WHERE token_padre_id = $1`, tokenConector).Scan(&portal); err != nil {
+		t.Fatalf("token_portal del canje: %v", err)
+	}
+	conservados := float64(2)
+
 	r := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/cerrar-sesiones", integ), map[string]any{"revocarTokens": true})
-	if r.status != 200 || r.cuerpo["tokensRevocados"] != float64(1) || r.cuerpo["tokensConservados"] != float64(1) {
+	if r.status != 200 || r.cuerpo["tokensRevocados"] != float64(1) || r.cuerpo["tokensConservados"] != conservados {
 		t.Fatalf("cerrar sesiones: %d %s", r.status, r.crudo)
 	}
 	if r := e.leerConPat(pat); r.status != 200 {
@@ -47,6 +54,9 @@ func TestRevocarTokensDeIntegracionConservaElDelConector(t *testing.T) {
 	if e.contar(`SELECT count(*) FROM nucleo.tokens_api WHERE id = $1 AND revocado_en IS NOT NULL`, otroID) != 1 ||
 		e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'token.revocado' AND (payload->>'token_id')::bigint = $1`, tokenConector) != 0 {
 		t.Fatal("se revoca el otro token y no el del conector")
+	}
+	if e.contar(`SELECT count(*) FROM nucleo.tokens_api WHERE id = $1 AND revocado_en IS NULL`, portal) != 1 {
+		t.Fatal("el token_portal del conector activo no se revoca")
 	}
 	if e.contar(`SELECT count(*) FROM nucleo.tokens_api WHERE id = $1 AND revocado_en IS NULL AND eliminado_en IS NOT NULL`, viejoID) != 1 {
 		t.Fatal("un token eliminado no se revoca")
@@ -63,14 +73,14 @@ func TestRevocarTokensDeIntegracionConservaElDelConector(t *testing.T) {
 	m := admin.pedir(http.MethodPost, fmt.Sprintf("/api/v1/usuarios/%d/reiniciar-mfa", integ), map[string]any{
 		"version": version, "motivo": "prueba", "contrasenaTemporal": "temporal-larga-de-prueba-1",
 	})
-	if m.status != 200 || m.cuerpo["tokensConservados"] != float64(1) || m.cuerpo["tokensRevocados"] != float64(0) {
+	if m.status != 200 || m.cuerpo["tokensConservados"] != conservados || m.cuerpo["tokensRevocados"] != float64(0) {
 		t.Fatalf("reiniciar MFA: %d %s", m.status, m.crudo)
 	}
 	if r := e.leerConPat(pat); r.status != 200 {
 		t.Fatalf("tras reiniciar el MFA el iris_pat_ del conector sigue valiendo: %d", r.status)
 	}
 	if n := e.contar(`SELECT count(*) FROM integracion.outbox WHERE evento = 'usuario.mfa_reiniciado' AND (payload->>'usuario_id')::bigint = $1
-		AND (payload->>'tokens_conservados')::int = 1 AND (payload->>'tokens_revocados')::int = 0`, integ); n != 1 {
+		AND (payload->>'tokens_conservados')::int = 2 AND (payload->>'tokens_revocados')::int = 0`, integ); n != 1 {
 		t.Fatalf("usuario.mfa_reiniciado con tokens_conservados: %d", n)
 	}
 }

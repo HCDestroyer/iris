@@ -254,12 +254,17 @@ ORDER BY id
 FOR UPDATE;
 
 -- name: RevocarTokensDeUsuario :many
--- Nunca el de un conector activo (su iris_pat_ o el de la reconexión sin confirmar): cortaría la
--- integración; se cambia desde Integraciones (TokensDeUsuarioEnUsoPorConector los cuenta).
+-- Nunca el de un conector activo (su iris_pat_ o el de la reconexión sin confirmar, y el token_portal
+-- hijo de cualquiera de los dos, 0.9.0 §1.2): cortaría la integración; se cambia desde Integraciones
+-- (TokensDeUsuarioEnUsoPorConector los cuenta). Un token derivado cuyo padre ya no vale tampoco
+-- vale (no se cuenta como revocado ahora).
 UPDATE nucleo.tokens_api t SET revocado_en = now(), updated_at = now()
 WHERE t.usuario_id = @usuario_id AND t.revocado_en IS NULL AND t.eliminado_en IS NULL
   AND NOT EXISTS (SELECT 1 FROM integracion.conectores c
-                  WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id))
+                  WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id
+                        OR (t.token_padre_id IS NOT NULL AND t.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id))))
+  AND (t.token_padre_id IS NULL OR EXISTS (SELECT 1 FROM nucleo.tokens_api p WHERE p.id = t.token_padre_id
+       AND p.eliminado_en IS NULL AND p.revocado_en IS NULL AND (p.expira_en IS NULL OR p.expira_en > now())))
 RETURNING t.id;
 
 -- name: TokensDeUsuarioEnUsoPorConector :one
@@ -267,7 +272,8 @@ RETURNING t.id;
 SELECT count(*)::integer FROM nucleo.tokens_api t
 WHERE t.usuario_id = @usuario_id AND t.revocado_en IS NULL AND t.eliminado_en IS NULL
   AND EXISTS (SELECT 1 FROM integracion.conectores c
-              WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id));
+              WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id
+                    OR (t.token_padre_id IS NOT NULL AND t.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id))));
 
 -- name: RevocarToken :one
 UPDATE nucleo.tokens_api SET revocado_en = now(), updated_at = now()
@@ -282,16 +288,23 @@ WHERE id = @id AND eliminado_en IS NULL AND (revocado_en IS NOT NULL OR expira_e
 RETURNING *;
 
 -- name: TokensUsadosPorConectoresActivos :many
--- Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo).
+-- Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo), con sus
+-- token_portal hijos.
 SELECT DISTINCT t.id::bigint AS id FROM integracion.conectores c
 CROSS JOIN LATERAL (VALUES (c.token_entregado_id), (c.reemplaza_token_id)) AS t (id)
-WHERE c.estado = 'activo' AND t.id IS NOT NULL;
+WHERE c.estado = 'activo' AND t.id IS NOT NULL
+UNION
+SELECT h.id::bigint AS id FROM nucleo.tokens_api h
+JOIN integracion.conectores c ON c.estado = 'activo' AND h.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id);
 
 -- name: TokenUsadoPorConectorActivo :one
 -- Un conector activo depende del token: el iris_pat_ que Iris le entregó en el canje, o el del
--- conector al que reemplaza mientras dura la reconexión sin corte.
-SELECT EXISTS (SELECT 1 FROM integracion.conectores
-               WHERE estado = 'activo' AND (token_entregado_id = @id::bigint OR reemplaza_token_id = @id::bigint))::boolean;
+-- conector al que reemplaza mientras dura la reconexión sin corte, y el token_portal hijo de
+-- cualquiera de los dos (0.9.0 §1.2).
+SELECT EXISTS (SELECT 1 FROM integracion.conectores c
+               WHERE c.estado = 'activo' AND (c.token_entregado_id = @id::bigint OR c.reemplaza_token_id = @id::bigint
+                     OR EXISTS (SELECT 1 FROM nucleo.tokens_api h WHERE h.id = @id::bigint
+                                AND h.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id))))::boolean;
 
 -- name: TokensEliminables :many
 -- Los revocados o vencidos (sin eliminar) que el actor ve, como en ListarTokens; el caso de uso

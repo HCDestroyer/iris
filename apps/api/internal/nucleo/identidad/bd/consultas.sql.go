@@ -2415,12 +2415,17 @@ const revocarTokensDeUsuario = `-- name: RevocarTokensDeUsuario :many
 UPDATE nucleo.tokens_api t SET revocado_en = now(), updated_at = now()
 WHERE t.usuario_id = $1 AND t.revocado_en IS NULL AND t.eliminado_en IS NULL
   AND NOT EXISTS (SELECT 1 FROM integracion.conectores c
-                  WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id))
+                  WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id
+                        OR (t.token_padre_id IS NOT NULL AND t.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id))))
+  AND (t.token_padre_id IS NULL OR EXISTS (SELECT 1 FROM nucleo.tokens_api p WHERE p.id = t.token_padre_id
+       AND p.eliminado_en IS NULL AND p.revocado_en IS NULL AND (p.expira_en IS NULL OR p.expira_en > now())))
 RETURNING t.id
 `
 
-// Nunca el de un conector activo (su iris_pat_ o el de la reconexión sin confirmar): cortaría la
-// integración; se cambia desde Integraciones (TokensDeUsuarioEnUsoPorConector los cuenta).
+// Nunca el de un conector activo (su iris_pat_ o el de la reconexión sin confirmar, y el token_portal
+// hijo de cualquiera de los dos, 0.9.0 §1.2): cortaría la integración; se cambia desde Integraciones
+// (TokensDeUsuarioEnUsoPorConector los cuenta). Un token derivado cuyo padre ya no vale tampoco
+// vale (no se cuenta como revocado ahora).
 func (q *Queries) RevocarTokensDeUsuario(ctx context.Context, usuarioID int64) ([]int64, error) {
 	rows, err := q.db.Query(ctx, revocarTokensDeUsuario, usuarioID)
 	if err != nil {
@@ -2993,12 +2998,15 @@ func (q *Queries) TokenPorIDParaActualizar(ctx context.Context, id int64) (Nucle
 }
 
 const tokenUsadoPorConectorActivo = `-- name: TokenUsadoPorConectorActivo :one
-SELECT EXISTS (SELECT 1 FROM integracion.conectores
-               WHERE estado = 'activo' AND (token_entregado_id = $1::bigint OR reemplaza_token_id = $1::bigint))::boolean
+SELECT EXISTS (SELECT 1 FROM integracion.conectores c
+               WHERE c.estado = 'activo' AND (c.token_entregado_id = $1::bigint OR c.reemplaza_token_id = $1::bigint
+                     OR EXISTS (SELECT 1 FROM nucleo.tokens_api h WHERE h.id = $1::bigint
+                                AND h.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id))))::boolean
 `
 
 // Un conector activo depende del token: el iris_pat_ que Iris le entregó en el canje, o el del
-// conector al que reemplaza mientras dura la reconexión sin corte.
+// conector al que reemplaza mientras dura la reconexión sin corte, y el token_portal hijo de
+// cualquiera de los dos (0.9.0 §1.2).
 func (q *Queries) TokenUsadoPorConectorActivo(ctx context.Context, id int64) (bool, error) {
 	row := q.db.QueryRow(ctx, tokenUsadoPorConectorActivo, id)
 	var column_1 bool
@@ -3087,7 +3095,8 @@ const tokensDeUsuarioEnUsoPorConector = `-- name: TokensDeUsuarioEnUsoPorConecto
 SELECT count(*)::integer FROM nucleo.tokens_api t
 WHERE t.usuario_id = $1 AND t.revocado_en IS NULL AND t.eliminado_en IS NULL
   AND EXISTS (SELECT 1 FROM integracion.conectores c
-              WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id))
+              WHERE c.estado = 'activo' AND (c.token_entregado_id = t.id OR c.reemplaza_token_id = t.id
+                    OR (t.token_padre_id IS NOT NULL AND t.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id))))
 `
 
 // Los tokens sin revocar del usuario que un conector activo usa (RevocarTokensDeUsuario los conserva).
@@ -3189,9 +3198,13 @@ const tokensUsadosPorConectoresActivos = `-- name: TokensUsadosPorConectoresActi
 SELECT DISTINCT t.id::bigint AS id FROM integracion.conectores c
 CROSS JOIN LATERAL (VALUES (c.token_entregado_id), (c.reemplaza_token_id)) AS t (id)
 WHERE c.estado = 'activo' AND t.id IS NOT NULL
+UNION
+SELECT h.id::bigint AS id FROM nucleo.tokens_api h
+JOIN integracion.conectores c ON c.estado = 'activo' AND h.token_padre_id IN (c.token_entregado_id, c.reemplaza_token_id)
 `
 
-// Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo).
+// Los tokens de los que depende algún conector activo (ver TokenUsadoPorConectorActivo), con sus
+// token_portal hijos.
 func (q *Queries) TokensUsadosPorConectoresActivos(ctx context.Context) ([]int64, error) {
 	rows, err := q.db.Query(ctx, tokensUsadosPorConectoresActivos)
 	if err != nil {
