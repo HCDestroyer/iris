@@ -115,6 +115,8 @@ type entradaAplicar struct {
 	cuenta *lecturaCuentas
 	// contactos: cliente.contactos_cambiados (0.10.0 §2.3): la caché de contactos del portal (§11.10).
 	contactos *cambioContactos
+	// red: caídas repetidas y falla general (0.13.0 §3.11), validadas: se emite el evento interno.
+	red *eventoRed
 	// titular: servicio.titular_cambiado (0.10.0 §3.4.4): se emite el evento interno si la ficha
 	// releída del titular nuevo lo confirma.
 	titular *titularCambiado
@@ -204,6 +206,12 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 		if cambio {
 			r.Resultado = "aplicado"
 		}
+	}
+	if in.red != nil {
+		if err := emitirRed(ctx, t, *in.red, e.ID, p.m.cfg.Encolar); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
 	}
 	if in.cuenta != nil {
 		res, err := guardarCuentas(ctx, t, *in.cuenta)
@@ -350,6 +358,11 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 		in.promesa, in.omitido = promesaDe(e, con)
 	case EventoContactosCambiados:
 		in.contactos, in.omitido, in.errArgos = p.leerContactosWebhook(ctx, bd, e)
+		return p.aplicar.Ejecutar(ctx, in)
+	case EventoCaidasRepetidas, EventoFallaGeneralAbierta, EventoFallaGeneralCerrada:
+		// Solo por el webhook firmado; la empresa y cada servicio se validan (lee Argos fuera de la
+		// transacción los que Iris no conoce).
+		in.red, in.omitido, in.errArgos = p.leerRed(ctx, bd, e)
 		return p.aplicar.Ejecutar(ctx, in)
 	case EventoCuentaBancariaCambiada:
 		// Se relee la cuenta en Argos y se guarda lo que diga Argos, nunca el payload (§7.8).

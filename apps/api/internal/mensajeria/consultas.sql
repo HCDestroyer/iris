@@ -260,3 +260,8 @@ SELECT * FROM mensajeria.webhooks_salida WHERE id = $1;
 SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas,
        coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo';
+
+-- name: AvisoSistemaExiste :one
+-- Un aviso que pidió el sistema (sin usuario) con esa clave (el aviso de una falla general: uno por
+-- cliente, incidente y tipo, aunque el evento llegue dos veces).
+SELECT EXISTS (SELECT 1 FROM mensajeria.avisos WHERE usuario_id IS NULL AND idempotency_key = @idempotency_key::text)::boolean;

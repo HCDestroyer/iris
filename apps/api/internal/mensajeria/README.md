@@ -71,6 +71,14 @@ Webhooks Iris → Argos de 0.9.0 (§6.6, B9): `ticket.estado_cambiado`, `ticket.
 `solicitud_servicio.estado_cambiado`, solo a conectores con contrato ≥ 0.9.0, solo con `cliente_id` y
 con la empresa en el alcance del conector (si no, `omitido`), sin cuerpo, notas ni motivos escritos.
 
+## Aviso de una falla general (`avisos_falla.go`, contrato con Argos 0.13.0 §3.11, B30)
+
+El worker consume `soporte.aviso_falla` y pide un aviso como cualquier otro (`EnviarAviso`, actor
+sistema), con las plantillas `falla_general` y `falla_general_resuelta` (las pide solo Iris, sin
+variables: nunca el servicio ni la dirección). Aplican las reglas de §6.5: permiso de contacto, baja,
+límite diario, horario de silencio y plantilla aprobada. Clave `iris:falla:<incidente>:<cliente>:<tipo>`:
+un evento repetido no manda otro. El aviso lo crea el worker y lo manda este proceso (su cola).
+
 ## Plantillas de WhatsApp por cuenta (`plantillas_wa_*.go`, `plantillas_whatsapp.sql`)
 
 Contrato: `.claude/integration/contratos/plantillas-whatsapp.md`. Las plantillas viven por cuenta

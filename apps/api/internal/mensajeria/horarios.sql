@@ -45,13 +45,20 @@ SELECT etiqueta_id FROM mensajeria.conversacion_etiquetas WHERE conversacion_id 
 
 -- name: RouterCaidoDelCliente :one
 -- Falla masiva: un router de un servicio del cliente en la empresa está caído según Horus (lo
--- guarda soporte en horus_estados; solo lectura).
-SELECT EXISTS (
+-- guarda soporte en horus_estados; solo lectura), o un servicio del cliente está en una falla general
+-- abierta de Argos (contrato 0.13.0 §3.11; soporte.incidentes_red).
+SELECT (EXISTS (
     SELECT 1 FROM integracion.argos_servicios s
     JOIN soporte.horus_estados h ON h.clave IN ('router:' || s.empresa_id || ':' || s.router_id, 'router:0:' || s.router_id)
     WHERE s.cliente_id = @cliente_id AND s.router_id IS NOT NULL AND h.estado = 'caido'
       AND (sqlc.narg('servicio_id')::bigint IS NULL OR s.id = sqlc.narg('servicio_id')::bigint)
-)::boolean;
+) OR EXISTS (
+    SELECT 1 FROM integracion.argos_servicios s
+    JOIN soporte.incidente_red_servicios rs ON rs.servicio_id = s.id
+    JOIN soporte.incidentes_red i ON i.id = rs.incidente AND i.estado = 'abierta' AND i.empresa_id = s.empresa_id
+    WHERE s.cliente_id = @cliente_id
+      AND (sqlc.narg('servicio_id')::bigint IS NULL OR s.id = sqlc.narg('servicio_id')::bigint)
+))::boolean;
 
 -- Manuales ------------------------------------------------------------------------------------
 

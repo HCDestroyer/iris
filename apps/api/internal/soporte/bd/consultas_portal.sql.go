@@ -202,7 +202,7 @@ func (q *Queries) DatosTicketPortal(ctx context.Context, id int64) (DatosTicketP
 }
 
 const listarCategoriasPortal = `-- name: ListarCategoriasPortal :many
-SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal FROM soporte.categorias
+SELECT id, empresa_id, codigo, nombre, sla_id, requiere_orden, activa, version, created_at, updated_at, visible_portal, conectividad FROM soporte.categorias
 WHERE visible_portal AND activa AND (empresa_id IS NULL OR empresa_id = $1::bigint)
 ORDER BY nombre, id
 `
@@ -228,6 +228,7 @@ func (q *Queries) ListarCategoriasPortal(ctx context.Context, empresaID int64) (
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.VisiblePortal,
+			&i.Conectividad,
 		); err != nil {
 			return nil, err
 		}
