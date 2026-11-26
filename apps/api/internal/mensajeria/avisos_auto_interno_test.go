@@ -2,6 +2,8 @@ package mensajeria
 
 import (
 	"slices"
+
+	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
 	"testing"
 	"time"
 )
@@ -67,5 +69,23 @@ func TestFaltaDatoOpcional(t *testing.T) {
 	}
 	if v := debito.venceEn(map[string]string{}, time.UTC, ahora); v == nil || !v.Equal(ahora.Add(72*time.Hour)) {
 		t.Fatalf("débito sin reintento: %v", v)
+	}
+}
+
+// Solo la API oficial de Meta manda avisos (§6.1 del contrato con Argos): una sesión de teléfono con
+// una librería no oficial (hoy Iris no tiene ese tipo) nunca, y la coexistencia por QR (Cloud API) sí.
+func TestCanalParaAvisos(t *testing.T) {
+	for _, c := range []struct {
+		f  mensajeriabd.MensajeriaCanal
+		ok bool
+	}{
+		{mensajeriabd.MensajeriaCanal{Tipo: TipoWhatsAppCloud, TipoConexion: ConexionAPI}, true},
+		{mensajeriabd.MensajeriaCanal{Tipo: TipoWhatsAppCloud, TipoConexion: ConexionQR, Coexistencia: true}, true},
+		{mensajeriabd.MensajeriaCanal{Tipo: "whatsapp_qr", TipoConexion: ConexionQR}, false},
+		{mensajeriabd.MensajeriaCanal{Tipo: "whatsapp_sesion"}, false},
+	} {
+		if got := canalParaAvisos(c.f); got != c.ok {
+			t.Errorf("%s/%s: %v", c.f.Tipo, c.f.TipoConexion, got)
+		}
 	}
 }

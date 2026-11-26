@@ -120,9 +120,12 @@ WhatsApp**: correo y Telegram los sigue mandando Argos (C4).
   Argos a las 72 h (las de Iris sin caducidad no vencen). Vencido: `aviso.fallido` con `vencido`, al
   prepararlo y en el barrido de 72 h si nunca salió. Silencio y tope diario como siempre.
 - `suscripcion_id` y `recordatorio { disparador, orden }` se guardan (informativos); la clave no cambia.
-- **WhatsApp por QR.** Los números conectados por QR de Iris son coexistencia con la Cloud API (salen
-  plantillas aprobadas), no una sesión de teléfono: no se excluyen. Un adaptador de sesión por QR deberá
-  responder `PermiteAvisos() = false` y nunca se declarará.
+- **WhatsApp por QR (§6.1, confirmado por el líder).** El «QR» de §6.1 del contrato es la sesión de un
+  teléfono con una librería no oficial. Los números que Iris conecta por QR son coexistencia con la
+  Cloud API (salen plantillas aprobadas) y sí mandan avisos. **Iris no tiene hoy ningún canal de sesión no
+  oficial** (el check de `mensajeria.canales.tipo` solo admite `whatsapp_cloud`); `canalParaAvisos` deja
+  fuera de los avisos (de Argos y de Iris) y de `capacidades` cualquier tipo que no sea `whatsapp_cloud`,
+  así que si se agrega uno queda excluido sin más cambios (`TestCanalParaAvisos`).
 
 ## Aviso de una falla general (`avisos_falla.go`, contrato con Argos 0.13.0 §3.11, B30)
 

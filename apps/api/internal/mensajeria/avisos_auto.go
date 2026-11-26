@@ -81,7 +81,7 @@ func codigosDeCanal(ctx context.Context, q *mensajeriabd.Queries, empresa int64,
 	}
 	// El token o el permiso del número los rechazó Meta al enviar: no está operativo hasta que un
 	// envío vuelva a salir o se pruebe la conexión.
-	if f.Tipo != TipoWhatsAppCloud || f.RechazadoPorEnvio {
+	if !canalParaAvisos(f) || f.RechazadoPorEnvio {
 		return nil, false, nil
 	}
 	plantillas, err := plantillasDeCanalEn(ctx, q, f, "", ahora)

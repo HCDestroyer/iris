@@ -181,6 +181,13 @@ type resuelto struct {
 	fila      *mensajeriabd.MensajeriaCanal
 }
 
+// canalParaAvisos: solo la API oficial de Meta (whatsapp_cloud, también un número conectado por QR en
+// coexistencia, que sigue siendo la Cloud API) manda avisos. Cualquier otro tipo, como una sesión de
+// teléfono con una librería no oficial («WhatsApp por QR» de §6.1 del contrato con Argos), nunca manda
+// avisos ni se declara en capacidades. Hoy Iris no tiene ese tipo (el check de mensajeria.canales.tipo
+// solo admite whatsapp_cloud); esta guarda lo deja fuera si se agrega.
+func canalParaAvisos(f mensajeriabd.MensajeriaCanal) bool { return f.Tipo == TipoWhatsAppCloud }
+
 // resolver elige el canal de la empresa para el medio: el número de avisos de la empresa (activo)
 // o, sin él y con Simulado, el simulado. nil = ningún canal (canal_no_disponible).
 func (m *Modulo) resolver(ctx context.Context, q *mensajeriabd.Queries, empresa int64, medio string) (*resuelto, error) {
@@ -190,6 +197,8 @@ func (m *Modulo) resolver(ctx context.Context, q *mensajeriabd.Queries, empresa 
 		f, err = q.CanalAvisosPrestado(ctx, mensajeriabd.CanalAvisosPrestadoParams{EmpresaID: empresa, Canal: medio})
 	}
 	switch {
+	case err == nil && !canalParaAvisos(f):
+		return nil, nil
 	case err == nil:
 		return m.resueltoDe(ctx, q, f)
 	case !errors.Is(err, pgx.ErrNoRows):
@@ -212,7 +221,7 @@ func (m *Modulo) resolverPorID(ctx context.Context, q *mensajeriabd.Queries, id 
 	if err != nil {
 		return nil, err
 	}
-	if !f.Activo || f.DesconectadoEn != nil {
+	if !f.Activo || f.DesconectadoEn != nil || !canalParaAvisos(f) {
 		return nil, nil
 	}
 	// Un número de otra empresa solo con su préstamo activo y el uso avisos (§15.3).
