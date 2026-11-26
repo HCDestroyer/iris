@@ -33,6 +33,7 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/equipos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/horus"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
@@ -160,8 +161,18 @@ func correr() error {
 		return err
 	}
 	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
-		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop})
+		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop, ArgosEquipos: campo.EquiposDeArgos(conectorArgos)})
 	cmp.SuscribirRetiros(bus, pool, log)
+	// Activación desde la orden (contrato 0.9.0 §12.2): el 202 de aprovisionar o su rechazo (cola de
+	// pendientes) y los webhooks instalacion.* (argos.instalacion_resuelta) resuelven el intento; los
+	// que siguen en proceso a los 10 min se consultan (campo.consultar_activaciones).
+	cmp.SuscribirActivaciones(bus, pool, log)
+	// Cobro de la instalación (0.9.0 §3, B15): el 2xx del cargo y factura.* / pago.* de Argos.
+	cmp.SuscribirCobros(bus, pool)
+	// Bienvenida (0.9.0 §12.5, B16): servicio.bienvenida_cambiada actualiza el bloque de la orden.
+	cmp.SuscribirBienvenidas(bus, pool)
+	// Cambios de Wi-Fi (§12.4): el 202 o el rechazo de la cola y equipo.wifi_resuelto.
+	equipos.Nuevo().Suscribir(bus, pool, log)
 	// «Dato de Argos cambió» (contrato 0.5.0): argos.datos_cambiados marca las órdenes abiertas.
 	cmp.SuscribirDatosArgos(bus, pool, log)
 	cmp.SuscribirTitularArgos(bus, pool, log)
@@ -254,7 +265,8 @@ func correr() error {
 			notif.RegistrarTrabajos(pool)(w)
 		},
 		Periodicos: append(argos.TrabajosPeriodicos(0), soporte.TrabajoPeriodicoSLA(time.Minute), soporte.TrabajoPeriodicoConciliar(),
-			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), pendientes.TrabajoPurgaTransito(), inventario.TrabajoPeriodico(5*time.Minute),
+			soporte.TrabajoPeriodicoBuzones(time.Minute), pendientes.TrabajoPeriodico(time.Minute), pendientes.TrabajoPurgaTransito(),
+			campo.TrabajoPeriodicoActivaciones(2*time.Minute), inventario.TrabajoPeriodico(5*time.Minute),
 			adjuntos.TrabajoPeriodico(time.Hour), campo.TrabajoPeriodicoPosiciones(6*time.Hour),
 			agenda.TrabajoPeriodicoZonas(10*time.Minute),
 			// Claves de Idempotency-Key vencidas (y las de SHA-256 plano de antes del HMAC).

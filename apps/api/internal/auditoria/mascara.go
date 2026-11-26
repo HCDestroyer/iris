@@ -15,14 +15,21 @@ const Mascara = "***"
 // Un campo es sensible si su nombre (en snake_case) contiene una de estas palabras, o si el
 // campo del struct lleva la etiqueta `auditoria:"sensible"`. Los ids (`token_id`) no se ocultan.
 // El número de un documento de identidad (`documento_numero`, `firmante_documento`: el DPI de quien
-// firma un contrato) también; el tipo (`documento_tipo`) no.
+// firma un contrato) también; el tipo (`documento_tipo`) no. El nombre del Wi-Fi del cliente (`ssid`, 0.9.0
+// §12) tampoco queda en la auditoría.
 var patronSensible = regexp.MustCompile(`(^|_)(contrasena|contrasenas|password|passwd|secreto|secret|token|hash|totp|firma|csrf|credencial|credenciales|api_key|ticket|documento_numero|firmante_documento)($|_|[0-9])`)
+
+// patronSSID: el nombre del Wi-Fi del cliente (0.9.0 §12). No la marca de presencia `con_ssid` (un bool).
+var patronSSID = regexp.MustCompile(`(^|_)ssid($|_|[0-9])`)
 
 // EsCampoSensible indica si el nombre (camelCase o snake_case) es sensible por patrón.
 func EsCampoSensible(nombre string) bool {
 	n := SnakeCase(nombre)
 	if strings.HasSuffix(n, "_id") || strings.HasSuffix(n, "_ids") || n == "id" {
 		return false
+	}
+	if patronSSID.MatchString(n) && !strings.HasPrefix(n, "con_ssid") {
+		return true
 	}
 	return patronSensible.MatchString(n)
 }

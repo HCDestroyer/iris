@@ -100,7 +100,7 @@ SELECT * FROM integracion.pendientes WHERE id = @id FOR UPDATE;
 SELECT p.* FROM integracion.pendientes p
 WHERE ((p.estado = 'pendiente' AND p.proximo_intento <= @ahora)
     OR (p.estado = 'en_curso' AND p.tomado_en <= @reclamar_antes::timestamptz))
-  AND NOT p.por_resolver
+  AND NOT p.por_resolver AND NOT p.espera_consumo
   AND NOT EXISTS (
       SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado NOT IN ('hecho', 'resuelto_manual'))
 ORDER BY p.proximo_intento, p.id
@@ -108,7 +108,8 @@ LIMIT 1
 FOR UPDATE OF p SKIP LOCKED;
 
 -- name: MarcarEnCurso :exec
-UPDATE integracion.pendientes SET estado = 'en_curso', tomado_en = @ahora::timestamptz, updated_at = now() WHERE id = @id;
+UPDATE integracion.pendientes SET estado = 'en_curso', tomado_en = @ahora::timestamptz,
+    primer_envio_en = coalesce(primer_envio_en, @ahora::timestamptz), updated_at = now() WHERE id = @id;
 
 -- name: ResolverPendiente :one
 -- Resultado de un intento (solo si sigue en_curso: un reintento manual a la vez no se pisa).
@@ -194,7 +195,7 @@ RETURNING *;
 -- dependencias están todas hechas o resueltas a mano.
 UPDATE integracion.pendientes p
 SET estado = 'pendiente', proximo_intento = @ahora, ultimo_error = NULL, version = p.version + 1, updated_at = now()
-WHERE p.estado = 'bloqueado' AND @id::bigint = ANY (p.depende_de)
+WHERE p.estado = 'bloqueado' AND @id::bigint = ANY (p.depende_de) AND NOT p.espera_consumo
   AND NOT EXISTS (
       SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado NOT IN ('hecho', 'resuelto_manual'))
 RETURNING p.*;
@@ -375,8 +376,8 @@ UPDATE integracion.pendientes SET esperando_vinculo_desde = NULL WHERE id = @id;
 -- --- Depósito de tránsito (contrato 0.10.0 §3.4.8) --------------------------------------------
 
 -- name: GuardarTransito :exec
-INSERT INTO integracion.datos_transito (id, empresa_id, orden_id, cifrado, llave_cifrada, tomado_en)
-VALUES (@id, sqlc.narg(empresa_id), @orden_id, @cifrado, @llave_cifrada, @tomado_en);
+INSERT INTO integracion.datos_transito (id, empresa_id, entidad, orden_id, cifrado, llave_cifrada, tomado_en)
+VALUES (@id, sqlc.narg(empresa_id), @entidad, @orden_id, @cifrado, @llave_cifrada, @tomado_en);
 
 -- name: LeerTransito :one
 SELECT * FROM integracion.datos_transito WHERE id = @id;
@@ -466,6 +467,147 @@ WHERE orden_id = @orden_id::bigint AND NOT en_revision;
 -- name: EstadoDeOrden :one
 SELECT estado FROM campo.ordenes WHERE id = @id::bigint;
 
+-- name: DescartarClavesAgotadas :execrows
+-- La clave Wi-Fi de un pendiente agotado (Argos no respondió) se descarta a las 24 h (0.9.0 §12.1).
+UPDATE integracion.datos_transito SET cifrado = NULL, llave_cifrada = NULL, borrado_en = @ahora, motivo_borrado = 'vencido'
+WHERE cifrado IS NOT NULL AND id IN (
+    SELECT transito_id FROM integracion.pendientes
+    WHERE operacion IN ('aprovisionar', 'cambiar_wifi') AND estado = 'agotado' AND transito_id IS NOT NULL AND updated_at < @antes);
+
+-- Cobro de la instalación (contrato 0.14.3 §3) -------------------------------------------------
+
+-- name: BloquearOrdenCampo :one
+-- El cargo del cierre se decide con la orden bloqueada (una transacción por orden a la vez), igual
+-- que el registro del cobro de A36: nunca quedan dos cargos vigentes con la línea de instalación.
+SELECT id FROM campo.ordenes WHERE id = @id::bigint FOR UPDATE;
+
+-- name: ConceptosInstalacionVigentes :many
+-- Conceptos de los cobros de A36 vigentes de la orden con la línea de instalación (encolado,
+-- enviado, emitido o por confirmar; no fallido ni anulado).
+SELECT concepto_id FROM campo.cobros
+WHERE orden_id = @orden_id::bigint AND es_instalacion AND estado IN ('pendiente', 'facturado', 'pagado', 'por_confirmar');
+
+-- name: MarcarEnvioSinRespuesta :exec
+-- Un intento quedó sin respuesta (timeout o 5xx): Argos pudo haberlo hecho.
+UPDATE integracion.pendientes SET envio_sin_respuesta = true WHERE id = @id AND NOT envio_sin_respuesta;
+
+-- name: MarcarCargoTerminal :one
+-- 422 capacidad_no_disponible: el cargo nunca se reintenta con su clave; por_confirmar si un envío
+-- anterior quedó sin respuesta.
+UPDATE integracion.pendientes
+SET cargo_terminal = true, por_confirmar = @por_confirmar::boolean, version = version + 1, updated_at = now()
+WHERE id = @id AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: EnlazarReemplazo :exec
+UPDATE integracion.pendientes SET reemplazo_de = @de::bigint, version = version + 1, updated_at = now() WHERE id = @id;
+
+-- name: MarcarReemplazado :exec
+UPDATE integracion.pendientes SET reemplazado_por = @por::bigint, version = version + 1, updated_at = now()
+WHERE id = @id AND reemplazado_por IS NULL;
+
+-- name: ConfirmarCobroEmitido :one
+-- El supervisor confirmó la factura (validada leyendo Argos): el cargo queda hecho con ella.
+UPDATE integracion.pendientes
+SET estado = 'hecho', hecho_en = @ahora::timestamptz, respuesta = @respuesta::jsonb, por_confirmar = false,
+    factura_id = @factura_id::bigint, factura_por_anular_id = NULL,
+    confirmado_motivo = @motivo::text, confirmado_por = sqlc.narg(confirmado_por), confirmado_en = @ahora::timestamptz,
+    version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND por_confirmar AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: ConfirmarCobroInexistente :one
+-- El supervisor confirmó que la factura no existe: el cargo queda fallido (terminal).
+UPDATE integracion.pendientes
+SET por_confirmar = false, factura_por_anular_id = NULL, confirmado_motivo = @motivo::text, confirmado_por = sqlc.narg(confirmado_por),
+    confirmado_en = @ahora::timestamptz, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND por_confirmar AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: FijarFacturaCargo :execrows
+-- La factura del 2xx de un cargo (única en Iris; si ya la tiene otro, no se liga).
+UPDATE integracion.pendientes p SET factura_id = @factura_id::bigint
+WHERE p.id = @id::bigint AND p.factura_id IS NULL
+  AND NOT EXISTS (SELECT 1 FROM integracion.pendientes o WHERE o.factura_id = @factura_id::bigint);
+
+-- name: FacturaLigada :one
+-- La factura ya liga otro cargo de Iris o es la factura por anular de otro cargo.
+SELECT EXISTS (SELECT 1 FROM integracion.pendientes
+    WHERE (factura_id = @factura_id::bigint OR factura_por_anular_id = @factura_id::bigint) AND id <> @id)::boolean;
+
+-- name: FijarFacturaPorAnular :one
+-- Una vez indicada una factura por anular, «no existe» exige que alguna se lea anulada (exige_por_anular).
+UPDATE integracion.pendientes
+SET factura_por_anular_id = sqlc.narg(factura_id), factura_por_anular_motivo = sqlc.narg(motivo),
+    exige_por_anular = exige_por_anular OR sqlc.narg(factura_id)::bigint IS NOT NULL, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND por_confirmar AND estado = 'fallido_negocio'
+RETURNING *;
+
+-- name: PendientePorFactura :one
+SELECT * FROM integracion.pendientes WHERE factura_id = @factura_id::bigint OR factura_por_anular_id = @factura_id::bigint LIMIT 1;
+
+-- name: TipoDeOrdenCampo :one
+SELECT t.codigo FROM campo.ordenes o JOIN campo.tipos_orden t ON t.id = o.tipo_id WHERE o.id = @id::bigint;
+
+-- name: CobrosA36Vigentes :many
+-- Cobros de A36 vigentes de la orden (cualquier concepto): su clave, concepto y si es de instalación.
+SELECT idempotency_key, concepto_id, es_instalacion FROM campo.cobros
+WHERE orden_id = @orden_id::bigint AND estado IN ('pendiente', 'facturado', 'pagado', 'por_confirmar');
+
+-- name: CargosQueEsperanConsumo :many
+SELECT * FROM integracion.pendientes WHERE espera_consumo AND estado = 'bloqueado' AND @id::bigint = ANY (depende_de);
+
+-- name: ResolverEsperaConsumo :one
+-- El consumo confirmó el cobro del consumible_cobro: el cargo queda resuelto (nunca salió).
+UPDATE integracion.pendientes
+SET estado = 'resuelto_manual', resuelto_motivo = @motivo::text, resuelto_como = 'cobrado_con_consumo', resuelto_en = @ahora::timestamptz,
+    espera_consumo = false, version = version + 1, updated_at = now()
+WHERE id = @id AND espera_consumo AND estado = 'bloqueado'
+RETURNING *;
+
+-- name: FallarEsperaConsumo :one
+-- El consumo no confirmó el cobro: queda visible al supervisor (incompleto: no se reintenta solo).
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, ultimo_error = @motivo::text, codigo_error = 'consumible_cobro_sin_confirmar',
+    espera_consumo = false, version = version + 1, updated_at = now()
+WHERE id = @id AND espera_consumo AND estado = 'bloqueado'
+RETURNING *;
+
+-- name: LiberarEsperaConsumo :exec
+UPDATE integracion.pendientes SET espera_consumo = false, version = version + 1, updated_at = now() WHERE id = @id AND espera_consumo;
+
+-- name: FijarEsperaConsumo :one
+UPDATE integracion.pendientes SET espera_consumo = true, estado = 'bloqueado',
+    ultimo_error = 'consumible_cobro: lo cobra Argos con el consumo; queda resuelto al confirmarse', version = version + 1, updated_at = now()
+WHERE id = @id
+RETURNING *;
+
+-- name: CargosDeOrden :many
+SELECT * FROM integracion.pendientes WHERE entidad = 'orden' AND entidad_id = @orden::text AND operacion = 'cargo' ORDER BY id;
+
+-- name: OtroCobroVivo :one
+-- Otro cobro de A36 vivo de la orden (cobros_vivo_uq), sin contar el de esa clave.
+SELECT EXISTS (SELECT 1 FROM campo.cobros WHERE orden_id = @orden_id::bigint AND idempotency_key <> @clave::text
+    AND estado IN ('pendiente', 'facturado', 'pagado', 'por_confirmar'))::boolean;
+
+-- name: RevivirCobroA36 :execrows
+-- Reintentar el cargo de un cobro de A36 fallido lo vuelve a pendiente (vivo), en la misma transacción.
+UPDATE campo.cobros SET estado = 'pendiente', detalle = NULL, version = version + 1, updated_at = now()
+WHERE idempotency_key = @clave::text AND estado = 'fallido';
+
+-- name: MarcarFacturaAnulada :execrows
+UPDATE integracion.pendientes SET factura_anulada = true, version = version + 1, updated_at = now()
+WHERE factura_id = @factura_id::bigint AND NOT factura_anulada;
+
+-- name: MarcarFacturaAnuladaPorClave :execrows
+UPDATE integracion.pendientes SET factura_anulada = true, version = version + 1, updated_at = now()
+WHERE idempotency_key = @clave::text AND NOT factura_anulada;
+
+-- name: AvisosDeFactura :many
+-- Avisos factura.* / pago.* que llegaron antes de ligar esa factura (historial de la orden), en orden.
+SELECT coalesce(datos->>'webhook', '')::text AS webhook FROM campo.orden_eventos
+WHERE orden_id = @orden_id::bigint AND tipo = 'cobro' AND datos->>'factura_id' = @factura::text ORDER BY id;
+
 -- name: EstadoDeOrdenCompartido :one
 -- El estado de la orden con candado compartido (verificación de #280): un paso del titular hecho no
 -- se cruza con el cierre de la orden, que la toma FOR UPDATE.
@@ -475,3 +617,81 @@ SELECT estado FROM campo.ordenes WHERE id = @id::bigint FOR SHARE;
 -- La zona, la cuadrilla y el técnico de la orden: resolver a mano un paso del titular exige
 -- ordenes.validar_identidad con alcance sobre ella (como campo).
 SELECT zona_id, cuadrilla_id, tecnico_id FROM campo.ordenes WHERE id = @id::bigint;
+
+-- name: PorResolverListosSinCandado :many
+-- Los ids de PorResolverListos, sin candado: cada uno se toma después de bloquear su orden (orden de
+-- candados: la orden y luego el pendiente).
+SELECT p.id, p.entidad, p.entidad_id, p.operacion FROM integracion.pendientes p
+WHERE p.por_resolver AND p.estado IN ('pendiente', 'bloqueado')
+  AND NOT EXISTS (
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+ORDER BY p.id
+LIMIT @limite;
+
+-- name: TomarPorResolverListo :one
+-- Vuelve a comprobar el estado con el candado (SKIP LOCKED: otro worker ya lo está resolviendo).
+SELECT p.* FROM integracion.pendientes p
+WHERE p.id = @id AND p.por_resolver AND p.estado IN ('pendiente', 'bloqueado')
+  AND NOT EXISTS (
+      SELECT 1 FROM integracion.pendientes d WHERE d.id = ANY (p.depende_de) AND d.estado <> 'hecho')
+FOR UPDATE OF p SKIP LOCKED;
+
+-- name: HayCargoDependiente :one
+SELECT EXISTS (SELECT 1 FROM integracion.pendientes WHERE @id::bigint = ANY (depende_de) AND operacion = 'cargo')::boolean;
+
+-- name: FallarCargoPorInstalacion :one
+-- El cargo llevaría la línea de instalación con otro cobro vigente con ella: no sale (incompleto,
+-- visible al supervisor).
+UPDATE integracion.pendientes
+SET estado = 'fallido_negocio', datos_incompletos = true, por_resolver = false, espera_consumo = false,
+    ultimo_error = @motivo::text, codigo_error = 'cobro_a36_vigente', version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: CargosVivosDeOrden :many
+-- Cobros de A36 (campo.cobros) de la orden que aún no salieron a Argos (sin primer envío): esperan al
+-- paso del titular nuevo. Los cargos de un cierre anterior (orden fallida y reabierta, también los que
+-- esperan al consumo) son de ese intento y no siguen al titular (README).
+SELECT p.* FROM integracion.pendientes p
+WHERE p.entidad = 'orden' AND p.entidad_id = @orden::text AND p.operacion = 'cargo'
+  AND p.estado IN ('pendiente', 'bloqueado') AND p.primer_envio_en IS NULL AND NOT p.espera_consumo
+  AND EXISTS (SELECT 1 FROM campo.cobros c WHERE c.idempotency_key = p.idempotency_key)
+ORDER BY p.id FOR UPDATE OF p;
+
+-- name: CargosYaEnviadosDeOrden :many
+-- Cobros de A36 de la orden que ya salieron a Argos y aún no tienen el aviso cobro_titular_anterior
+-- (una vez por cobro, aunque el titular cambie otra vez).
+SELECT p.idempotency_key FROM integracion.pendientes p
+WHERE p.entidad = 'orden' AND p.entidad_id = @orden::text AND p.operacion = 'cargo'
+  AND (p.primer_envio_en IS NOT NULL OR p.estado IN ('en_curso', 'hecho')) AND NOT p.factura_anulada
+  AND NOT (p.estado = 'fallido_negocio' AND NOT p.por_confirmar)
+  AND EXISTS (SELECT 1 FROM campo.cobros c WHERE c.idempotency_key = p.idempotency_key)
+  AND NOT EXISTS (SELECT 1 FROM campo.orden_eventos e WHERE e.orden_id = @orden_id::bigint AND e.tipo = 'cobro'
+      AND e.a = 'cobro_titular_anterior' AND e.datos->>'idempotency_key' = p.idempotency_key)
+ORDER BY p.id;
+
+-- name: AtarCargoAlTitular :one
+-- El cargo espera al paso del titular nuevo y va a nombre del titular final (marcador en el cuerpo).
+UPDATE integracion.pendientes
+SET depende_de = @depende_de, payload = @plantilla, plantilla = @plantilla, por_resolver = true,
+    proximo_intento = @nunca::timestamptz, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado') AND primer_envio_en IS NULL
+RETURNING *;
+
+-- name: ActualizarClienteCobro :exec
+-- El cobro de A36 guarda el titular efectivo al fijarse el cuerpo de su cargo.
+UPDATE campo.cobros SET cliente_id = @cliente_id::bigint, version = version + 1, updated_at = now()
+WHERE idempotency_key = @clave::text AND cliente_id <> @cliente_id::bigint;
+
+-- name: FijarCuerpoCargo :one
+-- El cuerpo del cargo sin la línea de instalación, antes de liberarlo (B-a).
+UPDATE integracion.pendientes SET payload = @payload, version = version + 1, updated_at = now()
+WHERE id = @id AND estado IN ('pendiente', 'bloqueado')
+RETURNING *;
+
+-- name: FijarClienteResuelto :one
+-- Un cambio de titular resuelto a mano sin el cliente final: un supervisor lo indica después (B-d).
+UPDATE integracion.pendientes SET resuelto_cliente_id = @cliente_id::bigint, version = version + 1, updated_at = now()
+WHERE id = @id AND version = @version AND estado = 'resuelto_manual' AND resuelto_como = 'manual'
+  AND operacion = 'cambiar_titular' AND resuelto_cliente_id IS NULL
+RETURNING *;

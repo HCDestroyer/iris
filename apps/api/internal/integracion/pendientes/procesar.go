@@ -35,9 +35,20 @@ const maxPorCorrida = 500
 // Devuelve cuántos procesó. ctx debe traer el pool (nucleo.ConBD) y el actor sistema.
 func (m *Modulo) Procesar(ctx context.Context) (int, error) {
 	ahora := m.ahora()
-	// Red de seguridad: dependientes con marcadores que quedaron sin resolver (no debería haber).
-	if _, err := m.resolverListos.Ejecutar(ctx, ahora); err != nil {
+	// Red de seguridad: dependientes con marcadores que quedaron sin resolver (no debería haber). B-c:
+	// los ids sin candado y una transacción por pendiente (la orden y luego el pendiente).
+	bd := nucleo.BDDe(ctx)
+	if bd == nil {
+		return 0, nucleo.ErrSinBD
+	}
+	ids, err := pendientesbd.New(bd).PorResolverListosSinCandado(ctx, 200)
+	if err != nil {
 		return 0, fmt.Errorf("pendientes: resolver dependientes listos: %w", err)
+	}
+	for _, r := range ids {
+		if _, err := m.resolverListos.Ejecutar(ctx, atascado{ID: r.ID, Entidad: r.Entidad, EntidadID: r.EntidadID, ahora: ahora}); err != nil {
+			return 0, fmt.Errorf("pendientes: resolver dependientes listos: %w", err)
+		}
 	}
 	// Cambios e intentos que esperan su foto (0.14.0 §3.10): la que ya subió, a la cola; la
 	// rechazada o fuera de la ventana de 72 h, conflicto.
@@ -110,6 +121,11 @@ type resultadoIntento struct {
 	// respuesta del 2xx, ya limpia (no va a la auditoría: queda en el pendiente).
 	respuesta []byte
 	ahora     time.Time
+	// sinRespuesta: la llamada salió y Argos no respondió (timeout, red o 5xx): pudo hacerlo.
+	sinRespuesta bool
+	// conceptoInstalacion: con un cargo rechazado por 422 capacidad_no_disponible, el concepto de
+	// instalación de la empresa (para el cobro de reemplazo); 0 si no tiene.
+	conceptoInstalacion int64
 }
 
 // intentar hace la llamada a Argos y clasifica el resultado.
@@ -154,6 +170,10 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		// Argos exige que coincidan). Sale de la columna, nunca del cuerpo.
 		cli = cli.ConCabecera(CabeceraActorIris, "usuario:"+strconv.FormatInt(*f.TecnicoUsuarioID, 10))
 	}
+	if f.Operacion == OpCambiarWifi && f.Entidad == EntidadTransitoConversacion {
+		// El cambio de Wi-Fi desde una conversación lleva su id (§7.1 y §12.4).
+		cli = cli.ConCabecera(CabeceraConversacionIris, f.EntidadID)
+	}
 	if f.Contacto != nil {
 		// Quien habló es un contacto del cliente (§7.1, §3.12): Argos lo valida y lo audita.
 		cli = cli.ConCabecera(CabeceraContactoIris, *f.Contacto)
@@ -161,6 +181,11 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	var partes []conector.Parte
 	if f.TransitoID.Valid {
 		d, err := m.leerTransito(ctx, pendientesbd.New(nucleo.BDDe(ctx)), f)
+		if errors.Is(err, errVencido) && conClaveWifi(f.Operacion) {
+			// La clave Wi-Fi ya se descartó (rechazo o 7 días): se pide otra vez (otro intento).
+			r.Negocio, r.Codigo, r.Error = true, CodigoClaveDescartada, "la clave Wi-Fi ya se descartó: pide el cambio otra vez"
+			return r
+		}
 		if errors.Is(err, errVencido) {
 			// Se borró a los 7 días (o al resolverse): no se manda nada; hay que tomarlo otra vez.
 			r.Negocio, r.Codigo, r.Error = true, CodigoFotoVencida, "los datos del titular se borraron (7 días): hay que tomarlos otra vez"
@@ -204,8 +229,10 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	var er *conector.ErrorRemoto
 	if !errors.As(err, &er) {
 		r.Error = "error al llamar a Argos: " + sinCredenciales(err.Error())
+		r.sinRespuesta = true
 		return r
 	}
+	r.sinRespuesta = !er.Bloqueado() && (er.Status == 0 || er.Status >= 500)
 	if er.Status != 0 {
 		s := int32(er.Status) //nolint:gosec // código HTTP
 		r.Status = &s
@@ -214,6 +241,12 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	if bodegaRequerida(er, f.Payload) {
 		// Argos 1.5.x no entiende tecnico (contrato 0.5.0 §3.3): «bodega_id required».
 		r.Codigo = CodigoBodegaRequerida
+	}
+	if er.Status == http.StatusConflict && f.Operacion == OpActivarInstalacion && r.Codigo == CodigoServicioNoPendiente &&
+		activacionLista(ctx, nucleo.BDDe(ctx), f) {
+		// La orden tiene una activación lista (§12.2): Argos ya activó el servicio; no es error (§3).
+		r.Exito, r.Conciliado = true, r.Codigo
+		return r
 	}
 	if er.Status == http.StatusConflict && conciliable(f.Operacion, r.Codigo) {
 		// Argos ya lo tiene hecho (contrato 0.5.0 §3.3): cuenta como hecho, con la nota.
@@ -228,6 +261,21 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 	}
 	r.Negocio = EsNegocioEn(f.Operacion, er)
 	r.Error = describir(er)
+	if r.Negocio && esCargoSinCapacidad(f.Operacion, er.Status, r.Codigo) && f.ReemplazoDe == nil && !f.EnvioSinRespuesta {
+		// El cargo queda terminal y sus demás líneas salen como un cobro de reemplazo (0.14.3 §3): hace
+		// falta el concepto de instalación de la empresa. Si no se puede leer ahora, el intento cuenta
+		// como temporal (Argos no guarda la clave en un 4xx: repetirlo es seguro) y se reintenta.
+		id, err := m.cfg.Argos.ConceptoInstalacion(ctx, deref64(f.EmpresaID))
+		switch {
+		case err == nil:
+			r.conceptoInstalacion = id
+		case errors.Is(err, argos.ErrSinConceptoInstalacion):
+			// Sin concepto de instalación no se sabe qué línea quitar: no hay reemplazo (se avisa).
+		default:
+			r.Negocio = false
+			r.Error += " (no se pudo leer el concepto de instalación para el cobro de reemplazo; se reintenta)"
+		}
+	}
 	if (f.Operacion == OpCambio || f.Operacion == OpNoRecuperado) && r.Codigo == CodigoIdempotenciaReutilizada {
 		// 0.14.0 §3.10: lo que Argos tiene con esta clave no es lo que mandó Iris. La verificación
 		// responde no_coincide y es una alerta de seguridad para el admin.
@@ -244,6 +292,14 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		r.Espera = min(er.ReintentarEn(), conector.MaxRetryAfter)
 	}
 	return r
+}
+
+// CodigoCapacidadNoDisponible: Argos ≥ 0.14.3 rechaza una llamada sin su capacidad (§4.3).
+const CodigoCapacidadNoDisponible = "capacidad_no_disponible"
+
+// esCargoSinCapacidad: un cargo rechazado con 422 capacidad_no_disponible (cobro_equipo en false).
+func esCargoSinCapacidad(operacion string, status int, codigo string) bool {
+	return operacion == OpCargo && status == http.StatusUnprocessableEntity && codigo == CodigoCapacidadNoDisponible
 }
 
 // Códigos de Argos 0.5.0 (§3.3) que Iris trata aparte.
@@ -508,12 +564,23 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 		Accion: "integraciones.procesar_pendiente", Acceso: auditoria.Autenticado,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in resultadoIntento) (Pendiente, error) {
 			q := pendientesbd.New(t)
-			// Paso del titular: la orden (FOR SHARE) antes que el pendiente, en el mismo orden que campo
-			// (orden → pendiente): sin interbloqueo con cerrar o cancelar la orden.
-			if previo, err := q.PendientePorID(ctx, in.ID); err != nil {
+			// Orden de candados: la orden antes que el pendiente, como campo (cierre, cancelación, A36).
+			previo, err := q.PendientePorID(ctx, in.ID)
+			if err != nil {
 				return Pendiente{}, err
-			} else if orden, ok := ordenDePasoTitular(previo); ok {
-				if _, err := q.EstadoDeOrdenCompartido(ctx, orden); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			}
+			// B-b: un paso del titular toma siempre la orden FOR UPDATE (antes FOR SHARE): uno de sus
+			// dependientes puede ser un cargo cuyo cuerpo se fija aquí con la orden bloqueada, y leer eso sin
+			// candado para elegir el nivel podría subir de SHARE a UPDATE a mitad de la transacción.
+			_, esPaso := ordenDePasoTitular(previo)
+			cargo := previo.Entidad == "orden" && previo.Operacion == OpCargo
+			if !cargo && !esPaso && previo.Entidad == "orden" {
+				if cargo, err = q.HayCargoDependiente(ctx, previo.ID); err != nil {
+					return Pendiente{}, err
+				}
+			}
+			if cargo || esPaso {
+				if err := bloquearOrden(ctx, q, previo); err != nil {
 					return Pendiente{}, err
 				}
 			}
@@ -571,6 +638,23 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			}
 			t.RegistrarCambios("pendiente", f.ID, map[string]any{"estado": antes.Estado, "intentos": antes.Intentos},
 				map[string]any{"estado": f.Estado, "intentos": f.Intentos})
+			if in.sinRespuesta && !in.Exito {
+				if err := q.MarcarEnvioSinRespuesta(ctx, f.ID); err != nil {
+					return Pendiente{}, err
+				}
+			}
+			var reemplazo *pendientesbd.IntegracionPendiente
+			if f.Estado == EstadoFallidoNegocio && f.Operacion == OpCargo && deref(f.CodigoError) == CodigoCapacidadNoDisponible {
+				if f, reemplazo, err = m.cargoSinCapacidad(ctx, t, antes, f, in.conceptoInstalacion, in.ahora); err != nil {
+					return Pendiente{}, err
+				}
+			}
+			if f.Estado == EstadoFallidoNegocio && f.Operacion == OpAprovisionar && deref(f.CodigoError) == CodigoCapacidadNoDisponible {
+				// §4.3: sin la marca wifi, Argos rechaza el campo wifi; se reenvía sin él, con otra clave.
+				if f, reemplazo, err = aprovisionarSinWifi(ctx, t, f, in.ahora); err != nil {
+					return Pendiente{}, err
+				}
+			}
 			if evento != "" {
 				if err := t.Emitir(evento, payload); err != nil {
 					return Pendiente{}, err
@@ -590,6 +674,9 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				if err := borrarTransito(ctx, t, f, "entregado", in.ahora); err != nil {
 					return Pendiente{}, err
 				}
+				if err := despuesDeHecho(ctx, t, f, in.ahora); err != nil {
+					return Pendiente{}, err
+				}
 				// Primero los cuerpos con marcadores (con la respuesta recién guardada), una vez.
 				if err := resolverDependientes(ctx, t, f.ID, in.ahora); err != nil {
 					return Pendiente{}, err
@@ -601,11 +688,15 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 				if err := bloquearDependientes(ctx, t, f.ID, f.Estado); err != nil {
 					return Pendiente{}, err
 				}
+				// La clave Wi-Fi rechazada por Argos se descarta ya (§12.1, «Secretos»).
+				if err := descartarClave(ctx, t, f, in.ahora); err != nil {
+					return Pendiente{}, err
+				}
 			}
 			if err := despuesDelPasoTitular(ctx, t, f, in.ahora); err != nil {
 				return Pendiente{}, err
 			}
-			if deref(f.CodigoError) == CodigoBodegaRequerida && m.cfg.Argos != nil {
+			if (deref(f.CodigoError) == CodigoBodegaRequerida || deref(f.CodigoError) == "capacidad_no_disponible") && m.cfg.Argos != nil {
 				// Argos volvió a 1.5.x: se relee su versión ya (no al próximo periodo), para que lo
 				// que se encole desde ahora salga con bodega_id.
 				if err := m.cfg.Argos.RevisarContratoYa(ctx, t.Tx); err != nil {
@@ -615,6 +706,11 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 			if f.Estado == EstadoFallidoNegocio || f.Estado == EstadoAgotado {
 				slog.WarnContext(ctx, "pendientes: acción hacia Argos sin completar", "pendiente", f.ID,
 					"operacion", f.Operacion, "estado", f.Estado, "error", in.Error)
+			}
+			if reemplazo != nil {
+				if err := m.avisarCola(ctx, t.Tx); err != nil {
+					return Pendiente{}, err
+				}
 			}
 			return aPendiente(f), nil
 		},

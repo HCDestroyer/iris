@@ -43,7 +43,7 @@ func (m *Modulo) Registrar(api huma.API) {
 		nucleo.PermIntegracionesReintentar, http.StatusOK, http.StatusNotFound, http.StatusConflict)
 	re.Description += " Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con " +
 		"los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 " +
-		"`pendiente_no_reintentable` (hecho, en curso, resuelto a mano o bloqueado: reintenta su dependencia o resuélvela a mano) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite " +
+		"`pendiente_no_reintentable` (hecho, en curso, resuelto a mano o bloqueado: reintenta su dependencia o resuélvela a mano) o `pendiente_incompleto` (la orden no traía los datos). 409 `cargo_terminal`: un cargo rechazado con `422 capacidad_no_disponible` nunca se reintenta con su clave (0.14.3 §3). Auditado; emite " +
 		"`integracion.pendiente_reintentado`."
 	huma.Register(api, re, func(ctx context.Context, in *entradaReintentarHTTP) (*cuerpo[Pendiente], error) {
 		p, err := m.Reintentar.Ejecutar(ctx, EntradaReintentar{ID: in.ID, Version: in.Body.Version})
@@ -82,7 +82,11 @@ func (m *Modulo) Registrar(api huma.API) {
 		"`liberar` o `resolver_tambien`, que lo deja también `resuelto_manual` sin mandarlo). Los dependientes que " +
 		"esperaban su respuesta quedan `fallido_negocio` incompletos (`codigoError` = `dependencia_resuelta_a_mano`), para " +
 		"resolverlos también a mano o corregirlos con los datos reales. Auditado; emite `integracion.pendiente_resuelto_manual` " +
-		"(uno más por cargo resuelto también)."
+		"(uno más por cargo resuelto también). Un `cambiar_titular` ya `resuelto_manual` por una persona sin el cliente " +
+		"final acepta después `clienteId`: un supervisor con `ordenes.validar_identidad` y alcance sobre la orden indica el " +
+		"titular final, comprobado en Argos (422 `cliente_no_es_titular` si no lo es); desde ahí el cobro de A36 de la orden " +
+		"sale a ese cliente (antes, 409 `titular_por_confirmar`). Una vez por paso; uno cancelado o reemplazado responde 422 " +
+		"`pendiente_no_resoluble`. Auditado; emite `integracion.pendiente_cliente_fijado`."
 	huma.Register(api, rm, func(ctx context.Context, in *entradaResolverManualHTTP) (*cuerpo[Pendiente], error) {
 		p, err := m.ResolverManual.Ejecutar(ctx, EntradaResolverManual{ID: in.ID, Version: in.Body.Version, Motivo: in.Body.Motivo, Cargo: in.Body.Cargo, ClienteID: in.Body.ClienteID})
 		if err != nil {
@@ -90,6 +94,66 @@ func (m *Modulo) Registrar(api huma.API) {
 		}
 		return &cuerpo[Pendiente]{Body: p}, nil
 	})
+
+	cc := conector.Operacion(conector.EtiquetaIntegraciones, "confirmarCobroIntegracion", http.MethodPost,
+		"/api/v1/integraciones/pendientes/{id}/confirmar-cobro", "Conciliar un cobro «por confirmar»",
+		nucleo.PermIntegracionesConfirmarCobro, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	cc.Description += " Un cargo que recibió `422 capacidad_no_disponible` después de un envío sin respuesta (timeout o 5xx) " +
+		"queda «por confirmar» (`porConfirmar`, vigente) hasta que un supervisor concilie (contrato 0.14.3 §3; nunca solo por " +
+		"`origen_id`). Con `existe` = true y la «Factura #» del panel de Argos (`facturaId`) o `serie` + `numeroDte`, Iris la lee " +
+		"(`GET /facturas/origen-iris`) y la valida con la orden bloqueada: misma empresa, mismo servicio, `iris_orden`, mismo " +
+		"origen, líneas exactas, no anulada, emitida desde el primer envío (−5 min) y no ligada a otro cobro; si coincide, el " +
+		"cargo queda `hecho` con ese `factura_id`. Una factura anterior a la 0.14.3 (líneas sin concepto) que cumple lo demás " +
+		"queda como `facturaPorAnular` (no liga el cargo). 422 `factura_no_encontrada` o `factura_no_coincide` solo rechazan; " +
+		"503 es un error de lectura (reintentar). Con `existe` = false (comprobado en Argos, con motivo), el cargo queda " +
+		"fallido y salen sus demás líneas sin la de instalación; con una factura por anular, solo si la lectura de esta acción " +
+		"la ve anulada (422 `factura_por_anular_vigente`) y, con pagos, `pagosAnulados` (422 `pagos_por_confirmar`). 409 por " +
+		"`version` o `cobro_no_por_confirmar`. Auditado; emite `integracion.pendiente_hecho` o `integracion.pendiente_fallido`."
+	huma.Register(api, cc, func(ctx context.Context, in *entradaConfirmarCobroHTTP) (*cuerpo[Pendiente], error) {
+		p, err := m.ConfirmarCobro(ctx, EntradaConfirmarCobro{ID: in.ID, Version: in.Body.Version, Existe: in.Body.Existe,
+			FacturaID: in.Body.FacturaID, Serie: in.Body.Serie, NumeroDTE: in.Body.NumeroDTE, PagosAnulados: in.Body.PagosAnulados,
+			Motivo: in.Body.Motivo})
+		if err != nil {
+			return nil, err
+		}
+		return &cuerpo[Pendiente]{Body: p}, nil
+	})
+
+	qa := conector.Operacion(conector.EtiquetaIntegraciones, "quitarFacturaPorAnularIntegracion", http.MethodPost,
+		"/api/v1/integraciones/pendientes/{id}/quitar-factura-por-anular", "Quitar la factura por anular de un cobro por confirmar",
+		nucleo.PermIntegracionesConfirmarCobro, http.StatusOK, http.StatusNotFound, http.StatusConflict)
+	qa.Description += " Con la orden bloqueada y `version`, y solo si una lectura de Argos en esta acción la ve no anulada " +
+		"(si la ve anulada: 409 `factura_anulada`, se habilita «no existe»). El cobro sigue por confirmar."
+	huma.Register(api, qa, func(ctx context.Context, in *entradaQuitarPorAnularHTTP) (*cuerpo[Pendiente], error) {
+		p, err := m.QuitarFacturaPorAnular(ctx, EntradaQuitarPorAnular{ID: in.ID, Version: in.Body.Version, Motivo: in.Body.Motivo})
+		if err != nil {
+			return nil, err
+		}
+		return &cuerpo[Pendiente]{Body: p}, nil
+	})
+}
+
+type entradaConfirmarCobroHTTP struct {
+	nucleo.ConIdempotencia
+	ID   int64 `path:"id" minimum:"1"`
+	Body struct {
+		Version       int32   `json:"version" minimum:"1"`
+		Existe        bool    `json:"existe" doc:"true: la factura existe en Argos (facturaId, o serie y numeroDte). false: no existe (sale el cobro de reemplazo)"`
+		FacturaID     *int64  `json:"facturaId,omitempty" required:"false" minimum:"1" doc:"«Factura #» del panel de Argos (su factura_id)"`
+		Serie         *string `json:"serie,omitempty" required:"false" minLength:"1" maxLength:"60" doc:"Serie del DTE (con numeroDte)"`
+		NumeroDTE     *string `json:"numeroDte,omitempty" required:"false" minLength:"1" maxLength:"60" doc:"Número del DTE (con serie)"`
+		PagosAnulados bool    `json:"pagosAnulados,omitempty" required:"false" doc:"«No existe» con una factura por anular con pagos: se anularon o pasaron a abono"`
+		Motivo        string  `json:"motivo" minLength:"5" maxLength:"1000" doc:"Qué se revisó en Argos"`
+	}
+}
+
+type entradaQuitarPorAnularHTTP struct {
+	nucleo.ConIdempotencia
+	ID   int64 `path:"id" minimum:"1"`
+	Body struct {
+		Version int32  `json:"version" minimum:"1"`
+		Motivo  string `json:"motivo" minLength:"5" maxLength:"1000"`
+	}
 }
 
 type entradaResolverManualHTTP struct {
@@ -100,6 +164,6 @@ type entradaResolverManualHTTP struct {
 		Motivo  string `json:"motivo" minLength:"5" maxLength:"1000" doc:"Qué se hizo en Argos (si se rehízo el consumo, con origen_tipo/origen_id de la orden)"`
 		Cargo   string `json:"cargo,omitempty" required:"false" enum:"liberar,resolver_tambien" doc:"Obligatorio si un cargo de un producto del consumo lo espera: liberar (sale hacia Argos) o resolver_tambien (Argos ya lo cobró: queda resuelto_manual y no sale)"`
 		// ClienteID: solo al resolver un cambio de titular.
-		ClienteID *int64 `json:"clienteId,omitempty" required:"false" minimum:"1" doc:"Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro y el contrato regenerado van a su nombre). Resolver a mano un cambiar_plan o cambiar_titular significa que el cambio se aplicó en Argos"`
+		ClienteID *int64 `json:"clienteId,omitempty" required:"false" minimum:"1" doc:"Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro y el contrato regenerado van a su nombre). Resolver a mano un cambiar_plan o cambiar_titular significa que el cambio se aplicó en Argos. También sobre un cambiar_titular ya resuelto_manual sin cliente, para indicarlo después"`
 	}
 }

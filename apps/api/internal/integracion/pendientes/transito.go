@@ -73,6 +73,27 @@ func DatosAsociadosTransito(id uuid.UUID, orden int64, empresa *int64) []byte {
 	return []byte("transito:" + id.String() + ":" + strconv.FormatInt(orden, 10) + ":" + e)
 }
 
+// DatosAsociadosTransitoDe: los de una orden como siempre (DatosAsociadosTransito); los de otra
+// entidad (la clave Wi-Fi pedida desde un ticket o una conversación, §12.4) llevan además la entidad:
+// "transito:<uuid>:<entidad>:<id>:<empresa_id>". Un depósito de un ticket no abre como el de una orden.
+func DatosAsociadosTransitoDe(id uuid.UUID, entidad string, entidadID int64, empresa *int64) []byte {
+	if entidad == "" || entidad == EntidadTransitoOrden {
+		return DatosAsociadosTransito(id, entidadID, empresa)
+	}
+	e := "-"
+	if empresa != nil {
+		e = strconv.FormatInt(*empresa, 10)
+	}
+	return []byte("transito:" + id.String() + ":" + entidad + ":" + strconv.FormatInt(entidadID, 10) + ":" + e)
+}
+
+// Entidades del depósito de tránsito.
+const (
+	EntidadTransitoOrden        = "orden"
+	EntidadTransitoTicket       = "ticket"
+	EntidadTransitoConversacion = "conversacion"
+)
+
 // sellar cifra con AES-256-GCM (nonce aleatorio delante).
 func sellar(llave, plano, ad []byte) ([]byte, error) {
 	bloque, err := aes.NewCipher(llave)
@@ -112,8 +133,14 @@ func abrir(llave, cifrado, ad []byte) ([]byte, error) {
 // datos personales con retención limitada, docs/runbooks/respaldos.md). Sin cifrador no se guarda
 // nada sensible: error.
 func GuardarTransito(ctx context.Context, t *auditoria.Tx, cif *nucleo.Cifrador, empresa *int64, orden int64, d Transito, tomadoEn time.Time) (uuid.UUID, error) {
+	return GuardarTransitoDe(ctx, t, cif, empresa, EntidadTransitoOrden, orden, d, tomadoEn)
+}
+
+// GuardarTransitoDe guarda el depósito de una entidad (orden, ticket o conversación): mismo
+// cifrado que GuardarTransito, con la entidad en los datos asociados.
+func GuardarTransitoDe(ctx context.Context, t *auditoria.Tx, cif *nucleo.Cifrador, empresa *int64, entidad string, entidadID int64, d Transito, tomadoEn time.Time) (uuid.UUID, error) {
 	if cif == nil {
-		return uuid.Nil, nucleo.NoDisponible("Falta IRIS_CLAVE_CIFRADO: Iris no guarda la identidad del titular sin cifrar")
+		return uuid.Nil, nucleo.NoDisponible("Falta IRIS_CLAVE_CIFRADO: Iris no guarda datos sensibles sin cifrar")
 	}
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -129,7 +156,7 @@ func GuardarTransito(ctx context.Context, t *auditoria.Tx, cif *nucleo.Cifrador,
 		return uuid.Nil, err
 	}
 	defer clear(llave)
-	ad := DatosAsociadosTransito(id, orden, empresa)
+	ad := DatosAsociadosTransitoDe(id, entidad, entidadID, empresa)
 	cifrado, err := sellar(llave, plano, ad)
 	if err != nil {
 		return uuid.Nil, err
@@ -139,7 +166,7 @@ func GuardarTransito(ctx context.Context, t *auditoria.Tx, cif *nucleo.Cifrador,
 		return uuid.Nil, err
 	}
 	return id, pendientesbd.New(t).GuardarTransito(ctx, pendientesbd.GuardarTransitoParams{
-		ID: id, EmpresaID: empresa, OrdenID: orden, Cifrado: cifrado, LlaveCifrada: llaveCifrada, TomadoEn: tomadoEn.UTC()})
+		ID: id, EmpresaID: empresa, Entidad: entidad, OrdenID: entidadID, Cifrado: cifrado, LlaveCifrada: llaveCifrada, TomadoEn: tomadoEn.UTC()})
 }
 
 // errVencido: el depósito ya se borró.
@@ -159,11 +186,11 @@ func (m *Modulo) leerTransito(ctx context.Context, q *pendientesbd.Queries, p pe
 	if m.cfg.Cifrador == nil {
 		return d, errors.New("sin IRIS_CLAVE_CIFRADO para abrir el depósito de tránsito")
 	}
-	orden, err := strconv.ParseInt(p.EntidadID, 10, 64)
-	if err != nil || p.Entidad != "orden" {
-		return d, errors.New("el depósito de tránsito no es de una orden")
+	entidadID, err := strconv.ParseInt(p.EntidadID, 10, 64)
+	if err != nil || p.Entidad != f.Entidad {
+		return d, errors.New("el depósito de tránsito no es de la entidad del pendiente")
 	}
-	ad := DatosAsociadosTransito(f.ID, orden, p.EmpresaID)
+	ad := DatosAsociadosTransitoDe(f.ID, p.Entidad, entidadID, p.EmpresaID)
 	llave, err := m.cfg.Cifrador.Descifrar(f.LlaveCifrada, ad)
 	if err != nil {
 		return d, errors.New("no se pudo abrir la llave del depósito de tránsito")
@@ -188,8 +215,17 @@ func borrarTransito(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integra
 
 // PurgarTransito borra los depósitos con más de 7 días (job diario ArgsPurgarTransito).
 func PurgarTransito(ctx context.Context, q *pendientesbd.Queries, ahora time.Time) (int64, error) {
-	return q.PurgarTransito(ctx, pendientesbd.PurgarTransitoParams{Ahora: &ahora, Antes: ahora.Add(-VigenciaTransito)})
+	n, err := q.PurgarTransito(ctx, pendientesbd.PurgarTransitoParams{Ahora: &ahora, Antes: ahora.Add(-VigenciaTransito)})
+	if err != nil {
+		return n, err
+	}
+	// La clave Wi-Fi de lo agotado no espera 7 días: a las 24 h (0.9.0 §12.1).
+	k, err := q.DescartarClavesAgotadas(ctx, pendientesbd.DescartarClavesAgotadasParams{Ahora: &ahora, Antes: ahora.Add(-VigenciaClaveAgotada)})
+	return n + k, err
 }
+
+// VigenciaClaveAgotada: la clave Wi-Fi de un pendiente agotado se descarta a las 24 h.
+const VigenciaClaveAgotada = 24 * time.Hour
 
 // esMultipart: A41 y A39 van en multipart/form-data.
 func esMultipart(operacion string) bool {

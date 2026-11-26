@@ -27,6 +27,9 @@ type EntradaCerrarOrden struct {
 	Resultado string   `json:"resultado,omitempty" enum:"exitosa,parcial" doc:"exitosa por defecto. Solo una instalación exitosa activa el servicio en Argos"`
 	Lat       *float64 `json:"lat,omitempty" minimum:"-90" maximum:"90"`
 	Lon       *float64 `json:"lon,omitempty" minimum:"-180" maximum:"180"`
+	// SinActivacionMotivo: un supervisor (ordenes.cerrar_sin_activacion) cierra una instalación
+	// exitosa sin la activación lista cuando la empresa la exige (contrato 0.9.0 §12.2).
+	SinActivacionMotivo *string `json:"sinActivacionMotivo,omitempty" minLength:"10" maxLength:"500" doc:"Solo con el modo «exigir la activación lista»: un supervisor (ordenes.cerrar_sin_activacion) cierra sin ella; un agente la termina desde el panel"`
 	// MotivoSinContratoFirmado: un supervisor cierra una instalación con el contrato regenerado sin firmar.
 	MotivoSinContratoFirmado *string `json:"motivoSinContratoFirmado,omitempty" minLength:"10" maxLength:"500" doc:"Solo desde el panel y con ordenes.validar_identidad (supervisor) sobre la orden: cierra la instalación aunque el titular no haya firmado el contrato regenerado (B20). Queda en la auditoría y avisa a supervisión (orden.contrato_sin_firma)"`
 	Sync                     *OpSync `json:"-"`
@@ -112,6 +115,21 @@ func supervisaOrden(ctx context.Context, f campobd.CampoOrden) bool {
 	return global || (f.ZonaID != nil && slices.Contains(zonas, *f.ZonaID)) || (f.CuadrillaID != nil && slices.Contains(cuadrillas, *f.CuadrillaID))
 }
 
+// alcanceDeRol: el permiso con el alcance de su rol sobre la orden (global, su zona o su cuadrilla),
+// nunca por ser el técnico asignado («propia»).
+func alcanceDeRol(ctx context.Context, perm nucleo.Permiso, f campobd.CampoOrden) bool {
+	a := contexto.ActorDe(ctx)
+	if !a.EsUsuario() || (f.TecnicoID != nil && *f.TecnicoID == a.ID) {
+		return false
+	}
+	p := contexto.PermisosDe(ctx)
+	if !p.Tiene(string(perm)) {
+		return false
+	}
+	global, zonas, cuadrillas := p.Alcances(string(perm))
+	return global || (f.ZonaID != nil && slices.Contains(zonas, *f.ZonaID)) || (f.CuadrillaID != nil && slices.Contains(cuadrillas, *f.CuadrillaID))
+}
+
 // cierreIncompleto: faltan requisitos de la plantilla o del tipo (422 con la lista).
 func cierreIncompleto(errores []nucleo.ErrorCampo) *nucleo.Problema {
 	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "cierre_incompleto", "Cierre incompleto",
@@ -173,12 +191,19 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 			if err := m.exigirIdentidad(ctx, t, q, antes, tipo.Codigo, resultado); err != nil {
 				return antes, "", err
 			}
-			// Y el contrato regenerado en la orden, firmado (o un supervisor cierra sin la firma).
+			// Requisitos del cierre, en este orden: el contrato regenerado firmado (B20) y después la
+			// activación y la bienvenida (0.9.0 §12.2). Se evalúan todos; el primero que falte responde.
 			if err := exigirContratoFirmado(ctx, t, q, antes, tipo.Codigo, in); err != nil {
 				return antes, "", err
 			}
 			if in.MotivoSinContratoFirmado != nil {
 				t.Anotar(map[string]any{"cierre_sin_contrato_firmado": true})
+			}
+			// Activación desde la orden (0.9.0 §12.2): con «exigir lista», la activación lista (o un
+			// supervisor con motivo); en cualquier modo, lo que el cierre le dice a la cola.
+			act, err := m.activacionAlCerrar(ctx, t, q, antes, tipo.Codigo, resultado, in.SinActivacionMotivo, in.Sync != nil)
+			if err != nil {
+				return antes, "", err
 			}
 			faltan, err := m.cfg.Adjuntos.Faltantes(ctx, antes.ID, requisitosAdjuntos(d))
 			if err != nil {
@@ -207,6 +232,7 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 				return f, "", err
 			}
 			payload := payloadCerrada(f, tipo.Codigo, d)
+			act.alPayload(payload)
 			var plantilla *campobd.CampoPlantillasChecklist
 			if f.PlantillaID != nil {
 				p, err := q.PlantillaPorID(ctx, *f.PlantillaID)
@@ -216,6 +242,19 @@ func (m *Modulo) nuevoCerrarOrden() *auditoria.Caso[EntradaCerrarOrden, Orden] {
 				plantilla = &p
 			}
 			payload["cargo"] = cargoDe(f, tipo, plantilla)
+			// El cobro de la instalación ya registrado desde la orden (0.9.0 §3, B15): el cierre no manda
+			// el de la plantilla (iris:cargo:<orden_id>).
+			// Con lineas[] (0.14.3) lo decide la cola al encolar, con la orden bloqueada: sale sin la línea
+			// de instalación y con las demás. La forma anterior no se puede partir: no sale.
+			if c, ok := payload["cargo"].(map[string]any); ok && c["lineas"] == nil && tipo.Codigo == tipoInstalacion {
+				registrado, err := cobroRegistrado(ctx, q, f.ID)
+				if err != nil {
+					return f, "", err
+				}
+				if registrado {
+					payload["cargo"] = nil
+				}
+			}
 			// El técnico en Argos (contrato 0.5.0 §3.3), congelado al cerrar: el vínculo de su ficha de
 			// agenda. null = sin vincular (la cola usa bodega_id, también con Argos < 1.6.0).
 			if payload["tecnico"], err = tecnicoArgos(ctx, q, f.TecnicoID); err != nil {
@@ -447,12 +486,17 @@ func AccesoAdjuntos(ctx context.Context, db campobd.DBTX, ordenID string, subir 
 // o, si no los trae, los del tipo); si no, el tipo. Formato que espera la cola de I1
 // (contratos/eventos.md): {producto_id?, monto? (> 0), descripcion?}. Un tipo o plantilla que
 // dice cobrar sin producto ni monto no cobra (la base lo impide en el tipo).
+//
+// Desde la 0.14.3, con un concepto de Argos (cargo_concepto_id del tipo o de la plantilla) y precio, el
+// cargo lleva el cuerpo real: { lineas: [{ concepto_id, precio_unitario, descripcion }], descripcion }.
+// Si ese concepto es el de instalación (codigo_sistema), la cola decide al encolar si la línea sale.
 func cargoDe(f campobd.CampoOrden, tipo campobd.CampoTiposOrden, plantilla *campobd.CampoPlantillasChecklist) map[string]any {
 	cobrar, producto, monto, descripcion := tipo.Cobrar, tipo.CargoProductoID, tipo.CargoMonto, tipo.CargoDescripcion
+	concepto := tipo.CargoConceptoID
 	if plantilla != nil && plantilla.Cobrar != nil {
 		cobrar = *plantilla.Cobrar
-		if plantilla.CargoProductoID != nil || plantilla.CargoMonto.Valid {
-			producto, monto = plantilla.CargoProductoID, plantilla.CargoMonto
+		if plantilla.CargoProductoID != nil || plantilla.CargoMonto.Valid || plantilla.CargoConceptoID != nil {
+			producto, monto, concepto = plantilla.CargoProductoID, plantilla.CargoMonto, plantilla.CargoConceptoID
 		}
 		if strings.TrimSpace(plantilla.CargoDescripcion) != "" {
 			descripcion = plantilla.CargoDescripcion
@@ -467,6 +511,11 @@ func cargoDe(f campobd.CampoOrden, tipo campobd.CampoTiposOrden, plantilla *camp
 		descripcion = tipo.Nombre
 	}
 	cargo := map[string]any{"descripcion": strings.TrimSpace(descripcion) + " (" + f.Numero + ")"}
+	if concepto != nil && conMonto {
+		cargo["lineas"] = []any{map[string]any{"concepto_id": *concepto,
+			"precio_unitario": strconv.FormatFloat(valor.Float64, 'f', 2, 64), "descripcion": cargo["descripcion"]}}
+		return cargo
+	}
 	if producto != nil {
 		cargo["producto_id"] = *producto
 	}

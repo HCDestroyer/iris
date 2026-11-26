@@ -110,12 +110,17 @@ func (m *Modulo) taparDocumentos(ctx context.Context, q *mensajeriabd.Queries, c
 // texto del mensaje (text.body y el pie de una imagen, un video o un documento): el resto del payload
 // (ids, teléfonos, marcas de tiempo, otros mensajes del mismo lote) no se toca.
 func taparEntranteMeta(ctx context.Context, q *mensajeriabd.Queries, canal int64, wamid string) error {
+	return taparEntranteMetaCon(ctx, q, canal, wamid, tapadorDocumentos)
+}
+
+// taparEntranteMetaCon tapa el texto del mensaje en el payload crudo con el tapador dado.
+func taparEntranteMetaCon(ctx context.Context, q *mensajeriabd.Queries, canal int64, wamid string, tapador func(string) (string, bool)) error {
 	filas, err := q.EntrantesDeMensaje(ctx, mensajeriabd.EntrantesDeMensajeParams{CanalID: canal, ProveedorID: wamid})
 	if err != nil {
 		return err
 	}
 	for _, f := range filas {
-		nuevo, cambio, err := payloadTapado(f.Payload, wamid)
+		nuevo, cambio, err := payloadTapadoCon(f.Payload, wamid, tapador)
 		if err != nil {
 			return err
 		}
@@ -132,10 +137,20 @@ func taparEntranteMeta(ctx context.Context, q *mensajeriabd.Queries, canal int64
 // payloadTapado devuelve el payload con el texto de ese mensaje tapado. UseNumber: los números del
 // payload (ids, marcas de tiempo) se reescriben tal como llegaron, sin pasar por float64.
 func payloadTapado(payload []byte, wamid string) ([]byte, bool, error) {
+	return payloadTapadoCon(payload, wamid, tapadorDocumentos)
+}
+
+// tapadorDocumentos tapa los documentos de identidad.
+func tapadorDocumentos(s string) (string, bool) {
+	t, crudos := taparDocumentosTexto(s)
+	return t, len(crudos) > 0
+}
+
+func payloadTapadoCon(payload []byte, wamid string, tapador func(string) (string, bool)) ([]byte, bool, error) {
 	var v any
 	dec := json.NewDecoder(bytes.NewReader(payload))
 	dec.UseNumber()
-	if dec.Decode(&v) != nil || !taparTextoDeMensaje(v, wamid) {
+	if dec.Decode(&v) != nil || !taparTextoDeMensaje(v, wamid, tapador) {
 		return nil, false, nil
 	}
 	nuevo, err := json.Marshal(v)
@@ -143,18 +158,18 @@ func payloadTapado(payload []byte, wamid string) ([]byte, bool, error) {
 }
 
 // taparTextoDeMensaje recorre el payload y tapa el texto del mensaje con ese id. Dice si cambió algo.
-func taparTextoDeMensaje(v any, wamid string) bool {
+func taparTextoDeMensaje(v any, wamid string, tapador func(string) (string, bool)) bool {
 	cambio := false
 	switch x := v.(type) {
 	case []any:
 		for _, h := range x {
-			cambio = taparTextoDeMensaje(h, wamid) || cambio
+			cambio = taparTextoDeMensaje(h, wamid, tapador) || cambio
 		}
 	case map[string]any:
 		if id, _ := x["id"].(string); id == wamid {
 			tapar := func(m map[string]any, campo string) {
 				if s, ok := m[campo].(string); ok {
-					if t, crudos := taparDocumentosTexto(s); len(crudos) > 0 {
+					if t, ok := tapador(s); ok {
 						m[campo], cambio = t, true
 					}
 				}
@@ -170,7 +185,7 @@ func taparTextoDeMensaje(v any, wamid string) bool {
 			return cambio
 		}
 		for _, h := range x {
-			cambio = taparTextoDeMensaje(h, wamid) || cambio
+			cambio = taparTextoDeMensaje(h, wamid, tapador) || cambio
 		}
 	}
 	return cambio

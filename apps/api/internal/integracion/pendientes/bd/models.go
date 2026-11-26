@@ -230,13 +230,75 @@ type AuditoriaCambio struct {
 	CreatedAt time.Time
 }
 
-type CampoAjuste struct {
-	ID                  int64
+type CampoActivacione struct {
+	ID                  uuid.UUID
+	OrdenID             int64
 	EmpresaID           *int64
-	TecnicosTomanLibres bool
+	ServicioID          int64
+	Intento             int32
+	IdempotencyKey      string
+	Origen              string
+	PedidoPor           *int64
+	Estado              string
+	EquipoTipo          string
+	EquipoSerie         *string
+	EquipoMac           *string
+	EquipoUnidadID      *int64
+	EquipoModelo        *string
+	Planta              []byte
+	Wireless            []byte
+	WifiSsid            *string
+	ConClaveWifi        bool
+	PendienteID         *int64
+	AprovisionamientoID *int64
+	Causa               *string
+	Reintentable        *bool
+	Detalle             *string
+	Pasos               []byte
+	ServicioEstado      *string
+	ConsultadoEn        *time.Time
+	ResueltoEn          *time.Time
+	EntranteID          *int64
 	Version             int32
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+}
+
+type CampoAjuste struct {
+	ID                    int64
+	EmpresaID             *int64
+	TecnicosTomanLibres   bool
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ActivacionModo        string
+	CierreExigeBienvenida bool
+}
+
+type CampoCobro struct {
+	ID              uuid.UUID
+	OrdenID         int64
+	EmpresaID       *int64
+	ServicioID      int64
+	ClienteID       int64
+	ConceptoID      int64
+	PrecioUnitario  pgtype.Numeric
+	PrecioPlantilla pgtype.Numeric
+	MotivoPrecio    *string
+	Descripcion     *string
+	RegistradoPor   *int64
+	Estado          string
+	IdempotencyKey  string
+	PendienteID     *int64
+	FacturaID       *int64
+	Numero          *string
+	Total           pgtype.Numeric
+	Moneda          *string
+	Detalle         *string
+	Version         int32
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	EsInstalacion   bool
 }
 
 type CampoDispositivo struct {
@@ -278,6 +340,20 @@ type CampoOperacionesSync struct {
 	OcurridoEn         *time.Time
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+}
+
+type CampoOrdenActivacion struct {
+	OrdenID             int64
+	EmpresaID           *int64
+	Intentos            int32
+	SinActivacionMotivo *string
+	SinActivacionPor    *int64
+	BienvenidaCanales   []byte
+	BienvenidaEn        *time.Time
+	BienvenidaReenvios  int32
+	Version             int32
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 type CampoOrdenAdjunto struct {
@@ -550,24 +626,29 @@ type CampoPlantillaVersione struct {
 }
 
 type CampoPlantillasChecklist struct {
-	ID               int64
-	Codigo           string
-	Nombre           string
-	TipoCodigo       *string
-	RequiereFirma    bool
-	Activa           bool
-	Version          int32
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
-	Cobrar           *bool
-	CargoProductoID  *int64
-	CargoMonto       pgtype.Numeric
-	CargoDescripcion string
-	EmpresaID        *int64
-	Descripcion      string
-	CreadoPor        *int64
-	VersionActualID  int64
-	AlgunaVezActiva  bool
+	ID                    int64
+	Codigo                string
+	Nombre                string
+	TipoCodigo            *string
+	RequiereFirma         bool
+	Activa                bool
+	Version               int32
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	Cobrar                *bool
+	CargoProductoID       *int64
+	CargoMonto            pgtype.Numeric
+	CargoDescripcion      string
+	EmpresaID             *int64
+	Descripcion           string
+	CreadoPor             *int64
+	VersionActualID       int64
+	AlgunaVezActiva       bool
+	ActivacionModo        *string
+	CierreExigeBienvenida *bool
+	CobroConceptoID       *int64
+	CobroPrecio           pgtype.Numeric
+	CargoConceptoID       *int64
 }
 
 type CampoPosicione struct {
@@ -623,6 +704,7 @@ type CampoTiposOrden struct {
 	CargoProductoID  *int64
 	CargoMonto       pgtype.Numeric
 	CargoDescripcion string
+	CargoConceptoID  *int64
 }
 
 type ComercialActividade struct {
@@ -958,6 +1040,9 @@ type IntegracionArgosCuentasBancaria struct {
 	SincronizadoEn time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+	CambiadaEn     *time.Time
+	ConfirmadaPor  *int64
+	ConfirmadaEn   *time.Time
 }
 
 type IntegracionArgosCuentasLectura struct {
@@ -1123,6 +1208,31 @@ type IntegracionAutorizacione struct {
 	UpdatedAt          time.Time
 }
 
+type IntegracionCambiosWifi struct {
+	ID             uuid.UUID
+	EmpresaID      *int64
+	ServicioID     int64
+	ClienteID      int64
+	OrigenTipo     string
+	OrigenID       string
+	Actor          string
+	UsuarioID      *int64
+	Metodo         string
+	VerificadoEn   time.Time
+	ConSsid        bool
+	ConClave       bool
+	IdempotencyKey string
+	VerificacionID *int64
+	PendienteID    *int64
+	SolicitudID    *int64
+	Estado         string
+	Causa          *string
+	Detalle        *string
+	EntranteID     *int64
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+}
+
 type IntegracionCodigosConexion struct {
 	ID         int64
 	Sistema    string
@@ -1136,42 +1246,44 @@ type IntegracionCodigosConexion struct {
 }
 
 type IntegracionConectore struct {
-	ID                          int64
-	Sistema                     string
-	BaseUrl                     string
-	Origen                      string
-	TokenCifrado                []byte
-	SecretoWebhookCifrado       []byte
-	RemotoID                    *string
-	Empresas                    []int64
-	Estado                      string
-	CreadoPor                   *int64
-	ActivadoEn                  *time.Time
-	ActivadoPor                 *int64
-	UltimoWebhookEn             *time.Time
-	Version                     int32
-	CreatedAt                   time.Time
-	UpdatedAt                   time.Time
-	UrlPublica                  *string
-	TokenEntregadoID            *int64
-	AlcanceGlobal               *bool
-	PanelUrl                    *string
-	VersionRemota               *string
-	ContratoRemoto              *string
-	ContratoInformado           *string
-	VersionConsultadaEn         *time.Time
-	WebhookSalidaUrl            *string
-	WebhookSalidaSecretoCifrado []byte
-	ReemplazaConectorID         *int64
-	ReemplazaTokenID            *int64
-	VersionEstado               *string
-	VersionDetalle              *string
-	EliminadoEn                 *time.Time
-	EliminadoPor                *int64
-	VinculosCargaID             pgtype.UUID
-	VinculosCargaN              *int32
-	VinculosCargadosEn          *time.Time
-	VinculosCargaAvisadaEn      *time.Time
+	ID                           int64
+	Sistema                      string
+	BaseUrl                      string
+	Origen                       string
+	TokenCifrado                 []byte
+	SecretoWebhookCifrado        []byte
+	RemotoID                     *string
+	Empresas                     []int64
+	Estado                       string
+	CreadoPor                    *int64
+	ActivadoEn                   *time.Time
+	ActivadoPor                  *int64
+	UltimoWebhookEn              *time.Time
+	Version                      int32
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+	UrlPublica                   *string
+	TokenEntregadoID             *int64
+	AlcanceGlobal                *bool
+	PanelUrl                     *string
+	VersionRemota                *string
+	ContratoRemoto               *string
+	ContratoInformado            *string
+	VersionConsultadaEn          *time.Time
+	WebhookSalidaUrl             *string
+	WebhookSalidaSecretoCifrado  []byte
+	ReemplazaConectorID          *int64
+	ReemplazaTokenID             *int64
+	VersionEstado                *string
+	VersionDetalle               *string
+	EliminadoEn                  *time.Time
+	EliminadoPor                 *int64
+	VinculosCargaID              pgtype.UUID
+	VinculosCargaN               *int32
+	VinculosCargadosEn           *time.Time
+	VinculosCargaAvisadaEn       *time.Time
+	CapacidadesAprovisionamiento []byte
+	CapacidadesEquipos           []byte
 }
 
 type IntegracionDatosTransito struct {
@@ -1184,6 +1296,7 @@ type IntegracionDatosTransito struct {
 	MotivoBorrado *string
 	CreatedAt     time.Time
 	LlaveCifrada  []byte
+	Entidad       string
 }
 
 type IntegracionEntrante struct {
@@ -1222,48 +1335,63 @@ type IntegracionOutbox struct {
 }
 
 type IntegracionPendiente struct {
-	ID                    int64
-	EmpresaID             *int64
-	Sistema               string
-	Operacion             string
-	IdempotencyKey        string
-	Entidad               string
-	EntidadID             string
-	Metodo                string
-	Ruta                  string
-	Payload               []byte
-	DependeDe             []int64
-	DatosIncompletos      bool
-	Estado                string
-	Intentos              int32
-	ProximoIntento        time.Time
-	TomadoEn              *time.Time
-	UltimoError           *string
-	UltimoStatus          *int32
-	HechoEn               *time.Time
-	EventoID              pgtype.UUID
-	Version               int32
-	CreatedAt             time.Time
-	UpdatedAt             time.Time
-	Conflicto             *string
-	ConflictoPayload      []byte
-	ConflictoEn           *time.Time
-	Respuesta             []byte
-	Plantilla             []byte
-	PorResolver           bool
-	Verificar             []string
-	TecnicoUsuarioID      *int64
-	CodigoError           *string
-	ResueltoMotivo        *string
-	ResueltoPor           *int64
-	ResueltoEn            *time.Time
-	Actor                 *string
-	TransitoID            pgtype.UUID
-	ResueltoComo          *string
-	ResueltoClienteID     *int64
-	EnviadoAConector      *int64
-	EsperandoVinculoDesde *time.Time
-	Contacto              *string
+	ID                     int64
+	EmpresaID              *int64
+	Sistema                string
+	Operacion              string
+	IdempotencyKey         string
+	Entidad                string
+	EntidadID              string
+	Metodo                 string
+	Ruta                   string
+	Payload                []byte
+	DependeDe              []int64
+	DatosIncompletos       bool
+	Estado                 string
+	Intentos               int32
+	ProximoIntento         time.Time
+	TomadoEn               *time.Time
+	UltimoError            *string
+	UltimoStatus           *int32
+	HechoEn                *time.Time
+	EventoID               pgtype.UUID
+	Version                int32
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	Conflicto              *string
+	ConflictoPayload       []byte
+	ConflictoEn            *time.Time
+	Respuesta              []byte
+	Plantilla              []byte
+	PorResolver            bool
+	Verificar              []string
+	TecnicoUsuarioID       *int64
+	CodigoError            *string
+	ResueltoMotivo         *string
+	ResueltoPor            *int64
+	ResueltoEn             *time.Time
+	Actor                  *string
+	TransitoID             pgtype.UUID
+	ResueltoComo           *string
+	ResueltoClienteID      *int64
+	EnviadoAConector       *int64
+	EsperandoVinculoDesde  *time.Time
+	Contacto               *string
+	EnvioSinRespuesta      bool
+	CargoTerminal          bool
+	PorConfirmar           bool
+	ConfirmadoMotivo       *string
+	ConfirmadoPor          *int64
+	ConfirmadoEn           *time.Time
+	ReemplazoDe            *int64
+	ReemplazadoPor         *int64
+	PrimerEnvioEn          *time.Time
+	FacturaID              *int64
+	EsperaConsumo          bool
+	FacturaPorAnularID     *int64
+	FacturaPorAnularMotivo *string
+	ExigePorAnular         bool
+	FacturaAnulada         bool
 }
 
 type IntegracionPortalArgosMinuto struct {
@@ -1477,6 +1605,7 @@ type MensajeriaAviso struct {
 	AvisoPadreID    pgtype.UUID
 	ContactoArgosID *int64
 	CopiasMotivo    *string
+	OrdenID         *int64
 }
 
 type MensajeriaBoleta struct {
@@ -2030,6 +2159,23 @@ type MensajeriaEleccionesCliente struct {
 	ClienteID      *int64
 	UsuarioID      *int64
 	CreadoEn       time.Time
+}
+
+type MensajeriaEnlacesWifi struct {
+	ID             uuid.UUID
+	Huella         []byte
+	EmpresaID      *int64
+	ConversacionID int64
+	ClienteID      int64
+	ServicioID     int64
+	VerificacionID int64
+	Metodo         string
+	VerificadoEn   time.Time
+	VenceEn        time.Time
+	UsadoEn        *time.Time
+	CambioID       pgtype.UUID
+	TokenCifrado   []byte
+	CreatedAt      time.Time
 }
 
 type MensajeriaEntrante struct {

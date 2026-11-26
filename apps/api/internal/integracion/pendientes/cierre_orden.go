@@ -140,6 +140,33 @@ type Equipo struct {
 	// EnviadoAlAplicar: el cambio o el intento ya se encoló al aplicarse la operación del lote
 	// (0.14.0 §3.10): el cierre solo lo resume.
 	EnviadoAlAplicar bool `json:"enviado_al_aplicar"`
+	// Aprovisionado (0.9.0 §12.2): es el equipo de un intento de activación vivo; Argos lo asigna en
+	// comodato al aprovisionar, así que el cierre no manda su POST /servicios/:id/equipos.
+	Aprovisionado bool `json:"aprovisionado"`
+}
+
+// consumosDe: producto → índices de los consumos encolados que lo llevan (todos) y de los que lo llevan
+// como consumible_cobro (cobro). Con Argos ≥ 0.14.0 hay un consumo por actor y bodega, así que un
+// producto puede ir en varios: el cargo depende de todos (B-2 de la revisión de seguridad de #286).
+type consumosDe struct {
+	todos, cobro map[int64][]int
+}
+
+func nuevoConsumosDe() consumosDe {
+	return consumosDe{todos: map[int64][]int{}, cobro: map[int64][]int{}}
+}
+
+func (c consumosDe) agregar(mat Material, indice int) {
+	if mat.ProductoID == nil {
+		return
+	}
+	k := int64(*mat.ProductoID)
+	if !slices.Contains(c.todos[k], indice) {
+		c.todos[k] = append(c.todos[k], indice)
+	}
+	if mat.Modalidad == argos.ModalidadConsumibleCobro && !slices.Contains(c.cobro[k], indice) {
+		c.cobro[k] = append(c.cobro[k], indice)
+	}
 }
 
 func deref64(v *int64) int64 {
@@ -216,11 +243,43 @@ type opcionesPlan struct {
 	notas        map[string]notasEquipo
 }
 
-// Cargo único que la orden indica cobrar.
+// ActivacionCerrada es orden.cerrada.activacion (0.9.0 §12.2).
+type ActivacionCerrada struct {
+	Modo                       string   `json:"modo"`
+	Estado                     string   `json:"estado"`
+	AprovisionamientoID        *IDArgos `json:"aprovisionamiento_id"`
+	CerradaSinActivacionMotivo *string  `json:"cerrada_sin_activacion_motivo"`
+}
+
+// porAprovisionar: la activación de esta orden va (o fue) por aprovisionar, no por
+// activar-instalacion: el modo no es «al cerrar» o hay un intento vivo. Sin el campo (un cierre
+// anterior a la 0.9.0), como siempre.
+func (a *ActivacionCerrada) porAprovisionar() bool {
+	if a == nil {
+		return false
+	}
+	if a.Modo != "" && a.Modo != "al_cerrar" {
+		return true
+	}
+	return a.Estado == "pendiente" || a.Estado == "en_proceso" || a.Estado == "listo"
+}
+
+// Cargo único que la orden indica cobrar. Desde la 0.14.3 lleva lineas[] con el cuerpo real de Argos
+// (POST /facturas/cargo-unico, igual que A36): { concepto_id, precio_unitario, descripcion? }. La
+// forma anterior (producto_id, monto) solo llega en cierres emitidos antes de esta versión y se
+// manda como entonces.
 type Cargo struct {
-	ProductoID  *IDArgos    `json:"producto_id"`
-	Monto       json.Number `json:"monto"`
-	Descripcion string      `json:"descripcion"`
+	Lineas      []LineaCargo `json:"lineas"`
+	ProductoID  *IDArgos     `json:"producto_id"`
+	Monto       json.Number  `json:"monto"`
+	Descripcion string       `json:"descripcion"`
+}
+
+// LineaCargo es una línea del cargo (un concepto de GET /conceptos-cargo y su precio bruto).
+type LineaCargo struct {
+	ConceptoID     *IDArgos    `json:"concepto_id"`
+	PrecioUnitario json.Number `json:"precio_unitario"`
+	Descripcion    string      `json:"descripcion"`
 }
 
 // OrdenCerrada es el payload de orden.cerrada que necesita esta cola.
@@ -239,9 +298,14 @@ type OrdenCerrada struct {
 	Materiales      []Material    `json:"materiales"`
 	Equipos         []Equipo      `json:"equipos"`
 	Cargo           *Cargo        `json:"cargo"`
+	// Activacion (0.9.0 §12.2): modo y estado de la activación desde la orden; null en otros tipos.
+	Activacion *ActivacionCerrada `json:"activacion"`
 
 	// EventoID del outbox (no viene en el payload).
 	EventoID uuid.UUID `json:"-"`
+	// conceptoInstalacion: el concepto con codigo_sistema "instalacion" de la empresa, leído de Argos
+	// fuera de la transacción (0 = no se pudo leer).
+	conceptoInstalacion int64
 }
 
 // ResultadoCierre: qué se encoló.
@@ -269,6 +333,13 @@ type plan struct {
 	// externos: pendientes ya encolados (los pasos del titular, §3.4) que también deben estar
 	// hechos antes; van en depende_de después de los de depende.
 	externos []int64
+	// lineas: las líneas del cargo (0.14.3); se filtra la de instalación al encolar, con la orden
+	// bloqueada, y quedan fijas en el cuerpo.
+	lineas []map[string]any
+	// anterior: cargo de la forma anterior a la 0.14.3 (producto_id, monto).
+	anterior bool
+	// esperaConsumo: cargo de un consumible_cobro del consumo; nunca sale (lo cobra Argos con el consumo).
+	esperaConsumo bool
 }
 
 // MotivoTitularResueltoAMano: el último cambio de titular de la orden se resolvió a mano en Argos y
@@ -335,6 +406,12 @@ const (
 	// MotivoMaterialComodato: un material de modalidad comodato no va en el consumo (422
 	// producto_es_comodato): se registra como equipo, con serie, por POST /servicios/:id/equipos.
 	MotivoMaterialComodato = "material_comodato"
+	// MotivoConsumibleCobro: el cargo (forma anterior a la 0.14.3) es de un producto consumible_cobro
+	// del consumo: lo cobra Argos con el consumo (§3.3), no va en el cargo.
+	MotivoConsumibleCobro = "consumible_cobro"
+	// MotivoCargoSinLineas: el cargo del cierre se quedó sin líneas al quitar la de instalación (un
+	// cobro de A36 vigente con ella o cobro_equipo en false): no sale (0.14.3 §3).
+	MotivoCargoSinLineas = "cargo_sin_lineas"
 )
 
 func origen(ordenID string) map[string]any {
@@ -614,7 +691,8 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	// Equipos instalados (comodato): instalación y segundo paso del cambio de equipo.
 	instalados := func(depende []int) {
 		for _, e := range o.Equipos {
-			if e.Accion != AccionInstalar {
+			if e.Accion != AccionInstalar || e.Aprovisionado {
+				// El equipo aprovisionado ya lo asignó Argos en comodato (0.9.0 §12.2): no se repite.
 				continue
 			}
 			p := plan{
@@ -637,10 +715,14 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	if o.Resultado == ResultadoExitosa {
 		switch o.Tipo {
 		case TipoInstalacion:
-			agregar(faltaServicio(plan{
-				operacion: OpActivarInstalacion, clave: "iris:instalacion:" + orden,
-				ruta: "/servicios/" + sid + "/activar-instalacion", payload: origen(orden),
-			}))
+			// Con la activación desde la orden (0.9.0 §12.2) el cierre no manda activar-instalacion:
+			// Argos activa al aprovisionar (o lo hará un agente desde el panel).
+			if !o.Activacion.porAprovisionar() {
+				agregar(faltaServicio(plan{
+					operacion: OpActivarInstalacion, clave: "iris:instalacion:" + orden,
+					ruta: "/servicios/" + sid + "/activar-instalacion", payload: origen(orden),
+				}))
+			}
 			instalados(nil)
 		case TipoRetiro:
 			retirados()
@@ -661,7 +743,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	// consumosPorActor (Argos ≥ 0.14.0, §3.9): un consumo por actor y bodega, con
 	// iris:consumo:<orden>:<usuario_id>:<bodega_id>. Lo de la app lleva tecnico (el I1 de ese usuario)
 	// + bodega_id + su X-Iris-Actor; lo del panel, solo bodega_id (tipo bodega). Nunca a nombre de otro.
-	consumosPorActor := func(materiales []Material, consumoDe map[int64]int) {
+	consumosPorActor := func(materiales []Material, consumoDe consumosDe) {
 		type grupo struct {
 			usuario, bodega int64
 		}
@@ -697,9 +779,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 				case !positivo:
 					p.incompleto = MotivoCantidadNoPositiva
 				}
-				if mat.ProductoID != nil {
-					consumoDe[int64(*mat.ProductoID)] = len(planes)
-				}
+				consumoDe.agregar(mat, len(planes))
 				lin = append(lin, map[string]any{"producto_id": mat.ProductoID, "cantidad": cant})
 			}
 			var bodega *IDArgos
@@ -751,7 +831,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 	// Materiales usados (cualquier tipo y resultado): un consumo por orden (lineas[], 0.5.0) desde la
 	// bodega del técnico o una bodega. Solo consumibles: un comodato va como equipo (se omite).
 	// enConsumo: producto → índice del consumo que lo lleva (el cargo de ese producto lo espera).
-	consumoDe := map[int64]int{}
+	consumoDe := nuevoConsumosDe()
 	// Productos del consumo (cualquier modalidad consumible): un cargo de la orden con uno de ellos
 	// espera al consumo; si Argos ya lo cobró por modalidad, responde 409 cargo_duplicado (conciliado).
 	var comodatos []string
@@ -840,9 +920,7 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 			if b != nil && bodega == nil {
 				bodega = b
 			}
-			if mat.ProductoID != nil {
-				consumoDe[int64(*mat.ProductoID)] = len(planes)
-			}
+			consumoDe.agregar(mat, len(planes))
 			linea := map[string]any{"producto_id": mat.ProductoID, "cantidad": cant}
 			lineas = append(lineas, linea)
 		}
@@ -872,17 +950,62 @@ func planificar(o OrdenCerrada, op opcionesPlan) ([]plan, []omision) {
 		agregar(faltaServicio(p))
 	}
 
-	// Cargo único si la orden lo indica.
-	if o.Cargo != nil {
+	// Cargo único si la orden lo indica. Una instalación con la forma anterior y solo monto se cobra con
+	// el concepto de instalación de la empresa (codigo_sistema), si Argos lo informó (0.14.3 §3).
+	if o.Cargo != nil && len(o.Cargo.Lineas) == 0 && o.Tipo == TipoInstalacion && o.conceptoInstalacion > 0 && o.Cargo.ProductoID == nil {
+		if _, ok, _ := numero(o.Cargo.Monto); ok {
+			c := IDArgos(o.conceptoInstalacion)
+			o.Cargo = &Cargo{Descripcion: o.Cargo.Descripcion,
+				Lineas: []LineaCargo{{ConceptoID: &c, PrecioUnitario: o.Cargo.Monto, Descripcion: o.Cargo.Descripcion}}}
+		}
+	}
+	if o.Cargo != nil && len(o.Cargo.Lineas) > 0 {
+		// 0.14.3: lineas[] (cuerpo real de Argos). La línea de instalación se decide al encolar.
 		p := plan{operacion: OpCargo, clave: "iris:cargo:" + orden, ruta: "/facturas/cargo-unico",
 			payload: con(origen(orden), map[string]any{"cliente_id": o.ClienteID, "servicio_id": o.ServicioID})}
+		for _, l := range o.Cargo.Lineas {
+			precio, ok, positivo := numero(l.PrecioUnitario)
+			switch {
+			case l.ConceptoID == nil:
+				p.incompleto = "línea del cargo sin concepto_id"
+			case !ok:
+				p.incompleto = "línea del cargo sin precio_unitario numérico"
+			case !positivo:
+				p.incompleto = MotivoMontoNoPositivo
+			}
+			// precio_unitario: string decimal (bruto con IVA), como en A36.
+			linea := map[string]any{"concepto_id": l.ConceptoID, "precio_unitario": argos.PrecioCanonico(precio.String())}
+			if d := strings.TrimSpace(l.Descripcion); d != "" {
+				linea["descripcion"] = d
+			}
+			p.lineas = append(p.lineas, linea)
+		}
+		p.payload["lineas"] = p.lineas
+		if o.ClienteID == nil && p.incompleto == "" {
+			p.incompleto = "cargo sin cliente_id"
+		}
+		agregar(p)
+	} else if o.Cargo != nil {
+		// Forma anterior a la 0.14.3 (producto_id, monto).
+		p := plan{operacion: OpCargo, clave: "iris:cargo:" + orden, ruta: "/facturas/cargo-unico",
+			payload: con(origen(orden), map[string]any{"cliente_id": o.ClienteID, "servicio_id": o.ServicioID})}
+		p.anterior = true
+		if o.Cargo.ProductoID != nil && len(consumoDe.cobro[int64(*o.Cargo.ProductoID)]) > 0 {
+			// Un consumible_cobro lo cobra Argos con el consumo (§3.3): nunca sale. Queda esperando al
+			// consumo: resuelto si el consumo confirma el cobro; si no, visible al supervisor.
+			p.esperaConsumo = true
+		}
 		if o.Cargo.ProductoID != nil {
 			p.payload["producto_id"] = o.Cargo.ProductoID
 			// Mismo producto en el consumo: el cargo va después del consumo (nunca se descarta: el consumo
 			// puede fallar o el producto cambiar de modalidad); si Argos ya lo cobró por modalidad,
 			// responde 409 cargo_duplicado y se concilia como hecho (§3.3).
-			if c, ok := consumoDe[int64(*o.Cargo.ProductoID)]; ok {
-				p.depende = []int{c}
+			// Con varios consumos (uno por actor y bodega), de todos: el que espera el cobro, de todos los que
+			// lo llevan como consumible_cobro (la confirmación los mira todos, cobro.go).
+			if p.esperaConsumo {
+				p.depende = append([]int{}, consumoDe.cobro[int64(*o.Cargo.ProductoID)]...)
+			} else {
+				p.depende = append([]int{}, consumoDe.todos[int64(*o.Cargo.ProductoID)]...)
 			}
 		}
 		monto, montoOK, montoPositivo := numero(o.Cargo.Monto)
@@ -1062,7 +1185,6 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 			t.FijarEmpresa(empresa)
 			registrado := false
 			if m.cfg.Argos != nil {
-				var err error
 				if registrado, err = m.cfg.Argos.HayConectorRegistrado(ctx, t); err != nil {
 					return res, err
 				}
@@ -1078,6 +1200,11 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					"orden", orden, "operaciones", ops)
 				res.Omitido = true
 				return res, t.Emitir(EventoOmitido, eventoOmitido{OrdenID: orden, Motivo: "sin_conector", Operaciones: ops})
+			}
+			// Cobro de la instalación (0.14.3 §3): con la orden bloqueada, el cargo sale sin la línea de
+			// instalación si hay un cobro de A36 vigente con ella o la empresa no tiene cobro_equipo.
+			if planes, omisiones, err = m.lineaInstalacion(ctx, t, o, planes, omisiones); err != nil {
+				return res, err
 			}
 			for _, om := range omisiones {
 				slog.WarnContext(ctx, "pendientes: parte de la orden no se manda a Argos", "orden", orden, "motivo", om.motivo, "operaciones", om.operaciones)
@@ -1153,7 +1280,7 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 					}
 					ids[i] = previo.ID
 					res.Pendientes = append(res.Pendientes, previo.ID)
-					corregido, err := m.cierreRepetido(ctx, t, previo, p, cuerpo, depende, ahora, tecnicoUsuario)
+					corregido, err := m.cierreRepetido(ctx, t, previo, p, cuerpo, depende, ahora, tecnicoUsuario, o.conceptoInstalacion)
 					if err != nil {
 						return res, err
 					}
@@ -1168,6 +1295,12 @@ func nuevoEncolarCierreOrden(m *Modulo) *auditoria.Caso[OrdenCerrada, ResultadoC
 				ids[i] = f.ID
 				res.Pendientes = append(res.Pendientes, f.ID)
 				nuevos++
+				if p.esperaConsumo && f.Estado == EstadoPendiente {
+					// Nunca sale: espera a que el consumo confirme el cobro del consumible_cobro.
+					if f, err = q.FijarEsperaConsumo(ctx, f.ID); err != nil {
+						return res, err
+					}
+				}
 				t.RegistrarCambios("pendiente", f.ID, nil, map[string]any{"operacion": f.Operacion, "estado": f.Estado, "idempotency_key": f.IdempotencyKey})
 				if f.Estado == EstadoFallidoNegocio {
 					if err := t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(f), Detalle: *ultimo}); err != nil {
@@ -1218,9 +1351,172 @@ func (m *Modulo) Suscribir(bus *integracion.Bus) {
 			o.EmpresaID = e.EmpresaID
 		}
 		o.EventoID = e.ID
+		if o.Cargo != nil && (len(o.Cargo.Lineas) > 0 || o.Tipo == TipoInstalacion) && m.cfg.Argos != nil && o.EmpresaID != nil {
+			// El concepto de instalación de la empresa (codigo_sistema, 0.14.3 §4.3), fuera de la
+			// transacción. Si no se puede leer, el cargo igual se decide con los cobros de A36 vigentes.
+			if id, err := m.cfg.Argos.ConceptoInstalacion(ctx, *o.EmpresaID); err == nil {
+				o.conceptoInstalacion = id
+			} else {
+				slog.WarnContext(ctx, "pendientes: no se pudo leer el concepto de instalación de Argos", "orden", o.OrdenID, "err", err)
+			}
+		}
+		if o.Activacion != nil && o.Activacion.Estado == ActivadoFuera && o.ServicioID != nil && m.cfg.Argos != nil {
+			// Activado fuera de la orden (0.14.3): solo la unidad que Argos tiene en el servicio ya está en
+			// comodato; las demás se mandan. Sin la lectura, se mandan todas (Argos rechaza la repetida).
+			if eq, err := m.cfg.Argos.LeerEquipo(ctx, int64(*o.ServicioID), "", false); err == nil {
+				for i := range o.Equipos {
+					if o.Equipos[i].Accion == AccionInstalar && mismaUnidad(o.Equipos[i], eq) {
+						o.Equipos[i].Aprovisionado = true
+					}
+				}
+			} else {
+				slog.WarnContext(ctx, "pendientes: no se pudo leer el equipo del servicio activado fuera de la orden", "orden", o.OrdenID, "err", err)
+			}
+		}
 		_, err := m.EncolarCierreOrden.Ejecutar(ctx, o)
 		return err
 	})
+}
+
+// ActivadoFuera: orden.cerrada.activacion.estado cuando el servicio se activó fuera de la orden.
+const ActivadoFuera = "activado_fuera"
+
+// mismaUnidad: el equipo de la orden es el que Argos tiene en el servicio (serie o MAC).
+func mismaUnidad(e Equipo, eq argos.EstadoEquipo) bool {
+	if eq.Serie != nil && strings.TrimSpace(e.Serie) != "" && strings.EqualFold(strings.TrimSpace(e.Serie), strings.TrimSpace(*eq.Serie)) {
+		return true
+	}
+	mac := func(s string) string {
+		return strings.ToUpper(strings.NewReplacer(":", "", "-", "", ".", "", " ", "").Replace(s))
+	}
+	return eq.MAC != nil && mac(e.MAC) != "" && mac(e.MAC) == mac(*eq.MAC)
+}
+
+// lineaInstalacion decide, con la orden bloqueada (FOR UPDATE, igual que el registro de A36), qué
+// sale del cargo del cierre (0.14.3 §3); dos cargos vigentes con la línea de instalación nunca conviven:
+//
+//   - lineas[]: sin las líneas del concepto de un cobro de A36 vigente (la misma línea no se cobra dos
+//     veces), y sin la de instalación (concepto con codigo_sistema) si hay un cobro de A36 de instalación
+//     vigente o la empresa tiene cobro_equipo: false. Sin el concepto de instalación conocido no se quita
+//     nada a ciegas: con un cobro de A36 de instalación vigente, el cargo nace por resolver (visible).
+//     Si no queda ninguna línea, no sale (pendiente_omitido cargo_sin_lineas).
+//   - forma anterior en una instalación: se supone que lleva la instalación (falla cerrado); con un cobro
+//     de A36 de instalación vigente no sale (pendiente_omitido cobro_a36_vigente).
+//
+// El cuerpo queda fijo.
+func (m *Modulo) lineaInstalacion(ctx context.Context, t *auditoria.Tx, o OrdenCerrada, planes []plan, omisiones []omision) ([]plan, []omision, error) {
+	idx := -1
+	for i, p := range planes {
+		if p.operacion == OpCargo {
+			idx = i
+		}
+	}
+	if idx < 0 {
+		return planes, omisiones, nil
+	}
+	q := pendientesbd.New(t)
+	var a36 []pendientesbd.CobrosA36VigentesRow
+	if orden, err := strconv.ParseInt(string(o.OrdenID), 10, 64); err == nil {
+		if _, err := q.BloquearOrdenCampo(ctx, orden); err == nil {
+			if a36, err = q.CobrosA36Vigentes(ctx, orden); err != nil {
+				return nil, nil, err
+			}
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, err
+		}
+	}
+	var err error
+	repetidos := map[int64]bool{}
+	instalacionVigente := false
+	for _, c := range a36 {
+		repetidos[c.ConceptoID] = true
+		instalacionVigente = instalacionVigente || c.EsInstalacion
+	}
+	p := &planes[idx]
+	quitar := func(motivo string) ([]plan, []omision, error) {
+		t.Anotar(map[string]any{"cargo_omitido": motivo})
+		omisiones = append(omisiones, omision{motivo: motivo, operaciones: []string{p.clave}})
+		return append(planes[:idx], planes[idx+1:]...), omisiones, nil
+	}
+	if p.anterior {
+		if o.Tipo == TipoInstalacion && instalacionVigente {
+			return quitar(MotivoCobroA36Vigente)
+		}
+		return planes, omisiones, nil
+	}
+	if p.lineas == nil {
+		return planes, omisiones, nil
+	}
+	cobro := true
+	if m.cfg.Argos != nil {
+		if cobro, err = m.cfg.Argos.Aprovisionamiento(ctx, t, o.EmpresaID, argos.Funcion(argos.FuncionCobroEquipo)); err != nil {
+			return nil, nil, err
+		}
+	}
+	quitarConceptos := map[int64]bool{}
+	for c := range repetidos {
+		quitarConceptos[c] = true
+	}
+	if (instalacionVigente || !cobro) && o.conceptoInstalacion > 0 {
+		quitarConceptos[o.conceptoInstalacion] = true
+	}
+	quedan := SinLineaInstalacion(p.lineas, quitarConceptos)
+	if instalacionVigente && o.conceptoInstalacion <= 0 && len(quedan) > 0 && p.incompleto == "" {
+		// No se sabe si alguna de las líneas que quedan es la de instalación: no sale solo.
+		p.incompleto = MotivoInstalacionDesconocida
+	}
+	if len(quedan) == len(p.lineas) {
+		return planes, omisiones, nil
+	}
+	t.Anotar(map[string]any{"cargo_sin_lineas_repetidas": len(p.lineas) - len(quedan)})
+	if len(quedan) == 0 {
+		return quitar(MotivoCargoSinLineas)
+	}
+	p.lineas = quedan
+	p.payload["lineas"] = quedan
+	return planes, omisiones, nil
+}
+
+// Motivos del cargo del cierre frente a un cobro de A36 (0.14.3 §3).
+const (
+	// MotivoCobroA36Vigente: un cargo de la forma anterior de una instalación con un cobro de A36 vigente.
+	MotivoCobroA36Vigente = "cobro_a36_vigente"
+	// MotivoInstalacionDesconocida: hay un cobro de A36 de instalación vigente y Argos no informó qué
+	// concepto es el de instalación: el cargo queda por resolver (no sale solo).
+	MotivoInstalacionDesconocida = "concepto_instalacion_desconocido_con_cobro_a36_vigente"
+)
+
+// SinLineaInstalacion: las líneas cuyo concepto_id no está en instalacion.
+func SinLineaInstalacion(lineas []map[string]any, instalacion map[int64]bool) []map[string]any {
+	quedan := make([]map[string]any, 0, len(lineas))
+	for _, l := range lineas {
+		if c, ok := conceptoDe(l["concepto_id"]); ok && instalacion[c] {
+			continue
+		}
+		quedan = append(quedan, l)
+	}
+	return quedan
+}
+
+// conceptoDe lee un concepto_id de una línea (del plan o de un cuerpo ya guardado).
+func conceptoDe(v any) (int64, bool) {
+	switch x := v.(type) {
+	case *IDArgos:
+		if x == nil {
+			return 0, false
+		}
+		return int64(*x), true
+	case IDArgos:
+		return int64(x), true
+	case float64:
+		return int64(x), x == float64(int64(x))
+	case json.Number:
+		n, err := x.Int64()
+		return n, err == nil
+	case int64:
+		return x, true
+	}
+	return 0, false
 }
 
 // cierreRepetido decide qué hacer cuando la orden se cierra de nuevo y la acción ya existía
@@ -1237,16 +1533,38 @@ func (m *Modulo) Suscribir(bus *integracion.Bus) {
 //
 // Devuelve true si el pendiente volvió a la cola.
 func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pendientesbd.IntegracionPendiente, p plan,
-	cuerpo []byte, depende []int64, ahora time.Time, actor *int64) (bool, error) {
+	cuerpo []byte, depende []int64, ahora time.Time, actor *int64, concepto int64) (bool, error) {
 	// El actor es parte de la huella (A-271-1): el mismo cuerpo con otro X-Iris-Actor no es el mismo.
 	mismoActor := (previo.TecnicoUsuarioID == nil && actor == nil) ||
 		(previo.TecnicoUsuarioID != nil && actor != nil && *previo.TecnicoUsuarioID == *actor) || !p.conActor
 	q := pendientesbd.New(t)
+	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && p.incompleto == "" && previo.Operacion == OpCargo {
+		// Corregir un cargo incompleto lo revive: nunca si ya hay otro cobro vigente con la línea de
+		// instalación (0.14.3 §3; la orden ya está bloqueada).
+		if otro, err := otraInstalacionVigente(ctx, q, previo, cuerpo, concepto); err != nil {
+			return false, err
+		} else if otro {
+			t.Anotar(map[string]any{"correccion_omitida": MotivoCobroA36Vigente})
+			return false, t.Emitir(EventoOmitido, eventoOmitido{OrdenID: previo.EntidadID, Motivo: MotivoCobroA36Vigente,
+				Operaciones: []string{previo.IdempotencyKey}})
+		}
+	}
+	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && deref(previo.CodigoError) == CodigoConsumibleSinConfirmar {
+		// Bajo 2: el consumo no confirmó el cobro del consumible_cobro; un cierre repetido no lo revive (lo
+		// resuelve el supervisor).
+		return false, nil
+	}
 	if previo.Estado == EstadoFallidoNegocio && previo.DatosIncompletos && p.incompleto == "" {
 		f, err := q.CorregirPendiente(ctx, pendientesbd.CorregirPendienteParams{Payload: cuerpo, Ruta: p.ruta, DependeDe: depende, Ahora: ahora, ID: previo.ID,
 			TecnicoUsuarioID: actor})
 		if err != nil {
 			return false, err
+		}
+		if p.esperaConsumo && f.Estado == EstadoPendiente {
+			// Corregido, sigue sin salir: espera a que el consumo confirme el cobro.
+			if f, err = q.FijarEsperaConsumo(ctx, f.ID); err != nil {
+				return false, err
+			}
 		}
 		t.RegistrarCambios("pendiente", f.ID,
 			map[string]any{"estado": previo.Estado, "ruta": previo.Ruta, "payload": string(sinNotas(previo.Payload)), "datos_incompletos": true},
@@ -1279,6 +1597,9 @@ func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pen
 	return false, t.Emitir(EventoConflicto, eventoConflicto{eventoPendiente: eventoDe(f), Estado: f.Estado, Motivo: motivo,
 		PayloadAnterior: anterior, PayloadNuevo: nuevo})
 }
+
+// CodigoConsumibleSinConfirmar: el consumo no confirmó el cobro del consumible_cobro del cargo.
+const CodigoConsumibleSinConfirmar = "consumible_cobro_sin_confirmar"
 
 // ConflictoCierreRepetido: la orden se volvió a cerrar con otros datos para una acción que no se
 // puede pisar.

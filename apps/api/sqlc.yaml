@@ -80,6 +80,13 @@ sql:
         package: pendientesbd
         out: internal/integracion/pendientes/bd
   - <<: *base
+    queries: internal/integracion/equipos/consultas.sql
+    gen:
+      go:
+        <<: *gen
+        package: equiposbd
+        out: internal/integracion/equipos/bd
+  - <<: *base
     queries: [internal/soporte/consultas.sql, internal/soporte/consultas_correo.sql, internal/soporte/consultas_horus.sql, internal/soporte/consultas_red.sql,
       internal/soporte/consultas_portal.sql, internal/soporte/consultas_encuestas.sql]
     gen:
@@ -90,7 +97,7 @@ sql:
         rename:
           soporte_buzone: SoporteBuzon
   - <<: *base
-    queries: internal/campo/consultas.sql
+    queries: [internal/campo/consultas.sql, internal/campo/consultas_equipos.sql]
     gen:
       go:
         <<: *gen

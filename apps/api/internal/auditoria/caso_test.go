@@ -305,6 +305,8 @@ func TestMascara(t *testing.T) {
 		"contrasena": true, "contrasenaHash": true, "token": true, "csrf_token": true, "totp_secreto": true,
 		"firma": true, "token_id": false, "tokenId": false, "nombre": false, "correo": false, "prefijo": false,
 		"firmanteDocumento": true, "firmante_documento": true, "documentoNumero": true, "documento_tipo": false, "firmante_nombre": false,
+		// El nombre del Wi-Fi del cliente (0.9.0 §12); no la marca de presencia con_ssid.
+		"ssid": true, "SSID": true, "wifi_ssid": true, "ssidNuevo": true, "con_ssid": false, "conSsid": false,
 	}
 	for campo, esperado := range casos {
 		if auditoria.EsCampoSensible(campo) != esperado {

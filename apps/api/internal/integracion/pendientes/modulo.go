@@ -52,6 +52,7 @@ const (
 	EventoOmitido        = "integracion.pendiente_omitido"
 	EventoReintentado    = "integracion.pendiente_reintentado"
 	EventoCorregido      = "integracion.pendiente_corregido"
+	EventoClienteFijado  = "integracion.pendiente_cliente_fijado"
 	EventoConflicto      = "integracion.pendiente_conflicto"
 	EventoBloqueado      = "integracion.pendiente_bloqueado"
 	EventoDesbloqueado   = "integracion.pendiente_desbloqueado"
@@ -93,13 +94,15 @@ type Modulo struct {
 	cfg Config
 
 	Listar             *auditoria.Caso[EntradaListar, nucleo.Pagina[Pendiente]]
-	Reintentar         *auditoria.Caso[EntradaReintentar, Pendiente]
+	Reintentar         *Reintentador
 	ResolverManual     *CasoResolverManual
 	EncolarCierreOrden *auditoria.Caso[OrdenCerrada, ResultadoCierre]
+	confirmarCobro     *auditoria.Caso[EntradaConfirmarCobro, Pendiente]
+	quitarPorAnular    *auditoria.Caso[EntradaQuitarPorAnular, Pendiente]
 	bloquearPorVinculo *auditoria.Caso[entradaBloqueoVinculo, bool]
 	desbloquearVinculo *auditoria.Caso[entradaDesbloqueoVinculo, bool]
 	resolver           *auditoria.Caso[resultadoIntento, Pendiente]
-	resolverListos     *auditoria.Caso[time.Time, int]
+	resolverListos     *auditoria.Caso[atascado, int]
 	armarIntento       *auditoria.Caso[entradaArmarIntento, string]
 	verificarIntento   *auditoria.Caso[EntradaVerificarIntento, VerificacionIntento]
 }
@@ -114,18 +117,20 @@ func Nuevo(cfg Config) *Modulo {
 	}
 	m := &Modulo{cfg: cfg}
 	m.Listar = nuevoListar(m)
-	m.Reintentar = nuevoReintentar(m)
+	m.Reintentar = &Reintentador{m: m, caso: nuevoReintentar(m)}
 	m.ResolverManual = &CasoResolverManual{m: m, caso: nuevoResolverManual(m)}
 	m.EncolarCierreOrden = nuevoEncolarCierreOrden(m)
+	m.confirmarCobro = nuevoConfirmarCobro(m)
+	m.quitarPorAnular = nuevoQuitarPorAnular(m)
 	m.resolver = nuevoResolver(m)
 	m.bloquearPorVinculo, m.desbloquearVinculo = nuevoBloquearPorVinculo(), nuevoDesbloquearPorVinculo()
 	m.armarIntento = m.nuevoArmarIntento()
 	m.verificarIntento = m.nuevoVerificarIntento()
-	m.resolverListos = auditoria.Nuevo(auditoria.Caso[time.Time, int]{
+	m.resolverListos = auditoria.Nuevo(auditoria.Caso[atascado, int]{
 		Accion: "integraciones.resolver_pendientes", Acceso: auditoria.Autenticado,
 		AuditarExito: func(n int) bool { return n > 0 },
-		Logica: func(ctx context.Context, t *auditoria.Tx, ahora time.Time) (int, error) {
-			return resolverAtascados(ctx, t, ahora)
+		Logica: func(ctx context.Context, t *auditoria.Tx, a atascado) (int, error) {
+			return resolverAtascado(ctx, t, a)
 		},
 	})
 	return m

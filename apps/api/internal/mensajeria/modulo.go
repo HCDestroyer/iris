@@ -193,8 +193,11 @@ type Modulo struct {
 
 	EnviarAviso *EnviarAviso
 	// ReenviarWebhook vuelve a la cola un webhook agotado hacia Argos (0.14.0 §6.6).
-	ReenviarWebhook         *auditoria.Caso[EntradaReenviarWebhook, WebhookSalida]
-	VerAviso                *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
+	ReenviarWebhook *auditoria.Caso[EntradaReenviarWebhook, WebhookSalida]
+	VerAviso        *auditoria.Caso[EntradaVerAviso, AvisoDetalle]
+	// Enlace de un solo uso para cambiar el Wi-Fi (asistente_equipos.go; 0.9.0 §12.4, B14).
+	VerEnlaceWifi           *auditoria.Caso[string, EnlaceWifiPublico]
+	UsarEnlaceWifi          *auditoria.Caso[EntradaWifiPublico, WifiPedido]
 	RegistrarConsentimiento *RegistrarConsentimiento
 	ListarPlantillas        *auditoria.Caso[EntradaPlantillas, ListaPlantillas]
 	// PlantillasArgos: lo que Argos lee de las plantillas de WhatsApp de una empresa (§6.7, B32).
@@ -452,6 +455,8 @@ func Nuevo(cfg Config) *Modulo {
 	m.Centralita = nuevosCasosCentralita(m)
 	m.despertarCentralitas = make(chan string, 64)
 	m.idProceso = uuid.Must(uuid.NewV7()).String()
+	m.VerEnlaceWifi = m.nuevoVerEnlaceWifi()
+	m.UsarEnlaceWifi = m.nuevoUsarEnlaceWifi()
 	return m
 }
 

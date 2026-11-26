@@ -132,6 +132,7 @@ func op(id, metodo, ruta, resumen string, permiso nucleo.Permiso, status int, er
 
 // Registrar publica las rutas (en el proceso de mensajería y en el OpenAPI de la API).
 func (m *Modulo) Registrar(api huma.API) {
+	m.registrarEnlaceWifi(api)
 	m.registrarReenviarWebhook(api)
 	enviar := op("enviarAviso", http.MethodPost, "/avisos", "Pedir un aviso (contrato Iris ↔ ArgosISP §6.2)", nucleo.PermMensajeriaEnviar,
 		http.StatusAccepted, http.StatusBadRequest, http.StatusServiceUnavailable)

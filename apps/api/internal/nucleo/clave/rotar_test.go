@@ -497,6 +497,11 @@ func TestTodasLasColumnasCifradasSeRotan(t *testing.T) {
 	noCifradas := []string{
 		"nucleo.idempotencia.respuesta", // cuerpo de la respuesta guardada (nunca un secreto: NoRepetible)
 		"nucleo.adjuntos_partes.datos",  // partes de una subida tus
+		// Huella sha256 del enlace de un solo uso del Wi-Fi (0.9.0 §12.4): no es un cifrado.
+		"mensajeria.enlaces_wifi.huella",
+		// Token del enlace del Wi-Fi cifrado con IRIS_CLAVE_CIFRADO, pero vive 10 min (se borra al usarse o
+		// al vencer): no se rota; tras rotar, un enlace vigente sale tapado y el cliente pide otro.
+		"mensajeria.enlaces_wifi.token_cifrado",
 		// Semilla aleatoria del enlace de la encuesta (no cifrada: el token es HMAC con una clave
 		// derivada de IRIS_CLAVE_CIFRADO; tras rotar sin la anterior, el enlace ya no se muestra).
 		"soporte.encuestas.semilla",

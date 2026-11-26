@@ -64,6 +64,14 @@ type argosTitular struct {
 	// alRecibir corre al recibir una escritura, antes de responder (simula lo que pasa mientras
 	// la llamada está en curso).
 	alRecibir func(ruta string)
+	// 0.9.0 §12: GET /aprovisionamientos/{id} y GET /servicios/{id}/equipo → cuerpo JSON; n numera
+	// los aprovisionamientos y las solicitudes de Wi-Fi.
+	aprovs  map[string]string
+	equipos map[string]string
+	n       int
+	// 0.14.3 §3: GET /conceptos-cargo (el 5 es el de instalación) y GET /facturas.
+	conceptos string
+	facturas  string
 	// lecturasServicio: cuántos GET /servicios/{id} recibió.
 	lecturasServicio int
 	// alLeerServicio corre al recibir GET /servicios/{id}, antes de responder.
@@ -71,7 +79,8 @@ type argosTitular struct {
 }
 
 func nuevoArgosTitular(t *testing.T) *argosTitular {
-	a := &argosTitular{rechazos: map[string][]string{}, servicios: map[string]string{}}
+	a := &argosTitular{rechazos: map[string][]string{}, servicios: map[string]string{}, aprovs: map[string]string{}, equipos: map[string]string{},
+		conceptos: `[{"id":5,"empresa_id":1,"codigo_sistema":"instalacion"},{"id":9,"empresa_id":1,"codigo_sistema":null}]`, facturas: `[]`}
 	json200 := func(w http.ResponseWriter, status int, v string) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
@@ -99,6 +108,45 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 			return
 		}
 		json200(w, 200, cuerpo)
+	})
+	mux.HandleFunc("GET /api/v1/conceptos-cargo", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		c := a.conceptos
+		a.mu.Unlock()
+		json200(w, 200, c)
+	})
+	mux.HandleFunc("GET /api/v1/facturas", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		c := a.facturas
+		a.mu.Unlock()
+		json200(w, 200, c)
+	})
+	mux.HandleFunc("GET /api/v1/aprovisionamientos/{id}", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		cuerpo, ok := a.aprovs[r.PathValue("id")]
+		a.mu.Unlock()
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		json200(w, 200, cuerpo)
+	})
+	mux.HandleFunc("GET /api/v1/servicios/{id}/equipo", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		cuerpo, ok := a.equipos[r.PathValue("id")]
+		a.mu.Unlock()
+		switch {
+		case !ok:
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"type":"urn:argosisp:problema:equipo_sin_gestion","title":"Sin gestión","status":409}`))
+		case cuerpo == "503":
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"type":"urn:argosisp:problema:equipo_sin_respuesta","title":"Sin respuesta","status":503}`))
+		default:
+			json200(w, 200, cuerpo)
+		}
 	})
 	mux.HandleFunc("POST /api/v1/", func(w http.ResponseWriter, r *http.Request) {
 		ruta := strings.TrimPrefix(r.URL.Path, "/api/v1")
@@ -140,12 +188,30 @@ func nuevoArgosTitular(t *testing.T) *argosTitular {
 			return
 		}
 		if rechazo != "" {
+			status := http.StatusUnprocessableEntity
+			if c, ok := strings.CutPrefix(rechazo, "409:"); ok {
+				status, rechazo = http.StatusConflict, c
+			}
 			w.Header().Set("Content-Type", "application/problem+json")
-			w.WriteHeader(http.StatusUnprocessableEntity)
-			_, _ = w.Write([]byte(`{"type":"urn:argos:` + rechazo + `","title":"Rechazado","status":422,"detail":"El documento no cumple la regla"}`))
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{"type":"urn:argos:` + rechazo + `","title":"Rechazado","status":` + strconv.Itoa(status) + `,"detail":"El documento no cumple la regla"}`))
 			return
 		}
 		switch {
+		case strings.HasSuffix(ruta, "/aprovisionar"):
+			a.mu.Lock()
+			a.n++
+			n := a.n
+			a.mu.Unlock()
+			json200(w, 202, `{"aprovisionamiento_id":`+strconv.Itoa(7000+n)+`,"estado":"en_proceso"}`)
+		case strings.HasSuffix(ruta, "/wifi"):
+			a.mu.Lock()
+			a.n++
+			n := a.n
+			a.mu.Unlock()
+			json200(w, 202, `{"solicitud_id":`+strconv.Itoa(8000+n)+`,"estado":"en_proceso"}`)
+		case strings.HasSuffix(ruta, "/facturas/cargo-unico"):
+			json200(w, 201, `{"factura":{"id":555,"numero":"A-0001","estado":"emitida","total":"350.00","moneda":"GTQ","saldo":"350.00"}}`)
 		case strings.HasSuffix(ruta, "/identidad"):
 			json200(w, 201, `{"identidad_id":501,"version":1}`)
 		case strings.HasSuffix(ruta, "/cambiar-titular"):

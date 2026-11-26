@@ -210,6 +210,105 @@ Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agot
   deja su consumo y su cobro incompletos o, con `clienteId`, reescribe el cobro; `clienteId` debe ser
   el titular actual del servicio leído en vivo de Argos en la empresa del pendiente
   (`422 cliente_no_es_titular`; Argos sin responder: `503 no_disponible`, sin guardar nada).
+
+## Contrato 0.9.0: activación, Wi-Fi, bienvenida y cobro (§12, B12, B14–B16; `equipos.go`)
+
+- Operaciones `aprovisionar` (`iris:aprovisionar:<orden>:<intento>`), `cambiar_wifi`
+  (`iris:wifi:<origen>:<id>:<uuid>`), `reenviar_bienvenida` (`iris:bienvenida:<orden>:<n>`) y el cobro de la
+  instalación como `cargo` (`iris:cargo:<orden>:<cargo_id>`). `AccionConTransito` guarda la clave Wi-Fi en el
+  depósito de tránsito (entidad orden, ticket o conversación, con la entidad en los datos asociados) y encola.
+  La clave se borra al 2xx y también al rechazo de Argos (`rechazado`); un reintento a mano sin ella queda
+  `clave_wifi_descartada`. Un cambio desde una conversación lleva `X-Iris-Conversacion` y `X-Iris-Actor: asistente_ia`.
+- `orden.cerrada` con `activacion` (modo distinto de `al_cerrar` o un intento vivo) no planifica
+  `activar_instalacion`; un equipo con `aprovisionado` no lleva comodato. Un `409 servicio_no_pendiente` de
+  `activar_instalacion` con un intento `listo` en la orden queda hecho (conciliado).
+- Lista blanca de la respuesta: también `aprovisionamiento_id`, `solicitud_id`, `causa`, `reintentable`,
+  `numero`, `total`, `moneda` y el objeto `factura { id, numero, estado, total, moneda }`.
+
+## Contrato 0.14.3: cobro de la instalación (`cobro.go`, `cierre_orden.go`)
+
+- **Cargo del cierre con `lineas[]`** (cuerpo real de Argos, como A36). La línea de instalación es la del concepto con
+  `codigo_sistema = "instalacion"` (`argos.ConceptoInstalacion`, `GET /conceptos-cargo`, leído fuera de la
+  transacción) o la de un cobro de A36 vigente. Al encolar, con `campo.ordenes` bloqueada (`FOR UPDATE`, igual que
+  el registro de A36), el cargo sale sin ella si hay un cobro de A36 vigente con esa línea o la empresa tiene
+  `cobro_equipo: false`; sin líneas no sale (`pendiente_omitido`, `cargo_sin_lineas`). El cuerpo queda fijo.
+- **Forma anterior** (`producto_id`, `monto`): solo de cierres emitidos antes; un `consumible_cobro` del consumo no se
+  encola (`pendiente_omitido`, `consumible_cobro`).
+- **422 `capacidad_no_disponible` en un cargo:** queda `fallido_negocio` y `cargoTerminal` (reintentar: 409
+  `cargo_terminal`). Sus demás líneas salen sin la de instalación como un cobro de reemplazo (`reemplazoDe` /
+  `reemplazadoPor`, clave `iris:cargo:<orden>:<uuid>`), que nunca genera otro: si también recibe el 422, queda
+  fallido y se avisa (log de error, `pendiente_fallido` y el historial de la orden). Si el concepto de instalación no
+  se puede leer en ese momento, el intento cuenta como temporal (Argos no guarda la clave en un 4xx).
+- **«Cobro por confirmar»:** si el 422 llega después de un envío sin respuesta (`envio_sin_respuesta`: timeout, red o
+  5xx), queda `porConfirmar` (vigente), sin reemplazo ni reintento; resolver a mano responde 409
+  `cobro_por_confirmar`. `POST /integraciones/pendientes/{id}/confirmar-cobro` (`integraciones.confirmar_cobro`), con
+  la orden bloqueada y `version`:
+  - `existe` con la «Factura #» del panel de Argos (`facturaId` = `factura_id`) o `serie` + `numeroDte`: Iris lee
+    `GET /facturas/origen-iris` (`X-Iris-Actor: usuario:<id>`, Argos ≥ 0.14.3; el token necesita
+    `facturas.leer_origen_iris`) y valida empresa, servicio, `iris_orden`, origen, líneas exactas (concepto, precio y
+    cantidad), no anulada, `emitida_en` ≥ primer envío − 5 min y `factura_id` único en Iris (índice único) → `hecho` con
+    ese `factura_id`. Un 404 `factura_no_encontrada` o un 422 solo rechazan (422 `factura_no_encontrada` /
+    `factura_no_coincide`); otros errores de lectura son 503 («Reintentar»). Nunca se compara el `numero`.
+  - Factura anterior a la 0.14.3 (líneas con `concepto_id` null) que cumple lo demás: queda como `facturaPorAnular`
+    (no liga el cargo ni ocupa el índice único). `POST …/quitar-factura-por-anular` la quita si la lectura de esa
+    acción no la ve anulada (si la ve anulada, 409 `factura_anulada`).
+  - `existe = false` («no existe», con motivo, cualquier versión de Argos) → fallido y sale el reemplazo. Con una
+    factura por anular, solo si la lectura de esa acción la ve anulada (422 `factura_por_anular_vigente`) y, si tenía
+    pagos (`saldo < total`), con `pagosAnulados` (422 `pagos_por_confirmar`).
+- **Revivir un cargo:** reintentar (y corregir un incompleto al repetir el cierre) un cargo con la línea de instalación
+  bloquea la orden y responde 409 `cargo_instalacion_vigente` si hay otro vigente con ella (A36 de instalación o el
+  cargo del cierre, incluido uno resuelto a mano). Sin concepto conocido, o en la forma anterior en una instalación, se
+  supone que la lleva.
+- **Forma anterior en una instalación:** falla cerrado (cuenta como la línea de instalación; con un A36 vigente no sale,
+  `cobro_a36_vigente`). Con solo `monto` y el concepto de instalación informado por Argos, se manda como `lineas[]` con
+  ese concepto. Un A36 vigente con otro concepto quita esa misma línea del cierre; sin el concepto de instalación
+  conocido no se quita nada a ciegas (con un A36 de instalación vigente, el cargo nace por resolver).
+- **Vigencia (revisión de 53928a7):** reintentar el cargo de un A36 fallido vuelve su cobro a `pendiente` en la
+  misma transacción (409 `cobro_vigente` si hay otro vivo). Cuentan como vigentes todos los cargos de la orden con la
+  línea de instalación, salvo fallidos (sin «por confirmar»), con `factura_anulada`, `esperaConsumo` o por resolver.
+  Una factura por anular indicada una vez deja `exige_por_anular`: «no existe» espera a que una se lea anulada.
+- **Reemplazo sin concepto de instalación:** nace por resolver (fallido incompleto, con todas las líneas).
+- **Varios consumos del mismo producto** (Argos ≥ 0.14.0: un consumo por actor y bodega): el cargo depende de todos
+  los consumos que llevan el producto como `consumible_cobro`; queda resuelto solo cuando todos están hechos y cada
+  uno confirma su cobro (si alguno no lo confirma, fallido para el supervisor). Liberar el cargo al resolver a mano
+  uno de ellos responde 422 `cargo_en_otro_consumo` si otro ya lo cobró o aún no termina (se cobraría dos veces).
+- **`consumible_cobro` (forma anterior):** el cargo se encola `esperaConsumo` (nunca sale): queda `resuelto_manual`
+  (`cobrado_con_consumo`) si el consumo confirma su cobro en `cargos[]`; si no, fallido incompleto, visible.
+- **Aprovisionar con Wi-Fi y 422 `capacidad_no_disponible`:** se reenvía sin `wifi` con la clave `<clave>:sin-wifi`; la
+  clave cifrada se descarta y el intento de campo sigue con la nueva clave.
+- **Activado fuera de la orden:** solo la unidad que devuelve `GET /servicios/:id/equipo` cuenta como aprovisionada; el
+  resto lleva comodato.
+
+## Orden de candados (cobro de la instalación)
+
+Siempre **la orden (`campo.ordenes` FOR UPDATE) y después el pendiente**, como el cierre y el registro de A36:
+encolar el cierre, reintentar, resolver a mano, conciliar, quitar la factura por anular, procesar un resultado
+con un cargo en juego (el propio o uno que depende de él) y la red de seguridad `resolverAtascados` (lee los ids
+sin candado y toma cada uno con `SKIP LOCKED` después de su orden). Un paso del titular sin cargos dependientes
+sigue tomando la orden FOR SHARE (#280); con un cargo en juego la toma FOR UPDATE desde el principio, para no
+subir el candado a mitad de la transacción. Antes de fijar o liberar el cuerpo de un cargo (marcadores, cliente
+del titular resuelto a mano, espera del consumo) se vuelve a decidir la línea de instalación (`lineaAlResolver`).
+
+Los pasos del titular toman la orden FOR UPDATE siempre (B-b). La red de seguridad usa una transacción por
+pendiente (B-c).
+
+**A36 y el titular (§3.4.8):** si el cambio de titular se abre después de registrar el cobro, los cobros de A36 de la
+orden que aún no salieron pasan a esperar ese paso con el marcador `titular.cliente_id` (`AtarCobrosAlTitular`); los
+que ya salieron no se mueven (Argos no mueve facturas, §3.4.4) y la orden lo avisa una vez por cobro
+(`cobro_titular_anterior`, aunque el titular cambie otra vez). El cobro de campo guarda el titular efectivo al fijarse
+el cuerpo. Un cambio resuelto a mano por una persona sin cliente se completa después con resolver a mano y `clienteId`
+(supervisor con alcance, comprobado en Argos; emite `integracion.pendiente_cliente_fijado`). Uno cancelado o
+reemplazado no lo acepta (422 `pendiente_no_resoluble`).
+
+Solo los cobros de A36 siguen al titular nuevo. Los cargos de un cierre (`orden.cerrada`, también los que esperan al
+consumo, `espera_consumo`) nunca conviven con un cambio de titular: nacen al cerrar la orden, una orden cerrada no se
+reabre (`reabrir` solo sirve desde `fallida` o `cancelada`), fallar la orden no encola el cierre y el cambio de titular
+exige la orden `en_sitio`.
+
+**A36 y el titular (§3.4.8):** el cobro de A36 de una orden con pasos del titular vivos espera a esos pasos y va a
+nombre del titular final (`TrasElTitular`, la misma lógica que el cargo del cierre); con el cambio resuelto a mano
+sin cliente, 409 `titular_por_confirmar`.
+
 - **Actor y contacto (0.13.0 §3.12, B31):** `actor` admite también `asistente_ia` (§7.1) y la columna
   `contacto` (`<contacto_id>` de Argos o `titular`) sale como `X-Iris-Contacto`; sin ella, la cabecera no
   va. La usa la gestión de cobro (`registrar_gestion_cobro`, `iris:gestion:<gestion_id>`), que encola la

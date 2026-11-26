@@ -19,7 +19,9 @@ import (
 	"github.com/HCDestroyer/iris/apps/api/internal/agenda"
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/equipos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/inventario"
+	"github.com/HCDestroyer/iris/apps/api/internal/integracion/pendientes"
 	"github.com/HCDestroyer/iris/apps/api/internal/nucleo"
 	"github.com/HCDestroyer/iris/apps/api/internal/soporte"
 )
@@ -152,6 +154,10 @@ type Config struct {
 	// LlamadasDirectas anota llamada.directa del lote (mensajeria.LlamadasDirectas). nil = la
 	// operación se rechaza con 503 no_disponible.
 	LlamadasDirectas LlamadasDirectas
+	// ArgosEquipos: activación desde la orden y equipo del cliente con Argos (activacion.go; contrato
+	// 0.9.0 §12). Vacío = Iris activa al cerrar (§4.3) y no muestra el equipo. La cola de pendientes
+	// usa el cifrador y el aviso de Titular. (Equipos, arriba, es otra cosa: cambios e intentos de 0.14.0.)
+	ArgosEquipos ConfigEquipos
 	// Contratos firma el contrato regenerado en la orden (orden.firmar_contrato; comercial.Modulo,
 	// con ConectarContratos). nil = la operación se rechaza con 503 no_disponible.
 	Contratos ContratosEnOrden
@@ -242,6 +248,24 @@ type Modulo struct {
 
 	// Titular: paso «Confirmar titular y plan» de la instalación (titular.go).
 	Titular CasosTitular
+	// Activacion: activar el servicio desde la orden (activacion.go; contrato 0.9.0 §12.2).
+	Activacion CasosActivacion
+	// Equipo y Wi-Fi del cliente desde la orden (equipo.go; §12.3 y §12.4).
+	autorizarEquipo *auditoria.Caso[EntradaEquipoOrden, int64]
+	CambiarWifi     *auditoria.Caso[EntradaWifiOrden, equipos.CambioWifi]
+	CambiosWifi     *auditoria.Caso[EntradaEquipoOrden, []equipos.CambioWifi]
+	// Cobro de la instalación (cobro.go; 0.9.0 §3, B15).
+	RegistrarCobro    *RegistradorCobro
+	avisoCobro        *auditoria.Caso[pendientes.Registro, bool]
+	activacionSinWifi *auditoria.Caso[string, bool]
+	avisoFactura      *auditoria.Caso[avisoFacturaEntrada, bool]
+	VerCobros         *auditoria.Caso[EntradaVerOrden, []Cobro]
+	SeguirCobro       *auditoria.Caso[entradaCobroArgos, *Cobro]
+	// Bienvenida en la orden (bienvenida.go; 0.9.0 §12.5, B16).
+	VerBienvenida        *auditoria.Caso[EntradaVerOrden, Bienvenida]
+	ReenviarBienvenida   *auditoria.Caso[EntradaReenviarBienvenida, Bienvenida]
+	ActualizarBienvenida *auditoria.Caso[entradaBienvenidaArgos, *Bienvenida]
+	BienvenidasSinEnviar *auditoria.Caso[EntradaBienvenidasSinEnviar, nucleo.Pagina[BienvenidaSinEnviar]]
 }
 
 // Nuevo arma el módulo.
@@ -336,6 +360,20 @@ func Nuevo(cfg Config) *Modulo {
 	m.VerAjustes = m.nuevoVerAjustes()
 	m.FijarAjustes = m.nuevoFijarAjustes()
 	m.Titular = m.nuevosCasosTitular()
+	m.Activacion = m.nuevosCasosActivacion()
+	m.autorizarEquipo = m.nuevoAutorizarEquipo()
+	m.CambiarWifi = m.nuevoCambiarWifi()
+	m.CambiosWifi = m.nuevoCambiosWifi()
+	m.RegistrarCobro = &RegistradorCobro{m: m, caso: m.nuevoRegistrarCobro()}
+	m.avisoCobro = m.nuevoAvisoCobro()
+	m.activacionSinWifi = m.nuevaActivacionSinWifi()
+	m.avisoFactura = m.nuevoAvisoFactura()
+	m.VerCobros = m.nuevoVerCobros()
+	m.SeguirCobro = m.nuevoSeguirCobro()
+	m.VerBienvenida = m.nuevoVerBienvenida()
+	m.ReenviarBienvenida = m.nuevoReenviarBienvenida()
+	m.ActualizarBienvenida = m.nuevoActualizarBienvenida()
+	m.BienvenidasSinEnviar = m.nuevoBienvenidasSinEnviar()
 	// Las tareas de agenda se ligan a órdenes que el actor ve (reglas de campo).
 	cfg.Agenda.UsarOrdenes(m)
 	return m

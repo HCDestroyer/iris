@@ -805,6 +805,41 @@ func (q *Queries) ConectorDeTokenPortal(ctx context.Context, tokenID int64) (Con
 	return i, err
 }
 
+const confirmarCuentaBancaria = `-- name: ConfirmarCuentaBancaria :one
+UPDATE integracion.argos_cuentas_bancarias SET confirmada_por = $1, confirmada_en = now(), updated_at = now()
+WHERE id = $2 RETURNING id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at, cambiada_en, confirmada_por, confirmada_en
+`
+
+type ConfirmarCuentaBancariaParams struct {
+	UsuarioID *int64
+	ID        int64
+}
+
+// Un admin de Iris confirma una cuenta recién cambiada: entra en la bienvenida antes de las 24 h (§12.5).
+func (q *Queries) ConfirmarCuentaBancaria(ctx context.Context, arg ConfirmarCuentaBancariaParams) (IntegracionArgosCuentasBancaria, error) {
+	row := q.db.QueryRow(ctx, confirmarCuentaBancaria, arg.UsuarioID, arg.ID)
+	var i IntegracionArgosCuentasBancaria
+	err := row.Scan(
+		&i.ID,
+		&i.EmpresaID,
+		&i.BancoID,
+		&i.BancoNombre,
+		&i.Numero,
+		&i.Alias,
+		&i.Titular,
+		&i.Tipo,
+		&i.Moneda,
+		&i.Activa,
+		&i.SincronizadoEn,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.CambiadaEn,
+		&i.ConfirmadaPor,
+		&i.ConfirmadaEn,
+	)
+	return i, err
+}
+
 const contactoEnCache = `-- name: ContactoEnCache :one
 SELECT contacto_id, cliente_id, empresa_id, nombre, servicios, consultar, reportar, version, quitado, leido_en, created_at, updated_at, relacion, es_titular, pagar, avisos, persona_cliente_id FROM integracion.argos_contactos WHERE contacto_id = $1
 `
@@ -1021,7 +1056,7 @@ func (q *Queries) CuadrillaDelUsuario(ctx context.Context, usuarioID int64) (Cua
 }
 
 const cuentaBancariaInstantanea = `-- name: CuentaBancariaInstantanea :one
-SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE id = $1
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at, cambiada_en, confirmada_por, confirmada_en FROM integracion.argos_cuentas_bancarias WHERE id = $1
 `
 
 func (q *Queries) CuentaBancariaInstantanea(ctx context.Context, id int64) (IntegracionArgosCuentasBancaria, error) {
@@ -1041,13 +1076,16 @@ func (q *Queries) CuentaBancariaInstantanea(ctx context.Context, id int64) (Inte
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CambiadaEn,
+		&i.ConfirmadaPor,
+		&i.ConfirmadaEn,
 	)
 	return i, err
 }
 
 const cuentaBancariaParaActualizar = `-- name: CuentaBancariaParaActualizar :one
 
-SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE id = $1 FOR UPDATE
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at, cambiada_en, confirmada_por, confirmada_en FROM integracion.argos_cuentas_bancarias WHERE id = $1 FOR UPDATE
 `
 
 // Cuentas bancarias (contrato 0.8.0 §7.8) ---------------------------------------------------------
@@ -1069,12 +1107,15 @@ func (q *Queries) CuentaBancariaParaActualizar(ctx context.Context, id int64) (I
 		&i.SincronizadoEn,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CambiadaEn,
+		&i.ConfirmadaPor,
+		&i.ConfirmadaEn,
 	)
 	return i, err
 }
 
 const cuentasBancariasDeEmpresa = `-- name: CuentasBancariasDeEmpresa :many
-SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE empresa_id = $1
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at, cambiada_en, confirmada_por, confirmada_en FROM integracion.argos_cuentas_bancarias WHERE empresa_id = $1
 ORDER BY banco_nombre, alias, id
 `
 
@@ -1102,6 +1143,9 @@ func (q *Queries) CuentasBancariasDeEmpresa(ctx context.Context, empresaID int64
 			&i.SincronizadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CambiadaEn,
+			&i.ConfirmadaPor,
+			&i.ConfirmadaEn,
 		); err != nil {
 			return nil, err
 		}
@@ -1114,7 +1158,7 @@ func (q *Queries) CuentasBancariasDeEmpresa(ctx context.Context, empresaID int64
 }
 
 const cuentasBancariasNoVistas = `-- name: CuentasBancariasNoVistas :many
-SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias WHERE sincronizado_en < $1 ORDER BY id
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at, cambiada_en, confirmada_por, confirmada_en FROM integracion.argos_cuentas_bancarias WHERE sincronizado_en < $1 ORDER BY id
 `
 
 // Las de la instantánea que una lista completa (leída desde @desde) no trajo.
@@ -1141,6 +1185,9 @@ func (q *Queries) CuentasBancariasNoVistas(ctx context.Context, desde time.Time)
 			&i.SincronizadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CambiadaEn,
+			&i.ConfirmadaPor,
+			&i.ConfirmadaEn,
 		); err != nil {
 			return nil, err
 		}
@@ -1153,7 +1200,7 @@ func (q *Queries) CuentasBancariasNoVistas(ctx context.Context, desde time.Time)
 }
 
 const cuentasBancariasTodas = `-- name: CuentasBancariasTodas :many
-SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at FROM integracion.argos_cuentas_bancarias ORDER BY empresa_id, banco_nombre, alias, id
+SELECT id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en, created_at, updated_at, cambiada_en, confirmada_por, confirmada_en FROM integracion.argos_cuentas_bancarias ORDER BY empresa_id, banco_nombre, alias, id
 `
 
 func (q *Queries) CuentasBancariasTodas(ctx context.Context) ([]IntegracionArgosCuentasBancaria, error) {
@@ -1179,6 +1226,9 @@ func (q *Queries) CuentasBancariasTodas(ctx context.Context) ([]IntegracionArgos
 			&i.SincronizadoEn,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CambiadaEn,
+			&i.ConfirmadaPor,
+			&i.ConfirmadaEn,
 		); err != nil {
 			return nil, err
 		}
@@ -1679,12 +1729,29 @@ func (q *Queries) GuardarCopia(ctx context.Context, arg GuardarCopiaParams) erro
 }
 
 const guardarCuentaBancaria = `-- name: GuardarCuentaBancaria :execrows
-INSERT INTO integracion.argos_cuentas_bancarias (id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+INSERT INTO integracion.argos_cuentas_bancarias (id, empresa_id, banco_id, banco_nombre, numero, alias, titular, tipo, moneda, activa, sincronizado_en,
+    cambiada_en)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+    CASE WHEN EXISTS (SELECT 1 FROM integracion.argos_cuentas_lecturas) THEN now() END)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, banco_id = excluded.banco_id, banco_nombre = excluded.banco_nombre, numero = excluded.numero,
     alias = excluded.alias, titular = excluded.titular, tipo = excluded.tipo, moneda = excluded.moneda, activa = excluded.activa,
-    sincronizado_en = excluded.sincronizado_en, updated_at = now()
+    sincronizado_en = excluded.sincronizado_en, updated_at = now(),
+    cambiada_en = CASE WHEN (integracion.argos_cuentas_bancarias.numero, integracion.argos_cuentas_bancarias.titular,
+            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id,
+            integracion.argos_cuentas_bancarias.activa, integracion.argos_cuentas_bancarias.banco_nombre, integracion.argos_cuentas_bancarias.tipo)
+        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id, excluded.activa, excluded.banco_nombre, excluded.tipo)
+        THEN now() ELSE integracion.argos_cuentas_bancarias.cambiada_en END,
+    confirmada_por = CASE WHEN (integracion.argos_cuentas_bancarias.numero, integracion.argos_cuentas_bancarias.titular,
+            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id,
+            integracion.argos_cuentas_bancarias.activa, integracion.argos_cuentas_bancarias.banco_nombre, integracion.argos_cuentas_bancarias.tipo)
+        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id, excluded.activa, excluded.banco_nombre, excluded.tipo)
+        THEN NULL ELSE integracion.argos_cuentas_bancarias.confirmada_por END,
+    confirmada_en = CASE WHEN (integracion.argos_cuentas_bancarias.numero, integracion.argos_cuentas_bancarias.titular,
+            integracion.argos_cuentas_bancarias.banco_id, integracion.argos_cuentas_bancarias.moneda, integracion.argos_cuentas_bancarias.empresa_id,
+            integracion.argos_cuentas_bancarias.activa, integracion.argos_cuentas_bancarias.banco_nombre, integracion.argos_cuentas_bancarias.tipo)
+        IS DISTINCT FROM (excluded.numero, excluded.titular, excluded.banco_id, excluded.moneda, excluded.empresa_id, excluded.activa, excluded.banco_nombre, excluded.tipo)
+        THEN NULL ELSE integracion.argos_cuentas_bancarias.confirmada_en END
 WHERE integracion.argos_cuentas_bancarias.sincronizado_en <= excluded.sincronizado_en
 `
 
@@ -1703,6 +1770,8 @@ type GuardarCuentaBancariaParams struct {
 }
 
 // Gana la lectura más reciente de Argos (una relectura vieja no pisa a una nueva).
+// 0.9.0 §12.5: una cuenta nueva (después de la primera carga) o con otro número, titular, banco,
+// moneda, empresa, banco, tipo o activa (una reactivada) queda «recién cambiada» (cambiada_en) y pierde la confirmación del admin.
 func (q *Queries) GuardarCuentaBancaria(ctx context.Context, arg GuardarCuentaBancariaParams) (int64, error) {
 	result, err := q.db.Exec(ctx, guardarCuentaBancaria,
 		arg.ID,

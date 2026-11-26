@@ -114,6 +114,8 @@ var descripcionesAccion = map[string]string{
 	"recibir_boleta":      "Registraría la boleta como comprobante en Argos (Argos la aprueba)",
 	"promesa_pago":        "Simularía y pediría la promesa de pago a Argos (Argos decide)",
 	"reconexion_temporal": "Pediría la reconexión temporal a Argos (Argos decide)",
+	AccionVerEquipo:       "Leería en Argos si el equipo está en línea y su señal",
+	AccionCambiarWifi:     "Mandaría al cliente verificado un enlace de un solo uso para cambiar su Wi-Fi",
 }
 
 // pruebaPreparada es lo que hace falta para llamar al proveedor.

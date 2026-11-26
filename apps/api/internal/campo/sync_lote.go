@@ -32,7 +32,7 @@ import (
 // OperacionLote es una operación del teléfono.
 type OperacionLote struct {
 	ID          string         `json:"id" format:"uuid" doc:"uuid v7 generado en el teléfono; idempotencia"`
-	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,nota.editar,nota.eliminar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario,traslado.recibir,tarea.crear,tarea.completar,tarea.anular,equipo.cambiar,equipo.no_recuperado,llamada.directa,orden.registrar_identidad,orden.cambiar_titular,orden.completar_datos,orden.cambiar_plan,orden.firmar_contrato"`
+	Tipo        string         `json:"tipo" enum:"orden.iniciar_camino,orden.llegar,checklist.marcar,nota.agregar,nota.editar,nota.eliminar,material.usar,equipo.instalar,equipo.retirar,firma.capturar,adjunto.registrar,orden.cerrar,orden.fallar,orden.pausar,orden.reanudar,orden.agregar_formulario,orden.quitar_formulario,traslado.recibir,tarea.crear,tarea.completar,tarea.anular,equipo.cambiar,equipo.no_recuperado,llamada.directa,orden.registrar_identidad,orden.cambiar_titular,orden.completar_datos,orden.cambiar_plan,orden.firmar_contrato,orden.activar_servicio"`
 	OrdenID     int64          `json:"ordenId,omitempty" minimum:"1" doc:"Obligatorio salvo en traslado.recibir y tarea.* (no son de una orden)"`
 	VersionBase *int32         `json:"versionBase,omitempty" doc:"Versión de la orden que veía el teléfono (se guarda; los conflictos se resuelven por las reglas de §3, no por versión)"`
 	OcurridoEn  *time.Time     `json:"ocurridoEn,omitempty" doc:"Hora del teléfono, con el mismo reloj que enviadoEn; el servidor la corrige con el desfase"`
@@ -394,7 +394,8 @@ func esquemaDatos(t reflect.Type) (huma.Registry, *huma.Schema) {
 		for _, v := range []any{EntradaPosicion{}, EntradaMarcarChecklist{}, EntradaAgregarNota{}, EntradaEditarNotaCampo{}, EntradaEliminarNotaCampo{}, EntradaUsarMaterial{},
 			EntradaEquipo{}, EntradaCapturarFirma{}, EntradaRegistrarAdjunto{}, EntradaCerrarOrden{}, EntradaFallarOrden{},
 			EntradaPausar{}, EntradaReanudar{}, EntradaAgregarFormularioCampo{}, EntradaQuitarFormularioCampo{},
-			inventario.EntradaRecibirTraslado{}, agenda.DatosTarea{}, DatosTareaLote{}, DatosAnularTareaLote{}, DatosLlamadaDirectaLote{}} {
+			inventario.EntradaRecibirTraslado{}, agenda.DatosTarea{}, DatosTareaLote{}, DatosAnularTareaLote{}, DatosLlamadaDirectaLote{},
+			EntradaActivarServicio{}} {
 			tt := reflect.TypeOf(v)
 			esquemasDatos[tt] = registroDatos.Schema(tt, true, "")
 		}
@@ -571,6 +572,14 @@ func (m *Modulo) despachar(ctx context.Context, s *OpSync, op OperacionLote) (Or
 		}
 		e.ID, e.Sync = op.OrdenID, s
 		return m.AgregarFormularioCampo.Ejecutar(ctx, e)
+	case OpActivarServicio:
+		// Activación desde la orden (0.9.0 §12.2): el id de la operación es el id del intento.
+		e, err := datosDe[EntradaActivarServicio](op)
+		if err != nil {
+			return Orden{}, err
+		}
+		e.ID, e.Sync = op.OrdenID, s
+		return m.Activacion.Activar.Ejecutar(ctx, e)
 	case OpQuitarForm:
 		e, err := datosDe[EntradaQuitarFormularioCampo](op)
 		if err != nil {

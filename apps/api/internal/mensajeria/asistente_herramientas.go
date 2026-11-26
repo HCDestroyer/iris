@@ -61,6 +61,8 @@ var accionDeHerramienta = map[string]string{
 	HerrSimularPromesa: "promesa_pago", HerrPedirPromesa: "promesa_pago", HerrCuentasBoleta: "recibir_boleta", HerrRegistrarBoleta: "recibir_boleta",
 	HerrPedirReconexion: "reconexion_temporal", HerrPasarAPersona: "pasar_a_persona", HerrVerificarIdent: HerrVerificarIdent,
 	HerrOfrecerVisita: "agendar_visita", HerrAgendarVisita: "agendar_visita", HerrElegirCliente: HerrElegirCliente,
+	// 0.9.0 §12.3 y §12.4 (B14): apagadas de fábrica.
+	HerrEstadoEquipo: AccionVerEquipo, HerrEnlaceWifi: AccionCambiarWifi,
 }
 
 // ArgosReconexion es la reconexión temporal de Argos (contrato con Argos §7.3): una promesa ligada
@@ -105,8 +107,8 @@ func (m *Modulo) herramientasDe(t *turnoIA) []HerramientaIA {
 	}
 	if conArgos {
 		// El desafío de identidad: solo si alguna acción que lo exige está encendida.
-		if _, ok := m.cfg.Argos.(ArgosIdentidad); ok && !t.fuerte && (t.acciones["dar_saldo"] || t.acciones["promesa_pago"] || t.acciones["reconexion_temporal"] ||
-			(t.acciones["agendar_visita"] && t.visitaFuerte)) {
+		if _, ok := m.cfg.Argos.(ArgosIdentidad); ok && (!t.fuerte || t.acciones[AccionCambiarWifi]) && (t.acciones["dar_saldo"] || t.acciones["promesa_pago"] || t.acciones["reconexion_temporal"] ||
+			(t.acciones["agendar_visita"] && t.visitaFuerte) || t.acciones[AccionCambiarWifi]) {
 			t.acciones[HerrVerificarIdent] = true
 			hs = append(hs, HerramientaIA{Nombre: HerrVerificarIdent,
 				Descripcion: "Verifica la identidad del cliente con su DPI o NIT completo. Primero pídeselo; cuando lo haya escrito en su último mensaje, llama a esta herramienta (sin argumentos: el sistema toma el dato del mensaje; tú lo ves como ***). Nunca repitas el dato."})
@@ -144,6 +146,7 @@ func (m *Modulo) herramientasDe(t *turnoIA) []HerramientaIA {
 			Descripcion: "Agenda la visita técnica en la ventana que eligió el cliente, de las que devolvió ofrecer_visita. Devuelve el número de orden.",
 			Parametros:  map[string]any{"opcion": pOpcion("La ventana que eligió el cliente", "V1", "V2", "V3")}})
 	}
+	hs = append(hs, m.herramientasEquipos(t)...)
 	hs = append(hs, HerramientaIA{Nombre: HerrPasarAPersona, Descripcion: "Pasa la conversación a una persona del equipo. Termina tu turno.",
 		Parametros: map[string]any{"motivo": pOpcion("Por qué", PasoClientePidio, PasoEnojo, PasoSinRespuesta),
 			"resumen": pTexto("Resumen breve para el agente: qué pidió el cliente y qué falta")}})
@@ -241,6 +244,10 @@ func (m *Modulo) ejecutarHerramienta(ctx context.Context, t *turnoIA, l LlamadaI
 		return resHerramienta{paso: a.Motivo, resumen: a.Resumen}
 	case HerrBuscarManual:
 		res, hecha = m.herrBuscarManual(ctx, t, l, hecha)
+	case HerrEstadoEquipo:
+		res, hecha = m.herrEstadoEquipo(ctx, t, hecha)
+	case HerrEnlaceWifi:
+		res, hecha = m.herrEnlaceWifi(ctx, t, hecha)
 	case HerrEstadoServicio:
 		res, hecha = m.herrEstadoServicio(ctx, t, l, hecha)
 	case HerrConsultarSaldo:
@@ -820,7 +827,9 @@ func (m *Modulo) herrVerificarIdentidad(ctx context.Context, t *turnoIA, l Llama
 	if !ok || t.clienteID == 0 {
 		return rechazo("la verificación de identidad no está disponible. Pasa a una persona."), h
 	}
-	if t.fuerte {
+	// Con cambiar_wifi, cada cambio pide su propia verificación de un solo uso (0.9.0 §12.4): aunque ya
+	// esté verificada, se hace el desafío para dejar la fila que consume enlace_wifi.
+	if t.fuerte && !t.acciones[AccionCambiarWifi] {
 		return resHerramienta{contenido: "La identidad del cliente ya está verificada."}, h
 	}
 	q := mensajeriabd.New(nucleo.BDDe(ctx))

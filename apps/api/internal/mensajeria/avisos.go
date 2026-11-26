@@ -6,8 +6,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"maps"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -55,7 +58,20 @@ type EntradaAviso struct {
 	Variables      map[string]string `json:"variables,omitempty" maxProperties:"20" doc:"Solo las variables declaradas por la plantilla (otras: 422 variable_desconocida). Montos con dos decimales, fechas YYYY-MM-DD en hora de Guatemala"`
 	CanalPreferido string            `json:"canal_preferido,omitempty" enum:"whatsapp,telegram,correo" default:"whatsapp" doc:"Fase 1: solo whatsapp; otro medio queda bloqueado con canal_no_disponible"`
 	Prioridad      string            `json:"prioridad,omitempty" enum:"normal,urgente" default:"normal" doc:"urgente (solo corte_programado) salta el límite diario, nunca el horario de silencio ni la falta de permiso"`
-	IdempotencyKey string            `json:"-"`
+	// Origen (0.9.0 §12.5): solo con bienvenida_servicio, la orden de Iris desde la que se activó.
+	Origen         *OrigenAviso `json:"origen,omitempty" doc:"Solo con bienvenida_servicio: { tipo: iris_orden, id } cuando la activación vino de una orden de Iris de ese servicio; null o ausente si fue desde el panel de Argos. Fuera de forma: 422 origen_invalido"`
+	IdempotencyKey string       `json:"-"`
+}
+
+// OrigenAviso es el `origen` de §6.2 (0.9.0).
+type OrigenAviso struct {
+	Tipo string `json:"tipo" doc:"iris_orden"`
+	ID   string `json:"id" maxLength:"40" doc:"Id de la orden de Iris"`
+}
+
+func origenInvalido(detalle string) *nucleo.Problema {
+	return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "origen_invalido", "Origen inválido", detalle,
+		nucleo.ErrorCampo{Field: "origen", Message: detalle, Rule: "origen"})
 }
 
 // AvisoCreado es la respuesta 202 (§6.2).
@@ -219,7 +235,7 @@ func nuevoEnviarAviso(m *Modulo) *EnviarAviso {
 
 func validarAviso(ctx context.Context, in EntradaAviso, ahora time.Time) error {
 	p, ok := PlantillaPorCodigo(in.Plantilla)
-	if !ok {
+	if !ok || p.Interna {
 		return nucleo.NuevoProblema(http.StatusUnprocessableEntity, "plantilla_desconocida", "Plantilla desconocida",
 			"plantilla debe ser un código de GET /api/v1/mensajeria/plantillas",
 			nucleo.ErrorCampo{Field: "plantilla", Message: "No es una plantilla de Iris", Rule: "plantilla"})
@@ -238,6 +254,15 @@ func validarAviso(ctx context.Context, in EntradaAviso, ahora time.Time) error {
 	}
 	if err := p.validarVariables(in.Variables, ahora); err != nil {
 		return err
+	}
+	if in.Origen != nil {
+		// §6.2 (0.9.0): origen solo con bienvenida_servicio, tipo iris_orden y el id de una orden.
+		if p.Codigo != PlantillaBienvenidaServicio || in.Origen.Tipo != "iris_orden" || in.ServicioID == nil {
+			return origenInvalido("origen va solo con bienvenida_servicio, tipo iris_orden y servicio_id")
+		}
+		if n, err := strconv.ParseInt(in.Origen.ID, 10, 64); err != nil || n <= 0 {
+			return origenInvalido("origen.id debe ser el id de una orden de Iris")
+		}
 	}
 	if in.Prioridad == "urgente" && !p.Urgente {
 		return nucleo.Validacion(nucleo.ErrorCampo{Field: "prioridad", Message: "urgente solo con corte_programado", Rule: "prioridad"})
@@ -328,19 +353,48 @@ func (k *EnviarAviso) crear(ctx context.Context, t *auditoria.Tx, in entradaFina
 	}
 	p, _ := PlantillaPorCodigo(in.Plantilla)
 	ahora := m.ahora()
+	var ordenID *int64
+	if in.Origen != nil {
+		// La orden debe ser de Iris y de ese servicio (§6.2): si no, 422 origen_invalido.
+		n, _ := strconv.ParseInt(in.Origen.ID, 10, 64)
+		if _, err := q.OrdenDeServicioParaAviso(ctx, mensajeriabd.OrdenDeServicioParaAvisoParams{ID: n, ServicioID: in.ServicioID}); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return AvisoCreado{}, origenInvalido("origen.id no es una orden de Iris de ese servicio")
+			}
+			return AvisoCreado{}, err
+		}
+		ordenID = &n
+	}
+	var detalle *string
+	variables := in.Variables
+	if p.Codigo == PlantillaBienvenidaServicio {
+		// Las cuentas para pagar las inserta Iris de su instantánea (§12.5 y §7.8), nunca de Argos.
+		cuentas, err := q.CuentasParaBienvenida(ctx, mensajeriabd.CuentasParaBienvenidaParams{EmpresaID: in.EmpresaID, Hace24h: ptrTiempo(ahora.Add(-24 * time.Hour))})
+		if err != nil {
+			return AvisoCreado{}, err
+		}
+		variables = maps.Clone(in.Variables)
+		if len(cuentas) == 0 {
+			p, _ = PlantillaPorCodigo(PlantillaBienvenidaSinCuentas)
+			sin := "sin_cuentas"
+			detalle = &sin
+		} else {
+			variables["cuentas"] = textoCuentas(cuentas)
+		}
+	}
 	id, err := uuid.NewV7()
 	if err != nil {
 		return AvisoCreado{}, err
 	}
 	fila := mensajeriabd.InsertarAvisoParams{
-		ID: id, EmpresaID: in.EmpresaID, ClienteID: in.ClienteID, ServicioID: in.ServicioID, Plantilla: in.Plantilla,
+		ID: id, EmpresaID: in.EmpresaID, ClienteID: in.ClienteID, ServicioID: in.ServicioID, Plantilla: p.Codigo, OrdenID: ordenID, Detalle: detalle,
 		CanalPreferido: in.CanalPreferido, Prioridad: in.Prioridad, Origen: origenDe(ctx), Estado: EstadoEnCola,
 		UsuarioID: usuarioDe(ctx), IdempotencyKey: &in.IdempotencyKey, HashPeticion: in.hash, VenceEn: p.venceEn(in.Variables, m.cfg.Zona), CreadoEn: ahora,
 	}
 	if a := contexto.ActorDe(ctx); a.TokenID != 0 {
 		fila.TokenID = &a.TokenID
 	}
-	if fila.Variables, err = json.Marshal(in.Variables); err != nil {
+	if fila.Variables, err = json.Marshal(variables); err != nil {
 		return AvisoCreado{}, err
 	}
 	motivo, err := m.decidir(ctx, q, in, p, &fila, ahora)
@@ -697,4 +751,22 @@ func nuevoVerAviso(_ *Modulo) *auditoria.Caso[EntradaVerAviso, AvisoDetalle] {
 			return aDetalle(a), nil
 		},
 	})
+}
+
+// textoCuentas: las cuentas para pagar como las lee el cliente («Banco Industrial, monetaria 123…, a
+// nombre de …»), separadas por punto y coma. Sin saltos de línea (los parámetros de Meta no los admiten).
+func textoCuentas(cuentas []mensajeriabd.CuentasParaBienvenidaRow) string {
+	partes := make([]string, 0, len(cuentas))
+	for _, c := range cuentas {
+		t := strings.TrimSpace(c.BancoNombre)
+		if c.Tipo != nil && *c.Tipo != "" {
+			t += " " + *c.Tipo
+		}
+		t += " " + strings.TrimSpace(c.Numero)
+		if c.Titular != nil {
+			t += " a nombre de " + strings.TrimSpace(*c.Titular)
+		}
+		partes = append(partes, strings.TrimSpace(t))
+	}
+	return strings.Join(partes, "; ")
 }

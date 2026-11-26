@@ -161,6 +161,9 @@ export interface DatosPorTipo {
     "orden.cambiar_titular": Schema<"EntradaCambiarTitular">;
     "orden.completar_datos": Schema<"EntradaCompletarDatos">;
     "orden.cambiar_plan": Schema<"EntradaCambiarPlan">;
+    // «Activar servicio» (contrato argosisp.md 0.9.0 §12.2; `contratos/sync.md` §2). La clave Wi-Fi
+    // va solo en la cola local, cifrada, hasta que la operación queda aplicada o duplicada.
+    "orden.activar_servicio": Schema<"EntradaActivarServicio">;
     /**
      * La firma del contrato regenerado a nombre del titular final (B20), en sitio: el contrato viene en
      * `GET /ordenes/{id}/titular` (`contratoPorFirmar`). La firma cubre la subida de precio.

@@ -211,6 +211,10 @@
             "description": "Fallas de Horus en la zona del cliente",
             "type": "boolean"
           },
+          "cambiar_wifi": {
+            "description": "Mandar al cliente verificado un enlace de un solo uso para cambiar su Wi-Fi (el asistente nunca pide ni ve la clave). Apagada de fábrica",
+            "type": "boolean"
+          },
           "crear_ticket": {
             "type": "boolean"
           },
@@ -236,6 +240,10 @@
           },
           "responder_dudas": {
             "description": "Con los manuales «Para el cliente»",
+            "type": "boolean"
+          },
+          "ver_equipo": {
+            "description": "Leer si el equipo del cliente está en línea y su señal (sin serie, MAC ni datos de red). Apagada de fábrica",
             "type": "boolean"
           }
         },
@@ -325,6 +333,111 @@
           "confirmaObra",
           "perder",
           "reabrir"
+        ],
+        "type": "object"
+      },
+      "Activacion": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "aprovisionamientoId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "causa": {
+            "description": "Con fallido: equipo_no_encontrado, equipo_en_uso, sin_puerto, perfil_sin_mapear, sin_ip_disponible, olt_sin_respuesta, acs_sin_respuesta, servicio_no_pendiente, otro, o el código de Argos que rechazó el pedido (unidad_en_otra_bodega, wifi_no_disponible…)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conWifi": {
+            "description": "Se pidió el Wi-Fi inicial (sin el nombre ni la clave)",
+            "type": "boolean"
+          },
+          "creadaEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detalle": {
+            "description": "Texto de Argos para la persona, sin secretos",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "equipo": {
+            "$ref": "#/components/schemas/EquipoActivado"
+          },
+          "estado": {
+            "description": "pendiente: aún no llega a Argos (Argos caído o esperando el paso del titular); en_proceso: Argos lo está haciendo; listo: el servicio quedó activo; fallido: ver causa",
+            "enum": [
+              "pendiente",
+              "en_proceso",
+              "listo",
+              "fallido"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "intento": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "origen": {
+            "enum": [
+              "campo",
+              "panel"
+            ],
+            "type": "string"
+          },
+          "pasos": {
+            "description": "ip, equipo, wifi y activacion con su estado (si Argos los informó)",
+            "items": {
+              "$ref": "#/components/schemas/PasoAprovisionamiento"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "pedidoPor": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "reintentable": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "intento",
+          "estado",
+          "origen",
+          "pedidoPor",
+          "equipo",
+          "conWifi",
+          "aprovisionamientoId",
+          "causa",
+          "reintentable",
+          "detalle",
+          "pasos",
+          "creadaEn",
+          "actualizadaEn"
         ],
         "type": "object"
       },
@@ -1111,6 +1224,19 @@
       "AjustesCampo": {
         "additionalProperties": false,
         "properties": {
+          "activacionModo": {
+            "description": "Cómo se activa el servicio de una instalación: al cerrar (de fábrica), exigir la activación lista para cerrar (salvo un supervisor con motivo) o cerrar con la activación pendiente para un agente. Solo aplica si Argos puede aprovisionar en la empresa; la plantilla puede cambiarlo",
+            "enum": [
+              "al_cerrar",
+              "exigir_lista",
+              "pendiente_agente"
+            ],
+            "type": "string"
+          },
+          "cierreExigeBienvenida": {
+            "description": "Con «exigir la activación lista», el cierre exige además la bienvenida enviada (o no enviada porque el cliente no acepta avisos). Apagado de fábrica",
+            "type": "boolean"
+          },
           "empresaId": {
             "format": "int64",
             "type": [
@@ -1135,6 +1261,8 @@
         "required": [
           "empresaId",
           "tecnicosTomanLibres",
+          "activacionModo",
+          "cierreExigeBienvenida",
           "porDefecto",
           "version"
         ],
@@ -2168,6 +2296,98 @@
         ],
         "type": "object"
       },
+      "Bienvenida": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canales": {
+            "description": "Lo último que informó Argos por canal (vacío: aún no hay noticias)",
+            "items": {
+              "$ref": "#/components/schemas/CanalBienvenida"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "cumplida": {
+            "description": "Salió por algún canal, o no salió porque el cliente no acepta avisos",
+            "type": "boolean"
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "reenvio": {
+            "$ref": "#/components/schemas/ReenvioBienvenida"
+          },
+          "reenvios": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordenId",
+          "canales",
+          "cumplida",
+          "actualizadaEn",
+          "reenvios"
+        ],
+        "type": "object"
+      },
+      "BienvenidaSinEnviar": {
+        "additionalProperties": false,
+        "properties": {
+          "canales": {
+            "items": {
+              "$ref": "#/components/schemas/CanalBienvenida"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "clienteId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "estado": {
+            "type": "string"
+          },
+          "numero": {
+            "type": "string"
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "servicioId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ordenId",
+          "numero",
+          "clienteId",
+          "servicioId",
+          "estado",
+          "canales"
+        ],
+        "type": "object"
+      },
       "BloqueVisita": {
         "additionalProperties": false,
         "properties": {
@@ -2786,6 +3006,74 @@
         ],
         "type": "object"
       },
+      "CambioWifi": {
+        "additionalProperties": false,
+        "properties": {
+          "actualizadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "causa": {
+            "description": "Con fallido: equipo_sin_gestion, equipo_sin_respuesta, rechazado_por_equipo, otro, o el código con que Argos rechazó el pedido",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "conClave": {
+            "type": "boolean"
+          },
+          "conSsid": {
+            "type": "boolean"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "detalle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "en_proceso",
+              "aplicado",
+              "fallido"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "metodo": {
+            "type": "string"
+          },
+          "origenTipo": {
+            "enum": [
+              "iris_orden",
+              "iris_ticket",
+              "iris_conversacion"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "estado",
+          "origenTipo",
+          "metodo",
+          "conSsid",
+          "conClave",
+          "causa",
+          "detalle",
+          "creadoEn",
+          "actualizadoEn"
+        ],
+        "type": "object"
+      },
       "Cambios": {
         "additionalProperties": false,
         "properties": {
@@ -3287,6 +3575,48 @@
           "compartidoCon",
           "version",
           "creadoEn"
+        ],
+        "type": "object"
+      },
+      "CanalBienvenida": {
+        "additionalProperties": false,
+        "properties": {
+          "avisoId": {
+            "description": "WhatsApp: el aviso de Iris",
+            "type": "string"
+          },
+          "canal": {
+            "enum": [
+              "whatsapp",
+              "correo",
+              "telegram"
+            ],
+            "type": "string"
+          },
+          "estado": {
+            "enum": [
+              "pendiente",
+              "enviada",
+              "fallida",
+              "omitida"
+            ],
+            "type": "string"
+          },
+          "motivo": {
+            "description": "Por qué falló u omitió (sin_permiso, baja, sin_contacto…)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "relacionadaPorServicio": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "canal",
+          "estado",
+          "motivo"
         ],
         "type": "object"
       },
@@ -4757,6 +5087,95 @@
           "motor",
           "umbrales",
           "routers"
+        ],
+        "type": "object"
+      },
+      "Cobro": {
+        "additionalProperties": false,
+        "properties": {
+          "conceptoId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "creadoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "descripcion": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detalle": {
+            "description": "Con fallido: lo que respondió Argos",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "description": "por_confirmar: un supervisor confirma en Argos si la factura existe (cuenta como vigente)",
+            "enum": [
+              "pendiente",
+              "facturado",
+              "pagado",
+              "anulado",
+              "fallido",
+              "por_confirmar"
+            ],
+            "type": "string"
+          },
+          "facturaId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "description": "cargo_id de la clave iris:cargo:\u003corden\u003e:\u003ccargo_id\u003e",
+            "type": "string"
+          },
+          "moneda": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "numero": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "precioEditado": {
+            "description": "El precio no es el de la plantilla (con motivo)",
+            "type": "boolean"
+          },
+          "precioUnitario": {
+            "type": "string"
+          },
+          "total": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "estado",
+          "conceptoId",
+          "precioUnitario",
+          "precioEditado",
+          "descripcion",
+          "facturaId",
+          "numero",
+          "total",
+          "moneda",
+          "detalle",
+          "creadoEn"
         ],
         "type": "object"
       },
@@ -7399,6 +7818,40 @@
         ],
         "type": "object"
       },
+      "CuentaConfirmada": {
+        "additionalProperties": false,
+        "properties": {
+          "cambiadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confirmadaEn": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "empresaId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "empresaId",
+          "cambiadaEn",
+          "confirmadaEn"
+        ],
+        "type": "object"
+      },
       "CuentaPWA": {
         "additionalProperties": false,
         "properties": {
@@ -9385,6 +9838,22 @@
         ],
         "type": "object"
       },
+      "EnlaceWifiPublico": {
+        "additionalProperties": false,
+        "properties": {
+          "venceEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "vigente": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "vigente"
+        ],
+        "type": "object"
+      },
       "EnlacesExternos": {
         "additionalProperties": false,
         "properties": {
@@ -9543,6 +10012,30 @@
         },
         "required": [
           "huellaTls"
+        ],
+        "type": "object"
+      },
+      "EntradaActivarServicio": {
+        "additionalProperties": false,
+        "properties": {
+          "equipo": {
+            "$ref": "#/components/schemas/EquipoActivacion"
+          },
+          "planta": {
+            "$ref": "#/components/schemas/PlantaActivacion",
+            "description": "Solo con ont"
+          },
+          "wifi": {
+            "$ref": "#/components/schemas/WifiActivacion",
+            "description": "Opcional. Con un equipo que Argos no gestiona (wireless sin TR-069), Argos responde wifi_no_disponible"
+          },
+          "wireless": {
+            "$ref": "#/components/schemas/WirelessActivacion",
+            "description": "Solo con cpe_wireless"
+          }
+        },
+        "required": [
+          "equipo"
         ],
         "type": "object"
       },
@@ -10513,6 +11006,10 @@
             "minimum": 1,
             "type": "integer"
           },
+          "origen": {
+            "$ref": "#/components/schemas/OrigenAviso",
+            "description": "Solo con bienvenida_servicio: { tipo: iris_orden, id } cuando la activación vino de una orden de Iris de ese servicio; null o ausente si fue desde el panel de Argos. Fuera de forma: 422 origen_invalido"
+          },
           "plantilla": {
             "description": "Código de la plantilla (§6.3; GET /mensajeria/plantillas)",
             "maxLength": 64,
@@ -11079,6 +11576,12 @@
             ],
             "type": "string"
           },
+          "sinActivacionMotivo": {
+            "description": "Solo con el modo «exigir la activación lista»: un supervisor (ordenes.cerrar_sin_activacion) cierra sin ella; un agente la termina desde el panel",
+            "maxLength": 500,
+            "minLength": 10,
+            "type": "string"
+          },
           "version": {
             "description": "Versión leída; si cambió, 409",
             "format": "int32",
@@ -11439,6 +11942,71 @@
         "required": [
           "version",
           "avisosEmpresa"
+        ],
+        "type": "object"
+      },
+      "EntradaConfirmarCobroHTTPBody": {
+        "additionalProperties": false,
+        "properties": {
+          "existe": {
+            "description": "true: la factura existe en Argos (facturaId, o serie y numeroDte). false: no existe (sale el cobro de reemplazo)",
+            "type": "boolean"
+          },
+          "facturaId": {
+            "description": "«Factura #» del panel de Argos (su factura_id)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "motivo": {
+            "description": "Qué se revisó en Argos",
+            "maxLength": 1000,
+            "minLength": 5,
+            "type": "string"
+          },
+          "numeroDte": {
+            "description": "Número del DTE (con serie)",
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pagosAnulados": {
+            "description": "«No existe» con una factura por anular con pagos: se anularon o pasaron a abono",
+            "type": "boolean"
+          },
+          "serie": {
+            "description": "Serie del DTE (con numeroDte)",
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "existe",
+          "motivo"
+        ],
+        "type": "object"
+      },
+      "EntradaConfirmarCuentaBody": {
+        "additionalProperties": false,
+        "properties": {
+          "cambiadaEn": {
+            "description": "cambiadaEn que se revisó (null si no tenía); si la cuenta cambió después, 409 cuenta_cambiada",
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "cambiadaEn"
         ],
         "type": "object"
       },
@@ -13879,6 +14447,17 @@
       "EntradaFijarAjustes": {
         "additionalProperties": false,
         "properties": {
+          "activacionModo": {
+            "enum": [
+              "al_cerrar",
+              "exigir_lista",
+              "pendiente_agente"
+            ],
+            "type": "string"
+          },
+          "cierreExigeBienvenida": {
+            "type": "boolean"
+          },
           "tecnicosTomanLibres": {
             "type": "boolean"
           },
@@ -15635,6 +16214,26 @@
         ],
         "type": "object"
       },
+      "EntradaQuitarPorAnularHTTPBody": {
+        "additionalProperties": false,
+        "properties": {
+          "motivo": {
+            "maxLength": 1000,
+            "minLength": 5,
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "motivo"
+        ],
+        "type": "object"
+      },
       "EntradaReabrirTicket": {
         "additionalProperties": false,
         "properties": {
@@ -15783,6 +16382,29 @@
           "firmaAdjuntoId",
           "recibidoEn"
         ],
+        "type": "object"
+      },
+      "EntradaReenviarBienvenida": {
+        "additionalProperties": false,
+        "properties": {
+          "canales": {
+            "description": "Sin ellos, todos los que Argos tenga configurados",
+            "items": {
+              "enum": [
+                "whatsapp",
+                "correo",
+                "telegram"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "type": [
+              "array",
+              "null"
+            ],
+            "uniqueItems": true
+          }
+        },
         "type": "object"
       },
       "EntradaRegistrar": {
@@ -16027,6 +16649,34 @@
         ],
         "type": "object"
       },
+      "EntradaRegistrarCobro": {
+        "additionalProperties": false,
+        "properties": {
+          "conceptoId": {
+            "description": "Concepto de Argos (GET /conceptos-cargo; por defecto «Instalación»). Sin él, el de la plantilla",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "descripcion": {
+            "maxLength": 200,
+            "minLength": 1,
+            "type": "string"
+          },
+          "motivoPrecio": {
+            "description": "Obligatorio si el precio no es el de la plantilla",
+            "maxLength": 500,
+            "minLength": 10,
+            "type": "string"
+          },
+          "precioUnitario": {
+            "description": "Bruto con IVA, mayor que 0. Sin él, el de la plantilla; uno distinto exige ordenes.cobro_editar_monto y motivo",
+            "pattern": "^[0-9]{1,10}(\\.[0-9]{1,2})?$",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "EntradaRegistrarDispositivo": {
         "additionalProperties": false,
         "properties": {
@@ -16181,7 +16831,7 @@
             "type": "string"
           },
           "clienteId": {
-            "description": "Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro y el contrato regenerado van a su nombre). Resolver a mano un cambiar_plan o cambiar_titular significa que el cambio se aplicó en Argos",
+            "description": "Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro y el contrato regenerado van a su nombre). Resolver a mano un cambiar_plan o cambiar_titular significa que el cambio se aplicó en Argos. También sobre un cambiar_titular ya resuelto_manual sin cliente, para indicarlo después",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
@@ -17153,6 +17803,59 @@
         ],
         "type": "object"
       },
+      "EntradaWifiOrden": {
+        "additionalProperties": false,
+        "properties": {
+          "clave": {
+            "description": "Clave nueva (8 a 63). Nunca se devuelve ni queda en Iris: viaja cifrada hasta Argos y se borra",
+            "maxLength": 63,
+            "minLength": 8,
+            "type": "string"
+          },
+          "metodo": {
+            "description": "Cómo se comprobó que quien pide es el titular. datos_titular: la verificación §7.5 (verificacionId); presencial: solo el técnico en sitio, en su orden en curso. codigo_telefono y codigo_correo aún no están disponibles (422 metodo_no_disponible). Sin metodo: presencial para el técnico, datos_titular desde el panel. llamada_verificada: nombre anterior de datos_titular",
+            "enum": [
+              "datos_titular",
+              "presencial",
+              "codigo_telefono",
+              "codigo_correo",
+              "llamada_verificada"
+            ],
+            "type": "string"
+          },
+          "ssid": {
+            "description": "Nombre nuevo del Wi-Fi (1 a 32 caracteres)",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          },
+          "verificacionId": {
+            "description": "Desde el panel, obligatoria: la verificación de identidad del titular (desafío de Argos, §7.5) de menos de 10 minutos y de un solo uso. Sin ella, 422 verificacion_requerida",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "EntradaWifiPublico": {
+        "additionalProperties": false,
+        "properties": {
+          "clave": {
+            "description": "Clave nueva (8 a 63). Nunca se devuelve ni queda en Iris",
+            "maxLength": 63,
+            "minLength": 8,
+            "type": "string"
+          },
+          "ssid": {
+            "description": "Nombre nuevo del Wi-Fi",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "EntrarComoSSO": {
         "additionalProperties": false,
         "properties": {
@@ -17170,6 +17873,92 @@
           "nombreIris",
           "idExterno",
           "nombreExterno"
+        ],
+        "type": "object"
+      },
+      "EquipoActivacion": {
+        "additionalProperties": false,
+        "properties": {
+          "mac": {
+            "description": "AA:BB:CC:DD:EE:FF",
+            "maxLength": 17,
+            "minLength": 12,
+            "type": "string"
+          },
+          "modelo": {
+            "maxLength": 80,
+            "minLength": 1,
+            "type": "string"
+          },
+          "serie": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tipo": {
+            "description": "ont (exige serie), cpe_wireless (exige mac) o router_tr069 (mac o serie)",
+            "enum": [
+              "ont",
+              "cpe_wireless",
+              "router_tr069"
+            ],
+            "type": "string"
+          },
+          "unidadId": {
+            "description": "Unidad del inventario de Argos, si se conoce (debe estar en la bodega del técnico)",
+            "format": "int64",
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tipo"
+        ],
+        "type": "object"
+      },
+      "EquipoActivado": {
+        "additionalProperties": false,
+        "properties": {
+          "mac": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "modelo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serie": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tipo": {
+            "enum": [
+              "ont",
+              "cpe_wireless",
+              "router_tr069"
+            ],
+            "type": "string"
+          },
+          "unidadId": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "tipo",
+          "serie",
+          "mac",
+          "unidadId",
+          "modelo"
         ],
         "type": "object"
       },
@@ -17489,6 +18278,82 @@
         ],
         "type": "object"
       },
+      "EstadoActivacion": {
+        "additionalProperties": false,
+        "properties": {
+          "actual": {
+            "$ref": "#/components/schemas/Activacion",
+            "description": "El último intento"
+          },
+          "disponible": {
+            "description": "Se puede pedir «Activar servicio» ahora (con el actual)",
+            "type": "boolean"
+          },
+          "estado": {
+            "description": "El del último intento",
+            "enum": [
+              "ninguna",
+              "pendiente",
+              "en_proceso",
+              "listo",
+              "fallido"
+            ],
+            "type": "string"
+          },
+          "exigeBienvenida": {
+            "description": "La empresa o la plantilla exigen la bienvenida enviada para cerrar (solo con exigir_lista)",
+            "type": "boolean"
+          },
+          "intentos": {
+            "description": "Todos, del último al primero",
+            "items": {
+              "$ref": "#/components/schemas/Activacion"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "modo": {
+            "description": "Efectivo: al_cerrar si Argos no puede aprovisionar en la empresa (§4.3)",
+            "enum": [
+              "al_cerrar",
+              "exigir_lista",
+              "pendiente_agente"
+            ],
+            "type": "string"
+          },
+          "noDisponible": {
+            "description": "Por qué no: sin_capacidad, modo_al_cerrar, activacion_al_cerrar, activacion_en_curso, activacion_lista, no_es_instalacion, sin_servicio, orden_terminada",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ordenId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "sinActivacionMotivo": {
+            "description": "La orden se cerró sin la activación lista (supervisor, con motivo)",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ordenId",
+          "modo",
+          "disponible",
+          "noDisponible",
+          "estado",
+          "intentos",
+          "sinActivacionMotivo",
+          "exigeBienvenida"
+        ],
+        "type": "object"
+      },
       "EstadoAsistente": {
         "additionalProperties": false,
         "properties": {
@@ -17681,6 +18546,83 @@
         "required": [
           "estado",
           "intentos"
+        ],
+        "type": "object"
+      },
+      "EstadoEquipo": {
+        "additionalProperties": false,
+        "properties": {
+          "enLinea": {
+            "type": "boolean"
+          },
+          "firmware": {
+            "description": "Nunca con el asistente de IA",
+            "type": "string"
+          },
+          "fuente": {
+            "enum": [
+              "smartolt",
+              "acs"
+            ],
+            "type": "string"
+          },
+          "leidoEn": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "mac": {
+            "description": "Nunca con el asistente de IA",
+            "type": "string"
+          },
+          "modelo": {
+            "description": "Nunca con el asistente de IA",
+            "type": "string"
+          },
+          "senal": {
+            "additionalProperties": {
+              "format": "double",
+              "type": "number"
+            },
+            "description": "ONT: rx_dbm y tx_dbm; CPE gestionado: rssi_dbm y snr_db; o null",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "serie": {
+            "description": "Nunca con el asistente de IA",
+            "type": "string"
+          },
+          "servicioId": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "tecnologia": {
+            "enum": [
+              "ftth",
+              "wireless"
+            ],
+            "type": "string"
+          },
+          "tipo": {
+            "description": "Nunca con el asistente de IA",
+            "enum": [
+              "ont",
+              "cpe_wireless",
+              "router_tr069"
+            ],
+            "type": "string"
+          },
+          "ultimoContacto": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "servicioId",
+          "tecnologia",
+          "enLinea",
+          "senal"
         ],
         "type": "object"
       },
@@ -23763,7 +24705,8 @@
               "orden.cambiar_titular",
               "orden.completar_datos",
               "orden.cambiar_plan",
-              "orden.firmar_contrato"
+              "orden.firmar_contrato",
+              "orden.activar_servicio"
             ],
             "type": "string"
           },
@@ -25260,6 +26203,25 @@
         ],
         "type": "object"
       },
+      "OrigenAviso": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "Id de la orden de Iris",
+            "maxLength": 40,
+            "type": "string"
+          },
+          "tipo": {
+            "description": "iris_orden",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tipo",
+          "id"
+        ],
+        "type": "object"
+      },
       "PaginaAcceso": {
         "additionalProperties": false,
         "properties": {
@@ -25344,6 +26306,32 @@
           "data": {
             "items": {
               "$ref": "#/components/schemas/AvisoPanel"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "nextCursor": {
+            "description": "Cursor de la página siguiente; null si no hay más",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PaginaBienvenidaSinEnviar": {
+        "additionalProperties": false,
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/BienvenidaSinEnviar"
             },
             "type": [
               "array",
@@ -27038,6 +28026,26 @@
         ],
         "type": "object"
       },
+      "PasoAprovisionamiento": {
+        "additionalProperties": false,
+        "properties": {
+          "en": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "estado": {
+            "type": "string"
+          },
+          "paso": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "paso",
+          "estado"
+        ],
+        "type": "object"
+      },
       "PasoPrueba": {
         "additionalProperties": false,
         "properties": {
@@ -27245,6 +28253,10 @@
       "Pendiente": {
         "additionalProperties": false,
         "properties": {
+          "cargoTerminal": {
+            "description": "Cargo rechazado con 422 capacidad_no_disponible: nunca se reintenta con su clave",
+            "type": "boolean"
+          },
           "cargos": {
             "description": "Consumo hecho: cargos únicos que Argos emitió por productos consumible_cobro",
             "items": {
@@ -27306,6 +28318,10 @@
           "entidadId": {
             "type": "string"
           },
+          "esperaConsumo": {
+            "description": "Cargo de un consumible_cobro: nunca sale; queda resuelto cuando el consumo confirma su cobro",
+            "type": "boolean"
+          },
           "estado": {
             "description": "bloqueado: una dependencia quedó fallido_negocio o agotado (ultimoError = depende_de_\u003cid\u003e_fallido); vuelve a pendiente cuando la dependencia termina hecha o resuelto_manual. resuelto_manual: final, un supervisor lo corrigió en Argos (resueltoMotivo); no vuelve a salir",
             "enum": [
@@ -27321,6 +28337,11 @@
           },
           "facturaId": {
             "description": "Consumo hecho: factura de Argos con esos cargos (si la hubo)",
+            "format": "int64",
+            "type": "integer"
+          },
+          "facturaPorAnular": {
+            "description": "Por confirmar: factura anterior a la 0.14.3 indicada por el supervisor; «no existe» se habilita cuando Argos la vea anulada",
             "format": "int64",
             "type": "integer"
           },
@@ -27362,6 +28383,10 @@
               "null"
             ]
           },
+          "porConfirmar": {
+            "description": "«Cobro por confirmar»: el 422 llegó tras un envío sin respuesta; un supervisor confirma en Argos si la factura existe (confirmar-cobro). Cuenta como vigente",
+            "type": "boolean"
+          },
           "porResolver": {
             "description": "El cuerpo espera la respuesta de una dependencia (marcadores sin resolver)",
             "type": "boolean"
@@ -27373,6 +28398,16 @@
               "string",
               "null"
             ]
+          },
+          "reemplazadoPor": {
+            "description": "Sus demás líneas salieron en este cobro de reemplazo",
+            "format": "int64",
+            "type": "integer"
+          },
+          "reemplazoDe": {
+            "description": "Cobro de reemplazo (sin la línea de instalación) del cargo indicado; nunca genera otro",
+            "format": "int64",
+            "type": "integer"
           },
           "respuesta": {
             "description": "Cuerpo del primer 2xx de Argos (lo sensible como ***; ausente si no se guardó)"
@@ -27702,6 +28737,8 @@
           "integraciones.abrir_argos",
           "integraciones.activar",
           "integraciones.conectar",
+          "integraciones.confirmar_cobro",
+          "integraciones.confirmar_cuenta_bancaria",
           "integraciones.desactivar",
           "integraciones.eliminar",
           "integraciones.reenviar_webhook",
@@ -27731,6 +28768,7 @@
           "mensajeria.enviar",
           "mensajeria.registrar_consentimiento",
           "mensajeria.ver",
+          "ordenes.activar_servicio",
           "ordenes.aplicar_datos_argos",
           "ordenes.asignar",
           "ordenes.asignar_formulario",
@@ -27738,6 +28776,8 @@
           "ordenes.cambiar_titular",
           "ordenes.cancelar",
           "ordenes.cerrar",
+          "ordenes.cerrar_sin_activacion",
+          "ordenes.cobro_editar_monto",
           "ordenes.completar_datos",
           "ordenes.crear",
           "ordenes.declarar_perdida",
@@ -27751,7 +28791,9 @@
           "ordenes.programar",
           "ordenes.reabrir",
           "ordenes.reanudar",
+          "ordenes.reenviar_bienvenida",
           "ordenes.registrar",
+          "ordenes.registrar_cobro",
           "ordenes.reprogramar",
           "ordenes.tomar",
           "ordenes.validar_identidad",
@@ -27797,6 +28839,8 @@
           "rutas.proponer",
           "rutas.publicar",
           "rutas.ver",
+          "servicios.cambiar_wifi",
+          "servicios.ver_equipo",
           "servicios.ver_red",
           "servicios.ver_ubicacion",
           "servidor_ia.administrar",
@@ -28234,6 +29278,40 @@
           "pon",
           "potenciaDbm"
         ],
+        "type": "object"
+      },
+      "PlantaActivacion": {
+        "additionalProperties": false,
+        "properties": {
+          "caja": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "olt": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "pon": {
+            "format": "int32",
+            "maximum": 999,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "puerto": {
+            "format": "int32",
+            "maximum": 999,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "slot": {
+            "format": "int32",
+            "maximum": 999,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "Plantilla": {
@@ -31401,6 +32479,27 @@
           "primeraEn",
           "ultimaEn",
           "ordenVisitado"
+        ],
+        "type": "object"
+      },
+      "ReenvioBienvenida": {
+        "additionalProperties": false,
+        "properties": {
+          "codigo": {
+            "description": "Con fallido_negocio: servicio_no_activo, bienvenida_reciente, demasiados_reenvios…",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "estado": {
+            "description": "El del pendiente hacia Argos: pendiente, en_curso, hecho, fallido_negocio…",
+            "type": "string"
+          }
+        },
+        "required": [
+          "estado",
+          "codigo"
         ],
         "type": "object"
       },
@@ -38039,6 +39138,59 @@
           "intentos",
           "proximoIntento"
         ],
+        "type": "object"
+      },
+      "WifiActivacion": {
+        "additionalProperties": false,
+        "properties": {
+          "clave": {
+            "description": "8 a 63 caracteres imprimibles (WPA2). Nunca se devuelve ni queda en eventos, logs, auditoría ni en la cola: viaja cifrada hasta Argos y se borra",
+            "maxLength": 63,
+            "minLength": 8,
+            "type": "string"
+          },
+          "ssid": {
+            "description": "1 a 32 caracteres, sin caracteres de control",
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssid"
+        ],
+        "type": "object"
+      },
+      "WifiPedido": {
+        "additionalProperties": false,
+        "properties": {
+          "estado": {
+            "description": "Argos lo aplica en el equipo; el cliente recibe la confirmación por sus contactos",
+            "enum": [
+              "en_proceso"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "estado"
+        ],
+        "type": "object"
+      },
+      "WirelessActivacion": {
+        "additionalProperties": false,
+        "properties": {
+          "ap": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          },
+          "sector": {
+            "maxLength": 60,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "Yo": {
@@ -46656,6 +47808,109 @@
         "x-permiso": "cuadrillas.leer_integracion"
       }
     },
+    "/api/v1/integraciones/argosisp/cuentas-bancarias/{id}/confirmar": {
+      "post": {
+        "description": "Permiso: `integraciones.confirmar_cuenta_bancaria`. Una cuenta creada o editada en Argos no entra en la bienvenida (§12.5) durante 24 h, o hasta que un admin de Iris la confirma aquí. Otro cambio en Argos (número, titular, banco, moneda o empresa) quita la confirmación. Emite `argos.cuenta_bancaria_confirmada`.",
+        "operationId": "confirmarCuentaBancaria",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConfirmarCuentaBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuentaConfirmada"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Confirmar una cuenta recién cambiada",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.confirmar_cuenta_bancaria"
+      }
+    },
     "/api/v1/integraciones/argosisp/estado": {
       "get": {
         "description": "Permiso: `integraciones.ver`. Contrato 0.8.0 §2.5 (d): el conector (activo o el más reciente) y quién lo activó, el contrato de cada lado con las funciones que quedan apagadas por la versión de Argos, la primera sincronización por recurso, las instantáneas (cuántos y el último `sincronizadoEn`), lo que falló (webhooks con error, rechazados y pendientes hacia Argos), las empresas del alcance y el certificado TLS de la API de Argos (solo informa: si cambió, `cambiado` y `anterior`). Nunca tokens ni secretos. Solo lee la base de Iris: no llama a Argos.",
@@ -51464,9 +52719,255 @@
         "x-permiso": "integraciones.ver_pendientes"
       }
     },
+    "/api/v1/integraciones/pendientes/{id}/confirmar-cobro": {
+      "post": {
+        "description": "Permiso: `integraciones.confirmar_cobro`. Un cargo que recibió `422 capacidad_no_disponible` después de un envío sin respuesta (timeout o 5xx) queda «por confirmar» (`porConfirmar`, vigente) hasta que un supervisor concilie (contrato 0.14.3 §3; nunca solo por `origen_id`). Con `existe` = true y la «Factura #» del panel de Argos (`facturaId`) o `serie` + `numeroDte`, Iris la lee (`GET /facturas/origen-iris`) y la valida con la orden bloqueada: misma empresa, mismo servicio, `iris_orden`, mismo origen, líneas exactas, no anulada, emitida desde el primer envío (−5 min) y no ligada a otro cobro; si coincide, el cargo queda `hecho` con ese `factura_id`. Una factura anterior a la 0.14.3 (líneas sin concepto) que cumple lo demás queda como `facturaPorAnular` (no liga el cargo). 422 `factura_no_encontrada` o `factura_no_coincide` solo rechazan; 503 es un error de lectura (reintentar). Con `existe` = false (comprobado en Argos, con motivo), el cargo queda fallido y salen sus demás líneas sin la de instalación; con una factura por anular, solo si la lectura de esta acción la ve anulada (422 `factura_por_anular_vigente`) y, con pagos, `pagosAnulados` (422 `pagos_por_confirmar`). 409 por `version` o `cobro_no_por_confirmar`. Auditado; emite `integracion.pendiente_hecho` o `integracion.pendiente_fallido`.",
+        "operationId": "confirmarCobroIntegracion",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaConfirmarCobroHTTPBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pendiente"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Conciliar un cobro «por confirmar»",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.confirmar_cobro"
+      }
+    },
+    "/api/v1/integraciones/pendientes/{id}/quitar-factura-por-anular": {
+      "post": {
+        "description": "Permiso: `integraciones.confirmar_cobro`. Con la orden bloqueada y `version`, y solo si una lectura de Argos en esta acción la ve no anulada (si la ve anulada: 409 `factura_anulada`, se habilita «no existe»). El cobro sigue por confirmar.",
+        "operationId": "quitarFacturaPorAnularIntegracion",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaQuitarPorAnularHTTPBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pendiente"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Quitar la factura por anular de un cobro por confirmar",
+        "tags": [
+          "integraciones"
+        ],
+        "x-permiso": "integraciones.confirmar_cobro"
+      }
+    },
     "/api/v1/integraciones/pendientes/{id}/reintentar": {
       "post": {
-        "description": "Permiso: `integraciones.reintentar`. Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 `pendiente_no_reintentable` (hecho, en curso, resuelto a mano o bloqueado: reintenta su dependencia o resuélvela a mano) o `pendiente_incompleto` (la orden no traía los datos). Auditado; emite `integracion.pendiente_reintentado`.",
+        "description": "Permiso: `integraciones.reintentar`. Desde `fallido_negocio`, `agotado` o `pendiente` (adelanta el próximo intento): vuelve a `pendiente` con los intentos en 0 y se procesa enseguida, con la misma Idempotency-Key. 409 por `version`; 422 `pendiente_no_reintentable` (hecho, en curso, resuelto a mano o bloqueado: reintenta su dependencia o resuélvela a mano) o `pendiente_incompleto` (la orden no traía los datos). 409 `cargo_terminal`: un cargo rechazado con `422 capacidad_no_disponible` nunca se reintenta con su clave (0.14.3 §3). Auditado; emite `integracion.pendiente_reintentado`.",
         "operationId": "reintentarPendienteIntegracion",
         "parameters": [
           {
@@ -51589,7 +53090,7 @@
     },
     "/api/v1/integraciones/pendientes/{id}/resolver-manual": {
       "post": {
-        "description": "Permiso: `integraciones.resolver_pendiente`. Para lo que Argos rechazó por negocio (`fallido_negocio`, también `datosIncompletos`) y ya se corrigió directo en Argos: queda `resuelto_manual` (final, nunca vuelve a salir) con `motivo` y quién lo resolvió, y lo que dependía de él (p. ej. el cargo que esperaba al consumo) vuelve a `pendiente` y sale. 409 por `version`; 422 `pendiente_no_resoluble` (otro estado: lo agotado se reintenta y lo bloqueado espera a su dependencia) o `decision_cargo_requerida` (un consumo con un cargo de un producto del consumo esperándolo: manda `cargo` = `liberar` o `resolver_tambien`, que lo deja también `resuelto_manual` sin mandarlo). Los dependientes que esperaban su respuesta quedan `fallido_negocio` incompletos (`codigoError` = `dependencia_resuelta_a_mano`), para resolverlos también a mano o corregirlos con los datos reales. Auditado; emite `integracion.pendiente_resuelto_manual` (uno más por cargo resuelto también).",
+        "description": "Permiso: `integraciones.resolver_pendiente`. Para lo que Argos rechazó por negocio (`fallido_negocio`, también `datosIncompletos`) y ya se corrigió directo en Argos: queda `resuelto_manual` (final, nunca vuelve a salir) con `motivo` y quién lo resolvió, y lo que dependía de él (p. ej. el cargo que esperaba al consumo) vuelve a `pendiente` y sale. 409 por `version`; 422 `pendiente_no_resoluble` (otro estado: lo agotado se reintenta y lo bloqueado espera a su dependencia) o `decision_cargo_requerida` (un consumo con un cargo de un producto del consumo esperándolo: manda `cargo` = `liberar` o `resolver_tambien`, que lo deja también `resuelto_manual` sin mandarlo). Los dependientes que esperaban su respuesta quedan `fallido_negocio` incompletos (`codigoError` = `dependencia_resuelta_a_mano`), para resolverlos también a mano o corregirlos con los datos reales. Auditado; emite `integracion.pendiente_resuelto_manual` (uno más por cargo resuelto también). Un `cambiar_titular` ya `resuelto_manual` por una persona sin el cliente final acepta después `clienteId`: un supervisor con `ordenes.validar_identidad` y alcance sobre la orden indica el titular final, comprobado en Argos (422 `cliente_no_es_titular` si no lo es); desde ahí el cobro de A36 de la orden sale a ese cliente (antes, 409 `titular_por_confirmar`). Una vez por paso; uno cancelado o reemplazado responde 422 `pendiente_no_resoluble`. Auditado; emite `integracion.pendiente_cliente_fijado`.",
         "operationId": "resolverPendienteIntegracion",
         "parameters": [
           {
@@ -75907,6 +77408,186 @@
         ]
       }
     },
+    "/api/v1/mensajeria/publico/wifi/{token}": {
+      "get": {
+        "description": "Sin sesión: el token es la credencial (256 bits; Iris guarda solo su huella). Dice si el enlace sigue vigente (10 min, un solo uso).",
+        "operationId": "verEnlaceWifi",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "maxLength": 60,
+              "minLength": 40,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnlaceWifiPublico"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Enlace de un solo uso para cambiar el Wi-Fi",
+        "tags": [
+          "mensajeria"
+        ]
+      },
+      "post": {
+        "description": "El cliente escribe el nombre o la clave nuevos (al menos uno). Consume el enlace (un solo uso) y manda el cambio a Argos (POST /servicios/:id/wifi con X-Iris-Actor: asistente_ia y la verificación de la conversación). 410 `enlace_vencido` (usado, vencido o el cliente de la conversación cambió); 429 `demasiados_cambios_wifi`. La clave nunca se guarda ni se devuelve.",
+        "operationId": "usarEnlaceWifi",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "maxLength": 60,
+              "minLength": 40,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaWifiPublico"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WifiPedido"
+                }
+              }
+            },
+            "description": "Accepted",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Gone"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Cambiar el Wi-Fi con el enlace",
+        "tags": [
+          "mensajeria"
+        ]
+      }
+    },
     "/api/v1/mensajeria/respuestas-rapidas": {
       "get": {
         "description": "Permiso: `conversaciones.responder`.",
@@ -79342,6 +81023,101 @@
         "x-permiso": "ordenes.crear"
       }
     },
+    "/api/v1/ordenes/bienvenidas-sin-enviar": {
+      "get": {
+        "description": "Permiso: `ordenes.reenviar_bienvenida`. Instalaciones activas de los últimos 30 días (empresa activa) cuya bienvenida no salió por ningún canal ni quedó sin enviar porque el cliente no acepta avisos. Paginada por cursor.",
+        "operationId": "bienvenidasSinEnviar",
+        "parameters": [
+          {
+            "description": "nextCursor de la página anterior",
+            "explode": false,
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "description": "nextCursor de la página anterior",
+              "type": "string"
+            }
+          },
+          {
+            "explode": false,
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "default": 50,
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginaBienvenidaSinEnviar"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Bienvenidas sin enviar",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.reenviar_bienvenida"
+      }
+    },
     "/api/v1/ordenes/{id}": {
       "get": {
         "description": "Permiso: `ordenes.ver` u `ordenes.ver_propias`.",
@@ -79433,6 +81209,222 @@
           "campo"
         ],
         "x-permiso": "ordenes.ver"
+      }
+    },
+    "/api/v1/ordenes/{id}/activacion": {
+      "get": {
+        "description": "Permiso: `ordenes.ver` u `ordenes.ver_propias`. El modo efectivo (al_cerrar si Argos no puede aprovisionar en la empresa), si se puede pedir «Activar servicio» y por qué no, y cada intento con su estado, causa y pasos. Nunca el Wi-Fi.",
+        "operationId": "verActivacionOrden",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoActivacion"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Estado de la activación de la orden",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.ver"
+      }
+    },
+    "/api/v1/ordenes/{id}/activar-servicio": {
+      "post": {
+        "description": "Permiso: `ordenes.activar_servicio`. FTTH (ONT por su serie, con la planta opcional) o wireless (CPE o radio por su MAC; AP y sector opcionales), con el Wi-Fi inicial opcional. Argos aprovisiona y activa; el resultado llega por webhook (o Iris consulta a los 10 min): GET /ordenes/{id}/activacion. El técnico, en sitio y en su orden (también sin señal: orden.activar_servicio); un agente desde el panel, también con la orden cerrada. Un intento vivo por orden y por servicio: 409 `activacion_en_curso`, `activacion_lista` o `activacion_al_cerrar` (el cierre ya la mandó). 422 `activacion_no_disponible` (la empresa activa al cerrar o Argos no puede aprovisionar ese equipo), `orden_no_es_instalacion`, `orden_sin_servicio` o la validación del equipo y el Wi-Fi. La clave Wi-Fi nunca se guarda: viaja cifrada hasta Argos y se borra. Emite `orden.activacion_pedida`.",
+        "operationId": "activarServicioOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaActivarServicio"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Orden"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Activar el servicio (aprovisionar en Argos)",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.activar_servicio"
       }
     },
     "/api/v1/ordenes/{id}/adjuntos": {
@@ -79802,6 +81794,222 @@
           "campo"
         ],
         "x-permiso": "ordenes.asignar"
+      }
+    },
+    "/api/v1/ordenes/{id}/bienvenida": {
+      "get": {
+        "description": "Permiso: `ordenes.ver`. El estado por canal (WhatsApp, correo, Telegram) que informa Argos y el último reenvío. Nunca el texto ni las cuentas.",
+        "operationId": "verBienvenidaOrden",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bienvenida"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Bienvenida del servicio de la orden",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.ver"
+      }
+    },
+    "/api/v1/ordenes/{id}/bienvenida/reenviar": {
+      "post": {
+        "description": "Permiso: `ordenes.reenviar_bienvenida`. Argos la vuelve a disparar por sus canales con las mismas reglas (permisos de contacto, límites y horario de silencio). Sale por la cola de pendientes (iris:bienvenida:\u003corden\u003e:\u003cn\u003e); su rechazo (servicio_no_activo, bienvenida_reciente, demasiados_reenvios) queda en `reenvio`. 409 `servicio_no_activo` si la orden aún no tiene el servicio activo. Emite `orden.bienvenida_reenviada`.",
+        "operationId": "reenviarBienvenidaOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaReenviarBienvenida"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Bienvenida"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Reenviar la bienvenida",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.reenviar_bienvenida"
       }
     },
     "/api/v1/ordenes/{id}/cambiar-plan": {
@@ -80296,6 +82504,226 @@
         "x-permiso": "ordenes.registrar"
       }
     },
+    "/api/v1/ordenes/{id}/cobros": {
+      "get": {
+        "description": "Permiso: `ordenes.ver`.",
+        "operationId": "cobrosOrden",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Cobro"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cobros de la instalación de la orden",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.ver"
+      },
+      "post": {
+        "description": "Permiso: `ordenes.registrar_cobro`. Factura única en Argos (POST /facturas/cargo-unico) con el concepto y el precio de la plantilla; sale en el momento por la cola de pendientes (iris:cargo:\u003corden\u003e:\u003ccargo_id\u003e, X-Iris-Actor). Cambiar el precio exige `ordenes.cobro_editar_monto` y motivo. Nunca Q0. 409 `cobro_registrado` (uno vivo por orden; tras un anulado, otro con otro cargo_id). El cierre ya no manda el cargo de instalación de la plantilla. Emite `orden.cobro_registrado`.",
+        "operationId": "registrarCobroOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaRegistrarCobro"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Cobro"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Registrar el cobro de la instalación",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.registrar_cobro"
+      }
+    },
     "/api/v1/ordenes/{id}/completar-datos": {
       "post": {
         "description": "Permiso: `ordenes.completar_datos`. Despacho o supervisor con `ordenes.completar_datos` y alcance sobre la orden, en una instalación no terminada con el servicio pendiente en Argos; con `version` (409 si cambió) e `Idempotency-Key`. Encola A43 detrás de la identidad o del cambio de titular, como `orden.completar_datos` del lote. Teléfono, correo y NIT/CUI van solo al depósito de tránsito (`***` en la auditoría). 422 `orden_no_es_instalacion`, `argos_sin_conector`, `transicion_invalida`. Emite `orden.datos_completados`.",
@@ -80540,6 +82968,119 @@
           "campo"
         ],
         "x-permiso": "ordenes.descartar_datos_argos"
+      }
+    },
+    "/api/v1/ordenes/{id}/equipo": {
+      "get": {
+        "description": "Permiso: `servicios.ver_equipo`. En línea, señal, serie, MAC, modelo y firmware leídos de Argos (SmartOLT o el ACS) en el momento. El técnico solo en sus órdenes en curso. 409 `equipo_sin_gestion`; 503 `equipo_sin_respuesta` (Iris no reintenta solo: «Reintentar»). Nunca la clave Wi-Fi.",
+        "operationId": "verEquipoOrden",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstadoEquipo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Estado del equipo del cliente",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "servicios.ver_equipo"
       }
     },
     "/api/v1/ordenes/{id}/equipos-cambiados": {
@@ -83603,6 +86144,226 @@
           "campo"
         ],
         "x-permiso": "ordenes.validar_identidad"
+      }
+    },
+    "/api/v1/ordenes/{id}/wifi": {
+      "get": {
+        "description": "Permiso: `ordenes.ver`.",
+        "operationId": "cambiosWifiOrden",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CambioWifi"
+                  },
+                  "type": [
+                    "array",
+                    "null"
+                  ]
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cambios de Wi-Fi pedidos desde la orden",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "ordenes.ver"
+      },
+      "post": {
+        "description": "Permiso: `servicios.cambiar_wifi`. Nombre o clave nuevos (al menos uno). Argos lo aplica en el equipo y avisa por webhook; el estado queda en GET /ordenes/{id}/wifi. `metodo`: `presencial` (solo el técnico en sitio, en su orden en curso) o `datos_titular` (un agente con la verificación §7.5 del titular en `verificacionId`); `codigo_telefono` y `codigo_correo` aún no: 422 `metodo_no_disponible`. 429 `demasiados_cambios_wifi` (3 por servicio al día). La clave nunca se guarda ni se devuelve. Emite `wifi.cambio_pedido`.",
+        "operationId": "cambiarWifiOrden",
+        "parameters": [
+          {
+            "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "description": "Clave de idempotencia: con la misma clave y el mismo cuerpo se devuelve la misma respuesta; con otro cuerpo, 422",
+              "maxLength": 255,
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "int64",
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntradaWifiOrden"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CambioWifi"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problema"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "sesion": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Cambiar el Wi-Fi del cliente",
+        "tags": [
+          "campo"
+        ],
+        "x-permiso": "servicios.cambiar_wifi"
       }
     },
     "/api/v1/permisos": {

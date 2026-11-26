@@ -128,7 +128,7 @@ UPDATE mensajeria.centralita_extensiones SET sip_secreto_cifrado = @sip_secreto_
 -- Llaves de datos del depósito de tránsito del paso del titular (contrato argosisp.md 0.10.0
 -- §3.4.8): cada depósito va cifrado con su llave y la llave con IRIS_CLAVE_CIFRADO. Solo se rota la
 -- llave.
-SELECT id, orden_id, empresa_id, llave_cifrada FROM integracion.datos_transito
+SELECT id, entidad, orden_id, empresa_id, llave_cifrada FROM integracion.datos_transito
 WHERE llave_cifrada IS NOT NULL
 ORDER BY id
 FOR UPDATE;

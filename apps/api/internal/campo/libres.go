@@ -31,22 +31,29 @@ import (
 type AjustesCampo struct {
 	EmpresaID           *int64 `json:"empresaId" nullable:"true"`
 	TecnicosTomanLibres bool   `json:"tecnicosTomanLibres" doc:"Los técnicos pueden tomar órdenes libres (sin técnico) de su cuadrilla o de las zonas que atiende"`
-	PorDefecto          bool   `json:"porDefecto" doc:"La empresa no los ha fijado: son los de Iris (todo apagado)"`
-	Version             int32  `json:"version" doc:"Versión de los de la empresa (0 si son los por defecto)"`
+	// Activación desde la orden (contrato 0.9.0 §12.2) y bienvenida (§12.5).
+	ActivacionModo        string `json:"activacionModo" enum:"al_cerrar,exigir_lista,pendiente_agente" doc:"Cómo se activa el servicio de una instalación: al cerrar (de fábrica), exigir la activación lista para cerrar (salvo un supervisor con motivo) o cerrar con la activación pendiente para un agente. Solo aplica si Argos puede aprovisionar en la empresa; la plantilla puede cambiarlo"`
+	CierreExigeBienvenida bool   `json:"cierreExigeBienvenida" doc:"Con «exigir la activación lista», el cierre exige además la bienvenida enviada (o no enviada porque el cliente no acepta avisos). Apagado de fábrica"`
+	PorDefecto            bool   `json:"porDefecto" doc:"La empresa no los ha fijado: son los de Iris (todo apagado)"`
+	Version               int32  `json:"version" doc:"Versión de los de la empresa (0 si son los por defecto)"`
 }
 
 // EntradaFijarAjustes fija los ajustes de la empresa activa.
 type EntradaFijarAjustes struct {
 	Version             int32 `json:"version" minimum:"0" doc:"Versión leída (0 si eran los por defecto); si cambió, 409"`
 	TecnicosTomanLibres bool  `json:"tecnicosTomanLibres"`
+	// Sin ellos, quedan como estaban (o los de fábrica).
+	ActivacionModo        *string `json:"activacionModo,omitempty" enum:"al_cerrar,exigir_lista,pendiente_agente"`
+	CierreExigeBienvenida *bool   `json:"cierreExigeBienvenida,omitempty"`
 }
 
 func aAjustes(f campobd.CampoAjuste, empresa *int64) AjustesCampo {
-	return AjustesCampo{EmpresaID: empresa, TecnicosTomanLibres: f.TecnicosTomanLibres, Version: f.Version}
+	return AjustesCampo{EmpresaID: empresa, TecnicosTomanLibres: f.TecnicosTomanLibres, Version: f.Version,
+		ActivacionModo: f.ActivacionModo, CierreExigeBienvenida: f.CierreExigeBienvenida}
 }
 
 func porDefecto(empresa *int64) AjustesCampo {
-	return AjustesCampo{EmpresaID: empresa, PorDefecto: true}
+	return AjustesCampo{EmpresaID: empresa, PorDefecto: true, ActivacionModo: ModoAlCerrar}
 }
 
 // empresaDeAjustes: la empresa activa (null sin conector). El actor sistema no tiene una.
@@ -124,7 +131,9 @@ func (m *Modulo) nuevoFijarAjustes() *auditoria.Caso[EntradaFijarAjustes, Ajuste
 				if in.Version != 0 {
 					return AjustesCampo{}, nucleo.ConflictoVersion("ajustes_campo", deref(empresa))
 				}
-				f, err = q.CrearAjustes(ctx, campobd.CrearAjustesParams{EmpresaID: empresa, TecnicosTomanLibres: in.TecnicosTomanLibres})
+				modo, bienvenida := valoresActivacion(in, ModoAlCerrar, false)
+				f, err = q.CrearAjustes(ctx, campobd.CrearAjustesParams{EmpresaID: empresa, TecnicosTomanLibres: in.TecnicosTomanLibres,
+					ActivacionModo: modo, CierreExigeBienvenida: bienvenida})
 				if err != nil {
 					return AjustesCampo{}, err
 				}
@@ -132,24 +141,41 @@ func (m *Modulo) nuevoFijarAjustes() *auditoria.Caso[EntradaFijarAjustes, Ajuste
 				if in.TecnicosTomanLibres {
 					campos = append(campos, "tecnicos_toman_libres")
 				}
+				if modo != ModoAlCerrar {
+					campos = append(campos, "activacion_modo")
+				}
+				if bienvenida {
+					campos = append(campos, "cierre_exige_bienvenida")
+				}
 			case err != nil:
 				return AjustesCampo{}, err
 			default:
 				if err := nucleo.ExigirVersion(in.Version, antes.Version, "ajustes_campo", antes.ID); err != nil {
 					return AjustesCampo{}, err
 				}
-				if antes.TecnicosTomanLibres == in.TecnicosTomanLibres {
+				modo, bienvenida := valoresActivacion(in, antes.ActivacionModo, antes.CierreExigeBienvenida)
+				if antes.TecnicosTomanLibres != in.TecnicosTomanLibres {
+					campos = append(campos, "tecnicos_toman_libres")
+				}
+				if antes.ActivacionModo != modo {
+					campos = append(campos, "activacion_modo")
+				}
+				if antes.CierreExigeBienvenida != bienvenida {
+					campos = append(campos, "cierre_exige_bienvenida")
+				}
+				if len(campos) == 0 {
 					return AjustesCampo{}, nucleo.ReglaNegocio("sin_cambios", "Los ajustes ya están así")
 				}
-				f, err = q.GuardarAjustes(ctx, campobd.GuardarAjustesParams{ID: antes.ID, Version: antes.Version, TecnicosTomanLibres: in.TecnicosTomanLibres})
+				f, err = q.GuardarAjustes(ctx, campobd.GuardarAjustesParams{ID: antes.ID, Version: antes.Version, TecnicosTomanLibres: in.TecnicosTomanLibres,
+					ActivacionModo: modo, CierreExigeBienvenida: bienvenida})
 				if err != nil {
 					return AjustesCampo{}, nucleo.VerificarVersion(err, "ajustes_campo", antes.ID)
 				}
 				t.RegistrarCambios("ajustes_campo", f.ID, antes, f)
-				campos = append(campos, "tecnicos_toman_libres")
 			}
 			return aAjustes(f, empresa), t.Emitir("campo.ajustes_cambiados", map[string]any{
 				"empresa_id": empresa, "campos": campos, "tecnicos_toman_libres": f.TecnicosTomanLibres,
+				"activacion_modo": f.ActivacionModo, "cierre_exige_bienvenida": f.CierreExigeBienvenida,
 			})
 		},
 	})
@@ -459,4 +485,15 @@ func (m *Modulo) nuevoTomarOrden() *auditoria.Caso[EntradaTomarOrden, Orden] {
 func tomarLibresDe(ctx context.Context, q *campobd.Queries) bool {
 	ok, err := puedeTomarLibres(ctx, q)
 	return err == nil && ok
+}
+
+// valoresActivacion: el modo y la bienvenida que piden los ajustes (sin ellos, los de antes).
+func valoresActivacion(in EntradaFijarAjustes, modo string, bienvenida bool) (string, bool) {
+	if in.ActivacionModo != nil {
+		modo = *in.ActivacionModo
+	}
+	if in.CierreExigeBienvenida != nil {
+		bienvenida = *in.CierreExigeBienvenida
+	}
+	return modo, bienvenida
 }

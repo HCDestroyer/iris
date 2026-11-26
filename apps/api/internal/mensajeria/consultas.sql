@@ -140,10 +140,10 @@ SELECT * FROM mensajeria.avisos WHERE canal_id = @canal_id AND proveedor_id = @p
 -- name: InsertarAviso :one
 INSERT INTO mensajeria.avisos (id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido,
     prioridad, origen, estado, motivo, canal, canal_id, remitente, destino, usuario_id, token_id,
-    idempotency_key, hash_peticion, vence_en, programado_en, finalizado_en, created_at)
+    idempotency_key, hash_peticion, vence_en, programado_en, finalizado_en, created_at, orden_id, detalle)
 VALUES (@id, @empresa_id, @cliente_id, @servicio_id, @plantilla, @variables, @canal_preferido,
     @prioridad, @origen, @estado, @motivo, @canal, @canal_id, @remitente, @destino, @usuario_id, @token_id,
-    @idempotency_key, @hash_peticion, @vence_en, @programado_en, @finalizado_en, @creado_en)
+    @idempotency_key, @hash_peticion, @vence_en, @programado_en, @finalizado_en, @creado_en, sqlc.narg(orden_id), sqlc.narg(detalle))
 ON CONFLICT DO NOTHING
 RETURNING *;
 
@@ -276,6 +276,61 @@ SELECT * FROM mensajeria.webhooks_salida WHERE id = $1;
 -- El conector Argos activo con su receptor (§6.6).
 SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo';
+
+-- name: CuentasParaBienvenida :many
+-- Cuentas para pagar de la bienvenida (contrato 0.9.0 §12.5): de la instantánea de Argos (§7.8), solo
+-- activas, de la empresa del servicio, en GTQ y con titular; una recién cambiada (24 h) solo si la
+-- confirmó un admin de Iris.
+SELECT id, banco_nombre, numero, titular, tipo FROM integracion.argos_cuentas_bancarias
+WHERE empresa_id = @empresa_id AND activa AND moneda = 'GTQ' AND coalesce(btrim(titular), '') <> ''
+  AND (cambiada_en IS NULL OR cambiada_en < @hace24h OR confirmada_en >= cambiada_en)
+ORDER BY banco_nombre, id
+LIMIT 5;
+
+-- name: OrdenDeServicioParaAviso :one
+-- La orden de Iris del `origen` de un aviso (§6.2): existe y es de ese servicio.
+SELECT id FROM campo.ordenes WHERE id = @id AND servicio_id = @servicio_id;
+
+-- Enlace de un solo uso para cambiar el Wi-Fi (0.9.0 §12.4, B14) ----------------------------------
+
+-- name: VerificacionParaWifi :one
+-- La última verificación que coincidió en esta conversación para este cliente, de menos de @desde y
+-- sin un enlace (una verificación vale para un solo cambio).
+SELECT v.id, v.creada_en FROM mensajeria.asistente_verificaciones v
+WHERE v.conversacion_id = @conversacion_id AND v.cliente_id = @cliente_id AND v.resultado = 'coincide' AND v.creada_en >= @desde
+  AND NOT EXISTS (SELECT 1 FROM mensajeria.enlaces_wifi e WHERE e.verificacion_id = v.id)
+ORDER BY v.creada_en DESC LIMIT 1;
+
+-- name: CrearEnlaceWifi :one
+INSERT INTO mensajeria.enlaces_wifi (id, huella, empresa_id, conversacion_id, cliente_id, servicio_id, verificacion_id, metodo, verificado_en, vence_en,
+    token_cifrado)
+VALUES (@id, @huella, sqlc.narg(empresa_id), @conversacion_id, @cliente_id, @servicio_id, @verificacion_id, @metodo, @verificado_en, @vence_en,
+    @token_cifrado)
+RETURNING *;
+
+-- name: EnlaceWifiVigente :one
+SELECT * FROM mensajeria.enlaces_wifi WHERE huella = @huella AND usado_en IS NULL AND vence_en > @ahora;
+
+-- name: UsarEnlaceWifi :one
+-- Un solo uso: solo el primero que llega lo toma (los demás no ven fila).
+UPDATE mensajeria.enlaces_wifi SET usado_en = @ahora, token_cifrado = NULL
+WHERE huella = @huella AND usado_en IS NULL AND vence_en > @ahora
+RETURNING *;
+
+-- name: FijarCambioEnlaceWifi :exec
+UPDATE mensajeria.enlaces_wifi SET cambio_id = @cambio_id WHERE id = @id;
+
+-- name: ClienteDeConversacion :one
+SELECT cliente_id FROM mensajeria.conversaciones WHERE id = @id;
+
+-- name: TokenEnlaceWifiParaEnviar :one
+-- El último enlace vigente de la conversación (para poner el token al mandar el mensaje a Meta).
+SELECT id, token_cifrado FROM mensajeria.enlaces_wifi
+WHERE conversacion_id = @conversacion_id AND usado_en IS NULL AND vence_en > @ahora AND token_cifrado IS NOT NULL
+ORDER BY created_at DESC LIMIT 1;
+
+-- name: PurgarTokensEnlaceWifi :exec
+UPDATE mensajeria.enlaces_wifi SET token_cifrado = NULL WHERE token_cifrado IS NOT NULL AND vence_en <= @ahora;
 
 -- name: ContarAvisosNumeroDelDia :one
 -- Avisos a un número en la empresa desde el inicio del día (los bloqueados no cuentan), originales y

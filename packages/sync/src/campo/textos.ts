@@ -93,6 +93,7 @@ export const OPERACIONES: Record<TipoOperacionLote, string> = {
     "orden.cambiar_titular": "Cambio de titular",
     "orden.completar_datos": "Datos del titular y del lugar",
     "orden.cambiar_plan": "Cambio de plan",
+    "orden.activar_servicio": "Activar servicio",
     "orden.firmar_contrato": "Firma del contrato",
 };
 

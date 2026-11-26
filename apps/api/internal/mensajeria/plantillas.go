@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,6 +50,11 @@ type Plantilla struct {
 	// Iris llevan texto libre (motivo, zona): con un token de integración filtrado servirían para
 	// mandar phishing por el número oficial.
 	Pide string
+	// DeIris: variables que llena Iris al crear el aviso (las cuentas para pagar de la bienvenida,
+	// §12.5); quien pide el aviso nunca las manda (422 variable_desconocida).
+	DeIris []Variable
+	// Interna: variante que solo usa Iris (la bienvenida sin cuentas); no se pide por código.
+	Interna bool
 }
 
 // Quién pide una plantilla.
@@ -81,6 +87,15 @@ var Catalogo = []Plantilla{
 		Texto: "Tu servicio está activo de nuevo. ¡Gracias por tu pago!"},
 	{Codigo: "bienvenida", Pide: PideArgos, Variables: vars("plan", formatoTexto),
 		Texto: "¡Bienvenido! Tu servicio {{plan}} ya está activo."},
+	// Bienvenida al activar (0.9.0 §12.5, B16): las cuentas las inserta Iris de su instantánea (§7.8);
+	// sin cuentas válidas, la variante sin cuentas (detalle sin_cuentas).
+	{Codigo: PlantillaBienvenidaServicio, Pide: PideArgos, Variables: vars("nombre", formatoTexto, "plan", formatoTexto,
+		"precio_mensual", formatoMonto, "moneda", formatoMoneda, "codigo_cliente", formatoTexto),
+		DeIris: vars("cuentas", formatoTexto),
+		Texto:  "¡Hola, {{nombre}}! Tu servicio {{plan}} ya está activo. Tu código de cliente es {{codigo_cliente}} y tu mensualidad es de {{moneda}} {{precio_mensual}}. Puedes pagar en: {{cuentas}}"},
+	{Codigo: PlantillaBienvenidaSinCuentas, Pide: PideArgos, Interna: true, Variables: vars("nombre", formatoTexto, "plan", formatoTexto,
+		"precio_mensual", formatoMonto, "moneda", formatoMoneda, "codigo_cliente", formatoTexto),
+		Texto: "¡Hola, {{nombre}}! Tu servicio {{plan}} ya está activo. Tu código de cliente es {{codigo_cliente}} y tu mensualidad es de {{moneda}} {{precio_mensual}}."},
 	{Codigo: "corte_programado", Pide: PideIris, Variables: vars("inicio", formatoInstante, "fin", formatoInstante, "zona", formatoTexto), Urgente: true,
 		Texto: "Mantenimiento programado en {{zona}} de {{inicio}} a {{fin}}. El servicio puede interrumpirse."},
 	{Codigo: "boleta_recibida", Pide: PideIris, Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
@@ -104,6 +119,12 @@ var Catalogo = []Plantilla{
 		Texto: "Registramos tu promesa de pago de {{monto}} para el {{vence_en}}."},
 }
 
+// Plantillas de la bienvenida (0.9.0 §12.5).
+const (
+	PlantillaBienvenidaServicio   = "bienvenida_servicio"
+	PlantillaBienvenidaSinCuentas = "bienvenida_servicio_sin_cuentas"
+)
+
 // PlantillaPorCodigo busca en el catálogo.
 func PlantillaPorCodigo(codigo string) (Plantilla, bool) {
 	i := slices.IndexFunc(Catalogo, func(p Plantilla) bool { return p.Codigo == codigo })
@@ -117,7 +138,9 @@ func PlantillaPorCodigo(codigo string) (Plantilla, bool) {
 func CodigosPlantillas() []string {
 	c := make([]string, 0, len(Catalogo))
 	for _, p := range Catalogo {
-		c = append(c, p.Codigo)
+		if !p.Interna {
+			c = append(c, p.Codigo)
+		}
 	}
 	return c
 }
@@ -171,6 +194,12 @@ func (p Plantilla) validarVariables(v map[string]string, ahora time.Time) error 
 		}
 		if msg := validarFormato(d.Formato, valor); msg != "" {
 			errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: msg, Rule: d.Formato})
+			continue
+		}
+		if p.Codigo == PlantillaBienvenidaServicio {
+			if msg := validarBienvenida(d.Nombre, valor); msg != "" {
+				errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: msg, Rule: "bienvenida"})
+			}
 		}
 	}
 	if len(errs) > 0 {
@@ -245,10 +274,10 @@ func (p Plantilla) venceEn(v map[string]string, zona *time.Location) *time.Time 
 	return &t
 }
 
-// Parametros en el orden declarado (el de la plantilla aprobada en Meta).
+// Parametros en el orden declarado (el de la plantilla aprobada en Meta), con las de Iris al final.
 func (p Plantilla) Parametros(v map[string]string) []string {
-	salida := make([]string, 0, len(p.Variables))
-	for _, d := range p.Variables {
+	salida := make([]string, 0, len(p.Variables)+len(p.DeIris))
+	for _, d := range append(append([]Variable{}, p.Variables...), p.DeIris...) {
 		salida = append(salida, p.valor(d, v))
 	}
 	return salida
@@ -277,7 +306,7 @@ func (p Plantilla) valor(d Variable, v map[string]string) string {
 // Render arma el texto con las variables (canal simulado).
 func (p Plantilla) Render(v map[string]string) string {
 	t := p.Texto
-	for _, d := range p.Variables {
+	for _, d := range append(append([]Variable{}, p.Variables...), p.DeIris...) {
 		t = strings.ReplaceAll(t, "{{"+d.Nombre+"}}", p.valor(d, v))
 	}
 	return t
@@ -314,4 +343,39 @@ func inicioDelDia(t time.Time, zona *time.Location) time.Time {
 // String de la ventana (HH:MM-HH:MM).
 func (v Ventana) String() string {
 	return fmt.Sprintf("%02d:%02d-%02d:%02d", v.Inicio/60, v.Inicio%60, v.Fin/60, v.Fin%60)
+}
+
+var (
+	reCodigoCliente    = regexp.MustCompile(`^[A-Za-z0-9-]{1,30}$`)
+	reDigitos4         = regexp.MustCompile(`[0-9](?:[\s.\-/]?[0-9]){3,}`)
+	reEnlaceBienvenida = regexp.MustCompile(`(?i)(https?://|www\.|[a-z0-9-]+\.(com|net|org|gt|io|co|info|biz|me|app|xyz|ly|link)\b)`)
+)
+
+// validarBienvenida aplica §12.5 a las variables de Argos de bienvenida_servicio: nombre hasta 60 y
+// plan hasta 80 caracteres, sin saltos de línea, URLs ni dominios, ni secuencias de 4 o más dígitos
+// (la lista blanca de §6.3: así no se cuela un número de cuenta ni un enlace); codigo_cliente
+// alfanumérico con guiones (1 a 30).
+func validarBienvenida(nombre, valor string) string {
+	switch nombre {
+	case "nombre", "plan":
+		max := 60
+		if nombre == "plan" {
+			max = 80
+		}
+		switch {
+		case len([]rune(valor)) > max:
+			return "Hasta " + strconv.Itoa(max) + " caracteres"
+		case strings.ContainsAny(valor, "\r\n"):
+			return "Sin saltos de línea"
+		case reEnlaceBienvenida.MatchString(valor):
+			return "Sin enlaces ni dominios"
+		case reDigitos4.MatchString(valor):
+			return "Sin secuencias de 4 o más dígitos"
+		}
+	case "codigo_cliente":
+		if !reCodigoCliente.MatchString(valor) {
+			return "Letras, números y guiones (1 a 30)"
+		}
+	}
+	return ""
 }

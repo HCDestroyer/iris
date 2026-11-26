@@ -84,6 +84,14 @@ type Registro struct {
 	ActualizadoEn    time.Time
 	// Version: control optimista (CompletarEsperando / FallarEsperando la exigen).
 	Version int32
+	// Cobro de la instalación (0.14.3 §3): cargo terminal, «por confirmar» y su reemplazo.
+	CargoTerminal  bool
+	PorConfirmar   bool
+	ReemplazoDe    *int64
+	ReemplazadoPor *int64
+	// FacturaID: la factura ligada (2xx o conciliación); FacturaPorAnular: la de un cobro por confirmar.
+	FacturaID        *int64
+	FacturaPorAnular *int64
 }
 
 func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
@@ -94,6 +102,8 @@ func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 		CodigoError: f.CodigoError, EmpresaID: f.EmpresaID, EntidadID: f.EntidadID, TecnicoUsuarioID: f.TecnicoUsuarioID,
 		ActualizadoEn: f.UpdatedAt, Version: f.Version, ResueltoComo: f.ResueltoComo,
 		ResueltoClienteID: f.ResueltoClienteID,
+		CargoTerminal:     f.CargoTerminal, PorConfirmar: f.PorConfirmar, ReemplazoDe: f.ReemplazoDe, ReemplazadoPor: f.ReemplazadoPor,
+		FacturaID: f.FacturaID, FacturaPorAnular: f.FacturaPorAnularID,
 	}
 }
 
@@ -101,6 +111,15 @@ func aRegistro(f pendientesbd.IntegracionPendiente) Registro {
 // una transacción o el pool.
 func PorClave(ctx context.Context, q pendientesbd.DBTX, clave string) (Registro, error) {
 	f, err := pendientesbd.New(q).PendientePorClave(ctx, clave)
+	if err != nil {
+		return Registro{}, err
+	}
+	return aRegistro(f), nil
+}
+
+// PorFactura: el pendiente ligado a esa factura de Argos, o que la tiene como factura por anular.
+func PorFactura(ctx context.Context, q pendientesbd.DBTX, factura int64) (Registro, error) {
+	f, err := pendientesbd.New(q).PendientePorFactura(ctx, factura)
 	if err != nil {
 		return Registro{}, err
 	}
@@ -250,9 +269,30 @@ func resolverSiListo(ctx context.Context, t *auditoria.Tx, f pendientesbd.Integr
 	if err != nil {
 		return f, err
 	}
+	// A1-quater: un cargo que esperaba (p. ej. al titular) vuelve a decidir la línea de instalación con la
+	// orden bloqueada antes de fijar su cuerpo: un cobro de A36 vigente con ella pudo nacer entretanto.
+	cuerpo, motivo, err := lineaAlResolver(ctx, q, f, cuerpo)
+	if err != nil {
+		return f, err
+	}
+	if motivo != "" {
+		g, err := q.FallarResolucion(ctx, pendientesbd.FallarResolucionParams{ID: f.ID, Motivo: &motivo})
+		if err != nil {
+			return f, err
+		}
+		t.RegistrarCambios("pendiente", g.ID, map[string]any{"estado": f.Estado}, map[string]any{"estado": g.Estado, "datos_incompletos": true})
+		if err := t.Emitir(EventoFallido, eventoFallo{eventoPendiente: eventoDe(g), Intentos: g.Intentos, Detalle: motivo}); err != nil {
+			return g, err
+		}
+		return g, bloquearDependientes(ctx, t, g.ID, g.Estado)
+	}
 	g, err := q.FijarCuerpoResuelto(ctx, pendientesbd.FijarCuerpoResueltoParams{ID: f.ID, Payload: cuerpo, Ahora: ahora})
 	if err != nil {
 		return f, err
+	}
+	// B-e: el cobro de A36 guarda el titular efectivo.
+	if err := actualizarClienteCobro(ctx, q, g, cuerpo); err != nil {
+		return g, err
 	}
 	t.RegistrarCambios("pendiente", g.ID, map[string]any{"por_resolver": true}, map[string]any{"por_resolver": false})
 	return g, nil
@@ -295,17 +335,33 @@ func mismaEmpresa(a, b *int64) bool {
 
 // resolverAtascados es la red de seguridad del job: resuelve los por resolver cuyas
 // dependencias ya están todas hechas. Devuelve cuántos tocó.
-func resolverAtascados(ctx context.Context, t *auditoria.Tx, ahora time.Time) (int, error) {
-	filas, err := pendientesbd.New(t).PorResolverListos(ctx, 200)
+// atascado: un cargo por resolver cuyas dependencias ya están hechas (red de seguridad).
+type atascado struct {
+	ID        int64  `json:"pendiente_id"`
+	Entidad   string `json:"entidad"`
+	EntidadID string `json:"entidad_id"`
+	ahora     time.Time
+}
+
+// resolverAtascado resuelve uno, en su propia transacción: la orden y luego el pendiente (SKIP
+// LOCKED, volviendo a comprobar su estado; si otro lo tiene, la pasada siguiente).
+func resolverAtascado(ctx context.Context, t *auditoria.Tx, a atascado) (int, error) {
+	q := pendientesbd.New(t)
+	if err := bloquearOrden(ctx, q, pendientesbd.IntegracionPendiente{Entidad: a.Entidad, EntidadID: a.EntidadID}); err != nil {
+		return 0, err
+	}
+	f, err := q.TomarPorResolverListo(ctx, a.ID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
 	if err != nil {
 		return 0, err
 	}
-	for _, f := range filas {
-		if _, err := resolverSiListo(ctx, t, f, ahora); err != nil {
-			return 0, err
-		}
+	t.FijarEntidad("pendiente", f.ID)
+	if _, err := resolverSiListo(ctx, t, f, a.ahora); err != nil {
+		return 0, err
 	}
-	return len(filas), nil
+	return 1, nil
 }
 
 // CompletarEsperando fija el cuerpo final de un pendiente que esperaba algo de Iris (Accion.Esperando

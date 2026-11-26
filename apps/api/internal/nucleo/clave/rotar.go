@@ -412,7 +412,7 @@ func (r *rotador) transito(ctx context.Context, q *clavebd.Queries, simular bool
 	}
 	for _, f := range filas {
 		antes := len(r.res.Ilegibles)
-		nuevo, cambio, err := r.valor(ColumnaTransito, 0, f.LlaveCifrada, pendientes.DatosAsociadosTransito(f.ID, f.OrdenID, f.EmpresaID))
+		nuevo, cambio, err := r.valor(ColumnaTransito, 0, f.LlaveCifrada, pendientes.DatosAsociadosTransitoDe(f.ID, f.Entidad, f.OrdenID, f.EmpresaID))
 		if err != nil {
 			return err
 		}

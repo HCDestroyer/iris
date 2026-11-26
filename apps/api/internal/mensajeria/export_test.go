@@ -399,3 +399,21 @@ func SugerenciaValida(json string) (bool, string) {
 	}
 	return true, ""
 }
+
+// ConTokenEnlaceParaPrueba pone el token del enlace vigente de la conversación (envío a Meta).
+func (m *Modulo) ConTokenEnlaceParaPrueba(ctx context.Context, conv int64, texto string, ahora time.Time) (string, error) {
+	r, err := m.conTokenEnlace(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), conv, &texto, ahora)
+	if err != nil || r == nil {
+		return "", err
+	}
+	return *r, nil
+}
+
+// TaparWifiEntranteParaPrueba tapa la clave en el texto y en el payload crudo de Meta.
+func TaparWifiEntranteParaPrueba(ctx context.Context, canal int64, wamid string, empresa *int64, texto string) (string, error) {
+	r, err := taparWifiEntrante(ctx, mensajeriabd.New(nucleo.BDDe(ctx)), canal, wamid, empresa, &texto)
+	if err != nil || r == nil {
+		return "", err
+	}
+	return *r, nil
+}
