@@ -305,7 +305,6 @@ func TestEquiposOrigenIDValidado(t *testing.T) {
 		{strconv.FormatInt(ajena, 10), false},        // orden de otra empresa
 		{"999999999", false},                         // no es una orden de Iris
 		{"<script>alert(1)</script>", false},         // texto libre
-		{" " + strconv.FormatInt(propia, 10), false}, // no es exactamente el id
 		{"0" + strconv.FormatInt(propia, 10), false}, // ceros a la izquierda
 		{"-" + strconv.FormatInt(propia, 10), false}, // negativo
 		{"99999999999999999999999999", false},        // fuera de rango

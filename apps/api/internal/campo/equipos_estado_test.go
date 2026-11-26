@@ -66,7 +66,8 @@ func TestEstadoEquiposNoExponeOtroCliente(t *testing.T) {
 		sql  string
 		args []any
 	}{
-		{`INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, ocurrido_en) VALUES (gen_random_uuid(), $1, 'retirar', 8201, now())`,
+		{`INSERT INTO campo.orden_equipos (id, orden_id, accion, unidad_id, condicion, ocurrido_en)
+			VALUES (gen_random_uuid(), $1, 'retirar', 8201, 'buena', now())`,
 			[]any{o.ID}},
 		// Hoy la unidad está en comodato en otro servicio (otro cliente).
 		{`INSERT INTO integracion.argos_unidades (unidad_id, empresa_id, servicio_id, estado, estado_en, servicio_en, entrante_id)
@@ -77,8 +78,8 @@ func TestEstadoEquiposNoExponeOtroCliente(t *testing.T) {
 			(8201, 1, $1, 'entra', NULL, NULL, 'iris_orden', $4, now() - interval '3 hours', now() - interval '3 hours', 11),
 			(8201, 1, $1, 'sale', NULL, NULL, 'iris_orden', $3, now() - interval '2 hours', now() - interval '2 hours', 12),
 			(8201, 1, $2, 'entra', NULL, NULL, 'iris_orden', $4, now() - interval '1 hour', now() - interval '1 hour', 13),
-			(8201, 1, $2, 'estado', 'disponible', 'en_comodato', now(), now(), 14),
-			(8201, 1, NULL, 'estado', 'en_comodato', 'disponible', now(), now(), 15)`,
+			(8201, 1, $2, 'estado', 'disponible', 'en_comodato', NULL, NULL, now(), now(), 14),
+			(8201, 1, NULL, 'estado', 'en_comodato', 'disponible', NULL, NULL, now(), now(), 15)`,
 			[]any{servicio, otroServicio, o.ID, otraOrden}},
 	} {
 		if _, err := pool.Exec(ctx, c.sql, c.args...); err != nil {
