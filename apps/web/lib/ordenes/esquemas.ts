@@ -1,6 +1,6 @@
 import type { Schema } from "@iris/contratos";
 import { z } from "zod";
-import { ORDEN_TIPOS, type TipoOrden } from "./presentacion";
+import { ORDEN_TIPOS, type TipoOrdenCreable } from "./presentacion";
 
 /*
  * Espejo de los validadores de la API de órdenes (OpenAPI: EntradaCrearOrden,
@@ -41,7 +41,7 @@ const motivo = z
     .min(3, "El motivo necesita al menos 3 caracteres")
     .max(500, maximo(500));
 
-const tipo = z.enum(ORDEN_TIPOS as [TipoOrden, ...TipoOrden[]], { error: "Elige el tipo de orden" });
+const tipo = z.enum(ORDEN_TIPOS as [TipoOrdenCreable, ...TipoOrdenCreable[]], { error: "Elige el tipo de orden" });
 
 export const esquemaCrearOrden = z
     .object({

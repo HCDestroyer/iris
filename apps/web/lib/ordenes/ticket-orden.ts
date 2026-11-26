@@ -1,7 +1,7 @@
 import type { Schema } from "@iris/contratos";
 import { z } from "zod";
 import { inicioDesdeGuatemala } from "./esquemas";
-import { ORDEN_TIPOS, type EstadoOrden, type TipoOrden } from "./presentacion";
+import { ORDEN_TIPOS, type EstadoOrden, type TipoOrdenCreable } from "./presentacion";
 
 /*
  * Ticket y orden de la mano. Espejo de la API (OpenAPI: EntradaCrearOrdenDeTicket,
@@ -30,7 +30,7 @@ const textoOpcional = (max: number) =>
 
 export const esquemaCrearOrdenDeTicket = z
     .object({
-        tipo: z.enum(ORDEN_TIPOS as [TipoOrden, ...TipoOrden[]], { error: "Elige el tipo de orden" }),
+        tipo: z.enum(ORDEN_TIPOS as [TipoOrdenCreable, ...TipoOrdenCreable[]], { error: "Elige el tipo de orden" }),
         tecnicoId: idOpcional,
         cuadrillaId: idOpcional,
         fecha: z.string().trim(),

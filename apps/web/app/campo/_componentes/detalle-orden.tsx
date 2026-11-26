@@ -428,6 +428,12 @@ function Cliente({ orden, nombre }: { orden: OrdenVista; nombre: string }) {
                         <BotonLlamarOrden orden={orden} className="size-12 rounded-full bg-[var(--campo-panel-2)] p-0 shadow-none md:size-12 [&_svg]:size-5" />
                     </div>
                 </div>
+                {orden.corteManual ? (
+                    // Corte manual del cable pedido por Argos (0.15.0 §13.2): la causa a la vista.
+                    <Aviso tono={orden.prioridad === "alta" ? "warning" : "info"} titulo={orden.corteManual.accion === "reconexion" ? "Reconectar el cable (TV)" : "Cortar el cable (TV)"} data-testid="campo-corte-manual">
+                        Argos no pudo por SmartOLT: {orden.corteManual.causaTexto}. Solo el cable; el internet sigue igual. Al cerrar, marca en el checklist si se hizo.
+                    </Aviso>
+                ) : null}
                 {orden.descripcion ? <p className="whitespace-pre-wrap">{orden.descripcion}</p> : null}
                 <AbrirChatOrden ordenId={orden.id} />
                 {/* Sin `tel:` directo: «Llamar» anota la llamada en la orden (E4c fase 3). */}

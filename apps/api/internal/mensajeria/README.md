@@ -54,6 +54,12 @@ cuentan los cambios con el `phone_number_id` del canal (una app puede servir a v
 demás se descartan y quedan anotados en `mensajeria.entrantes.error`.
 WhatsApp por QR y Telegram son de fases siguientes: QR declarará `PermiteAvisos() = false`.
 
+## Webhook del corte manual (contrato con Argos 0.15.0 §6.6 y §13.2)
+
+`corte_manual.estado_cambiado` (lo emite campo) va a Argos solo con contrato ≥ 0.15.0 y solo con los campos del
+contrato (`solicitud_id`, `empresa_id`, `version`, `estado`, `motivo_codigo`, `referencia`, `referencia_tipo`,
+`ocurrido_en`): nunca la orden interna ni el servicio. Prueba: `webhooks_corte_test.go`.
+
 ## Webhooks del vínculo del técnico (contrato con Argos 0.14.0 §6.6)
 
 `tecnico.argos_vinculado` / `tecnico.argos_desvinculado` van solo al conector del que salió el vínculo
