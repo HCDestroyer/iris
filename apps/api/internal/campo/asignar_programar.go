@@ -132,6 +132,10 @@ func (m *Modulo) asignar(ctx context.Context, t *auditoria.Tx, q *campobd.Querie
 	}); err != nil {
 		return f, err
 	}
+	// Corte manual (0.15.0 §13.2): asignada → en_curso.
+	if err := avisarCorte(ctx, t, q, f); err != nil {
+		return f, err
+	}
 	motivoEstado := ptr("asignación")
 	if motivo != nil {
 		motivoEstado = motivo
@@ -244,6 +248,9 @@ func (m *Modulo) nuevoProgramarOrden(re bool) *auditoria.Caso[EntradaProgramarOr
 					"orden_id": f.ID, "tecnico_id": f.TecnicoID, "cuadrilla_id": f.CuadrillaID,
 					"tecnico_anterior_id": antes.TecnicoID, "origen": verbo,
 				}); err != nil {
+					return f, "", err
+				}
+				if err := avisarCorte(ctx, t, q, f); err != nil {
 					return f, "", err
 				}
 			}

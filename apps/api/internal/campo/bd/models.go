@@ -301,6 +301,28 @@ type CampoCobro struct {
 	EsInstalacion   bool
 }
 
+type CampoCortesManuale struct {
+	SolicitudID       int64
+	ConectorID        int64
+	EmpresaID         int64
+	ServicioID        int64
+	ClienteID         *int64
+	Accion            string
+	Causa             string
+	Componente        string
+	SolicitadaEn      *time.Time
+	VersionArgos      int32
+	VersionIris       int32
+	Estado            string
+	Descarte          *string
+	MotivoCodigo      *string
+	CancelacionPedida bool
+	OrdenID           *int64
+	EntranteID        *int64
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 type CampoDispositivo struct {
 	ID             string
 	UsuarioID      int64
@@ -385,6 +407,7 @@ type CampoOrden struct {
 	DatosArgosCampos      []string
 	Referencia            *string
 	DatosArgosEntranteID  *int64
+	Prioridad             string
 }
 
 type CampoOrdenActivacion struct {

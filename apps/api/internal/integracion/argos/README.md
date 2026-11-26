@@ -702,3 +702,16 @@ internos que consume soporte:
   los últimos 20 movimientos); la orden la expone en `GET /ordenes/{id}/equipos/estado` (campo).
 - **Emite** `argos.equipo_cambiado` y `argos.unidad_estado_cambiado` (detalle en `eventos.md`).
   Pruebas: `webhook_equipos_test.go`.
+
+## Contrato 0.15.0, bloque B: corte manual de respaldo (§13.2, A54 / B34; `corte_manual.go`)
+
+- `servicio.corte_manual_solicitado` / `servicio.corte_manual_cancelado` se guardan primero en `integracion.entrantes`
+  (receptor de siempre, deduplicado por `X-Webhook-Id`, responde 2xx). El job valida el payload (sin solicitud,
+  versión, servicio, empresa o acción → `payload_invalido`) y **emite `argos.corte_manual`** con solo ids y códigos.
+  Una causa desconocida va como `otra`.
+- **B9:** con la empresa fuera del alcance del conector, `descarte: fuera_de_alcance`; con un servicio que ni la
+  instantánea ni Argos (`GET /servicios/:id`) confirman de esa empresa, `descarte: servicio_desconocido`. Campo la
+  guarda sin abrir nada. Un error de Argos reintenta el job.
+- Campo aplica la solicitud (orden, deduplicación por `solicitud_id` y `version`, cancelaciones) y devuelve
+  `corte_manual.estado_cambiado` (README de campo y de mensajería). `capacidades.corte_manual` sigue al contrato de
+  Iris (`SoportaCorteManual`). Pruebas: `contrato0150b_test.go`.
