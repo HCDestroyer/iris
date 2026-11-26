@@ -261,12 +261,20 @@ export const esAnchoCompleto = (ruta: string) => RUTAS_ANCHO_COMPLETO.includes(r
 /**
  * Región de avisos en el teléfono (rediseño): sobre la fila del encabezado (44 px, a lo ancho), unos
  * segundos: nunca tapa las migas, la isla del menú, «Guardar» ni el panel lateral (que empieza bajo
- * el encabezado). El texto en letra pequeña y hasta dos líneas.
+ * el encabezado). El texto en letra pequeña y hasta dos líneas. Un aviso con descripción crece hacia
+ * abajo lo justo (el título a lo ancho; debajo, la descripción en hasta dos líneas y la acción a su
+ * derecha) y su contenido nunca se sale de la caja: con la caja fija en 44 px y la acción debajo, el
+ * contenido (unos 124 px) se salía por arriba de la pantalla y por debajo tapaba lo de la pantalla,
+ * p. ej. «Llamada» en la conversación, sin que se viera la caja.
  */
 const CLASES_AVISOS_TELEFONO = [
     "top-[calc(env(safe-area-inset-top)+0.5rem)] inset-x-2 w-auto translate-x-0 sm:w-auto",
-    "[&_[data-slot=toast]]:min-h-0 [&_[data-slot=toast]]:max-h-11 [&_[data-slot=toast]]:py-1.5",
+    "[&_[data-slot=toast]]:min-h-0 [&_[data-slot=toast]]:py-1",
     "[&_.toast__title]:text-xs [&_.toast__title]:leading-4 [&_.toast__title]:line-clamp-2",
+    "[&_[data-slot=toast-description]]:text-xs [&_[data-slot=toast-description]]:leading-4 [&_[data-slot=toast-description]]:line-clamp-2",
+    "[&_[data-slot=toast-content]]:grid [&_[data-slot=toast-content]]:min-w-0 [&_[data-slot=toast-content]]:grid-cols-[minmax(0,1fr)_auto] [&_[data-slot=toast-content]]:items-center [&_[data-slot=toast-content]]:gap-x-2 [&_[data-slot=toast-content]]:gap-y-0",
+    "[&_[data-slot=toast-title]]:col-span-2 [&_[data-slot=toast-description]]:col-start-1 [&_[data-slot=toast-description]]:row-start-2",
+    "[&_[data-slot=toast-action-button]]:col-start-2 [&_[data-slot=toast-action-button]]:row-start-2 [&_[data-slot=toast-action-button]]:h-7 [&_[data-slot=toast-action-button]]:px-2 [&_[data-slot=toast-action-button]]:text-xs",
 ].join(" ");
 
 function suscribirAncho(avisar: () => void) {
