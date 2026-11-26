@@ -104,8 +104,8 @@ type Modulo struct {
 	// Portal del cliente de Argos (0.9.0 §11): la sesión de cada petición (portal.go).
 	prepararPortal *auditoria.Caso[CabecerasPortal, previoPortal]
 	cerrarPortal   *auditoria.Caso[entradaCerrarPortal, SesionPortal]
-	cfg                       Config
-	nucleo                    *conector.Nucleo
+	cfg            Config
+	nucleo         *conector.Nucleo
 	// Carga inicial de vínculos (0.14.0 §6.6).
 	iniciarCarga        *auditoria.Caso[int64, ResultadoCargaVinculos]
 	marcarCargaCerrada  *auditoria.Caso[ResultadoCargaVinculos, ResultadoCargaVinculos]
