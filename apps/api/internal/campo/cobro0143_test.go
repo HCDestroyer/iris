@@ -772,7 +772,13 @@ func TestLiberarCargoConA36Vigente(t *testing.T) {
 	}
 	e.relay()
 	e.procesar()
-	consumo := e.pendienteDe("iris:consumo:" + orden)
+	// Con Argos ≥ 0.14.0 hay un consumo por actor y bodega (iris:consumo:<orden>:<usuario>:<bodega>).
+	var clave string
+	if err := pruebas.Pool(t).QueryRow(context.Background(), `SELECT idempotency_key FROM integracion.pendientes
+		WHERE entidad = 'orden' AND entidad_id = $1 AND operacion = 'consumo'`, orden).Scan(&clave); err != nil {
+		t.Fatal(err)
+	}
+	consumo := e.pendienteDe(clave)
 	if consumo.Estado != pendientes.EstadoFallidoNegocio {
 		t.Fatalf("consumo rechazado: %+v", consumo)
 	}
