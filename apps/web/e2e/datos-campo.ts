@@ -210,6 +210,7 @@ export function trasladosDelTecnico(): Schema<"Traslado">[] {
         {
             id: 31,
             estado: "enviado",
+            puedeRecibir: true,
             empresaId: 0,
             bodegaDestinoId: BODEGA,
             enviadoEn: ayer,
@@ -221,6 +222,7 @@ export function trasladosDelTecnico(): Schema<"Traslado">[] {
         {
             id: 32,
             estado: "enviado",
+            puedeRecibir: true,
             empresaId: 0,
             bodegaDestinoId: BODEGA,
             enviadoEn: ayer,
@@ -232,19 +234,27 @@ export function trasladosDelTecnico(): Schema<"Traslado">[] {
 /** «Mi bodega» de Tomás en Argos. */
 export function bodegaDelTecnico(): Schema<"MiBodegaRespuesta"> {
     const hace = (h: number) => new Date(Date.now() - h * 60 * 60_000).toISOString();
+    const bodega = { id: BODEGA, nombre: "Bodega móvil · Tomás", empresaId: 0 };
+    const existencias: Schema<"MiBodegaRespuesta">["existencias"] = [
+        { productoId: CABLE, descripcion: "Cable drop 1 hilo", cantidad: 120, unidad: "m", modalidad: "consumible_gasto" },
+        { productoId: CONECTOR, descripcion: "Conector SC/APC", cantidad: 10, unidad: "u", modalidad: "consumible_cobro" },
+        { productoId: ONT, descripcion: "ONT ZTE F670L", cantidad: 1, unidad: "u", modalidad: "comodato" },
+    ];
+    const unidades: Schema<"MiBodegaRespuesta">["unidades"] = [
+        { id: 501, productoId: ONT, descripcion: "ONT ZTE F670L", serie: "ZTEGC8F09999", mac: "A0:B1:C2:D3:E4:00", estado: "disponible" },
+    ];
+    const kardex: Schema<"MiBodegaRespuesta">["kardex"] = [
+        { id: 9001, tipo: "consumo", productoId: CABLE, descripcion: "Cable drop 1 hilo", cantidad: -35, referencia: "OT-000099", ocurridoEn: hace(26) },
+        { id: 9002, tipo: "traslado_entrada", productoId: CONECTOR, descripcion: "Conector SC/APC", cantidad: 10, referencia: "Traslado 28", ocurridoEn: hace(50) },
+    ];
     return {
-        bodega: { id: BODEGA, nombre: "Bodega móvil · Tomás", empresaId: 0 },
-        existencias: [
-            { productoId: CABLE, descripcion: "Cable drop 1 hilo", cantidad: 120, unidad: "m", modalidad: "consumible_gasto" },
-            { productoId: CONECTOR, descripcion: "Conector SC/APC", cantidad: 10, unidad: "u", modalidad: "consumible_cobro" },
-            { productoId: ONT, descripcion: "ONT ZTE F670L", cantidad: 1, unidad: "u", modalidad: "comodato" },
-        ],
-        unidades: [{ id: 501, productoId: ONT, descripcion: "ONT ZTE F670L", serie: "ZTEGC8F09999", mac: "A0:B1:C2:D3:E4:00", estado: "disponible" }],
+        bodega,
+        existencias,
+        unidades,
         trasladosPendientes: [31, 32],
-        kardex: [
-            { id: 9001, tipo: "consumo", productoId: CABLE, descripcion: "Cable drop 1 hilo", cantidad: -35, referencia: "OT-000099", ocurridoEn: hace(26) },
-            { id: 9002, tipo: "traslado_entrada", productoId: CONECTOR, descripcion: "Conector SC/APC", cantidad: 10, referencia: "Traslado 28", ocurridoEn: hace(50) },
-        ],
+        kardex,
+        // Sin cuadrilla: solo la suya (contrato 0.11.0 §3.9).
+        bodegas: [{ bodega, cuadrilla: false, existencias, unidades, trasladosPendientes: [31, 32], kardex }],
         leidoEn: new Date().toISOString(),
     };
 }

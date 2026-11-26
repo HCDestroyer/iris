@@ -137,9 +137,15 @@ func (m *Modulo) intentar(ctx context.Context, f pendientesbd.IntegracionPendien
 		// Sin servicio, Argos toma la bodega del técnico en la empresa de X-Empresa-Id (0.5.0 §3.3).
 		cli = cli.ConCabecera(argos.CabeceraEmpresaArgos, strconv.FormatInt(*f.EmpresaID, 10))
 	}
-	if f.Actor != nil {
+	switch {
+	case f.Actor != nil:
 		// La persona que actúa (contrato §3.4, §3.5 y §7.1): Argos audita con ella.
 		cli = cli.ConCabecera(CabeceraActorIris, *f.Actor)
+	case f.TecnicoUsuarioID != nil:
+		// Quien usó el material, instaló o devolvió el equipo, o recibió el traslado: el mismo técnico
+		// cuyo vínculo va en `tecnico` (0.11.0 §3.9: obligatoria sobre una bodega de cuadrilla, y
+		// Argos exige que coincidan). Sale de la columna, nunca del cuerpo.
+		cli = cli.ConCabecera(CabeceraActorIris, "usuario:"+strconv.FormatInt(*f.TecnicoUsuarioID, 10))
 	}
 	if f.Operacion == OpCambiarWifi && f.Entidad == EntidadTransitoConversacion {
 		// El cambio de Wi-Fi desde una conversación lleva su id (§7.1 y §12.4).
@@ -378,6 +384,11 @@ func EsNegocio(er *conector.ErrorRemoto) bool {
 	if er.Bloqueado() || er.Status < 400 || er.Status >= 500 {
 		return false
 	}
+	if er.Status == http.StatusForbidden && ConflictosProhibidos[TipoDe(er)] {
+		// Un 403 con estos type es una decisión de Argos sobre el pedido (B-268-4), no la falta de un
+		// permiso del token: reintentar no lo arregla. Conflicto para una persona.
+		return true
+	}
 	switch er.Status {
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusRequestTimeout,
 		http.StatusTooEarly, http.StatusTooManyRequests:
@@ -386,6 +397,14 @@ func EsNegocio(er *conector.ErrorRemoto) bool {
 		return TipoDe(er) != TipoEnCurso
 	}
 	return true
+}
+
+// ConflictosProhibidos son los 403 de negocio de Argos (contrato 0.11.0 §3.9 y 0.12.0 §3.10): la
+// bodega no es del técnico, el actor no coincide, solo el jefe recibe, el servicio es de otra
+// empresa o el actor es el asistente. No se reintentan solos.
+var ConflictosProhibidos = map[string]bool{
+	"no_es_miembro": true, "actor_no_coincide": true, "solo_jefe_recibe": true,
+	"empresa_no_permitida": true, "actor_ia_no_permitido": true,
 }
 
 // TipoDe es el type del problem+json de Argos sin prefijo (acepta «x», «urn:…:x» o una URL

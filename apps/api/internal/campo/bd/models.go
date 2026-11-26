@@ -509,6 +509,8 @@ type CampoOrdenMaterial struct {
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 	Modalidad        *string
+	BodegaTipo       *string
+	DesdeTecnico     bool
 }
 
 type CampoOrdenNota struct {
@@ -877,6 +879,25 @@ type IntegracionAbrirArgosCuota struct {
 	Pedidos   int32
 }
 
+type IntegracionArgosBodegasCuadrilla struct {
+	BodegaID    int64
+	EmpresaID   int64
+	CuadrillaID int64
+	Nombre      *string
+	VistoEn     time.Time
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type IntegracionArgosBodegasTecnico struct {
+	BodegaID  int64
+	EmpresaID int64
+	UsuarioID int64
+	VistoEn   time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type IntegracionArgosCertificado struct {
 	ID            int64
 	ConectorID    int64
@@ -1084,6 +1105,7 @@ type IntegracionArgosTraslado struct {
 	EntranteID       *int64
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
+	CuadrillaID      *int64
 }
 
 type IntegracionArgosZona struct {

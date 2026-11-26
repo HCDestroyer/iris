@@ -100,6 +100,15 @@ Cola de acciones de Iris hacia Argos (`integracion.pendientes`; contrato `argosi
 Consume `orden.cerrada`. Emite `integracion.pendiente_hecho`, `_fallido`, `_agotado`,
 `_reintentado`, `_omitido`, `_corregido`, `_conflicto`, `_bloqueado`, `_desbloqueado` y `_resuelto_manual` (contratos/eventos.md, «Pendientes hacia Argos»).
 
+## Contrato 0.11.0: bodega de cuadrilla (B26)
+
+- Un pendiente con `tecnico_usuario_id` sale con `X-Iris-Actor: usuario:<id>` (obligatoria sobre una
+  bodega de cuadrilla; Argos exige que sea el mismo técnico de `tecnico`). Nunca sale del cuerpo.
+- El consumo desde una bodega de cuadrilla (`integracion.argos_bodegas_cuadrilla`) manda `tecnico` y
+  `bodega_id` juntos; desde la suya, solo `tecnico`. Varias bodegas en una orden: un consumo por
+  orden, nace incompleto. `409 sin_existencia`, `403 no_es_miembro` y `403 actor_no_coincide` son de
+  negocio: no se reintentan ni se cambia de bodega.
+
 ## Contrato 0.5.0: `tecnico`, modalidades y cargos
 
 - Con Argos ≥ 1.6.0 (`argos.Modulo.InventarioPorTecnico`) y `tecnico { id_externo }` en

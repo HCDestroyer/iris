@@ -2349,6 +2349,74 @@
         ],
         "type": "object"
       },
+      "BodegaDeTecnico": {
+        "additionalProperties": false,
+        "properties": {
+          "bodega": {
+            "$ref": "#/components/schemas/Bodega"
+          },
+          "cuadrilla": {
+            "description": "Es la bodega compartida de su cuadrilla",
+            "type": "boolean"
+          },
+          "cuadrillaId": {
+            "description": "La cuadrilla en Iris",
+            "format": "int64",
+            "type": "integer"
+          },
+          "existencias": {
+            "items": {
+              "$ref": "#/components/schemas/ExistenciaBodega"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "jefe": {
+            "$ref": "#/components/schemas/JefeBodega",
+            "description": "Solo en la de cuadrilla; null = sin jefe (los traslados esperan)"
+          },
+          "kardex": {
+            "description": "Últimos 50 movimientos",
+            "items": {
+              "$ref": "#/components/schemas/MovimientoBodega"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "trasladosPendientes": {
+            "items": {
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "unidades": {
+            "items": {
+              "$ref": "#/components/schemas/UnidadBodega"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "bodega",
+          "cuadrilla",
+          "existencias",
+          "unidades",
+          "trasladosPendientes",
+          "kardex"
+        ],
+        "type": "object"
+      },
       "BodegaTecnico": {
         "additionalProperties": false,
         "properties": {
@@ -16906,7 +16974,7 @@
         "additionalProperties": false,
         "properties": {
           "bodegaId": {
-            "description": "Otra bodega en Argos: solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos; nunca desde el lote. Por defecto, la de la orden",
+            "description": "Por defecto, la de la orden. Desde la app (lote): la bodega personal del técnico o la de su cuadrilla actual en la empresa de la orden (contrato 0.11.0 §3.9; si no, 403 no_es_miembro antes de mirar existencias); la app guarda la elegida en la cola. Desde el panel: otra bodega solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos, y solo bodegas generales: una de cuadrilla o personal da 422 bodega_no_permitida (0.13.1)",
             "format": "int64",
             "minimum": 1,
             "type": "integer"
@@ -20688,6 +20756,23 @@
         ],
         "type": "object"
       },
+      "JefeBodega": {
+        "additionalProperties": false,
+        "properties": {
+          "nombre": {
+            "type": "string"
+          },
+          "soyYo": {
+            "description": "El jefe es el usuario que pregunta (recibe y firma los traslados)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "nombre",
+          "soyYo"
+        ],
+        "type": "object"
+      },
       "LecturaChat": {
         "additionalProperties": false,
         "properties": {
@@ -22858,6 +22943,16 @@
           "bodega": {
             "$ref": "#/components/schemas/Bodega"
           },
+          "bodegas": {
+            "description": "Primero la de su cuadrilla (si Argos ≥ 0.11.0 la tiene) y después la suya; con un Argos anterior, solo la suya (la de arriba)",
+            "items": {
+              "$ref": "#/components/schemas/BodegaDeTecnico"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "existencias": {
             "items": {
               "$ref": "#/components/schemas/ExistenciaBodega"
@@ -22909,6 +23004,7 @@
           "unidades",
           "trasladosPendientes",
           "kardex",
+          "bodegas",
           "leidoEn"
         ],
         "type": "object"
@@ -36315,6 +36411,11 @@
             "format": "date-time",
             "type": "string"
           },
+          "cuadrillaId": {
+            "description": "Va a la bodega de esta cuadrilla (contrato 0.11.0 §3.9); lo recibe y firma su jefe",
+            "format": "int64",
+            "type": "integer"
+          },
           "empresaId": {
             "format": "int64",
             "type": "integer"
@@ -36350,6 +36451,10 @@
             "description": "Motivo de la cancelación",
             "type": "string"
           },
+          "puedeRecibir": {
+            "description": "Este usuario lo recibe y firma: es su traslado o es el jefe de la cuadrilla. Los demás miembros lo ven en camino; si mandan la recepción, 403 solo_jefe_recibe",
+            "type": "boolean"
+          },
           "recepcion": {
             "$ref": "#/components/schemas/EstadoRecepcion",
             "description": "La recepción que mandó el técnico desde Iris, si la hay"
@@ -36362,7 +36467,8 @@
         "required": [
           "id",
           "estado",
-          "lineas"
+          "lineas",
+          "puedeRecibir"
         ],
         "type": "object"
       },

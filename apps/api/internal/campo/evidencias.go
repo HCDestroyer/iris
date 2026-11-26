@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -57,7 +58,7 @@ type EntradaUsarMaterial struct {
 	Version     *int32  `json:"version,omitempty" minimum:"1" doc:"Versión leída (opcional); si cambió, 409"`
 	ProductoID  int64   `json:"productoId" minimum:"1" doc:"Producto en Argos"`
 	Cantidad    float64 `json:"cantidad" exclusiveMinimum:"0" maximum:"1000000" doc:"Hasta 3 decimales (metros de cable, unidades…)"`
-	BodegaID    *int64  `json:"bodegaId,omitempty" minimum:"1" doc:"Otra bodega en Argos: solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos; nunca desde el lote. Por defecto, la de la orden"`
+	BodegaID    *int64  `json:"bodegaId,omitempty" minimum:"1" doc:"Por defecto, la de la orden. Desde la app (lote): la bodega personal del técnico o la de su cuadrilla actual en la empresa de la orden (contrato 0.11.0 §3.9; si no, 403 no_es_miembro antes de mirar existencias); la app guarda la elegida en la cola. Desde el panel: otra bodega solo despacho o supervisor (ordenes.asignar con alcance), validada contra Argos, y solo bodegas generales: una de cuadrilla o personal da 422 bodega_no_permitida (0.13.1)"`
 	Descripcion string  `json:"descripcion,omitempty" maxLength:"200"`
 	Sync        *OpSync `json:"-"`
 
@@ -285,15 +286,49 @@ func (m *Modulo) nuevoUsarMaterial() *auditoria.Caso[EntradaUsarMaterial, Orden]
 			// supervisor y debe existir en la empresa según Argos.
 			bodega := f.BodegaID
 			if in.BodegaID != nil && !mismoID(in.BodegaID, f.BodegaID) {
+				if in.Sync != nil {
+					// Desde la app (0.11.0 §3.9): la bodega personal del técnico o la de su cuadrilla
+					// actual en la empresa de la orden, comprobado al recibir el lote y antes de mirar
+					// existencias. Fuera de eso, 403 no_es_miembro; nunca se cambia de bodega en silencio.
+					if err := exigirBodegaDelTecnico(ctx, t, q, *in.BodegaID, deref(f.EmpresaID)); err != nil {
+						return f, "", err
+					}
+				}
 				switch {
 				case in.Sync != nil:
-					return f, "", campoInvalido("bodegaId", "Desde la app se usa la bodega de la orden", "bodega")
 				case !cubre(ctx, nucleo.PermOrdenesAsignar, f):
 					return f, "", nucleo.Prohibido("Solo despacho o supervisor (ordenes.asignar) indican otra bodega")
 				case in.pre == nil || !in.pre.bodegaValida || in.pre.bodega != *in.BodegaID || in.pre.empresa != deref(f.EmpresaID):
 					return f, "", nucleo.ReglaNegocio("bodega_invalida", "La bodega no existe en la empresa según Argos (o no hay conector para verificarla)")
 				}
 				bodega = in.BodegaID
+			}
+			var bodegaTipo *string
+			// El técnico de la orden (desde la app o con su sesión en la API) registra como técnico: su
+			// tecnico y su X-Iris-Actor. Lo demás lo indicó despacho desde el panel.
+			desdeTecnico := in.Sync != nil || propia(ctx, f)
+			if !desdeTecnico && bodega != nil {
+				// Desde el panel, solo bodegas tipo = bodega (0.13.1 §3.9; M-4: lista de permitidas). La
+				// de una cuadrilla, la personal o la de la ficha de un técnico la usa el técnico desde la
+				// app, con su X-Iris-Actor. El tipo lo dice Argos (leído antes); si no se pudo leer, no se
+				// acepta. Sin conector (nada sale a Argos) queda con tipo desconocido.
+				noPermitida := func(detalle string) error { return nucleo.ReglaNegocio(CodigoBodegaNoPermitida, detalle) }
+				especial, err := q.EsBodegaDeTecnicoOCuadrilla(ctx, *bodega)
+				if err != nil {
+					return f, "", err
+				}
+				pre := in.pre
+				switch {
+				case especial:
+					return f, "", noPermitida("Desde el panel solo se usan bodegas generales: la de una cuadrilla o la de un técnico se usa desde la app de campo")
+				case pre != nil && pre.sinConector && pre.bodega == *bodega:
+				case pre == nil || !pre.bodegaTipoLeido || pre.bodega != *bodega || pre.empresa != deref(f.EmpresaID):
+					return f, "", noPermitida("No se pudo verificar en Argos que la bodega sea general: reintenta")
+				case pre.bodegaTipo != TipoBodegaGeneral:
+					return f, "", noPermitida("Desde el panel solo se usan bodegas generales (tipo bodega en Argos)")
+				default:
+					bodegaTipo = &pre.bodegaTipo
+				}
 			}
 			// Más que la existencia de la bodega (según Argos, leída antes por el lote): se acepta
 			// con aviso; el consumo en Argos queda pendiente con error (contratos/sync.md §3).
@@ -311,7 +346,7 @@ func (m *Modulo) nuevoUsarMaterial() *auditoria.Caso[EntradaUsarMaterial, Orden]
 			}
 			mat, err := q.CrearMaterial(ctx, campobd.CrearMaterialParams{
 				ID: id, OrdenID: f.ID, ProductoID: in.ProductoID, Descripcion: strings.TrimSpace(in.Descripcion),
-				Cantidad: aNumeric(cantidad), BodegaID: bodega, ExcedeExistencia: excede, RegistradoPor: actorUsuario(t),
+				Cantidad: aNumeric(cantidad), BodegaID: bodega, BodegaTipo: bodegaTipo, DesdeTecnico: desdeTecnico, ExcedeExistencia: excede, RegistradoPor: actorUsuario(t),
 				Canal: string(contexto.CanalDe(ctx)), OcurridoEn: m.cuandoEn(in.Sync, f), OperacionID: operacionDe(in.Sync),
 				Modalidad: modalidadDe(in.Sync),
 			})
@@ -543,9 +578,14 @@ func (m *Modulo) nuevoRegistrarAdjunto() *auditoria.Caso[EntradaRegistrarAdjunto
 // prelectura: lo que una acción necesita de Argos, leído antes de abrir la transacción (sin
 // llamadas HTTP dentro de ella). El caso de uso lo vuelve a cruzar con la orden ya tomada.
 type prelectura struct {
-	empresa          int64
-	bodega           int64
-	bodegaValida     bool
+	empresa      int64
+	bodega       int64
+	bodegaValida bool
+	// bodegaTipo: el tipo de la bodega según Argos (bodegaTipoLeido = se pudo leer).
+	bodegaTipo      string
+	bodegaTipoLeido bool
+	// sinConector: no hay conector Argos activo (modo sin conector o apagado): no se pudo leer.
+	sinConector      bool
 	servicio         int64
 	comodato         []EquipoComodato
 	comodatoConocido bool
@@ -578,17 +618,64 @@ func (m *Modulo) comodatoDe(ctx context.Context, empresa int64, servicio *int64)
 func (m *Modulo) bodegaDe(ctx context.Context, empresa, bodega int64) *prelectura {
 	p := &prelectura{empresa: empresa, bodega: bodega}
 	if m.cfg.Inventario != nil {
-		ok, err := m.cfg.Inventario.BodegaDeEmpresa(ctx, empresa, bodega)
-		p.bodegaValida = ok && err == nil
+		tipo, err := m.cfg.Inventario.TipoDeBodega(ctx, empresa, bodega)
+		p.bodegaValida = tipo != "" && err == nil
+		p.bodegaTipo, p.bodegaTipoLeido, p.sinConector = tipo, err == nil, errors.Is(err, ErrSinConector)
+	} else {
+		p.sinConector = true
 	}
 	return p
 }
 
+// CodigoNoEsMiembro: la bodega del material no es la del técnico ni la de su cuadrilla (§3.9).
+const CodigoNoEsMiembro = "no_es_miembro"
+
+// CodigoBodegaNoPermitida: desde el panel, una bodega de cuadrilla o personal (0.13.1 §3.9).
+const CodigoBodegaNoPermitida = "bodega_no_permitida"
+
+// TipoBodegaGeneral: el tipo de Argos de una bodega que despacho puede usar desde el panel.
+const TipoBodegaGeneral = "bodega"
+
+// exigirBodegaDelTecnico: la bodega es la personal del actor (su ficha) o la de su cuadrilla actual
+// en la empresa. La respuesta no depende de existencias.
+func exigirBodegaDelTecnico(ctx context.Context, t *auditoria.Tx, q *campobd.Queries, bodega, empresa int64) error {
+	a := t.Actor()
+	if !a.EsUsuario() {
+		return nucleo.Prohibido("La bodega la elige el técnico desde su teléfono")
+	}
+	// La personal, en la empresa de la orden (una personal de otra empresa no vale; M-268-1).
+	personal, err := q.BodegaPersonalDelTecnico(ctx, campobd.BodegaPersonalDelTecnicoParams{UsuarioID: a.ID, BodegaID: bodega, EmpresaID: empresa})
+	if err != nil {
+		return err
+	}
+	if personal {
+		return nil
+	}
+	// La de su cuadrilla actual, con la ficha tomada FOR SHARE (B-268-3).
+	filas, err := q.BodegaDeSuCuadrilla(ctx, campobd.BodegaDeSuCuadrillaParams{UsuarioID: a.ID, BodegaID: bodega, EmpresaID: empresa})
+	if err != nil {
+		return err
+	}
+	if len(filas) == 0 {
+		p := nucleo.NuevoProblema(http.StatusForbidden, CodigoNoEsMiembro, "No es miembro",
+			"La bodega no es la tuya ni la de tu cuadrilla en la empresa de la orden")
+		p.Errors = []nucleo.ErrorCampo{{Field: "bodegaId", Message: "No es tu bodega ni la de tu cuadrilla", Rule: CodigoNoEsMiembro}}
+		return p
+	}
+	return nil
+}
+
 // UsarMaterialPanel: materiales.usar desde el panel (verifica en Argos otra bodega antes).
 func (m *Modulo) UsarMaterialPanel(ctx context.Context, in EntradaUsarMaterial) (Orden, error) {
-	if in.BodegaID != nil {
-		if f, ok := leerOrden(ctx, in.ID); ok && !mismoID(in.BodegaID, f.BodegaID) {
-			in.pre = m.bodegaDe(ctx, deref(f.EmpresaID), *in.BodegaID)
+	// 0.13.1 §3.9 (M-4): desde el panel, la bodega (también la de la orden) debe ser tipo = bodega
+	// según Argos: se lee antes, fuera de la transacción.
+	if f, ok := leerOrden(ctx, in.ID); ok {
+		bodega := f.BodegaID
+		if in.BodegaID != nil {
+			bodega = in.BodegaID
+		}
+		if bodega != nil {
+			in.pre = m.bodegaDe(ctx, deref(f.EmpresaID), *bodega)
 		}
 	}
 	return m.UsarMaterial.Ejecutar(ctx, in)

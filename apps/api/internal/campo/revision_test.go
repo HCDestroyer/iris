@@ -13,8 +13,9 @@ import (
 
 // Regresiones de la revisión de la PR de campo (una por punto).
 
-// 1. El técnico usa siempre la bodega de la orden; otra solo la indica despacho y debe existir
-// en la empresa según Argos.
+// 1. El técnico usa la bodega de la orden o, desde 0.11.0, la suya o la de su cuadrilla (otra: 403
+// no_es_miembro, bodega_cuadrilla_test.go); desde el panel, otra solo la indica despacho y debe
+// existir en la empresa según Argos.
 func TestRevisionBodegaDeLaOrden(t *testing.T) {
 	inv := &inventarioFalso{existencias: map[int64][]campo.Existencia{9: {{ProductoID: 77, Cantidad: 50}}, 12: {}}}
 	e := nuevoEntorno(func(c *campo.Config) { c.Inventario = inv })
@@ -25,7 +26,7 @@ func TestRevisionBodegaDeLaOrden(t *testing.T) {
 		BodegaID: ptr(int64(9)), Inicio: inicio}))(t)
 	esperar(t, lote(t, e, ct, op(campo.OpLlegar, o.ID, nil),
 		op(campo.OpMaterialUsar, o.ID, map[string]any{"productoId": 77, "cantidad": 2, "bodegaId": 4242}),
-	), "aplicada", "rechazada:validacion")
+	), "aplicada", "rechazada:no_es_miembro")
 	_, err := e.m.UsarMaterialPanel(ct, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 77, Cantidad: 1, BodegaID: ptr(int64(12))})
 	problema(t, err, 403, "prohibido")
 	_, err = e.m.UsarMaterialPanel(cd, campo.EntradaUsarMaterial{ID: o.ID, ProductoID: 77, Cantidad: 1, BodegaID: ptr(int64(4242))})
