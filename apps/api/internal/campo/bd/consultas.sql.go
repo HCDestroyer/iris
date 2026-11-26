@@ -5119,12 +5119,18 @@ const resultadoCorteDeOrden = `-- name: ResultadoCorteDeOrden :one
 SELECT (c.valor #>> '{}')::text AS valor
 FROM campo.orden_checklist c
 JOIN campo.plantilla_items i ON i.id = c.item_id
-WHERE c.orden_id = $1 AND i.codigo = 'resultado'
+JOIN campo.orden_formularios f ON f.id = c.formulario_id AND f.orden_id = c.orden_id
+JOIN campo.ordenes o ON o.id = c.orden_id AND o.plantilla_id = f.plantilla_id
+JOIN campo.plantillas_checklist p ON p.id = f.plantilla_id
+WHERE c.orden_id = $1 AND i.codigo = 'resultado' AND f.origen = 'tipo' AND f.quitado_en IS NULL
+  AND p.tipo_codigo IN ('corte_catv', 'reconexion_catv')
 ORDER BY c.ocurrido_en DESC
 LIMIT 1
 `
 
-// La marca vigente del ítem «resultado» del checklist de cierre de la orden (texto de la opción).
+// La marca vigente del ítem «resultado» del checklist de cierre de la orden (texto de la opción), solo
+// del formulario de su tipo (la plantilla de corte o reconexión de la orden): un formulario agregado
+// aparte con un ítem «resultado» no cuenta.
 func (q *Queries) ResultadoCorteDeOrden(ctx context.Context, ordenID int64) (string, error) {
 	row := q.db.QueryRow(ctx, resultadoCorteDeOrden, ordenID)
 	var valor string

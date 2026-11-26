@@ -396,6 +396,47 @@ func TestCorteManualCanceladoMientrasCierra(t *testing.T) {
 	}
 }
 
+// El resultado del corte sale solo del ítem «resultado» de la plantilla de corte de la orden: un formulario
+// agregado aparte con un ítem del mismo código (marcado después) no decide lo que se informa a Argos.
+func TestCorteManualResultadoSoloDelFormularioDelTipo(t *testing.T) {
+	e := nuevoEntornoCorte(t)
+	admin := pruebas.ContextoSistema(pruebas.Pool(t))
+	extra := deber(e.m.CrearPlantilla.Ejecutar(admin, campo.EntradaCrearPlantilla{
+		Codigo: "extra_resultado_" + strings.ReplaceAll(pruebas.Unico(), "-", "_"), Nombre: "Revisión extra", Comun: true,
+		Items: []campo.EntradaItemPlantilla{{Codigo: "resultado", Etiqueta: "Resultado de la revisión", Tipo: "seleccion", Opciones: campo.OpcionesResultadoCorte}},
+	}))(t)
+	sol := solicitudCorte + 300
+	r := e.aviso("solicitado", sol, 1, "corte", "8801", nil)
+	o := e.asignar(*r.OrdenID)
+	o = deber(e.m.AsignarFormulario.Ejecutar(e.cs, campo.EntradaAgregarFormulario{ID: o.ID, Version: o.Version, PlantillaID: extra.ID}))(t)
+	d := deber(e.m.VerOrden.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t)
+	var delTipo, delExtra int64
+	for _, i := range d.Checklist {
+		if i.Codigo != "resultado" {
+			continue
+		}
+		for _, f := range d.Formularios {
+			if f.ID == i.FormularioID && f.PlantillaID == extra.ID {
+				delExtra = i.ItemID
+			} else if f.ID == i.FormularioID {
+				delTipo = i.ItemID
+			}
+		}
+	}
+	if delTipo == 0 || delExtra == 0 {
+		t.Fatalf("dos ítems resultado: %d %d", delTipo, delExtra)
+	}
+	// El del formulario extra se marca después (es la marca más reciente de un ítem «resultado»).
+	esperar(t, e.lote(e.ct, op(campo.OpLlegar, o.ID, nil), op(campo.OpChecklistMarcar, o.ID, map[string]any{"itemId": delTipo, "valor": "Hecho"})),
+		"aplicada", "aplicada")
+	e.reloj.avanzar(time.Minute)
+	esperar(t, e.lote(e.ct, op(campo.OpChecklistMarcar, o.ID, map[string]any{"itemId": delExtra, "valor": "Sin acceso"}),
+		op(campo.OpCerrar, o.ID, map[string]any{"resultado": "exitosa"})), "aplicada", "aplicada")
+	if u := e.ultimo(sol); u["estado"] != "resuelta" {
+		t.Fatalf("el formulario extra no decide: %v", u)
+	}
+}
+
 // Orden de los candados, sin depender del azar: mientras otra transacción tiene la orden (como el lote al
 // cerrar), el cancelado espera por la orden sin haber tomado la solicitud; así el que cierra puede tomar la
 // solicitud después (orden → solicitud) y nadie se interbloquea.
