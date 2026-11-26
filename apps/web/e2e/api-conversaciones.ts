@@ -82,12 +82,21 @@ export type OpcionesConversaciones = OpcionesBandeja11 & {
     asistente?: OpcionesAsistente;
     /** Las cuentas bancarias de Argos de la empresa (por defecto CUENTAS_BANCARIAS). */
     cuentasBancarias?: CuentaBancaria[];
+    /**
+     * La conversación 43 ubicada en un prospecto por uno de sus números (contrato con Argos §3.6,
+     * P2); restringido: el número no es el principal.
+     */
+    prospecto43?: { restringido: boolean };
 };
 
 const BASE = "/api/v1/mensajeria";
 
 export function apiConversaciones(actorId: () => number, opciones: OpcionesConversaciones = {}) {
     const conversaciones: Conversacion[] = CONVERSACIONES.map((c) => structuredClone(c));
+    if (opciones.prospecto43) {
+        const c = conversaciones.find((x) => x.id === 43);
+        if (c) c.contacto = { ...c.contacto, tipo: "prospecto", prospectoId: 912, prospectoRestringido: opciones.prospecto43.restringido };
+    }
     const cuentasBancarias = opciones.cuentasBancarias ?? CUENTAS_BANCARIAS;
     /** Ids de los mensajes mandados con «Enviar cuentas». */
     const enviadosCuentas: string[] = [];
@@ -425,6 +434,11 @@ export function apiConversaciones(actorId: () => number, opciones: OpcionesConve
                             { clienteId: 5102, nombre: "Lucía Herrera", codigo: "C-5102", coincideEn: ["contacto_servicio"], origen: "argos" },
                         ],
                         contactosIris: [],
+                        // §3.6 (P2): el prospecto donde es el principal y otro donde es un número adicional.
+                        prospectos: [
+                            { prospectoId: 911, numero: "PR-000911", nombre: "Luis Herrera", estado: "nuevo", principal: true },
+                            { prospectoId: 912, numero: "PR-000912", nombre: "Marta López", estado: "contactado", principal: false },
+                        ],
                         argosConsultado: true,
                     }),
                     true

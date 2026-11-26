@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/HCDestroyer/iris/apps/api/internal/auditoria"
+	"github.com/HCDestroyer/iris/apps/api/internal/comercial"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/argos"
 	"github.com/HCDestroyer/iris/apps/api/internal/integracion/conector"
 	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
@@ -87,11 +88,23 @@ type CoincidenciaCliente struct {
 	Origen     string   `json:"origen" enum:"argos,instantanea" doc:"instantanea: Argos no respondió y se buscó en la copia local"`
 }
 
+// CoincidenciaProspecto es un prospecto abierto de la empresa con el número en cualquiera de sus
+// teléfonos (contrato con Argos §3.6, P2). Sin dirección, plan ni cotización: si el número no es el
+// principal, eso no se le comparte a quien escribe hasta confirmar con un código al principal.
+type CoincidenciaProspecto struct {
+	ProspectoID int64  `json:"prospectoId"`
+	Numero      string `json:"numero" doc:"Número del prospecto en Iris (P-000123)"`
+	Nombre      string `json:"nombre"`
+	Estado      string `json:"estado"`
+	Principal   bool   `json:"principal" doc:"El número de la conversación es el principal del prospecto. false: es otro de sus números; no se le comparte la cotización, la dirección ni el plan"`
+}
+
 // CoincidenciasConv son las sugerencias para asociar la conversación.
 type CoincidenciasConv struct {
-	Clientes        []CoincidenciaCliente `json:"clientes"`
-	ContactosIris   []ContactoIris        `json:"contactosIris"`
-	ArgosConsultado bool                  `json:"argosConsultado" doc:"false: Argos no respondió (o no hay conector) y se usó la instantánea"`
+	Clientes        []CoincidenciaCliente   `json:"clientes"`
+	ContactosIris   []ContactoIris          `json:"contactosIris"`
+	Prospectos      []CoincidenciaProspecto `json:"prospectos" doc:"Prospectos abiertos de la empresa de la conversación con este número (en cualquiera de sus teléfonos); solo los que el usuario ve con prospectos.ver"`
+	ArgosConsultado bool                    `json:"argosConsultado" doc:"false: Argos no respondió (o no hay conector) y se usó la instantánea"`
 }
 
 type convLeida struct {
@@ -144,7 +157,7 @@ func nuevoBuscarCoincidencias(m *Modulo) *BuscarCoincidencias {
 			if err != nil {
 				return CoincidenciasConv{}, err
 			}
-			out := CoincidenciasConv{Clientes: []CoincidenciaCliente{}, ContactosIris: []ContactoIris{}, ArgosConsultado: in.ok}
+			out := CoincidenciasConv{Clientes: []CoincidenciaCliente{}, ContactosIris: []ContactoIris{}, Prospectos: []CoincidenciaProspecto{}, ArgosConsultado: in.ok}
 			if in.ok {
 				for _, x := range in.argos {
 					en := x.CoincideEn
@@ -179,6 +192,17 @@ func nuevoBuscarCoincidencias(m *Modulo) *BuscarCoincidencias {
 			for _, k := range ks {
 				out.ContactosIris = append(out.ContactosIris, aContactoIris(k))
 			}
+			// Prospectos de la empresa de la conversación (no la activa: un préstamo la fija), por
+			// cualquiera de sus números (§3.6, P2), y solo los que el usuario ve.
+			ps, err := q.ProspectosDelNumero(ctx, mensajeriabd.ProspectosDelNumeroParams{Digitos: soloDigitos(c.Numero), Empresa: empresaDeConv(c)})
+			if err != nil {
+				return out, err
+			}
+			for _, p := range ps {
+				if comercial.VeProspecto(ctx, p.ZonaID, p.VendedorID) {
+					out.Prospectos = append(out.Prospectos, CoincidenciaProspecto{ProspectoID: p.ID, Numero: p.Numero, Nombre: p.Nombre, Estado: p.Estado, Principal: p.Principal})
+				}
+			}
 			return out, nil
 		},
 	})
@@ -199,6 +223,17 @@ func (b *BuscarCoincidencias) Ejecutar(ctx context.Context, in EntradaConversaci
 		}
 	}
 	return b.final.Ejecutar(ctx, e)
+}
+
+// prospectoUnicoDelNumero: el prospecto abierto de la empresa con ese número en cualquiera de sus
+// teléfonos (§3.6, P2), si es uno solo; con varios o ninguno, nil (la ficha los muestra en las
+// coincidencias a quien los ve).
+func prospectoUnicoDelNumero(ctx context.Context, q *mensajeriabd.Queries, empresa int64, numero string) (*int64, error) {
+	ps, err := q.ProspectosDelNumero(ctx, mensajeriabd.ProspectosDelNumeroParams{Digitos: soloDigitos(numero), Empresa: empresa})
+	if err != nil || len(ps) != 1 {
+		return nil, err
+	}
+	return &ps[0].ID, nil
 }
 
 // Asociar un cliente --------------------------------------------------------------------------------

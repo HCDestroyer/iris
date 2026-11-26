@@ -156,6 +156,25 @@ SELECT * FROM mensajeria.contactos_iris
 WHERE coalesce(empresa_id, 0) = @empresa::bigint AND telefono = @telefono
 ORDER BY id DESC LIMIT 5;
 
+-- name: ProspectosDelNumero :many
+-- Prospectos abiertos (ni ganados ni perdidos) de la empresa con ese número (contrato con Argos
+-- §3.6, P2): por cualquiera de sus números de comercial.prospecto_telefonos (E.164) o por
+-- prospectos.telefono (solo dígitos; 502 delante de 8 dígitos). principal: el número es el
+-- principal; si el prospecto no tiene números en esa tabla (registrado en Iris), su único número.
+-- Si no es el principal, no se le comparte la cotización, la dirección ni el plan. Empresa
+-- estricta: un prospecto sin empresa solo en el modo sin conector (empresa 0).
+WITH n AS (SELECT @digitos::text AS d)
+SELECT p.id, p.numero, p.nombre, p.estado, p.zona_id, p.vendedor_id,
+    (EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = p.id AND t.principal AND t.numero = '+' || n.d)
+     OR NOT EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = p.id))::boolean AS principal
+FROM comercial.prospectos p, n
+WHERE coalesce(p.empresa_id, 0) = @empresa::bigint AND p.estado NOT IN ('ganado', 'perdido') AND n.d <> ''
+  AND (p.id IN (SELECT t.prospecto_id FROM comercial.prospecto_telefonos t
+                WHERE coalesce(t.empresa_id, 0) = @empresa::bigint AND t.numero = '+' || n.d)
+    OR (CASE WHEN length(regexp_replace(p.telefono, '\D', '', 'g')) = 8 THEN '502' ELSE '' END || regexp_replace(p.telefono, '\D', '', 'g')) = n.d)
+ORDER BY p.id
+LIMIT 10;
+
 -- name: ContactosIrisPorIDs :many
 SELECT * FROM mensajeria.contactos_iris WHERE id = ANY (@ids::bigint[]);
 
@@ -174,9 +193,9 @@ WHERE coalesce(empresa_id, 0) = @empresa::bigint AND canal_id = @canal_id AND nu
 FOR UPDATE;
 
 -- name: InsertarConversacionCliente :one
-INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nombre, cola_id, cliente_id, asociacion, cliente_verificado, ultima_actividad)
+INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nombre, cola_id, cliente_id, asociacion, cliente_verificado, ultima_actividad, prospecto_id)
 VALUES (sqlc.narg('empresa_id'), @canal_id, @numero, sqlc.narg('perfil_nombre'), sqlc.narg('cola_id'), sqlc.narg('cliente_id'),
-    sqlc.narg('asociacion'), @cliente_verificado, @ultima_actividad)
+    sqlc.narg('asociacion'), @cliente_verificado, @ultima_actividad, sqlc.narg('prospecto_id'))
 ON CONFLICT DO NOTHING
 RETURNING *;
 
@@ -258,6 +277,11 @@ SELECT c.*,
             WHERE pm.conversacion_id = c.id AND pm.direccion = 'saliente' AND pm.automatico IS NULL
               AND pm.creado_en >= GREATEST(coalesce(c.reabierta_en, '-infinity'), coalesce(c.asistente_reanudado_en, '-infinity')))::boolean AS persona_escribio,
     ac.nombre AS cliente_nombre, ci.nombre AS contacto_iris_nombre,
+    -- Contrato con Argos §3.6 (P2): el prospecto tiene sus números en comercial.prospecto_telefonos
+    -- (registrado desde Argos) y el de la conversación no es el principal. Los prospectos de Iris
+    -- tienen un solo número y no se restringen.
+    (EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = c.prospecto_id)
+     AND NOT EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = c.prospecto_id AND t.principal AND t.numero = c.numero))::boolean AS prospecto_restringido,
     um.direccion AS ultimo_direccion, um.tipo AS ultimo_tipo, um.texto AS ultimo_texto, um.creado_en AS ultimo_creado_en,
     um.evento AS ultimo_evento, um.automatico AS ultimo_automatico,
     -- §15.3: la conversación es de una empresa que ya no usa el número (préstamo revocado).

@@ -164,6 +164,13 @@ func (a alcance) cubre(f comercialbd.ComercialProspecto) bool {
 	return false
 }
 
+// VeProspecto: el actor ve un prospecto con esa zona y ese vendedor (prospectos.ver con su alcance:
+// global, la zona o es el vendedor). Lo usa la bandeja para mostrar los prospectos de un número; la
+// empresa la filtra quien llama.
+func VeProspecto(ctx context.Context, zona, vendedor *int64) bool {
+	return alcanceDe(ctx, string(nucleo.PermProspectosVer)).cubre(comercialbd.ComercialProspecto{ZonaID: zona, VendedorID: vendedor})
+}
+
 // verificarAcceso: fuera de la empresa activa o de lo que el actor ve (prospectos.ver), 404 (no
 // revela que existe); visible pero fuera del alcance del permiso de la acción, 403.
 func verificarAcceso(ctx context.Context, permiso string, f comercialbd.ComercialProspecto) error {

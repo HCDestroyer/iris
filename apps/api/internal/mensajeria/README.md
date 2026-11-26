@@ -267,7 +267,12 @@ Contrato completo: `.claude/integration/contratos/conversaciones.md`. Código en
   `X-Iris-Conversacion` (§7.1).
 - **Contactos:** solo el id del cliente de Argos (los datos salen de la instantánea); coincidencias
   por teléfono con `GET /clientes?telefono=` (o la instantánea si Argos no responde); contactos
-  propios de Iris (`mensajeria.contactos_iris`) que se unen a la ficha de Argos.
+  propios de Iris (`mensajeria.contactos_iris`) que se unen a la ficha de Argos. Prospectos por
+  cualquiera de sus números (contrato con Argos §3.6, P2, B23): una conversación nueva sin cliente
+  queda en el único prospecto abierto de su empresa con ese número; las coincidencias listan los
+  prospectos a quien los ve (`prospectos.ver` con alcance), sin dirección, plan ni cotización; y
+  `contacto.prospectoRestringido` marca el número que no es el principal (no se le comparte la
+  cotización, la dirección ni el plan). No emite eventos nuevos.
 - **Tiempo real:** feed `mensajeria.conv_eventos` + `NOTIFY iris_conversaciones` + SSE
   (`GET /conversaciones/eventos`) y sondeo (`/conversaciones/cambios`), con los mismos topes (pero
   en un difusor aparte del chat: 5 flujos de bandeja + 5 de chat por usuario y hasta
