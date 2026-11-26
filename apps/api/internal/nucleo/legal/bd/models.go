@@ -1219,6 +1219,35 @@ type IntegracionArgosTraslado struct {
 	CuadrillaID      *int64
 }
 
+type IntegracionArgosUnidade struct {
+	UnidadID      int64
+	EmpresaID     int64
+	ServicioID    *int64
+	Estado        *string
+	EstadoEn      *time.Time
+	ServicioEn    *time.Time
+	EntranteID    int64
+	ActualizadoEn time.Time
+}
+
+type IntegracionArgosUnidadesHistorial struct {
+	ID          int64
+	UnidadID    int64
+	EmpresaID   int64
+	ServicioID  *int64
+	Tipo        string
+	De          *string
+	A           *string
+	Motivo      *string
+	DestinoSale *string
+	Origen      *string
+	OrigenID    *int64
+	OcurridoEn  *time.Time
+	RecibidoEn  time.Time
+	EntranteID  int64
+	CreatedAt   time.Time
+}
+
 type IntegracionArgosZona struct {
 	ID             int64
 	EmpresaID      *int64

@@ -7289,6 +7289,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/equipos/estado": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado e historial de los equipos
+         * @description Permiso: `ordenes.ver` u `ordenes.ver_propias`. Las unidades del servicio de la orden y las que la orden instaló, retiró o cambió, con el estado que avisó Argos (`inventario.unidad_estado_cambiado`) y su historial reciente (estados y cambios de equipo, `inventario.equipo_cambiado`), sin costos, proveedor ni RMA. Solo muestra el servicio de la orden y la orden misma: el historial se recorta a los renglones de ese servicio, y `servicioId` u `ordenId` van en null si son otros. Vacío si Argos aún no avisó nada (contrato < 0.12.0).
+         */
+        get: operations["estadoEquiposOrden"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/eventos": {
         parameters: {
             query?: never;
@@ -16934,6 +16954,31 @@ export interface components {
              */
             version: number;
         };
+        EstadoUnidad: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** Format: int64 */
+            empresaId: number;
+            /**
+             * @description null: Argos aún no avisó su estado
+             * @enum {string|null}
+             */
+            estado: "disponible" | "en_comodato" | "por_recuperar" | "revision" | "garantia" | "dada_de_baja" | "no_recuperada" | "" | null;
+            /**
+             * Format: date-time
+             * @description La hora de Argos del estado (null: sin hora de Argos)
+             */
+            estadoEn: string | null;
+            /** @description Del más nuevo al más viejo (hasta 20) */
+            historial: components["schemas"]["MovimientoUnidad"][] | null;
+            /**
+             * Format: int64
+             * @description El servicio de la orden si Argos asocia la unidad a él; null si a ninguno o a otro
+             */
+            servicioId: number | null;
+            /** Format: int64 */
+            unidadId: number;
+        };
         EtapaSincronizacion: {
             /** @description Último error, en español y sin datos de clientes (hasta 300 caracteres) */
             error: string | null;
@@ -18682,6 +18727,38 @@ export interface components {
             referencia: string;
             /** @description Como lo manda Argos (consumo, traslado_entrada, comodato…) */
             tipo: string;
+        };
+        MovimientoUnidad: {
+            a: string | null;
+            de: string | null;
+            /** @enum {string|null} */
+            destinoSale: "funciona" | "revision" | "garantia" | "danado" | "" | null;
+            motivo: string | null;
+            /**
+             * Format: date-time
+             * @description La hora del hecho en Argos (null: Argos no la mandó o venía en el futuro)
+             */
+            ocurridoEn: string | null;
+            /**
+             * Format: int64
+             * @description Solo si el cambio lo hizo esta orden (null: otra orden o ninguna)
+             */
+            ordenId: number | null;
+            /**
+             * Format: date-time
+             * @description Cuándo llegó el aviso a Iris (el historial va en este orden)
+             */
+            recibidoEn: string;
+            /**
+             * Format: int64
+             * @description Solo el servicio de la orden (los renglones de otros servicios no se muestran)
+             */
+            servicioId: number | null;
+            /**
+             * @description estado: cambió de estado; sale / entra: salió o entró en un cambio de equipo
+             * @enum {string}
+             */
+            tipo: "estado" | "sale" | "entra";
         };
         NoMolestar: {
             activo: boolean;
@@ -53392,6 +53469,73 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    estadoEquiposOrden: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstadoUnidad"][] | null;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
