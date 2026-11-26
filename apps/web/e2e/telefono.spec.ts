@@ -374,6 +374,29 @@ test.describe("Teléfono: administración", () => {
         await page.getByRole("button", { name: "Guardar" }).click();
         await expect(page.getByText("Extensión guardada; no se pudo probar")).toBeVisible();
         await expect(page.getByText(/espera 9 min/)).toBeVisible();
+        if (test.info().project.name.startsWith("telefono")) {
+            // Un aviso con descripción, en el teléfono y ya en su sitio: no baja hasta la miga «‹ …»
+            // de la pantalla, que se puede pulsar.
+            const caja = page.locator('[data-region="avisos-emergentes"] [data-slot="toast"]').first();
+            const miga = page.getByRole("navigation", { name: "Ruta de navegación" }).filter({ visible: true });
+            let anterior = Number.NaN;
+            await expect
+                .poll(async () => {
+                    const a = await caja.boundingBox();
+                    const quieto = a !== null && a.y === anterior;
+                    anterior = a?.y ?? Number.NaN;
+                    return quieto;
+                })
+                .toBe(true);
+            const a = await caja.boundingBox();
+            const m = await miga.boundingBox();
+            expect(a && m && a.y >= 0 && a.y + a.height <= m.y, JSON.stringify({ a, m })).toBe(true);
+            const enlace = await miga.getByRole("link").first().boundingBox();
+            const libre = enlace
+                ? await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("nav") !== null, [enlace.x + enlace.width / 2, enlace.y + enlace.height / 2] as const)
+                : false;
+            expect(libre).toBe(true);
+        }
         await expect(page.locator('[data-slot="error-guardar"]')).toHaveCount(0);
         // Lo guardado: «•••• guardada» y sin cambios pendientes («Probar registro» a mano).
         await expect(page.getByText("•••• guardada")).toBeVisible();
