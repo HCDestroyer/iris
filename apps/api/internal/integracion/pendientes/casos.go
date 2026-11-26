@@ -427,6 +427,17 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if f.EmpresaID != nil {
 				t.FijarEmpresa(*f.EmpresaID)
 			}
+			if orden, ok := ordenDePasoTitular(f); ok {
+				// Paso del titular (§3.4.8; B-f: el 403 antes que el 409 de versión): solo un supervisor con ordenes.validar_identidad y alcance
+				// de su rol sobre la orden (global, su zona o su cuadrilla; nunca el técnico asignado).
+				permitido, err := supervisaOrden(ctx, q, orden)
+				if err != nil {
+					return Pendiente{}, err
+				}
+				if !permitido {
+					return Pendiente{}, nucleo.Prohibido("Un paso del titular lo resuelve a mano un supervisor con ordenes.validar_identidad sobre la orden")
+				}
+			}
 			if err := nucleo.ExigirVersion(f.Version, in.Version, "pendiente", f.ID); err != nil {
 				return Pendiente{}, err
 			}
@@ -437,17 +448,6 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 			if in.Cargo != "" && in.Cargo != CargoLiberar && in.Cargo != CargoResolverTambien {
 				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "cargo", Message: "liberar o resolver_tambien", Rule: "enum"})
 			}
-			if orden, ok := ordenDePasoTitular(f); ok {
-				// Paso del titular (§3.4.8): solo un supervisor con ordenes.validar_identidad y alcance
-				// de su rol sobre la orden (global, su zona o su cuadrilla; nunca el técnico asignado).
-				permitido, err := supervisaOrden(ctx, q, orden)
-				if err != nil {
-					return Pendiente{}, err
-				}
-				if !permitido {
-					return Pendiente{}, nucleo.Prohibido("Un paso del titular lo resuelve a mano un supervisor con ordenes.validar_identidad sobre la orden")
-				}
-			}
 			if in.ClienteID != nil && f.Operacion != OpCambiarTitular {
 				return Pendiente{}, nucleo.Validacion(nucleo.ErrorCampo{Field: "clienteId", Message: "Solo al resolver un cambio de titular", Rule: "solo_titular"})
 			}
@@ -455,7 +455,10 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 				return Pendiente{}, nucleo.Conflicto("cobro_por_confirmar",
 					"Este cobro está por confirmar: di si la factura existe en Argos (confirmar-cobro)")
 			}
-			if f.Estado == EstadoResueltoManual && f.Operacion == OpCambiarTitular && f.ResueltoClienteID == nil && in.ClienteID != nil {
+			// Solo uno resuelto a mano por una persona (resuelto_como = manual): uno cancelado con la orden o
+			// reemplazado por otra toma no recibe cliente (422 pendiente_no_resoluble, abajo).
+			if f.Estado == EstadoResueltoManual && f.Operacion == OpCambiarTitular && f.ResueltoClienteID == nil && in.ClienteID != nil &&
+				f.ResueltoComo != nil && *f.ResueltoComo == "manual" {
 				// B-d: un cambio de titular ya resuelto a mano sin el cliente final: el supervisor (con alcance,
 				// comprobado arriba) lo indica después, comprobado en Argos. Así sale el cobro de A36 que
 				// respondía 409 titular_por_confirmar.
@@ -471,6 +474,15 @@ func nuevoResolverManual(m *Modulo) *auditoria.Caso[EntradaResolverManual, Pendi
 				}
 				t.RegistrarCambios("pendiente", g.ID, map[string]any{"resuelto_cliente_id": nil},
 					map[string]any{"resuelto_cliente_id": *in.ClienteID, "motivo": motivo})
+				a := contexto.ActorDe(ctx)
+				var usuario *int64
+				if a.EsUsuario() {
+					usuario = &a.ID
+				}
+				if err := t.Emitir(EventoClienteFijado, eventoClienteFijado{eventoPendiente: eventoDe(g), ClienteID: *in.ClienteID,
+					Motivo: motivo, UsuarioID: usuario}); err != nil {
+					return Pendiente{}, err
+				}
 				return aPendiente(g), nil
 			}
 			if f.Estado != EstadoFallidoNegocio {
@@ -853,4 +865,13 @@ func supervisaOrden(ctx context.Context, q *pendientesbd.Queries, orden int64) (
 	}
 	global, zonas, cuadrillas := p.Alcances(string(nucleo.PermOrdenesValidarIdentidad))
 	return global || (o.ZonaID != nil && slices.Contains(zonas, *o.ZonaID)) || (o.CuadrillaID != nil && slices.Contains(cuadrillas, *o.CuadrillaID)), nil
+}
+
+// eventoClienteFijado: un cambio de titular resuelto a mano sin el cliente final recibe después el
+// cliente que un supervisor confirmó en Argos (B-d).
+type eventoClienteFijado struct {
+	eventoPendiente
+	ClienteID int64  `json:"cliente_id"`
+	Motivo    string `json:"motivo"`
+	UsuarioID *int64 `json:"usuario_id"`
 }

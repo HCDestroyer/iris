@@ -52,6 +52,7 @@ const (
 	EventoOmitido        = "integracion.pendiente_omitido"
 	EventoReintentado    = "integracion.pendiente_reintentado"
 	EventoCorregido      = "integracion.pendiente_corregido"
+	EventoClienteFijado  = "integracion.pendiente_cliente_fijado"
 	EventoConflicto      = "integracion.pendiente_conflicto"
 	EventoBloqueado      = "integracion.pendiente_bloqueado"
 	EventoDesbloqueado   = "integracion.pendiente_desbloqueado"

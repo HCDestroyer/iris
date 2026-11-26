@@ -239,11 +239,20 @@ del titular resuelto a mano, espera del consumo) se vuelve a decidir la línea d
 Los pasos del titular toman la orden FOR UPDATE siempre (B-b). La red de seguridad usa una transacción por
 pendiente (B-c).
 
-**A36 y el titular (§3.4.8):** si el cambio de titular se abre después de registrar el cobro, los cargos de la orden
-que aún no salieron pasan a esperar ese paso con el marcador `titular.cliente_id` (`AtarCobrosAlTitular`); los que
-ya salieron no se mueven (Argos no mueve facturas, §3.4.4) y la orden lo avisa (`cobro_titular_anterior`). El cobro
-de campo guarda el titular efectivo al fijarse el cuerpo. Un cambio resuelto a mano sin cliente se completa después
-con resolver a mano y `clienteId` (supervisor con alcance, comprobado en Argos).
+**A36 y el titular (§3.4.8):** si el cambio de titular se abre después de registrar el cobro, los cobros de A36 de la
+orden que aún no salieron pasan a esperar ese paso con el marcador `titular.cliente_id` (`AtarCobrosAlTitular`); los
+que ya salieron no se mueven (Argos no mueve facturas, §3.4.4) y la orden lo avisa una vez por cobro
+(`cobro_titular_anterior`, aunque el titular cambie otra vez). El cobro de campo guarda el titular efectivo al fijarse
+el cuerpo. Un cambio resuelto a mano por una persona sin cliente se completa después con resolver a mano y `clienteId`
+(supervisor con alcance, comprobado en Argos; emite `integracion.pendiente_cliente_fijado`). Uno cancelado o
+reemplazado no lo acepta (422 `pendiente_no_resoluble`).
+
+Solo los cobros de A36 siguen al titular nuevo. Los cargos de un cierre (`orden.cerrada`) no: el cambio de titular
+pide la orden `en_sitio`, así que un cargo de cierre solo convive con él si la orden se cerró `fallida` y se reabrió,
+y ese cargo es del intento anterior (lo usado antes del cambio, a nombre de quien era titular entonces). Eso incluye
+los que esperan al consumo (`espera_consumo`): nunca salen solos (los cobra el consumo) y, si una persona libera uno,
+lo decide sobre lo que ya hizo en Argos. Además, sus marcadores solo se resuelven con todas sus dependencias `hecho`,
+y uno que espera a un consumo resuelto a mano quedaría fallido: atarlos al paso nuevo cambiaría esas reglas.
 
 **A36 y el titular (§3.4.8):** el cobro de A36 de una orden con pasos del titular vivos espera a esos pasos y va a
 nombre del titular final (`TrasElTitular`, la misma lógica que el cargo del cierre); con el cambio resuelto a mano

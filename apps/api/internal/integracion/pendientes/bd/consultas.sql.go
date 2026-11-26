@@ -452,14 +452,16 @@ func (q *Queries) CargosQueEsperanConsumo(ctx context.Context, id int64) ([]Inte
 }
 
 const cargosVivosDeOrden = `-- name: CargosVivosDeOrden :many
-SELECT id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id, resuelto_como, resuelto_cliente_id, envio_sin_respuesta, cargo_terminal, por_confirmar, confirmado_motivo, confirmado_por, confirmado_en, reemplazo_de, reemplazado_por, primer_envio_en, factura_id, espera_consumo, factura_por_anular_id, factura_por_anular_motivo, exige_por_anular, factura_anulada FROM integracion.pendientes
-WHERE entidad = 'orden' AND entidad_id = $1::text AND operacion = 'cargo'
-  AND estado IN ('pendiente', 'bloqueado') AND primer_envio_en IS NULL AND NOT espera_consumo
-ORDER BY id FOR UPDATE
+SELECT p.id, p.empresa_id, p.sistema, p.operacion, p.idempotency_key, p.entidad, p.entidad_id, p.metodo, p.ruta, p.payload, p.depende_de, p.datos_incompletos, p.estado, p.intentos, p.proximo_intento, p.tomado_en, p.ultimo_error, p.ultimo_status, p.hecho_en, p.evento_id, p.version, p.created_at, p.updated_at, p.conflicto, p.conflicto_payload, p.conflicto_en, p.respuesta, p.plantilla, p.por_resolver, p.verificar, p.tecnico_usuario_id, p.codigo_error, p.resuelto_motivo, p.resuelto_por, p.resuelto_en, p.actor, p.transito_id, p.resuelto_como, p.resuelto_cliente_id, p.envio_sin_respuesta, p.cargo_terminal, p.por_confirmar, p.confirmado_motivo, p.confirmado_por, p.confirmado_en, p.reemplazo_de, p.reemplazado_por, p.primer_envio_en, p.factura_id, p.espera_consumo, p.factura_por_anular_id, p.factura_por_anular_motivo, p.exige_por_anular, p.factura_anulada FROM integracion.pendientes p
+WHERE p.entidad = 'orden' AND p.entidad_id = $1::text AND p.operacion = 'cargo'
+  AND p.estado IN ('pendiente', 'bloqueado') AND p.primer_envio_en IS NULL AND NOT p.espera_consumo
+  AND EXISTS (SELECT 1 FROM campo.cobros c WHERE c.idempotency_key = p.idempotency_key)
+ORDER BY p.id FOR UPDATE OF p
 `
 
-// Cargos de la orden que aún no salieron a Argos (sin primer envío) y que pueden esperar a un paso del
-// titular nuevo; no los que esperan al consumo (nunca salen).
+// Cobros de A36 (campo.cobros) de la orden que aún no salieron a Argos (sin primer envío): esperan al
+// paso del titular nuevo. Los cargos de un cierre anterior (orden fallida y reabierta, también los que
+// esperan al consumo) son de ese intento y no siguen al titular (README).
 func (q *Queries) CargosVivosDeOrden(ctx context.Context, orden string) ([]IntegracionPendiente, error) {
 	rows, err := q.db.Query(ctx, cargosVivosDeOrden, orden)
 	if err != nil {
@@ -536,14 +538,25 @@ func (q *Queries) CargosVivosDeOrden(ctx context.Context, orden string) ([]Integ
 }
 
 const cargosYaEnviadosDeOrden = `-- name: CargosYaEnviadosDeOrden :many
-SELECT idempotency_key FROM integracion.pendientes
-WHERE entidad = 'orden' AND entidad_id = $1::text AND operacion = 'cargo'
-  AND (primer_envio_en IS NOT NULL OR estado IN ('en_curso', 'hecho')) AND NOT factura_anulada
-  AND NOT (estado = 'fallido_negocio' AND NOT por_confirmar)
+SELECT p.idempotency_key FROM integracion.pendientes p
+WHERE p.entidad = 'orden' AND p.entidad_id = $1::text AND p.operacion = 'cargo'
+  AND (p.primer_envio_en IS NOT NULL OR p.estado IN ('en_curso', 'hecho')) AND NOT p.factura_anulada
+  AND NOT (p.estado = 'fallido_negocio' AND NOT p.por_confirmar)
+  AND EXISTS (SELECT 1 FROM campo.cobros c WHERE c.idempotency_key = p.idempotency_key)
+  AND NOT EXISTS (SELECT 1 FROM campo.orden_eventos e WHERE e.orden_id = $2::bigint AND e.tipo = 'cobro'
+      AND e.a = 'cobro_titular_anterior' AND e.datos->>'idempotency_key' = p.idempotency_key)
+ORDER BY p.id
 `
 
-func (q *Queries) CargosYaEnviadosDeOrden(ctx context.Context, orden string) ([]string, error) {
-	rows, err := q.db.Query(ctx, cargosYaEnviadosDeOrden, orden)
+type CargosYaEnviadosDeOrdenParams struct {
+	Orden   string
+	OrdenID int64
+}
+
+// Cobros de A36 de la orden que ya salieron a Argos y aún no tienen el aviso cobro_titular_anterior
+// (una vez por cobro, aunque el titular cambie otra vez).
+func (q *Queries) CargosYaEnviadosDeOrden(ctx context.Context, arg CargosYaEnviadosDeOrdenParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, cargosYaEnviadosDeOrden, arg.Orden, arg.OrdenID)
 	if err != nil {
 		return nil, err
 	}
@@ -2111,8 +2124,8 @@ func (q *Queries) FijarClienteCargo(ctx context.Context, arg FijarClienteCargoPa
 
 const fijarClienteResuelto = `-- name: FijarClienteResuelto :one
 UPDATE integracion.pendientes SET resuelto_cliente_id = $1::bigint, version = version + 1, updated_at = now()
-WHERE id = $2 AND version = $3 AND estado = 'resuelto_manual' AND operacion = 'cambiar_titular'
-  AND resuelto_cliente_id IS NULL
+WHERE id = $2 AND version = $3 AND estado = 'resuelto_manual' AND resuelto_como = 'manual'
+  AND operacion = 'cambiar_titular' AND resuelto_cliente_id IS NULL
 RETURNING id, empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo, ruta, payload, depende_de, datos_incompletos, estado, intentos, proximo_intento, tomado_en, ultimo_error, ultimo_status, hecho_en, evento_id, version, created_at, updated_at, conflicto, conflicto_payload, conflicto_en, respuesta, plantilla, por_resolver, verificar, tecnico_usuario_id, codigo_error, resuelto_motivo, resuelto_por, resuelto_en, actor, transito_id, resuelto_como, resuelto_cliente_id, envio_sin_respuesta, cargo_terminal, por_confirmar, confirmado_motivo, confirmado_por, confirmado_en, reemplazo_de, reemplazado_por, primer_envio_en, factura_id, espera_consumo, factura_por_anular_id, factura_por_anular_motivo, exige_por_anular, factura_anulada
 `
 

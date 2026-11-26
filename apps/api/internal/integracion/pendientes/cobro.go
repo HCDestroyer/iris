@@ -1050,9 +1050,9 @@ func fallarPorInstalacion(ctx context.Context, t *auditoria.Tx, q *pendientesbd.
 }
 
 // AtarCobrosAlTitular: se abrió un cambio de titular (paso) en la orden después de registrar cobros
-// (M-a, §3.4.8). Los cargos de la orden que aún no salieron pasan a depender del paso nuevo y a ir a
+// (M-a, §3.4.8). Los cobros de A36 de la orden que aún no salieron pasan a depender del paso nuevo y a ir a
 // nombre del titular final (marcador titular.cliente_id). Devuelve las claves de los que ya salieron a
-// Argos: esas facturas no se mueven (las rehace una persona en Argos, §3.4.4); quien llama lo avisa.
+// Argos y aún no se avisaron: esas facturas no se mueven (las rehace una persona en Argos, §3.4.4); quien llama lo avisa.
 func AtarCobrosAlTitular(ctx context.Context, t *auditoria.Tx, orden int64, paso int64) ([]string, error) {
 	q := pendientesbd.New(t)
 	id := strconv.FormatInt(orden, 10)
@@ -1088,7 +1088,7 @@ func AtarCobrosAlTitular(ctx context.Context, t *auditoria.Tx, orden int64, paso
 		t.RegistrarCambios("pendiente", g.ID, map[string]any{"depende_de": c.DependeDe}, map[string]any{"depende_de": g.DependeDe,
 			"cliente_id": "titular", "paso": paso})
 	}
-	return q.CargosYaEnviadosDeOrden(ctx, id)
+	return q.CargosYaEnviadosDeOrden(ctx, pendientesbd.CargosYaEnviadosDeOrdenParams{Orden: id, OrdenID: orden})
 }
 
 // actualizarClienteCobro: el cobro de A36 (campo.cobros) guarda el titular efectivo del cuerpo fijado.

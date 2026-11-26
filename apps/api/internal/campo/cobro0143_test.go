@@ -830,6 +830,11 @@ func TestA36AntesDelCambioDeTitular(t *testing.T) {
 	if n := contar(t, "SELECT count(*) FROM campo.orden_eventos WHERE orden_id = $1 AND tipo = 'cobro' AND a = 'cobro_titular_anterior'", o2.ID); n != 1 {
 		t.Fatalf("aviso del cobro ya enviado: %d", n)
 	}
+	// Otro cambio de titular en la misma orden: el aviso de ese cobro no se repite.
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o2.ID, datosCambioTitular())), "aplicada")
+	if n := contar(t, "SELECT count(*) FROM campo.orden_eventos WHERE orden_id = $1 AND tipo = 'cobro' AND a = 'cobro_titular_anterior'", o2.ID); n != 1 {
+		t.Fatalf("el aviso no se repite: %d", n)
+	}
 }
 
 // B-a: liberar un cargo [instalación, otra línea] que esperaba al consumo, con un A36 de instalación
@@ -895,12 +900,21 @@ func TestTitularPorConfirmarTieneSalida(t *testing.T) {
 	tecConPermisos := pruebas.ContextoUsuarioEnEmpresa(pruebas.Pool(t), tec, 1, nucleo.PermIntegracionesReintentar, nucleo.PermOrdenesValidarIdentidad)
 	_, err := e.pend.Reintentar.Ejecutar(tecConPermisos, pendientes.EntradaReintentar{ID: pt.ID, Version: pt.Version})
 	problema(t, err, 403, "prohibido")
+	// B-f: el 403 va antes que el 409 de versión, al reintentar y al resolver a mano.
+	_, err = e.pend.Reintentar.Ejecutar(tecConPermisos, pendientes.EntradaReintentar{ID: pt.ID, Version: pt.Version + 99})
+	problema(t, err, 403, "prohibido")
+	_, err = e.pend.ResolverManual.Ejecutar(tecConPermisos, pendientes.EntradaResolverManual{ID: pt.ID, Version: pt.Version + 99,
+		Motivo: "Lo corregí en Argos a mano"})
+	problema(t, err, 403, "prohibido")
 	otraZona := map[string][]contexto.Alcance{}
 	for _, pm := range permisosDe("supervisor") {
 		otraZona[string(pm)] = []contexto.Alcance{{ZonaID: 987654}}
 	}
 	deOtraZona := contexto.ConActor(e.cs, contexto.ActorDe(e.cs), contexto.NuevosPermisos(otraZona))
 	_, err = e.pend.Reintentar.Ejecutar(deOtraZona, pendientes.EntradaReintentar{ID: pt.ID, Version: pt.Version})
+	problema(t, err, 403, "prohibido")
+	_, err = e.pend.ResolverManual.Ejecutar(deOtraZona, pendientes.EntradaResolverManual{ID: pt.ID, Version: pt.Version + 99,
+		Motivo: "Lo corregí en Argos a mano"})
 	problema(t, err, 403, "prohibido")
 	// Resuelto a mano sin cliente: el cobro de A36 nuevo no puede salir.
 	deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave), Motivo: "Lo corregí en Argos a mano"}))(t)
@@ -920,6 +934,14 @@ func TestTitularPorConfirmarTieneSalida(t *testing.T) {
 	e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
 	deber(e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
 		Motivo: "El titular final es el cliente 888", ClienteID: ptr(int64(888))}))(t)
+	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'integracion.pendiente_cliente_fijado'
+		AND (payload->>'pendiente_id')::bigint = $1 AND payload->>'cliente_id' = '888'`, pt.ID); n != 1 {
+		t.Fatalf("evento del cliente fijado: %d", n)
+	}
+	// Una vez: ya tiene cliente.
+	_, err = e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: pt.ID, Version: e.versionPendiente(clave),
+		Motivo: "El titular final es el cliente 888", ClienteID: ptr(int64(888))})
+	problema(t, err, 422, "pendiente_no_resoluble")
 	c2 := deber(cobrar())(t)
 	e.procesar()
 	if l := e.falso.porClave("iris:cargo:" + orden + ":" + c2.ID.String()); l == nil || l.JSON["cliente_id"] != 888.0 {
@@ -937,5 +959,32 @@ func TestSinActivacionPorSyncEsProhibido(t *testing.T) {
 	r := e.lote(e.cs, op(campo.OpCerrar, o.ID, map[string]any{"resultado": "exitosa", "sinActivacionMotivo": "Argos no responde desde la mañana"}))
 	if r.Resultados[0].Error == nil || r.Resultados[0].Error.Status != 403 {
 		t.Fatalf("supervisor por sync: %+v", r.Resultados[0])
+	}
+	if f := deber(e.m.VerOrden.Ejecutar(e.cs, campo.EntradaVerOrden{ID: o.ID}))(t); f.Estado != campo.EstadoEnSitio {
+		t.Fatalf("la orden sigue en sitio: %s", f.Estado)
+	}
+}
+
+// B-d: un cambio de titular detenido al cancelar la orden (no resuelto a mano por una persona) no
+// acepta clienteId (422) ni emite el evento.
+func TestClienteFijadoSoloEnResueltoAMano(t *testing.T) {
+	e := nuevoEntornoActivacion(t, campo.ModoAlCerrar)
+	argos0143(t, true)
+	tec, ct := e.tecnicoEnEmpresa()
+	o := e.instalacion(tec, ct, true)
+	esperar(t, e.lote(ct, op(campo.OpCambiarTitular, o.ID, datosCambioTitular())), "aplicada")
+	clave := "iris:titular:" + strconv.FormatInt(o.ID, 10) + ":1"
+	deber(e.m.CancelarOrden.Ejecutar(e.cs, campo.EntradaMotivo{ID: o.ID, Version: e.versionOrden(o.ID), Motivo: "El cliente desistió"}))(t)
+	p := e.pendienteDe(clave)
+	if p.Estado != pendientes.EstadoResueltoManual {
+		t.Fatalf("el paso queda detenido: %+v", p)
+	}
+	e.falso.fijarServicio("9901", `{"id":9901,"empresa_id":1,"cliente_id":888}`)
+	_, err := e.pend.ResolverManual.Ejecutar(e.cs, pendientes.EntradaResolverManual{ID: p.ID, Version: e.versionPendiente(clave),
+		Motivo: "El titular final es el cliente 888", ClienteID: ptr(int64(888))})
+	problema(t, err, 422, "pendiente_no_resoluble")
+	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'integracion.pendiente_cliente_fijado'
+		AND (payload->>'pendiente_id')::bigint = $1`, p.ID); n != 0 {
+		t.Fatalf("sin evento: %d", n)
 	}
 }
