@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 type Nombre = string | RegExp;
 
@@ -124,4 +124,44 @@ export function avisoError(page: Page) {
 export async function pestana(page: Page, nombre: string) {
     await page.getByRole("tab", { name: nombre, exact: true }).click();
     await expect(page.getByRole("tab", { name: nombre, exact: true })).toHaveAttribute("aria-selected", "true");
+}
+
+/** Abre el menú `⋯` de una fila de `ListaFilas` («Acciones de <nombre>») y lo devuelve. */
+export async function abrirMenuFila(page: Page, nombre: string) {
+    await page.getByRole("button", { name: `Acciones de ${nombre}`, exact: true }).filter({ visible: true }).click();
+    const menu = page.getByRole("menu", { name: `Acciones de ${nombre}`, exact: true });
+    await expect(menu).toBeVisible();
+    return menu;
+}
+
+/** Elige `accion` en el menú `⋯` de la fila. */
+export async function accionFila(page: Page, nombre: string, accion: string) {
+    const menu = await abrirMenuFila(page, nombre);
+    await menu.getByRole("menuitem", { name: accion, exact: true }).click();
+}
+
+/** Comprueba si el menú `⋯` de la fila ofrece `accion` (lo abre, mira y lo cierra con Escape). */
+export async function ofreceAccionFila(page: Page, nombre: string, accion: string, ofrece: boolean) {
+    const menu = await abrirMenuFila(page, nombre);
+    await expect(menu.getByRole("menuitem", { name: accion, exact: true })).toHaveCount(ofrece ? 1 : 0);
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+}
+
+/**
+ * Ningún menú `⋯` de las filas visibles de `lista` ofrece `accion`: abre cada uno, mira y lo cierra.
+ * Exige que haya al menos una fila con menú (si no, la prueba no probaría nada).
+ */
+export async function ningunaFilaOfrece(page: Page, lista: Locator, accion: string) {
+    const botones = lista.getByRole("button", { name: /^Acciones de / }).filter({ visible: true });
+    await expect(botones.first()).toBeVisible();
+    const n = await botones.count();
+    for (let i = 0; i < n; i++) {
+        await botones.nth(i).click();
+        const menu = page.getByRole("menu").filter({ visible: true });
+        await expect(menu).toBeVisible();
+        await expect(menu.getByRole("menuitem", { name: accion, exact: true })).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await expect(menu).toHaveCount(0);
+    }
 }
