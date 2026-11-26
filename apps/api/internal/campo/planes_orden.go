@@ -36,7 +36,7 @@ type PlanOrden struct {
 // motivo) si no se pudieron leer: el teléfono no ofrece cambiar el plan (no supone «ninguno»).
 type PlanesOrden struct {
 	Disponible bool        `json:"disponible"`
-	Motivo     *string     `json:"motivo" nullable:"true" enum:"sin_conector,argos_no_disponible,sin_router"`
+	Motivo     *string     `json:"motivo" nullable:"true" enum:"sin_conector,argos_no_disponible,sin_router,tipo_sin_router"`
 	Modo       string      `json:"modo" enum:"residencial,empresarial" doc:"Modo de la venta: el de los planes y el del titular (empresarial: NIT de la empresa y representante con DPI)"`
 	Data       []PlanOrden `json:"data"`
 }
@@ -46,6 +46,9 @@ type datosPlanes struct {
 	pendiente bool
 	routerID  *int64
 	modo      string
+	// sinRouter: servicio de cable (0.15.0 §13.1, A1): no hay planes por router (Argos respondería
+	// 422 tipo_sin_router a GET /planes?router_id=).
+	sinRouter bool
 }
 
 // completarPlanes lee de Argos los planes de las instalaciones pendientes (fuera de toda
@@ -65,6 +68,9 @@ func (m *Modulo) completarPlanes(ctx context.Context, ordenes []*OrdenCampo) {
 		switch {
 		case m.cfg.Planes == nil:
 			p.Motivo = ptr(MotivoSinConector)
+			continue
+		case o.planes.sinRouter:
+			p.Motivo = ptr(argos.CodigoTipoSinRouter)
 			continue
 		case o.planes.routerID == nil:
 			p.Motivo = ptr(MotivoSinRouter)

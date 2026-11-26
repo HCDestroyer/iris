@@ -516,6 +516,10 @@ func describir(er *conector.ErrorRemoto) string {
 		return "destino_no_permitido: la URL de Argos resuelve a una red interna (IRIS_ARGOS_REDES_PERMITIDAS)"
 	case er.Status == 0:
 		return "Argos no respondió: " + sinCredenciales(er.Error())
+	case er.Status == http.StatusUnprocessableEntity && TipoDe(er) == argos.CodigoTipoSinRouter:
+		// 0.15.0 §13.1 (A3): de negocio, no se reintenta solo. Se muestra tal cual en la orden y la cola.
+		return "HTTP 422 " + argos.CodigoTipoSinRouter + ": el servicio es de cable (sin router); Argos no reserva IP, " +
+			"no aprovisiona ni cambia el plan por router. Revísalo en Argos"
 	}
 	partes := []string{fmt.Sprintf("HTTP %d", er.Status)}
 	if er.Tipo != "" {

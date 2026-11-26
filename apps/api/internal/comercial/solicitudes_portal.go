@@ -364,7 +364,7 @@ func (m *Modulo) validarCuerpoSolicitud(ctx context.Context, in *EntradaCrearSol
 		return err
 	}
 	if in.PlanInteresID != nil && m.cfg.Planes != nil {
-		ps, err := m.cfg.Planes.Planes(ctx, nil)
+		ps, err := m.cfg.Planes.Planes(ctx, nil, "")
 		var pr *nucleo.Problema
 		switch {
 		case errors.As(err, &pr) && pr.Status >= 500:

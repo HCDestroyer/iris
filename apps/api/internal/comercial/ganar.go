@@ -128,7 +128,7 @@ type EntradaGanar struct {
 	ID            int64  `json:"-"`
 	Version       int32  `json:"version" minimum:"1"`
 	ConfirmarObra bool   `json:"confirmarObra,omitempty" doc:"Obligatorio (true) si la factibilidad es requiere_obra"`
-	RouterID      *int64 `json:"routerId,omitempty" minimum:"1" doc:"Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido"`
+	RouterID      *int64 `json:"routerId,omitempty" minimum:"1" doc:"Router de Argos del servicio (de la empresa del prospecto). Por defecto, el sugerido por la factibilidad; con conector y sin router sugerido (manual sin router), obligatorio: 422 router_requerido. Con un plan de cable (contrato 0.15.0 §13.1) se ignora: el servicio va sin router"`
 	// MotivoPlan: cambio de plan del portal de Argos cuyo plan cotizado no es el que pidió el cliente
 	// (plan_interes_id): obligatorio, queda como actividad del prospecto (revisión H3).
 	MotivoPlan *string `json:"motivoPlan,omitempty" maxLength:"1000" doc:"Cambio de plan del portal de Argos con otro plan que el pedido: por qué (422 validacion si falta)"`
@@ -301,19 +301,29 @@ func (m *Modulo) nuevoGanar() *auditoria.Caso[EntradaGanar, Prospecto] {
 					return Prospecto{}, nucleo.ReglaNegocio("plan_requerido",
 						"La cotización aceptada no tiene un plan de Argos (se hizo sin conector): crea una revisión con el plan y vuelve a contratar")
 				}
+				cable, err := planDeCable(ctx, t, r.cotizacion.PlanID)
+				if err != nil {
+					return Prospecto{}, err
+				}
 				router := r.factibilidad.RouterID
 				if in.RouterID != nil {
 					router = in.RouterID
 				}
-				if router == nil {
+				switch {
+				case cable:
+					// 0.15.0 §13.1 (A1): un servicio de cable no tiene router; no se pide ni se manda.
+					router = nil
+					evento["router_id"] = nil
+				case router == nil:
 					return Prospecto{}, nucleo.ReglaNegocio("router_requerido",
 						"Argos exige el router del servicio y la factibilidad no sugirió uno: indica routerId al ganar")
-				}
-				if _, err := routerDeEmpresa(ctx, q, *router, antes.EmpresaID); err != nil {
-					return Prospecto{}, err
+				default:
+					if _, err := routerDeEmpresa(ctx, q, *router, antes.EmpresaID); err != nil {
+						return Prospecto{}, err
+					}
+					evento["router_id"] = *router
 				}
 				d.RouterID = router
-				evento["router_id"] = *router
 				// Argos 1.6.0 valida el teléfono (422 de negocio): uno capturado antes de la validación se
 				// normaliza o se corrige antes de encolar.
 				if antes.Telefono, err = telefonoArgos(antes.Telefono); err != nil {
@@ -535,8 +545,12 @@ func (m *Modulo) encolarContactos(ctx context.Context, t *auditoria.Tx, p comerc
 // origen_tipo ni origen_id (van solo en activar-instalacion). cliente es el id (int64) o el
 // marcador pendientes.Ref de la respuesta del cliente.
 func payloadServicio(p comercialbd.ComercialProspecto, r requisitos, cliente any) []byte {
+	var router any // null en un plan de cable (0.15.0 §13.1)
+	if p.RouterID != nil {
+		router = *p.RouterID
+	}
 	b, _ := json.Marshal(conDatos(map[string]any{
-		"cliente_id": cliente, "router_id": deref(p.RouterID), "plan_id": deref(r.cotizacion.PlanID),
+		"cliente_id": cliente, "router_id": router, "plan_id": deref(r.cotizacion.PlanID),
 		"empresa_id": deref(p.EmpresaID), "estado_inicial": "pendiente_instalacion",
 	}, map[string]any{"direccion": p.Direccion, "coordenadas": coordenadas(p.Lat, p.Lon)}))
 	return b

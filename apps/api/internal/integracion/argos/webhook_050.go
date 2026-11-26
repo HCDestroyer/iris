@@ -104,6 +104,8 @@ type cambioCatalogo struct {
 	// plan) para releer GET /servicios?plan_id= fuera del webhook.
 	relerPrecios bool
 	conectorID   int64
+	// plan: el plan releído (0.15.0 §13.1: su tipo y componentes van a la instantánea de planes).
+	plan *PlanArgos
 }
 
 // precioServicio es el precio releído de un servicio (lista blanca: solo precio y moneda).
@@ -170,6 +172,7 @@ func (p *ProcesarEntrante) leerCatalogo(ctx context.Context, q conector.DBTX, e 
 		for _, pl := range planes {
 			if pl.ID == c.ID {
 				c.Nombre = textoNoVacio(pl.Nombre)
+				c.plan = &pl
 				encontrado = true
 			}
 		}
@@ -237,6 +240,17 @@ func aplicarCatalogo(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, c
 	case "plan":
 		if c.Nombre != nil {
 			if n, err = q.CambiarPlanArgos(ctx, argosbd.CambiarPlanArgosParams{Nombre: *c.Nombre, ID: &c.ID}); err != nil {
+				return err
+			}
+		}
+		if c.plan != nil {
+			// Instantánea del plan (0.15.0 §13.1): nombre, tipo, componentes y activo. Los servicios
+			// afectados por un cambio de tipo llegan cada uno con su servicio.config_cambiada (A5).
+			leidoEn, err := q.RelojBD(ctx)
+			if err != nil {
+				return err
+			}
+			if err := guardarPlan(ctx, q, *c.plan, leidoEn); err != nil {
 				return err
 			}
 		}

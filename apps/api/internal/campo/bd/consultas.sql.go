@@ -4856,7 +4856,7 @@ func (q *Queries) RetiroAbiertoDeServicio(ctx context.Context, arg RetiroAbierto
 }
 
 const servicioArgos = `-- name: ServicioArgos :one
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre, titular_cambiado_en FROM integracion.argos_servicios WHERE id = $1
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre, titular_cambiado_en, tipo_servicio, componentes FROM integracion.argos_servicios WHERE id = $1
 `
 
 func (q *Queries) ServicioArgos(ctx context.Context, id int64) (IntegracionArgosServicio, error) {
@@ -4893,12 +4893,14 @@ func (q *Queries) ServicioArgos(ctx context.Context, id int64) (IntegracionArgos
 		&i.Planta,
 		&i.Nombre,
 		&i.TitularCambiadoEn,
+		&i.TipoServicio,
+		&i.Componentes,
 	)
 	return i, err
 }
 
 const serviciosArgos = `-- name: ServiciosArgos :many
-SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre, titular_cambiado_en FROM integracion.argos_servicios WHERE id = ANY($1::bigint[])
+SELECT id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre, ip, direccion, lat, lon, estado, sincronizado_en, created_at, updated_at, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono, precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre, titular_cambiado_en, tipo_servicio, componentes FROM integracion.argos_servicios WHERE id = ANY($1::bigint[])
 `
 
 func (q *Queries) ServiciosArgos(ctx context.Context, ids []int64) ([]IntegracionArgosServicio, error) {
@@ -4941,6 +4943,8 @@ func (q *Queries) ServiciosArgos(ctx context.Context, ids []int64) ([]Integracio
 			&i.Planta,
 			&i.Nombre,
 			&i.TitularCambiadoEn,
+			&i.TipoServicio,
+			&i.Componentes,
 		); err != nil {
 			return nil, err
 		}

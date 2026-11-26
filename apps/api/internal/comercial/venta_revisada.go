@@ -379,7 +379,7 @@ func (m *Modulo) regenerarContrato(ctx context.Context, t *auditoria.Tx, q *come
 // legible (Argos caído) devuelve el error: el relay lo reintenta.
 func (m *Modulo) RevisarVenta(ctx context.Context, in EntradaRevisarVenta) (ResultadoRevisarVenta, error) {
 	if in.Motivo == RevisionPorPlan && in.PlanID != nil && m.cfg.Planes != nil {
-		ps, err := m.cfg.Planes.Planes(ctx, nil)
+		ps, err := m.cfg.Planes.Planes(ctx, nil, "")
 		if err != nil {
 			return ResultadoRevisarVenta{}, err
 		}
