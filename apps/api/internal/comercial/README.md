@@ -163,6 +163,12 @@ De la venta a la instalación (contrato argosisp.md 0.10.0 §3.4.8):
   prospecto trae `porFirmarEnOrden`. Idempotente por la clave del pendiente.
 - **B17, titular en orden**: `argos.titular_cambiado` pasa el prospecto solo si la instantánea dice
   que el servicio es de `a_cliente_id` (un aviso atrasado no lo devuelve).
+- **B33, tipo de servicio (contrato 0.15.0 §13.1)**, con un Argos que informa ≥ 0.15.0:
+  `GET /comercial/planes?tipoServicio=` pasa el filtro a `GET /planes?tipo_servicio=` y cada plan trae
+  `tipoServicio` y `sinRouter`. La factibilidad de un prospecto cuyo plan de interés es de cable (según
+  la instantánea `integracion.argos_planes`) queda `indeterminado` con motivo `tipo_sin_router` (A4;
+  `factibilidad.evaluada` lo lleva); se cotiza con la visita técnica. Ganar un plan de cable no pide
+  router y manda `router_id: null` en `POST /servicios`. Pruebas: `tipo_servicio_test.go`.
 
 ## Pruebas
 

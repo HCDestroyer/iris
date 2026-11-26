@@ -824,8 +824,8 @@ type ResultadoCatalogos struct {
 }
 
 type entradaCatalogos struct {
-	zonas    []ZonaArgos
-	routers  []RouterArgos
+	zonas   []ZonaArgos
+	routers []RouterArgos
 	// planes: la instantánea de planes (0.15.0 §13.1); nil si no se pudieron leer (no detiene lo demás).
 	planes   []PlanArgos
 	inicio   time.Time

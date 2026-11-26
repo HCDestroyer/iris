@@ -99,3 +99,26 @@ describe("nota de permisos", () => {
         expect(renderToStaticMarkup(<NotaPermisosServicio />)).toContain("los datos de red (IP y router)");
     });
 });
+
+describe("tipo de servicio (contrato 0.15.0 §13.1)", () => {
+    it("muestra el tipo con ícono y texto; un servicio de cable no muestra router", () => {
+        const cable: ServicioLinea = { id: 7010, planNombre: "TV Básica", estado: "activo", tipoServicio: "cable", sinRouter: true, routerNombre: "No debía venir" };
+        const html = renderToStaticMarkup(<LineaServicio servicio={cable} />);
+        expect(html).toContain('data-tipo="cable"');
+        expect(html).toContain("Cable (TV)");
+        expect(html).not.toContain("linea-servicio-router");
+        const compacta = renderToStaticMarkup(<LineaServicio servicio={{ ...cable, tipoServicio: "mixto", sinRouter: false }} variante="compacta" />);
+        expect(compacta).toContain("Internet y cable");
+    });
+
+    it("sin tipo (Argos anterior a 0.15.0) no inventa nada", () => {
+        const html = renderToStaticMarkup(<LineaServicio servicio={COMPLETO} />);
+        expect(html).not.toContain("linea-servicio-tipo");
+        expect(html).toContain("Nodo Centro");
+    });
+
+    it("el servicio de campo lleva su tipo", () => {
+        const campo = lineaDeServicioCampo({ id: 1, codigo: "S-1", plan: "TV", estado: "activo", sincronizadoEn: "2026-11-19T00:00:00Z", tipoServicio: "cable", sinRouter: true });
+        expect(campo).toEqual({ id: 1, codigo: "S-1", planNombre: "TV", estado: "activo", tipoServicio: "cable", sinRouter: true });
+    });
+});

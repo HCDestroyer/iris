@@ -25,7 +25,9 @@ func TestTipoServicioCableEnLaOrden(t *testing.T) {
 		ON CONFLICT (id) DO UPDATE SET router_id = NULL, tipo_servicio = 'cable', componentes = '{cable}', estado = 'pendiente_instalacion'`, *o.ServicioID); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), "DELETE FROM integracion.argos_servicios WHERE id = $1", *o.ServicioID) })
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), "DELETE FROM integracion.argos_servicios WHERE id = $1", *o.ServicioID)
+	})
 
 	// Activar: no se ofrece (Argos respondería 422 tipo_sin_router); se activa al cerrar.
 	if st := e.activacion(o.ID); st.Disponible || st.NoDisponible == nil || *st.NoDisponible != argos.CodigoTipoSinRouter {

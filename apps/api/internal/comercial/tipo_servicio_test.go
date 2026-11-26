@@ -2,6 +2,7 @@ package comercial_test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -57,7 +58,7 @@ func TestTipoServicioComercial(t *testing.T) {
 		t.Fatalf("factibilidad de cable: %+v", fa)
 	}
 	if n := contar(t, `SELECT count(*) FROM integracion.outbox WHERE evento = 'factibilidad.evaluada' AND payload->>'prospecto_id' = $1
-		AND payload->>'resultado' = 'indeterminado' AND payload->>'motivo' = 'tipo_sin_router'`, p.ID); n != 1 {
+		AND payload->>'resultado' = 'indeterminado' AND payload->>'motivo' = 'tipo_sin_router'`, strconv.FormatInt(p.ID, 10)); n != 1 {
 		t.Fatal("factibilidad.evaluada con motivo tipo_sin_router")
 	}
 
