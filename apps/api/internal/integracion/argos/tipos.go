@@ -188,6 +188,10 @@ type ServicioArgos struct {
 	PrefijoEnlaceV6   string       `json:"prefijo_enlace_v6"`
 	PrefijoDelegadoV6 string       `json:"prefijo_delegado_v6"`
 	Planta            *PlantaArgos `json:"planta"`
+	// Contrato 0.15.0 §13.1 (A53): tipo y componentes. router_id y router_nombre pueden ser null en
+	// cable. Se guardan normalizados (NormalizarTipo).
+	TipoServicio string   `json:"tipo_servicio"`
+	Componentes  []string `json:"componentes"`
 	// LISTA BLANCA (§2.4): este struct es la lista. Lo que Argos mande de más (mac, ipv6_duid,
 	// ipv6_modo, local_address, servidor_pppoe_id, excepciones, costo_override,
 	// suspension_manual_motivo, externo…) no tiene campo: el decodificador lo descarta y nunca se
@@ -319,6 +323,11 @@ type PlanArgos struct {
 	Nombre    string   `json:"nombre"`
 	Precio    *Decimal `json:"precio"`
 	Estado    string   `json:"estado"`
+	Activo    *bool    `json:"activo"`
+	// Contrato 0.15.0 §13.1: tipo y componentes del plan (en cable, bajada y subida pueden ser null;
+	// Iris no las guarda).
+	TipoServicio string   `json:"tipo_servicio"`
+	Componentes  []string `json:"componentes"`
 }
 
 // ZonaArgos es una zona (GET /zonas).

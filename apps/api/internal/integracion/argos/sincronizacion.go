@@ -680,7 +680,7 @@ func (k *corrida) recorrer(ctx context.Context, e *argosbd.IntegracionArgosSincr
 	case RecursoZonas:
 		return k.zonas(ctx, e)
 	case RecursoPlanes:
-		return k.paginas(ctx, e, "/planes", nil, contar)
+		return k.paginas(ctx, e, "/planes", nil, k.planes)
 	case RecursoRouters:
 		return k.paginas(ctx, e, "/routers", nil, k.routers)
 	case RecursoCuentasBancarias, RecursoBancos:
@@ -815,9 +815,25 @@ func decodificar[T any](crudo []json.RawMessage) ([]T, error) {
 	return salida, nil
 }
 
-// contar: una página que solo se cuenta (planes: Iris no los guarda, el servicio trae su plan).
-func contar(crudo []json.RawMessage) (guardarFilas, error) {
-	return func(context.Context, *auditoria.Tx, *argosbd.Queries) (int, int, error) { return len(crudo), 0, nil }, nil
+// planes guarda la instantánea de los planes (0.15.0 §13.1: tipo y componentes). Los planes de
+// Argos no son de una empresa.
+func (k *corrida) planes(crudo []json.RawMessage) (guardarFilas, error) {
+	planes, err := decodificar[PlanArgos](crudo)
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context, _ *auditoria.Tx, q *argosbd.Queries) (int, int, error) {
+		leidoEn, err := q.RelojBD(ctx)
+		if err != nil {
+			return 0, 0, err
+		}
+		for _, p := range planes {
+			if err := guardarPlan(ctx, q, p, leidoEn); err != nil {
+				return 0, 0, err
+			}
+		}
+		return len(planes), 0, nil
+	}, nil
 }
 
 func (k *corrida) routers(crudo []json.RawMessage) (guardarFilas, error) {
@@ -982,7 +998,7 @@ func (k *corrida) servicios(crudo []json.RawMessage) (guardarFilas, error) {
 				Estado: v.Estado, SincronizadoEn: leidoEn, UserPpp: v.UserPPP, TipoConexion: v.TipoConexion,
 				Referencia: v.Referencia, ContactoNombre: v.ContactoNombre, ContactoTelefono: v.ContactoTelefono,
 				PrecioMensual: v.PrecioMensual, Moneda: v.Moneda, PrefijoEnlaceV6: v.PrefijoEnlaceV6,
-				PrefijoDelegadoV6: v.PrefijoDelegadoV6, Planta: plantaJSON(v.Planta),
+				PrefijoDelegadoV6: v.PrefijoDelegadoV6, Planta: plantaJSON(v.Planta), TipoServicio: v.tipo, Componentes: v.Componentes,
 			}, nil); err != nil {
 				return 0, 0, err
 			}

@@ -324,7 +324,14 @@ func (m *Modulo) RegistrarProspectoArgos(ctx context.Context, in EntradaRegistra
 			e.clienteValidado = &v
 		}
 	}
-	if e.lat != nil {
+	cable, err := planDeCable(ctx, nucleo.BDDe(ctx), in.PlanInteresID)
+	if err != nil {
+		return ProspectoRegistrado{}, err
+	}
+	if cable {
+		// 0.15.0 §13.1 (A4): plan de cable, sin planta CATV en Argos: indeterminado.
+		e.evaluacion = &Evaluacion{Motor: "distancia", Resultado: FactibleIndeterminado, Motivo: argos.CodigoTipoSinRouter}
+	} else if e.lat != nil {
 		ev, err := m.cfg.Planta.Evaluar(ctx, &previo.EmpresaID, *e.lat, *e.lon)
 		if err != nil {
 			motor := ev.Motor

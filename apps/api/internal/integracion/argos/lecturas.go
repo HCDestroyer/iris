@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -825,6 +826,8 @@ type ResultadoCatalogos struct {
 type entradaCatalogos struct {
 	zonas    []ZonaArgos
 	routers  []RouterArgos
+	// planes: la instantánea de planes (0.15.0 §13.1); nil si no se pudieron leer (no detiene lo demás).
+	planes   []PlanArgos
 	inicio   time.Time
 	vivos    map[int64]time.Time
 	errArgos error
@@ -868,6 +871,11 @@ func nuevoSincronizarCatalogos(m *Modulo) *SincronizarCatalogos {
 					return ResultadoCatalogos{}, err
 				}
 			}
+			for _, p := range in.planes {
+				if err := guardarPlan(ctx, q, p, in.inicio); err != nil {
+					return ResultadoCatalogos{}, err
+				}
+			}
 			if _, err := q.BorrarZonasAnteriores(ctx, in.inicio); err != nil {
 				return ResultadoCatalogos{}, err
 			}
@@ -875,7 +883,7 @@ func nuevoSincronizarCatalogos(m *Modulo) *SincronizarCatalogos {
 				return ResultadoCatalogos{}, err
 			}
 			res := ResultadoCatalogos{Zonas: len(in.zonas), Routers: len(in.routers)}
-			t.Anotar(map[string]any{"zonas": res.Zonas, "routers": res.Routers})
+			t.Anotar(map[string]any{"zonas": res.Zonas, "routers": res.Routers, "planes": len(in.planes)})
 			return res, nil
 		},
 	})
@@ -905,6 +913,13 @@ func (s *SincronizarCatalogos) Ejecutar(ctx context.Context, _ struct{}) (Result
 		in.routers, in.errArgos = cli.Routers(ctx)
 	}
 	if in.errArgos == nil {
+		// Planes (0.15.0 §13.1, relectura periódica del tipo): si Argos no los entrega, zonas y routers
+		// se guardan igual y la instantánea de planes queda como estaba.
+		var errPlanes error
+		if in.planes, errPlanes = cli.Planes(ctx); errPlanes != nil {
+			in.planes = nil
+			slog.WarnContext(ctx, "argos: no se pudieron leer los planes para la instantánea", "err", errPlanes)
+		}
 		ids := make([]int64, 0, len(in.routers))
 		for _, r := range in.routers {
 			ids = append(ids, r.ID)

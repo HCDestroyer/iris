@@ -41,12 +41,12 @@ LIMIT @limite;
 INSERT INTO integracion.argos_servicios (
     id, empresa_id, cliente_id, codigo, plan_id, plan_nombre, router_id, router_nombre, zona_id, zona_nombre,
     ip, direccion, lat, lon, estado, sincronizado_en, user_ppp, tipo_conexion, referencia, contacto_nombre, contacto_telefono,
-    precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre
+    precio_mensual, moneda, prefijo_enlace_v6, prefijo_delegado_v6, planta, nombre, tipo_servicio, componentes
 )
 SELECT @id, @empresa_id, @cliente_id, @codigo, @plan_id, @plan_nombre, @router_id, @router_nombre, @zona_id, @zona_nombre,
     @ip, @direccion, @lat, @lon, @estado, @sincronizado_en, @user_ppp, @tipo_conexion, @referencia, @contacto_nombre, @contacto_telefono,
     CAST(sqlc.narg('precio_mensual')::text AS numeric), sqlc.narg('moneda')::text, @prefijo_enlace_v6, @prefijo_delegado_v6, sqlc.narg('planta')::jsonb,
-    @nombre
+    @nombre, sqlc.narg('tipo_servicio')::text, sqlc.narg('componentes')::text[]
 WHERE NOT EXISTS (SELECT 1 FROM integracion.argos_eliminados e WHERE e.tipo = 'servicio' AND e.id = @id)
 ON CONFLICT (id) DO UPDATE SET
     empresa_id = excluded.empresa_id, cliente_id = excluded.cliente_id, codigo = excluded.codigo, nombre = excluded.nombre,
@@ -57,7 +57,7 @@ ON CONFLICT (id) DO UPDATE SET
     tipo_conexion = excluded.tipo_conexion, referencia = excluded.referencia, contacto_nombre = excluded.contacto_nombre,
     contacto_telefono = excluded.contacto_telefono, precio_mensual = excluded.precio_mensual, moneda = excluded.moneda,
     prefijo_enlace_v6 = excluded.prefijo_enlace_v6, prefijo_delegado_v6 = excluded.prefijo_delegado_v6,
-    planta = excluded.planta, updated_at = now()
+    planta = excluded.planta, tipo_servicio = excluded.tipo_servicio, componentes = excluded.componentes, updated_at = now()
 WHERE integracion.argos_servicios.sincronizado_en <= excluded.sincronizado_en;
 
 -- name: ServicioPorID :one
@@ -810,3 +810,16 @@ WHERE entrante_id = @entrante_id AND servicio_id = @servicio_id;
 -- cambio de titular; nunca retrocede. Llamar con BloquearArgos del servicio tomado.
 UPDATE integracion.argos_servicios SET titular_cambiado_en = @en
 WHERE id = @id AND (titular_cambiado_en IS NULL OR titular_cambiado_en <= @en);
+
+-- name: GuardarPlan :exec
+-- Instantánea de un plan (0.15.0 §13.1): primera sincronización y catalogo.cambiado de plan. Una
+-- lectura más vieja no pisa una nueva.
+INSERT INTO integracion.argos_planes (id, nombre, tipo_servicio, componentes, activo, sincronizado_en)
+VALUES (@id, @nombre, sqlc.narg('tipo_servicio')::text, sqlc.narg('componentes')::text[], @activo, @sincronizado_en)
+ON CONFLICT (id) DO UPDATE SET
+    nombre = excluded.nombre, tipo_servicio = excluded.tipo_servicio, componentes = excluded.componentes,
+    activo = excluded.activo, sincronizado_en = excluded.sincronizado_en, updated_at = now()
+WHERE integracion.argos_planes.sincronizado_en <= excluded.sincronizado_en;
+
+-- name: PlanPorID :one
+SELECT * FROM integracion.argos_planes WHERE id = @id;

@@ -60,6 +60,9 @@ type ServicioCampo struct {
 	Lon            *float64  `json:"lon,omitempty"`
 	Estado         string    `json:"estado"`
 	SincronizadoEn time.Time `json:"sincronizadoEn"`
+	// Tipo de servicio (contrato argosisp.md 0.15.0 §13.1).
+	TipoServicio string `json:"tipoServicio,omitempty" enum:"internet,cable,iptv,mixto,otro" doc:"Tipo de servicio en Argos (0.15.0); ausente si Argos no lo informó (se trata como internet)"`
+	SinRouter    bool   `json:"sinRouter,omitempty" doc:"Servicio sin router ni velocidad (cable): no se pide router ni se ofrece cambiar el plan por router ni activar por aprovisionamiento"`
 }
 
 // Comodato: equipos de Argos asignados al servicio. disponible = false (y motivo) si no se
@@ -504,13 +507,14 @@ func ordenesCampo(ctx context.Context, q *campobd.Queries, filas []campobd.Campo
 			if d.ServicioID != nil && s.ID == *d.ServicioID && (d.EmpresaID == nil || *d.EmpresaID == s.EmpresaID) {
 				o.Servicio = &ServicioCampo{ID: s.ID, Codigo: s.Codigo, Plan: s.PlanNombre, Zona: s.ZonaNombre, PrecioMensual: s.PrecioMensual,
 					Moneda: s.Moneda, Router: s.RouterNombre, IP: s.IP, Direccion: s.Direccion, Lat: s.Lat, Lon: s.Lon,
-					Estado: s.Estado, SincronizadoEn: s.SincronizadoEn}
+					Estado: s.Estado, SincronizadoEn: s.SincronizadoEn, TipoServicio: s.TipoServicio, SinRouter: s.SinRouter}
 			}
 		}
 		if d.Tipo == tipoInstalacion && d.ServicioID != nil {
 			for _, f := range filasSS {
 				if f.ID == *d.ServicioID && (d.EmpresaID == nil || *d.EmpresaID == f.EmpresaID) && f.Estado == "pendiente_instalacion" {
-					o.planes = datosPlanes{pendiente: true, routerID: f.RouterID, modo: modoDe(modos, d.ProspectoID)}
+					o.planes = datosPlanes{pendiente: true, routerID: f.RouterID, modo: modoDe(modos, d.ProspectoID),
+						sinRouter: !argos.ConRouter(f.TipoServicio, f.Componentes, f.RouterID, true)}
 				}
 			}
 		}
