@@ -468,11 +468,7 @@ func nuevoResolver(m *Modulo) *auditoria.Caso[resultadoIntento, Pendiente] {
 		Accion: "integraciones.procesar_pendiente", Acceso: auditoria.Autenticado,
 		Logica: func(ctx context.Context, t *auditoria.Tx, in resultadoIntento) (Pendiente, error) {
 			q := pendientesbd.New(t)
-			// Paso del titular: la orden (FOR SHARE) antes que el pendiente, en el mismo orden que campo
-			// (orden → pendiente): sin interbloqueo con cerrar o cancelar la orden.
-			// B3: si hay un cargo en juego (el propio, o uno que depende de este y se resolverá aquí), la orden
-			// FOR UPDATE antes que el pendiente (como el cierre y A36), en vez de FOR SHARE: sin subir el
-			// candado en medio de la transacción.
+			// Orden de candados: la orden antes que el pendiente, como campo (cierre, cancelación, A36).
 			previo, err := q.PendientePorID(ctx, in.ID)
 			if err != nil {
 				return Pendiente{}, err

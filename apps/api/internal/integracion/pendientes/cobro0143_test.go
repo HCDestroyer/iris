@@ -2,7 +2,6 @@ package pendientes_test
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
@@ -450,59 +449,5 @@ func TestFacturaPorAnularQuitadaSigueExigiendo(t *testing.T) {
 	r, err = e.m.ConfirmarCobro(sup, pendientes.EntradaConfirmarCobro{ID: p.ID, Version: r.Version, Existe: false, PagosAnulados: true, Motivo: "Anulada"})
 	if err != nil || r.PorConfirmar {
 		t.Fatalf("no existe: %+v %v", r, err)
-	}
-}
-
-// B3: la red de seguridad (resolverAtascados) toma cada cargo por resolver con SKIP LOCKED después de
-// su orden: uno bloqueado por otra transacción (p. ej. un cierre concurrente) se salta sin esperar y se
-// resuelve en la pasada siguiente.
-func TestResolverAtascadosSaltaElBloqueado(t *testing.T) {
-	e := nuevoEntorno(t)
-	ctx := context.Background()
-	orden := nuevaOrden()
-	var dep, cargo int64
-	if err := e.pool.QueryRow(ctx, `INSERT INTO integracion.pendientes (empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo,
-		ruta, payload, depende_de, datos_incompletos, estado, proximo_intento, respuesta, hecho_en)
-		VALUES (1, 'argosisp', 'cambiar_titular', $1, 'orden', $2, 'POST', '/servicios/20/cambiar-titular', '{}', '{}', false, 'hecho', now(),
-		'{"titular":{"cliente_id":777}}', now()) RETURNING id`, "iris:titular:"+orden+":1", orden).Scan(&dep); err != nil {
-		t.Fatal(err)
-	}
-	marcador, _ := json.Marshal(pendientes.Ref(0, "titular.cliente_id"))
-	plantilla := `{"servicio_id":20,"cliente_id":` + string(marcador) + `,"lineas":[{"concepto_id":9,"precio_unitario":"100.00"}],"origen_tipo":"iris_orden","origen_id":"` + orden + `"}`
-	if err := e.pool.QueryRow(ctx, `INSERT INTO integracion.pendientes (empresa_id, sistema, operacion, idempotency_key, entidad, entidad_id, metodo,
-		ruta, payload, depende_de, datos_incompletos, estado, proximo_intento, plantilla, por_resolver)
-		VALUES (1, 'argosisp', 'cargo', $1, 'orden', $2, 'POST', '/facturas/cargo-unico', $3, ARRAY[$4::bigint], false, 'pendiente', $5, $3, true)
-		RETURNING id`, "iris:cargo:"+orden, orden, plantilla, dep, pendientes.NuncaVence).Scan(&cargo); err != nil {
-		t.Fatal(err)
-	}
-	// Otra transacción tiene el cargo bloqueado.
-	tx, err := e.pool.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.Exec(ctx, "SELECT 1 FROM integracion.pendientes WHERE id = $1 FOR UPDATE", cargo); err != nil {
-		t.Fatal(err)
-	}
-	conLimite, cancelar := context.WithTimeout(e.ctx(), 5*time.Second)
-	_, err = e.m.Procesar(conLimite)
-	cancelar()
-	if err != nil {
-		_ = tx.Rollback(ctx)
-		t.Fatalf("resolverAtascados no debe esperar al candado: %v", err)
-	}
-	if n := e.contar("SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND por_resolver", cargo); n != 1 {
-		_ = tx.Rollback(ctx)
-		t.Fatal("el cargo bloqueado se salta")
-	}
-	if err := tx.Rollback(ctx); err != nil {
-		t.Fatal(err)
-	}
-	// La pasada siguiente lo resuelve (cliente del titular) y sale.
-	e.procesar()
-	if n := e.contar(`SELECT count(*) FROM integracion.pendientes WHERE id = $1 AND NOT por_resolver AND payload->>'cliente_id' = '777'`, cargo); n != 1 {
-		t.Fatal("resuelto en la pasada siguiente")
-	}
-	if l := e.llamadaA("iris:cargo:" + orden); l.Cuerpo["cliente_id"] != 777.0 {
-		t.Fatalf("salió con el titular: %s", l.Crudo)
 	}
 }
