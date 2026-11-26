@@ -416,7 +416,13 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   webhook `instalacion.*` (`argos.instalacion_resuelta`) o, a los 10 min, `GET /aprovisionamientos/:id`
   (`campo.consultar_activaciones`, cada 2 min); un intento resuelto no cambia. Un agotado sigue vivo hasta
   reintentarse o resolverse a mano en la cola (nunca dos aprovisionamientos a la vez). Estado:
-  `GET /ordenes/{id}/activacion`.
+  `GET /ordenes/{id}/activacion` (el `actual` es el intento vivo si lo hay; si no, el último).
+- **`409 aprovisionamiento_en_curso`** (0.14.3 §12.2): si `extensions.aprovisionamiento_id` es de otro intento
+  de Iris de la misma orden, no es ajeno: el intento nuevo queda `fallido` con `aprovisionamiento_propio` y el
+  anterior vuelve a `en_proceso` (lo resuelven su webhook o la consulta). Si la orden tiene otro intento enviado
+  sin respuesta todavía en la cola, primero se reintenta ese y el nuevo espera. Si no, es ajeno (`iniciado_por:
+  argos`, `iris` de otra orden o sin dato): `fallido` con esa causa, sin tomar su `aprovisionamiento_id` ni su
+  resultado; con el servicio activado fuera, la orden se cierra como «activado fuera de la orden».
 - **Modo** por empresa (`POST /campo/ajustes`: `activacionModo`, `cierreExigeBienvenida`) o plantilla: `al_cerrar`
   (de fábrica), `exigir_lista` (el cierre exitoso exige el intento listo o un supervisor con
   `ordenes.cerrar_sin_activacion` y `sinActivacionMotivo`; con `cierre_exige_bienvenida`, además la bienvenida) o

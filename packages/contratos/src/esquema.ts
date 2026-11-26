@@ -23065,7 +23065,7 @@ export interface components {
              * @description Cuándo se eliminó (borrado lógico); ausente si no está eliminado
              */
             eliminadoEn?: string;
-            /** @description Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector) */
+            /** @description Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar; su token_portal no: se revoca aquí y el siguiente informe del contrato entrega otro): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector) */
             enUsoPorConector: boolean;
             /** Format: date-time */
             expiraEn: string | null;

@@ -417,6 +417,29 @@ func TestPrimeraSincronizacionArgosAnterior(t *testing.T) {
 	}
 }
 
+// Revisión de #299: la primera sincronización sigue el contrato acordado, no solo el de Argos. Con
+// Argos en 0.8.0 e Iris en 0.7.1, corre como con un Argos anterior (sin cuentas, bancos ni informe).
+func TestPrimeraSincronizacionConContratoAcordado(t *testing.T) {
+	e := nuevoEntornoCon(t, func(cfg *argos.Config) { cfg.ContratoIris = "0.7.1" })
+	e.limpiarSinc()
+	e.sembrarSinc("1.30.0", "0.8.0")
+	_, id, _ := e.conectado()
+	r, err := e.sincronizar(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := e.consultarTexto(`SELECT coalesce(contrato_informado, '') FROM integracion.conectores WHERE id = $1`, id); s != "0.7.1" {
+		t.Fatalf("contrato informado: %s", s)
+	}
+	if x := etapa(r.Sincronizacion, "cuentas_bancarias"); x.Error == nil || *x.Error != argos.MotivoArgosAnterior080 {
+		t.Fatalf("cuentas con el contrato acordado 0.7.1: %+v", x)
+	}
+	if s := e.consultarTexto(`SELECT coalesce(contrato_remoto, '') || '/' || informar::text FROM integracion.argos_sincronizaciones WHERE id = $1`,
+		r.ID); s != "0.7.1/false" {
+		t.Fatalf("la sincronización guarda el contrato acordado y no informa: %s", s)
+	}
+}
+
 func TestPrimeraSincronizacionReanudable(t *testing.T) {
 	e := nuevoEntorno(t)
 	e.limpiarSinc()

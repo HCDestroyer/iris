@@ -78,7 +78,7 @@ func TestOperacionConTecnicoEsperaSuVinculado(t *testing.T) {
 	ext := "u-81-" + uuid.NewString()[:8]
 	tec := e.tecnico(ext)
 
-	// Iris informa 0.8.1 (la de esta versión): sale sin mirar el vínculo.
+	// Iris informa 0.8.1 (fijada en el entorno): sale sin mirar el vínculo.
 	antes := e.opConTecnico(tec, "antes")
 	e.procesar()
 	if estado, _, _ := e.estadoPendiente(antes.ID); estado != pendientes.EstadoHecho {

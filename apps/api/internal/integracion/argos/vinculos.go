@@ -40,14 +40,33 @@ type CargaVinculos func(ctx context.Context, conectorID int64, carga uuid.UUID) 
 // conector). nil = la carga sale vacía (0 vínculos).
 func (m *Modulo) UsarVinculos(f CargaVinculos) { m.cfg.Vinculos = f }
 
-// contratoIris: la versión que Iris informa a Argos (Config.ContratoIris o la de esta versión).
+// contratoIris: la versión que habla Iris (Config.ContratoIris o la de esta versión).
 func (m *Modulo) contratoIris() string { return contratoIrisDe(m.cfg) }
 
+// soportaPortalIris: la versión que habla Iris incluye el portal del cliente de Argos (§11).
+func soportaPortalIris(cfg Config) bool {
+	v := contratoIrisDe(cfg)
+	return SoportaPortal(&v)
+}
+
+// contratoIrisDe es la única fuente de la versión que habla Iris: Config.ContratoIris o, sin ella,
+// ContratoIris. La usan el canje, el PUT …/contrato, el token_portal, las capacidades y el estado.
 func contratoIrisDe(cfg Config) string {
 	if cfg.ContratoIris != "" {
 		return cfg.ContratoIris
 	}
 	return ContratoIris
+}
+
+// contratoAInformar: la versión que Iris informa a un Argos que rechazó la suya con 422
+// contrato_no_soportado (§3.3): la menor entre la que habla Iris y la de Argos (argos, leída de GET
+// …/estado). Sin el contrato de Argos (o ilegible), la de Iris.
+func (m *Modulo) contratoAInformar(argos *string) string {
+	v := m.contratoIris()
+	if !conector.VersionAlMenos(argos, "0.0.0") {
+		return v
+	}
+	return conector.VersionMenor(v, *argos)
 }
 
 // InformaVinculos: Iris informa contrato ≥ 0.14.0 (la carga de vínculos y el permiso dependen de ello).
@@ -203,8 +222,13 @@ func (m *Modulo) CerrarCargaVinculos(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	receptor := c.WebhookSalidaUrl != nil && len(c.WebhookSalidaSecretoCifrado) > 0
+	// La misma versión que Argos ya registró (cerrar la carga no cambia el contrato).
+	contrato := m.contratoIris()
+	if c.ContratoInformado != nil {
+		contrato = *c.ContratoInformado
+	}
 	var puesto EstadoIris
-	if err := m.clienteDe(c).Pedir(ctx, http.MethodPut, rutaContrato, nil, map[string]any{"contrato": m.contratoIris(),
+	if err := m.clienteDe(c).Pedir(ctx, http.MethodPut, rutaContrato, nil, map[string]any{"contrato": contrato,
 		"receptor_argos": receptor, "vinculos_cargados": in.Entregas}, true, &conector.Recurso{Destino: &puesto}); err != nil {
 		return false, err
 	}

@@ -38,4 +38,5 @@ SELECT (EXISTS (SELECT 1 FROM mensajeria.promesas p WHERE p.conversacion_id = @c
 SELECT EXISTS (SELECT 1 FROM integracion.argos_servicios s WHERE s.id = @servicio_id AND s.cliente_id = @cliente_id AND s.empresa_id = @empresa)::boolean;
 
 -- name: ContratoArgosActivo :one
-SELECT contrato_remoto FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo' LIMIT 1;
+-- Los contratos del conector Argos activo (el acordado sale de conector.ContratoAcordado).
+SELECT contrato_remoto, contrato_informado FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo' LIMIT 1;

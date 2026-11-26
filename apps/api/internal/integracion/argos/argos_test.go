@@ -59,6 +59,12 @@ func nuevoCifrador(t *testing.T) *nucleo.Cifrador {
 // vacía las instantáneas de pruebas anteriores (la base es compartida dentro del paquete).
 func nuevoEntorno(t *testing.T) *entorno {
 	t.Helper()
+	return nuevoEntornoCon(t, nil)
+}
+
+// nuevoEntornoCon es nuevoEntorno con la configuración del módulo ajustada por ajustar (nil: ninguna).
+func nuevoEntornoCon(t *testing.T, ajustar func(*argos.Config)) *entorno {
+	t.Helper()
 	pool := pruebas.Pool(t)
 	for _, sql := range []string{
 		"UPDATE integracion.conectores SET estado = 'apagado'",
@@ -83,6 +89,9 @@ func nuevoEntorno(t *testing.T) *entorno {
 		// El Argos falso escucha en loopback: en producción esa red está bloqueada (red.go).
 		RedesPermitidas: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8"), netip.MustParsePrefix("::1/128")},
 		Espera:          5 * time.Millisecond, Encolar: integracion.Encolar(cola), Timeout: 2 * time.Second,
+	}
+	if ajustar != nil {
+		ajustar(&cfg)
 	}
 	mod := argos.Nuevo(cfg)
 	ident := identidad.Nuevo(identidad.Config{Cifrador: cif})
