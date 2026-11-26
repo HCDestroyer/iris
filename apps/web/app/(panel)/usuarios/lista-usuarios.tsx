@@ -1,32 +1,19 @@
 "use client";
 
 import type { Schema } from "@iris/contratos";
-import {
-    Aviso,
-    Boton,
-    DialogoProtegido,
-    Esqueleto,
-    EstadoVacio,
-    InsigniaEstado,
-    Tabla,
-    TablaCelda,
-    TablaCuerpo,
-    TablaEncabezado,
-    TablaFila,
-    TablaTitulo,
-    Tarjeta,
-} from "@iris/ui";
-import { Bot, ChevronDown, RotateCcw, RotateCw, ShieldCheck, ShieldOff, User, UserCheck, UserPlus, Users, UserX } from "lucide-react";
+import { Boton, DialogoProtegido, Esqueleto, EstadoVacio, FilaLista, InsigniaEstado, ListaFilas, MenuAcciones } from "@iris/ui";
+import { Bot, KeyRound, RotateCcw, ShieldCheck, ShieldOff, SquareArrowOutUpRight, User, UserCheck, UserPlus, Users, UserX } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { ErrorLectura } from "@/componentes/error-lectura";
 import { api, resolver } from "@/lib/api/cliente";
-import { mensajeDeError } from "@/lib/api/errores";
-import { puedeReiniciarMfa } from "@/lib/cuenta/sesion";
+import { pieListaFilas } from "@/componentes/pie-lista";
+import { puedeReiniciarMfa, puedeRestablecerContrasena } from "@/lib/cuenta/sesion";
 import { useLectura } from "@/lib/lectura";
 import { useSesion } from "@/lib/sesion";
 import { DialogoReiniciarMfa } from "./reiniciar-mfa";
-import { BotonRestablecerContrasena } from "@/componentes/usuarios/restablecer-contrasena";
+import { DialogoRestablecerContrasena } from "@/componentes/usuarios/restablecer-contrasena";
 import Link from "next/link";
 
 type Usuario = Schema<"Usuario">;
@@ -74,20 +61,6 @@ export function Mfa({ u }: { u: Usuario }) {
     );
 }
 
-/** «Reiniciar MFA» de la fila: solo con el permiso, sobre otro usuario y con MFA activo. */
-function BotonReiniciar({ u, alAbrir }: { u: Usuario; alAbrir: (u: Usuario) => void }) {
-    const { yo, permisos } = useSesion();
-    if (!puedeReiniciarMfa(permisos, yo.usuario.id, u)) {
-        return null;
-    }
-    return (
-        <Boton variante="contorno" tamano="sm" onClick={() => alAbrir(u)} aria-label={`Reiniciar MFA de ${u.nombre}`}>
-            <RotateCcw />
-            Reiniciar MFA
-        </Boton>
-    );
-}
-
 export function Activo({ u }: { u: Usuario }) {
     return u.activo ? (
         <InsigniaEstado tono="neutral" icono={UserCheck} texto="Activo" />
@@ -96,49 +69,59 @@ export function Activo({ u }: { u: Usuario }) {
     );
 }
 
+/**
+ * Usuarios en `ListaFilas`: cada fila abre la ficha; su menú `⋯` tiene «Reiniciar MFA» y
+ * «Restablecer contraseña» cuando se pueden (con el permiso, sobre otra persona).
+ */
 export function ListaUsuarios() {
     const primera = useLectura((signal) => leerPagina(undefined, signal));
     const [extra, setExtra] = useState<{ usuarios: Usuario[]; cursor: string | null } | null>(null);
     const [cargandoMas, setCargandoMas] = useState(false);
     const [errorMas, setErrorMas] = useState<unknown>(null);
-    const { permisos, puede } = useSesion();
-    const conAcciones = permisos.includes("usuarios.reiniciar_mfa") || permisos.includes("usuarios.restablecer_contrasena");
+    const { yo, permisos, puede } = useSesion();
+    const router = useRouter();
     // Lo que devolvieron las acciones (versión y MFA nuevos) sobre lo leído.
     const [cambios, setCambios] = useState<Record<number, Usuario>>({});
     const [reinicio, setReinicio] = useState<Usuario | null>(null);
+    const [restablecer, setRestablecer] = useState<Usuario | null>(null);
     const actualizar = (u: Usuario) => setCambios((c) => ({ ...c, [u.id]: u }));
 
     const encabezado = (
-        <>
-            <EncabezadoPagina
-                titulo="Usuarios"
-                descripcion="Personas e integraciones con acceso a Iris."
-                acciones={
-                    puede(["usuarios.crear"]) ? (
-                        <Boton asChild>
-                            <Link href="/usuarios/nuevo">
-                                <UserPlus />
-                                Nuevo usuario
-                            </Link>
-                        </Boton>
-                    ) : null
-                }
-            />
-        </>
+        <EncabezadoPagina
+            titulo="Usuarios"
+            descripcion="Personas e integraciones con acceso a Iris."
+            acciones={
+                puede(["usuarios.crear"]) ? (
+                    <Boton asChild>
+                        <Link href="/usuarios/nuevo">
+                            <UserPlus />
+                            Nuevo usuario
+                        </Link>
+                    </Boton>
+                ) : null
+            }
+        />
     );
 
     if (primera.estado === "cargando") {
         return (
             <>
                 {encabezado}
-                <Tarjeta className="grid gap-3 p-5" aria-busy="true">
-                    <span className="sr-only" role="status">
-                        Cargando usuarios…
-                    </span>
-                    {Array.from({ length: 5 }, (_, i) => (
-                        <Esqueleto key={i} className="h-10" />
-                    ))}
-                </Tarjeta>
+                <ListaFilas
+                    etiqueta="Usuarios"
+                    vacio={
+                        <div className="grid gap-3" aria-busy="true">
+                            <span className="sr-only" role="status">
+                                Cargando usuarios…
+                            </span>
+                            {Array.from({ length: 5 }, (_, i) => (
+                                <Esqueleto key={i} className="h-10" />
+                            ))}
+                        </div>
+                    }
+                >
+                    {[]}
+                </ListaFilas>
             </>
         );
     }
@@ -163,6 +146,7 @@ export function ListaUsuarios() {
 
     function recargarLista() {
         setReinicio(null);
+        setRestablecer(null);
         setExtra(null);
         setCambios({});
         primera.reintentar();
@@ -185,120 +169,57 @@ export function ListaUsuarios() {
         }
     }
 
-    if (usuarios.length === 0) {
-        return (
-            <>
-                {encabezado}
-                <Tarjeta>
-                    <EstadoVacio icono={Users} titulo="Aún no hay usuarios" descripcion="Cuando se creen usuarios aparecerán aquí." />
-                </Tarjeta>
-            </>
-        );
-    }
-
     return (
         <>
             {encabezado}
-            <Tarjeta className="overflow-hidden">
-                {/* Teléfono: lista */}
-                <ul className="divide-y sm:hidden" aria-label="Usuarios">
-                    {usuarios.map((u) => (
-                        <li key={u.id} className="grid gap-2 p-4">
-                            <div className="grid min-w-0">
-                                <Link href={`/usuarios/${u.id}`} className="truncate font-medium text-primary underline-offset-4 hover:underline">
-                                    {u.nombre}
-                                </Link>
-                                <span className="truncate text-sm text-muted-foreground">{u.correo}</span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                                <Tipo u={u} />
+            <ListaFilas
+                etiqueta="Usuarios"
+                {...pieListaFilas({ cuantos: usuarios.length, siguiente, cargarMas, cargandoMas, errorMas }, "usuarios")}
+                vacio={<EstadoVacio icono={Users} titulo="Aún no hay usuarios" descripcion="Cuando se creen usuarios aparecerán aquí." />}
+            >
+                {usuarios.map((u) => (
+                    <FilaLista
+                        key={u.id}
+                        data-usuario={u.id}
+                        icono={u.tipo === "integracion" ? Bot : User}
+                        tonoIcono={u.activo ? "marca" : "neutro"}
+                        titulo={u.nombre}
+                        detalle={`${u.correo} · ${u.tipo === "integracion" ? "Integración" : "Persona"} · ${textoRoles(u)}`}
+                        href={`/usuarios/${u.id}`}
+                        extremo={
+                            <>
                                 <Mfa u={u} />
                                 <Activo u={u} />
-                            </div>
-                            <p className="text-sm text-muted-foreground">{textoRoles(u)}</p>
-                            <div className="flex flex-wrap gap-2 empty:hidden">
-                                <BotonReiniciar u={u} alAbrir={setReinicio} />
-                                <BotonRestablecerContrasena usuario={u} alCambiar={actualizar} alPerderAlcance={recargarLista} tamano="sm" />
-                            </div>
-                        </li>
-                    ))}
-                </ul>
-                {/* Escritorio: tabla */}
-                <div className="hidden sm:block">
-                    <Tabla aria-label="Usuarios">
-                        <TablaEncabezado>
-                            <TablaFila className="hover:bg-transparent">
-                                <TablaTitulo>Nombre</TablaTitulo>
-                                <TablaTitulo>Tipo</TablaTitulo>
-                                <TablaTitulo>Roles</TablaTitulo>
-                                <TablaTitulo>MFA</TablaTitulo>
-                                <TablaTitulo>Estado</TablaTitulo>
-                                {conAcciones ? (
-                                    <TablaTitulo>
-                                        <span className="sr-only">Acciones</span>
-                                    </TablaTitulo>
-                                ) : null}
-                            </TablaFila>
-                        </TablaEncabezado>
-                        <TablaCuerpo>
-                            {usuarios.map((u) => (
-                                <TablaFila key={u.id}>
-                                    <TablaCelda>
-                                        <div className="grid min-w-0">
-                                            <Link href={`/usuarios/${u.id}`} className="font-medium text-primary underline-offset-4 hover:underline">
-                                                {u.nombre}
-                                            </Link>
-                                            <span className="text-muted-foreground">{u.correo}</span>
-                                        </div>
-                                    </TablaCelda>
-                                    <TablaCelda>
-                                        <Tipo u={u} />
-                                    </TablaCelda>
-                                    <TablaCelda className="text-muted-foreground">{textoRoles(u)}</TablaCelda>
-                                    <TablaCelda>
-                                        <Mfa u={u} />
-                                    </TablaCelda>
-                                    <TablaCelda>
-                                        <Activo u={u} />
-                                    </TablaCelda>
-                                    {conAcciones ? (
-                                        <TablaCelda className="text-right">
-                                            <div className="flex flex-wrap justify-end gap-2">
-                                                <BotonReiniciar u={u} alAbrir={setReinicio} />
-                                                <BotonRestablecerContrasena usuario={u} alCambiar={actualizar} alPerderAlcance={recargarLista} tamano="sm" />
-                                            </div>
-                                        </TablaCelda>
-                                    ) : null}
-                                </TablaFila>
-                            ))}
-                        </TablaCuerpo>
-                    </Tabla>
-                </div>
-            </Tarjeta>
-            <div className="mt-4 grid justify-items-center gap-3">
-                {errorMas ? (
-                    <Aviso
-                        tono="error"
-                        titulo="No se pudo cargar la página siguiente"
-                        className="w-full"
-                        accion={
-                            <Boton variante="secundario" tamano="sm" onClick={cargarMas}>
-                                <RotateCw />
-                                Reintentar
-                            </Boton>
+                            </>
                         }
-                    >
-                        {mensajeDeError(errorMas).detalle}
-                    </Aviso>
-                ) : siguiente ? (
-                    <Boton variante="contorno" onClick={cargarMas} disabled={cargandoMas}>
-                        <ChevronDown />
-                        {cargandoMas ? "Cargando…" : "Cargar más"}
-                    </Boton>
-                ) : (
-                    <p className="text-sm text-muted-foreground">No hay más usuarios.</p>
-                )}
-            </div>
+                        extremoTelefono="debajo"
+                        menu={
+                            <MenuAcciones
+                                etiqueta={`Acciones de ${u.nombre}`}
+                                acciones={[
+                                    { id: "abrir", texto: "Abrir ficha", icono: SquareArrowOutUpRight, alElegir: () => router.push(`/usuarios/${u.id}`) },
+                                    {
+                                        id: "reiniciar-mfa",
+                                        texto: "Reiniciar MFA",
+                                        icono: RotateCcw,
+                                        seccion: "Acceso",
+                                        permitida: puedeReiniciarMfa(permisos, yo.usuario.id, u),
+                                        alElegir: () => setReinicio(u),
+                                    },
+                                    {
+                                        id: "restablecer",
+                                        texto: "Restablecer contraseña",
+                                        icono: KeyRound,
+                                        seccion: "Acceso",
+                                        permitida: puedeRestablecerContrasena(permisos, yo.usuario.id, u),
+                                        alElegir: () => setRestablecer(u),
+                                    },
+                                ]}
+                            />
+                        }
+                    />
+                ))}
+            </ListaFilas>
             <DialogoProtegido open={reinicio !== null} onOpenChange={(abierto) => (abierto ? undefined : setReinicio(null))}>
                 {reinicio ? (
                     <DialogoReiniciarMfa
@@ -311,6 +232,16 @@ export function ListaUsuarios() {
                     />
                 ) : null}
             </DialogoProtegido>
+            {restablecer ? (
+                <DialogoRestablecerContrasena
+                    key={restablecer.id}
+                    usuario={restablecer}
+                    abierto
+                    alCerrar={() => setRestablecer(null)}
+                    alCambiar={actualizar}
+                    alPerderAlcance={recargarLista}
+                />
+            ) : null}
         </>
     );
 }
