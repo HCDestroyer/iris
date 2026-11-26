@@ -247,12 +247,10 @@ el cuerpo. Un cambio resuelto a mano por una persona sin cliente se completa des
 (supervisor con alcance, comprobado en Argos; emite `integracion.pendiente_cliente_fijado`). Uno cancelado o
 reemplazado no lo acepta (422 `pendiente_no_resoluble`).
 
-Solo los cobros de A36 siguen al titular nuevo. Los cargos de un cierre (`orden.cerrada`) no: el cambio de titular
-pide la orden `en_sitio`, así que un cargo de cierre solo convive con él si la orden se cerró `fallida` y se reabrió,
-y ese cargo es del intento anterior (lo usado antes del cambio, a nombre de quien era titular entonces). Eso incluye
-los que esperan al consumo (`espera_consumo`): nunca salen solos (los cobra el consumo) y, si una persona libera uno,
-lo decide sobre lo que ya hizo en Argos. Además, sus marcadores solo se resuelven con todas sus dependencias `hecho`,
-y uno que espera a un consumo resuelto a mano quedaría fallido: atarlos al paso nuevo cambiaría esas reglas.
+Solo los cobros de A36 siguen al titular nuevo. Los cargos de un cierre (`orden.cerrada`, también los que esperan al
+consumo, `espera_consumo`) nunca conviven con un cambio de titular: nacen al cerrar la orden, una orden cerrada no se
+reabre (`reabrir` solo sirve desde `fallida` o `cancelada`), fallar la orden no encola el cierre y el cambio de titular
+exige la orden `en_sitio`.
 
 **A36 y el titular (§3.4.8):** el cobro de A36 de una orden con pasos del titular vivos espera a esos pasos y va a
 nombre del titular final (`TrasElTitular`, la misma lógica que el cargo del cierre); con el cambio resuelto a mano

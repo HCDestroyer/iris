@@ -64,7 +64,11 @@ func (m *Modulo) Registrar(api huma.API) {
 		"`liberar` o `resolver_tambien`, que lo deja también `resuelto_manual` sin mandarlo). Los dependientes que " +
 		"esperaban su respuesta quedan `fallido_negocio` incompletos (`codigoError` = `dependencia_resuelta_a_mano`), para " +
 		"resolverlos también a mano o corregirlos con los datos reales. Auditado; emite `integracion.pendiente_resuelto_manual` " +
-		"(uno más por cargo resuelto también)."
+		"(uno más por cargo resuelto también). Un `cambiar_titular` ya `resuelto_manual` por una persona sin el cliente " +
+		"final acepta después `clienteId`: un supervisor con `ordenes.validar_identidad` y alcance sobre la orden indica el " +
+		"titular final, comprobado en Argos (422 `cliente_no_es_titular` si no lo es); desde ahí el cobro de A36 de la orden " +
+		"sale a ese cliente (antes, 409 `titular_por_confirmar`). Una vez por paso; uno cancelado o reemplazado responde 422 " +
+		"`pendiente_no_resoluble`. Auditado; emite `integracion.pendiente_cliente_fijado`."
 	huma.Register(api, rm, func(ctx context.Context, in *entradaResolverManualHTTP) (*cuerpo[Pendiente], error) {
 		p, err := m.ResolverManual.Ejecutar(ctx, EntradaResolverManual{ID: in.ID, Version: in.Body.Version, Motivo: in.Body.Motivo, Cargo: in.Body.Cargo, ClienteID: in.Body.ClienteID})
 		if err != nil {
@@ -142,6 +146,6 @@ type entradaResolverManualHTTP struct {
 		Motivo  string `json:"motivo" minLength:"5" maxLength:"1000" doc:"Qué se hizo en Argos (si se rehízo el consumo, con origen_tipo/origen_id de la orden)"`
 		Cargo   string `json:"cargo,omitempty" required:"false" enum:"liberar,resolver_tambien" doc:"Obligatorio si un cargo de un producto del consumo lo espera: liberar (sale hacia Argos) o resolver_tambien (Argos ya lo cobró: queda resuelto_manual y no sale)"`
 		// ClienteID: solo al resolver un cambio de titular.
-		ClienteID *int64 `json:"clienteId,omitempty" required:"false" minimum:"1" doc:"Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro y el contrato regenerado van a su nombre). Resolver a mano un cambiar_plan o cambiar_titular significa que el cambio se aplicó en Argos"`
+		ClienteID *int64 `json:"clienteId,omitempty" required:"false" minimum:"1" doc:"Solo con cambiar_titular: el cliente de Argos que quedó como titular (el cobro y el contrato regenerado van a su nombre). Resolver a mano un cambiar_plan o cambiar_titular significa que el cambio se aplicó en Argos. También sobre un cambiar_titular ya resuelto_manual sin cliente, para indicarlo después"`
 	}
 }
