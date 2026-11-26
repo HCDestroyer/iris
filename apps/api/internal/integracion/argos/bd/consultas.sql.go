@@ -1588,12 +1588,14 @@ const guardarContacto = `-- name: GuardarContacto :execrows
 INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios,
     consultar, reportar, pagar, avisos, persona_cliente_id, version, quitado, leido_en)
 VALUES ($1, $2, $3, $4, $5, $6, $7::bigint[],
-    $8, $9, $10, $11, $12, $13, false, now())
+    $8, $9, $10, $11, $12, $13, false, $14)
 ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = excluded.cliente_id, empresa_id = excluded.empresa_id,
     nombre = excluded.nombre, relacion = excluded.relacion, es_titular = excluded.es_titular, servicios = excluded.servicios,
     consultar = excluded.consultar, reportar = excluded.reportar, pagar = excluded.pagar, avisos = excluded.avisos,
-    persona_cliente_id = excluded.persona_cliente_id, version = excluded.version, quitado = false, leido_en = now(), updated_at = now()
-WHERE excluded.version >= integracion.argos_contactos.version
+    persona_cliente_id = excluded.persona_cliente_id, version = excluded.version, quitado = false,
+    leido_en = greatest(integracion.argos_contactos.leido_en, excluded.leido_en), updated_at = now()
+WHERE excluded.version > integracion.argos_contactos.version
+    OR (excluded.version = integracion.argos_contactos.version AND excluded.leido_en >= integracion.argos_contactos.leido_en)
 `
 
 type GuardarContactoParams struct {
@@ -1610,11 +1612,14 @@ type GuardarContactoParams struct {
 	Avisos           bool
 	PersonaClienteID *int64
 	Version          int32
+	LeidoEn          time.Time
 }
 
 // La única escritura de un contacto en la caché (portal §11.10 y atención §3.5): todas las columnas,
-// sin bajar nunca la versión (una lectura vieja que llega tarde no pisa una más nueva). Devuelve 0
-// filas si la versión guardada es mayor (entonces tampoco se tocan sus teléfonos).
+// sin bajar nunca la versión (una lectura vieja que llega tarde no pisa una más nueva). @leido_en es la
+// hora (de la base) en que empezó la lectura en Argos: con la misma versión, una lectura que empezó
+// antes del último cambio de la fila (p. ej. un quitado por webhook, que no sube la versión) no la pisa
+// ni la revive. Devuelve 0 filas si no se escribió (entonces tampoco se tocan sus teléfonos).
 func (q *Queries) GuardarContacto(ctx context.Context, arg GuardarContactoParams) (int64, error) {
 	result, err := q.db.Exec(ctx, guardarContacto,
 		arg.ContactoID,
@@ -1630,6 +1635,7 @@ func (q *Queries) GuardarContacto(ctx context.Context, arg GuardarContactoParams
 		arg.Avisos,
 		arg.PersonaClienteID,
 		arg.Version,
+		arg.LeidoEn,
 	)
 	if err != nil {
 		return 0, err
@@ -2041,6 +2047,18 @@ func (q *Queries) IDsExternosVinculados(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const inicioLecturaContactos = `-- name: InicioLecturaContactos :one
+SELECT clock_timestamp()::timestamptz
+`
+
+// La hora de la base al empezar una lectura de contactos en Argos (la misma reloj que now()).
+func (q *Queries) InicioLecturaContactos(ctx context.Context) (time.Time, error) {
+	row := q.db.QueryRow(ctx, inicioLecturaContactos)
+	var column_1 time.Time
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const lecturaCuentasDe = `-- name: LecturaCuentasDe :one
 SELECT leido_en FROM integracion.argos_cuentas_lecturas WHERE empresa_id IN (0, $1::bigint)
 ORDER BY leido_en DESC LIMIT 1
@@ -2078,7 +2096,7 @@ func (q *Queries) LecturaIncidente(ctx context.Context, entranteID int64) (Integ
 
 const marcarContactosLeidos = `-- name: MarcarContactosLeidos :exec
 INSERT INTO integracion.argos_contactos_leidos (cliente_id, sincronizado_en) VALUES ($1, $2)
-ON CONFLICT (cliente_id) DO UPDATE SET sincronizado_en = EXCLUDED.sincronizado_en
+ON CONFLICT (cliente_id) DO UPDATE SET sincronizado_en = greatest(integracion.argos_contactos_leidos.sincronizado_en, EXCLUDED.sincronizado_en)
 `
 
 type MarcarContactosLeidosParams struct {
@@ -2086,6 +2104,7 @@ type MarcarContactosLeidosParams struct {
 	SincronizadoEn time.Time
 }
 
+// @sincronizado_en es la hora en que empezó la lectura (no la de guardar) y nunca retrocede.
 func (q *Queries) MarcarContactosLeidos(ctx context.Context, arg MarcarContactosLeidosParams) error {
 	_, err := q.db.Exec(ctx, marcarContactosLeidos, arg.ClienteID, arg.SincronizadoEn)
 	return err
@@ -2272,17 +2291,20 @@ func (q *Queries) QuitarContacto(ctx context.Context, arg QuitarContactoParams) 
 const quitarContactosAusentes = `-- name: QuitarContactosAusentes :execrows
 UPDATE integracion.argos_contactos SET quitado = true, leido_en = now(), updated_at = now()
 WHERE cliente_id = $1 AND NOT quitado AND NOT (contacto_id = ANY($2::bigint[]))
+    AND leido_en <= $3::timestamptz
 `
 
 type QuitarContactosAusentesParams struct {
 	ClienteID int64
 	Vigentes  []int64
+	LeidoEn   time.Time
 }
 
 // Los contactos del cliente que Argos ya no devuelve: quitados (no se borran; dejan de ver sus tickets
-// y pierden su rol en la atención).
+// y pierden su rol en la atención). Solo los que no se escribieron después de que empezó esta lectura
+// (@leido_en): una lectura vieja no quita un contacto que guardó una más nueva.
 func (q *Queries) QuitarContactosAusentes(ctx context.Context, arg QuitarContactosAusentesParams) (int64, error) {
-	result, err := q.db.Exec(ctx, quitarContactosAusentes, arg.ClienteID, arg.Vigentes)
+	result, err := q.db.Exec(ctx, quitarContactosAusentes, arg.ClienteID, arg.Vigentes, arg.LeidoEn)
 	if err != nil {
 		return 0, err
 	}

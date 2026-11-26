@@ -221,7 +221,11 @@ func leerContactosDe(ctx context.Context, cli *Cliente, clienteID int64) ([]Cont
 // portal): guarda lo leído de Argos con todas sus columnas sin bajar nunca la versión, cambia los
 // teléfonos solo si la fila se escribió, marca quitados (no borra) los que ya no vienen y anota cuándo
 // se leyó el cliente. Sin «permisos» de Argos, ninguno (lo seguro). Devuelve cuántos quitó.
-func guardarContactos(ctx context.Context, q *argosbd.Queries, clienteID int64, l []ContactoClienteArgos, ahora time.Time) (int64, error) {
+//
+// inicio es la hora de la base en que empezó la lectura en Argos (inicioLectura), capturada antes de
+// pedirla: con la misma versión, lo que cambió en la caché después (un quitado por webhook) gana sobre
+// esta lectura, que llega tarde; y la caché se marca leída a esa hora, no a la de guardar.
+func guardarContactos(ctx context.Context, q *argosbd.Queries, clienteID int64, l []ContactoClienteArgos, inicio time.Time) (int64, error) {
 	vigentes := make([]int64, 0, len(l))
 	for _, x := range l {
 		p := PermisosContacto{}
@@ -232,13 +236,14 @@ func guardarContactos(ctx context.Context, q *argosbd.Queries, clienteID int64, 
 		n, err := q.GuardarContacto(ctx, argosbd.GuardarContactoParams{ContactoID: x.ContactoID, ClienteID: clienteID, EmpresaID: x.EmpresaID,
 			Nombre: nombre, Relacion: x.Relacion, EsTitular: x.EsTitular || x.Relacion == "titular", Servicios: x.Servicios,
 			Consultar: p.Consultar, Reportar: p.Reportar, Pagar: p.Pagar, Avisos: p.Avisos, PersonaClienteID: x.PersonaClienteID,
-			Version: x.Version})
+			Version: x.Version, LeidoEn: inicio})
 		if err != nil {
 			return 0, err
 		}
 		vigentes = append(vigentes, x.ContactoID)
 		if n == 0 {
-			// La caché tiene una versión más nueva: ni la fila ni sus teléfonos se tocan.
+			// La caché tiene una versión más nueva, o la misma cambiada después de empezar esta lectura
+			// (un quitado): ni la fila ni sus teléfonos se tocan, y no revive.
 			continue
 		}
 		if err := q.BorrarTelefonosContactoArgos(ctx, x.ContactoID); err != nil {
@@ -254,21 +259,21 @@ func guardarContactos(ctx context.Context, q *argosbd.Queries, clienteID int64, 
 			}
 		}
 	}
-	quitados, err := q.QuitarContactosAusentes(ctx, argosbd.QuitarContactosAusentesParams{ClienteID: clienteID, Vigentes: vigentes})
+	quitados, err := q.QuitarContactosAusentes(ctx, argosbd.QuitarContactosAusentesParams{ClienteID: clienteID, Vigentes: vigentes, LeidoEn: inicio})
 	if err != nil {
 		return 0, err
 	}
-	return quitados, q.MarcarContactosLeidos(ctx, argosbd.MarcarContactosLeidosParams{ClienteID: clienteID, SincronizadoEn: ahora})
+	return quitados, q.MarcarContactosLeidos(ctx, argosbd.MarcarContactosLeidosParams{ClienteID: clienteID, SincronizadoEn: inicio})
 }
 
 // guardarYAvisar: guardarContactos y, si cambiaron los contactos vigentes o sus números, el evento
 // argos.contactos_cambiados para que la mensajería revise sus conversaciones (sin números ni nombres).
-func guardarYAvisar(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, clienteID int64, l []ContactoClienteArgos) error {
+func guardarYAvisar(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, clienteID int64, l []ContactoClienteArgos, inicio time.Time) error {
 	antes, err := q.HuellaContactosCliente(ctx, clienteID)
 	if err != nil {
 		return err
 	}
-	quitados, err := guardarContactos(ctx, q, clienteID, l, time.Now())
+	quitados, err := guardarContactos(ctx, q, clienteID, l, inicio)
 	if err != nil {
 		return err
 	}
@@ -302,6 +307,14 @@ type entradaGuardarContactos struct {
 	lista     []ContactoClienteArgos
 	// noExiste: Argos ya no tiene al cliente (404): todos sus contactos quedan quitados.
 	noExiste bool
+	// inicio: hora de la base en que empezó la lectura en Argos.
+	inicio time.Time
+}
+
+// inicioLectura: la hora de la base (el mismo reloj que now() en las escrituras) justo antes de pedir
+// los contactos a Argos.
+func inicioLectura(ctx context.Context, bd conector.DBTX) (time.Time, error) {
+	return argosbd.New(bd).InicioLecturaContactos(ctx)
 }
 
 func nuevoGuardarContactos() *auditoria.Caso[entradaGuardarContactos, int] {
@@ -313,13 +326,13 @@ func nuevoGuardarContactos() *auditoria.Caso[entradaGuardarContactos, int] {
 			q := argosbd.New(t)
 			if in.noExiste {
 				t.Anotar(map[string]any{"resultado_argos": "no_existe"})
-				if err := guardarYAvisar(ctx, t, q, in.ClienteID, nil); err != nil {
+				if err := guardarYAvisar(ctx, t, q, in.ClienteID, nil, in.inicio); err != nil {
 					return 0, err
 				}
 				return 0, q.OlvidarContactosLeidos(ctx, in.ClienteID)
 			}
 			t.Anotar(map[string]any{"contactos": len(in.lista)})
-			return len(in.lista), guardarYAvisar(ctx, t, q, in.ClienteID, in.lista)
+			return len(in.lista), guardarYAvisar(ctx, t, q, in.ClienteID, in.lista, in.inicio)
 		},
 	})
 }
@@ -342,18 +355,22 @@ func (m *Modulo) RefrescarContactos(ctx context.Context, in EntradaRefrescarCont
 			return false, err
 		}
 	}
+	inicio, err := inicioLectura(ctx, bd)
+	if err != nil {
+		return false, err
+	}
 	l, err := m.LeerContactosCliente(ctx, in.Actor, in.ClienteID)
 	var p *nucleo.Problema
 	switch {
 	case errors.Is(err, ErrSinContactos), errors.As(err, &p) && p.Codigo() == "conector_apagado":
 		return false, nil
 	case EsNoEncontrado(err):
-		_, err = m.guardarContactos.Ejecutar(ctx, entradaGuardarContactos{ClienteID: in.ClienteID, Actor: in.Actor, noExiste: true})
+		_, err = m.guardarContactos.Ejecutar(ctx, entradaGuardarContactos{ClienteID: in.ClienteID, Actor: in.Actor, noExiste: true, inicio: inicio})
 		return false, err
 	case err != nil:
 		return false, nil
 	}
-	_, err = m.guardarContactos.Ejecutar(ctx, entradaGuardarContactos{ClienteID: in.ClienteID, Actor: in.Actor, lista: l})
+	_, err = m.guardarContactos.Ejecutar(ctx, entradaGuardarContactos{ClienteID: in.ClienteID, Actor: in.Actor, lista: l, inicio: inicio})
 	return err == nil, err
 }
 
@@ -370,6 +387,8 @@ type cambioContactos struct {
 	lista []ContactoClienteArgos
 	// noExiste: Argos ya no tiene al cliente (404).
 	noExiste bool
+	// inicio: hora de la base en que empezó la relectura.
+	inicio time.Time
 }
 
 type payloadContactos struct {
@@ -412,6 +431,9 @@ func (p *ProcesarEntrante) leerContactosWebhook(ctx context.Context, q conector.
 		return nil, "", err
 	}
 	cli = &Cliente{Cliente: cli.ConCabecera(CabeceraActor, ActorLecturaContactos), contrato: cli.contrato}
+	if cam.inicio, err = inicioLectura(ctx, q); err != nil {
+		return nil, "", err
+	}
 	l, err := leerContactosDe(ctx, cli, cam.ClienteID)
 	switch {
 	case err == nil:
@@ -437,14 +459,14 @@ func aplicarContactos(ctx context.Context, t *auditoria.Tx, q *argosbd.Queries, 
 		}
 		cambio = n > 0
 	case cam.noExiste:
-		if _, err := guardarContactos(ctx, q, cam.ClienteID, nil, time.Now()); err != nil {
+		if _, err := guardarContactos(ctx, q, cam.ClienteID, nil, cam.inicio); err != nil {
 			return false, err
 		}
 		if err := q.OlvidarContactosLeidos(ctx, cam.ClienteID); err != nil {
 			return false, err
 		}
 	default:
-		if _, err := guardarContactos(ctx, q, cam.ClienteID, cam.lista, time.Now()); err != nil {
+		if _, err := guardarContactos(ctx, q, cam.ClienteID, cam.lista, cam.inicio); err != nil {
 			return false, err
 		}
 	}

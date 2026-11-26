@@ -652,23 +652,29 @@ SELECT * FROM integracion.argos_contactos WHERE contacto_id = @contacto_id;
 
 -- name: GuardarContacto :execrows
 -- La única escritura de un contacto en la caché (portal §11.10 y atención §3.5): todas las columnas,
--- sin bajar nunca la versión (una lectura vieja que llega tarde no pisa una más nueva). Devuelve 0
--- filas si la versión guardada es mayor (entonces tampoco se tocan sus teléfonos).
+-- sin bajar nunca la versión (una lectura vieja que llega tarde no pisa una más nueva). @leido_en es la
+-- hora (de la base) en que empezó la lectura en Argos: con la misma versión, una lectura que empezó
+-- antes del último cambio de la fila (p. ej. un quitado por webhook, que no sube la versión) no la pisa
+-- ni la revive. Devuelve 0 filas si no se escribió (entonces tampoco se tocan sus teléfonos).
 INSERT INTO integracion.argos_contactos (contacto_id, cliente_id, empresa_id, nombre, relacion, es_titular, servicios,
     consultar, reportar, pagar, avisos, persona_cliente_id, version, quitado, leido_en)
 VALUES (@contacto_id, @cliente_id, sqlc.narg('empresa_id'), @nombre, @relacion, @es_titular, sqlc.narg('servicios')::bigint[],
-    @consultar, @reportar, @pagar, @avisos, sqlc.narg('persona_cliente_id'), @version, false, now())
+    @consultar, @reportar, @pagar, @avisos, sqlc.narg('persona_cliente_id'), @version, false, @leido_en)
 ON CONFLICT (contacto_id) DO UPDATE SET cliente_id = excluded.cliente_id, empresa_id = excluded.empresa_id,
     nombre = excluded.nombre, relacion = excluded.relacion, es_titular = excluded.es_titular, servicios = excluded.servicios,
     consultar = excluded.consultar, reportar = excluded.reportar, pagar = excluded.pagar, avisos = excluded.avisos,
-    persona_cliente_id = excluded.persona_cliente_id, version = excluded.version, quitado = false, leido_en = now(), updated_at = now()
-WHERE excluded.version >= integracion.argos_contactos.version;
+    persona_cliente_id = excluded.persona_cliente_id, version = excluded.version, quitado = false,
+    leido_en = greatest(integracion.argos_contactos.leido_en, excluded.leido_en), updated_at = now()
+WHERE excluded.version > integracion.argos_contactos.version
+    OR (excluded.version = integracion.argos_contactos.version AND excluded.leido_en >= integracion.argos_contactos.leido_en);
 
 -- name: QuitarContactosAusentes :execrows
 -- Los contactos del cliente que Argos ya no devuelve: quitados (no se borran; dejan de ver sus tickets
--- y pierden su rol en la atención).
+-- y pierden su rol en la atención). Solo los que no se escribieron después de que empezó esta lectura
+-- (@leido_en): una lectura vieja no quita un contacto que guardó una más nueva.
 UPDATE integracion.argos_contactos SET quitado = true, leido_en = now(), updated_at = now()
-WHERE cliente_id = @cliente_id AND NOT quitado AND NOT (contacto_id = ANY(@vigentes::bigint[]));
+WHERE cliente_id = @cliente_id AND NOT quitado AND NOT (contacto_id = ANY(@vigentes::bigint[]))
+    AND leido_en <= @leido_en::timestamptz;
 
 -- name: QuitarContacto :execrows
 UPDATE integracion.argos_contactos SET quitado = true, leido_en = now(), updated_at = now()
@@ -707,8 +713,13 @@ ON CONFLICT (contacto_id, numero) DO UPDATE SET digitos = EXCLUDED.digitos, what
 DELETE FROM integracion.argos_contactos_leidos WHERE cliente_id = @cliente_id;
 
 -- name: MarcarContactosLeidos :exec
+-- @sincronizado_en es la hora en que empezó la lectura (no la de guardar) y nunca retrocede.
 INSERT INTO integracion.argos_contactos_leidos (cliente_id, sincronizado_en) VALUES (@cliente_id, @sincronizado_en)
-ON CONFLICT (cliente_id) DO UPDATE SET sincronizado_en = EXCLUDED.sincronizado_en;
+ON CONFLICT (cliente_id) DO UPDATE SET sincronizado_en = greatest(integracion.argos_contactos_leidos.sincronizado_en, EXCLUDED.sincronizado_en);
+
+-- name: InicioLecturaContactos :one
+-- La hora de la base al empezar una lectura de contactos en Argos (la misma reloj que now()).
+SELECT clock_timestamp()::timestamptz;
 
 -- name: ContactosLeidosEn :one
 SELECT sincronizado_en FROM integracion.argos_contactos_leidos WHERE cliente_id = @cliente_id;

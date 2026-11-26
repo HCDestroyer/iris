@@ -28,12 +28,21 @@ type contactosArgos struct {
 	rechazarSistema bool
 	// noExiste: GET /clientes/:id/contactos responde 404.
 	noExiste bool
+	// durante: se ejecuta una vez en medio de la próxima lectura, antes de responder (carreras).
+	durante func()
 }
 
 func nuevosContactosArgos(e *entorno) *contactosArgos {
 	c := &contactosArgos{}
 	e.argos.con(func() {
 		e.argos.rutaContactos = func(w http.ResponseWriter, r *http.Request) {
+			c.mu.Lock()
+			durante := c.durante
+			c.durante = nil
+			c.mu.Unlock()
+			if durante != nil {
+				durante()
+			}
 			c.mu.Lock()
 			defer c.mu.Unlock()
 			actor := r.Header.Get("X-Iris-Actor")
@@ -299,5 +308,63 @@ func TestCabeceraContactoEnLaAtencion(t *testing.T) {
 	}
 	if _, err := leer("0077"); !errors.Is(err, argos.ErrCabecerasIris) {
 		t.Fatalf("mal formada: %v", err)
+	}
+}
+
+// Carrera de la revisión de seguridad: una lectura de contactos que empezó antes de un quitado por
+// webhook (que no sube la versión) y se guarda después, con la misma versión, no revive al contacto
+// ni le repone permisos, y la caché no queda marcada como leída después del quitado. Con una versión
+// mayor de Argos, sí vuelve.
+func TestContactosCarreraQuitadoNoRevive(t *testing.T) {
+	e := nuevoEntorno(t)
+	_, conID, secreto := e.conectado()
+	ca := nuevosContactosArgos(e)
+	ctx := nucleo.ConBD(pruebas.ContextoSistema(e.pool), e.pool)
+	cliente := int64(1250)
+	e.sembrarCliente(cliente, "Ana Pérez")
+	e.conContrato(conID, "0.14.2")
+	contacto := func(version int, pagar bool) map[string]any {
+		return map[string]any{"contacto_id": 90, "cliente_id": cliente, "empresa_id": 1, "nombre": "Luis Pérez", "relacion": "familiar",
+			"permisos":  map[string]any{"consultar": true, "reportar": true, "pagar": pagar, "avisos": pagar},
+			"telefonos": []map[string]any{{"numero": "+50255120090", "whatsapp": true, "principal": true}}, "version": version}
+	}
+	refrescar := func() {
+		t.Helper()
+		if _, err := e.mod.RefrescarContactos(ctx, argos.EntradaRefrescarContactos{ClienteID: cliente, Actor: "usuario:7", Forzar: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ca.mu.Lock()
+	ca.lista = []map[string]any{contacto(2, false)}
+	ca.mu.Unlock()
+	refrescar()
+
+	// La lectura empieza; mientras Argos responde, llega el quitado (misma versión 2); la respuesta vieja
+	// (con pagar y avisos) se guarda después.
+	ca.mu.Lock()
+	ca.lista = []map[string]any{contacto(2, true)}
+	ca.durante = func() {
+		r := e.procesarWebhook(conID, secreto, argos.EventoContactosCambiados, map[string]any{"cliente_id": cliente, "empresa_id": 1, "contacto_id": 90, "accion": "quitado"})
+		if r.Resultado != "aplicado" {
+			t.Errorf("quitado: %+v", r)
+		}
+	}
+	ca.mu.Unlock()
+	refrescar()
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_contactos WHERE contacto_id = 90 AND quitado AND version = 2 AND NOT pagar AND NOT avisos`); n != 1 {
+		t.Fatal("la lectura vieja no revive al contacto quitado ni le repone pagar y avisos")
+	}
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_contactos_leidos l JOIN integracion.argos_contactos k ON k.cliente_id = l.cliente_id
+		WHERE l.cliente_id = 1250 AND k.contacto_id = 90 AND l.sincronizado_en < k.leido_en`); n != 1 {
+		t.Fatal("la caché queda leída a la hora en que empezó la lectura, antes del quitado")
+	}
+
+	// Argos lo vuelve a agregar (versión 3): vuelve, con sus permisos.
+	ca.mu.Lock()
+	ca.lista = []map[string]any{contacto(3, true)}
+	ca.mu.Unlock()
+	refrescar()
+	if n := e.contar(`SELECT count(*) FROM integracion.argos_contactos WHERE contacto_id = 90 AND NOT quitado AND version = 3 AND pagar AND avisos`); n != 1 {
+		t.Fatal("con una versión mayor vuelve")
 	}
 }

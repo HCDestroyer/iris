@@ -562,7 +562,11 @@ contables) y nunca la edita (`cuentas_bancarias.go`).
   buscar) y `argos_contactos_leidos` (cuándo se leyeron completos). Argos es el dueño: nada se edita a mano.
   Es una sola tabla y una sola escritura para el portal (§11.10) y la atención: `guardarContactos` (consulta
   `GuardarContacto`) guarda todas las columnas, cambia los teléfonos solo si escribió la fila y **nunca baja
-  la `version`** (una lectura vieja que llega tarde no pisa una más nueva). Sin `permisos` de Argos, todos en
+  la `version`** (una lectura vieja que llega tarde no pisa una más nueva). Cada lectura toma la hora de la
+  base **antes** de pedir a Argos y la guarda en `leido_en`: con la misma versión, solo escribe si empezó
+  después del último cambio de la fila, así que un `quitado` por webhook (que no sube la versión) llegado
+  mientras se leía no se revive ni recupera permisos; una versión mayor sí vuelve. `argos_contactos_leidos`
+  se marca con esa misma hora de inicio (nunca retrocede). Sin `permisos` de Argos, todos en
   `false` (lo seguro; los valores por defecto de la base también son `false`).
 - **`quitado` (estado propio de Iris, no del contrato):** un contacto que Argos quitó (`accion: quitado`), que
   ya no viene en la lista del cliente o cuyo cliente ya no existe (`404`) **no se borra**: se marca
