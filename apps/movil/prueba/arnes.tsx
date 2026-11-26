@@ -96,6 +96,7 @@ export function trasladoDePrueba(id: number, extra: Partial<Traslado> = {}): Tra
     return {
         id,
         estado: "enviado",
+        puedeRecibir: true,
         enviadoEn: "2026-10-28T14:00:00Z",
         lineas: [
             { lineaId: 1, productoId: 900, cantidad: 10, series: null },
@@ -106,15 +107,23 @@ export function trasladoDePrueba(id: number, extra: Partial<Traslado> = {}): Tra
 }
 
 export function bodegaDePrueba(): MiBodega {
+    const bodega = { id: 7, empresaId: 1, nombre: "Bodega de Ana" } as MiBodega["bodega"];
+    const existencias: MiBodega["existencias"] = [
+        { productoId: 900, descripcion: "Cable UTP", unidad: "m", cantidad: 50, modalidad: "consumible_gasto" },
+        { productoId: 901, descripcion: "ONU ZTE", unidad: "u", cantidad: 2, modalidad: "comodato" },
+    ];
+    const unidades: MiBodega["unidades"] = [{ id: 1, productoId: 901, descripcion: "ONU ZTE", serie: "ZTE-9", mac: "AA:BB:CC:00:11:22", estado: "en_bodega" }];
+    const kardex: MiBodega["kardex"] = [
+        { id: 3, productoId: 900, descripcion: "Cable UTP", cantidad: -10, tipo: "consumo", referencia: "OT-000001", ocurridoEn: "2026-10-27T15:00:00Z" },
+    ];
     return {
-        bodega: { id: 7, empresaId: 1, nombre: "Bodega de Ana" } as MiBodega["bodega"],
-        existencias: [
-            { productoId: 900, descripcion: "Cable UTP", unidad: "m", cantidad: 50, modalidad: "consumible_gasto" },
-            { productoId: 901, descripcion: "ONU ZTE", unidad: "u", cantidad: 2, modalidad: "comodato" },
-        ],
-        unidades: [{ id: 1, productoId: 901, descripcion: "ONU ZTE", serie: "ZTE-9", mac: "AA:BB:CC:00:11:22", estado: "en_bodega" }],
-        kardex: [{ id: 3, productoId: 900, descripcion: "Cable UTP", cantidad: -10, tipo: "consumo", referencia: "OT-000001", ocurridoEn: "2026-10-27T15:00:00Z" }],
+        bodega,
+        existencias,
+        unidades,
+        kardex,
         trasladosPendientes: [],
+        // Sin cuadrilla, la API devuelve solo la suya en bodegas[] (contrato 0.11.0 §3.9).
+        bodegas: [{ bodega, cuadrilla: false, existencias, unidades, kardex, trasladosPendientes: [] }],
         leidoEn: "2026-10-28T15:00:00Z",
     };
 }

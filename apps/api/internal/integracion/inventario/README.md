@@ -30,6 +30,21 @@ No emite eventos propios. La cola de pendientes emite `integracion.pendiente_*` 
 `recepcion` (entidad `traslado`); `integracion.pendiente_fallido` también para `firma_invalida` local.
 Consume `adjunto.completado` y `adjunto.rechazado`.
 
+## Bodega de cuadrilla (B26, contrato 0.11.0 §3.9)
+
+- **Mi bodega:** con Argos ≥ 0.11.0, `bodegas[]` trae primero la de su cuadrilla (`cuadrilla`,
+  `cuadrillaId`, `jefe { nombre, soyYo }`) y después la suya, cada una con su contenido; la de arriba
+  sigue siendo la principal. Con un Argos anterior, `bodegas[]` solo trae la suya. Del jefe nunca sale
+  su id de Argos. Cada bodega de cuadrilla leída se guarda en `integracion.argos_bodegas_cuadrilla`
+  (bodega → cuadrilla y empresa) para validar el `bodegaId` del lote.
+- **Traslados a la cuadrilla:** `integracion.argos_traslados.cuadrilla_id` sale del webhook
+  (`cuadrilla_id`) o, al confirmar con `GET /inventario/traslados/:id`, de la bodega destino conocida.
+  Los ven todos los miembros (`cuadrillaId`, `puedeRecibir`); solo el jefe actual registra la firma y
+  manda la recepción. Otro miembro, o la cuadrilla sin jefe: 403 `solo_jefe_recibe` antes de encolar.
+  De otra cuadrilla: el 404 de siempre. Si el jefe cambió, el nuevo toma la recepción sin terminar.
+- La recepción, el consumo, el comodato y la devolución salen con `X-Iris-Actor: usuario:<id>` del
+  técnico cuyo vínculo va en el cuerpo (`pendientes.tecnico_usuario_id`).
+
 ## Seguridad de la recepción (revisión de la PR #83)
 
 - Solo se encola la recepción de un traslado que Iris conoce y que va al técnico que la manda. Si
