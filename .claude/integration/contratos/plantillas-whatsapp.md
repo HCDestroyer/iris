@@ -65,7 +65,7 @@ llegaría sin esos datos falla con el motivo `cliente_sin_confirmar` en `convers
 | `GET /datos` | ver | Diccionario de datos amigables (§6). |
 | `GET /cuentas` | ver | Cuentas de la empresa: `wabaId`, `numeros[]`, `nombres[]`, `sincronizadaEn`, `resumen` (última sincronización) y `error` (`{codigo, en}`, null si salió bien). |
 | `POST /cuentas/{waba}/sincronizar` | sincronizar | Encola la relectura (job único por cuenta) y responde **202** `{ wabaId, sincronizadaEn }`. El panel vuelve a leer `GET /cuentas` para ver el `resumen`. Si la cuenta se sincronizó hace menos de 2 minutos: 429 `sincronizada_hace_poco` con `Retry-After` y `disponibleEn`. |
-| `GET /sugeridas?wabaId=` | ver | Las 7 de fábrica con la que ya la cubre (`plantilla`) y `faltan`. |
+| `GET /sugeridas?wabaId=` | ver | Las de fábrica (13: las 7 primeras y, desde el contrato con Argos 0.15.0, `corte_proximo`, `promesa_por_vencer`, `debito_fallido`, `debito_desactivado`, `suscripcion_suspendida` y `suscripcion_reactivada`, todas utility y sin datos del titular) con la que ya la cubre (`plantilla`) y `faltan`. |
 | `POST /sugeridas/{clave}/crear` | crear | `{ wabaId, idioma?, pie?, enviar? }` → 201 `PlantillaCreadaPWA` (con `errorEnvio` si se pidió enviar y Meta no la aceptó; queda borrador). |
 | `GET /ajustes`, `POST /ajustes` | ver / editar | `{ marketingPermitido, version }` (version 0 = de fábrica). |
 | `POST /validar` | ver | Lista «Antes de enviar a Meta» sin guardar: `{ ok, formato, reglas[] }` (§4). |
@@ -145,7 +145,11 @@ emojis y ≤ 15 datos; marketing activado. Lo que Iris no puede saber antes (cal
 `GET /datos`: `clave`, `etiqueta` («Nombre del cliente»), `origen` («Cliente en Argos · nombre»),
 `ejemplo` y `codigos[]` (los avisos que lo traen). De Argos se leen de la instantánea
 (`cliente_nombre`, `cliente_codigo`, `plan`, `empresa_nombre`); del aviso, sus variables y los
-derivados (`monto_con_moneda` = «Q 250.00», `fecha_corte` = «viernes 28 de noviembre»). Los de
+derivados (`monto_con_moneda` = «Q 250.00», `fecha_corte` = «viernes 28 de noviembre», de `vence_en` o de
+la `fecha_corte` de `corte_proximo`; `fecha_reintento`, de `reintenta_el` de `debito_fallido`). `concepto`
+(0.15.0) es la suscripción de Argos. Una variable opcional del aviso (`concepto` en las facturas,
+`reintenta_el`) nunca va vacía: si la plantilla de la cuenta la pide y el aviso no la trae, el aviso queda
+`bloqueado / canal_no_disponible`; las migradas por posición nunca la reciben. Los de
 órdenes y verificación aún no los llena ningún envío.
 
 Cada plantilla guarda `parametros[]` (`componente`, `boton`, `nombre`, `dato`): al enviar, cada variable

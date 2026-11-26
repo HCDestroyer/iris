@@ -288,6 +288,9 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Recordatorios que entrega Iris (contrato 0.15.0 §13.3): capacidades.mensajeria[] la calcula la
+	// mensajería con la base compartida.
+	conectorArgos.FijarCapacidadesMensajeria(mensajeria.DeclararMensajeria(entMsj.Simulado, nil))
 	if entMsj.URL == "" {
 		log.Warn("IRIS_MENSAJERIA_URL vacía: /api/v1/mensajeria responde 503 (el servicio de mensajería no está conectado)")
 	}

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -250,6 +251,12 @@ func (m *Modulo) resueltoDe(ctx context.Context, q *mensajeriabd.Queries, f mens
 // compartida de antes de que la cuenta tuviera dueña), su mapa propio de mensajeria.canales.plantillas,
 // como antes. uso: solo las que la empresa marcó para ese uso ("" = cualquiera).
 func (m *Modulo) plantillasDeCanal(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaCanal, uso string) (map[string]PlantillaMeta, error) {
+	return plantillasDeCanalEn(ctx, q, c, uso, m.ahora())
+}
+
+// plantillasDeCanalEn es plantillasDeCanal con el reloj explícito (también la usan las capacidades,
+// que calcula la API sin el módulo de mensajería).
+func plantillasDeCanalEn(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaCanal, uso string, ahora time.Time) (map[string]PlantillaMeta, error) {
 	p := map[string]PlantillaMeta{}
 	deLaDuena, err := cuentaEsDelNumero(ctx, q, c)
 	if err != nil {
@@ -259,7 +266,6 @@ func (m *Modulo) plantillasDeCanal(ctx context.Context, q *mensajeriabd.Queries,
 		_ = json.Unmarshal(c.Plantillas, &p)
 		return p, nil
 	}
-	ahora := m.ahora()
 	// Solo las de la empresa dueña de la cuenta (la del número; un préstamo no la cambia).
 	fs, err := q.PlantillasWAUsables(ctx, mensajeriabd.PlantillasWAUsablesParams{WabaID: c.WabaID, Empresa: derefEmpresa(c.EmpresaID), Ahora: &ahora})
 	if err != nil {

@@ -213,6 +213,9 @@ type CapacidadesIris struct {
 	PortalArgos         bool `json:"portal_argos" doc:"Tickets del cliente en el portal de Argos (§11.3–§11.6)"`
 	SolicitudesServicio bool `json:"solicitudes_servicio" doc:"Solicitudes de servicio (§11.7)"`
 	AdjuntosTicket      bool `json:"adjuntos_ticket" doc:"Adjuntos en los tickets del portal (§11.6)"`
+	// Mensajeria (0.15.0 §4.6 y §13.3, bloque C): solo en GET …/capacidades y solo a un conector que
+	// informó contrato ≥ 0.15.0; ausente = entrega_auto false para todas las empresas.
+	Mensajeria []CapacidadMensajeria `json:"mensajeria,omitempty" required:"false" doc:"Contrato 0.15.0 §13.3 (solo en GET …/capacidades, a un Argos ≥ 0.15.0): por empresa del alcance del conector, los canales por los que Iris entrega recordatorios y los códigos de §6.3 aprobados en cada uno. Ausente = entrega_auto false para todas"`
 }
 
 // CapacidadesDeIris: con un Iris que habla el contrato 0.9.0, las tres.

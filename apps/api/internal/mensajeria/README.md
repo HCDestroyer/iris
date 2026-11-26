@@ -84,6 +84,46 @@ Webhooks Iris → Argos de 0.9.0 (§6.6, B9): `ticket.estado_cambiado`, `ticket.
 `solicitud_servicio.estado_cambiado`, solo a conectores con contrato ≥ 0.9.0, solo con `cliente_id` y
 con la empresa en el alcance del conector (si no, `omitido`), sin cuerpo, notas ni motivos escritos.
 
+## Recordatorios que entrega Iris (`avisos_auto.go`, contrato con Argos 0.15.0 §13.3, bloque C, B35)
+
+Argos decide qué y cuándo; Iris entrega por los canales que declara. **Hoy Iris solo entrega por
+WhatsApp**: correo y Telegram los sigue mandando Argos (C4).
+
+- **Qué declara (C1, C8, C11, C12).** `GET /integraciones/argosisp/capacidades` (lo atiende la API, no
+  este proceso) suma `capacidades.mensajeria[] { empresa_id, entrega_auto, canales[{ canal, codigos }] }`,
+  calculado por `DeclararMensajeria` con la base compartida, **solo** a un conector que informó contrato
+  ≥ 0.15.0 y solo con las empresas de su alcance (todas las registradas con alcance global). `whatsapp`
+  se declara solo con un número de avisos propio, o prestado con el uso `avisos` y marcado como su
+  número de avisos, activo, conectado y sin el token rechazado por Meta (en desarrollo, el simulado).
+  `codigos`: los de Argos (§6.3) con plantilla aprobada, sin pausa y con el uso `avisos` en la cuenta
+  dueña del número (con préstamo, la de quien presta); una reclasificada a marketing sin permiso sale.
+  `entrega_auto` = al menos un canal.
+- **`canal_preferido: auto` (C2, C10, C14).** `canales_permitidos` opcional (ausente = todos los
+  declarados). 422 `canal_no_permitido`: la lista sin `auto`, vacía, repetida o con un canal no
+  declarado, y `auto` de un Argos < 0.15.0. Un solo canal por aviso, en el orden de la empresa: pasa al
+  siguiente solo al decidir (antes del primer envío) y solo por causas del canal (sin permiso, baja de
+  ese canal, sin contacto, canal caído o sin la plantilla); sin ninguno, `bloqueado` con
+  `canal_no_disponible` y `detalle` (`whatsapp: sin_permiso`). Un fallo después del envío es final; hay
+  un solo webhook final con el canal real. El mismo `envio_id` con otro `canal_preferido` es 422
+  `idempotencia_reutilizada`. El tope diario no es causa del canal (`limite_diario`).
+- **Contactos (C13).** Las copias a contactos con `avisos` salen solo si el canal del titular es
+  WhatsApp, con el permiso de cada número; la caché (`integracion.argos_contactos`) marca `quitado` y no
+  borra. Regla escrita para cuando haya correo: con `auto`, el correo va solo al titular.
+- **Códigos nuevos (§6.3)** `corte_proximo`, `promesa_por_vencer`, `debito_fallido` (`reintenta_el`
+  opcional), `debito_desactivado`, `suscripcion_suspendida` y `suscripcion_reactivada` (`concepto`), con
+  sus sugeridas utility. `concepto` (también opcional en `factura_por_vencer` y `factura_vencida`): 1 a
+  60 caracteres, sin saltos de línea, caracteres de control ni URL, o 422 `variable_invalida`. Una
+  opcional nunca va vacía a Meta: por posición solo van las obligatorias; con mapa de datos, si la
+  plantilla la pide y el aviso no la trae, `canal_no_disponible`.
+- **Vencimiento (C9).** `corte_proximo` en `fecha_corte`, `promesa_por_vencer` en `vence_en`,
+  `debito_fallido` en `reintenta_el` o a las 72 h, `factura_por_vencer` en `vence_en`, y las demás de
+  Argos a las 72 h (las de Iris sin caducidad no vencen). Vencido: `aviso.fallido` con `vencido`, al
+  prepararlo y en el barrido de 72 h si nunca salió. Silencio y tope diario como siempre.
+- `suscripcion_id` y `recordatorio { disparador, orden }` se guardan (informativos); la clave no cambia.
+- **WhatsApp por QR.** Los números conectados por QR de Iris son coexistencia con la Cloud API (salen
+  plantillas aprobadas), no una sesión de teléfono: no se excluyen. Un adaptador de sesión por QR deberá
+  responder `PermiteAvisos() = false` y nunca se declarará.
+
 ## Aviso de una falla general (`avisos_falla.go`, contrato con Argos 0.13.0 §3.11, B30)
 
 El worker consume `soporte.aviso_falla` y pide un aviso como cualquier otro (`EnviarAviso`, actor

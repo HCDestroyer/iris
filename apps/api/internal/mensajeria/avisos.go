@@ -56,11 +56,22 @@ type EntradaAviso struct {
 	ServicioID     *int64            `json:"servicio_id,omitempty" minimum:"1" nullable:"true" doc:"Servicio en Argos (opcional; debe ser del cliente y de la empresa)"`
 	Plantilla      string            `json:"plantilla" minLength:"1" maxLength:"64" doc:"Código de la plantilla (§6.3; GET /mensajeria/plantillas)"`
 	Variables      map[string]string `json:"variables,omitempty" maxProperties:"20" doc:"Solo las variables declaradas por la plantilla (otras: 422 variable_desconocida). Montos con dos decimales, fechas YYYY-MM-DD en hora de Guatemala"`
-	CanalPreferido string            `json:"canal_preferido,omitempty" enum:"whatsapp,telegram,correo" default:"whatsapp" doc:"Fase 1: solo whatsapp; otro medio queda bloqueado con canal_no_disponible"`
-	Prioridad      string            `json:"prioridad,omitempty" enum:"normal,urgente" default:"normal" doc:"urgente (solo corte_programado) salta el límite diario, nunca el horario de silencio ni la falta de permiso"`
+	CanalPreferido string            `json:"canal_preferido,omitempty" enum:"whatsapp,telegram,correo,auto" default:"whatsapp" doc:"whatsapp; telegram o correo quedan bloqueados con canal_no_disponible (Iris no los entrega). auto (0.15.0 §13.3, con un Argos ≥ 0.15.0): Iris elige un solo canal de los que declara en capacidades.mensajeria[] para la empresa (hoy solo whatsapp); sin ninguno, bloqueado con canal_no_disponible"`
+	// CanalesPermitidos (0.15.0 §6.2, C10): solo con auto; nil = todos los declarados.
+	CanalesPermitidos []string `json:"canales_permitidos,omitempty" maxItems:"5" doc:"0.15.0: solo con canal_preferido auto; la intersección del paso con los canales que Iris declara para la empresa. Sin auto, vacía, con valores repetidos o con un canal que Iris no declara: 422 canal_no_permitido. Ausente = todos los declarados"`
+	// SuscripcionID y Recordatorio (0.15.0 §13.3): informativos para la bandeja; no cambian la clave.
+	SuscripcionID *int64             `json:"suscripcion_id,omitempty" minimum:"1" nullable:"true" doc:"0.15.0: id de la suscripción en Argos (informativo)"`
+	Recordatorio  *RecordatorioAviso `json:"recordatorio,omitempty" doc:"0.15.0: el paso del recordatorio de Argos que pide el aviso (informativo)"`
+	Prioridad     string             `json:"prioridad,omitempty" enum:"normal,urgente" default:"normal" doc:"urgente (solo corte_programado) salta el límite diario, nunca el horario de silencio ni la falta de permiso"`
 	// Origen (0.9.0 §12.5): solo con bienvenida_servicio, la orden de Iris desde la que se activó.
 	Origen         *OrigenAviso `json:"origen,omitempty" doc:"Solo con bienvenida_servicio: { tipo: iris_orden, id } cuando la activación vino de una orden de Iris de ese servicio; null o ausente si fue desde el panel de Argos. Fuera de forma: 422 origen_invalido"`
 	IdempotencyKey string       `json:"-"`
+}
+
+// RecordatorioAviso es el `recordatorio` de §13.3 (0.15.0): solo informativo para la bandeja.
+type RecordatorioAviso struct {
+	Disparador string `json:"disparador" enum:"vencimiento,corte_proximo,promesa_por_vencer" doc:"Qué dispara el recordatorio en Argos"`
+	Orden      int32  `json:"orden" minimum:"0" maximum:"1000" doc:"Número del paso dentro del recordatorio"`
 }
 
 // OrigenAviso es el `origen` de §6.2 (0.9.0).
@@ -206,6 +217,8 @@ type entradaFinalAviso struct {
 	EntradaAviso
 	contacto argos.ContactoArgos
 	hash     []byte
+	// candidatos: con auto, los canales que Iris declara para la empresa (y permite el paso), en orden.
+	candidatos []canalDeclarado
 }
 
 // MarshalJSON: lo que queda en auditoria.acciones.entrada (sin el contacto de Argos).
@@ -251,6 +264,9 @@ func validarAviso(ctx context.Context, in EntradaAviso, ahora time.Time) error {
 		if in.Prioridad == "urgente" {
 			return nucleo.Validacion(nucleo.ErrorCampo{Field: "prioridad", Message: "Una integración no pide avisos urgentes (§6.2)", Rule: "prioridad"})
 		}
+	}
+	if err := validarCanales(in); err != nil {
+		return err
 	}
 	if err := p.validarVariables(in.Variables, ahora); err != nil {
 		return err
@@ -353,6 +369,12 @@ func (k *EnviarAviso) crear(ctx context.Context, t *auditoria.Tx, in entradaFina
 	}
 	p, _ := PlantillaPorCodigo(in.Plantilla)
 	ahora := m.ahora()
+	if in.CanalPreferido == CanalAuto {
+		var err error
+		if in.candidatos, err = m.candidatosAuto(ctx, q, in.EntradaAviso, ahora); err != nil {
+			return AvisoCreado{}, err
+		}
+	}
 	var ordenID *int64
 	if in.Origen != nil {
 		// La orden debe ser de Iris y de ese servicio (§6.2): si no, 422 origen_invalido.
@@ -389,7 +411,13 @@ func (k *EnviarAviso) crear(ctx context.Context, t *auditoria.Tx, in entradaFina
 	fila := mensajeriabd.InsertarAvisoParams{
 		ID: id, EmpresaID: in.EmpresaID, ClienteID: in.ClienteID, ServicioID: in.ServicioID, Plantilla: p.Codigo, OrdenID: ordenID, Detalle: detalle,
 		CanalPreferido: in.CanalPreferido, Prioridad: in.Prioridad, Origen: origenDe(ctx), Estado: EstadoEnCola,
-		UsuarioID: usuarioDe(ctx), IdempotencyKey: &in.IdempotencyKey, HashPeticion: in.hash, VenceEn: p.venceEn(in.Variables, m.cfg.Zona), CreadoEn: ahora,
+		UsuarioID: usuarioDe(ctx), IdempotencyKey: &in.IdempotencyKey, HashPeticion: in.hash, VenceEn: p.venceEn(in.Variables, m.cfg.Zona, ahora), CreadoEn: ahora,
+		CanalesPermitidos: in.CanalesPermitidos, SuscripcionID: in.SuscripcionID,
+	}
+	if in.Recordatorio != nil {
+		if fila.Recordatorio, err = json.Marshal(in.Recordatorio); err != nil {
+			return AvisoCreado{}, err
+		}
 	}
 	if a := contexto.ActorDe(ctx); a.TokenID != 0 {
 		fila.TokenID = &a.TokenID
@@ -472,7 +500,9 @@ type planCopias struct {
 
 func (m *Modulo) planDeCopias(ctx context.Context, q *mensajeriabd.Queries, fila mensajeriabd.InsertarAvisoParams, p Plantilla) (planCopias, error) {
 	var plan planCopias
-	if !PlantillasCobro[fila.Plantilla] || fila.CanalPreferido != CanalWhatsApp || fila.Estado != EstadoEnCola {
+	// Los contactos con «avisos» reciben solo por WhatsApp (0.15.0 §13.3, C13): con auto, solo si el
+	// canal elegido para el titular es WhatsApp.
+	if !PlantillasCobro[fila.Plantilla] || fila.Canal == nil || *fila.Canal != CanalWhatsApp || fila.Estado != EstadoEnCola {
 		return plan, nil
 	}
 	ks, err := q.ContactosConAvisos(ctx, mensajeriabd.ContactosConAvisosParams{ClienteID: fila.ClienteID, Empresa: fila.EmpresaID, ServicioID: fila.ServicioID})
@@ -646,9 +676,35 @@ func origenDe(ctx context.Context) string {
 
 // decidir aplica las reglas de §6.2 y §6.5 en este orden: permiso registrado, baja, contacto, canal
 // (configurado, que admite avisos y con la plantilla aprobada) y límite diario. Devuelve el motivo
-// del bloqueo ("" = en cola) y completa canal, remitente y destino.
+// del bloqueo ("" = en cola) y completa canal, remitente y destino. Con auto (0.15.0), el canal es el
+// primero de los declarados que puede enviarlo (decidirAuto).
 func (m *Modulo) decidir(ctx context.Context, q *mensajeriabd.Queries, in entradaFinalAviso, p Plantilla, fila *mensajeriabd.InsertarAvisoParams, ahora time.Time) (string, error) {
-	medio := in.CanalPreferido
+	var motivo string
+	var err error
+	if in.CanalPreferido == CanalAuto {
+		motivo, err = m.decidirAuto(ctx, q, in, p, fila)
+	} else {
+		motivo, err = m.probarMedioAviso(ctx, q, in, p, fila, in.CanalPreferido)
+	}
+	if err != nil || motivo != "" {
+		return motivo, err
+	}
+	if in.Prioridad != "urgente" {
+		n, err := q.ContarAvisosDelDia(ctx, mensajeriabd.ContarAvisosDelDiaParams{EmpresaID: in.EmpresaID, ClienteID: in.ClienteID,
+			Desde: inicioDelDia(ahora, m.cfg.Zona)})
+		if err != nil {
+			return "", err
+		}
+		if n >= int64(m.cfg.LimiteDiario) {
+			return MotivoLimiteDiario, nil
+		}
+	}
+	return "", nil
+}
+
+// probarMedioAviso: permiso, baja, contacto y canal de un medio. "" = el aviso puede salir por ahí (deja
+// canal, remitente y destino en la fila).
+func (m *Modulo) probarMedioAviso(ctx context.Context, q *mensajeriabd.Queries, in entradaFinalAviso, p Plantilla, fila *mensajeriabd.InsertarAvisoParams, medio string) (string, error) {
 	vigente, err := q.ConsentimientoVigente(ctx, mensajeriabd.ConsentimientoVigenteParams{EmpresaID: in.EmpresaID, ClienteID: in.ClienteID, Canal: medio})
 	switch {
 	case errors.Is(err, pgx.ErrNoRows):
@@ -669,21 +725,36 @@ func (m *Modulo) decidir(ctx context.Context, q *mensajeriabd.Queries, in entrad
 	if err != nil {
 		return "", err
 	}
-	if r == nil || !r.a.PermiteAvisos() || !r.a.Aprobada(p.Codigo) {
+	if r == nil || !r.a.PermiteAvisos() || !r.a.Aprobada(p.Codigo) || faltaDatoOpcional(r, p, in.Variables) {
 		return MotivoCanalNoDisponible, nil
 	}
 	fila.Canal, fila.CanalID, fila.Remitente, fila.Destino = &medio, r.canalID, &r.remitente, &destino
-	if in.Prioridad != "urgente" {
-		n, err := q.ContarAvisosDelDia(ctx, mensajeriabd.ContarAvisosDelDiaParams{EmpresaID: in.EmpresaID, ClienteID: in.ClienteID,
-			Desde: inicioDelDia(ahora, m.cfg.Zona)})
-		if err != nil {
-			return "", err
-		}
-		if n >= int64(m.cfg.LimiteDiario) {
-			return MotivoLimiteDiario, nil
+	return "", nil
+}
+
+// faltaDatoOpcional: la plantilla de Meta del código pide una variable opcional (0.15.0: concepto,
+// reintenta_el) que el aviso no trae. No se manda vacía (Meta la rechaza): por ese canal no sale.
+func faltaDatoOpcional(r *resuelto, p Plantilla, v map[string]string) bool {
+	ausentes := p.opcionalesAusentes(v)
+	if len(ausentes) == 0 {
+		return false
+	}
+	w, ok := r.a.(*whatsappCloud)
+	if !ok {
+		return false
+	}
+	pm, ok := w.avisos[p.Codigo]
+	if !ok {
+		return false
+	}
+	for _, x := range pm.Parametros {
+		for _, a := range ausentes {
+			if x.Dato == a || (a == "reintenta_el" && x.Dato == "fecha_reintento") {
+				return true
+			}
 		}
 	}
-	return "", nil
+	return false
 }
 
 // destinoDe: el teléfono E.164 del cliente (primero el móvil) para WhatsApp; "" si no hay uno válido.
