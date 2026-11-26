@@ -223,6 +223,8 @@ type Modulo struct {
 	UltimasPosiciones   *auditoria.Caso[EntradaUltimasPosiciones, UltimasPosiciones]
 	MantenerPosiciones  *auditoria.Caso[struct{}, ResultadoMantenimiento]
 	RetiroDesdeArgos    *auditoria.Caso[EntradaRetiroArgos, *Orden]
+	// RegistrarCorte aplica argos.corte_manual (contrato 0.15.0 §13.2, B34).
+	RegistrarCorte *auditoria.Caso[EntradaCorteArgos, ResultadoCorte]
 	// MarcarDatosArgos: argos.datos_cambiados marca las órdenes abiertas (contrato 0.5.0; I1).
 	MarcarDatosArgos *auditoria.Caso[EntradaDatosArgos, ResultadoDatosArgos]
 	// MoverAlTitular: argos.titular_cambiado pasa las órdenes abiertas al titular nuevo (B17).
@@ -345,6 +347,7 @@ func Nuevo(cfg Config) *Modulo {
 	m.UltimasPosiciones = m.nuevoUltimasPosiciones()
 	m.MantenerPosiciones = m.nuevoMantenerPosiciones()
 	m.RetiroDesdeArgos = m.nuevoRetiroDesdeArgos()
+	m.RegistrarCorte = m.nuevoRegistrarCorte()
 	m.MarcarDatosArgos = m.nuevoMarcarDatosArgos()
 	m.MoverAlTitular = m.nuevoMoverAlTitular()
 	m.AplicarDatosArgos = m.nuevoAplicarDatosArgos()

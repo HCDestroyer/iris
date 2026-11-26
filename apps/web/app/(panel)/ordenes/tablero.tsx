@@ -10,7 +10,7 @@ import { useUsuarios } from "@/componentes/tickets/catalogos";
 import { escribirLocal, leerLocal } from "@/lib/almacen";
 import { useDiferido } from "@/lib/diferido";
 import { consultaDeFiltrosOrdenes, FILTROS_ORDENES_INICIALES, hayFiltrosOrdenes, type FiltrosOrdenes } from "@/lib/ordenes/filtros";
-import { ESTADOS_ORDEN, ORDEN_ESTADOS_ORDEN, ORDEN_TIPOS, TIPOS_ORDEN } from "@/lib/ordenes/presentacion";
+import { ESTADOS_ORDEN, ORDEN_ESTADOS_ORDEN, ORDEN_TIPOS_TODOS, TIPOS_ORDEN } from "@/lib/ordenes/presentacion";
 import { useSesion } from "@/lib/sesion";
 import { ListaOrdenes, type Vista } from "./lista-ordenes";
 
@@ -70,7 +70,7 @@ export function Tablero() {
                 </CampoSelector>
                 <CampoSelector etiqueta="Tipo" value={filtros.tipo} onChange={(e) => cambiar({ tipo: e.target.value as FiltrosOrdenes["tipo"] })}>
                     <option value="todos">Todos</option>
-                    {ORDEN_TIPOS.map((t) => (
+                    {ORDEN_TIPOS_TODOS.map((t) => (
                         <option key={t} value={t}>
                             {TIPOS_ORDEN[t].texto}
                         </option>

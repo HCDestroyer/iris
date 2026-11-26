@@ -33,6 +33,17 @@ func TestTipoServicioCableEnLaOrden(t *testing.T) {
 	if st := e.activacion(o.ID); st.Disponible || st.NoDisponible == nil || *st.NoDisponible != argos.CodigoTipoSinRouter {
 		t.Fatalf("activación de cable: %+v", st)
 	}
+	// La instantánea de otra empresa no cuenta (como en el paquete): con el servicio de cable en la
+	// empresa 2, la orden de la empresa 1 no se bloquea por tipo_sin_router.
+	if _, err := pool.Exec(context.Background(), "UPDATE integracion.argos_servicios SET empresa_id = 2 WHERE id = $1", *o.ServicioID); err != nil {
+		t.Fatal(err)
+	}
+	if st := e.activacion(o.ID); st.NoDisponible != nil && *st.NoDisponible == argos.CodigoTipoSinRouter {
+		t.Fatalf("la instantánea de otra empresa no decide: %+v", st)
+	}
+	if _, err := pool.Exec(context.Background(), "UPDATE integracion.argos_servicios SET empresa_id = 1 WHERE id = $1", *o.ServicioID); err != nil {
+		t.Fatal(err)
+	}
 	r := e.lote(ct, op(campo.OpActivarServicio, o.ID, datosActivacion(false)))
 	if r.Resultados[0].Error == nil || r.Resultados[0].Error.Codigo() != "activacion_no_disponible" {
 		t.Fatalf("activar cable por el lote: %+v", r.Resultados[0])

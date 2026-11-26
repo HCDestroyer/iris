@@ -14,7 +14,7 @@ import (
 type EntradaAsignables struct {
 	ZonaID      int64  `query:"zonaId" minimum:"0" doc:"Zona de la orden: técnicos que la atienden (cuadrilla) y la pueden ver (alcance)"`
 	Fecha       string `query:"fecha" pattern:"^[0-9]{4}-[0-9]{2}-[0-9]{2}$" doc:"Día en hora de Guatemala (YYYY-MM-DD); hoy por defecto"`
-	Tipo        string `query:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento," doc:"Tipo de orden: duración y capacidad por tipo"`
+	Tipo        string `query:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv," doc:"Tipo de orden: duración y capacidad por tipo"`
 	CuadrillaID int64  `query:"cuadrillaId" minimum:"0"`
 	Habilidad   string `query:"habilidad" maxLength:"40"`
 	OrdenID     int64  `query:"ordenId" minimum:"0" doc:"Orden que se va a reprogramar: su cita actual no cuenta como ocupada"`
@@ -320,7 +320,7 @@ type EntradaCalendario struct {
 type CitaAgenda struct {
 	OrdenID       int64      `json:"ordenId"`
 	Numero        string     `json:"numero"`
-	Tipo          string     `json:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento"`
+	Tipo          string     `json:"tipo" enum:"instalacion,visita,retiro,cambio_equipo,mantenimiento,corte_catv,reconexion_catv"`
 	Estado        string     `json:"estado" enum:"pendiente,programada,en_camino,en_sitio,pausada,cerrada,fallida,cancelada" doc:"Estado de la orden (pausada: sigue abierta y conserva la cita)"`
 	OrdenVersion  int32      `json:"ordenVersion" doc:"Versión de la orden (para reprogramar)"`
 	TecnicoID     int64      `json:"tecnicoId" doc:"Usuario técnico"`

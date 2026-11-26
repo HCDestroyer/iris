@@ -163,6 +163,8 @@ func correr() error {
 	cmp := campo.Nuevo(campo.Config{Equipos: pend, AsegurarArgos: conectorArgos.AsegurarInstantanea, Inventario: campo.InventarioDeArgos(conectorArgos), Planes: conectorArgos, Posiciones: lpos,
 		Encuestas: sop.GenerarEncuestaOrden, Soporte: sop, ArgosEquipos: campo.EquiposDeArgos(conectorArgos)})
 	cmp.SuscribirRetiros(bus, pool, log)
+	// Corte manual del cable pedido por Argos (contrato 0.15.0 §13.2, B34).
+	cmp.SuscribirCortes(bus, pool, log)
 	// Activación desde la orden (contrato 0.9.0 §12.2): el 202 de aprovisionar o su rechazo (cola de
 	// pendientes) y los webhooks instalacion.* (argos.instalacion_resuelta) resuelven el intento; los
 	// que siguen en proceso a los 10 min se consultan (campo.consultar_activaciones).
