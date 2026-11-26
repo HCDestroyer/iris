@@ -82,10 +82,12 @@ CREATE TABLE integracion.portal_argos_minutos (
     PRIMARY KEY (conector_id, minuto)
 );
 
--- Webhooks a Argos (§6.6, 0.9.0): tickets y solicitudes de servicio.
+-- Webhooks a Argos (§6.6, 0.9.0): tickets y solicitudes de servicio (se conservan los de cuadrilla,
+-- 20261125220001).
 ALTER TABLE mensajeria.webhooks_salida DROP CONSTRAINT webhooks_salida_evento_check;
 ALTER TABLE mensajeria.webhooks_salida ADD CONSTRAINT webhooks_salida_evento_check
     CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'prospecto.estado_cambiado',
+                      'cuadrilla.creada', 'cuadrilla.actualizada',
                       'ticket.estado_cambiado', 'ticket.respondido', 'solicitud_servicio.estado_cambiado'));
 
 -- +goose Down
@@ -93,7 +95,8 @@ DELETE FROM mensajeria.webhooks_salida
 WHERE evento IN ('ticket.estado_cambiado', 'ticket.respondido', 'solicitud_servicio.estado_cambiado');
 ALTER TABLE mensajeria.webhooks_salida DROP CONSTRAINT webhooks_salida_evento_check;
 ALTER TABLE mensajeria.webhooks_salida ADD CONSTRAINT webhooks_salida_evento_check
-    CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'prospecto.estado_cambiado'));
+    CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja', 'prospecto.estado_cambiado',
+                      'cuadrilla.creada', 'cuadrilla.actualizada'));
 DROP TABLE integracion.portal_argos_minutos;
 DROP TABLE integracion.argos_contactos;
 DROP INDEX comercial.prospectos_solicitudes_cliente_idx;
