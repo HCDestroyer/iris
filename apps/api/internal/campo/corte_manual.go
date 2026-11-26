@@ -152,7 +152,7 @@ func (m *Modulo) nuevoRegistrarCorte() *auditoria.Caso[EntradaCorteArgos, Result
 			t.FijarEmpresa(in.EmpresaID)
 			t.FijarEntidad("corte_manual", in.SolicitudID)
 			// Una solicitud a la vez (dos avisos de la misma solicitud en paralelo no la duplican).
-			if _, err := t.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('campo.corte_manual:' || $1::text, 0))`, in.SolicitudID); err != nil {
+			if _, err := t.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('campo.corte_manual:' || $1::bigint::text, 0))`, in.SolicitudID); err != nil {
 				return ResultadoCorte{}, err
 			}
 			q := campobd.New(t)

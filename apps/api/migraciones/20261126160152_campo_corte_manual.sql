@@ -78,7 +78,21 @@ CREATE TABLE campo.cortes_manuales (
 );
 CREATE INDEX cortes_manuales_servicio_idx ON campo.cortes_manuales (servicio_id, accion);
 
+-- El webhook corte_manual.estado_cambiado va a Argos por la cola de webhooks de mensajería (§6.6).
+ALTER TABLE mensajeria.webhooks_salida
+    DROP CONSTRAINT webhooks_salida_evento_check,
+    ADD CONSTRAINT webhooks_salida_evento_check CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja',
+        'prospecto.estado_cambiado', 'cuadrilla.creada', 'cuadrilla.actualizada', 'tecnico.argos_vinculado',
+        'tecnico.argos_desvinculado', 'ticket.estado_cambiado', 'ticket.respondido', 'solicitud_servicio.estado_cambiado',
+        'corte_manual.estado_cambiado'));
+
 -- +goose Down
+DELETE FROM mensajeria.webhooks_salida WHERE evento = 'corte_manual.estado_cambiado';
+ALTER TABLE mensajeria.webhooks_salida
+    DROP CONSTRAINT webhooks_salida_evento_check,
+    ADD CONSTRAINT webhooks_salida_evento_check CHECK (evento IN ('aviso.entregado', 'aviso.fallido', 'contacto.baja',
+        'prospecto.estado_cambiado', 'cuadrilla.creada', 'cuadrilla.actualizada', 'tecnico.argos_vinculado',
+        'tecnico.argos_desvinculado', 'ticket.estado_cambiado', 'ticket.respondido', 'solicitud_servicio.estado_cambiado'));
 DROP TABLE campo.cortes_manuales;
 DELETE FROM campo.tipos_orden WHERE codigo IN ('corte_catv', 'reconexion_catv');
 DELETE FROM campo.plantilla_items WHERE plantilla_id IN
