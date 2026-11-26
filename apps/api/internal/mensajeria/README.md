@@ -70,7 +70,7 @@ activa, 404).
 ## Eventos
 
 Emite (outbox; detalle en `.claude/integration/contratos/eventos.md`):
-`aviso.creado`, `aviso.enviado`, `aviso.entregado`, `aviso.leido`, `aviso.fallido`, `aviso.bloqueado`,
+`aviso.creado`, `aviso.enviado`, `aviso.entregado`, `aviso.leido`, `aviso.fallido`,
 `consentimiento.registrado`, `contacto.baja`, `canal_mensajeria.creado`, `canal_mensajeria.actualizado`,
 `canal_mensajeria.activado`, `canal_mensajeria.desactivado`, `canal_mensajeria.calidad`, `canal_mensajeria.probado`.
 
@@ -104,10 +104,9 @@ WhatsApp**: correo y Telegram los sigue mandando Argos (C4).
   siguiente solo al decidir (antes del primer envío) y solo por causas del canal (sin permiso, baja de
   ese canal, sin contacto, canal caído o sin la plantilla); sin ninguno, `bloqueado` con
   `canal_no_disponible` y `detalle` (`whatsapp: sin_permiso`). Un fallo después del envío es final; hay
-  un solo webhook final con el canal real. Una baja de WhatsApp que llega después de encolar y antes
-  del primer envío también es causa del canal: con `auto`, el aviso pasa a `bloqueado` /
-  `canal_no_disponible` (detalle `whatsapp: baja`, evento interno `aviso.bloqueado`, sin webhook: Argos
-  lo ve con `GET /avisos/:id`); con `whatsapp`, `aviso.fallido` `rechazado_por_canal` (detalle `baja`). El mismo `envio_id` con otro `canal_preferido` es 422
+  un solo webhook final con el canal real. Una baja que llega después de encolar (también con `auto`)
+  cierra el aviso con su único webhook final: `aviso.fallido`, `rechazado_por_canal`, detalle `baja`.
+  (El webhook `aviso.bloqueado` y el motivo `baja` son de la 0.15.1.) El mismo `envio_id` con otro `canal_preferido` es 422
   `idempotencia_reutilizada`. El tope diario no es causa del canal (`limite_diario`).
 - **Contactos (C13).** Las copias a contactos con `avisos` salen solo si el canal del titular es
   WhatsApp, con el permiso de cada número; la caché (`integracion.argos_contactos`) marca `quitado` y no

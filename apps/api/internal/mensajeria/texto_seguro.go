@@ -10,12 +10,19 @@ import (
 )
 
 // Texto que Argos manda dentro de una plantilla (concepto, nombre y plan de la bienvenida): nunca un
-// enlace ni un separador Unicode. La misma revisión para todos (revisión de seguridad de #295).
+// enlace, un separador Unicode ni, donde se pide, un número largo. La misma revisión para todos
+// (revisiones de seguridad de #295 y #300).
 
-// normalizarDeArgos: NFKC (así «pago․com» con U+2024 o «ｅｖｉｌ．ｓｈｏｐ» quedan en ASCII) y los puntos
-// ideográficos («。», y «｡», que NFKC lleva a «。») como punto, para buscar dominios.
+// rellenos: caracteres invisibles que no son separadores para Unicode y se ven como un espacio
+// (relleno Hangul U+3164 y U+1160, al que NFKC lo lleva; relleno inicial U+115F; Braille en blanco
+// U+2800). Se tratan como espacio.
+var rellenos = strings.NewReplacer("ㅤ", " ", "ᅠ", " ", "ᅟ", " ", "⠀", " ")
+
+// normalizarDeArgos: NFKC (así «pago․com» con U+2024 o «ｅｖｉｌ．ｓｈｏｐ» quedan en ASCII), los
+// rellenos invisibles como espacio y los puntos ideográficos («。», y «｡», que NFKC lleva a «。») como
+// punto, para buscar dominios.
 func normalizarDeArgos(v string) string {
-	return strings.ReplaceAll(norm.NFKC.String(v), "。", ".")
+	return strings.ReplaceAll(rellenos.Replace(norm.NFKC.String(v)), "。", ".")
 }
 
 var (
@@ -33,20 +40,48 @@ func separadorOFormato(r rune) bool {
 	return unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp)
 }
 
-// motivoTextoInseguro dice por qué un texto de Argos no puede ir en una plantilla ("" = puede). Mide
-// el largo (1 a max) sobre el texto tal como llega y sobre el normalizado, y busca enlaces en el
-// normalizado. barras: con false, ninguna «/»; con true, solo entre números.
-func motivoTextoInseguro(valor string, max int, barras bool) string {
+// digitosSinLetra: el mayor número de dígitos (de cualquier sistema: arábigos, devanagari…) que hay
+// sin una letra en medio; cualquier otro separador («55,12», «55_12», «(55)12», espacios) no corta.
+func digitosSinLetra(v string) int {
+	maximo, n := 0, 0
+	for _, r := range v {
+		switch {
+		case unicode.IsDigit(r):
+			n++
+			maximo = max(maximo, n)
+		case unicode.IsLetter(r):
+			n = 0
+		}
+	}
+	return maximo
+}
+
+// reglasTexto: lo que se exige a un texto de Argos.
+type reglasTexto struct {
+	// max: largo de 1 a max, sobre el texto tal como llega y sobre el normalizado.
+	max int
+	// barraEntreNumeros: una «/» solo entre números («10/5»); sin ella, ninguna «/».
+	barraEntreNumeros bool
+	// sinDigitos4: nunca 4 o más dígitos sin una letra en medio (un número de cuenta o de teléfono).
+	sinDigitos4 bool
+}
+
+// motivoTextoInseguro dice por qué un texto de Argos no puede ir en una plantilla ("" = puede). Busca
+// en el texto normalizado.
+func motivoTextoInseguro(valor string, r reglasTexto) string {
 	v := normalizarDeArgos(valor)
 	switch {
-	case strings.TrimSpace(v) == "" || len([]rune(valor)) > max || len([]rune(v)) > max:
-		return "De 1 a " + strconv.Itoa(max) + " caracteres"
+	case strings.TrimSpace(v) == "" || len([]rune(valor)) > r.max || len([]rune(v)) > r.max:
+		return "De 1 a " + strconv.Itoa(r.max) + " caracteres"
 	case strings.ContainsFunc(valor, separadorOFormato) || strings.ContainsFunc(v, separadorOFormato):
 		return "Sin saltos de línea ni caracteres de control o de formato"
 	case reEspacios4.MatchString(v):
 		return "Sin 4 o más espacios seguidos"
-	case strings.Contains(v, "@") || reFormaEnlace.MatchString(v) || (!barras && strings.Contains(v, "/")) || (barras && reBarraConLetra.MatchString(v)):
+	case strings.Contains(v, "@") || reFormaEnlace.MatchString(v) || (!r.barraEntreNumeros && strings.Contains(v, "/")) ||
+		(r.barraEntreNumeros && reBarraConLetra.MatchString(v)):
 		return "Sin enlaces, dominios, direcciones IP ni correos"
+	case r.sinDigitos4 && digitosSinLetra(v) >= 4:
+		return "Sin secuencias de 4 o más dígitos"
 	}
 	return ""
 }

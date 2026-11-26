@@ -311,7 +311,7 @@ func parsearInstante(valor string, zona *time.Location) (time.Time, bool) {
 // normalizado con NFKC; sin caracteres Cc, Cf, Zl ni Zp; sin 4 o más espacios seguidos; y sin nada con
 // forma de enlace (dominio de cualquier terminación, también con punto ideográfico, IP, puerto, «/» o
 // «@»). concepto es el nombre de un producto del catálogo de Argos: nunca lleva eso.
-func validarConcepto(valor string) string { return motivoTextoInseguro(valor, 60, false) }
+func validarConcepto(valor string) string { return motivoTextoInseguro(valor, reglasTexto{max: 60}) }
 
 // venceEn: hasta cuándo tiene sentido el aviso según su variable de caducidad. Una plantilla de Argos
 // sin esa variable (o sin su valor) vence a las 72 h de pedida (0.15.0, C9); una de Iris sin
