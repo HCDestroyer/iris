@@ -1,13 +1,12 @@
 "use client";
 
-import { avisar, Aviso, Boton, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Esqueleto, InsigniaEstado, Pestanas } from "@iris/ui";
-import { CalendarDays, CalendarOff, CalendarPlus, Clock, Pencil, Phone, CircleX } from "lucide-react";
+import { avisar, Aviso, Boton, BotonManualPantalla, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Esqueleto, FranjaFicha, InsigniaEstado, PestanasSegmentadas } from "@iris/ui";
+import { CalendarDays, CalendarOff, CalendarPlus, Clock, HardHat, Pencil, Phone, CircleX } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { AvisoCatalogos } from "@/componentes/despacho/catalogos";
 import { useCatalogosAgenda } from "@/componentes/despacho/datos";
-import { EncabezadoPagina } from "@/componentes/encabezado-pagina";
 import { CambiarEstado } from "@/componentes/equipo/cambiar-estado";
 import { textoZonas } from "@/componentes/equipo/formulario-tecnico";
 import { FormularioTurnos } from "@/componentes/equipo/formulario-turnos";
@@ -74,12 +73,15 @@ export function FichaTecnico() {
 
     return (
         <>
-            <EncabezadoPagina
+            <FranjaFicha
+                className="mb-4"
+                icono={HardHat}
                 titulo={t.nombre}
-                descripcion={t.correo}
-                acciones={
+                detalle={t.correo}
+                manual={<BotonManualPantalla />}
+                insignias={<InsigniaActivo activo={t.activo} />}
+                accion={
                     <div className="flex flex-wrap items-center gap-2">
-                        <InsigniaActivo activo={t.activo} />
                         <Boton asChild variante="secundario" tamano="sm">
                             <Link href={`/agenda?tecnico=${t.usuarioId}`}>
                                 <CalendarDays />
@@ -105,7 +107,7 @@ export function FichaTecnico() {
                 }
             />
             <AvisoCatalogos {...catalogos} />
-            <Pestanas<PestanaTecnico>
+            <PestanasSegmentadas<PestanaTecnico>
                 etiqueta="Secciones del técnico"
                 seleccionada={pestana}
                 alCambiar={setPestana}

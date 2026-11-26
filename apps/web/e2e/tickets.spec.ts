@@ -64,6 +64,8 @@ test.describe("bandeja de tickets", () => {
         await page.getByLabel("Buscar").fill("intermitencia");
         await expect(filas(page)).toHaveCount(0);
         await expect(page.getByText("Ningún ticket coincide con los filtros")).toBeVisible();
+        // Con la lista vacía, el pie no repite «No hay más tickets.» debajo del aviso.
+        await expect(page.getByText("No hay más tickets.")).toHaveCount(0);
         await page.getByLabel("Buscar").fill("");
 
         // Vista propia: se guarda en este navegador.

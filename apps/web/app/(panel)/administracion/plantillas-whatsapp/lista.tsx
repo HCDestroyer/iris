@@ -1,7 +1,7 @@
 "use client";
 
-import { avisar, Aviso, Boton, CampoBusqueda, CampoSelector, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Esqueleto, EstadoVacio, GrupoSegmentado, InsigniaEstado, Interruptor, Tabla, TablaCelda, TablaCuerpo, TablaEncabezado, TablaFila, TablaTitulo, Tarjeta } from "@iris/ui";
-import { Check, CircleCheck, MessageSquare, Pencil, Plus, RefreshCw, Settings2, Sparkles, Trash2, type LucideIcon } from "lucide-react";
+import { avisar, Aviso, Boton, CampoBusqueda, CampoSelector, cn, Dialogo, DialogoCerrar, DialogoContenido, DialogoPie, Esqueleto, EstadoVacio, FilaLista, GrupoSegmentado, Interruptor, ListaFilas, MenuAcciones, Tarjeta } from "@iris/ui";
+import { Check, CircleCheck, MessageSquare, Pencil, Plus, RefreshCw, Settings2, Sparkles, SquareArrowOutUpRight, Trash2, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -212,7 +212,7 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
             ) : null}
 
             <Tarjeta className="min-w-0 overflow-hidden p-0">
-                <div className="flex flex-wrap items-end gap-2 border-b border-border p-3">
+                <div className="flex flex-wrap items-end gap-2 p-3" role="group" aria-label="Filtros">
                     <CampoBusqueda etiqueta="Buscar por nombre" etiquetaVisible={false} placeholder="Buscar por nombre" valor={buscar} alCambiar={setBuscar} maxLength={100} className="w-full sm:w-80" />
                     <CampoSelector etiqueta="Categoría" tamano="sm" className="w-40" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
                         <option value="">Todas</option>
@@ -231,9 +231,9 @@ function Cuenta({ cuentas, waba, alCambiarCuenta, alSincronizar, puedeSincroniza
                         ))}
                     </CampoSelector>
                 </div>
-                {/* Otra búsqueda (u otra lectura tras sincronizar): la lista empieza de nuevo. */}
-                <ListaFiltrada key={`${JSON.stringify(filtros)}·${lectura}`} filtros={filtros} grupo={grupo} alCambiarGrupo={setGrupo} sinFiltros={sinFiltros} ahora={ahora} />
             </Tarjeta>
+            {/* Otra búsqueda (u otra lectura tras sincronizar): la lista empieza de nuevo. */}
+            <ListaFiltrada key={`${JSON.stringify(filtros)}·${lectura}`} filtros={filtros} grupo={grupo} alCambiarGrupo={setGrupo} sinFiltros={sinFiltros} ahora={ahora} />
         </div>
     );
 }
@@ -262,63 +262,89 @@ function ListaFiltrada({ filtros, grupo, alCambiarGrupo, sinFiltros, ahora }: { 
         }
     }
 
+    const router = useRouter();
     const filas = lista.estado === "listo" ? [...lista.datos.data, ...mas] : [];
     const conteos = lista.estado === "listo" ? lista.datos.conteos : null;
-    return (
-        <>
-            <div className="border-b border-border px-3 py-2">
-                <GrupoSegmentado<Grupo>
-                    etiqueta="Estado"
-                    className="max-w-full overflow-x-auto"
-                    valor={grupo}
-                    alCambiar={alCambiarGrupo}
-                    opciones={[
-                        { valor: "todas", etiqueta: "Todas", ...(conteos ? { contador: conteos.todas } : {}) },
-                        { valor: "activas", etiqueta: "Activas", ...(conteos ? { contador: conteos.activas } : {}) },
-                        { valor: "revision", etiqueta: "En revisión", ...(conteos ? { contador: conteos.revision } : {}) },
-                        { valor: "atender", etiqueta: "Atender", ...(conteos ? { contador: conteos.atender } : {}) },
-                    ]}
-                />
+    const grupos = (
+        <GrupoSegmentado<Grupo>
+            etiqueta="Estado"
+            className="max-w-full overflow-x-auto"
+            valor={grupo}
+            alCambiar={alCambiarGrupo}
+            opciones={[
+                { valor: "todas", etiqueta: "Todas", ...(conteos ? { contador: conteos.todas } : {}) },
+                { valor: "activas", etiqueta: "Activas", ...(conteos ? { contador: conteos.activas } : {}) },
+                { valor: "revision", etiqueta: "En revisión", ...(conteos ? { contador: conteos.revision } : {}) },
+                { valor: "atender", etiqueta: "Atender", ...(conteos ? { contador: conteos.atender } : {}) },
+            ]}
+        />
+    );
+    const vacio =
+        lista.estado === "cargando" ? (
+            <div className="grid gap-2" aria-busy="true">
+                <Esqueleto className="h-12" />
+                <Esqueleto className="h-12" />
+                <Esqueleto className="h-12" />
             </div>
-            {lista.estado === "cargando" ? (
-                <div className="grid gap-2 p-3" aria-busy="true">
-                    <Esqueleto className="h-12" />
-                    <Esqueleto className="h-12" />
-                    <Esqueleto className="h-12" />
-                </div>
-            ) : lista.estado === "error" ? (
-                <div className="p-3">
-                    <ErrorLectura error={lista.error} reintentar={lista.reintentar} que="las plantillas" />
-                </div>
-            ) : filas.length === 0 ? (
-                <EstadoVacio
-                    icono={MessageSquare}
-                    titulo={sinFiltros ? "Esta cuenta aún no tiene plantillas" : "Ninguna plantilla con estos filtros"}
-                    descripcion={sinFiltros ? "Empieza con las sugeridas para tu ISP: ya vienen conectadas con los datos de Iris y Argos." : "Cambia los filtros para ver otras."}
-                />
-            ) : (
-                <>
-                    <TablaPlantillas filas={filas} ahora={ahora} />
-                    <ul className="grid md:hidden" aria-label="Plantillas">
-                        {filas.map((p) => (
-                            <FilaMovil key={p.id} p={p} ahora={ahora} />
-                        ))}
-                    </ul>
-                    <div className="flex flex-wrap items-center gap-2 border-t border-border p-3 text-sm text-muted-foreground">
-                        <span>
-                            Mostrando {filas.length}
-                            {conteos ? ` de ${grupo === "todas" ? conteos.todas : conteos[grupo]}` : ""}
-                        </span>
-                        {cursor ? (
-                            <Boton variante="enlace" tamano="sm" onClick={() => void cargarMas()} disabled={cargandoMas}>
-                                {cargandoMas ? "Cargando…" : "Cargar más"}
-                            </Boton>
-                        ) : null}
-                        {errorMas ? <ErrorPlantilla error={errorMas} reintentar={() => void cargarMas()} /> : null}
-                    </div>
-                </>
-            )}
-        </>
+        ) : lista.estado === "error" ? (
+            <ErrorLectura error={lista.error} reintentar={lista.reintentar} que="las plantillas" />
+        ) : (
+            <EstadoVacio
+                icono={MessageSquare}
+                titulo={sinFiltros ? "Esta cuenta aún no tiene plantillas" : "Ninguna plantilla con estos filtros"}
+                descripcion={sinFiltros ? "Empieza con las sugeridas para tu ISP: ya vienen conectadas con los datos de Iris y Argos." : "Cambia los filtros para ver otras."}
+            />
+        );
+    return (
+        <ListaFilas
+            etiqueta="Plantillas"
+            cabecera={grupos}
+            vacio={vacio}
+            {...(filas.length > 0 ? { resumen: `Mostrando ${filas.length}${conteos ? ` de ${grupo === "todas" ? conteos.todas : conteos[grupo]}` : ""}` } : {})}
+            {...(cursor ? { alCargarMas: () => void cargarMas() } : {})}
+            cargandoMas={cargandoMas}
+            {...(errorMas ? { errorMas: <ErrorPlantilla error={errorMas} reintentar={() => void cargarMas()} /> } : {})}
+        >
+            {filas.map((p) => {
+                const calidad = calidadVisible(p);
+                const extra = p.estado === "DELETED" && p.borradaPor === "meta" ? " · ya no está en Meta" : p.origen === "meta" ? " · creada en Meta" : "";
+                return (
+                    <FilaLista
+                        key={p.id}
+                        data-plantilla={p.nombre}
+                        icono={MessageSquare}
+                        tonoIcono={p.atender ? "peligro" : "marca"}
+                        titulo={p.etiqueta}
+                        detalle={
+                            <>
+                                <span className="font-mono">
+                                    {p.nombre}
+                                    {extra}
+                                </span>
+                                {` · ${textoCategoria(p.categoria)} · ${textoIdioma(p.idioma)}`}
+                                {calidad ? ` · Calidad ${calidad.texto.toLowerCase()}` : ""}
+                                {` · ${p.usos.length ? p.usos.map(textoUso).join(", ") : "Sin usar en Iris"}`}
+                            </>
+                        }
+                        href={`${RUTA}/${p.id}`}
+                        className={cn(p.atender && "bg-[color-mix(in_srgb,var(--color-error)_4%,transparent)]")}
+                        extremo={
+                            <>
+                                <EstadoPlantilla plantilla={p} />
+                                <span className="text-xs whitespace-nowrap text-muted-foreground">{cuandoCorto(p.estadoEn, ahora)}</span>
+                            </>
+                        }
+                        extremoTelefono="debajo"
+                        menu={
+                            <MenuAcciones
+                                etiqueta={`Acciones de ${p.etiqueta}`}
+                                acciones={[{ id: "abrir", texto: "Abrir plantilla", icono: SquareArrowOutUpRight, alElegir: () => router.push(`${RUTA}/${p.id}`) }]}
+                            />
+                        }
+                    />
+                );
+            })}
+        </ListaFilas>
     );
 }
 
@@ -344,101 +370,6 @@ function ResultadoSincronizacion({ resumen }: { resumen: ResumenSincronizacion }
                 </ul>
             ) : null}
         </Aviso>
-    );
-}
-
-function NombreCelda({ p }: { p: PlantillaWA }) {
-    const extra = p.estado === "DELETED" && p.borradaPor === "meta" ? " · ya no está en Meta" : p.origen === "meta" ? " · creada en Meta" : "";
-    return (
-        <div className="grid min-w-0 gap-0.5">
-            <Link href={`${RUTA}/${p.id}`} className="font-semibold break-words underline-offset-2 hover:underline">
-                {p.etiqueta}
-            </Link>
-            <span className="font-mono text-xs break-all text-muted-foreground">
-                {p.nombre}
-                {extra}
-            </span>
-        </div>
-    );
-}
-
-function Usos({ p }: { p: PlantillaWA }) {
-    if (p.usos.length === 0) return <span className="text-sm text-muted-foreground">Sin usar en Iris</span>;
-    return (
-        <span className="flex flex-wrap gap-1">
-            {p.usos.map((u) => (
-                <span key={u} className="rounded-full bg-muted px-2 py-0.5 text-xs">
-                    {textoUso(u)}
-                </span>
-            ))}
-        </span>
-    );
-}
-
-function Calidad({ p }: { p: PlantillaWA }) {
-    const c = calidadVisible(p);
-    return c ? <InsigniaEstado tono={c.tono} texto={c.texto} /> : <span className="text-muted-foreground">—</span>;
-}
-
-function TablaPlantillas({ filas, ahora }: { filas: PlantillaWA[]; ahora: number }) {
-    return (
-        <div className="hidden md:block">
-            <Tabla aria-label="Plantillas">
-                <TablaEncabezado>
-                    <TablaFila>
-                        <TablaTitulo>Nombre</TablaTitulo>
-                        <TablaTitulo>Categoría</TablaTitulo>
-                        <TablaTitulo>Idioma</TablaTitulo>
-                        <TablaTitulo>Estado en Meta</TablaTitulo>
-                        <TablaTitulo>Calidad</TablaTitulo>
-                        <TablaTitulo>Se usa en</TablaTitulo>
-                        <TablaTitulo>Último cambio</TablaTitulo>
-                    </TablaFila>
-                </TablaEncabezado>
-                <TablaCuerpo>
-                    {filas.map((p) => (
-                        <TablaFila key={p.id} data-plantilla={p.nombre} className={cn(p.atender && "bg-[color-mix(in_srgb,var(--color-error)_4%,transparent)]")}>
-                            <TablaCelda className="max-w-72">
-                                <NombreCelda p={p} />
-                            </TablaCelda>
-                            <TablaCelda>{textoCategoria(p.categoria)}</TablaCelda>
-                            <TablaCelda>{textoIdioma(p.idioma)}</TablaCelda>
-                            <TablaCelda>
-                                <EstadoPlantilla plantilla={p} />
-                            </TablaCelda>
-                            <TablaCelda>
-                                <Calidad p={p} />
-                            </TablaCelda>
-                            <TablaCelda>
-                                <Usos p={p} />
-                            </TablaCelda>
-                            <TablaCelda className="whitespace-nowrap">{cuandoCorto(p.estadoEn, ahora)}</TablaCelda>
-                        </TablaFila>
-                    ))}
-                </TablaCuerpo>
-            </Tabla>
-        </div>
-    );
-}
-
-function FilaMovil({ p, ahora }: { p: PlantillaWA; ahora: number }) {
-    const calidad = calidadVisible(p);
-    return (
-        <li data-plantilla={p.nombre} className={cn("grid gap-1.5 border-b border-border p-3 last:border-b-0", p.atender && "bg-[color-mix(in_srgb,var(--color-error)_4%,transparent)]")}>
-            <div className="flex items-start justify-between gap-2">
-                <NombreCelda p={p} />
-                <EstadoPlantilla plantilla={p} className="shrink-0" />
-            </div>
-            <p className="flex flex-wrap gap-x-1.5 text-xs text-muted-foreground">
-                <span>{textoCategoria(p.categoria)}</span>·<span>{textoIdioma(p.idioma)}</span>
-                {calidad ? (
-                    <>
-                        ·<span>Calidad {calidad.texto.toLowerCase()}</span>
-                    </>
-                ) : null}
-                ·<span>{p.usos.length ? p.usos.map(textoUso).join(", ") : "Sin usar en Iris"}</span>·<span>{cuandoCorto(p.estadoEn, ahora)}</span>
-            </p>
-        </li>
     );
 }
 
