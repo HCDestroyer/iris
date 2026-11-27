@@ -57,9 +57,16 @@ func TestCapacidadesMensajeria0150(t *testing.T) {
 
 	// Argos < 0.15.0: sin la marca (Argos entiende entrega_auto false para todas).
 	fijar("0.14.3", []int64{1}, false)
+	bloques := func(caps map[string]any, encendidos bool) {
+		t.Helper()
+		if caps["tipo_servicio"] != encendidos || caps["corte_manual"] != encendidos || (caps["mensajeria"] != nil) != encendidos {
+			t.Fatalf("bloques de la 0.15.0 (esperaba %v): %v", encendidos, caps)
+		}
+	}
 	if caps := leer(); caps["mensajeria"] != nil || pedidas != nil {
 		t.Fatalf("mensajeria con Argos 0.14.3: %v", caps)
 	}
+	bloques(leer(), false)
 	// Argos 0.15.0, pero el contrato acordado (el que Iris informó y Argos aceptó) es 0.14.3: sin la marca.
 	fijar("0.15.0", []int64{1}, false)
 	if _, err := bd.Exec(ctx, `UPDATE integracion.conectores SET contrato_informado = '0.14.3' WHERE id = $1`, p.e.conID); err != nil {
@@ -68,12 +75,15 @@ func TestCapacidadesMensajeria0150(t *testing.T) {
 	if caps := leer(); caps["mensajeria"] != nil || pedidas != nil {
 		t.Fatalf("mensajeria con contrato acordado 0.14.3: %v", caps)
 	}
+	bloques(leer(), false)
 	if _, err := bd.Exec(ctx, `UPDATE integracion.conectores SET contrato_informado = NULL WHERE id = $1`, p.e.conID); err != nil {
 		t.Fatal(err)
 	}
 	// Argos 0.15.0: solo las empresas del alcance del conector.
 	fijar("0.15.0", []int64{1, 2}, false)
 	caps := leer()
+	// Con Iris 0.15.0 (ContratoIris) y el contrato acordado 0.15.0: los tres bloques encendidos.
+	bloques(caps, true)
 	filas, ok := caps["mensajeria"].([]any)
 	if !ok || len(filas) != 2 || !slices.Equal(pedidas, []int64{1, 2}) {
 		t.Fatalf("mensajeria con Argos 0.15.0: %v (pedidas %v)", caps, pedidas)
