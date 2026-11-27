@@ -44,7 +44,7 @@ func comoMapas(t *testing.T, xs []tecnicoArgos064) []map[string]any {
 }
 
 func TestContratoIris064(t *testing.T) {
-	if argos.ContratoIris != "0.14.3" {
+	if argos.ContratoIris != "0.15.0" {
 		t.Fatalf("ContratoIris: %s", argos.ContratoIris)
 	}
 	e := nuevoEntorno(t)

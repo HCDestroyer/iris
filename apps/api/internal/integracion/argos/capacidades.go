@@ -109,6 +109,16 @@ func nuevoVerCapacidades(m *Modulo) *auditoria.Caso[struct{}, CapacidadesConecto
 			}
 			t.FijarEntidad("conector", c.ID)
 			caps := CapacidadesDeIris(m.contratoIris())
+			// Los bloques de la 0.15.0 (§4.6) solo con el contrato acordado con este conector ≥ 0.15.0
+			// (la menor entre la de Argos y la que Iris le informó y Argos aceptó).
+			var acordado *string
+			if err := t.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE id = $1`,
+				c.ID).Scan(&acordado); err != nil {
+				return CapacidadesConector{}, err
+			}
+			if !conector.VersionAlMenos(acordado, ContratoTipoServicio) {
+				caps.TipoServicio, caps.CorteManual = false, false
+			}
 			if caps.Mensajeria, err = m.capacidadesMensajeria(ctx, t, c.ID); err != nil {
 				return CapacidadesConector{}, err
 			}

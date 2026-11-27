@@ -465,11 +465,18 @@ func TestCapacidadesParaArgos(t *testing.T) {
 	}
 	r := pedir(p.panel).ok(t, http.StatusOK)
 	caps, ok := r["capacidades"].(map[string]any)
-	// Las marcas siguen a la versión que habla Iris (§4.3, §4.6).
+	// Las marcas siguen a la versión que habla Iris (§4.3) y, las de la 0.15.0, también al contrato
+	// acordado con el conector (§4.6: la de Argos y la que aceptó).
 	v := argos.ContratoIris
+	var acordado *string
+	if err := pruebas.Pool(t).QueryRow(t.Context(), `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado)
+		FROM integracion.conectores WHERE id = $1`, p.e.conID).Scan(&acordado); err != nil {
+		t.Fatal(err)
+	}
+	bloque0150 := argos.SoportaTipoServicio(&v) && argos.SoportaTipoServicio(acordado)
 	if r["contrato_iris"] != v || !ok || len(r) != 2 || caps["portal_argos"] != argos.SoportaPortal(&v) ||
-		caps["tipo_servicio"] != argos.SoportaTipoServicio(&v) {
-		t.Fatalf("capacidades: %v", r)
+		caps["tipo_servicio"] != bloque0150 || caps["corte_manual"] != bloque0150 {
+		t.Fatalf("capacidades (acordado %v): %v", acordado, r)
 	}
 	pedir(p.portal).problema(t, http.StatusForbidden, "prohibido")
 	pedir(p.otro).problema(t, http.StatusNotFound, "no_encontrado")
