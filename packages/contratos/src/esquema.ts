@@ -11461,6 +11461,12 @@ export interface components {
             nombre: string;
             numero: string;
         };
+        CanalMensajeriaCap: {
+            /** @enum {string} */
+            canal: "whatsapp" | "correo" | "telegram";
+            /** @description Códigos de §6.3 aprobados y usables en ese canal; uno que no está no se pide (Argos usa su texto local) */
+            codigos: string[] | null;
+        };
         CanalRef: {
             /** Format: int64 */
             id: number;
@@ -11513,6 +11519,14 @@ export interface components {
              */
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv" | null;
         };
+        CapacidadMensajeria: {
+            /** @description Solo los canales que Iris implementa y tiene operativos para la empresa (hoy solo whatsapp) */
+            canales: components["schemas"]["CanalMensajeriaCap"][] | null;
+            /** Format: int64 */
+            empresa_id: number;
+            /** @description true solo si la empresa tiene al menos un canal declarado (C12) */
+            entrega_auto: boolean;
+        };
         CapacidadMotor: {
             /**
              * Format: int64
@@ -11535,6 +11549,8 @@ export interface components {
             adjuntos_ticket: boolean;
             /** @description Bloque B de la 0.15.0 (§13.2): Iris atiende servicio.corte_manual_* y devuelve corte_manual.estado_cambiado */
             corte_manual: boolean;
+            /** @description Contrato 0.15.0 §13.3 (solo en GET …/capacidades, a un Argos ≥ 0.15.0): por empresa del alcance del conector, los canales por los que Iris entrega recordatorios y los códigos de §6.3 aprobados en cada uno. Ausente = entrega_auto false para todas */
+            mensajeria?: components["schemas"]["CapacidadMensajeria"][] | null;
             /** @description Tickets del cliente en el portal de Argos (§11.3–§11.6) */
             portal_argos: boolean;
             /** @description Solicitudes de servicio (§11.7) */
@@ -13993,11 +14009,13 @@ export interface components {
         };
         EntradaAviso: {
             /**
-             * @description Fase 1: solo whatsapp; otro medio queda bloqueado con canal_no_disponible
+             * @description whatsapp; telegram o correo quedan bloqueados con canal_no_disponible (Iris no los entrega). auto (0.15.0 §13.3, con un Argos ≥ 0.15.0): Iris elige un solo canal de los que declara en capacidades.mensajeria[] para la empresa (hoy solo whatsapp); sin ninguno, bloqueado con canal_no_disponible
              * @default whatsapp
              * @enum {string}
              */
-            canal_preferido: "whatsapp" | "telegram" | "correo";
+            canal_preferido: "whatsapp" | "telegram" | "correo" | "auto";
+            /** @description 0.15.0: solo con canal_preferido auto; la intersección del paso con los canales que Iris declara para la empresa. Sin auto, vacía, con valores repetidos o con un canal que Iris no declara: 422 canal_no_permitido. Ausente = todos los declarados */
+            canales_permitidos?: string[] | null;
             /**
              * Format: int64
              * @description Cliente en Argos
@@ -14018,11 +14036,18 @@ export interface components {
              * @enum {string}
              */
             prioridad: "normal" | "urgente";
+            /** @description 0.15.0: el paso del recordatorio de Argos que pide el aviso (informativo) */
+            recordatorio?: components["schemas"]["RecordatorioAviso"];
             /**
              * Format: int64
              * @description Servicio en Argos (opcional; debe ser del cliente y de la empresa)
              */
             servicio_id?: number | null;
+            /**
+             * Format: int64
+             * @description 0.15.0: id de la suscripción en Argos (informativo)
+             */
+            suscripcion_id?: number | null;
             /** @description Solo las variables declaradas por la plantilla (otras: 422 variable_desconocida). Montos con dos decimales, fechas YYYY-MM-DD en hora de Guatemala */
             variables?: {
                 [key: string]: string;
@@ -21294,6 +21319,18 @@ export interface components {
             recibe: boolean;
             vivo: boolean;
         };
+        RecordatorioAviso: {
+            /**
+             * @description Qué dispara el recordatorio en Argos
+             * @enum {string}
+             */
+            disparador: "vencimiento" | "corte_proximo" | "promesa_por_vencer";
+            /**
+             * Format: int32
+             * @description Número del paso dentro del recordatorio
+             */
+            orden: number;
+        };
         RecorridoReal: {
             /** @description false = no se puede mostrar (motivo); nunca suponer «no se movió» */
             disponible: boolean;
@@ -23499,12 +23536,12 @@ export interface components {
         };
         Variable: {
             /**
-             * @description monto: decimal con dos decimales ("250.00"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres
+             * @description monto: decimal con dos decimales ("250.00"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres; concepto: 1 a 60 caracteres sin saltos de línea ni URL (si no cumple, 422 variable_invalida)
              * @enum {string}
              */
-            formato: "monto" | "moneda" | "fecha" | "instante" | "texto";
+            formato: "monto" | "moneda" | "fecha" | "instante" | "texto" | "concepto";
             nombre: string;
-            /** @description Hay que mandarla (hoy todas las del catálogo) */
+            /** @description Hay que mandarla. Una opcional se omite cuando no hay valor; nunca se manda vacía */
             obligatoria: boolean;
         };
         VariableDatoPWA: {

@@ -277,8 +277,11 @@ var DiccionarioDatos = []DatoPWA{
 	{Clave: "monto_con_moneda", Etiqueta: "Monto", Origen: "Factura o pago · total con moneda", Ejemplo: "Q 250.00", Grupo: "cobro"},
 	{Clave: "monto", Etiqueta: "Monto (solo el número)", Origen: "Factura o pago · total", Ejemplo: "250.00", Grupo: "cobro"},
 	{Clave: "moneda", Etiqueta: "Moneda", Origen: "Factura o pago · moneda (GTQ)", Ejemplo: "GTQ", Grupo: "cobro"},
-	{Clave: "fecha_corte", Etiqueta: "Fecha de corte", Origen: "Factura · fecha de vencimiento (Guatemala)", Ejemplo: "viernes 28 de noviembre", Grupo: "cobro"},
+	{Clave: "fecha_corte", Etiqueta: "Fecha de corte", Origen: "Factura, promesa o corte próximo · fecha (Guatemala)", Ejemplo: "viernes 28 de noviembre", Grupo: "cobro"},
 	{Clave: "vence_en", Etiqueta: "Fecha de vencimiento (2026-11-28)", Origen: "Factura o promesa · vence", Ejemplo: "2026-11-28", Grupo: "cobro"},
+	{Clave: "concepto", Etiqueta: "Producto de la suscripción", Origen: "Suscripción en Argos · producto del catálogo", Ejemplo: "TV Premium", Grupo: "cobro"},
+	{Clave: "fecha_reintento", Etiqueta: "Fecha del próximo cobro", Origen: "Débito automático · próximo intento (Guatemala)", Ejemplo: "lunes 1 de diciembre", Grupo: "cobro"},
+	{Clave: "reintenta_el", Etiqueta: "Fecha del próximo cobro (2026-12-01)", Origen: "Débito automático · próximo intento", Ejemplo: "2026-12-01", Grupo: "cobro"},
 	{Clave: "fecha", Etiqueta: "Fecha del pago", Origen: "Pago en Argos · fecha", Ejemplo: "2026-11-20", Grupo: "cobro"},
 	{Clave: "motivo", Etiqueta: "Motivo", Origen: "Boleta · motivo (texto de Iris)", Ejemplo: "La revisamos en menos de 24 horas.", Grupo: "cobro"},
 	{Clave: "hasta", Etiqueta: "Válida hasta", Origen: "Reconexión temporal · hasta (Guatemala)", Ejemplo: "mañana a las 8:00", Grupo: "cobro"},
@@ -332,6 +335,9 @@ func datosDeCodigo(p Plantilla) []string {
 	if tieneVariable(p, "vence_en") {
 		out = append(out, "fecha_corte")
 	}
+	if tieneVariable(p, "reintenta_el") {
+		out = append(out, "fecha_reintento")
+	}
 	return append(out, datosArgosPW...)
 }
 
@@ -367,6 +373,17 @@ func datosDerivados(p Plantilla, v map[string]string) map[string]string {
 			out["fecha_corte"] = fechaLarga(t)
 		}
 	}
+	// corte_proximo (0.15.0) trae la fecha de corte como variable: al cliente le llega en llano.
+	if f, ok := v["fecha_corte"]; ok {
+		if t, err := time.Parse(time.DateOnly, f); err == nil {
+			out["fecha_corte"] = fechaLarga(t)
+		}
+	}
+	if f, ok := v["reintenta_el"]; ok {
+		if t, err := time.Parse(time.DateOnly, f); err == nil {
+			out["fecha_reintento"] = fechaLarga(t)
+		}
+	}
 	return out
 }
 
@@ -394,7 +411,9 @@ func varsPW(claves ...string) []VariablePWA {
 	return out
 }
 
-// Sugeridas son las 7 plantillas de fábrica para un ISP (avisos de servicio, sin promociones).
+// Sugeridas son las plantillas de fábrica para un ISP (avisos de servicio, sin promociones): las 7
+// primeras y, desde el contrato 0.15.0 (§13.3), las de los recordatorios que entrega Iris, todas
+// utility y sin datos del titular.
 var Sugeridas = []SugeridaPWA{
 	{Clave: "aviso_corte", Etiqueta: "Aviso de corte", Categoria: CategoriaUtility, Codigo: ptr("corte_por_falta_de_pago"), Usos: []string{UsoPWAvisos},
 		Para: "Avisos de Argos", Definicion: DefinicionPWA{
@@ -425,6 +444,31 @@ var Sugeridas = []SugeridaPWA{
 		Para: "Cortes programados", Definicion: DefinicionPWA{
 			Cuerpo:    "Haremos mantenimiento en {{zona}} de {{inicio}} a {{fin}}. Tu internet puede fallar en ese horario.",
 			Variables: varsPW("zona", "inicio", "fin"), Botones: []BotonPWA{}}},
+	// Recordatorios de Argos que entrega Iris (contrato 0.15.0 §6.3 y §13.3).
+	{Clave: "corte_proximo", Etiqueta: "Corte próximo", Categoria: CategoriaUtility, Codigo: ptr("corte_proximo"), Usos: []string{UsoPWAvisos},
+		Para: "Recordatorios de Argos", Definicion: DefinicionPWA{
+			Cuerpo:    "Hola, tu servicio se suspenderá el {{fecha_corte}} por un saldo pendiente de {{monto_con_moneda}}. Si ya pagaste, ignora este mensaje.",
+			Variables: varsPW("fecha_corte", "monto_con_moneda"), Botones: []BotonPWA{}}},
+	{Clave: "promesa_por_vencer", Etiqueta: "Promesa de pago por vencer", Categoria: CategoriaUtility, Codigo: ptr("promesa_por_vencer"),
+		Usos: []string{UsoPWAvisos}, Para: "Recordatorios de Argos", Definicion: DefinicionPWA{
+			Cuerpo:    "Hola, tu promesa de pago de {{monto_con_moneda}} vence el {{fecha_corte}}. Paga a tiempo para mantener tu servicio activo.",
+			Variables: varsPW("monto_con_moneda", "fecha_corte"), Botones: []BotonPWA{}}},
+	{Clave: "debito_fallido", Etiqueta: "Débito automático rechazado", Categoria: CategoriaUtility, Codigo: ptr("debito_fallido"),
+		Usos: []string{UsoPWAvisos}, Para: "Avisos de Argos", Definicion: DefinicionPWA{
+			Cuerpo:    "Hola, no pudimos cobrar {{monto_con_moneda}} con tu débito automático. Revisa tu medio de pago o paga por otro canal.",
+			Variables: varsPW("monto_con_moneda"), Botones: []BotonPWA{}}},
+	{Clave: "debito_desactivado", Etiqueta: "Débito automático desactivado", Categoria: CategoriaUtility, Codigo: ptr("debito_desactivado"),
+		Usos: []string{UsoPWAvisos}, Para: "Avisos de Argos", Definicion: DefinicionPWA{
+			Cuerpo:    "Hola, desactivamos tu débito automático. Tus próximas facturas deberás pagarlas por otro medio.",
+			Variables: []VariablePWA{}, Botones: []BotonPWA{}}},
+	{Clave: "suscripcion_suspendida", Etiqueta: "Suscripción suspendida", Categoria: CategoriaUtility, Codigo: ptr("suscripcion_suspendida"),
+		Usos: []string{UsoPWAvisos}, Para: "Avisos de Argos", Definicion: DefinicionPWA{
+			Cuerpo:    "Hola, suspendimos tu suscripción a {{concepto}}. Al ponerte al día se reactiva.",
+			Variables: varsPW("concepto"), Botones: []BotonPWA{}}},
+	{Clave: "suscripcion_reactivada", Etiqueta: "Suscripción reactivada", Categoria: CategoriaUtility, Codigo: ptr("suscripcion_reactivada"),
+		Usos: []string{UsoPWAvisos}, Para: "Avisos de Argos", Definicion: DefinicionPWA{
+			Cuerpo:    "Hola, tu suscripción a {{concepto}} está activa de nuevo. ¡Gracias por tu pago!",
+			Variables: varsPW("concepto"), Botones: []BotonPWA{}}},
 }
 
 // SugeridaPorClave busca una sugerida.

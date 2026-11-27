@@ -29,6 +29,59 @@ type CapacidadesConector struct {
 	Capacidades  CapacidadesIris `json:"capacidades"`
 }
 
+// ContratoEntregaAuto es el primer contrato con los recordatorios que entrega Iris (0.15.0 §13.3,
+// bloque C): con uno anterior, capacidades no trae mensajeria[].
+const ContratoEntregaAuto = "0.15.0"
+
+// CapacidadMensajeria es una fila de capacidades.mensajeria[] (0.15.0 §4.6 y §13.3, C1 y C8).
+type CapacidadMensajeria struct {
+	EmpresaID   int64                `json:"empresa_id"`
+	EntregaAuto bool                 `json:"entrega_auto" doc:"true solo si la empresa tiene al menos un canal declarado (C12)"`
+	Canales     []CanalMensajeriaCap `json:"canales" doc:"Solo los canales que Iris implementa y tiene operativos para la empresa (hoy solo whatsapp)"`
+}
+
+// CanalMensajeriaCap es un canal declarado con sus códigos usables.
+type CanalMensajeriaCap struct {
+	Canal   string   `json:"canal" enum:"whatsapp,correo,telegram"`
+	Codigos []string `json:"codigos" doc:"Códigos de §6.3 aprobados y usables en ese canal; uno que no está no se pide (Argos usa su texto local)"`
+}
+
+// DeclararMensajeria calcula capacidades.mensajeria[] para esas empresas (la mensajería la conecta:
+// este paquete no la importa).
+type DeclararMensajeria func(ctx context.Context, q argosbd.DBTX, empresas []int64) ([]CapacidadMensajeria, error)
+
+// FijarCapacidadesMensajeria conecta el cálculo de capacidades.mensajeria[] (nil = sin la marca).
+func (m *Modulo) FijarCapacidadesMensajeria(f DeclararMensajeria) { m.capMensajeria = f }
+
+// capacidadesMensajeria: con un conector cuyo contrato acordado es ≥ 0.15.0, las empresas de su alcance
+// (todas las registradas con alcance global) con lo que la mensajería declara; nil si no aplica.
+func (m *Modulo) capacidadesMensajeria(ctx context.Context, t *auditoria.Tx, conectorID int64) ([]CapacidadMensajeria, error) {
+	if m.capMensajeria == nil {
+		return nil, nil
+	}
+	var contrato *string
+	var empresas []int64
+	var global bool
+	if err := t.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado), empresas, coalesce(alcance_global, false)
+		FROM integracion.conectores WHERE id = $1`,
+		conectorID).Scan(&contrato, &empresas, &global); err != nil {
+		return nil, err
+	}
+	if !conector.VersionAlMenos(contrato, ContratoEntregaAuto) {
+		return nil, nil
+	}
+	if global {
+		filas, err := t.Query(ctx, `SELECT id FROM nucleo.empresas ORDER BY id`)
+		if err != nil {
+			return nil, err
+		}
+		if empresas, err = pgx.CollectRows(filas, pgx.RowTo[int64]); err != nil {
+			return nil, err
+		}
+	}
+	return m.capMensajeria(ctx, t, empresas)
+}
+
 func nuevoVerCapacidades(m *Modulo) *auditoria.Caso[struct{}, CapacidadesConector] {
 	return auditoria.Nuevo(auditoria.Caso[struct{}, CapacidadesConector]{
 		Accion: "integraciones.ver_capacidades", Permiso: nucleo.PermIntegracionesVerCapacidades, SinEmpresa: true,
@@ -55,7 +108,11 @@ func nuevoVerCapacidades(m *Modulo) *auditoria.Caso[struct{}, CapacidadesConecto
 				return CapacidadesConector{}, err
 			}
 			t.FijarEntidad("conector", c.ID)
-			return CapacidadesConector{ContratoIris: m.contratoIris(), Capacidades: CapacidadesDeIris(m.contratoIris())}, nil
+			caps := CapacidadesDeIris(m.contratoIris())
+			if caps.Mensajeria, err = m.capacidadesMensajeria(ctx, t, c.ID); err != nil {
+				return CapacidadesConector{}, err
+			}
+			return CapacidadesConector{ContratoIris: m.contratoIris(), Capacidades: caps}, nil
 		},
 	})
 }

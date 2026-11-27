@@ -148,6 +148,9 @@ type Modulo struct {
 	// VerCapacidades: GET /integraciones/argosisp/capacidades (0.14.2 §4.3), para el token de Argos.
 	VerCapacidades       *auditoria.Caso[struct{}, CapacidadesConector]
 	RegistrarCertificado *auditoria.Caso[EntradaCertificado, ResultadoCertificado]
+
+	// capMensajeria: capacidades.mensajeria[] (0.15.0 §13.3); la conecta cmd/iris.
+	capMensajeria DeclararMensajeria
 }
 
 // Alias de los tipos comunes de conexión (el OpenAPI los publica con estos nombres).

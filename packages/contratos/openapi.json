@@ -3641,6 +3641,34 @@
         ],
         "type": "object"
       },
+      "CanalMensajeriaCap": {
+        "additionalProperties": false,
+        "properties": {
+          "canal": {
+            "enum": [
+              "whatsapp",
+              "correo",
+              "telegram"
+            ],
+            "type": "string"
+          },
+          "codigos": {
+            "description": "Códigos de §6.3 aprobados y usables en ese canal; uno que no está no se pide (Argos usa su texto local)",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "canal",
+          "codigos"
+        ],
+        "type": "object"
+      },
       "CanalRef": {
         "additionalProperties": false,
         "properties": {
@@ -3802,6 +3830,35 @@
         ],
         "type": "object"
       },
+      "CapacidadMensajeria": {
+        "additionalProperties": false,
+        "properties": {
+          "canales": {
+            "description": "Solo los canales que Iris implementa y tiene operativos para la empresa (hoy solo whatsapp)",
+            "items": {
+              "$ref": "#/components/schemas/CanalMensajeriaCap"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "empresa_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "entrega_auto": {
+            "description": "true solo si la empresa tiene al menos un canal declarado (C12)",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "empresa_id",
+          "entrega_auto",
+          "canales"
+        ],
+        "type": "object"
+      },
       "CapacidadMotor": {
         "additionalProperties": false,
         "properties": {
@@ -3857,6 +3914,16 @@
           "corte_manual": {
             "description": "Bloque B de la 0.15.0 (§13.2): Iris atiende servicio.corte_manual_* y devuelve corte_manual.estado_cambiado",
             "type": "boolean"
+          },
+          "mensajeria": {
+            "description": "Contrato 0.15.0 §13.3 (solo en GET …/capacidades, a un Argos ≥ 0.15.0): por empresa del alcance del conector, los canales por los que Iris entrega recordatorios y los códigos de §6.3 aprobados en cada uno. Ausente = entrega_auto false para todas",
+            "items": {
+              "$ref": "#/components/schemas/CapacidadMensajeria"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "portal_argos": {
             "description": "Tickets del cliente en el portal de Argos (§11.3–§11.6)",
@@ -11065,13 +11132,25 @@
         "properties": {
           "canal_preferido": {
             "default": "whatsapp",
-            "description": "Fase 1: solo whatsapp; otro medio queda bloqueado con canal_no_disponible",
+            "description": "whatsapp; telegram o correo quedan bloqueados con canal_no_disponible (Iris no los entrega). auto (0.15.0 §13.3, con un Argos ≥ 0.15.0): Iris elige un solo canal de los que declara en capacidades.mensajeria[] para la empresa (hoy solo whatsapp); sin ninguno, bloqueado con canal_no_disponible",
             "enum": [
               "whatsapp",
               "telegram",
-              "correo"
+              "correo",
+              "auto"
             ],
             "type": "string"
+          },
+          "canales_permitidos": {
+            "description": "0.15.0: solo con canal_preferido auto; la intersección del paso con los canales que Iris declara para la empresa. Sin auto, vacía, con valores repetidos o con un canal que Iris no declara: 422 canal_no_permitido. Ausente = todos los declarados",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "cliente_id": {
             "description": "Cliente en Argos",
@@ -11104,8 +11183,21 @@
             ],
             "type": "string"
           },
+          "recordatorio": {
+            "$ref": "#/components/schemas/RecordatorioAviso",
+            "description": "0.15.0: el paso del recordatorio de Argos que pide el aviso (informativo)"
+          },
           "servicio_id": {
             "description": "Servicio en Argos (opcional; debe ser del cliente y de la empresa)",
+            "format": "int64",
+            "minimum": 1,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "suscripcion_id": {
+            "description": "0.15.0: id de la suscripción en Argos (informativo)",
             "format": "int64",
             "minimum": 1,
             "type": [
@@ -32720,6 +32812,32 @@
         ],
         "type": "object"
       },
+      "RecordatorioAviso": {
+        "additionalProperties": false,
+        "properties": {
+          "disparador": {
+            "description": "Qué dispara el recordatorio en Argos",
+            "enum": [
+              "vencimiento",
+              "corte_proximo",
+              "promesa_por_vencer"
+            ],
+            "type": "string"
+          },
+          "orden": {
+            "description": "Número del paso dentro del recordatorio",
+            "format": "int32",
+            "maximum": 1000,
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "disparador",
+          "orden"
+        ],
+        "type": "object"
+      },
       "RecorridoReal": {
         "additionalProperties": false,
         "properties": {
@@ -38982,13 +39100,14 @@
         "additionalProperties": false,
         "properties": {
           "formato": {
-            "description": "monto: decimal con dos decimales (\"250.00\"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres",
+            "description": "monto: decimal con dos decimales (\"250.00\"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres; concepto: 1 a 60 caracteres sin saltos de línea ni URL (si no cumple, 422 variable_invalida)",
             "enum": [
               "monto",
               "moneda",
               "fecha",
               "instante",
-              "texto"
+              "texto",
+              "concepto"
             ],
             "type": "string"
           },
@@ -38996,7 +39115,7 @@
             "type": "string"
           },
           "obligatoria": {
-            "description": "Hay que mandarla (hoy todas las del catálogo)",
+            "description": "Hay que mandarla. Una opcional se omite cuando no hay valor; nunca se manda vacía",
             "type": "boolean"
           }
         },

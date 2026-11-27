@@ -521,7 +521,7 @@ func TestPlantillasWASugeridaEnviarAprobarYUsarPorCodigo(t *testing.T) {
 	// Antes: el aviso de corte no tiene plantilla en ningún canal para la empresa 1… salvo otros números
 	// de otras pruebas; se mira solo esta cuenta por su número.
 	r := c.api(c.admin, http.MethodGet, "/plantillas-whatsapp/sugeridas?wabaId="+c.waba, nil)
-	c.exigir(r, http.StatusOK, "faltan", "7")
+	c.exigir(r, http.StatusOK, "faltan", fmt.Sprint(len(mensajeria.Sugeridas)))
 
 	r = c.apiClave(c.admin, http.MethodPost, "/plantillas-whatsapp/sugeridas/aviso_corte/crear", "sug-"+pruebas.Unico(),
 		map[string]any{"wabaId": c.waba, "pie": "Kingnet Solution", "enviar": true})

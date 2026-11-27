@@ -171,6 +171,16 @@ func configArgos(cfg config.Config) (argos.Config, error) {
 	}, nil
 }
 
+// capacidadesMensajeria: el cálculo de capacidades.mensajeria[] (contrato 0.15.0 §13.3). El simulado
+// declara todos los códigos: igual que en cmd/mensajeria, nunca con una IRIS_BASE_URL https pública
+// (la API no arranca).
+func capacidadesMensajeria(simulado bool, baseURL string) (argos.DeclararMensajeria, error) {
+	if err := mensajeria.ValidarSimulado(simulado, baseURL); err != nil {
+		return nil, err
+	}
+	return mensajeria.DeclararMensajeria(simulado, nil), nil
+}
+
 // configHorus arma la configuración del conector Horus (se agrega al núcleo de conectores de
 // Argos).
 func configHorus(cfg config.Config, a *argos.Modulo) horus.Config {
@@ -288,6 +298,13 @@ func servir(ctx context.Context, cfg config.Config, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// Recordatorios que entrega Iris (contrato 0.15.0 §13.3): capacidades.mensajeria[] la calcula la
+	// mensajería con la base compartida.
+	declarar, err := capacidadesMensajeria(entMsj.Simulado, cfg.BaseURL)
+	if err != nil {
+		return err
+	}
+	conectorArgos.FijarCapacidadesMensajeria(declarar)
 	if entMsj.URL == "" {
 		log.Warn("IRIS_MENSAJERIA_URL vacía: /api/v1/mensajeria responde 503 (el servicio de mensajería no está conectado)")
 	}

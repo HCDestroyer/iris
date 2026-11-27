@@ -121,6 +121,8 @@ func nuevoPrepararEnvio(m *Modulo) *auditoria.Caso[entradaPreparar, preparado] {
 					return preparado{}, err
 				}
 				if err == nil && v.Estado == "baja" {
+					// También con auto: en la 0.15.0, un aviso que respondió 202 termina siempre con un
+					// único webhook final (§6.6).
 					return preparado{Accion: accionNada, Final: true}, m.fallar(ctx, t, a, MotivoRechazado, texto(MotivoBaja))
 				}
 			}
@@ -337,7 +339,12 @@ func nuevoVencerAvisos(m *Modulo) *auditoria.Caso[struct{}, int] {
 					continue
 				}
 				t.FijarEmpresa(a.EmpresaID)
-				if err := m.fallar(ctx, t, a, MotivoAgotado, texto("sin acuse del canal")); err != nil {
+				motivo, detalle := MotivoAgotado, "sin acuse del canal"
+				if a.EnviadoEn == nil && a.VenceEn != nil && !m.ahora().Before(*a.VenceEn) {
+					// Nunca salió y ya venció (0.15.0, C9): vencido, no agotado.
+					motivo, detalle = MotivoVencido, "venció antes de poder enviarse"
+				}
+				if err := m.fallar(ctx, t, a, motivo, texto(detalle)); err != nil {
 					return n, err
 				}
 				n++
