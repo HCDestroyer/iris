@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.39.0](https://github.com/HCDestroyer/iris/compare/v0.38.0...v0.39.0) (2026-11-27)
+
+
+### Funcionalidades
+
+* **integracion:** H1, estado e historial de los equipos del cliente (B27, 0.12.0 §2.3) ([#301](https://github.com/HCDestroyer/iris/issues/301)) ([bcab388](https://github.com/HCDestroyer/iris/commit/bcab388ad941f81c5a29e57f9f891b7dd776fce8))
+* **mensajeria:** el chat ubica al prospecto por cualquiera de sus números (B23, H4) ([#302](https://github.com/HCDestroyer/iris/issues/302)) ([12dbddd](https://github.com/HCDestroyer/iris/commit/12dbddd5fbd8a452ea4e46a144d166fd9051a9af))
+* **mensajeria:** recordatorios que entrega Iris (contrato 0.15.0, bloque C, B35) ([#295](https://github.com/HCDestroyer/iris/issues/295)) ([f719a86](https://github.com/HCDestroyer/iris/commit/f719a8687fdca79c86d2b9d7ed7eb1be29b6b0bd))
+
 ## [0.38.0](https://github.com/HCDestroyer/iris/compare/v0.37.0...v0.38.0) (2026-11-26)
 
 
