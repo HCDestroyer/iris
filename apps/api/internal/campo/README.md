@@ -189,6 +189,19 @@ Campo **no llama a Argos**: al cerrar emite `orden.cerrada` y el núcleo (I1) en
 - `orden.cerrada` suma, por equipo, `motivo`, `foto_ref`, `fecha` y `recibido_en_iris`; en el cambio,
   `sale_unidad_id`, `entra`, `destino_sale` y `cobro_propuesto { motivo }`; en el intento, `ubicacion`.
   Los materiales suman `fecha` y `recibido_en_iris`.
+- **Estado e historial de cada equipo** (`GET /ordenes/{id}/equipos/estado`, `ordenes.ver` u
+  `ordenes.ver_propias`): las unidades del servicio de la orden y las que la orden instaló, retiró,
+  cambió o no recuperó, con el estado que avisó Argos y sus últimos 20 movimientos, sin costos
+  (instantánea de `integracion/argos`, llenada por `inventario.unidad_estado_cambiado` e
+  `inventario.equipo_cambiado`). Vacío si Argos no avisó nada (contrato acordado < 0.12.0).
+  - **Solo el servicio de la orden y la orden misma** (contrato §3.10): el historial se recorta a los
+    renglones del servicio de la orden; `servicioId` de la unidad va en null si Argos la asocia a otro
+    servicio (una unidad retirada puede estar ya en otro cliente), y `ordenId` de un renglón, si no es
+    esta orden. Fuera de la empresa activa o de lo que el actor ve (`ordenes.ver` con su zona o
+    cuadrilla, u `ordenes.ver_propias` y asignada), `404`.
+  - **No se audita (decidido en la revisión de #301).** Lee la instantánea local de Iris, no llama a
+    Argos. La regla de B27 «lectura de unidad limitada a `inventario.ver_unidad` y auditada» es para
+    `GET /inventario/unidades/:id` contra Argos (§3.10), que esta ruta no usa.
 
 ## App de campo (contratos/sync.md; claves camelCase)
 
@@ -416,7 +429,13 @@ del día programadas para él en los primeros huecos libres, por los casos de us
   webhook `instalacion.*` (`argos.instalacion_resuelta`) o, a los 10 min, `GET /aprovisionamientos/:id`
   (`campo.consultar_activaciones`, cada 2 min); un intento resuelto no cambia. Un agotado sigue vivo hasta
   reintentarse o resolverse a mano en la cola (nunca dos aprovisionamientos a la vez). Estado:
-  `GET /ordenes/{id}/activacion`.
+  `GET /ordenes/{id}/activacion` (el `actual` es el intento vivo si lo hay; si no, el último).
+- **`409 aprovisionamiento_en_curso`** (0.14.3 §12.2): si `extensions.aprovisionamiento_id` es de otro intento
+  de Iris de la misma orden, no es ajeno: el intento nuevo queda `fallido` con `aprovisionamiento_propio` y el
+  anterior vuelve a `en_proceso` (lo resuelven su webhook o la consulta). Si la orden tiene otro intento enviado
+  sin respuesta todavía en la cola, primero se reintenta ese y el nuevo espera. Si no, es ajeno (`iniciado_por:
+  argos`, `iris` de otra orden o sin dato): `fallido` con esa causa, sin tomar su `aprovisionamiento_id` ni su
+  resultado; con el servicio activado fuera, la orden se cierra como «activado fuera de la orden».
 - **Modo** por empresa (`POST /campo/ajustes`: `activacionModo`, `cierreExigeBienvenida`) o plantilla: `al_cerrar`
   (de fábrica), `exigir_lista` (el cierre exitoso exige el intento listo o un supervisor con
   `ordenes.cerrar_sin_activacion` y `sinActivacionMotivo`; con `cierre_exige_bienvenida`, además la bienvenida) o

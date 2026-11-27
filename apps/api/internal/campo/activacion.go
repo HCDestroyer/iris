@@ -674,14 +674,17 @@ func (m *Modulo) estadoActivacion(ctx context.Context, t *auditoria.Tx, q *campo
 		return r, err
 	}
 	var viva *campobd.CampoActivacione
+	iViva := 0
 	for i, a := range filas {
 		r.Intentos = append(r.Intentos, aActivacion(a))
 		if a.Estado != ActivacionFallida && viva == nil {
-			viva = &filas[i]
+			viva, iViva = &filas[i], i
 		}
 	}
 	if len(r.Intentos) > 0 {
-		r.Actual, r.Estado = &r.Intentos[0], r.Intentos[0].Estado
+		// El actual es el vivo si lo hay (un intento anterior que se siguió por un 409 de un intento
+		// propio, 0.14.3 §12.2, o que revivió); si no, el último.
+		r.Actual, r.Estado = &r.Intentos[iViva], r.Intentos[iViva].Estado
 	}
 	motivo, err := m.noDisponible(ctx, t, q, f, tipo.Codigo, modo, capacidad, viva)
 	if err != nil {
@@ -951,6 +954,9 @@ func (m *Modulo) resolverDesdePendiente(ctx context.Context, evento string, payl
 			}
 		}
 	case pendientes.EventoFallido:
+		if reg.CodigoError != nil && *reg.CodigoError == pendientes.CodigoAprovisionamientoPropio {
+			return m.seguirIntentoPropio(ctx, e.IdempotencyKey, reg)
+		}
 		in.Estado, in.Causa, in.Detalle = ActivacionFallida, reg.CodigoError, reg.UltimoError
 		if in.Causa == nil {
 			in.Causa = ptr("rechazado_por_argos")
@@ -963,6 +969,33 @@ func (m *Modulo) resolverDesdePendiente(ctx context.Context, evento string, payl
 		return nil
 	}
 	_, err = m.Activacion.Resolver.Ejecutar(ctx, in)
+	return err
+}
+
+// seguirIntentoPropio: el 409 aprovisionamiento_en_curso nombró otro intento de Iris de la misma
+// orden (0.14.3 §12.2). Este intento se descarta (fallido, causa aprovisionamiento_propio) y el que
+// tiene ese aprovisionamiento_id vuelve a en_proceso: lo resuelven su webhook o la consulta a los
+// 10 min. Primero se descarta el nuevo para que el anterior pueda ser el único vivo de la orden.
+func (m *Modulo) seguirIntentoPropio(ctx context.Context, clave string, reg pendientes.Registro) error {
+	causa := pendientes.CodigoAprovisionamientoPropio
+	if _, err := m.Activacion.Resolver.Ejecutar(ctx, EntradaResolverActivacion{Fuente: FuentePendiente, IdempotencyKey: &clave,
+		Estado: ActivacionFallida, Causa: &causa, Detalle: reg.UltimoError}); err != nil {
+		return err
+	}
+	id, ok := pendientes.CampoDeRespuesta(reg.Respuesta, "aprovisionamiento_id")
+	if !ok {
+		return nil
+	}
+	var n json.Number
+	if json.Unmarshal(id, &n) != nil {
+		return nil
+	}
+	aprov, err := n.Int64()
+	if err != nil || aprov <= 0 {
+		return nil
+	}
+	_, err = m.Activacion.Resolver.Ejecutar(ctx, EntradaResolverActivacion{Fuente: FuentePendiente, AprovisionamientoID: &aprov,
+		Estado: ActivacionEnProceso, Revivir: true})
 	return err
 }
 

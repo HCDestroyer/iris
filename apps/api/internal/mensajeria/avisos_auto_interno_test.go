@@ -1,0 +1,117 @@
+package mensajeria
+
+import (
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	mensajeriabd "github.com/HCDestroyer/iris/apps/api/internal/mensajeria/bd"
+)
+
+// Una plantilla de la cuenta con mapa de datos que pide una variable opcional (0.15.0) que el aviso no
+// trae no puede enviarlo: nunca se manda vacía (Meta rechaza un parámetro vacío).
+func TestFaltaDatoOpcional(t *testing.T) {
+	conDatos := func(codigo string, datos ...string) *resuelto {
+		pm := PlantillaMeta{Nombre: "x", Idioma: "es", Nombrados: true}
+		for _, d := range datos {
+			pm.Parametros = append(pm.Parametros, ParametroPWA{Componente: "cuerpo", Nombre: d, Dato: d})
+		}
+		return &resuelto{a: &whatsappCloud{avisos: map[string]PlantillaMeta{codigo: pm}}}
+	}
+	factura, _ := PlantillaPorCodigo("factura_por_vencer")
+	debito, _ := PlantillaPorCodigo("debito_fallido")
+	base := map[string]string{"monto": "1.00", "moneda": "GTQ", "vence_en": "2026-11-10"}
+	casos := []struct {
+		nombre string
+		r      *resuelto
+		p      Plantilla
+		v      map[string]string
+		falta  bool
+	}{
+		{"factura sin concepto en la plantilla", conDatos("factura_por_vencer", "monto_con_moneda", "fecha_corte"), factura, base, false},
+		{"factura que pide concepto sin él", conDatos("factura_por_vencer", "concepto", "monto_con_moneda"), factura, base, true},
+		{"factura que pide concepto con él", conDatos("factura_por_vencer", "concepto"), factura,
+			map[string]string{"monto": "1.00", "moneda": "GTQ", "vence_en": "2026-11-10", "concepto": "TV"}, false},
+		{"débito que pide la fecha del reintento sin ella", conDatos("debito_fallido", "fecha_reintento"), debito,
+			map[string]string{"monto": "1.00", "moneda": "GTQ"}, true},
+		{"débito que pide reintenta_el sin ella", conDatos("debito_fallido", "reintenta_el"), debito,
+			map[string]string{"monto": "1.00", "moneda": "GTQ"}, true},
+		{"débito sin reintento en la plantilla", conDatos("debito_fallido", "monto_con_moneda"), debito,
+			map[string]string{"monto": "1.00", "moneda": "GTQ"}, false},
+		{"simulado", &resuelto{a: simulado{}}, debito, map[string]string{"monto": "1.00", "moneda": "GTQ"}, false},
+	}
+	for _, c := range casos {
+		if got := faltaDatoOpcional(c.r, c.p, c.v); got != c.falta {
+			t.Errorf("%s: %v", c.nombre, got)
+		}
+	}
+	// Los derivados en llano: la fecha de corte y la del reintento.
+	d := datosDerivados(debito, map[string]string{"monto": "1.00", "moneda": "GTQ", "reintenta_el": "2026-12-01"})
+	if d["fecha_reintento"] != "martes 1 de diciembre" || d["monto_con_moneda"] != "Q 1.00" {
+		t.Fatalf("derivados del débito: %v", d)
+	}
+	corte, _ := PlantillaPorCodigo("corte_proximo")
+	if d := datosDerivados(corte, map[string]string{"monto": "1.00", "moneda": "GTQ", "fecha_corte": "2026-11-28"}); d["fecha_corte"] != "sábado 28 de noviembre" {
+		t.Fatalf("fecha de corte en llano: %v", d)
+	}
+	if !slices.Contains(datosDeCodigo(debito), "fecha_reintento") || !slices.Contains(datosDeCodigo(factura), "concepto") {
+		t.Fatal("datos de los códigos nuevos")
+	}
+	// Por posición, solo las obligatorias.
+	if p := factura.Parametros(map[string]string{"monto": "1.00", "moneda": "GTQ", "vence_en": "2026-11-10", "concepto": "TV"}); len(p) != 3 {
+		t.Fatalf("parámetros por posición: %v", p)
+	}
+	// Vencimiento: una de Iris sin caducidad no vence; una de Argos sin variable, a las 72 h.
+	ahora := time.Date(2026, 11, 5, 16, 0, 0, 0, time.UTC)
+	boleta, _ := PlantillaPorCodigo("boleta_recibida")
+	if boleta.venceEn(nil, time.UTC, ahora) != nil {
+		t.Fatal("una plantilla de Iris sin caducidad no vence")
+	}
+	if v := debito.venceEn(map[string]string{}, time.UTC, ahora); v == nil || !v.Equal(ahora.Add(72*time.Hour)) {
+		t.Fatalf("débito sin reintento: %v", v)
+	}
+}
+
+// Solo la API oficial de Meta manda avisos (§6.1 del contrato con Argos): una sesión de teléfono con
+// una librería no oficial (hoy Iris no tiene ese tipo) nunca, y la coexistencia por QR (Cloud API) sí.
+func TestCanalParaAvisos(t *testing.T) {
+	for _, c := range []struct {
+		f  mensajeriabd.MensajeriaCanal
+		ok bool
+	}{
+		{mensajeriabd.MensajeriaCanal{Tipo: TipoWhatsAppCloud, TipoConexion: ConexionAPI}, true},
+		{mensajeriabd.MensajeriaCanal{Tipo: TipoWhatsAppCloud, TipoConexion: ConexionQR, Coexistencia: true}, true},
+		{mensajeriabd.MensajeriaCanal{Tipo: "whatsapp_qr", TipoConexion: ConexionQR}, false},
+		{mensajeriabd.MensajeriaCanal{Tipo: "whatsapp_sesion"}, false},
+	} {
+		if got := canalParaAvisos(c.f); got != c.ok {
+			t.Errorf("%s/%s: %v", c.f.Tipo, c.f.TipoConexion, got)
+		}
+	}
+}
+
+// concepto (C7, revisión de seguridad): nada con forma de enlace, correo, separador Unicode ni
+// caracteres de control o formato, también disfrazado (NFKC).
+func TestValidarConcepto(t *testing.T) {
+	malos := []string{
+		"pagos-claro.ru", "bit.do/x", "evil.shop", "mi-pago.online", "pago\u2024com", "PAGO.COM", "pago．com",
+		"TV\u2028Premium", "TV\u2029Premium", "TV\u0085Premium", "TV\nPremium", "TV\rPremium", "TV\x07", "TV\u200bPremium",
+		"TV\u202ePremium", "TV    Premium", "a/b", "soporte@isp", "https://x", "", "   ", strings.Repeat("a", 61),
+		// IP, puerto y puntos ideográficos (segunda revisión).
+		"203.0.113.5", "203.0.113.5:8080", "TV:8080", "evil\u3002com", "evil\uff61com",
+		// El largo cuenta también sobre lo que llega: NFKC lo acorta («e» + acento es «é»).
+		strings.Repeat("e\u0301", 31),
+	}
+	for _, v := range malos {
+		if validarConcepto(v) == "" {
+			t.Errorf("debía rechazar %q", v)
+		}
+	}
+	buenos := []string{"TV Premium", "Netflix Básico", "Plan 2.0 Fibra", "Ñandú 3", "Paquete HD + Deportes", strings.Repeat("ñ", 60), "Dr. Pérez"}
+	for _, v := range buenos {
+		if msg := validarConcepto(v); msg != "" {
+			t.Errorf("rechazó %q: %s", v, msg)
+		}
+	}
+}

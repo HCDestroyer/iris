@@ -3,6 +3,7 @@ package argos_test
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 
@@ -46,11 +47,19 @@ func TestEliminarConector(t *testing.T) {
 	if err := e.pool.QueryRow(t.Context(), `SELECT token_entregado_id FROM integracion.conectores WHERE id = $1`, nuevo).Scan(&tokenActivo); err != nil {
 		t.Fatal(err)
 	}
-	lista := admin.pedir(http.MethodGet, "/api/v1/tokens?limit=200", nil)
+	// Todas las páginas: cada canje deja también su token_portal (0.9.0 §1.2).
 	marcados := map[int64]bool{}
-	for _, d := range lista.cuerpo["data"].([]any) {
-		m := d.(map[string]any)
-		marcados[int64(m["id"].(float64))] = m["enUsoPorConector"] == true
+	for cursor := ""; ; {
+		lista := admin.pedir(http.MethodGet, "/api/v1/tokens?limit=200&cursor="+url.QueryEscape(cursor), nil)
+		for _, d := range lista.cuerpo["data"].([]any) {
+			m := d.(map[string]any)
+			marcados[int64(m["id"].(float64))] = m["enUsoPorConector"] == true
+		}
+		siguiente, _ := lista.cuerpo["nextCursor"].(string)
+		if siguiente == "" {
+			break
+		}
+		cursor = siguiente
 	}
 	if !marcados[tokenActivo] || !marcados[tokenViejo] {
 		t.Fatalf("enUsoPorConector en la lista: %v (activo %d, viejo %d)", marcados, tokenActivo, tokenViejo)

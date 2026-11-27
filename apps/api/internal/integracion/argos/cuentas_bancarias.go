@@ -377,7 +377,7 @@ func (m *Modulo) CargarCuentasBancarias(ctx context.Context) (ResultadoCuentas, 
 	if err != nil {
 		return ResultadoCuentas{}, err
 	}
-	if !conector.VersionAlMenos(c.ContratoRemoto, ContratoCuentasSinCabeceras) {
+	if !conector.VersionAlMenos(c.ContratoAcordado(), ContratoCuentasSinCabeceras) {
 		return ResultadoCuentas{Omitido: OmitidoArgosAnterior080}, nil
 	}
 	return m.cargarCuentasCon(ctx, bd, c.IntegracionConectore, m.clienteDe(c))
@@ -505,7 +505,7 @@ func (m *Modulo) releerCuentasEmpresa(ctx context.Context, c conector.Leido, a A
 	in := lecturaCuentas{leidoEn: ahora, marcar: true, alcance: &c.IntegracionConectore}
 	var cs []CuentaBancariaArgos
 	var err error
-	if conector.VersionAlMenos(c.ContratoRemoto, ContratoCuentasSinCabeceras) {
+	if conector.VersionAlMenos(c.ContratoAcordado(), ContratoCuentasSinCabeceras) {
 		// La lista completa del alcance (activas e inactivas), como la carga periódica.
 		in.completa = true
 		cs, err = m.clienteDe(c).ListaCuentasBancarias(ctx)

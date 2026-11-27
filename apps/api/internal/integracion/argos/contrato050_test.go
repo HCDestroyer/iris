@@ -50,8 +50,12 @@ func TestContratoEnCanjeYVersionArgos16(t *testing.T) {
 	if r, err = e.mod.InformarContrato.Ejecutar(ctx, id); err != nil || r.Cambio {
 		t.Fatalf("informar otra vez, sin cambios: %+v %v", r, err)
 	}
-	if e.argos.contratos != 2 {
-		t.Fatalf("PUT contrato: %d", e.argos.contratos)
+	// Dos informes del contrato y, en medio, el cierre de la carga inicial de vínculos (0.14.0 §6.6:
+	// Iris informa ≥ 0.14.0 a un Argos que lo habla; aquí sin vínculos, vinculos_cargados 0).
+	var cargados []any
+	e.argos.con(func() { cargados = append(cargados, e.argos.cargados...) })
+	if e.argos.contratos != 3 || fmt.Sprint(cargados) != "[<nil> 0 <nil>]" {
+		t.Fatalf("PUT contrato: %d, vinculos_cargados %v", e.argos.contratos, cargados)
 	}
 }
 

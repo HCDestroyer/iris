@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -180,6 +181,13 @@ type resuelto struct {
 	fila      *mensajeriabd.MensajeriaCanal
 }
 
+// canalParaAvisos: solo la API oficial de Meta (whatsapp_cloud, también un número conectado por QR en
+// coexistencia, que sigue siendo la Cloud API) manda avisos. Cualquier otro tipo, como una sesión de
+// teléfono con una librería no oficial («WhatsApp por QR» de §6.1 del contrato con Argos), nunca manda
+// avisos ni se declara en capacidades. Hoy Iris no tiene ese tipo (el check de mensajeria.canales.tipo
+// solo admite whatsapp_cloud); esta guarda lo deja fuera si se agrega.
+func canalParaAvisos(f mensajeriabd.MensajeriaCanal) bool { return f.Tipo == TipoWhatsAppCloud }
+
 // resolver elige el canal de la empresa para el medio: el número de avisos de la empresa (activo)
 // o, sin él y con Simulado, el simulado. nil = ningún canal (canal_no_disponible).
 func (m *Modulo) resolver(ctx context.Context, q *mensajeriabd.Queries, empresa int64, medio string) (*resuelto, error) {
@@ -189,6 +197,8 @@ func (m *Modulo) resolver(ctx context.Context, q *mensajeriabd.Queries, empresa 
 		f, err = q.CanalAvisosPrestado(ctx, mensajeriabd.CanalAvisosPrestadoParams{EmpresaID: empresa, Canal: medio})
 	}
 	switch {
+	case err == nil && !canalParaAvisos(f):
+		return nil, nil
 	case err == nil:
 		return m.resueltoDe(ctx, q, f)
 	case !errors.Is(err, pgx.ErrNoRows):
@@ -211,7 +221,7 @@ func (m *Modulo) resolverPorID(ctx context.Context, q *mensajeriabd.Queries, id 
 	if err != nil {
 		return nil, err
 	}
-	if !f.Activo || f.DesconectadoEn != nil {
+	if !f.Activo || f.DesconectadoEn != nil || !canalParaAvisos(f) {
 		return nil, nil
 	}
 	// Un número de otra empresa solo con su préstamo activo y el uso avisos (§15.3).
@@ -250,6 +260,12 @@ func (m *Modulo) resueltoDe(ctx context.Context, q *mensajeriabd.Queries, f mens
 // compartida de antes de que la cuenta tuviera dueña), su mapa propio de mensajeria.canales.plantillas,
 // como antes. uso: solo las que la empresa marcó para ese uso ("" = cualquiera).
 func (m *Modulo) plantillasDeCanal(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaCanal, uso string) (map[string]PlantillaMeta, error) {
+	return plantillasDeCanalEn(ctx, q, c, uso, m.ahora())
+}
+
+// plantillasDeCanalEn es plantillasDeCanal con el reloj explícito (también la usan las capacidades,
+// que calcula la API sin el módulo de mensajería).
+func plantillasDeCanalEn(ctx context.Context, q *mensajeriabd.Queries, c mensajeriabd.MensajeriaCanal, uso string, ahora time.Time) (map[string]PlantillaMeta, error) {
 	p := map[string]PlantillaMeta{}
 	deLaDuena, err := cuentaEsDelNumero(ctx, q, c)
 	if err != nil {
@@ -259,7 +275,6 @@ func (m *Modulo) plantillasDeCanal(ctx context.Context, q *mensajeriabd.Queries,
 		_ = json.Unmarshal(c.Plantillas, &p)
 		return p, nil
 	}
-	ahora := m.ahora()
 	// Solo las de la empresa dueña de la cuenta (la del número; un préstamo no la cambia).
 	fs, err := q.PlantillasWAUsables(ctx, mensajeriabd.PlantillasWAUsablesParams{WabaID: c.WabaID, Empresa: derefEmpresa(c.EmpresaID), Ahora: &ahora})
 	if err != nil {

@@ -519,6 +519,12 @@ func TestPlantillasWAMigracionDeCanales(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback(b.ctx) }()
+	// Los números de esta prueba incluyen el de avisos de la empresa 2: otro de una prueba anterior
+	// (TestWhatsAppCloud deja el suyo) choca con el índice único de avisos. Dentro de la transacción
+	// (se deshace al terminar), ninguno de antes es el de avisos.
+	if _, err := tx.Exec(b.ctx, `UPDATE mensajeria.canales SET avisos_empresa = false WHERE empresa_id IN (2, 3) AND avisos_empresa`); err != nil {
+		t.Fatal(err)
+	}
 	canales := []struct {
 		empresa    int64
 		activo     bool

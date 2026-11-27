@@ -459,7 +459,8 @@ func (p *PrimeraSincronizacion) Ejecutar(ctx context.Context, conectorID int64, 
 		return ResultadoPrimeraSincronizacion{}, err
 	}
 	if sinc.ID == uuid.Nil {
-		r, err := p.crear.Ejecutar(ctx, entradaCrearSincronizacion{ConectorID: conectorID, Contrato: c.ContratoRemoto, Origen: "activacion"})
+		r, err := p.crear.Ejecutar(ctx, entradaCrearSincronizacion{ConectorID: conectorID,
+			Contrato: conector.ContratoAcordado(c.ContratoRemoto, c.ContratoInformado), Origen: "activacion"})
 		if err != nil {
 			return ResultadoPrimeraSincronizacion{}, err
 		}
@@ -877,6 +878,7 @@ func (k *corrida) routers(crudo []json.RawMessage) (guardarFilas, error) {
 // bancario: cuentas bancarias o bancos (§2.5 pasos 5 y 6). Con Argos < 0.8.0 las cabeceras de Iris
 // son obligatorias y la primera carga no tiene conversación: con_errores «Argos anterior a 0.8.0».
 func (k *corrida) bancario(ctx context.Context, e *argosbd.IntegracionArgosSincronizacionEtapa) error {
+	// k.sinc.ContratoRemoto es el contrato acordado con el que se creó la sincronización.
 	if !SoportaPrimeraSincronizacion(k.sinc.ContratoRemoto) {
 		return errArgosAnterior
 	}

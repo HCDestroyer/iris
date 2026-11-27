@@ -23,15 +23,20 @@ const (
 	formatoFecha    = "fecha"    // YYYY-MM-DD en hora de Guatemala
 	formatoInstante = "instante" // YYYY-MM-DD o YYYY-MM-DDTHH:MM[:SS][zona]
 	formatoTexto    = "texto"    // 1 a 200 caracteres
+	// concepto (0.15.0 §6.3, C7): nombre de un producto del catálogo de Argos, 1 a 60 caracteres, sin
+	// saltos de línea ni URL. Fuera de forma: 422 variable_invalida (no validacion).
+	formatoConcepto = "concepto"
 )
 
 // Variable de una plantilla.
 type Variable struct {
 	Nombre  string `json:"nombre"`
-	Formato string `json:"formato" enum:"monto,moneda,fecha,instante,texto" doc:"monto: decimal con dos decimales (\"250.00\"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres"`
-	// Obligatoria: hay que mandarla. Hoy todas lo son (Meta exige todos los parámetros de una
-	// plantilla aprobada); una opcional que falte no se valida.
-	Obligatoria bool `json:"obligatoria" doc:"Hay que mandarla (hoy todas las del catálogo)"`
+	Formato string `json:"formato" enum:"monto,moneda,fecha,instante,texto,concepto" doc:"monto: decimal con dos decimales (\"250.00\"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres; concepto: 1 a 60 caracteres sin saltos de línea ni URL (si no cumple, 422 variable_invalida)"`
+	// Obligatoria: hay que mandarla. Las opcionales (0.15.0: concepto en las facturas y reintenta_el en
+	// debito_fallido) se omiten cuando no hay valor y nunca se mandan vacías: Meta rechaza un
+	// parámetro vacío. Una plantilla de Meta por posición recibe solo las obligatorias; una con mapa
+	// de datos que pide una opcional que el aviso no trae no puede enviarlo (canal_no_disponible).
+	Obligatoria bool `json:"obligatoria" doc:"Hay que mandarla. Una opcional se omite cuando no hay valor; nunca se manda vacía"`
 }
 
 // Plantilla de aviso.
@@ -42,6 +47,8 @@ type Plantilla struct {
 	// aprobada lleva los parámetros en este mismo orden).
 	Texto string
 	// Caducidad: variable de fecha tras cuyo día (Guatemala) el aviso ya no tiene sentido (vencido).
+	// Desde 0.15.0 (§6.2, C9) una plantilla de Argos sin esa variable (o que no la trae) vence a las
+	// 72 h de pedida (VencePorDefecto).
 	Caducidad string
 	// Urgente: admite prioridad urgente (salta el límite diario). Solo la pide Iris.
 	Urgente bool
@@ -71,13 +78,25 @@ func vars(pares ...string) []Variable {
 	return v
 }
 
+// opcional: una variable que se puede omitir (0.15.0).
+func opcional(nombre, formato string) Variable {
+	return Variable{Nombre: nombre, Formato: formato}
+}
+
 var montoMoneda = []string{"monto", formatoMonto, "moneda", formatoMoneda}
+
+// conConcepto: las variables de una factura con `concepto` opcional (0.15.0 §6.3, C7).
+func conConcepto(v []Variable) []Variable { return append(v, opcional("concepto", formatoConcepto)) }
+
+// VencePorDefecto: una plantilla de Argos sin variable de caducidad (o sin su valor) vence a las 72 h
+// de pedida (0.15.0 §6.2 y §13.3, C9).
+const VencePorDefecto = 72 * time.Hour
 
 // Catalogo de plantillas (§6.3), en el orden del contrato.
 var Catalogo = []Plantilla{
-	{Codigo: "factura_por_vencer", Pide: PideArgos, Variables: vars(append(montoMoneda, "vence_en", formatoFecha)...), Caducidad: "vence_en",
+	{Codigo: "factura_por_vencer", Pide: PideArgos, Variables: conConcepto(vars(append(montoMoneda, "vence_en", formatoFecha)...)), Caducidad: "vence_en",
 		Texto: "Hola, te recordamos que tu factura de {{moneda}} {{monto}} vence el {{vence_en}}."},
-	{Codigo: "factura_vencida", Pide: PideArgos, Variables: vars(append(montoMoneda, "vence_en", formatoFecha)...),
+	{Codigo: "factura_vencida", Pide: PideArgos, Variables: conConcepto(vars(append(montoMoneda, "vence_en", formatoFecha)...)),
 		Texto: "Hola, tu factura de {{moneda}} {{monto}} venció el {{vence_en}}. Evita la suspensión del servicio pagando cuanto antes."},
 	{Codigo: "pago_recibido", Pide: PideArgos, Variables: vars(append(montoMoneda, "fecha", formatoFecha)...),
 		Texto: "Recibimos tu pago de {{moneda}} {{monto}} el {{fecha}}. ¡Gracias!"},
@@ -96,6 +115,20 @@ var Catalogo = []Plantilla{
 	{Codigo: PlantillaBienvenidaSinCuentas, Pide: PideArgos, Interna: true, Variables: vars("nombre", formatoTexto, "plan", formatoTexto,
 		"precio_mensual", formatoMonto, "moneda", formatoMoneda, "codigo_cliente", formatoTexto),
 		Texto: "¡Hola, {{nombre}}! Tu servicio {{plan}} ya está activo. Tu código de cliente es {{codigo_cliente}} y tu mensualidad es de {{moneda}} {{precio_mensual}}."},
+	// Recordatorios que entrega Iris (0.15.0 §6.3 y §13.3, bloque C).
+	{Codigo: "corte_proximo", Pide: PideArgos, Variables: vars(append(montoMoneda, "fecha_corte", formatoFecha)...), Caducidad: "fecha_corte",
+		Texto: "Hola, tu servicio se suspenderá el {{fecha_corte}} por un saldo pendiente de {{moneda}} {{monto}}."},
+	{Codigo: "promesa_por_vencer", Pide: PideArgos, Variables: vars(append(montoMoneda, "vence_en", formatoFecha)...), Caducidad: "vence_en",
+		Texto: "Hola, tu promesa de pago de {{moneda}} {{monto}} vence el {{vence_en}}."},
+	// reintenta_el es opcional (C6): sin reintento, el aviso vence a las 72 h.
+	{Codigo: "debito_fallido", Pide: PideArgos, Variables: append(vars(montoMoneda...), opcional("reintenta_el", formatoFecha)), Caducidad: "reintenta_el",
+		Texto: "Hola, no pudimos cobrar {{moneda}} {{monto}} con tu débito automático. Revisa tu medio de pago."},
+	{Codigo: "debito_desactivado", Pide: PideArgos, Variables: []Variable{},
+		Texto: "Hola, desactivamos tu débito automático. Tus próximas facturas deberás pagarlas por otro medio."},
+	{Codigo: "suscripcion_suspendida", Pide: PideArgos, Variables: []Variable{{Nombre: "concepto", Formato: formatoConcepto, Obligatoria: true}},
+		Texto: "Hola, suspendimos tu suscripción a {{concepto}}. Al ponerte al día se reactiva."},
+	{Codigo: "suscripcion_reactivada", Pide: PideArgos, Variables: []Variable{{Nombre: "concepto", Formato: formatoConcepto, Obligatoria: true}},
+		Texto: "Hola, tu suscripción a {{concepto}} está activa de nuevo."},
 	{Codigo: "corte_programado", Pide: PideIris, Variables: vars("inicio", formatoInstante, "fin", formatoInstante, "zona", formatoTexto), Urgente: true,
 		Texto: "Mantenimiento programado en {{zona}} de {{inicio}} a {{fin}}. El servicio puede interrumpirse."},
 	{Codigo: "boleta_recibida", Pide: PideIris, Variables: vars(append(montoMoneda, "motivo", formatoTexto)...),
@@ -173,6 +206,15 @@ func (p Plantilla) validarVariables(v map[string]string, ahora time.Time) error 
 		return nucleo.NuevoProblema(422, "variable_desconocida", "Variable desconocida",
 			"variables solo acepta las claves de la plantilla "+p.Codigo+": "+nombresVariables(p), errs...)
 	}
+	// concepto (C7) va primero y con su propio código: 422 variable_invalida.
+	for _, d := range p.Variables {
+		if valor, ok := v[d.Nombre]; ok && d.Formato == formatoConcepto {
+			if msg := validarConcepto(valor); msg != "" {
+				return nucleo.NuevoProblema(422, "variable_invalida", "Variable inválida", "variables."+d.Nombre+": "+msg,
+					nucleo.ErrorCampo{Field: "variables." + d.Nombre, Message: msg, Rule: "variable_invalida"})
+			}
+		}
+	}
 	for _, d := range p.Variables {
 		valor, ok := v[d.Nombre]
 		campo := "variables." + d.Nombre
@@ -180,6 +222,9 @@ func (p Plantilla) validarVariables(v map[string]string, ahora time.Time) error 
 			if d.Obligatoria {
 				errs = append(errs, nucleo.ErrorCampo{Field: campo, Message: "Falta la variable", Rule: "requerida"})
 			}
+			continue
+		}
+		if d.Formato == formatoConcepto {
 			continue
 		}
 		if p.Codigo == "reconexion_temporal" && d.Nombre == "hasta" {
@@ -261,26 +306,53 @@ func parsearInstante(valor string, zona *time.Location) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// venceEn: hasta cuándo tiene sentido el aviso según su variable de caducidad (nil sin caducidad).
-func (p Plantilla) venceEn(v map[string]string, zona *time.Location) *time.Time {
-	if p.Caducidad == "" {
+// validarConcepto aplica C7 (0.15.0 §6.3) con la revisión común del texto de Argos
+// (motivoTextoInseguro, texto_seguro.go): 1 a 60 caracteres sobre el texto tal como llega y sobre el
+// normalizado con NFKC; sin caracteres Cc, Cf, Zl ni Zp; sin 4 o más espacios seguidos; y sin nada con
+// forma de enlace (dominio de cualquier terminación, también con punto ideográfico, IP, puerto, «/» o
+// «@»). concepto es el nombre de un producto del catálogo de Argos: nunca lleva eso.
+func validarConcepto(valor string) string { return motivoTextoInseguro(valor, reglasTexto{max: 60}) }
+
+// venceEn: hasta cuándo tiene sentido el aviso según su variable de caducidad. Una plantilla de Argos
+// sin esa variable (o sin su valor) vence a las 72 h de pedida (0.15.0, C9); una de Iris sin
+// caducidad no vence (nil).
+func (p Plantilla) venceEn(v map[string]string, zona *time.Location, creado time.Time) *time.Time {
+	if p.Caducidad != "" {
+		if t, ok := parsearInstante(v[p.Caducidad], zona); ok {
+			t = t.UTC()
+			return &t
+		}
+	}
+	if p.Pide != PideArgos {
 		return nil
 	}
-	t, ok := parsearInstante(v[p.Caducidad], zona)
-	if !ok {
-		return nil
-	}
-	t = t.UTC()
+	t := creado.Add(VencePorDefecto).UTC()
 	return &t
 }
 
 // Parametros en el orden declarado (el de la plantilla aprobada en Meta), con las de Iris al final.
+// Es el envío por posición (plantillas sin mapa de datos): lleva solo las obligatorias, porque una
+// opcional nunca se manda vacía y moverla de lugar rompería la plantilla aprobada.
 func (p Plantilla) Parametros(v map[string]string) []string {
 	salida := make([]string, 0, len(p.Variables)+len(p.DeIris))
 	for _, d := range append(append([]Variable{}, p.Variables...), p.DeIris...) {
+		if !d.Obligatoria {
+			continue
+		}
 		salida = append(salida, p.valor(d, v))
 	}
 	return salida
+}
+
+// opcionalesAusentes: las variables opcionales de la plantilla que el aviso no trae.
+func (p Plantilla) opcionalesAusentes(v map[string]string) []string {
+	var out []string
+	for _, d := range p.Variables {
+		if _, ok := v[d.Nombre]; !ok && !d.Obligatoria {
+			out = append(out, d.Nombre)
+		}
+	}
+	return out
 }
 
 // zonaPlantillas: la hora de Guatemala para lo que lee el cliente (CLAUDE.md: zona solo al mostrar).

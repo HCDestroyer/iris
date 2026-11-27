@@ -106,7 +106,7 @@ func nuevoAbrirArgos(m *Modulo) *AbrirArgos {
 				return previoAbrir{}, err
 			}
 			t.FijarEntidad("conector", c.ID)
-			if !SoportaAprobarComprobantes(c.ContratoRemoto) {
+			if !SoportaAprobarComprobantes(c.ContratoAcordado()) {
 				return previoAbrir{}, SinAprobacion()
 			}
 			espera, err := tomarCuotaAbrir(ctx, t, actor.ID)

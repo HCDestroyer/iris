@@ -84,7 +84,7 @@ type TokenAPI struct {
 	Via        *string          `json:"via" nullable:"true" enum:"recuperacion,cli" doc:"Solo lectura. recuperacion: token de un conector creado a mano por un admin (vía de recuperación, contrato con Argos 0.8.0 §1.5); cli: creado con «iris integracion crear». Los dos se revocan al confirmarse un canje nuevo del mismo sistema. null: los demás"`
 	CreadoEn   time.Time        `json:"creadoEn"`
 	// EliminadoEn solo llega en la respuesta de eliminar: la lista nunca trae tokens eliminados.
-	EnUsoPorConector bool       `json:"enUsoPorConector" doc:"Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector)"`
+	EnUsoPorConector bool       `json:"enUsoPorConector" doc:"Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar; su token_portal no: se revoca aquí y el siguiente informe del contrato entrega otro): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector)"`
 	EliminadoEn      *time.Time `json:"eliminadoEn,omitempty" required:"false" doc:"Cuándo se eliminó (borrado lógico); ausente si no está eliminado"`
 }
 

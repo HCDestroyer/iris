@@ -140,10 +140,12 @@ SELECT * FROM mensajeria.avisos WHERE canal_id = @canal_id AND proveedor_id = @p
 -- name: InsertarAviso :one
 INSERT INTO mensajeria.avisos (id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido,
     prioridad, origen, estado, motivo, canal, canal_id, remitente, destino, usuario_id, token_id,
-    idempotency_key, hash_peticion, vence_en, programado_en, finalizado_en, created_at, orden_id, detalle)
+    idempotency_key, hash_peticion, vence_en, programado_en, finalizado_en, created_at, orden_id, detalle,
+    canales_permitidos, suscripcion_id, recordatorio)
 VALUES (@id, @empresa_id, @cliente_id, @servicio_id, @plantilla, @variables, @canal_preferido,
     @prioridad, @origen, @estado, @motivo, @canal, @canal_id, @remitente, @destino, @usuario_id, @token_id,
-    @idempotency_key, @hash_peticion, @vence_en, @programado_en, @finalizado_en, @creado_en, sqlc.narg(orden_id), sqlc.narg(detalle))
+    @idempotency_key, @hash_peticion, @vence_en, @programado_en, @finalizado_en, @creado_en, sqlc.narg(orden_id), sqlc.narg(detalle),
+    sqlc.narg(canales_permitidos)::text[], sqlc.narg(suscripcion_id)::bigint, sqlc.narg(recordatorio)::jsonb)
 ON CONFLICT DO NOTHING
 RETURNING *;
 
@@ -273,8 +275,8 @@ SELECT * FROM mensajeria.webhooks_salida WHERE id = $1;
 -- Datos de otros módulos (solo lectura) --------------------------------------------------------
 
 -- name: ConectorArgosParaWebhooks :one
--- El conector Argos activo con su receptor (§6.6).
-SELECT id, contrato_remoto, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
+-- El conector Argos activo con su receptor (§6.6) y sus contratos (el acordado: conector.ContratoAcordado).
+SELECT id, contrato_remoto, contrato_informado, webhook_salida_url, webhook_salida_secreto_cifrado, empresas, coalesce(alcance_global, false)::boolean AS alcance_global
 FROM integracion.conectores WHERE sistema = 'argosisp' AND estado = 'activo';
 
 -- name: CuentasParaBienvenida :many

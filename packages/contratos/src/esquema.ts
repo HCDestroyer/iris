@@ -7289,6 +7289,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ordenes/{id}/equipos/estado": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Estado e historial de los equipos
+         * @description Permiso: `ordenes.ver` u `ordenes.ver_propias`. Las unidades del servicio de la orden y las que la orden instaló, retiró o cambió, con el estado que avisó Argos (`inventario.unidad_estado_cambiado`) y su historial reciente (estados y cambios de equipo, `inventario.equipo_cambiado`), sin costos, proveedor ni RMA. Solo muestra el servicio de la orden y la orden misma: el historial se recorta a los renglones de ese servicio, y `servicioId` u `ordenId` van en null si son otros. Vacío si Argos aún no avisó nada (contrato < 0.12.0).
+         */
+        get: operations["estadoEquiposOrden"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ordenes/{id}/eventos": {
         parameters: {
             query?: never;
@@ -11441,6 +11461,12 @@ export interface components {
             nombre: string;
             numero: string;
         };
+        CanalMensajeriaCap: {
+            /** @enum {string} */
+            canal: "whatsapp" | "correo" | "telegram";
+            /** @description Códigos de §6.3 aprobados y usables en ese canal; uno que no está no se pide (Argos usa su texto local) */
+            codigos: string[] | null;
+        };
         CanalRef: {
             /** Format: int64 */
             id: number;
@@ -11493,6 +11519,14 @@ export interface components {
              */
             tipo: "instalacion" | "visita" | "retiro" | "cambio_equipo" | "mantenimiento" | "corte_catv" | "reconexion_catv" | null;
         };
+        CapacidadMensajeria: {
+            /** @description Solo los canales que Iris implementa y tiene operativos para la empresa (hoy solo whatsapp) */
+            canales: components["schemas"]["CanalMensajeriaCap"][] | null;
+            /** Format: int64 */
+            empresa_id: number;
+            /** @description true solo si la empresa tiene al menos un canal declarado (C12) */
+            entrega_auto: boolean;
+        };
         CapacidadMotor: {
             /**
              * Format: int64
@@ -11515,6 +11549,8 @@ export interface components {
             adjuntos_ticket: boolean;
             /** @description Bloque B de la 0.15.0 (§13.2): Iris atiende servicio.corte_manual_* y devuelve corte_manual.estado_cambiado */
             corte_manual: boolean;
+            /** @description Contrato 0.15.0 §13.3 (solo en GET …/capacidades, a un Argos ≥ 0.15.0): por empresa del alcance del conector, los canales por los que Iris entrega recordatorios y los códigos de §6.3 aprobados en cada uno. Ausente = entrega_auto false para todas */
+            mensajeria?: components["schemas"]["CapacidadMensajeria"][] | null;
             /** @description Tickets del cliente en el portal de Argos (§11.3–§11.6) */
             portal_argos: boolean;
             /** @description Solicitudes de servicio (§11.7) */
@@ -13987,11 +14023,13 @@ export interface components {
         };
         EntradaAviso: {
             /**
-             * @description Fase 1: solo whatsapp; otro medio queda bloqueado con canal_no_disponible
+             * @description whatsapp; telegram o correo quedan bloqueados con canal_no_disponible (Iris no los entrega). auto (0.15.0 §13.3, con un Argos ≥ 0.15.0): Iris elige un solo canal de los que declara en capacidades.mensajeria[] para la empresa (hoy solo whatsapp); sin ninguno, bloqueado con canal_no_disponible
              * @default whatsapp
              * @enum {string}
              */
-            canal_preferido: "whatsapp" | "telegram" | "correo";
+            canal_preferido: "whatsapp" | "telegram" | "correo" | "auto";
+            /** @description 0.15.0: solo con canal_preferido auto; la intersección del paso con los canales que Iris declara para la empresa. Sin auto, vacía, con valores repetidos o con un canal que Iris no declara: 422 canal_no_permitido. Ausente = todos los declarados */
+            canales_permitidos?: string[] | null;
             /**
              * Format: int64
              * @description Cliente en Argos
@@ -14012,11 +14050,18 @@ export interface components {
              * @enum {string}
              */
             prioridad: "normal" | "urgente";
+            /** @description 0.15.0: el paso del recordatorio de Argos que pide el aviso (informativo) */
+            recordatorio?: components["schemas"]["RecordatorioAviso"];
             /**
              * Format: int64
              * @description Servicio en Argos (opcional; debe ser del cliente y de la empresa)
              */
             servicio_id?: number | null;
+            /**
+             * Format: int64
+             * @description 0.15.0: id de la suscripción en Argos (informativo)
+             */
+            suscripcion_id?: number | null;
             /** @description Solo las variables declaradas por la plantilla (otras: 422 variable_desconocida). Montos con dos decimales, fechas YYYY-MM-DD en hora de Guatemala */
             variables?: {
                 [key: string]: string;
@@ -16948,6 +16993,31 @@ export interface components {
              */
             version: number;
         };
+        EstadoUnidad: {
+            /** Format: date-time */
+            actualizadoEn: string;
+            /** Format: int64 */
+            empresaId: number;
+            /**
+             * @description null: Argos aún no avisó su estado
+             * @enum {string|null}
+             */
+            estado: "disponible" | "en_comodato" | "por_recuperar" | "revision" | "garantia" | "dada_de_baja" | "no_recuperada" | "" | null;
+            /**
+             * Format: date-time
+             * @description La hora de Argos del estado (null: sin hora de Argos)
+             */
+            estadoEn: string | null;
+            /** @description Del más nuevo al más viejo (hasta 20) */
+            historial: components["schemas"]["MovimientoUnidad"][] | null;
+            /**
+             * Format: int64
+             * @description El servicio de la orden si Argos asocia la unidad a él; null si a ninguno o a otro
+             */
+            servicioId: number | null;
+            /** Format: int64 */
+            unidadId: number;
+        };
         EtapaSincronizacion: {
             /** @description Último error, en español y sin datos de clientes (hasta 300 caracteres) */
             error: string | null;
@@ -18696,6 +18766,38 @@ export interface components {
             referencia: string;
             /** @description Como lo manda Argos (consumo, traslado_entrada, comodato…) */
             tipo: string;
+        };
+        MovimientoUnidad: {
+            a: string | null;
+            de: string | null;
+            /** @enum {string|null} */
+            destinoSale: "funciona" | "revision" | "garantia" | "danado" | "" | null;
+            motivo: string | null;
+            /**
+             * Format: date-time
+             * @description La hora del hecho en Argos (null: Argos no la mandó o venía en el futuro)
+             */
+            ocurridoEn: string | null;
+            /**
+             * Format: int64
+             * @description Solo si el cambio lo hizo esta orden (null: otra orden o ninguna)
+             */
+            ordenId: number | null;
+            /**
+             * Format: date-time
+             * @description Cuándo llegó el aviso a Iris (el historial va en este orden)
+             */
+            recibidoEn: string;
+            /**
+             * Format: int64
+             * @description Solo el servicio de la orden (los renglones de otros servicios no se muestran)
+             */
+            servicioId: number | null;
+            /**
+             * @description estado: cambió de estado; sale / entra: salió o entró en un cambio de equipo
+             * @enum {string}
+             */
+            tipo: "estado" | "sale" | "entra";
         };
         NoMolestar: {
             activo: boolean;
@@ -21231,6 +21333,18 @@ export interface components {
             recibe: boolean;
             vivo: boolean;
         };
+        RecordatorioAviso: {
+            /**
+             * @description Qué dispara el recordatorio en Argos
+             * @enum {string}
+             */
+            disparador: "vencimiento" | "corte_proximo" | "promesa_por_vencer";
+            /**
+             * Format: int32
+             * @description Número del paso dentro del recordatorio
+             */
+            orden: number;
+        };
         RecorridoReal: {
             /** @description false = no se puede mostrar (motivo); nunca suponer «no se movió» */
             disponible: boolean;
@@ -23079,7 +23193,7 @@ export interface components {
              * @description Cuándo se eliminó (borrado lógico); ausente si no está eliminado
              */
             eliminadoEn?: string;
-            /** @description Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector) */
+            /** @description Un conector activo de Argos u Horus depende de él (su iris_pat_ entregado o el de la reconexión sin confirmar; su token_portal no: se revoca aquí y el siguiente informe del contrato entrega otro): no se revoca ni se elimina aquí, sino desde Integraciones (409 token_en_uso_por_conector) */
             enUsoPorConector: boolean;
             /** Format: date-time */
             expiraEn: string | null;
@@ -23436,12 +23550,12 @@ export interface components {
         };
         Variable: {
             /**
-             * @description monto: decimal con dos decimales ("250.00"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres
+             * @description monto: decimal con dos decimales ("250.00"); moneda: ISO 4217; fecha: YYYY-MM-DD (Guatemala); instante: fecha o fecha y hora; texto: 1 a 200 caracteres; concepto: 1 a 60 caracteres sin saltos de línea ni URL (si no cumple, 422 variable_invalida)
              * @enum {string}
              */
-            formato: "monto" | "moneda" | "fecha" | "instante" | "texto";
+            formato: "monto" | "moneda" | "fecha" | "instante" | "texto" | "concepto";
             nombre: string;
-            /** @description Hay que mandarla (hoy todas las del catálogo) */
+            /** @description Hay que mandarla. Una opcional se omite cuando no hay valor; nunca se manda vacía */
             obligatoria: boolean;
         };
         VariableDatoPWA: {
@@ -53406,6 +53520,73 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+        };
+    };
+    estadoEquiposOrden: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EstadoUnidad"][] | null;
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problema"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

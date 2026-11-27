@@ -417,6 +417,27 @@ partes (ficha, ticket, orden, comercial y app de campo).
   `PUT /integraciones/iris/contrato`. Cada función nueva sigue dependiendo del contrato que informó Argos
   (§4.1): con un Argos de contrato < 0.8.0 se comporta como en 0.7.1 y el conector queda en `ok`.
 
+## Versión de Iris y contrato acordado
+
+- **Una sola fuente de la versión que habla Iris:** `Modulo.contratoIris()` (`Config.ContratoIris`, que solo
+  usan las pruebas, o `ContratoIris`). La usan el canje (`contrato` y el `token_portal`), el
+  `PUT /integraciones/iris/contrato` (también el del cierre de la carga de vínculos, que repite la ya
+  aceptada), `GET /integraciones/argosisp/capacidades` (`contrato_iris` y las marcas del portal) y
+  `GET /integraciones/argosisp/estado`.
+- **Lo que Argos no soporta (§3.3, 0.14.0):** a un `422 contrato_no_soportado` del PUT, Iris lee
+  `GET …/estado` e informa la menor entre la suya y la de Argos; la revisión siguiente vuelve a probar la
+  suya (sube sola cuando Argos sube).
+- **Contrato acordado:** lo que Iris hace hacia Argos se enciende con
+  `conector.ContratoAcordado(contrato_remoto, contrato_informado)`: la menor entre la que informó Argos y la
+  que Argos aceptó de Iris (sin informe guardado, la de Argos). Es la misma regla que la función SQL
+  `integracion.contrato_acordado` (migración `…_integracion_contrato_acordado`; una prueba compara las dos),
+  que usan las consultas que leen el contrato del conector (`contratoAlMenos`, `ReconexionSinPersonal`,
+  `TitularEmpresaDisponible`, `SoportaContactos`, `Aprovisionamiento`, `ApruebaComprobantes`, la lectura de
+  facturas y el concepto de instalación) y, en Go, el cliente de Argos (`X-Iris-Contacto`), las cuentas
+  bancarias, los contactos, el portal, las capacidades del conector, los webhooks de mensajería, las
+  gestiones de cobro y comercial. La primera sincronización (0.8.0) sigue con el contrato de Argos: Iris
+  informa ≥ 0.8.1 desde la 0.33.0.
+
 ## Contrato 0.14.0: carga de vínculos y permiso de la verificación (§4.5, §6.6)
 
 Detrás de la versión que informa Iris (`Config.ContratoIris`, por defecto `ContratoIris`): con 0.14.0
@@ -681,11 +702,34 @@ internos que consume soporte:
   `componentes` y `sinRouter`.
 - **Versión:** lo que Iris manda de nuevo a Argos (el filtro `tipo_servicio` de `GET /planes`) y las
   decisiones de comercial van solo con un Argos que informa ≥ 0.15.0 (`ArgosConTipoServicio`).
-  `capacidades.tipo_servicio` es `true` con un Iris que habla la 0.15.0 (`SoportaTipoServicio`;
-  `ConContratoIris` es solo para pruebas).
+  `capacidades.tipo_servicio` es `true` con un Iris que habla la 0.15.0 (`SoportaTipoServicio` sobre
+  `Modulo.contratoIris()`; las pruebas la fijan con `Config.ContratoIris`).
 - **422 `tipo_sin_router`:** de negocio (cola de pendientes): no se reintenta solo y se muestra con su
   explicación (`CodigoTipoSinRouter`).
 - No emite eventos nuevos. Pruebas: `contrato0150a_test.go`.
+
+## Equipos del cliente: estado e historial (0.12.0 §2.3, B27)
+
+- **Consume** `inventario.unidad_estado_cambiado` e `inventario.equipo_cambiado` (solo con contrato
+  **acordado** ≥ 0.12.0, `conector.ContratoAcordado`, y empresa en el alcance; si no, «ignorado» con
+  `contrato_anterior`, `empresa_fuera_de_alcance` o `payload_invalido`). Guarda una lista blanca, sin
+  costos, proveedor ni RMA.
+- **Hora:** solo la de Argos (`horaDeArgos`, como `servicio.titular_cambiado`): un aviso sin
+  `ocurrido_en` o con una hora futura no se ordena por hora ni deja hora (nunca la de Iris).
+- **Instantánea** `integracion.argos_unidades`: estado y servicio de cada unidad. Un aviso con hora de
+  Argos más vieja que la guardada no pisa el estado ni el servicio (sí queda en el historial). Uno sin
+  hora se aplica por orden de llegada solo si lo guardado tampoco tiene hora de Argos: nunca pisa una
+  hora que vino de Argos. En un cambio de equipo, la que entra queda en el servicio y la que sale, sin
+  servicio; su estado llega por su propio aviso.
+- **Historial** `integracion.argos_unidades_historial`: un renglón por hecho y unidad (`estado`, `sale`,
+  `entra`), único por entrante (un webhook repetido no duplica), con `ocurrido_en` (hora de Argos o
+  null) y `recibido_en`; se lee por orden de llegada. `origen_id` solo se guarda si es el id numérico
+  de una orden de Iris de la misma empresa; si no, null (también en `argos.equipo_cambiado`).
+- **Lectura:** `EstadosDeUnidades` (las del servicio y las dadas, solo de las empresas del actor, con
+  los últimos 20 movimientos del servicio de la orden; el servicio y la orden de otro cliente van en
+  null, §3.10); la orden la expone en `GET /ordenes/{id}/equipos/estado` (campo).
+- **Emite** `argos.equipo_cambiado` y `argos.unidad_estado_cambiado` (detalle en `eventos.md`).
+  Pruebas: `webhook_equipos_test.go`.
 
 ## Contrato 0.15.0, bloque B: corte manual de respaldo (§13.2, A54 / B34; `corte_manual.go`)
 
@@ -698,4 +742,4 @@ internos que consume soporte:
   guarda sin abrir nada. Un error de Argos reintenta el job.
 - Campo aplica la solicitud (orden, deduplicación por `solicitud_id` y `version`, cancelaciones) y devuelve
   `corte_manual.estado_cambiado` (README de campo y de mensajería). `capacidades.corte_manual` sigue al contrato de
-  Iris (`SoportaCorteManual`). Pruebas: `contrato0150b_test.go`.
+  Iris (`SoportaCorteManual` sobre `Modulo.contratoIris()`). Pruebas: `contrato0150b_test.go`.

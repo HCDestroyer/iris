@@ -129,7 +129,7 @@ func DigitosTelefono(numero string) string {
 // ≥ 0.10.1 (X-Iris-Contacto y A46). false sin conector activo: falla cerrado.
 func (m *Modulo) SoportaContactos(ctx context.Context, q conector.DBTX) (contactos, aCargo bool, err error) {
 	var contrato *string
-	err = q.QueryRow(ctx, `SELECT contrato_remoto FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
+	err = q.QueryRow(ctx, `SELECT integracion.contrato_acordado(contrato_remoto, contrato_informado) FROM integracion.conectores WHERE sistema = $1 AND estado = 'activo'
 		ORDER BY id DESC LIMIT 1`, Sistema).Scan(&contrato)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, false, nil
@@ -170,7 +170,7 @@ func (m *Modulo) BuscarContactos(ctx context.Context, actor, telefono string) ([
 	if err != nil {
 		return nil, false, err
 	}
-	if !conector.VersionAlMenos(c.ContratoRemoto, ContratoContactosCliente) {
+	if !conector.VersionAlMenos(c.ContratoAcordado(), ContratoContactosCliente) {
 		return nil, false, nil
 	}
 	p, err := conector.ListaDe[ContactoBuscado](ctx, cli.Cliente, "/contactos/buscar", url.Values{"telefono": {telefono}})
@@ -186,7 +186,7 @@ func (m *Modulo) LeerContactosCliente(ctx context.Context, actor string, cliente
 	if err != nil {
 		return nil, err
 	}
-	if !conector.VersionAlMenos(c.ContratoRemoto, ContratoContactosCliente) {
+	if !conector.VersionAlMenos(c.ContratoAcordado(), ContratoContactosCliente) {
 		return nil, ErrSinContactos
 	}
 	return leerContactosDe(ctx, cli, clienteID)

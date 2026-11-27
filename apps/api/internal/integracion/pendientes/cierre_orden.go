@@ -1561,8 +1561,9 @@ func (m *Modulo) cierreRepetido(ctx context.Context, t *auditoria.Tx, previo pen
 			return false, err
 		}
 		if p.esperaConsumo && f.Estado == EstadoPendiente {
-			// Corregido, sigue sin salir: espera a que el consumo confirme el cobro.
-			if f, err = q.FijarEsperaConsumo(ctx, f.ID); err != nil {
+			// Corregido, sigue sin salir: espera a que el consumo confirme el cobro (o, con los consumos ya
+			// hechos, se decide ahora).
+			if f, err = fijarEsperaConsumo(ctx, t, q, f.ID, ahora); err != nil {
 				return false, err
 			}
 		}

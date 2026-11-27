@@ -85,9 +85,10 @@ func TestCorteManualWebhooks(t *testing.T) {
 
 // capacidades.corte_manual: true solo con un Iris que habla la 0.15.0 (§4.6).
 func TestCapacidadCorteManual(t *testing.T) {
-	restaurar := argos.ConContratoIris("0.15.0")
-	defer restaurar()
-	if c := argos.CapacidadesDeIris(); !c.CorteManual || !c.TipoServicio {
+	if c := argos.CapacidadesDeIris("0.15.0"); !c.CorteManual || !c.TipoServicio {
 		t.Fatalf("con la 0.15.0: %+v", c)
+	}
+	if c := argos.CapacidadesDeIris("0.14.3"); c.CorteManual || c.TipoServicio {
+		t.Fatalf("con la 0.14.3: %+v", c)
 	}
 }
