@@ -343,7 +343,17 @@ por el autologin desde Argos iniciar una conversación pide `POST /api/v1/sesion
   las de la instantánea local con `origen: "instantanea"`), cada uno con `coincideEn[]`
   (`telefono`, `movil`, `contacto_servicio`) y sus servicios en la empresa; más los contactos de
   Iris con ese número. `contacto_servicio` no es el titular: el panel lo muestra como «contacto de
-  un servicio».
+  un servicio». También `prospectos[]` (contrato con Argos §3.6, P2, B23): los prospectos abiertos de
+  la **empresa de la conversación** con ese número en **cualquiera** de sus teléfonos
+  (`comercial.prospecto_telefonos` o `prospectos.telefono`), solo los que el usuario ve con
+  `prospectos.ver` y su alcance, cada uno con `prospectoId`, `numero`, `nombre`, `estado` y
+  `principal`. Nunca la dirección, el plan ni la cotización.
+- **Prospecto del número (B23):** una conversación nueva cuyo número no es de ninguna persona de la empresa (ni de un cliente ni de varios) queda ubicada en el prospecto
+  (`contacto.tipo = prospecto`) si hay **uno solo** abierto en la empresa con ese número, sea el
+  principal o no. `contacto.prospectoRestringido = true` cuando el prospecto se registró desde Argos
+  y el número no es su principal: a ese número no se le comparte la cotización, la dirección ni el
+  plan hasta confirmar con un código enviado al principal (esa confirmación aún no existe en Iris,
+  así que la restricción no se levanta). La ficha lo avisa y enlaza al prospecto.
 - `POST /conversaciones/{id}/asociar-cliente` `{ version, clienteId, servicioId? }`
   (`conversaciones.asociar`): Iris asegura la instantánea del cliente (y valida que sea de la
   empresa y que el servicio sea suyo; si no, 422 `cliente_fuera_de_empresa` /

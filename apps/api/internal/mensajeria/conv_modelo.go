@@ -109,14 +109,16 @@ type EtiquetaRef struct {
 // ContactoConversacion dice con quién es la conversación (solo ids: los datos de un cliente salen
 // de la instantánea de Argos).
 type ContactoConversacion struct {
-	Tipo           string  `json:"tipo" enum:"cliente,contacto_iris,prospecto,desconocido"`
-	ClienteID      *int64  `json:"clienteId" nullable:"true" doc:"Cliente en Argos"`
-	ServicioID     *int64  `json:"servicioId" nullable:"true" doc:"Servicio en Argos"`
-	ContactoIrisID *int64  `json:"contactoIrisId" nullable:"true"`
-	ProspectoID    *int64  `json:"prospectoId" nullable:"true"`
-	Asociacion     *string `json:"asociacion" nullable:"true" enum:"automatica,manual" doc:"automatica: una sola coincidencia del número en la instantánea de Argos"`
-	Verificado     bool    `json:"verificado" doc:"El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas"`
-	Verificacion   *string `json:"verificacion" nullable:"true" required:"false" enum:"numero,fuerte" doc:"Nivel de la verificación (§17.8): numero = el número coincide; fuerte = lo confirmó una persona o pasó el desafío de identidad de Argos. null: sin verificar"`
+	Tipo           string `json:"tipo" enum:"cliente,contacto_iris,prospecto,desconocido"`
+	ClienteID      *int64 `json:"clienteId" nullable:"true" doc:"Cliente en Argos"`
+	ServicioID     *int64 `json:"servicioId" nullable:"true" doc:"Servicio en Argos"`
+	ContactoIrisID *int64 `json:"contactoIrisId" nullable:"true"`
+	ProspectoID    *int64 `json:"prospectoId" nullable:"true"`
+	// ProspectoRestringido: contrato con Argos §3.6 (P2).
+	ProspectoRestringido bool    `json:"prospectoRestringido" required:"false" doc:"El número es de un prospecto registrado desde Argos pero no es su principal: no se le comparte la cotización, la dirección ni el plan (hasta confirmar con un código al principal). false sin prospecto"`
+	Asociacion           *string `json:"asociacion" nullable:"true" enum:"automatica,manual" doc:"automatica: una sola coincidencia del número en la instantánea de Argos"`
+	Verificado           bool    `json:"verificado" doc:"El número coincide con un teléfono del cliente en Argos (o lo confirmó un supervisor). Sin verificar: ni plantillas fuera de ventana, ni boletas, ni promesas"`
+	Verificacion         *string `json:"verificacion" nullable:"true" required:"false" enum:"numero,fuerte" doc:"Nivel de la verificación (§17.8): numero = el número coincide; fuerte = lo confirmó una persona o pasó el desafío de identidad de Argos. null: sin verificar"`
 	// VerificacionVenceEn: hasta cuándo vale la verificación fuerte (la vigencia efectiva, §17.8.2).
 	VerificacionVenceEn *time.Time `json:"verificacionVenceEn" nullable:"true" required:"false" doc:"Solo con verificacion = fuerte: cuándo vence (después vuelve a numero). null en cualquier otro caso"`
 }
@@ -717,9 +719,10 @@ func ventanaDe(ultimoEntrante *time.Time, ahora time.Time) VentanaConversacion {
 	return VentanaConversacion{Abierta: ahora.Before(cierra), CierraEn: &cierra}
 }
 
-func contactoDeConv(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vigencia time.Duration) ContactoConversacion {
+func contactoDeConv(c mensajeriabd.MensajeriaConversacion, ahora time.Time, vigencia time.Duration, prospectoRestringido bool) ContactoConversacion {
 	k := ContactoConversacion{Tipo: "desconocido", ClienteID: c.ClienteID, ServicioID: c.ServicioID, ContactoIrisID: c.ContactoIrisID,
-		ProspectoID: c.ProspectoID, Asociacion: c.Asociacion, Verificado: c.ClienteID != nil && c.ClienteVerificado}
+		ProspectoID: c.ProspectoID, ProspectoRestringido: c.ProspectoID != nil && prospectoRestringido, Asociacion: c.Asociacion,
+		Verificado: c.ClienteID != nil && c.ClienteVerificado}
 	if v := verificacionDe(c, ahora, vigencia); v != "" {
 		k.Verificacion = &v
 		if v == VerificacionFuerte {
@@ -774,7 +777,7 @@ func (m *Modulo) resumirConvs(ctx context.Context, q *mensajeriabd.Queries, usua
 		}
 		v := ConversacionCliente{ID: f.ID, EmpresaID: f.EmpresaID, Version: f.Version,
 			Canal:  CanalRef{ID: f.CanalID, Nombre: f.CanalNombre, Numero: f.CanalNumero, Usos: f.CanalUsos},
-			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c, ahora, vigencias[derefEmpresa(f.EmpresaID)]), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
+			Numero: f.Numero, PerfilNombre: f.PerfilNombre, Contacto: contactoDeConv(c, ahora, vigencias[derefEmpresa(f.EmpresaID)], f.ProspectoRestringido), Estado: f.Estado, ReabiertaEn: f.ReabiertaEn,
 			Etiquetas: etiquetas[f.ID], Ventana: ventanaDe(f.UltimoEntranteEn, ahora),
 			SLA:      estadoSLA(f.SlaVenceEn, f.EsperaDesde, f.SlaRespuestaMin, f.SlaPorVencerMin, ahora),
 			NoLeidos: f.NoLeidos, SoloLectura: f.SoloLectura, UltimaActividad: f.UltimaActividad, CreadaEn: f.CreatedAt,

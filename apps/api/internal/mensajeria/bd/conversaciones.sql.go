@@ -2216,9 +2216,9 @@ func (q *Queries) InsertarContactoIris(ctx context.Context, arg InsertarContacto
 }
 
 const insertarConversacionCliente = `-- name: InsertarConversacionCliente :one
-INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nombre, cola_id, cliente_id, asociacion, cliente_verificado, ultima_actividad)
+INSERT INTO mensajeria.conversaciones (empresa_id, canal_id, numero, perfil_nombre, cola_id, cliente_id, asociacion, cliente_verificado, ultima_actividad, prospecto_id)
 VALUES ($1, $2, $3, $4, $5, $6,
-    $7, $8, $9)
+    $7, $8, $9, $10)
 ON CONFLICT DO NOTHING
 RETURNING id, empresa_id, canal_id, numero, perfil_nombre, cola_id, asignado_a, asignado_en, estado, cliente_id, servicio_id, contacto_iris_id, prospecto_id, asociacion, cliente_verificado, verificado_por, ultimo_entrante_en, espera_desde, sla_vence_en, sla_avisado, resuelta_en, reabierta_en, ultimo_seq, ultimo_mensaje_id, ultima_actividad, version, created_at, updated_at, fuera_horario_hasta, guardia_hasta, bot_espera_en, bot_vence_en, bot_motivo, bot_atendio_en, bot_menu, categoria_id, categoria_confianza, categoria_origen, categoria_en, clasificado_mensaje_id, asistente_actividad_tipo, asistente_actividad_texto, asistente_actividad_en, cola_origen, asistente_transfirio_en, asistente_estado, asistente_turnos, asistente_presento_en, identidad_verificada_en, identidad_vence_en, bot_diferido_mensaje_id, asistente_motivo_paso, asistente_pausado_en, asistente_pausado_por, asistente_pausa_motivo, asistente_reanudado_en, asistente_atencion_desde, asistente_pausa_previo, contacto_argos_id
 `
@@ -2233,6 +2233,7 @@ type InsertarConversacionClienteParams struct {
 	Asociacion        *string
 	ClienteVerificado bool
 	UltimaActividad   time.Time
+	ProspectoID       *int64
 }
 
 func (q *Queries) InsertarConversacionCliente(ctx context.Context, arg InsertarConversacionClienteParams) (MensajeriaConversacion, error) {
@@ -2246,6 +2247,7 @@ func (q *Queries) InsertarConversacionCliente(ctx context.Context, arg InsertarC
 		arg.Asociacion,
 		arg.ClienteVerificado,
 		arg.UltimaActividad,
+		arg.ProspectoID,
 	)
 	var i MensajeriaConversacion
 	err := row.Scan(
@@ -3643,6 +3645,69 @@ func (q *Queries) PromesaPorClave(ctx context.Context, arg PromesaPorClaveParams
 	return i, err
 }
 
+const prospectosDelNumero = `-- name: ProspectosDelNumero :many
+WITH n AS (SELECT $2::text AS d)
+SELECT p.id, p.numero, p.nombre, p.estado, p.zona_id, p.vendedor_id,
+    (EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = p.id AND t.principal AND t.numero = '+' || n.d)
+     OR NOT EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = p.id))::boolean AS principal
+FROM comercial.prospectos p, n
+WHERE coalesce(p.empresa_id, 0) = $1::bigint AND p.estado NOT IN ('ganado', 'perdido') AND n.d <> ''
+  AND (p.id IN (SELECT t.prospecto_id FROM comercial.prospecto_telefonos t
+                WHERE coalesce(t.empresa_id, 0) = $1::bigint AND t.numero = '+' || n.d)
+    OR (CASE WHEN length(regexp_replace(p.telefono, '\D', '', 'g')) = 8 THEN '502' ELSE '' END || regexp_replace(p.telefono, '\D', '', 'g')) = n.d)
+ORDER BY p.id
+LIMIT 10
+`
+
+type ProspectosDelNumeroParams struct {
+	Empresa int64
+	Digitos string
+}
+
+type ProspectosDelNumeroRow struct {
+	ID         int64
+	Numero     string
+	Nombre     string
+	Estado     string
+	ZonaID     *int64
+	VendedorID *int64
+	Principal  bool
+}
+
+// Prospectos abiertos (ni ganados ni perdidos) de la empresa con ese número (contrato con Argos
+// §3.6, P2): por cualquiera de sus números de comercial.prospecto_telefonos (E.164) o por
+// prospectos.telefono (solo dígitos; 502 delante de 8 dígitos). principal: el número es el
+// principal; si el prospecto no tiene números en esa tabla (registrado en Iris), su único número.
+// Si no es el principal, no se le comparte la cotización, la dirección ni el plan. Empresa
+// estricta: un prospecto sin empresa solo en el modo sin conector (empresa 0).
+func (q *Queries) ProspectosDelNumero(ctx context.Context, arg ProspectosDelNumeroParams) ([]ProspectosDelNumeroRow, error) {
+	rows, err := q.db.Query(ctx, prospectosDelNumero, arg.Empresa, arg.Digitos)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ProspectosDelNumeroRow
+	for rows.Next() {
+		var i ProspectosDelNumeroRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Numero,
+			&i.Nombre,
+			&i.Estado,
+			&i.ZonaID,
+			&i.VendedorID,
+			&i.Principal,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const purgarEventosConv = `-- name: PurgarEventosConv :one
 WITH borrados AS (
     DELETE FROM mensajeria.conv_eventos WHERE ocurrido_en < $1 RETURNING id
@@ -3825,6 +3890,11 @@ SELECT c.id, c.empresa_id, c.canal_id, c.numero, c.perfil_nombre, c.cola_id, c.a
             WHERE pm.conversacion_id = c.id AND pm.direccion = 'saliente' AND pm.automatico IS NULL
               AND pm.creado_en >= GREATEST(coalesce(c.reabierta_en, '-infinity'), coalesce(c.asistente_reanudado_en, '-infinity')))::boolean AS persona_escribio,
     ac.nombre AS cliente_nombre, ci.nombre AS contacto_iris_nombre,
+    -- Contrato con Argos §3.6 (P2): el prospecto tiene sus números en comercial.prospecto_telefonos
+    -- (registrado desde Argos) y el de la conversación no es el principal. Los prospectos de Iris
+    -- tienen un solo número y no se restringen.
+    (EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = c.prospecto_id)
+     AND NOT EXISTS (SELECT 1 FROM comercial.prospecto_telefonos t WHERE t.prospecto_id = c.prospecto_id AND t.principal AND t.numero = c.numero))::boolean AS prospecto_restringido,
     um.direccion AS ultimo_direccion, um.tipo AS ultimo_tipo, um.texto AS ultimo_texto, um.creado_en AS ultimo_creado_en,
     um.evento AS ultimo_evento, um.automatico AS ultimo_automatico,
     -- §15.3: la conversación es de una empresa que ya no usa el número (préstamo revocado).
@@ -3927,6 +3997,7 @@ type ResumenConversacionesClienteRow struct {
 	PersonaEscribio         bool
 	ClienteNombre           *string
 	ContactoIrisNombre      *string
+	ProspectoRestringido    bool
 	UltimoDireccion         *string
 	UltimoTipo              *string
 	UltimoTexto             *string
@@ -4022,6 +4093,7 @@ func (q *Queries) ResumenConversacionesCliente(ctx context.Context, arg ResumenC
 			&i.PersonaEscribio,
 			&i.ClienteNombre,
 			&i.ContactoIrisNombre,
+			&i.ProspectoRestringido,
 			&i.UltimoDireccion,
 			&i.UltimoTipo,
 			&i.UltimoTexto,

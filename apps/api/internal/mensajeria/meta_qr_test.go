@@ -1179,6 +1179,23 @@ func TestPrestamoErrores(t *testing.T) {
 	if r.status != http.StatusUnprocessableEntity || !strings.HasSuffix(fmt.Sprint(r.cuerpo["type"]), "conversacion_con_vinculos") {
 		t.Fatalf("con vínculos: %d %v", r.status, r.cuerpo)
 	}
+	// Con un prospecto de la dueña ligado (ubicado por su número, §3.6, sin fila de vínculo): tampoco.
+	n3 := numeroCliente()
+	p.texto(n3, "wamid.e4-"+pruebas.Unico(), "Hola")
+	c3, _, _ := p.convDe(n3)
+	var prospecto int64
+	if err := p.bd.QueryRow(p.ctx, `INSERT INTO comercial.prospectos (empresa_id, origen, nombre, direccion) VALUES (1, 'otro', 'Prospecto de la dueña', 'Zona 1')
+		RETURNING id`).Scan(&prospecto); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.bd.Exec(p.ctx, `UPDATE mensajeria.conversaciones SET prospecto_id = $2 WHERE id = $1`, c3, prospecto); err != nil {
+		t.Fatal(err)
+	}
+	d = p.api(p.supervisor, http.MethodGet, fmt.Sprintf("/conversaciones/%d", c3), nil)
+	r = p.api(p.supervisor, http.MethodPost, fmt.Sprintf("/conversaciones/%d/pasar-empresa", c3), map[string]any{"version": d.cuerpo["version"], "empresaId": 2})
+	if r.status != http.StatusUnprocessableEntity || !strings.HasSuffix(fmt.Sprint(r.cuerpo["type"]), "conversacion_con_vinculos") {
+		t.Fatalf("con prospecto ligado: %d %v", r.status, r.cuerpo)
+	}
 	// Un número inactivo no se presta.
 	admin := p.persona([]int64{1}, rolBase("admin"))
 	p.exigir(p.api(admin, http.MethodPost, fmt.Sprintf("/canales/%d/desactivar", p.canal.ID), nil), http.StatusOK)
