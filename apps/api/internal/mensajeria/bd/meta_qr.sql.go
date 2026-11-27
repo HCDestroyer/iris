@@ -38,7 +38,7 @@ func (q *Queries) AvanzarSeqHistorial(ctx context.Context, arg AvanzarSeqHistori
 }
 
 const avisosEnColaDePrestamo = `-- name: AvisosEnColaDePrestamo :many
-SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id FROM mensajeria.avisos
+SELECT id, empresa_id, cliente_id, servicio_id, plantilla, variables, canal_preferido, prioridad, origen, estado, motivo, detalle, canal, canal_id, remitente, destino, proveedor_id, usuario_id, token_id, idempotency_key, hash_peticion, vence_en, programado_en, enviado_en, entregado_en, leido_en, finalizado_en, intentos, created_at, updated_at, aviso_padre_id, contacto_argos_id, copias_motivo, orden_id, canales_permitidos, suscripcion_id, recordatorio FROM mensajeria.avisos
 WHERE canal_id = $1 AND empresa_id = $2 AND estado = 'en_cola' AND enviado_en IS NULL
 ORDER BY id
 FOR UPDATE
@@ -93,6 +93,9 @@ func (q *Queries) AvisosEnColaDePrestamo(ctx context.Context, arg AvisosEnColaDe
 			&i.ContactoArgosID,
 			&i.CopiasMotivo,
 			&i.OrdenID,
+			&i.CanalesPermitidos,
+			&i.SuscripcionID,
+			&i.Recordatorio,
 		); err != nil {
 			return nil, err
 		}
@@ -622,11 +625,14 @@ func (q *Queries) ConexionMetaParaActualizar(ctx context.Context) (MensajeriaCon
 const conversacionTieneVinculos = `-- name: ConversacionTieneVinculos :one
 
 SELECT (EXISTS (SELECT 1 FROM mensajeria.conversacion_vinculos v WHERE v.conversacion_id = $1::bigint)
+     OR EXISTS (SELECT 1 FROM mensajeria.conversaciones c WHERE c.id = $1::bigint AND c.prospecto_id IS NOT NULL)
      OR EXISTS (SELECT 1 FROM mensajeria.boletas b WHERE b.conversacion_id = $1::bigint)
      OR EXISTS (SELECT 1 FROM mensajeria.promesas pr WHERE pr.conversacion_id = $1::bigint))::boolean
 `
 
 // Pasar una conversación a otra empresa ---------------------------------------------------------------
+// Un prospecto ligado (creado desde la conversación o ubicado por su número, §3.6) también cuenta:
+// es de la empresa que la atiende.
 func (q *Queries) ConversacionTieneVinculos(ctx context.Context, id int64) (bool, error) {
 	row := q.db.QueryRow(ctx, conversacionTieneVinculos, id)
 	var column_1 bool

@@ -121,6 +121,9 @@ type entradaAplicar struct {
 	contactos *cambioContactos
 	// red: caídas repetidas y falla general (0.13.0 §3.11), validadas: se emite el evento interno.
 	red *eventoRed
+	// equipos: inventario.equipo_cambiado o inventario.unidad_estado_cambiado (0.12.0 §2.3, B27):
+	// estado e historial de las unidades.
+	equipos *eventoEquipos
 	// titular: servicio.titular_cambiado (0.10.0 §3.4.4): se emite el evento interno si la ficha
 	// releída del titular nuevo lo confirma.
 	titular *titularCambiado
@@ -206,6 +209,12 @@ func (p *ProcesarEntrante) aplicarEn(ctx context.Context, t *auditoria.Tx, in en
 	}
 	if in.e090 != nil {
 		if err := emitir090(t, *in.e090); err != nil {
+			return r, err
+		}
+		r.Resultado = "aplicado"
+	}
+	if in.equipos != nil {
+		if err := aplicarEquipos(ctx, t, q, *in.equipos); err != nil {
 			return r, err
 		}
 		r.Resultado = "aplicado"
@@ -383,6 +392,15 @@ func (p *ProcesarEntrante) Ejecutar(ctx context.Context, entranteID int64) (Resu
 			return ResultadoEntrante{}, err
 		}
 		in.e090, in.omitido = de090(e, con)
+	case EventoEquipoCambiado, EventoUnidadEstadoCambiado:
+		// 0.12.0: el payload firmado trae lo que Iris guarda (lista blanca, sin costos); la empresa debe
+		// estar en el alcance del conector.
+		con, err := conectorbd.New(bd).ConectorPorID(ctx, e.ConectorID)
+		if err != nil {
+			return ResultadoEntrante{}, err
+		}
+		in.equipos, in.omitido = deEquipos(e, con)
+		return p.aplicar.Ejecutar(ctx, in)
 	case EventoContactosCambiados:
 		// Se releen los contactos del cliente en Argos (nunca el payload, que no trae números).
 		in.contactos, in.omitido, in.errArgos = p.leerContactosWebhook(ctx, bd, e)

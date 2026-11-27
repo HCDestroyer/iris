@@ -1219,6 +1219,35 @@ type IntegracionArgosTraslado struct {
 	CuadrillaID      *int64
 }
 
+type IntegracionArgosUnidade struct {
+	UnidadID      int64
+	EmpresaID     int64
+	ServicioID    *int64
+	Estado        *string
+	EstadoEn      *time.Time
+	ServicioEn    *time.Time
+	EntranteID    int64
+	ActualizadoEn time.Time
+}
+
+type IntegracionArgosUnidadesHistorial struct {
+	ID          int64
+	UnidadID    int64
+	EmpresaID   int64
+	ServicioID  *int64
+	Tipo        string
+	De          *string
+	A           *string
+	Motivo      *string
+	DestinoSale *string
+	Origen      *string
+	OrigenID    *int64
+	OcurridoEn  *time.Time
+	RecibidoEn  time.Time
+	EntranteID  int64
+	CreatedAt   time.Time
+}
+
 type IntegracionArgosZona struct {
 	ID             int64
 	EmpresaID      *int64
@@ -1589,40 +1618,43 @@ type MensajeriaAsistenteVerificacione struct {
 }
 
 type MensajeriaAviso struct {
-	ID              uuid.UUID
-	EmpresaID       int64
-	ClienteID       int64
-	ServicioID      *int64
-	Plantilla       string
-	Variables       []byte
-	CanalPreferido  string
-	Prioridad       string
-	Origen          string
-	Estado          string
-	Motivo          *string
-	Detalle         *string
-	Canal           *string
-	CanalID         *int64
-	Remitente       *string
-	Destino         *string
-	ProveedorID     *string
-	UsuarioID       *int64
-	TokenID         *int64
-	IdempotencyKey  *string
-	HashPeticion    []byte
-	VenceEn         *time.Time
-	ProgramadoEn    *time.Time
-	EnviadoEn       *time.Time
-	EntregadoEn     *time.Time
-	LeidoEn         *time.Time
-	FinalizadoEn    *time.Time
-	Intentos        int32
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	AvisoPadreID    pgtype.UUID
-	ContactoArgosID *int64
-	CopiasMotivo    *string
-	OrdenID         *int64
+	ID                uuid.UUID
+	EmpresaID         int64
+	ClienteID         int64
+	ServicioID        *int64
+	Plantilla         string
+	Variables         []byte
+	CanalPreferido    string
+	Prioridad         string
+	Origen            string
+	Estado            string
+	Motivo            *string
+	Detalle           *string
+	Canal             *string
+	CanalID           *int64
+	Remitente         *string
+	Destino           *string
+	ProveedorID       *string
+	UsuarioID         *int64
+	TokenID           *int64
+	IdempotencyKey    *string
+	HashPeticion      []byte
+	VenceEn           *time.Time
+	ProgramadoEn      *time.Time
+	EnviadoEn         *time.Time
+	EntregadoEn       *time.Time
+	LeidoEn           *time.Time
+	FinalizadoEn      *time.Time
+	Intentos          int32
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	AvisoPadreID      pgtype.UUID
+	ContactoArgosID   *int64
+	CopiasMotivo      *string
+	OrdenID           *int64
+	CanalesPermitidos []string
+	SuscripcionID     *int64
+	Recordatorio      []byte
 }
 
 type MensajeriaBoleta struct {

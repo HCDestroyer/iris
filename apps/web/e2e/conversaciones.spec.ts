@@ -305,6 +305,40 @@ test.describe("bandeja de conversaciones", () => {
         await esperarSinDesbordes(page);
     });
 
+    test("prospectos del número (§3.6, P2): por cualquiera de sus números, y el que no es el principal no comparte cotización, dirección ni plan", async ({ page }, info) => {
+        await abrir(page, ADMIN.correo, "/conversaciones?c=43", { conversaciones: { prospecto43: { restringido: true } } });
+        if (esTelefono(page)) await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
+        const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
+        await expect(ficha).toContainText("Prospecto · +502 5544 0018");
+        const aviso = ficha.getByRole("status").filter({ hasText: "No es el número principal del prospecto" });
+        await expect(aviso).toContainText("No compartas la cotización, la dirección ni el plan");
+        await expect(ficha.getByRole("link", { name: "Ver prospecto" })).toHaveAttribute("href", "/comercial/912");
+        // Coincidencias: los dos prospectos con este número, con enlace a su ficha y sin datos de venta.
+        const lista = ficha.getByRole("list", { name: "Prospectos con este número" });
+        await expect(lista.getByRole("listitem")).toHaveCount(2);
+        await expect(lista).toContainText("PR-000911 · Nuevo · número principal");
+        await expect(lista).toContainText("PR-000912 · Contactado · otro número del prospecto");
+        await expect(lista.getByRole("link", { name: "Ver el prospecto PR-000912" })).toHaveAttribute("href", "/comercial/912");
+        // La restricción ya está en el aviso: la lista no la repite.
+        await expect(ficha.getByText("No compartas la cotización, la dirección ni el plan")).toHaveCount(1);
+        await expect(ficha).toBeInViewport({ ratio: 1 });
+        await esperarSinDesbordes(page);
+        await page.screenshot({ path: path.join(carpeta, `bandeja-prospecto-numero-${info.project.name}.png`) });
+    });
+
+    test("prospecto por su número principal: sin el aviso de restricción", async ({ page }) => {
+        await abrir(page, ADMIN.correo, "/conversaciones?c=43", { conversaciones: { prospecto43: { restringido: false } } });
+        if (esTelefono(page)) await page.getByRole("button", { name: "Ver la ficha del cliente" }).click();
+        const ficha = esTelefono(page) ? page.getByRole("dialog", { name: "Ficha del cliente" }) : page.getByRole("complementary", { name: "Ficha del cliente" });
+        await expect(ficha.getByRole("link", { name: "Ver prospecto" })).toBeVisible();
+        await expect(ficha.getByText("No es el número principal del prospecto")).toHaveCount(0);
+        // Sin el aviso, la nota bajo la lista recuerda la restricción del prospecto donde no es el principal.
+        await expect(ficha.getByTestId("prospectos-numero")).toContainText("código enviado al número principal");
+        // La hoja termina de entrar antes de medir.
+        await expect(ficha).toBeInViewport({ ratio: 1 });
+        await esperarSinDesbordes(page);
+    });
+
     test("buscar en Argos y asociar: si falla, la ficha no se queda leyendo y el error trae el mensaje real y «Reintentar»", async ({ page }) => {
         const api = await abrir(page, ADMIN.correo, "/conversaciones?c=43");
         // El primer intento falla como en producción (Argos no respondió); el segundo pasa.

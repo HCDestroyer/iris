@@ -40,6 +40,7 @@ import { AvatarDisponible, EstadoDisponible } from "./disponibilidad";
 import { SelectorCliente } from "@/componentes/clientes/selector-cliente";
 import { LineaServicio, ListaServicios, NotaPermisosServicio, SelectorServicio, type ServicioLinea } from "@/componentes/clientes/linea-servicio";
 import { AyudaManuales } from "./ayuda";
+import { AvisoProspectoRestringido, ListaProspectosNumero } from "./prospectos-numero";
 import { BoletasConversacion } from "./boletas";
 import { ResumenAsistente } from "./resumen-asistente";
 import { IndicadorVerificacion } from "./verificacion";
@@ -631,6 +632,19 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
                 </div>
             )}
             {conv.contacto.tipo === "contacto_iris" && conv.contacto.contactoIrisId ? <PermisoContacto contactoId={conv.contacto.contactoIrisId} titulo={conv.titulo} /> : null}
+            {conv.contacto.tipo === "prospecto" && conv.contacto.prospectoId ? (
+                <>
+                    {conv.contacto.prospectoRestringido ? <AvisoProspectoRestringido /> : null}
+                    {puede(["prospectos.ver"]) ? (
+                        <Boton asChild variante="secundario" tamano="sm" className="w-full">
+                            <Link href={`/comercial/${conv.contacto.prospectoId}`}>
+                                <ExternalLink />
+                                Ver prospecto
+                            </Link>
+                        </Boton>
+                    ) : null}
+                </>
+            ) : null}
             {asocia ? (
                 <>
                     <div className="grid min-w-0 grid-cols-1 [&_[data-testid=selector-cliente]]:grid-cols-1">
@@ -676,6 +690,7 @@ function SinCliente({ conv, alActualizar }: { conv: ConversacionDetalle; alActua
                                 </ul>
                             )
                         ) : null}
+                        {coincidencias.estado === "listo" ? <ListaProspectosNumero prospectos={coincidencias.datos.prospectos ?? []} sinNota={conv.contacto.prospectoRestringido === true} /> : null}
                     </section>
                     {error ? (
                         <Aviso
